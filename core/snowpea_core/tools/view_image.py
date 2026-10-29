@@ -65,6 +65,19 @@ def session_can_see(ctx: ToolContext) -> bool:
     return answer is None and registry.is_local_style(vendor)
 
 
+def session_can_use_images(ctx: ToolContext) -> bool:
+    """True when an image this call produces reaches the model, seen or described.
+
+    A blind model still gets one when ``models.categories.vision`` describes it
+    (1.33.0); with that unset this is exactly :func:`session_can_see`.
+    """
+    if session_can_see(ctx):
+        return True
+    from snowpea_core.agent.image_describe import vision_assist
+
+    return vision_assist(ctx.core, ctx.session) is not None
+
+
 def image_dimensions(data: bytes, mime: str) -> tuple[int | None, int | None]:
     """``(width, height)`` from image bytes, or ``(None, None)`` when unknown."""
     try:  # Pillow is optional; dimensions are nice-to-have in the tool text.
@@ -210,7 +223,7 @@ async def view_image(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     resolved, error = resolve_image_path(ctx, raw)
     if error or resolved is None:
         return ToolResult(ok=False, error=error or "path is required")
-    if not session_can_see(ctx):
+    if not session_can_use_images(ctx):
         return ToolResult(
             ok=False,
             error=(
@@ -303,5 +316,6 @@ __all__ = [
     "resolve_image_path",
     "session_can_see",
     "session_can_see_images",
+    "session_can_use_images",
     "view_image",
 ]

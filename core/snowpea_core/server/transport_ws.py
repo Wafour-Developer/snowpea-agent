@@ -17,6 +17,7 @@ from snowpea_core.server.auth import token_matches
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     CAPABILITIES,
+    MODEL_CATEGORIES,
     PROTOCOL_VERSION,
     SERVER_VERSION,
     HelloParams,
@@ -66,6 +67,7 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
         protocolVersion=PROTOCOL_VERSION,
         serverVersion=SERVER_VERSION,
         capabilities=list(CAPABILITIES),
+        modelCategories=list(MODEL_CATEGORIES),
     )
 
 

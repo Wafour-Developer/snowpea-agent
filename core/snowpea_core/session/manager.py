@@ -144,6 +144,7 @@ class SessionManager:
         session_pin: ModelRoute | None = None,
         parent_session_id: str | None = None,
         kind: SessionKind = "chat",
+        role_default: ModelRoute | None = None,
         job_id: str | None = None,
         effort: str | None = None,
         deny_exec: bool = False,
@@ -171,6 +172,7 @@ class SessionManager:
             definition_model=definition_model,
             workdir=resolved_dir,
             session_pin=session_pin,
+            role_default=role_default,
         )
         session = Session(
             id=session_id or f"s-{uuid.uuid4().hex[:12]}",

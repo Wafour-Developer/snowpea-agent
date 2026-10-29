@@ -47,6 +47,8 @@ snowpea job cancel <job-id>
 
 Each job records `last_run` and `last_status`, which is `ok`, `error`, or `denied_by_timeout` when an approval expired unanswered.
 
+Every occurrence is kept as well. `job.runs {jobId, limit?}` (protocol 1.33.0, capability `jobRuns`) answers them newest first — `runId`, `scheduledAt`, `startedAt`, `endedAt`, `status` (also `running`, `waiting_for_host` or `missed`), `sessionId`, `trigger` (`schedule` or `runNow`) and, for a run that did not end `ok`, the first 500 characters of its last words as `error`. `job.schedule` and `job.update` take an optional `title`, a short name shown instead of the task (`""` removes it), and `job.update {task}` changes the prompt later runs get, as `schedule` changes when they run. The task is trimmed and may not be blank. `job.runs`, like `job.update` and `job.delete`, answers an unknown job with `invalid_params`.
+
 ## How a job executes
 
 The scheduler ticks every 15 seconds. When a job is due it creates a session in the job's working directory and mode, marked unattended, prompts it with the job's task, and delivers the final assistant message to the channel. `job.event` notifications with kind `started`, `finished`, `failed` or `denied` go to every attached client, so a running TUI shows the job's progress.

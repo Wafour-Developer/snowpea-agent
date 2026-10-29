@@ -116,6 +116,25 @@ snowpea model assign executor daily --project
 snowpea model assign executor                # omit the id to clear the assignment
 ```
 
+### Model categories
+
+`models.categories` names a model for a kind of work rather than for an agent. Each slot takes a profile id, a `vendor:model` pair or a bare vendor, and an unset slot changes nothing at all — no request a session sends is different until you set one.
+
+| Slot | Used by | Falls back to |
+|---|---|---|
+| `fast` | `llm.sample {modelCategory: "fast"}`, `delegate_task` with `model: "fast"` (after `browser.fastModel`) and `model_category: "fast"` | the session's model |
+| `standard` | `llm.sample {modelCategory: "standard"}`, `delegate_task` with `model_category: "standard"` | the session's model |
+| `deep` | `llm.sample {modelCategory: "deep"}` and `delegate_task` with `model: "deep"`; a delegated `planner`, `architect` or `critic` that has no model of its own (rung 2 still wins, and the slot sits above the session pin); a root session's turns while it is in plan mode | `standard`, then the session's model — but the last two uses happen only when `deep` itself is set |
+| `vision` | a turn that carries an image (an attachment, or a `view_image` / screenshot result) when the session's model cannot see | `standard` when that model can see; otherwise today's "this model cannot see images" note |
+
+The vision model never takes over the turn. It looks at each image once and writes a description, which is stored with the user message or appended to the tool result, and the session's own model reads that text; `view_image` and the browser's screenshot stop refusing on a text-only model while a vision slot can describe for it. Because the description is written into the stored history once, every later request repeats it byte for byte, and the session's prefix cache is kept. A plan-mode turn on `deep` does switch models — round by round, so a turn that leaves plan mode goes back to the session's own model at its next model call. Such a round's output budget, thinking, effort and tool-list style are read for the deep model, and the session model's stored reasoning is not sent to it (nor is the deep model's kept), while the stored history itself stays as it was. Each description gets 60 seconds; one that fails or times out, or a stop pressed meanwhile, leaves that image with today's note, and a tool result marked sensitive is never described.
+
+```json
+{"models": {"categories": {"deep": "reasoning", "vision": "openai:gpt-4o"}}}
+```
+
+`settings.set {"patch": {"models": {"categories": {"vision": null}}}}` clears one slot. Other keys under `models.categories` are kept but unused. A client can tell a daemon that routes by these slots from the `modelCategories` capability and the `modelCategories` list `system.hello` answers with (protocol 1.33.0).
+
 ### Reply language
 
 `agent.replyLanguage` decides what language answers come back in. `"auto"`, the default, follows whatever language you wrote in; a tag such as `"ko"` or `"ja"` pins it whatever you write.

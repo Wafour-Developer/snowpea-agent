@@ -95,6 +95,19 @@ FINISH_KINDS: dict[str, str] = {
     "error": "failed",
 }
 
+#: How much of a failed run's last words ``job.runs`` keeps as its ``error``.
+RUN_ERROR_CHARS = 500
+
+
+def _run_error(status: str, text: str) -> str | None:
+    """What ``job.runs`` shows for a run that did not end ``ok`` (1.33.0)."""
+    if status == "ok":
+        return None
+    clipped = (text or "").strip()
+    if len(clipped) > RUN_ERROR_CHARS:
+        clipped = clipped[: RUN_ERROR_CHARS - 1] + "…"
+    return clipped or status
+
 
 class _Collector:
     """A pseudo-connection that records one unattended session's events.
@@ -206,6 +219,7 @@ class Scheduler:
         created_via: CreatedVia = "tool",
         meta: dict[str, Any] | None = None,
         owner_client_id: str | None = None,
+        title: str | None = None,
     ) -> Job:
         """Parse ``spec``, store the job and return it. ``ValueError`` if unparseable."""
         if not task.strip():
@@ -224,6 +238,7 @@ class Scheduler:
         if job.next_run is None:
             raise ValueError(f"the schedule {spec!r} has no future firing time")
         job.created_via = created_via
+        job.title = (title or "").strip() or None
         if meta is not None:
             job.meta, job.owner_client_id = dict(meta), owner_client_id
         if host_tools_from:
@@ -384,11 +399,23 @@ class Scheduler:
         host_wait_sec: int | None = None,
         enabled: bool | None = None,
         schedule: str | None = None,
+        task: str | None = None,
+        title: str | None = None,
     ) -> Job | None:
-        """Patch a job; ``None`` for an unknown one, ``ValueError`` for a bad spec."""
+        """Patch a job; ``None`` for an unknown one, ``ValueError`` for a bad spec.
+
+        ``task`` replaces the prompt later runs get and ``title`` the job's short
+        name, ``""`` removing it (1.33.0).
+        """
         job = await self.store.get(job_id)
         if job is None:
             return None
+        if task is not None:
+            if not task.strip():
+                raise ValueError("a scheduled job needs a task to run")
+            job.task = task.strip()
+        if title is not None:
+            job.title = title.strip() or None
         if schedule is not None:
             parsed: Spec = parse_spec(schedule)
             upcoming = first_run(parsed)
@@ -456,7 +483,9 @@ class Scheduler:
             text = f"{type(exc).__name__}: {exc}"
         finally:
             self._running.discard(job.id)
-        await self.store.finish(job.id, scheduled_ts, status, session_id)
+        await self.store.finish(
+            job.id, scheduled_ts, status, session_id, error=_run_error(status, text)
+        )
         await self.deliver(job, text or f"(job {job.id} produced no output)")
         await self._advance(job, scheduled_ts, status=status, advance=advance)
         kind = FINISH_KINDS[status]

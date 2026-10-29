@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.32.0"
+PROTOCOL_VERSION = "1.33.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -87,6 +87,27 @@ TeamTaskState = Literal[
 ]
 SkillKind = Literal["skill", "agent", "command", "plugin"]
 SkillScope = Literal["project", "global"]
+#: Where ``skill.read`` may look and what it answers (1.33.0): the two writable
+#: scopes, plus the skills that ship with the engine or come with a plugin.
+SkillReadScope = Literal["project", "global", "builtin", "plugin"]
+#: Where ``skill.remove`` may look (1.33.0).
+SkillRemoveScope = Literal["project", "global", "plugin"]
+#: Entry keys ``mcp.update {unset}`` may clear (1.33.0).
+McpUnsetKey = Literal[
+    "args",
+    "cwd",
+    "disabled",
+    "env",
+    "headers",
+    "timeoutSec",
+    "toolTimeoutSec",
+    "toolsExclude",
+    "toolsInclude",
+    "type",
+]
+#: The ``models.categories`` slots core reads (1.33.0); advertised as
+#: ``system.hello {modelCategories}``.
+ModelCategory = Literal["fast", "standard", "deep", "vision"]
 #: ``"global"`` is ``$SNOWPEA_HOME/settings.json``; ``"project"`` is
 #: ``<workdir>/.snowpea/settings.json`` (settings.get / settings.set, M8).
 SettingsScope = Literal["global", "project"]
@@ -157,6 +178,13 @@ class HelloResult(Payload):
     serverVersion: str = Field(description="Version of the running daemon.")
     capabilities: list[str] = Field(
         default_factory=list, description="Feature flags this daemon supports."
+    )
+    modelCategories: list[ModelCategory] = Field(
+        default_factory=list,
+        description=(
+            "The models.categories slots this daemon routes by (1.33.0, capability "
+            "'modelCategories'); empty from an older daemon."
+        ),
     )
 
 
@@ -2657,6 +2685,11 @@ class TeamsChangedNotification(Payload):
 class JobScheduleParams(Payload):
     spec: str = Field(description="Cron expression or natural-language schedule.")
     task: str = Field(description="Prompt run on each firing.")
+    title: str | None = Field(
+        default=None,
+        max_length=200,
+        description="A short name for the job, shown instead of its task (1.33.0).",
+    )
     mode: Mode = Field(default="accept", description="Permission mode for the unattended run.")
     channel: str | None = Field(
         default=None, description="Gateway channel that receives the output."
@@ -2750,11 +2783,13 @@ class LlmSampleParams(Payload):
     sessionId: str = Field(
         description="Session whose provider settings and bill this call uses; its host only."
     )
-    modelCategory: Literal["fast", "default"] = Field(
+    modelCategory: Literal["fast", "default", "standard", "deep"] = Field(
         default="default",
         description=(
             "'fast' = browser.fastModel (then models.categories.fast, then the session's "
-            "model); 'default' = the session's model."
+            "model); 'default' = the session's model; 'standard' (1.33.0) = "
+            "models.categories.standard, then the session's model; 'deep' (1.33.0) = "
+            "models.categories.deep, then .standard, then the session's model."
         ),
     )
     system: str | None = Field(
@@ -2840,6 +2875,9 @@ class JobInfo(Payload):
     jobId: str = Field(description="Job id.")
     spec: str = Field(description="Schedule as given.")
     task: str = Field(description="Prompt run on each firing.")
+    title: str | None = Field(
+        default=None, description="The job's short name, when it has one (1.33.0)."
+    )
     mode: Mode = Field(default="accept", description="Permission mode for the run.")
     channel: str | None = Field(default=None, description="Channel that receives the output.")
     originSessionId: str | None = Field(
@@ -2938,6 +2976,59 @@ class JobUpdateParams(Payload):
             "recomputed."
         ),
     )
+    task: str | None = Field(
+        default=None,
+        description=(
+            "A new prompt for every later run (1.33.0); it must not be blank. A job "
+            "with meta gets a new fingerprint."
+        ),
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=200,
+        description="A new short name (1.33.0); '' removes it, null or absent keeps it.",
+    )
+
+
+class JobRunsParams(Payload):
+    """``job.runs`` — one job's run history (1.33.0)."""
+
+    jobId: str = Field(
+        description="Job whose runs to list; an unknown one is invalid_params, as in job.update."
+    )
+    limit: int = Field(default=50, ge=1, le=500, description="Newest runs to return.")
+
+
+class JobRunInfo(Payload):
+    """One occurrence of a job: a firing, a runNow, or one held for its host."""
+
+    runId: str = Field(description="Stable id of the occurrence: '<jobId>@<scheduledAt>'.")
+    scheduledAt: str = Field(description="UTC ISO time the occurrence was due.")
+    startedAt: str = Field(description="UTC ISO time it was claimed.")
+    endedAt: str | None = Field(
+        default=None, description="UTC ISO time it finished; null while running or held."
+    )
+    status: str = Field(
+        description=(
+            "'ok', 'error' or 'denied_by_timeout' once finished; 'running', "
+            "'waiting_for_host' or 'missed' otherwise."
+        )
+    )
+    sessionId: str | None = Field(
+        default=None, description="Session the run opened, when it opened one."
+    )
+    error: str | None = Field(
+        default=None,
+        description="Why a run that did not end 'ok' failed, clipped (runs recorded since 1.33.0).",
+    )
+    trigger: Literal["schedule", "runNow"] | None = Field(
+        default=None,
+        description="What started it; null for a run an older core recorded.",
+    )
+
+
+class JobRunsResult(Payload):
+    runs: list[JobRunInfo] = Field(default_factory=list, description="Newest first.")
 
 
 class JobNextRunForClientParams(Payload):
@@ -3698,12 +3789,54 @@ class SkillInstallParams(Payload):
     )
 
 
+class SkillListParams(Payload):
+    """``skill.list`` — optionally for one project (1.33.0)."""
+
+    workdir: str | None = Field(
+        default=None,
+        description=(
+            "List this project's skills, agents and commands beside the global, built-in "
+            "and plugin ones (1.33.0). Omitted, the project rows are those of every "
+            "project the daemon has loaded."
+        ),
+    )
+
+
 class SkillListResult(Payload):
     skills: list[SkillInfo] = Field(default_factory=list, description="Installed skills.")
 
 
 class SkillRemoveParams(Payload):
-    name: str = Field(description="Installed plugin or skill to delete.")
+    name: str = Field(
+        description=(
+            "Entry to delete: a skill, agent or command name, or a plugin's directory or "
+            "manifest name as skill.list shows it (1.33.0)."
+        )
+    )
+    scope: SkillRemoveScope | None = Field(
+        default=None,
+        description=(
+            "Look only here (1.33.0): 'plugin' ($SNOWPEA_HOME/plugins), 'global' "
+            "($SNOWPEA_HOME skills/, agents/, commands/) or 'project' (the workdir's "
+            ".snowpea, then .claude). Omitted, the copy in effect goes: the project (with "
+            "a workdir), then global, then plugins, so a skill wins over a plugin of the "
+            "same name. Within a scope a skill, then an agent, then a command."
+        ),
+    )
+    workdir: str | None = Field(
+        default=None,
+        description=(
+            "Absolute project directory; needed for scope 'project', and with no scope it "
+            "puts the project's copies first (1.33.0)."
+        ),
+    )
+    kind: SkillKind | None = Field(
+        default=None,
+        description=(
+            "Only this kind of entry (1.33.0): a skill directory, an agent or command "
+            ".md file, or a plugin."
+        ),
+    )
 
 
 class SkillCreateParams(Payload):
@@ -3729,7 +3862,13 @@ class SkillCreateParams(Payload):
     workdir: str = Field(
         description="Project directory the skill is written under (or read/create a session from)."
     )
-    force: bool = Field(default=False, description="Overwrite an existing SKILL.md at the target.")
+    force: bool = Field(
+        default=False,
+        description=(
+            "Overwrite an existing SKILL.md at the target; without it an existing one "
+            "answers skill_exists (1.33.0), in draft mode before any turn starts."
+        ),
+    )
     sessionId: str | None = Field(
         default=None,
         description=(
@@ -3784,20 +3923,64 @@ class SkillLearnResult(Payload):
 
 class SkillReadParams(Payload):
     name: str = Field(description="Skill to read.")
-    workdir: str = Field(description="Project directory to resolve a project-scoped skill in.")
+    workdir: str | None = Field(
+        default=None,
+        description=(
+            "Absolute project directory to resolve a project-scoped skill in; optional "
+            "since 1.33.0, an empty string means none (never the daemon's directory) and "
+            "a relative one is invalid_params."
+        ),
+    )
+    scope: SkillReadScope | None = Field(
+        default=None,
+        description=(
+            "Look only in this scope (1.33.0); 'project' needs workdir. Omitted: the "
+            "project (with a workdir), then global, then any other loaded skill."
+        ),
+    )
 
 
 class SkillReadResult(Payload):
     path: str = Field(description="Where the SKILL.md was found.")
     content: str = Field(description="Its full text.")
-    scope: SkillScope = Field(description="'project' or 'global', wherever it was found.")
+    scope: SkillReadScope = Field(
+        description=(
+            "'project' or 'global', or (1.33.0) 'builtin' for a skill that ships with "
+            "the engine and 'plugin' for one a plugin brings."
+        )
+    )
+    readOnly: bool = Field(
+        default=False,
+        description=(
+            "True when skill.write cannot save this file (1.33.0): a built-in or plugin "
+            "skill, or one under Claude Code's own skills directory."
+        ),
+    )
 
 
 class SkillWriteParams(Payload):
     name: str = Field(description="Skill to write.")
     content: str = Field(description="Full SKILL.md text to save.")
-    workdir: str = Field(description="Project directory, when scope is 'project'.")
+    workdir: str | None = Field(
+        default=None,
+        description=(
+            "Project directory, when scope is 'project'; optional for 'global' (1.33.0), "
+            "where it decides which project's skills may shadow the written copy (active). "
+            "An empty string is no directory, never the daemon's; a relative one is refused."
+        ),
+    )
     scope: SkillScope = Field(default="project", description="Where to write the skill.")
+
+
+class SkillWriteResult(Payload):
+    ok: bool = Field(default=True, description="True when the file was written.")
+    path: str = Field(description="Where the SKILL.md was written (1.33.0).")
+    active: bool = Field(
+        description=(
+            "Whether that copy is the one in effect (1.33.0): false when a project skill "
+            "or a Claude Code global skill of the same name shadows it."
+        )
+    )
 
 
 # --------------------------------------------------------------------------
@@ -5243,6 +5426,14 @@ class McpServerInfo(Payload):
     toolsExclude: list[str] = Field(
         default_factory=list, description="These tools are never registered."
     )
+    shadowed: bool = Field(
+        default=False,
+        description=(
+            "True for a declaration another scope overrides under the same name (a "
+            "global entry hidden by a project one, 1.33.0): listed so a client knows "
+            "the name is taken there too, but never started."
+        ),
+    )
 
 
 class McpListParams(Payload):
@@ -5252,11 +5443,24 @@ class McpListParams(Payload):
     workdir: str | None = Field(
         default=None, description="Project directory; defaults to the session's, then the daemon's."
     )
+    includeShadowed: bool = Field(
+        default=False,
+        description=(
+            "Also list each declaration another scope overrides under the same name, "
+            "marked shadowed: true (1.33.0). Off by default, so a client keyed by name "
+            "keeps one row per server."
+        ),
+    )
 
 
 class McpListResult(Payload):
     servers: list[McpServerInfo] = Field(
-        default_factory=list, description="One row per configured server, project entries winning."
+        default_factory=list,
+        description=(
+            "One row per configured server, project entries winning; with "
+            "includeShadowed, each declaration that loses to another scope follows its "
+            "winner with shadowed: true (1.33.0)."
+        ),
     )
 
 
@@ -5271,11 +5475,20 @@ class McpEntryFields(Payload):
         default=None, description="Arguments, argv style; never a shell string."
     )
     env: dict[str, str] | None = Field(
-        default=None, description="Environment for the child process."
+        default=None,
+        description=(
+            "Environment for the child process. mcp.update, and mcp.test on a saved "
+            "server, merge it key by key into the saved env (1.33.0); envRemove deletes keys."
+        ),
     )
     url: str | None = Field(default=None, description="Endpoint for an http or sse server.")
     headers: dict[str, str] | None = Field(
-        default=None, description="HTTP headers sent with every request."
+        default=None,
+        description=(
+            "HTTP headers sent with every request. mcp.update, and mcp.test on a saved "
+            "server, merge them key by key into the saved headers (1.33.0); headersRemove "
+            "deletes keys."
+        ),
     )
     cwd: str | None = Field(default=None, description="Working directory for a stdio server.")
     disabled: bool | None = Field(
@@ -5284,10 +5497,18 @@ class McpEntryFields(Payload):
     timeoutSec: float | None = Field(default=None, description="Startup cap, in seconds.")
     toolTimeoutSec: float | None = Field(default=None, description="Per-call cap, in seconds.")
     toolsInclude: list[str] | None = Field(
-        default=None, description="Register only these tools of the server."
+        default=None,
+        description=(
+            "Register only these tools of the server. [] clears the filter; null or "
+            "absent leaves it as saved."
+        ),
     )
     toolsExclude: list[str] | None = Field(
-        default=None, description="Never register these tools of the server."
+        default=None,
+        description=(
+            "Never register these tools of the server. [] clears the filter; null or "
+            "absent leaves it as saved."
+        ),
     )
     permission: PermissionTag | None = Field(
         default=None, description="Permission tag for the server's tools; stored in settings."
@@ -5313,9 +5534,23 @@ class McpAddParams(McpEntryFields):
     test: bool = Field(
         default=True, description="Probe the server before saving; nothing is written if it fails."
     )
+    acceptFindings: bool = Field(
+        default=False,
+        description=(
+            "Add the entry despite the security findings mcp_unsafe reported (1.33.0). "
+            "Does not let it overwrite a name already declared in the file."
+        ),
+    )
+    replace: bool = Field(
+        default=False,
+        description=(
+            "Overwrite an entry already declared under this name in the target file "
+            "instead of answering mcp_exists (1.33.0). Does not accept security findings."
+        ),
+    )
     force: bool = Field(
         default=False,
-        description="Overwrite an existing entry and accept the security findings.",
+        description="acceptFindings and replace together, as before 1.33.0.",
     )
 
 
@@ -5353,7 +5588,35 @@ class McpUpdateParams(Payload):
     workdir: str | None = Field(default=None, description="Project directory for scope=project.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
     patch: McpEntryFields = Field(
-        default_factory=McpEntryFields, description="Keys to change; anything absent is kept."
+        default_factory=McpEntryFields,
+        description=(
+            "Keys to change; anything absent or null is kept. env and headers merge key "
+            "by key (1.33.0), except that a new url with no headers drops the saved "
+            "headers; toolsInclude/toolsExclude [] clears that filter."
+        ),
+    )
+    acceptFindings: bool = Field(
+        default=False,
+        description=(
+            "Save the entry although the patch brings in a security finding; without "
+            "it that is mcp_unsafe, as in mcp.add (1.33.0)."
+        ),
+    )
+    force: bool = Field(default=False, description="Same as acceptFindings here (1.33.0).")
+    envRemove: list[str] | None = Field(
+        default=None,
+        description="Environment variables to delete from the saved entry (1.33.0).",
+    )
+    headersRemove: list[str] | None = Field(
+        default=None, description="HTTP headers to delete from the saved entry (1.33.0)."
+    )
+    unset: list[McpUnsetKey] | None = Field(
+        default=None,
+        description=(
+            "Optional entry keys to clear, e.g. ['cwd', 'timeoutSec'] (1.33.0). Applied "
+            "after the patch, as envRemove and headersRemove are, so a key named here is "
+            "gone even if the patch also set it."
+        ),
     )
 
 
@@ -5361,6 +5624,20 @@ class McpTestParams(McpEntryFields):
     """``mcp.test`` — probe a saved server or an unsaved draft."""
 
     name: str | None = Field(default=None, description="Saved server to probe.")
+    envRemove: list[str] | None = Field(
+        default=None,
+        description=(
+            "Probe without these saved environment variables, as mcp.update would (1.33.0)."
+        ),
+    )
+    headersRemove: list[str] | None = Field(
+        default=None,
+        description="Probe without these saved HTTP headers, as mcp.update would (1.33.0).",
+    )
+    unset: list[McpUnsetKey] | None = Field(
+        default=None,
+        description="Probe with these optional keys cleared, as mcp.update would (1.33.0).",
+    )
     scope: McpScope | None = Field(default=None, description="Scope of the saved server.")
     workdir: str | None = Field(default=None, description="Project directory for scope=project.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
@@ -5861,6 +6138,12 @@ METHODS: dict[str, RpcMethod] = {
         _m("job.runNow", JobIdParams, Ok, "Fire a scheduled job immediately."),
         _m("job.update", JobUpdateParams, JobInfo, "Change an existing job (addendum 12)."),
         _m(
+            "job.runs",
+            JobRunsParams,
+            JobRunsResult,
+            "A job's run history, newest first (1.33.0).",
+        ),
+        _m(
             "job.nextRunForClient",
             JobNextRunForClientParams,
             JobNextRunForClientResult,
@@ -5916,9 +6199,14 @@ METHODS: dict[str, RpcMethod] = {
         _m(
             "skill.install", SkillInstallParams, Ok, "Install a skill from a path, URL or registry."
         ),
-        _m("skill.list", Empty, SkillListResult, "List installed skills."),
+        _m("skill.list", SkillListParams, SkillListResult, "List installed skills."),
         _m("skill.reload", Empty, Ok, "Reload skills from disk without restarting."),
-        _m("skill.remove", SkillRemoveParams, Ok, "Delete an installed skill or plugin."),
+        _m(
+            "skill.remove",
+            SkillRemoveParams,
+            Ok,
+            "Delete a plugin, or a global or project skill, agent or command (1.33.0).",
+        ),
         _m(
             "skill.create",
             SkillCreateParams,
@@ -5933,7 +6221,12 @@ METHODS: dict[str, RpcMethod] = {
             "project or the user's skills (1.28.0). Answers when it is written and loaded.",
         ),
         _m("skill.read", SkillReadParams, SkillReadResult, "Read a skill's SKILL.md."),
-        _m("skill.write", SkillWriteParams, Ok, "Save a skill's SKILL.md verbatim."),
+        _m(
+            "skill.write",
+            SkillWriteParams,
+            SkillWriteResult,
+            "Save a skill's SKILL.md verbatim; says where, and whether it is in effect.",
+        ),
         _m(
             "settings.get",
             SettingsGetParams,
@@ -6299,7 +6592,13 @@ CAPABILITIES: list[str] = [
     "writeOutsideAsks",
     "hostTurnContext",
     "planAutoApprove",
+    "modelCategories",
+    "jobRuns",
 ]
+
+#: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
+#: ``standard`` since 1.7.0, ``deep`` and ``vision`` since 1.33.0.
+MODEL_CATEGORIES: list[str] = ["fast", "standard", "deep", "vision"]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
 TRANSPORT: dict[str, Any] = {
@@ -6374,6 +6673,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "job.delete",
         "job.nextRunForClient",
         "job.update",
+        "job.runs",
         "agent.create",
         "agent.list",
         "agent.bindChannel",

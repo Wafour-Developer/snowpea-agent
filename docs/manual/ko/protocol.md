@@ -47,10 +47,10 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 | providers | `provider.list`, `provider.configure`, `provider.loginWeb` |
 | agents | `agent.list`, `agent.create`, `agent.spawn`, `agent.bindChannel`, `agent.delete` |
 | team | `team.start`, `team.status` |
-| jobs | `job.schedule`, `job.list`, `job.cancel`, `job.runNow` |
+| jobs | `job.schedule`, `job.list`, `job.cancel`, `job.runNow`, `job.update`, `job.runs` |
 | gateway | `gateway.bind`, `gateway.list`, `gateway.unbind` |
 | memory | `memory.search`, `memory.write` |
-| skills | `skill.search`, `skill.install`, `skill.list`, `skill.remove`, `skill.reload` |
+| skills | `skill.search`, `skill.install`, `skill.list`, `skill.remove`, `skill.reload`, `skill.create`, `skill.read`, `skill.write` |
 | backend | `backend.set` |
 
 방향이 반대인 메서드가 하나 있습니다. `approval.request`는 알림이 아니라 서버가 클라이언트에게 보내는 *요청*입니다 — 데몬이 클라이언트에게 결정을 묻고 답을 기다립니다. 프로토콜이 HTTP에 스트림을 얹은 형태가 아니라 WebSocket JSON-RPC인 이유가 바로 이 양방향성입니다.
@@ -68,7 +68,7 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 ## 오류
 
-오류는 `error.data.code`에 문자열 코드가 담긴 JSON-RPC 오류입니다: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `search_provider_unavailable`, `browser_provider_unavailable`, `internal`.
+오류는 `error.data.code`에 문자열 코드가 담긴 JSON-RPC 오류입니다: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `search_provider_unavailable`, `browser_provider_unavailable`, `internal`.
 
 ## SDK 쓰기
 

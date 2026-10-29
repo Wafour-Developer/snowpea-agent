@@ -37,6 +37,9 @@ MCP_READ_ONLY = "mcp_read_only"
 MCP_INVALID = "mcp_invalid"
 MCP_START_FAILED = "mcp_start_failed"
 MCP_UNSAFE = "mcp_unsafe"
+#: ``skill.create`` without ``force`` on a target that already has a
+#: ``SKILL.md`` (1.33.0); ``details.path`` names it.
+SKILL_EXISTS = "skill_exists"
 #: A service the call needs cannot answer right now (``web.search`` with no
 #: usable search provider, protocol 1.11.0); ``details.reason`` says why.
 UNAVAILABLE = "unavailable"
@@ -67,6 +70,7 @@ ERROR_CODES: tuple[str, ...] = (
     MCP_INVALID,
     MCP_START_FAILED,
     MCP_UNSAFE,
+    SKILL_EXISTS,
     UNAVAILABLE,
     INVALID_OUTPUT,
     INTERNAL,
@@ -140,6 +144,7 @@ __all__ = [
     "PROTOCOL_INCOMPATIBLE",
     "SERVER_ERROR",
     "SESSION_BUSY",
+    "SKILL_EXISTS",
     "TOOL_INACTIVE",
     "UNAUTHORIZED",
     "UNAVAILABLE",

@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react45 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.32.0";
+var PROTOCOL_VERSION = "1.33.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -42561,15 +42561,27 @@ function App2({
       }
       void (async () => {
         let path = null;
+        let readOnly = false;
+        let scope = "";
         try {
-          const result = await client.call("skill.read", { name });
+          const result = await client.call("skill.read", { name, workdir });
           path = typeof result?.path === "string" ? result.path : null;
+          readOnly = result?.readOnly === true;
+          scope = typeof result?.scope === "string" ? result.scope : "";
         } catch (error) {
           dispatch({ type: "note", text: `could not open ${name}: ${String(error)}` });
           return;
         }
         if (!path) {
           dispatch({ type: "note", text: `the daemon did not say where ${name} is kept` });
+          return;
+        }
+        if (readOnly) {
+          const origin = scope === "builtin" ? "a built-in" : scope === "plugin" ? "a plugin's" : "a read-only";
+          dispatch({
+            type: "note",
+            text: `${name} is ${origin} skill and cannot be edited here (${path}). To change it, copy it to a global skill: $SNOWPEA_HOME/skills/${name}/SKILL.md`
+          });
           return;
         }
         setSuspended(true);
@@ -42597,7 +42609,7 @@ function App2({
         }
       })();
     },
-    [client, editor, setMouseMode, setRawMode, showToast]
+    [client, editor, setMouseMode, setRawMode, showToast, workdir]
   );
   const openModelPicker = (0, import_react45.useCallback)(() => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -84,6 +85,8 @@ class Declared:
     scope: McpScope
     entry: dict[str, Any]
     plugin: str | None = None
+    #: Another scope declares the same name and wins (1.33.0).
+    shadowed: bool = False
 
     @property
     def name(self) -> str:
@@ -101,21 +104,19 @@ def workdir_of(core: Core, session_id: str | None, workdir: str | None) -> Path:
     return Path.cwd()
 
 
-def declared(core: Core, workdir: Path | str | None) -> dict[str, Declared]:
-    """Every configured server, project entries winning over global ones.
+def declarations(core: Core, workdir: Path | str | None) -> list[Declared]:
+    """Every declaration of every server, lowest precedence first.
 
-    The precedence is the one :func:`mcp_client.sync_tools` already applies —
-    settings, then plugins, then ``$SNOWPEA_HOME``, then the workdir — so what
-    ``mcp.list`` shows is what the daemon would actually start.
+    The order is the one :func:`mcp_client.sync_tools` already applies —
+    settings, then plugins, then ``$SNOWPEA_HOME``, then the workdir — so a
+    later row with the same name is the one the daemon would actually start.
     """
-    found: dict[str, Declared] = {}
+    found: list[Declared] = []
 
     def take(name: str, entry: dict[str, Any], scope: McpScope, plugin: str | None = None) -> None:
         config = McpServerConfig.parse(str(name), entry)
         if config is not None:
-            found[config.name] = Declared(
-                config=config, scope=scope, entry=dict(entry), plugin=plugin
-            )
+            found.append(Declared(config=config, scope=scope, entry=dict(entry), plugin=plugin))
 
     inline = getattr(getattr(core.settings, "mcp", None), "servers", None) or {}
     if isinstance(inline, dict):
@@ -133,7 +134,12 @@ def declared(core: Core, workdir: Path | str | None) -> dict[str, Declared]:
             continue
         for name, entry in mcp_config.read_servers(Path(base) / mcp_client.CONFIG_NAME).items():
             take(name, entry, scope)  # type: ignore[arg-type]
+    return found
 
+
+def declared(core: Core, workdir: Path | str | None) -> dict[str, Declared]:
+    """Every configured server, project entries winning over global ones."""
+    found = {row.name: row for row in declarations(core, workdir)}
     _SCOPES.update({name: row.scope for name, row in found.items()})
     return found
 
@@ -174,6 +180,7 @@ def info_of(core: Core, row: Declared) -> McpServerInfo:
         toolTimeoutSec=config.tool_timeout_sec,
         toolsInclude=list(config.tools_include),
         toolsExclude=list(config.tools_exclude),
+        shadowed=row.shadowed,
     )
 
 
@@ -234,8 +241,17 @@ def _invalid(exc: mcp_config.McpConfigError) -> RpcError:
     return RpcError(errors.MCP_INVALID, f"{exc.field}: {exc.message}", {"field": exc.field})
 
 
-def entry_from(fields: McpEntryFields, base: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Merge the params' set keys onto ``base``; ``None`` means "leave alone"."""
+def entry_from(
+    fields: McpEntryFields, base: dict[str, Any] | None = None, *, merge: bool = False
+) -> dict[str, Any]:
+    """Merge the params' set keys onto ``base``; ``None`` means "leave alone".
+
+    ``merge`` (``mcp.update``, 1.33.0) merges ``env`` and ``headers`` key by key
+    instead of replacing them, so one secret can change without retyping the
+    others — except that a new ``url`` with no ``headers`` drops the saved ones,
+    so credentials for one endpoint are never sent to another.  An empty
+    ``toolsInclude``/``toolsExclude`` clears that filter.
+    """
     entry: dict[str, Any] = dict(base or {})
     simple = {
         "type": fields.type,
@@ -250,11 +266,17 @@ def entry_from(fields: McpEntryFields, base: dict[str, Any] | None = None) -> di
         "toolTimeoutSec": fields.toolTimeoutSec,
     }
     for key, value in simple.items():
-        if value is not None:
-            entry[key] = value
+        if value is None:
+            continue
+        if merge and isinstance(value, dict) and isinstance(entry.get(key), dict):
+            value = {**entry[key], **value}
+        entry[key] = value
     if fields.command is not None:
         entry.pop("url", None)
         entry.pop("headers", None)
+    if merge and fields.url is not None and fields.headers is None:
+        if fields.url != (base or {}).get("url"):
+            entry.pop("headers", None)
     if fields.url is not None:
         entry.pop("command", None)
         entry.pop("args", None)
@@ -270,6 +292,39 @@ def entry_from(fields: McpEntryFields, base: dict[str, Any] | None = None) -> di
     else:
         entry.pop("tools", None)
     return entry
+
+
+#: ``mcp.update {unset}`` keys that live under the entry's ``tools`` object.
+_TOOLS_KEYS = {"toolsInclude": "include", "toolsExclude": "exclude"}
+
+
+def without(
+    entry: dict[str, Any],
+    unset: Sequence[str] | None,
+    env_remove: Sequence[str] | None,
+    headers_remove: Sequence[str] | None,
+) -> dict[str, Any]:
+    """``entry`` with the keys ``mcp.update`` was told to clear (1.33.0)."""
+    out = dict(entry)
+    for key in unset or []:
+        if key in _TOOLS_KEYS:
+            tools = dict(out.get("tools") or {}) if isinstance(out.get("tools"), dict) else {}
+            tools.pop(_TOOLS_KEYS[key], None)
+            if tools:
+                out["tools"] = tools
+            else:
+                out.pop("tools", None)
+        else:
+            out.pop(key, None)
+    for key, names in (("env", env_remove), ("headers", headers_remove)):
+        if not names or not isinstance(out.get(key), dict):
+            continue
+        kept = {name: value for name, value in out[key].items() if name not in set(names)}
+        if kept:
+            out[key] = kept
+        else:
+            out.pop(key, None)
+    return out
 
 
 def preset_entry(preset: str | None) -> dict[str, Any]:
@@ -366,10 +421,24 @@ async def probe(config: McpServerConfig) -> tuple[bool, list[McpToolInfo], str |
 async def mcp_list_handler(
     _conn: RpcConnection | None, params: McpListParams, core: Core
 ) -> McpListResult:
-    """``mcp.list`` — every configured server, whatever scope declares it."""
+    """``mcp.list`` — every configured server, whatever scope declares it.
+
+    With ``includeShadowed``, a declaration another scope overrides follows
+    its winner as ``shadowed: true`` (1.33.0), highest precedence first.
+    """
     workdir = workdir_of(core, params.sessionId, params.workdir)
-    rows = declared(core, workdir)
-    return McpListResult(servers=[info_of(core, rows[name]) for name in sorted(rows)])
+    every = declarations(core, workdir)
+    rows = {row.name: row for row in every}
+    _SCOPES.update({name: row.scope for name, row in rows.items()})
+    servers: list[McpServerInfo] = []
+    for name in sorted(rows):
+        servers.append(info_of(core, rows[name]))
+        if not params.includeShadowed:
+            continue
+        for row in reversed(every):
+            if row.name == name and row is not rows[name]:
+                servers.append(info_of(core, replace(row, shadowed=True)))
+    return McpListResult(servers=servers)
 
 
 async def mcp_add_handler(
@@ -382,8 +451,13 @@ async def mcp_add_handler(
     except mcp_config.McpConfigError as exc:
         raise _invalid(exc) from exc
 
+    # ``force`` is both answers at once; each refusal has its own (1.33.0).  The
+    # messages still say ``force``: the agent's ``mcp_add`` tool reads them,
+    # and what a model is sent must not change for a client's sake.
+    accept_findings = params.force or params.acceptFindings
+    replace_existing = params.force or params.replace
     warnings = mcp_security.findings(entry, name)
-    if warnings and not params.force:
+    if warnings and not accept_findings:
         raise RpcError(
             errors.MCP_UNSAFE,
             "; ".join(warnings) + " — pass force to add it anyway",
@@ -395,7 +469,7 @@ async def mcp_add_handler(
         path = mcp_config.config_path(params.scope, core.paths.home, workdir)
     except mcp_config.McpConfigError as exc:
         raise _invalid(exc) from exc
-    if params.name in mcp_config.read_servers(path) and not params.force:
+    if params.name in mcp_config.read_servers(path) and not replace_existing:
         raise RpcError(
             errors.MCP_EXISTS, f"'{name}' is already declared in {path}; pass force to replace it"
         )
@@ -483,10 +557,28 @@ async def mcp_update_handler(
     current = mcp_config.read_servers(path).get(params.name)
     if current is None:
         raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not declared in {path}")
+    merged = without(
+        entry_from(params.patch, current, merge=True),
+        params.unset,
+        params.envRemove,
+        params.headersRemove,
+    )
     try:
-        entry = mcp_config.validate_entry(entry_from(params.patch, current))
+        entry = mcp_config.validate_entry(merged)
     except mcp_config.McpConfigError as exc:
         raise _invalid(exc) from exc
+    # The same check as mcp.add, on what would be saved (1.33.0).  Only a
+    # finding the patch brings in asks again: disabling an entry that was
+    # added with acceptFindings does not.
+    warnings = mcp_security.findings(entry, params.name)
+    known = set(mcp_security.findings(current, params.name))
+    accepted = params.force or params.acceptFindings
+    if any(item not in known for item in warnings) and not accepted:
+        raise RpcError(
+            errors.MCP_UNSAFE,
+            "; ".join(warnings) + " — pass force to add it anyway",
+            {"findings": warnings},
+        )
     mcp_config.save_entry(path, params.name, entry)
     if params.patch.permission is not None:
         await set_permission(core, params.name, params.patch.permission)
@@ -511,7 +603,16 @@ async def mcp_test_handler(
     row = declared(core, workdir).get(params.name) if params.name else None
     drafted = any(
         value is not None
-        for value in (params.command, params.url, params.args, params.env, params.headers)
+        for value in (
+            params.command,
+            params.url,
+            params.args,
+            params.env,
+            params.headers,
+            params.envRemove,
+            params.headersRemove,
+            params.unset,
+        )
     )
     if row is not None and not drafted:
         config = row.config
@@ -520,7 +621,12 @@ async def mcp_test_handler(
     else:
         try:
             entry = mcp_config.validate_entry(
-                entry_from(params, row.entry if row is not None else None)
+                without(
+                    entry_from(params, row.entry if row is not None else None, merge=True),
+                    params.unset,
+                    params.envRemove,
+                    params.headersRemove,
+                )
             )
         except mcp_config.McpConfigError as exc:
             raise _invalid(exc) from exc
@@ -591,6 +697,7 @@ __all__ = [
     "TEST_TIMEOUT",
     "Declared",
     "apply",
+    "declarations",
     "declared",
     "entry_from",
     "info_of",
@@ -604,5 +711,6 @@ __all__ = [
     "notify_changed",
     "probe",
     "register_mcp_handlers",
+    "without",
     "workdir_of",
 ]

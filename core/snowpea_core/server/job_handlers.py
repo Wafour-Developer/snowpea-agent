@@ -32,6 +32,9 @@ from snowpea_core.server.protocol import (
     JobNextRunForClientResult,
     JobPreviewParams,
     JobPreviewResult,
+    JobRunInfo,
+    JobRunsParams,
+    JobRunsResult,
     JobScheduleParams,
     JobScheduleResult,
     JobUpdateParams,
@@ -54,6 +57,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "job.delete",
     "job.nextRunForClient",
     "job.update",
+    "job.runs",
 )
 
 
@@ -124,6 +128,7 @@ async def job_schedule_handler(
             created_via="rpc",
             meta=params.meta,
             owner_client_id=owner,
+            title=params.title,
         )
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
@@ -244,12 +249,42 @@ async def job_update_handler(
             host_wait_sec=template.hostWaitSec if template else None,
             enabled=params.enabled,
             schedule=params.schedule,
+            task=params.task,
+            title=params.title,
         )
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     if job is None:
         raise RpcError(errors.INVALID_PARAMS, f"no such job: {params.jobId}")
     return job.info(owner=_is_owner(conn, job))
+
+
+async def job_runs_handler(
+    _conn: RpcConnection, params: JobRunsParams, core: Core
+) -> JobRunsResult:
+    """``job.runs`` — one job's occurrences from ``job_runs``, newest first (1.33.0).
+
+    An unknown job is ``invalid_params``, as ``job.update`` and ``job.delete``
+    answer it.
+    """
+    scheduler = services(core)
+    if await scheduler.get(params.jobId) is None:
+        raise RpcError(errors.INVALID_PARAMS, f"no such job: {params.jobId}")
+    triggers = ("schedule", "runNow")
+    runs = [
+        JobRunInfo(
+            runId=f"{params.jobId}@{row['scheduled_ts']}",
+            scheduledAt=row["scheduled_ts"],
+            startedAt=row["started_at"],
+            endedAt=row.get("finished_at"),
+            status=row.get("status") or "running",
+            sessionId=row.get("session_id"),
+            error=row.get("error"),
+            trigger=row.get("run_trigger") if row.get("run_trigger") in triggers else None,
+        )
+        for row in await scheduler.store.runs(params.jobId, limit=params.limit)
+    ]
+    return JobRunsResult(runs=runs)
 
 
 def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
@@ -262,6 +297,7 @@ def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("job.delete", job_delete_handler)
     dispatcher.register("job.nextRunForClient", job_next_run_for_client_handler)
     dispatcher.register("job.update", job_update_handler)
+    dispatcher.register("job.runs", job_runs_handler)
     return dispatcher
 
 

@@ -47,6 +47,8 @@ snowpea job cancel <job-id>
 
 각 잡은 `last_run`과 `last_status`를 기록하며, `last_status`는 `ok`, `error`, 또는 승인이 답 없이 만료됐을 때의 `denied_by_timeout`입니다.
 
+실행 하나하나도 남습니다. `job.runs {jobId, limit?}`(프로토콜 1.33.0, capability `jobRuns`)는 최신 순으로 `runId`, `scheduledAt`, `startedAt`, `endedAt`, `status`(`running`, `waiting_for_host`, `missed`도 있음), `sessionId`, `trigger`(`schedule` 또는 `runNow`), 그리고 `ok`로 끝나지 않은 실행이면 마지막 출력의 앞 500자를 `error`로 돌려줍니다. `job.schedule`과 `job.update`는 작업 내용 대신 보여 줄 짧은 이름 `title`을 선택적으로 받고(`""`이면 지움), `job.update {task}`는 `schedule`이 실행 시각을 바꾸듯 이후 실행이 받을 프롬프트를 바꿉니다. 작업 내용은 앞뒤 공백을 지우며 비어 있으면 안 됩니다. `job.runs`는 `job.update`·`job.delete`와 마찬가지로 없는 잡에 `invalid_params`를 답합니다.
+
 ## 잡이 실행되는 방식
 
 스케줄러는 15초마다 틱을 돕니다. 잡이 실행 시각이 되면 그 잡의 작업 디렉터리와 모드로 세션을 만들고 무인(unattended)으로 표시한 뒤, 잡의 태스크로 프롬프트하고 마지막 어시스턴트 메시지를 채널로 전달합니다. `started`, `finished`, `failed`, `denied` 종류의 `job.event` 알림이 붙어 있는 모든 클라이언트로 가므로, 돌고 있는 TUI는 잡의 진행 상황을 보여줍니다.

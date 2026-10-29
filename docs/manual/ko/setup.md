@@ -116,6 +116,25 @@ snowpea model assign executor daily --project
 snowpea model assign executor                # id를 빼면 할당 해제
 ```
 
+### 모델 카테고리
+
+`models.categories`는 에이전트가 아니라 일의 종류별로 모델을 정합니다. 각 슬롯에는 프로필 id, `vendor:model` 쌍, 또는 벤더 이름만 넣을 수 있고, 비워 둔 슬롯은 아무것도 바꾸지 않습니다 — 슬롯을 설정하기 전에는 세션이 보내는 요청이 하나도 달라지지 않습니다.
+
+| 슬롯 | 쓰는 곳 | 없을 때 |
+|---|---|---|
+| `fast` | `llm.sample {modelCategory: "fast"}`, `delegate_task`의 `model: "fast"`(`browser.fastModel` 다음)와 `model_category: "fast"` | 세션 모델 |
+| `standard` | `llm.sample {modelCategory: "standard"}`, `delegate_task`의 `model_category: "standard"` | 세션 모델 |
+| `deep` | `llm.sample {modelCategory: "deep"}`과 `delegate_task`의 `model: "deep"`; 자기 모델이 지정되지 않은 위임 `planner`·`architect`·`critic`(2단계 지정이 여전히 우선하고, 이 슬롯은 세션 고정보다 위입니다); plan 모드에 있는 루트 세션의 턴 | `standard`, 그다음 세션 모델 — 단 뒤의 두 용도는 `deep` 자체가 설정됐을 때만 적용됩니다 |
+| `vision` | 세션 모델이 이미지를 못 볼 때 이미지(첨부, 또는 `view_image`·스크린샷 결과)가 담긴 턴 | 그 모델이 이미지를 볼 수 있으면 `standard`; 아니면 지금처럼 "이 모델은 이미지를 볼 수 없습니다" 안내 |
+
+vision 모델이 턴을 넘겨받지는 않습니다. 이미지마다 한 번 보고 설명을 쓰면, 그 설명이 사용자 메시지와 함께 저장되거나 도구 결과 뒤에 붙고, 세션의 원래 모델이 그 글을 읽습니다. vision 슬롯이 대신 설명해 줄 수 있는 동안에는 텍스트 전용 모델에서도 `view_image`와 브라우저 스크린샷이 거절하지 않습니다. 설명은 저장된 기록에 한 번만 쓰이므로 이후 요청마다 바이트 그대로 반복되고, 세션의 프리픽스 캐시가 유지됩니다. `deep`으로 도는 plan 모드 턴은 모델을 바꿉니다 — 라운드마다 판단하므로, 턴 도중 plan 모드를 벗어나면 다음 모델 호출부터 세션 원래 모델로 돌아갑니다. 그런 라운드의 출력 한도, thinking, effort, 도구 목록 방식은 deep 모델 기준으로 정해지고, 세션 모델이 남긴 추론은 deep 모델에 보내지 않으며(deep 모델의 추론도 저장하지 않음) 저장된 기록 자체는 그대로 둡니다. 설명 하나에는 60초가 주어지며, 실패하거나 시간이 넘거나 그사이 중지를 누르면 그 이미지는 지금처럼 안내 문구로 남고, sensitive로 표시된 도구 결과는 설명하지 않습니다.
+
+```json
+{"models": {"categories": {"deep": "reasoning", "vision": "openai:gpt-4o"}}}
+```
+
+`settings.set {"patch": {"models": {"categories": {"vision": null}}}}`로 슬롯 하나를 지웁니다. `models.categories`의 다른 키는 보존되지만 쓰이지 않습니다. 클라이언트는 `modelCategories` capability와 `system.hello`가 돌려주는 `modelCategories` 목록으로 이 슬롯들을 아는 데몬인지 확인할 수 있습니다(프로토콜 1.33.0).
+
 ### 답변 언어
 
 `agent.replyLanguage`는 답변이 어떤 언어로 오는지를 정합니다. 기본값 `"auto"`는 사용자가 쓴 언어를 그대로 따르고, `"ko"`나 `"ja"` 같은 태그를 넣으면 무엇을 쓰든 그 언어로 고정됩니다.

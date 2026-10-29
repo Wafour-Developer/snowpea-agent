@@ -258,6 +258,36 @@ describe("/skill edit", () => {
     const methods = client.calls.map((call) => call.method);
     expect(methods).toContain("skill.read");
     expect(methods).toContain("skill.reload");
+    const read = client.calls.find((call) => call.method === "skill.read");
+    expect(read?.params).toEqual({ name: "deploy", workdir: "/work" });
+  });
+
+  it("does not open a built-in skill and says how to make an editable copy", async () => {
+    const client = fakeClient({
+      "skill.read": {
+        path: "/opt/snowpea/builtin_skills/ralplan/SKILL.md",
+        scope: "builtin",
+        readOnly: true,
+      },
+    });
+    const run = vi.fn(async () => 0);
+    const { stdin, stdout, instance, frame } = await open(client, { run, command: () => "vi" });
+
+    await type(stdin, "/skill edit ralplan", 8);
+    stdin.write("\r");
+    await sleep(350);
+    const output = stdout.text();
+    const first = frame();
+    await sleep(300);
+    const later = frame();
+    instance.unmount();
+
+    expect(run).not.toHaveBeenCalled();
+    expect(output).toContain("ralplan is a built-in skill and cannot be edited here");
+    expect(output).toContain("copy it to a global skill");
+    // The note is a transcript line: it stays put once shown.
+    expect(later).toBe(first);
+    expect(client.calls.map((call) => call.method)).not.toContain("skill.reload");
   });
 
   it("says so when the daemon cannot place the skill", async () => {

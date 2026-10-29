@@ -40,10 +40,10 @@ async def _url_refusal(ctx: ToolContext, url: str) -> str | None:
 
 
 def _can_see_images(ctx: ToolContext) -> bool:
-    from snowpea_core.tools.view_image import session_can_see
+    from snowpea_core.tools.view_image import session_can_use_images
 
     try:
-        return session_can_see(ctx)
+        return session_can_use_images(ctx)
     except Exception:  # noqa: BLE001 - a core without a provider registry: let it through
         return True
 

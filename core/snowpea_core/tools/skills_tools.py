@@ -331,7 +331,13 @@ async def skill_remove(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=False, error=str(exc))
 
     before = _kinds(loader)
-    if not await loader.remove(name):
+    try:
+        # plugins/<name> or the home's skills/<name>, and nothing else: never
+        # an agent, a command or a project's files.
+        removed = await loader.remove_installed(name)
+    except ValueError as exc:
+        return ToolResult(ok=False, error=str(exc))
+    if not removed:
         known = ", ".join(sorted(before["plugins"])) or "none"
         return ToolResult(
             ok=False, error=f"no installed plugin named {name!r} (installed: {known})"

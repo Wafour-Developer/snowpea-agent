@@ -2421,6 +2421,7 @@ def test_a_zero_host_wait_survives_the_store() -> None:
                     "last_status",
                     "created_at",
                     "options",
+                    "title",
                 ),
                 job.row(),
                 strict=True,

@@ -9,6 +9,9 @@ it implements, highest priority first (CORE-model-assignment):
 2. **The agent's own assignment.**  Project ``models.agents[<agent>]`` merged
    over global ``agents.models[<agent>]`` (project wins), then the agent
    definition's ``.md`` ``model:`` field.
+   *Then a role default*, when the caller has one: ``models.categories.deep``
+   for a delegated planner, architect or critic (1.33.0) — only when it is
+   set, so an unset slot changes nothing.
 3. **The session pin.**  What ``/model`` or ``session.setModel`` fixed on this
    session — inherited by its children and restored with it.
 4. **The project default.**  ``.snowpea/settings.json`` ``models.default``.
@@ -85,6 +88,7 @@ def route_for(
     definition_model: str | None = None,
     workdir: Path | str | None = None,
     session_pin: ModelRoute | None = None,
+    role_default: ModelRoute | None = None,
 ) -> ModelRoute:
     """Choose a model route for a new session; see the module docstring."""
     if provider is not None or model is not None:
@@ -97,6 +101,9 @@ def route_for(
         route = resolve_reference(settings, reference, config=config)
         if route.resolved():
             return route
+
+    if role_default is not None and role_default.resolved():
+        return role_default
 
     if session_pin is not None and session_pin.resolved():
         return session_pin
@@ -168,6 +175,56 @@ def fast_route(
     return fallback
 
 
+#: Delegated roles that think rather than type: they run on ``deep`` when it
+#: is set and nothing assigns them a model of their own (1.33.0).
+DEEP_ROLES = frozenset({"planner", "architect", "critic"})
+
+
+def _category(settings: Settings, slot: str) -> str | None:
+    categories = getattr(getattr(settings, "models", None), "categories", None) or {}
+    value = categories.get(slot) if isinstance(categories, dict) else None
+    return str(value).strip() or None if value else None
+
+
+def category_route(
+    settings: Settings, slot: str, *, workdir: Path | str | None = None
+) -> ModelRoute:
+    """``models.categories[slot]`` resolved, or ``ModelRoute()`` when unset or unknown."""
+    return resolve_reference(
+        settings, _category(settings, slot), config=model_config_for(settings, workdir)
+    )
+
+
+def deep_route(
+    settings: Settings,
+    fallback: ModelRoute,
+    *,
+    workdir: Path | str | None = None,
+) -> ModelRoute:
+    """The "deep" model: ``models.categories.deep``, then ``.standard``, then ``fallback``.
+
+    What ``llm.sample {modelCategory: "deep"}`` and ``delegate_task {model:
+    "deep"}`` run on (1.33.0); asking for it never fails for want of a setting.
+    """
+    for slot in ("deep", "standard"):
+        route = category_route(settings, slot, workdir=workdir)
+        if route.resolved():
+            return route
+    return fallback
+
+
+def deep_if_set(settings: Settings, *, workdir: Path | str | None = None) -> ModelRoute:
+    """``models.categories.deep`` alone, or ``ModelRoute()``: no fallback at all.
+
+    The routes core picks *for* the user — a planning root turn, a delegated
+    planner/architect/critic — use this, so leaving ``deep`` unset keeps
+    every one of them exactly as it was (1.33.0).
+    """
+    if _category(settings, "deep") is None:
+        return ModelRoute()
+    return category_route(settings, "deep", workdir=workdir)
+
+
 def unknown_reference(
     settings: Settings, reference: str | None, *, workdir: Path | str | None = None
 ) -> bool:
@@ -185,8 +242,12 @@ def unknown_reference(
 
 
 __all__ = [
+    "DEEP_ROLES",
     "ModelConfig",
     "ModelRoute",
+    "category_route",
+    "deep_if_set",
+    "deep_route",
     "fast_route",
     "model_config_for",
     "resolve_reference",

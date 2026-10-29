@@ -82,6 +82,10 @@ class AgentConfig:
     effort: str = DEFAULT_EFFORT
     #: Which rule decided it: ``session``, ``model``, ``vendor`` or ``default``.
     effort_source: str = "default"
+    #: The model these knobs were read for when it is not the session's own
+    #: (a planning round on ``models.categories.deep``, 1.33.0); ``None`` is
+    #: the session's model.
+    model: str | None = None
 
 
 def tool_lines(tools: list[ToolSpec], *, describe: bool = False) -> str:

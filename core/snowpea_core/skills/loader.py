@@ -72,6 +72,9 @@ PYTHON_VAR = "SNOWPEA_PYTHON"
 #: though :class:`SkillLoader` defines a method called ``list``.
 SkillInfos = list[SkillInfo]
 Strings = list[str]
+PathList = list[Path]
+#: ``(target, the directory it must stay inside)`` pairs for a removal.
+Targets = list[tuple[Path, Path]]
 
 #: One index group: its bracketed label and its ``(name, description)`` rows.
 IndexGroups = list[tuple[str, list[tuple[str, str]]]]
@@ -184,8 +187,11 @@ async def _adopt_turn_plan(ctx: Any, start: int, source: str) -> None:
 class SkillLoader:
     """Scans the search roots and keeps the command registry in step."""
 
-    def __init__(self, core: Core) -> None:
+    def __init__(self, core: Core, *, workdirs: PathList | None = None) -> None:
         self.core = core
+        #: Scan only these projects instead of every known one: the scratch
+        #: loader behind ``skill.list {workdir}`` (1.33.0).
+        self._only_workdirs = workdirs
         self.skills: dict[str, LoadedSkill] = {}
         self.agents: list[LoadedAgent] = []
         self.plugins: list[LoadedPlugin] = []
@@ -245,6 +251,8 @@ class SkillLoader:
         there.  Capped at :data:`MAX_SCANNED_WORKDIRS` and filtered to
         directories that still exist, because a scan walks each one.
         """
+        if self._only_workdirs is not None:
+            return list(self._only_workdirs)
         seen: list[Path] = []
 
         def add(raw: str | Path) -> None:
@@ -799,8 +807,17 @@ class SkillLoader:
         self._index_groups = groups
         return groups
 
-    def list(self) -> SkillInfos:
-        """Everything loaded, as protocol ``SkillInfo`` (``skill.list``)."""
+    def list(self, workdir: Path | str | None = None) -> SkillInfos:
+        """Everything loaded, as protocol ``SkillInfo`` (``skill.list``).
+
+        ``workdir`` (1.33.0) answers for that one project: a scratch scan of the
+        same roots with only its ``.claude``/``.snowpea``, so the registry, its
+        commands and its hooks stay exactly as they are.
+        """
+        if workdir is not None:
+            scratch = SkillLoader(self.core, workdirs=[Path(workdir).expanduser()])
+            scratch.scan()
+            return scratch.list()
         out: SkillInfos = []
         for plugin in self.plugins:
             out.append(
@@ -866,23 +883,149 @@ class SkillLoader:
         await self.reload()
         return target
 
-    async def remove(self, name: str) -> bool:
-        """Delete an installed plugin or global skill directory and reload.
+    def _removal_targets(
+        self,
+        name: str,
+        *,
+        scope: str | None = None,
+        workdir: Path | str | None = None,
+        kind: str | None = None,
+    ) -> Targets:
+        """``(target, the directory it must stay inside)`` pairs, in search order."""
+        check_entry_name(name)
+        kinds = (kind,) if kind else ("skill", "agent", "command", "plugin")
+        if scope:
+            scopes: tuple[str, ...] = (scope,)
+        elif workdir:
+            scopes = ("project", "global", "plugin")
+        else:
+            scopes = ("global", "plugin")
+        found: Targets = []
 
-        ``skills/`` is checked too: a bare skill installs there rather than
-        into ``plugins/`` (M15 §B5d), and it must still be removable.
+        def add(path: Path, base: Path) -> None:
+            if all(path != seen for seen, _ in found):
+                found.append((path, base))
+
+        for where in scopes:
+            if where == "plugin":
+                if "plugin" in kinds:
+                    add(self.plugins_dir / name, self.plugins_dir)
+                    for plugin in self.plugins:
+                        if plugin.name == name and plugin.source.startswith("plugin:"):
+                            add(plugin.root, self.plugins_dir)
+                continue
+            if where == "global":
+                bases = [self.home]
+            elif workdir:
+                # ``.snowpea`` before ``.claude``: the copy that wins goes first.
+                bases = [Path(workdir).expanduser() / rel for rel, _ in reversed(PROJECT_DIRS)]
+            else:
+                continue
+            for base in bases:
+                if "skill" in kinds:
+                    add(base / "skills" / name, base / "skills")
+                    for skill in self.skills.values():
+                        path = skill.doc.path
+                        if (
+                            skill.kind == "skill"
+                            and skill.name == name
+                            and path is not None
+                            and path.parent.parent == base / "skills"
+                        ):
+                            add(path.parent, base / "skills")
+                if "agent" in kinds:
+                    add(base / "agents" / f"{name}.md", base / "agents")
+                    for agent in self.agents:
+                        if agent.name == name and agent.path.parent == base / "agents":
+                            add(agent.path, base / "agents")
+                if "command" in kinds:
+                    add(base / "commands" / f"{name}.md", base / "commands")
+        return found
+
+    def removal_candidates(
+        self,
+        name: str,
+        *,
+        scope: str | None = None,
+        workdir: Path | str | None = None,
+        kind: str | None = None,
+    ) -> PathList:
+        """Every path :meth:`remove` would try for ``name``, in order (1.33.0).
+
+        With ``scope`` only that scope.  Without one, the copy in effect comes
+        first: the project's ``.snowpea`` then ``.claude`` (only with a
+        ``workdir``), then the global bundle, then ``plugins/`` — so a skill
+        wins over a plugin of the same name.  Within a bundle a skill
+        directory, then an agent file, then a command file.  A plugin matches
+        by directory or by the manifest name ``skill.list`` shows; a skill or
+        an agent by its directory or file name, or by the name a loaded copy's
+        front matter gave it.  Claude Code's own trees are never candidates.
+        ``ValueError`` for a name that is not a single path component.
         """
-        for target in (self.plugins_dir / name, self.home / "skills" / name):
+        targets = self._removal_targets(name, scope=scope, workdir=workdir, kind=kind)
+        return [target for target, _base in targets]
+
+    async def remove(
+        self,
+        name: str,
+        *,
+        scope: str | None = None,
+        workdir: Path | str | None = None,
+        kind: str | None = None,
+    ) -> Path | None:
+        """Delete the first of :meth:`removal_candidates` that exists, and reload.
+
+        Answers what was deleted, or ``None``; ``ValueError`` for a bad name
+        or a target that would leave its directory.
+        """
+        targets = self._removal_targets(name, scope=scope, workdir=workdir, kind=kind)
+        return await self._delete_first(targets)
+
+    async def remove_installed(self, name: str) -> Path | None:
+        """``plugins/<name>`` or ``skills/<name>`` under the home, nothing else.
+
+        The reach the agent's ``skill_remove`` tool has always had: ``skills/``
+        is checked too because a bare skill installs there rather than into
+        ``plugins/`` (M15 §B5d).
+        """
+        check_entry_name(name)
+        skills_dir = self.home / "skills"
+        targets = [(self.plugins_dir / name, self.plugins_dir), (skills_dir / name, skills_dir)]
+        return await self._delete_first(targets)
+
+    async def _delete_first(self, targets: Targets) -> Path | None:
+        for target, base in targets:
+            if not (target.is_symlink() or target.exists()):
+                continue
+            if not _strictly_inside(target, base):
+                raise ValueError(f"refusing to delete {target}: it is not inside {base}")
             if target.is_symlink():
                 # A development link: drop the link, never the working copy.
                 target.unlink()
-                await self.reload()
-                return True
-            if target.is_dir():
+            elif target.is_dir():
                 shutil.rmtree(target)
-                await self.reload()
-                return True
+            else:
+                target.unlink()
+            await self.reload()
+            return target
+        return None
+
+
+def check_entry_name(name: str) -> str:
+    """``name`` when it is one plain path component, else ``ValueError``."""
+    if not name or name in (".", "..") or any(bad in name for bad in ("/", "\\", "\0")):
+        raise ValueError(f"not an entry name: {name!r}")
+    return name
+
+
+def _strictly_inside(target: Path, base: Path) -> bool:
+    """True when ``target`` (its parent resolved, not a symlink it is) is below ``base``."""
+    try:
+        where = target.parent.resolve() / target.name
+        root = base.resolve()
+    except OSError:
         return False
+    return where != root and where.is_relative_to(root)
 
 
 def instruction(doc: SkillDoc, args: str) -> str:
@@ -930,6 +1073,7 @@ __all__ = [
     "ReloadReport",
     "SkillLoader",
     "builtin_root",
+    "check_entry_name",
     "expand_tree",
     "instruction",
 ]

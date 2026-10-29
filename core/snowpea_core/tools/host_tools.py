@@ -90,10 +90,10 @@ def content_store(core: Any) -> ToolContentStore | None:
 
 
 def _can_see(ctx: ToolContext) -> bool:
-    from snowpea_core.tools.view_image import session_can_see
+    from snowpea_core.tools.view_image import session_can_use_images
 
     try:
-        return session_can_see(ctx)
+        return session_can_use_images(ctx)
     except Exception:  # noqa: BLE001 - no provider registry (tests): let it through
         return True
 

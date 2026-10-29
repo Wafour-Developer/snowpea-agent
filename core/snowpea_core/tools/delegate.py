@@ -270,14 +270,20 @@ def _category_model(ctx: ToolContext, category: str) -> str | None:
 #: ``delegate_task {model: "fast"}``: ``browser.fastModel`` (addendum 23).
 FAST_MODEL = "fast"
 
+#: ``delegate_task {model: "deep"}``: ``models.categories.deep``, then
+#: ``.standard`` (1.33.0).  Accepted, not advertised: the tool's schema text
+#: stays byte-identical, so no session's prompt prefix moves for it.
+DEEP_MODEL = "deep"
 
-def fast_model_reference(ctx: ToolContext) -> str | None:
-    """``vendor:model`` for "fast": the setting, else the parent's own model."""
-    from snowpea_core.config.model_routing import ModelRoute, fast_route
+
+def fast_model_reference(ctx: ToolContext, slot: str = FAST_MODEL) -> str | None:
+    """``vendor:model`` for "fast" (or "deep"): the setting, else the parent's own model."""
+    from snowpea_core.config.model_routing import ModelRoute, deep_route, fast_route
 
     session = ctx.session
     parent = ModelRoute(getattr(session, "provider", None), getattr(session, "model", None))
-    route = fast_route(ctx.core.settings, parent, workdir=getattr(session, "workdir", None))
+    pick = deep_route if slot == DEEP_MODEL else fast_route
+    route = pick(ctx.core.settings, parent, workdir=getattr(session, "workdir", None))
     if route.provider and route.model:
         return f"{route.provider}:{route.model}"
     return route.provider or None
@@ -293,8 +299,8 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if profile not in PROFILES:
         return ToolResult(ok=False, error=f"profile must be one of {', '.join(PROFILES)}")
     model = str(args.get("model", "") or "").strip() or None
-    if model == FAST_MODEL:
-        model = fast_model_reference(ctx)
+    if model in (FAST_MODEL, DEEP_MODEL):
+        model = fast_model_reference(ctx, model)
     category = str(args.get("model_category", "") or "").strip()
     if category and model is None:
         if category not in MODEL_CATEGORIES:

@@ -20,7 +20,7 @@ from __future__ import annotations
 import binascii
 from base64 import b64decode, b64encode
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +96,9 @@ class ImagePart:
     base64: str | None = None
     url: str | None = None
     name: str = ""
+    #: What the vision model saw (``models.categories.vision``, 1.33.0); a
+    #: text-only model reads it instead of the "cannot see images" note.
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -223,6 +226,8 @@ def parts_from_blocks(
             parts.append(TextPart(text=f"{marker} (no longer on disk)"))
             continue
         _append_media(parts, kind, name, mime, raw, text_limit)
+        if block.get("description") and parts and isinstance(parts[-1], ImagePart):
+            parts[-1] = replace(parts[-1], description=str(block["description"]))
         if block.get("original"):
             # The same marker the live turn sent, so the replayed prefix matches.
             parts.append(TextPart(text=marker))
@@ -327,6 +332,11 @@ def to_text(parts: Sequence[ContentPart]) -> str:
         if isinstance(part, TextPart):
             if part.text:
                 chunks.append(part.text)
+        elif isinstance(part, ImagePart) and part.description:
+            chunks.append(
+                f"[image attached: {part.name or 'image'}, described by the vision model]\n"
+                f"{part.description}"
+            )
         elif isinstance(part, ImagePart):
             chunks.append(f"[image attached: {part.name or 'image'}] {NO_VISION_NOTE}")
         elif part.text is not None:

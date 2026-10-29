@@ -32,7 +32,13 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.definition import AgentDefinition
 from snowpea_core.agent.role_pick import PARENT, missing_role_policy, pick_agent
-from snowpea_core.config.model_routing import ModelRoute, model_config_for, resolve_reference
+from snowpea_core.config.model_routing import (
+    DEEP_ROLES,
+    ModelRoute,
+    deep_if_set,
+    model_config_for,
+    resolve_reference,
+)
 from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.prompts.loader import PromptNotFound, load
 from snowpea_core.providers.base import REDACTED, ChatMessage
@@ -1370,6 +1376,13 @@ class SubagentManager:
         # child inherits when neither an explicit override, an assignment, a
         # definition nor a default has anything to say.
         provider, model = (record.provider_override, record.model_override)
+        # A planner, architect or critic thinks on ``models.categories.deep``
+        # when that is set and nothing assigns it a model (1.33.0).
+        role_default = (
+            deep_if_set(self.core.settings, workdir=parent.workdir)
+            if (record.name or "") in DEEP_ROLES
+            else None
+        )
         child = await self.core.sessions.create(
             parent.workdir,
             mode=mode,
@@ -1383,6 +1396,7 @@ class SubagentManager:
             session_pin=ModelRoute(parent.provider, parent.model),
             parent_session_id=parent.id,
             kind="subagent",
+            role_default=role_default,
         )
         child.unattended = parent.unattended
         child.read_only = read_only

@@ -1711,15 +1711,34 @@ export function App({
       }
       void (async () => {
         let path: string | null = null;
+        let readOnly = false;
+        let scope = "";
         try {
-          const result = await client.call("skill.read", { name });
+          // This project's copy first: the daemon looks in the workdir's
+          // .snowpea and .claude before the global skills (1.33.0).
+          const result = await client.call("skill.read", { name, workdir });
           path = typeof result?.path === "string" ? result.path : null;
+          readOnly = result?.readOnly === true;
+          scope = typeof result?.scope === "string" ? result.scope : "";
         } catch (error: unknown) {
           dispatch({ type: "note", text: `could not open ${name}: ${String(error)}` });
           return;
         }
         if (!path) {
           dispatch({ type: "note", text: `the daemon did not say where ${name} is kept` });
+          return;
+        }
+        if (readOnly) {
+          // A built-in or plugin skill (or Claude Code's own): an edit would be
+          // lost or never take effect, so the editor is not opened at all.
+          const origin =
+            scope === "builtin" ? "a built-in" : scope === "plugin" ? "a plugin's" : "a read-only";
+          dispatch({
+            type: "note",
+            text:
+              `${name} is ${origin} skill and cannot be edited here (${path}). ` +
+              `To change it, copy it to a global skill: $SNOWPEA_HOME/skills/${name}/SKILL.md`,
+          });
           return;
         }
         setSuspended(true);
@@ -1747,7 +1766,7 @@ export function App({
         }
       })();
     },
-    [client, editor, setMouseMode, setRawMode, showToast],
+    [client, editor, setMouseMode, setRawMode, showToast, workdir],
   );
 
   /**

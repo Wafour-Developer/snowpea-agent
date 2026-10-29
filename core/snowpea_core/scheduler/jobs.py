@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     last_run     TEXT,
     last_status  TEXT,
     created_at   TEXT NOT NULL,
-    options      TEXT
+    options      TEXT,
+    title        TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_next_run ON jobs (enabled, next_run);
 CREATE TABLE IF NOT EXISTS job_runs (
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS job_runs (
     status       TEXT,
     session_id   TEXT,
     run_trigger  TEXT,
+    error        TEXT,
     PRIMARY KEY (job_id, scheduled_ts)
 );
 """
@@ -109,6 +111,8 @@ class Job(BaseModel):
     interval_sec: int | None = None
     next_run: datetime | None = None
     task: str = ""
+    #: A short name a client gave the job (1.33.0); the task is the fallback.
+    title: str | None = None
     mode: Mode = "accept"
     channel: str | None = None
     origin_session_id: str | None = None
@@ -202,6 +206,7 @@ class Job(BaseModel):
             spec=self.spec,
             kind=self.kind,
             task=self.task,
+            title=self.title,
             mode=self.mode,
             channel=self.channel,
             originSessionId=self.origin_session_id,
@@ -238,6 +243,7 @@ class Job(BaseModel):
             self.last_status,
             iso(self.created_at),
             self._options(),
+            self.title,
         )
 
     def _options(self) -> str | None:
@@ -272,6 +278,7 @@ class Job(BaseModel):
             last_run=parse_iso(row["last_run"]),
             last_status=row["last_status"],
             created_at=parse_iso(row["created_at"]) or utc_now(),
+            title=row["title"] if "title" in row.keys() else None,
             **_options_of(row),
         )
 
@@ -306,9 +313,9 @@ Rows = list[dict[str, Any]]
 
 _COLUMNS = (
     "id, spec, kind, cron, interval_sec, next_run, task, mode, channel, origin_session_id, agent,"
-    " workdir, enabled, state, last_run, last_status, created_at, options"
+    " workdir, enabled, state, last_run, last_status, created_at, options, title"
 )
-_PLACEHOLDERS = ", ".join("?" * 18)
+_PLACEHOLDERS = ", ".join("?" * 19)
 
 
 class JobStore:
@@ -329,12 +336,16 @@ class JobStore:
                 self._conn.execute("ALTER TABLE jobs ADD COLUMN origin_session_id TEXT")
             if "options" not in columns:
                 self._conn.execute("ALTER TABLE jobs ADD COLUMN options TEXT")
+            if "title" not in columns:
+                self._conn.execute("ALTER TABLE jobs ADD COLUMN title TEXT")
             run_columns = {
                 str(row[1])
                 for row in self._conn.execute("PRAGMA table_info(job_runs)").fetchall()
             }
             if "run_trigger" not in run_columns:
                 self._conn.execute("ALTER TABLE job_runs ADD COLUMN run_trigger TEXT")
+            if "error" not in run_columns:
+                self._conn.execute("ALTER TABLE job_runs ADD COLUMN error TEXT")
             self._conn.commit()
 
     @classmethod
@@ -428,12 +439,13 @@ class JobStore:
         scheduled_ts: datetime,
         status: str,
         session_id: str | None = None,
+        error: str | None = None,
     ) -> None:
         await asyncio.to_thread(
             self._execute,
-            "UPDATE job_runs SET finished_at = ?, status = ?, session_id = COALESCE(?, session_id)"
-            " WHERE job_id = ? AND scheduled_ts = ?",
-            (iso(utc_now()), status, session_id, job_id, iso(scheduled_ts)),
+            "UPDATE job_runs SET finished_at = ?, status = ?, session_id = COALESCE(?, session_id),"
+            " error = ? WHERE job_id = ? AND scheduled_ts = ?",
+            (iso(utc_now()), status, session_id, error, job_id, iso(scheduled_ts)),
         )
 
     async def set_run_status(self, job_id: str, scheduled_ts: datetime, status: str) -> None:
@@ -463,12 +475,17 @@ class JobStore:
         )
         return [dict(row) for row in rows]
 
-    async def runs(self, job_id: str) -> Rows:
-        rows = await asyncio.to_thread(
-            self._query,
-            "SELECT * FROM job_runs WHERE job_id = ? ORDER BY scheduled_ts",
-            (job_id,),
-        )
+    async def runs(self, job_id: str, *, limit: int | None = None) -> Rows:
+        """Every occurrence of ``job_id``, oldest first; with ``limit``, the newest
+        ``limit`` of them, newest first (``job.runs``, 1.33.0)."""
+        sql = "SELECT * FROM job_runs WHERE job_id = ?"
+        args: tuple[Any, ...] = (job_id,)
+        if limit is None:
+            sql += " ORDER BY scheduled_ts"
+        else:
+            sql += " ORDER BY started_at DESC, scheduled_ts DESC LIMIT ?"
+            args = (job_id, int(limit))
+        rows = await asyncio.to_thread(self._query, sql, args)
         return [dict(row) for row in rows]
 
     def close(self) -> None:

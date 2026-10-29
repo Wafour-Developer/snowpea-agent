@@ -180,9 +180,13 @@ class ModelsSettings(_Model):
     default: str | None = None
     #: Named model profiles, keyed by user-chosen ids.
     profiles: dict[str, ModelProfile] = Field(default_factory=dict)
-    #: ``delegate_task(model_category=…)`` targets: ``{"fast": "<profile id |
-    #: vendor:model | vendor>", "standard": …}``.  An unset category runs on
-    #: the child's usual model (protocol 1.7.0).
+    #: Model slots, each a ``<profile id | vendor:model | vendor>``: ``fast`` and
+    #: ``standard`` are ``delegate_task(model_category=…)`` targets (protocol
+    #: 1.7.0); ``deep`` (1.33.0) is ``llm.sample``/``delegate_task`` "deep", a
+    #: delegated planner/architect/critic with no model of its own and a root
+    #: turn in plan mode; ``vision`` (1.33.0) describes the images a turn
+    #: carries when the session's model cannot see them.  An unset slot changes
+    #: nothing.  Other keys are kept but unused.
     categories: dict[str, str] = Field(default_factory=dict)
 
 

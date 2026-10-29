@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.32.0";
+export const PROTOCOL_VERSION = "1.33.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -32,6 +32,7 @@ export type ErrorCode =
   | "not_implemented"
   | "protocol_incompatible"
   | "session_busy"
+  | "skill_exists"
   | "tool_inactive"
   | "unauthorized"
   | "unavailable";
@@ -56,6 +57,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "not_implemented",
   "protocol_incompatible",
   "session_busy",
+  "skill_exists",
   "tool_inactive",
   "unauthorized",
   "unavailable",
@@ -869,6 +871,8 @@ export interface JobListResult {
     state?: "scheduled" | "running" | "cancelled";
     /** Prompt run on each firing. */
     task: string;
+    /** The job's short name, when it has one (1.33.0). */
+    title?: string | null;
   })[];
 }
 
@@ -912,6 +916,37 @@ export interface JobRunNowResult {
   ok?: boolean;
 }
 
+/** `job.runs` params. A job's run history, newest first (1.33.0). */
+export interface JobRunsParams {
+  /** Job whose runs to list; an unknown one is invalid_params, as in job.update. */
+  jobId: string;
+  /** Newest runs to return. */
+  limit?: number;
+}
+
+/** `job.runs` result. */
+export interface JobRunsResult {
+  /** Newest first. */
+  runs?: ({
+    /** UTC ISO time it finished; null while running or held. */
+    endedAt?: string | null;
+    /** Why a run that did not end 'ok' failed, clipped (runs recorded since 1.33.0). */
+    error?: string | null;
+    /** Stable id of the occurrence: '<jobId>@<scheduledAt>'. */
+    runId: string;
+    /** UTC ISO time the occurrence was due. */
+    scheduledAt: string;
+    /** Session the run opened, when it opened one. */
+    sessionId?: string | null;
+    /** UTC ISO time it was claimed. */
+    startedAt: string;
+    /** 'ok', 'error' or 'denied_by_timeout' once finished; 'running', 'waiting_for_host' or 'missed' otherwise. */
+    status: string;
+    /** What started it; null for a run an older core recorded. */
+    trigger?: "schedule" | "runNow" | null;
+  })[];
+}
+
 /** `job.schedule` params. Schedule a prompt to run unattended. */
 export interface JobScheduleParams {
   /** Named agent that runs the task. */
@@ -939,6 +974,8 @@ export interface JobScheduleParams {
   spec: string;
   /** Prompt run on each firing. */
   task: string;
+  /** A short name for the job, shown instead of its task (1.33.0). */
+  title?: string | null;
   /** Working directory for the run; defaults to the daemon's home. */
   workdir?: string | null;
 }
@@ -968,6 +1005,10 @@ export interface JobUpdateParams {
     /** New wait for a started run's host tools. */
     hostWaitSec?: number | null;
   } | null;
+  /** A new prompt for every later run (1.33.0); it must not be blank. A job with meta gets a new fingerprint. */
+  task?: string | null;
+  /** A new short name (1.33.0); '' removes it, null or absent keeps it. */
+  title?: string | null;
 }
 
 /** `job.update` result. */
@@ -1015,6 +1056,8 @@ export interface JobUpdateResult {
   state?: "scheduled" | "running" | "cancelled";
   /** Prompt run on each firing. */
   task: string;
+  /** The job's short name, when it has one (1.33.0). */
+  title?: string | null;
 }
 
 /** `llm.sample` params. One tool-less model call for a session's browser host (1.14.0): no tools, no history, nothing written to the transcript except a usage event. The session's host only ('unauthorized' otherwise); 'unavailable' when no model can answer; with schema, 'invalid_output' when the answer does not validate. */
@@ -1023,8 +1066,8 @@ export interface LlmSampleParams {
   input: string;
   /** Output token cap, at most 4096. */
   maxTokens?: number;
-  /** 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model. */
-  modelCategory?: "fast" | "default";
+  /** 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model; 'standard' (1.33.0) = models.categories.standard, then the session's model; 'deep' (1.33.0) = models.categories.deep, then .standard, then the session's model. */
+  modelCategory?: "fast" | "default" | "standard" | "deep";
   /** JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. */
   schema?: Record<string, unknown> | null;
   /** Put the schema instruction after the fenced input (with task) instead of in the system message, for a schema that varies per call (1.21.0). */
@@ -1141,6 +1184,8 @@ export interface LspStatusResult {
 
 /** `mcp.add` params. Write an MCP server into the project or global .mcp.json and start it. */
 export interface McpAddParams {
+  /** Add the entry despite the security findings mcp_unsafe reported (1.33.0). Does not let it overwrite a name already declared in the file. */
+  acceptFindings?: boolean;
   /** Arguments, argv style; never a shell string. */
   args?: string[] | null;
   /** Executable for a stdio server. */
@@ -1149,11 +1194,11 @@ export interface McpAddParams {
   cwd?: string | null;
   /** Keep the entry but never start the server. */
   disabled?: boolean | null;
-  /** Environment for the child process. */
+  /** Environment for the child process. mcp.update, and mcp.test on a saved server, merge it key by key into the saved env (1.33.0); envRemove deletes keys. */
   env?: Record<string, string> | null;
-  /** Overwrite an existing entry and accept the security findings. */
+  /** acceptFindings and replace together, as before 1.33.0. */
   force?: boolean;
-  /** HTTP headers sent with every request. */
+  /** HTTP headers sent with every request. mcp.update, and mcp.test on a saved server, merge them key by key into the saved headers (1.33.0); headersRemove deletes keys. */
   headers?: Record<string, string> | null;
   /** Server name; ^[a-zA-Z0-9_-]{1,64}$. */
   name: string;
@@ -1161,6 +1206,8 @@ export interface McpAddParams {
   permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
   /** Catalog id copied before the explicit fields are applied. */
   preset?: string | null;
+  /** Overwrite an entry already declared under this name in the target file instead of answering mcp_exists (1.33.0). Does not accept security findings. */
+  replace?: boolean;
   /** Which file to write: $SNOWPEA_HOME/.mcp.json (global, the default since 1.23.0, so every project sees it) or the project's .mcp.json. */
   scope?: "project" | "global";
   /** Session whose workdir to use. */
@@ -1171,9 +1218,9 @@ export interface McpAddParams {
   timeoutSec?: number | null;
   /** Per-call cap, in seconds. */
   toolTimeoutSec?: number | null;
-  /** Never register these tools of the server. */
+  /** Never register these tools of the server. [] clears the filter; null or absent leaves it as saved. */
   toolsExclude?: string[] | null;
-  /** Register only these tools of the server. */
+  /** Register only these tools of the server. [] clears the filter; null or absent leaves it as saved. */
   toolsInclude?: string[] | null;
   /** Force a transport instead of inferring it. */
   type?: "stdio" | "http" | "sse" | null;
@@ -1230,6 +1277,8 @@ export interface McpCatalogResult {
 
 /** `mcp.list` params. List every configured MCP server with its scope, state and tools. */
 export interface McpListParams {
+  /** Also list each declaration another scope overrides under the same name, marked shadowed: true (1.33.0). Off by default, so a client keyed by name keeps one row per server. */
+  includeShadowed?: boolean;
   /** Session whose workdir to read. */
   sessionId?: string | null;
   /** Project directory; defaults to the session's, then the daemon's. */
@@ -1238,7 +1287,7 @@ export interface McpListParams {
 
 /** `mcp.list` result. */
 export interface McpListResult {
-  /** One row per configured server, project entries winning. */
+  /** One row per configured server, project entries winning; with includeShadowed, each declaration that loses to another scope follows its winner with shadowed: true (1.33.0). */
   servers?: ({
     /** Arguments, argv style. */
     args?: string[];
@@ -1262,6 +1311,8 @@ export interface McpListResult {
     plugin?: string | null;
     /** project, global, plugin or settings. */
     scope: "project" | "global" | "plugin" | "settings";
+    /** True for a declaration another scope overrides under the same name (a global entry hidden by a project one, 1.33.0): listed so a client knows the name is taken there too, but never started. */
+    shadowed?: boolean;
     /** stopped, starting, ready or error. */
     state?: "stopped" | "starting" | "ready" | "error";
     /** Startup cap override, in seconds. */
@@ -1334,10 +1385,14 @@ export interface McpTestParams {
   cwd?: string | null;
   /** Keep the entry but never start the server. */
   disabled?: boolean | null;
-  /** Environment for the child process. */
+  /** Environment for the child process. mcp.update, and mcp.test on a saved server, merge it key by key into the saved env (1.33.0); envRemove deletes keys. */
   env?: Record<string, string> | null;
-  /** HTTP headers sent with every request. */
+  /** Probe without these saved environment variables, as mcp.update would (1.33.0). */
+  envRemove?: string[] | null;
+  /** HTTP headers sent with every request. mcp.update, and mcp.test on a saved server, merge them key by key into the saved headers (1.33.0); headersRemove deletes keys. */
   headers?: Record<string, string> | null;
+  /** Probe without these saved HTTP headers, as mcp.update would (1.33.0). */
+  headersRemove?: string[] | null;
   /** Saved server to probe. */
   name?: string | null;
   /** Permission tag for the server's tools; stored in settings. */
@@ -1350,12 +1405,14 @@ export interface McpTestParams {
   timeoutSec?: number | null;
   /** Per-call cap, in seconds. */
   toolTimeoutSec?: number | null;
-  /** Never register these tools of the server. */
+  /** Never register these tools of the server. [] clears the filter; null or absent leaves it as saved. */
   toolsExclude?: string[] | null;
-  /** Register only these tools of the server. */
+  /** Register only these tools of the server. [] clears the filter; null or absent leaves it as saved. */
   toolsInclude?: string[] | null;
   /** Force a transport instead of inferring it. */
   type?: "stdio" | "http" | "sse" | null;
+  /** Probe with these optional keys cleared, as mcp.update would (1.33.0). */
+  unset?: ("args" | "cwd" | "disabled" | "env" | "headers" | "timeoutSec" | "toolTimeoutSec" | "toolsExclude" | "toolsInclude" | "type")[] | null;
   /** Endpoint for an http or sse server. */
   url?: string | null;
   /** Project directory for scope=project. */
@@ -1383,9 +1440,17 @@ export interface McpTestResult {
 
 /** `mcp.update` params. Merge a patch into an existing MCP server entry. */
 export interface McpUpdateParams {
+  /** Save the entry although the patch brings in a security finding; without it that is mcp_unsafe, as in mcp.add (1.33.0). */
+  acceptFindings?: boolean;
+  /** Environment variables to delete from the saved entry (1.33.0). */
+  envRemove?: string[] | null;
+  /** Same as acceptFindings here (1.33.0). */
+  force?: boolean;
+  /** HTTP headers to delete from the saved entry (1.33.0). */
+  headersRemove?: string[] | null;
   /** Server name. */
   name: string;
-  /** Keys to change; anything absent is kept. */
+  /** Keys to change; anything absent or null is kept. env and headers merge key by key (1.33.0), except that a new url with no headers drops the saved headers; toolsInclude/toolsExclude [] clears that filter. */
   patch?: {
     /** Arguments, argv style; never a shell string. */
     args?: string[] | null;
@@ -1395,9 +1460,9 @@ export interface McpUpdateParams {
     cwd?: string | null;
     /** Keep the entry but never start the server. */
     disabled?: boolean | null;
-    /** Environment for the child process. */
+    /** Environment for the child process. mcp.update, and mcp.test on a saved server, merge it key by key into the saved env (1.33.0); envRemove deletes keys. */
     env?: Record<string, string> | null;
-    /** HTTP headers sent with every request. */
+    /** HTTP headers sent with every request. mcp.update, and mcp.test on a saved server, merge them key by key into the saved headers (1.33.0); headersRemove deletes keys. */
     headers?: Record<string, string> | null;
     /** Permission tag for the server's tools; stored in settings. */
     permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
@@ -1405,9 +1470,9 @@ export interface McpUpdateParams {
     timeoutSec?: number | null;
     /** Per-call cap, in seconds. */
     toolTimeoutSec?: number | null;
-    /** Never register these tools of the server. */
+    /** Never register these tools of the server. [] clears the filter; null or absent leaves it as saved. */
     toolsExclude?: string[] | null;
-    /** Register only these tools of the server. */
+    /** Register only these tools of the server. [] clears the filter; null or absent leaves it as saved. */
     toolsInclude?: string[] | null;
     /** Force a transport instead of inferring it. */
     type?: "stdio" | "http" | "sse" | null;
@@ -1418,6 +1483,8 @@ export interface McpUpdateParams {
   scope?: "project" | "global" | null;
   /** Session whose workdir to use. */
   sessionId?: string | null;
+  /** Optional entry keys to clear, e.g. ['cwd', 'timeoutSec'] (1.33.0). Applied after the patch, as envRemove and headersRemove are, so a key named here is gone even if the patch also set it. */
+  unset?: ("args" | "cwd" | "disabled" | "env" | "headers" | "timeoutSec" | "toolTimeoutSec" | "toolsExclude" | "toolsInclude" | "type")[] | null;
   /** Project directory for scope=project. */
   workdir?: string | null;
 }
@@ -3451,7 +3518,7 @@ export interface SkillCreateParams {
   content?: string | null;
   /** Natural-language brief. Used only when 'content' is omitted: the daemon starts the same generating turn '/skill create' runs and answers with a turnId rather than waiting for it. */
   description?: string | null;
-  /** Overwrite an existing SKILL.md at the target. */
+  /** Overwrite an existing SKILL.md at the target; without it an existing one answers skill_exists (1.33.0), in draft mode before any turn starts. */
   force?: boolean;
   /** Skill name; also its directory and the future /<name>. */
   name: string;
@@ -3510,7 +3577,10 @@ export interface SkillLearnResult {
 }
 
 /** `skill.list` params. List installed skills. */
-export type SkillListParams = Record<string, unknown>;
+export interface SkillListParams {
+  /** List this project's skills, agents and commands beside the global, built-in and plugin ones (1.33.0). Omitted, the project rows are those of every project the daemon has loaded. */
+  workdir?: string | null;
+}
 
 /** `skill.list` result. */
 export interface SkillListResult {
@@ -3541,8 +3611,10 @@ export interface SkillListResult {
 export interface SkillReadParams {
   /** Skill to read. */
   name: string;
-  /** Project directory to resolve a project-scoped skill in. */
-  workdir: string;
+  /** Look only in this scope (1.33.0); 'project' needs workdir. Omitted: the project (with a workdir), then global, then any other loaded skill. */
+  scope?: "project" | "global" | "builtin" | "plugin" | null;
+  /** Absolute project directory to resolve a project-scoped skill in; optional since 1.33.0, an empty string means none (never the daemon's directory) and a relative one is invalid_params. */
+  workdir?: string | null;
 }
 
 /** `skill.read` result. */
@@ -3551,8 +3623,10 @@ export interface SkillReadResult {
   content: string;
   /** Where the SKILL.md was found. */
   path: string;
-  /** 'project' or 'global', wherever it was found. */
-  scope: "project" | "global";
+  /** True when skill.write cannot save this file (1.33.0): a built-in or plugin skill, or one under Claude Code's own skills directory. */
+  readOnly?: boolean;
+  /** 'project' or 'global', or (1.33.0) 'builtin' for a skill that ships with the engine and 'plugin' for one a plugin brings. */
+  scope: "project" | "global" | "builtin" | "plugin";
 }
 
 /** `skill.reload` params. Reload skills from disk without restarting. */
@@ -3564,10 +3638,16 @@ export interface SkillReloadResult {
   ok?: boolean;
 }
 
-/** `skill.remove` params. Delete an installed skill or plugin. */
+/** `skill.remove` params. Delete a plugin, or a global or project skill, agent or command (1.33.0). */
 export interface SkillRemoveParams {
-  /** Installed plugin or skill to delete. */
+  /** Only this kind of entry (1.33.0): a skill directory, an agent or command .md file, or a plugin. */
+  kind?: "skill" | "agent" | "command" | "plugin" | null;
+  /** Entry to delete: a skill, agent or command name, or a plugin's directory or manifest name as skill.list shows it (1.33.0). */
   name: string;
+  /** Look only here (1.33.0): 'plugin' ($SNOWPEA_HOME/plugins), 'global' ($SNOWPEA_HOME skills/, agents/, commands/) or 'project' (the workdir's .snowpea, then .claude). Omitted, the copy in effect goes: the project (with a workdir), then global, then plugins, so a skill wins over a plugin of the same name. Within a scope a skill, then an agent, then a command. */
+  scope?: "project" | "global" | "plugin" | null;
+  /** Absolute project directory; needed for scope 'project', and with no scope it puts the project's copies first (1.33.0). */
+  workdir?: string | null;
 }
 
 /** `skill.remove` result. */
@@ -3616,7 +3696,7 @@ export interface SkillSearchResult {
   unavailable?: string[];
 }
 
-/** `skill.write` params. Save a skill's SKILL.md verbatim. */
+/** `skill.write` params. Save a skill's SKILL.md verbatim; says where, and whether it is in effect. */
 export interface SkillWriteParams {
   /** Full SKILL.md text to save. */
   content: string;
@@ -3624,14 +3704,18 @@ export interface SkillWriteParams {
   name: string;
   /** Where to write the skill. */
   scope?: "project" | "global";
-  /** Project directory, when scope is 'project'. */
-  workdir: string;
+  /** Project directory, when scope is 'project'; optional for 'global' (1.33.0), where it decides which project's skills may shadow the written copy (active). An empty string is no directory, never the daemon's; a relative one is refused. */
+  workdir?: string | null;
 }
 
 /** `skill.write` result. */
 export interface SkillWriteResult {
-  /** True when the call succeeded. */
+  /** Whether that copy is the one in effect (1.33.0): false when a project skill or a Claude Code global skill of the same name shadows it. */
+  active: boolean;
+  /** True when the file was written. */
   ok?: boolean;
+  /** Where the SKILL.md was written (1.33.0). */
+  path: string;
 }
 
 /** `system.checkUpdate` params. Report whether a newer snowpea release exists; cached for 24h. */
@@ -3693,6 +3777,8 @@ export interface SystemHelloParams {
 export interface SystemHelloResult {
   /** Feature flags this daemon supports. */
   capabilities?: string[];
+  /** The models.categories slots this daemon routes by (1.33.0, capability 'modelCategories'); empty from an older daemon. */
+  modelCategories?: ("fast" | "standard" | "deep" | "vision")[];
   /** Protocol semver the daemon speaks. */
   protocolVersion: string;
   /** Version of the running daemon. */
@@ -5272,6 +5358,7 @@ export interface MethodMap {
   "job.nextRunForClient": { params: JobNextRunForClientParams; result: JobNextRunForClientResult };
   "job.preview": { params: JobPreviewParams; result: JobPreviewResult };
   "job.runNow": { params: JobRunNowParams; result: JobRunNowResult };
+  "job.runs": { params: JobRunsParams; result: JobRunsResult };
   "job.schedule": { params: JobScheduleParams; result: JobScheduleResult };
   "job.update": { params: JobUpdateParams; result: JobUpdateResult };
   "llm.sample": { params: LlmSampleParams; result: LlmSampleResult };
@@ -5412,6 +5499,7 @@ export type ClientMethod =
   | "job.nextRunForClient"
   | "job.preview"
   | "job.runNow"
+  | "job.runs"
   | "job.schedule"
   | "job.update"
   | "llm.sample"

@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.32.0` (semver)
+- **Protocol version:** `1.33.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.32.0"
+    "protocolVersion": "1.33.0"
   }
 }
 ```
@@ -48,6 +48,7 @@ Server capabilities advertised in the `system.hello` result:
 - `hostToolParallel`
 - `hostTools`
 - `hostTurnContext`
+- `jobRuns`
 - `llmSample`
 - `llmTimings`
 - `lsp`
@@ -57,6 +58,7 @@ Server capabilities advertised in the `system.hello` result:
 - `mcp`
 - `memoryCandidates`
 - `memorySafe`
+- `modelCategories`
 - `onceOnlyScope`
 - `pageActionAlways`
 - `planAutoApprove`
@@ -129,6 +131,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.nextRunForClient`](#jobnextrunforclient) | client → server | When a host should be awake for its routines (addendum 11). |
 | [`job.preview`](#jobpreview) | client → server | Read a schedule spec without saving anything (1.10.0): its kind and when a job with it would first fire. An unreadable spec is invalid_params with job.schedule's message. |
 | [`job.runNow`](#jobrunnow) | client → server | Fire a scheduled job immediately. |
+| [`job.runs`](#jobruns) | client → server | A job's run history, newest first (1.33.0). |
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
 | [`job.update`](#jobupdate) | client → server | Change an existing job (addendum 12). |
 | [`llm.sample`](#llmsample) | client → server | One tool-less model call for a session's browser host (1.14.0): no tools, no history, nothing written to the transcript except a usage event. The session's host only ('unauthorized' otherwise); 'unavailable' when no model can answer; with schema, 'invalid_output' when the answer does not validate. |
@@ -203,9 +206,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
 | [`skill.read`](#skillread) | client → server | Read a skill's SKILL.md. |
 | [`skill.reload`](#skillreload) | client → server | Reload skills from disk without restarting. |
-| [`skill.remove`](#skillremove) | client → server | Delete an installed skill or plugin. |
+| [`skill.remove`](#skillremove) | client → server | Delete a plugin, or a global or project skill, agent or command (1.33.0). |
 | [`skill.search`](#skillsearch) | client → server | Search available skills. |
-| [`skill.write`](#skillwrite) | client → server | Save a skill's SKILL.md verbatim. |
+| [`skill.write`](#skillwrite) | client → server | Save a skill's SKILL.md verbatim; says where, and whether it is in effect. |
 | [`system.checkUpdate`](#systemcheckupdate) | client → server | Report whether a newer snowpea release exists; cached for 24h. |
 | [`system.health`](#systemhealth) | client → server | Liveness probe; answers as long as the daemon serves requests. |
 | [`system.hello`](#systemhello) | client → server | Authenticate a connection and agree on the protocol version. |
@@ -909,7 +912,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
+| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; title?: string \| null; })[]` | no | Known jobs. |
 
 ### `job.nextRunForClient`
 
@@ -967,6 +970,25 @@ Fire a scheduled job immediately.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `job.runs`
+
+*Direction:* client → server
+
+A job's run history, newest first (1.33.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `jobId` | `string` | yes | Job whose runs to list; an unknown one is invalid_params, as in job.update. |
+| `limit` | `number` | no | Newest runs to return. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `runs` | `({ endedAt?: string \| null; error?: string \| null; runId: string; scheduledAt: string; sessionId?: string \| null; startedAt: string; status: string; trigger?: "schedule" \| "runNow" \| null; })[]` | no | Newest first. |
+
 ### `job.schedule`
 
 *Direction:* client → server
@@ -984,6 +1006,7 @@ Schedule a prompt to run unattended.
 | `sessionTemplate` | `{ agent?: string \| null; catchUpWindowMinutes?: number; hostToolsFrom?: string \| null; hostWaitSec?: number; mode?: "plan" \| "accept" \| "auto" \| null; } \| null` | no | Session setup for each run, incl. host tools (1.7.0). |
 | `spec` | `string` | yes | Cron expression or natural-language schedule. |
 | `task` | `string` | yes | Prompt run on each firing. |
+| `title` | `string \| null` | no | A short name for the job, shown instead of its task (1.33.0). |
 | `workdir` | `string \| null` | no | Working directory for the run; defaults to the daemon's home. |
 
 **Result**
@@ -1008,6 +1031,8 @@ Change an existing job (addendum 12).
 | `jobId` | `string` | yes | Job to change. |
 | `schedule` | `string \| null` | no | A new schedule spec, parsed like job.schedule's spec; the next run is recomputed. |
 | `sessionTemplate` | `{ catchUpWindowMinutes?: number \| null; hostWaitSec?: number \| null; } \| null` | no | Template fields to change. |
+| `task` | `string \| null` | no | A new prompt for every later run (1.33.0); it must not be blank. A job with meta gets a new fingerprint. |
+| `title` | `string \| null` | no | A new short name (1.33.0); '' removes it, null or absent keeps it. |
 
 **Result**
 
@@ -1032,6 +1057,7 @@ Change an existing job (addendum 12).
 | `spec` | `string` | yes | Schedule as given. |
 | `state` | `"scheduled" \| "running" \| "cancelled"` | no | Current job state. |
 | `task` | `string` | yes | Prompt run on each firing. |
+| `title` | `string \| null` | no | The job's short name, when it has one (1.33.0). |
 
 ### `llm.sample`
 
@@ -1045,7 +1071,7 @@ One tool-less model call for a session's browser host (1.14.0): no tools, no his
 |---|---|---|---|
 | `input` | `string` | yes | Page-derived text; sent as the user message, fenced and marked untrusted. |
 | `maxTokens` | `number` | no | Output token cap, at most 4096. |
-| `modelCategory` | `"fast" \| "default"` | no | 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model. |
+| `modelCategory` | `"fast" \| "default" \| "standard" \| "deep"` | no | 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model; 'standard' (1.33.0) = models.categories.standard, then the session's model; 'deep' (1.33.0) = models.categories.deep, then .standard, then the session's model. |
 | `schema` | `Record<string, unknown> \| null` | no | JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. |
 | `schemaAfterInput` | `boolean` | no | Put the schema instruction after the fenced input (with task) instead of in the system message, for a schema that varies per call (1.21.0). |
 | `sessionId` | `string` | yes | Session whose provider settings and bill this call uses; its host only. |
@@ -1139,23 +1165,25 @@ Write an MCP server into the project or global .mcp.json and start it.
 
 | field | type | required | description |
 |---|---|---|---|
+| `acceptFindings` | `boolean` | no | Add the entry despite the security findings mcp_unsafe reported (1.33.0). Does not let it overwrite a name already declared in the file. |
 | `args` | `string[] \| null` | no | Arguments, argv style; never a shell string. |
 | `command` | `string \| null` | no | Executable for a stdio server. |
 | `cwd` | `string \| null` | no | Working directory for a stdio server. |
 | `disabled` | `boolean \| null` | no | Keep the entry but never start the server. |
-| `env` | `Record<string, string> \| null` | no | Environment for the child process. |
-| `force` | `boolean` | no | Overwrite an existing entry and accept the security findings. |
-| `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. |
+| `env` | `Record<string, string> \| null` | no | Environment for the child process. mcp.update, and mcp.test on a saved server, merge it key by key into the saved env (1.33.0); envRemove deletes keys. |
+| `force` | `boolean` | no | acceptFindings and replace together, as before 1.33.0. |
+| `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. mcp.update, and mcp.test on a saved server, merge them key by key into the saved headers (1.33.0); headersRemove deletes keys. |
 | `name` | `string` | yes | Server name; ^[a-zA-Z0-9_-]{1,64}$. |
 | `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `preset` | `string \| null` | no | Catalog id copied before the explicit fields are applied. |
+| `replace` | `boolean` | no | Overwrite an entry already declared under this name in the target file instead of answering mcp_exists (1.33.0). Does not accept security findings. |
 | `scope` | `"project" \| "global"` | no | Which file to write: $SNOWPEA_HOME/.mcp.json (global, the default since 1.23.0, so every project sees it) or the project's .mcp.json. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `test` | `boolean` | no | Probe the server before saving; nothing is written if it fails. |
 | `timeoutSec` | `number \| null` | no | Startup cap, in seconds. |
 | `toolTimeoutSec` | `number \| null` | no | Per-call cap, in seconds. |
-| `toolsExclude` | `string[] \| null` | no | Never register these tools of the server. |
-| `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. |
+| `toolsExclude` | `string[] \| null` | no | Never register these tools of the server. [] clears the filter; null or absent leaves it as saved. |
+| `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. [] clears the filter; null or absent leaves it as saved. |
 | `type` | `"stdio" \| "http" \| "sse" \| null` | no | Force a transport instead of inferring it. |
 | `url` | `string \| null` | no | Endpoint for an http or sse server. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
@@ -1197,6 +1225,7 @@ List every configured MCP server with its scope, state and tools.
 
 | field | type | required | description |
 |---|---|---|---|
+| `includeShadowed` | `boolean` | no | Also list each declaration another scope overrides under the same name, marked shadowed: true (1.33.0). Off by default, so a client keyed by name keeps one row per server. |
 | `sessionId` | `string \| null` | no | Session whose workdir to read. |
 | `workdir` | `string \| null` | no | Project directory; defaults to the session's, then the daemon's. |
 
@@ -1204,7 +1233,7 @@ List every configured MCP server with its scope, state and tools.
 
 | field | type | required | description |
 |---|---|---|---|
-| `servers` | `({ args?: string[]; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning. |
+| `servers` | `({ args?: string[]; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; shadowed?: boolean; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning; with includeShadowed, each declaration that loses to another scope follows its winner with shadowed: true (1.33.0). |
 
 ### `mcp.reload`
 
@@ -1262,17 +1291,20 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 | `command` | `string \| null` | no | Executable for a stdio server. |
 | `cwd` | `string \| null` | no | Working directory for a stdio server. |
 | `disabled` | `boolean \| null` | no | Keep the entry but never start the server. |
-| `env` | `Record<string, string> \| null` | no | Environment for the child process. |
-| `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. |
+| `env` | `Record<string, string> \| null` | no | Environment for the child process. mcp.update, and mcp.test on a saved server, merge it key by key into the saved env (1.33.0); envRemove deletes keys. |
+| `envRemove` | `string[] \| null` | no | Probe without these saved environment variables, as mcp.update would (1.33.0). |
+| `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. mcp.update, and mcp.test on a saved server, merge them key by key into the saved headers (1.33.0); headersRemove deletes keys. |
+| `headersRemove` | `string[] \| null` | no | Probe without these saved HTTP headers, as mcp.update would (1.33.0). |
 | `name` | `string \| null` | no | Saved server to probe. |
 | `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `scope` | `"project" \| "global" \| "plugin" \| "settings" \| null` | no | Scope of the saved server. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `timeoutSec` | `number \| null` | no | Startup cap, in seconds. |
 | `toolTimeoutSec` | `number \| null` | no | Per-call cap, in seconds. |
-| `toolsExclude` | `string[] \| null` | no | Never register these tools of the server. |
-| `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. |
+| `toolsExclude` | `string[] \| null` | no | Never register these tools of the server. [] clears the filter; null or absent leaves it as saved. |
+| `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. [] clears the filter; null or absent leaves it as saved. |
 | `type` | `"stdio" \| "http" \| "sse" \| null` | no | Force a transport instead of inferring it. |
+| `unset` | `("args" \| "cwd" \| "disabled" \| "env" \| "headers" \| "timeoutSec" \| "toolTimeoutSec" \| "toolsExclude" \| "toolsInclude" \| "type")[] \| null` | no | Probe with these optional keys cleared, as mcp.update would (1.33.0). |
 | `url` | `string \| null` | no | Endpoint for an http or sse server. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
 
@@ -1296,10 +1328,15 @@ Merge a patch into an existing MCP server entry.
 
 | field | type | required | description |
 |---|---|---|---|
+| `acceptFindings` | `boolean` | no | Save the entry although the patch brings in a security finding; without it that is mcp_unsafe, as in mcp.add (1.33.0). |
+| `envRemove` | `string[] \| null` | no | Environment variables to delete from the saved entry (1.33.0). |
+| `force` | `boolean` | no | Same as acceptFindings here (1.33.0). |
+| `headersRemove` | `string[] \| null` | no | HTTP headers to delete from the saved entry (1.33.0). |
 | `name` | `string` | yes | Server name. |
-| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent is kept. |
+| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent or null is kept. env and headers merge key by key (1.33.0), except that a new url with no headers drops the saved headers; toolsInclude/toolsExclude [] clears that filter. |
 | `scope` | `"project" \| "global" \| null` | no | Which file to rewrite; omitted, the one that declares it. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
+| `unset` | `("args" \| "cwd" \| "disabled" \| "env" \| "headers" \| "timeoutSec" \| "toolTimeoutSec" \| "toolsExclude" \| "toolsInclude" \| "type")[] \| null` | no | Optional entry keys to clear, e.g. ['cwd', 'timeoutSec'] (1.33.0). Applied after the patch, as envRemove and headersRemove are, so a key named here is gone even if the patch also set it. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
 
 **Result**
@@ -2452,7 +2489,7 @@ Write a new SKILL.md, generated from a brief or supplied verbatim.
 |---|---|---|---|
 | `content` | `string \| null` | no | A complete SKILL.md body. When given, it is validated and written directly — no model turn runs. |
 | `description` | `string \| null` | no | Natural-language brief. Used only when 'content' is omitted: the daemon starts the same generating turn '/skill create' runs and answers with a turnId rather than waiting for it. |
-| `force` | `boolean` | no | Overwrite an existing SKILL.md at the target. |
+| `force` | `boolean` | no | Overwrite an existing SKILL.md at the target; without it an existing one answers skill_exists (1.33.0), in draft mode before any turn starts. |
 | `name` | `string` | yes | Skill name; also its directory and the future /<name>. |
 | `scope` | `"project" \| "global"` | no | Where to write the skill. |
 | `sessionId` | `string \| null` | no | Draft mode only ('content' omitted): run the generating turn on this existing session instead of creating a headless one. Must be rooted at 'workdir'; invalid_params otherwise. Ignored when 'content' is given. |
@@ -2516,7 +2553,9 @@ List installed skills.
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `workdir` | `string \| null` | no | List this project's skills, agents and commands beside the global, built-in and plugin ones (1.33.0). Omitted, the project rows are those of every project the daemon has loaded. |
 
 **Result**
 
@@ -2535,7 +2574,8 @@ Read a skill's SKILL.md.
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes | Skill to read. |
-| `workdir` | `string` | yes | Project directory to resolve a project-scoped skill in. |
+| `scope` | `"project" \| "global" \| "builtin" \| "plugin" \| null` | no | Look only in this scope (1.33.0); 'project' needs workdir. Omitted: the project (with a workdir), then global, then any other loaded skill. |
+| `workdir` | `string \| null` | no | Absolute project directory to resolve a project-scoped skill in; optional since 1.33.0, an empty string means none (never the daemon's directory) and a relative one is invalid_params. |
 
 **Result**
 
@@ -2543,7 +2583,8 @@ Read a skill's SKILL.md.
 |---|---|---|---|
 | `content` | `string` | yes | Its full text. |
 | `path` | `string` | yes | Where the SKILL.md was found. |
-| `scope` | `"project" \| "global"` | yes | 'project' or 'global', wherever it was found. |
+| `readOnly` | `boolean` | no | True when skill.write cannot save this file (1.33.0): a built-in or plugin skill, or one under Claude Code's own skills directory. |
+| `scope` | `"project" \| "global" \| "builtin" \| "plugin"` | yes | 'project' or 'global', or (1.33.0) 'builtin' for a skill that ships with the engine and 'plugin' for one a plugin brings. |
 
 ### `skill.reload`
 
@@ -2565,13 +2606,16 @@ _No params (send `{}`)._
 
 *Direction:* client → server
 
-Delete an installed skill or plugin.
+Delete a plugin, or a global or project skill, agent or command (1.33.0).
 
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `name` | `string` | yes | Installed plugin or skill to delete. |
+| `kind` | `"skill" \| "agent" \| "command" \| "plugin" \| null` | no | Only this kind of entry (1.33.0): a skill directory, an agent or command .md file, or a plugin. |
+| `name` | `string` | yes | Entry to delete: a skill, agent or command name, or a plugin's directory or manifest name as skill.list shows it (1.33.0). |
+| `scope` | `"project" \| "global" \| "plugin" \| null` | no | Look only here (1.33.0): 'plugin' ($SNOWPEA_HOME/plugins), 'global' ($SNOWPEA_HOME skills/, agents/, commands/) or 'project' (the workdir's .snowpea, then .claude). Omitted, the copy in effect goes: the project (with a workdir), then global, then plugins, so a skill wins over a plugin of the same name. Within a scope a skill, then an agent, then a command. |
+| `workdir` | `string \| null` | no | Absolute project directory; needed for scope 'project', and with no scope it puts the project's copies first (1.33.0). |
 
 **Result**
 
@@ -2603,7 +2647,7 @@ Search available skills.
 
 *Direction:* client → server
 
-Save a skill's SKILL.md verbatim.
+Save a skill's SKILL.md verbatim; says where, and whether it is in effect.
 
 **Params**
 
@@ -2612,13 +2656,15 @@ Save a skill's SKILL.md verbatim.
 | `content` | `string` | yes | Full SKILL.md text to save. |
 | `name` | `string` | yes | Skill to write. |
 | `scope` | `"project" \| "global"` | no | Where to write the skill. |
-| `workdir` | `string` | yes | Project directory, when scope is 'project'. |
+| `workdir` | `string \| null` | no | Project directory, when scope is 'project'; optional for 'global' (1.33.0), where it decides which project's skills may shadow the written copy (active). An empty string is no directory, never the daemon's; a relative one is refused. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | no | True when the call succeeded. |
+| `active` | `boolean` | yes | Whether that copy is the one in effect (1.33.0): false when a project skill or a Claude Code global skill of the same name shadows it. |
+| `ok` | `boolean` | no | True when the file was written. |
+| `path` | `string` | yes | Where the SKILL.md was written (1.33.0). |
 
 ### `system.checkUpdate`
 
@@ -2685,6 +2731,7 @@ Authenticate a connection and agree on the protocol version.
 | field | type | required | description |
 |---|---|---|---|
 | `capabilities` | `string[]` | no | Feature flags this daemon supports. |
+| `modelCategories` | `("fast" \| "standard" \| "deep" \| "vision")[]` | no | The models.categories slots this daemon routes by (1.33.0, capability 'modelCategories'); empty from an older daemon. |
 | `protocolVersion` | `string` | yes | Protocol semver the daemon speaks. |
 | `serverVersion` | `string` | yes | Version of the running daemon. |
 
@@ -3671,6 +3718,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `not_implemented` | Defined in the schema but not implemented in this milestone. |
 | `protocol_incompatible` | Client and server protocol majors differ. |
 | `session_busy` |  |
+| `skill_exists` |  |
 | `tool_inactive` | The tool exists but is disabled for this session. |
 | `unauthorized` | Missing or invalid token, or a call before `system.hello`. |
 | `unavailable` |  |

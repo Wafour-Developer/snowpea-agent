@@ -47,10 +47,10 @@ The result carries `protocolVersion`, `serverVersion` and a `capabilities` list,
 | providers | `provider.list`, `provider.configure`, `provider.loginWeb` |
 | agents | `agent.list`, `agent.create`, `agent.spawn`, `agent.bindChannel`, `agent.delete` |
 | team | `team.start`, `team.status` |
-| jobs | `job.schedule`, `job.list`, `job.cancel`, `job.runNow` |
+| jobs | `job.schedule`, `job.list`, `job.cancel`, `job.runNow`, `job.update`, `job.runs` |
 | gateway | `gateway.bind`, `gateway.list`, `gateway.unbind` |
 | memory | `memory.search`, `memory.write` |
-| skills | `skill.search`, `skill.install`, `skill.list`, `skill.remove`, `skill.reload` |
+| skills | `skill.search`, `skill.install`, `skill.list`, `skill.remove`, `skill.reload`, `skill.create`, `skill.read`, `skill.write` |
 | backend | `backend.set` |
 
 One method goes the other way. `approval.request` is a server-to-client *request*, not a notification: the daemon asks the client for a decision and waits for the reply. That bidirectionality is the reason the protocol is WebSocket JSON-RPC rather than HTTP plus a stream.
@@ -68,7 +68,7 @@ Every `session.event` carries a `seq` that increases monotonically within its se
 
 ## Errors
 
-Errors are JSON-RPC errors with a string code in `error.data.code`: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `search_provider_unavailable`, `browser_provider_unavailable`, `internal`.
+Errors are JSON-RPC errors with a string code in `error.data.code`: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `search_provider_unavailable`, `browser_provider_unavailable`, `internal`.
 
 ## Using the SDK
 

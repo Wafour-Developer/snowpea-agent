@@ -7,6 +7,7 @@ in ``build_dispatcher``; the loader itself is built by ``wire_core``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,15 +23,17 @@ from snowpea_core.server.protocol import (
     SkillInstallParams,
     SkillLearnParams,
     SkillLearnResult,
+    SkillListParams,
     SkillListResult,
     SkillReadParams,
     SkillReadResult,
+    SkillReadScope,
     SkillRemoveParams,
-    SkillScope,
     SkillSearchParams,
     SkillSearchResult,
     SkillSourceNotIncluded,
     SkillWriteParams,
+    SkillWriteResult,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.skills.generate import (
@@ -38,13 +41,22 @@ from snowpea_core.skills.generate import (
     skill_root,
     write_skill_document,
 )
-from snowpea_core.skills.loader import PROJECT_DIRS
+from snowpea_core.skills.loader import (
+    PROJECT_DIRS,
+    SOURCE_BUILTIN,
+    SOURCE_CLAUDE_GLOBAL,
+    SOURCE_CLAUDE_PLUGIN,
+    SOURCE_CLAUDE_PROJECT,
+    SOURCE_GLOBAL,
+    SOURCE_PROJECT,
+    builtin_root,
+)
 from snowpea_core.skills.marketplace import InstallError
 from snowpea_core.skills.publish import PublishError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
-    from snowpea_core.skills.loader import SkillLoader
+    from snowpea_core.skills.loader import LoadedSkill, SkillLoader
 
 log = logging.getLogger("snowpea.server.skill")
 
@@ -69,9 +81,31 @@ def _loader(core: Core) -> SkillLoader:
     return loader
 
 
-async def skill_list_handler(_conn: RpcConnection, _params: Empty, core: Core) -> SkillListResult:
+def _workdir(raw: str | None) -> Path | None:
+    """A client's ``workdir``; ``""`` is no directory, never the daemon's cwd (1.33.0).
+
+    A relative one would be read against the daemon's cwd too, so it is
+    ``invalid_params``.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    path = Path(text).expanduser()
+    if not path.is_absolute():
+        raise RpcError(errors.INVALID_PARAMS, f"workdir must be an absolute path: {text!r}")
+    return path
+
+
+async def skill_list_handler(
+    _conn: RpcConnection, params: SkillListParams, core: Core
+) -> SkillListResult:
     """``skill.list`` — plugins, skills, command files and agent definitions."""
-    return SkillListResult(skills=_loader(core).list())
+    loader = _loader(core)
+    workdir = _workdir(params.workdir)
+    if workdir is None:
+        return SkillListResult(skills=loader.list())
+    # A whole scan of the roots: off the event loop.
+    return SkillListResult(skills=await asyncio.to_thread(loader.list, workdir))
 
 
 async def skill_search_handler(
@@ -104,23 +138,129 @@ async def skill_reload_handler(_conn: RpcConnection, _params: Empty, core: Core)
 
 
 async def skill_remove_handler(_conn: RpcConnection, params: SkillRemoveParams, core: Core) -> Ok:
-    """``skill.remove`` — delete an installed plugin directory."""
-    if not await _loader(core).remove(params.name):
-        raise RpcError(errors.NOT_FOUND, f"no installed plugin named {params.name!r}")
+    """``skill.remove`` — a plugin, or a global or project skill, agent or command.
+
+    ``scope`` and ``kind`` narrow where it looks (1.33.0); ``not_found`` names
+    what was looked for and every path it tried.
+    """
+    name = params.name.strip()
+    workdir = _workdir(params.workdir)
+    if params.scope == "project" and workdir is None:
+        raise RpcError(errors.INVALID_PARAMS, "skill.remove with scope 'project' needs a workdir")
+    loader = _loader(core)
+    scope, kind = params.scope, params.kind
+    try:
+        removed = await loader.remove(name, scope=scope, workdir=workdir, kind=kind)
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    if removed is None:
+        looked = loader.removal_candidates(name, scope=scope, workdir=workdir, kind=kind)
+        what = params.kind or "plugin, skill, agent or command"
+        where = f" in scope {params.scope}" if params.scope else ""
+        raise RpcError(
+            errors.NOT_FOUND,
+            f"no {what} named {name!r}{where}",
+            {
+                "name": name,
+                "scope": params.scope,
+                "kind": params.kind,
+                "workdir": str(workdir) if workdir else None,
+                "looked": [str(path) for path in looked],
+            },
+        )
     return Ok(ok=True)
 
 
-def _resolve_skill_path(name: str, workdir: str, home: Path) -> tuple[Path, SkillScope] | None:
-    """First existing ``SKILL.md`` for ``name``: project dirs, then global."""
-    root = Path(workdir)
-    # ".snowpea" wins over ".claude" (loader order).
-    for relative, _source in reversed(PROJECT_DIRS):
-        candidate = root / relative / "skills" / name / "SKILL.md"
+#: Where a loaded skill's ``source`` puts it for ``skill.read`` (1.33.0).
+_READ_SCOPE: dict[str, SkillReadScope] = {
+    SOURCE_BUILTIN: "builtin",
+    SOURCE_GLOBAL: "global",
+    SOURCE_CLAUDE_GLOBAL: "global",
+    SOURCE_PROJECT: "project",
+    SOURCE_CLAUDE_PROJECT: "project",
+    SOURCE_CLAUDE_PLUGIN: "plugin",
+}
+
+#: Sources ``skill.write`` cannot save over: the engine's own skills, a
+#: plugin's, and Claude Code's global ones (a snowpea copy would lose to them).
+_READ_ONLY_SOURCES = frozenset({SOURCE_BUILTIN, SOURCE_CLAUDE_GLOBAL, SOURCE_CLAUDE_PLUGIN})
+
+
+def _read_scope(source: str) -> SkillReadScope:
+    return "plugin" if source.startswith("plugin:") else _READ_SCOPE.get(source, "global")
+
+
+def _read_only(source: str) -> bool:
+    return source in _READ_ONLY_SOURCES or source.startswith("plugin:")
+
+
+def _resolve_skill_path(
+    name: str,
+    workdir: Path | None,
+    home: Path,
+    scope: SkillReadScope | None = None,
+    loader: SkillLoader | None = None,
+) -> tuple[Path, SkillReadScope, bool] | None:
+    """The ``SKILL.md`` ``skill.read`` answers with: ``(path, scope, readOnly)``.
+
+    With ``scope`` only that scope is looked in (1.33.0).  Without it: the
+    project's ``.snowpea`` then ``.claude`` (with a ``workdir``), then the
+    global directory, then whatever skill the loader has under that name —
+    a built-in or a plugin's included.
+    """
+    loaded: LoadedSkill | None = None
+    if loader is not None:
+        candidate_skill = loader.skills.get(name)
+        if candidate_skill is not None and candidate_skill.kind == "skill":
+            loaded = candidate_skill
+
+    def from_loader(*scopes: SkillReadScope) -> tuple[Path, SkillReadScope, bool] | None:
+        if loaded is None or loaded.doc.path is None or not loaded.doc.path.is_file():
+            return None
+        found = _read_scope(loaded.source)
+        if found not in scopes:
+            return None
+        if found == "project" and (workdir is None or not loaded.doc.path.is_relative_to(workdir)):
+            # Another project's skill is not this project's.
+            return None
+        return loaded.doc.path, found, _read_only(loaded.source)
+
+    if scope in (None, "project") and workdir is not None:
+        # ".snowpea" wins over ".claude" (loader order).
+        for relative, _source in reversed(PROJECT_DIRS):
+            candidate = workdir / relative / "skills" / name / "SKILL.md"
+            if candidate.is_file():
+                return candidate, "project", False
+        if scope == "project":
+            return from_loader("project")
+    if scope in (None, "global"):
+        candidate = home / "skills" / name / "SKILL.md"
         if candidate.is_file():
-            return candidate, "project"
-    candidate = home / "skills" / name / "SKILL.md"
-    if candidate.is_file():
-        return candidate, "global"
+            return candidate, "global", False
+        if scope == "global":
+            return from_loader("global")
+    if scope is None:
+        found = from_loader("project", "global", "builtin", "plugin")
+        if found is not None:
+            return found
+    if scope in (None, "builtin"):
+        candidate = builtin_root() / name / "SKILL.md"
+        if candidate.is_file():
+            return candidate, "builtin", True
+        if scope == "builtin":
+            return from_loader("builtin")
+    if scope in (None, "plugin"):
+        found = from_loader("plugin")
+        if found is not None:
+            return found
+        for plugin in loader.plugins if loader is not None else []:
+            candidates = [plugin.root / "skills" / name / "SKILL.md"]
+            if name in (plugin.name, plugin.root.name):
+                # A plugin that is one bare skill (M15 §B5c).
+                candidates.append(plugin.root / "SKILL.md")
+            for candidate in candidates:
+                if candidate.is_file():
+                    return candidate, "plugin", True
     return None
 
 
@@ -135,13 +275,16 @@ async def skill_create_handler(
     global_ = params.scope == "global"
     home = Path(core.paths.home)
 
+    directory = skill_root(name, workdir=params.workdir, home=home, global_=global_)
     if params.content is not None:
-        directory = skill_root(name, workdir=params.workdir, home=home, global_=global_)
         try:
             package = write_skill_document(
                 directory, params.content, requested_name=name, force=params.force
             )
-        except (PublishError, SkillCreateError) as exc:
+        except SkillCreateError as exc:
+            details = {"path": str(directory / "SKILL.md")}
+            raise RpcError(errors.SKILL_EXISTS, str(exc), details) from exc
+        except PublishError as exc:
             raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
         loader = getattr(core, "skills", None)
         if loader is not None:
@@ -151,6 +294,14 @@ async def skill_create_handler(
     description = (params.description or "").strip()
     if not description:
         raise RpcError(errors.INVALID_PARAMS, "skill.create needs 'content' or 'description'")
+    target = directory / "SKILL.md"
+    if target.is_file() and not params.force:
+        # Refused before a turn starts, with the same code as the content path.
+        raise RpcError(
+            errors.SKILL_EXISTS,
+            f"{target} already exists; pass force to overwrite it",
+            {"path": str(target)},
+        )
 
     turn_conn: RpcConnection | None
     if params.sessionId:
@@ -209,28 +360,66 @@ async def skill_learn_handler(
 async def skill_read_handler(
     _conn: RpcConnection, params: SkillReadParams, core: Core
 ) -> SkillReadResult:
-    """``skill.read`` — the SKILL.md text for the editor form."""
+    """``skill.read`` — the SKILL.md text for the editor form, or a viewer."""
     try:
         name = validate_name(params.name)
     except DefinitionError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    found = _resolve_skill_path(name, params.workdir, Path(core.paths.home))
+    workdir = _workdir(params.workdir)
+    if params.scope == "project" and workdir is None:
+        raise RpcError(errors.INVALID_PARAMS, "skill.read with scope 'project' needs a workdir")
+    found = _resolve_skill_path(
+        name, workdir, Path(core.paths.home), params.scope, getattr(core, "skills", None)
+    )
     if found is None:
-        raise RpcError(errors.NOT_FOUND, f"no skill named {name!r}")
-    path, scope = found
+        where = f" in scope {params.scope}" if params.scope else ""
+        raise RpcError(
+            errors.NOT_FOUND,
+            f"no skill named {name!r}{where}",
+            {"name": name, "scope": params.scope},
+        )
+    path, scope, read_only = found
     return SkillReadResult(
-        path=str(path), content=path.read_text(encoding="utf-8"), scope=scope
+        path=str(path),
+        content=path.read_text(encoding="utf-8"),
+        scope=scope,
+        readOnly=read_only,
     )
 
 
-async def skill_write_handler(_conn: RpcConnection, params: SkillWriteParams, core: Core) -> Ok:
-    """``skill.write`` — save the editor form's text verbatim."""
+def _in_effect(core: Core, name: str, workdir: Path | None) -> Path | None:
+    """The ``SKILL.md`` a session in ``workdir`` (or in no project) loads for ``name``.
+
+    A scratch scan of the same roots, so a project the daemon has never loaded
+    still answers, and a Claude Code copy that wins is seen as winning.
+    """
+    from snowpea_core.skills.loader import SkillLoader
+
+    scratch = SkillLoader(core, workdirs=[workdir] if workdir is not None else [])
+    scratch.scan()
+    loaded = scratch.skills.get(name)
+    return loaded.doc.path if loaded is not None and loaded.kind == "skill" else None
+
+
+async def skill_write_handler(
+    _conn: RpcConnection, params: SkillWriteParams, core: Core
+) -> SkillWriteResult:
+    """``skill.write`` — save the editor form's text verbatim.
+
+    Answers where it was written and whether that copy is the one in effect
+    (1.33.0): a project skill of the same name shadows a global one, and a
+    Claude Code global skill shadows a snowpea global one.
+    """
     try:
         name = validate_name(params.name)
     except DefinitionError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    global_ = params.scope == "global"
+    workdir = _workdir(params.workdir)
+    if not global_ and workdir is None:
+        raise RpcError(errors.INVALID_PARAMS, "skill.write with scope 'project' needs a workdir")
     directory = skill_root(
-        name, workdir=params.workdir, home=Path(core.paths.home), global_=params.scope == "global"
+        name, workdir=workdir or Path(core.paths.home), home=Path(core.paths.home), global_=global_
     )
     try:
         write_skill_document(directory, params.content, requested_name=name, force=True)
@@ -239,7 +428,10 @@ async def skill_write_handler(_conn: RpcConnection, params: SkillWriteParams, co
     loader = getattr(core, "skills", None)
     if loader is not None:
         await loader.reload()
-    return Ok(ok=True)
+    path = directory / "SKILL.md"
+    effective = await asyncio.to_thread(_in_effect, core, name, workdir)
+    active = effective is not None and effective.resolve() == path.resolve()
+    return SkillWriteResult(ok=True, path=str(path), active=active)
 
 
 def register_skill_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:

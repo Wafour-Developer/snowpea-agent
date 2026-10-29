@@ -176,6 +176,9 @@ class Session:
     #: schema and never joins the tool list, because a chat template renders
     #: the tools first and a changed list re-prefills the whole conversation.
     fixed_tool_list: bool = False
+    #: ``((vendor, model), provider)`` built for a planning round on
+    #: ``models.categories.deep`` (1.33.0), rebuilt only when the pair changes.
+    deep_provider: Any = None
     #: Set by ``session.interrupt``; the agent loop checks it between steps.
     interrupt: asyncio.Event = field(default_factory=asyncio.Event)
     #: True when the interrupt came from a user-facing stop request. Shutdown

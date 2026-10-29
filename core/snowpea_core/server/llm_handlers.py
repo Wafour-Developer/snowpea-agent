@@ -19,7 +19,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.config.model_routing import ModelRoute, fast_route
+from snowpea_core.config.model_routing import ModelRoute, category_route, deep_route, fast_route
 from snowpea_core.providers import routing
 from snowpea_core.providers.base import ChatMessage, ProviderError
 from snowpea_core.providers.call_timing import CallTiming
@@ -81,6 +81,11 @@ def _route(core: Core, session: Session, category: str) -> ModelRoute:
     own = ModelRoute(session.provider, session.model)
     if category == "fast":
         return fast_route(core.settings, own, workdir=session.workdir)
+    if category == "deep":
+        return deep_route(core.settings, own, workdir=session.workdir)
+    if category == "standard":
+        route = category_route(core.settings, "standard", workdir=session.workdir)
+        return route if route.resolved() else own
     return own
 
 

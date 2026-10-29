@@ -18,18 +18,26 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent import agent as agent_mod
-from snowpea_core.agent import call_fixups, context_files, host_context, plan_store, verify_gate
+from snowpea_core.agent import (
+    call_fixups,
+    context_files,
+    host_context,
+    image_describe,
+    plan_store,
+    verify_gate,
+)
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.agent.subagent import agent_guarded
 from snowpea_core.agent.tool_batch import plan_tool_batch_segments
 from snowpea_core.attachments import pending
+from snowpea_core.config.model_routing import deep_if_set
 from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.exec.local import LocalBackend
 from snowpea_core.memory import context_for_turn, extract_after_turn, nudge_after_turn
@@ -605,6 +613,71 @@ def transient_provider_error(exc: BaseException) -> bool:
 PROVIDER_RETRY_BASE_SEC = 2.0
 
 
+@dataclass
+class _RoundModel:
+    """What one model call runs on: the session's own model, or ``deep`` (1.33.0)."""
+
+    provider: Any
+    config: AgentConfig
+    fixed_tool_list: bool
+    #: True for a planning round on ``models.categories.deep``.
+    deep: bool = False
+
+
+class _RouteView:
+    """``session`` as :func:`agent_config` should read it for another route."""
+
+    def __init__(self, session: Session, provider: str | None, model: str | None) -> None:
+        self._session = session
+        self.provider = provider
+        self.model = model
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+
+def _round_model(core: Core, session: Session, own: _RoundModel) -> _RoundModel:
+    """``own``, unless a root session that plans has ``deep`` to think on.
+
+    A root session in plan mode runs on ``models.categories.deep`` when that
+    is set (1.33.0), checked every round so a turn that leaves plan mode goes
+    back to its own model at the next call.  The round's output budget,
+    thinking, effort and tool-list style are read for the deep model; the
+    provider is built once per ``(vendor, model)``.  With ``deep`` unset this
+    returns ``own`` itself, so nothing about the session's requests changes.
+    """
+    if session.is_subagent or session.mode != "plan":
+        return own
+    deep = deep_if_set(core.settings, workdir=session.workdir)
+    if not deep.resolved():
+        return own
+    key = (deep.provider, deep.model)
+    cached = session.deep_provider
+    if cached is None or cached[0] != key:
+        cached = (key, core.providers.get(deep.provider, deep.model))
+        session.deep_provider = cached
+    config = agent_config(core, _RouteView(session, deep.provider, deep.model))  # type: ignore[arg-type]
+    vendor = deep.provider or core.providers.default_vendor()
+    return _RoundModel(
+        provider=cached[1],
+        config=replace(config, max_tool_rounds=own.config.max_tool_rounds, model=deep.model),
+        fixed_tool_list=core.providers.is_local_style(vendor),
+        deep=True,
+    )
+
+
+def _round_messages(messages: list[ChatMessage], current: _RoundModel) -> list[ChatMessage]:
+    """The request's messages; a deep round is sent no stored reasoning.
+
+    That reasoning came from the session's own model, and one vendor's
+    thinking replayed to another is at best noise.  Only this request is
+    changed — the stored history keeps it for the session's own next call.
+    """
+    if not current.deep:
+        return messages
+    return [replace(m, reasoning=None) if m.reasoning else m for m in messages]
+
+
 def _provider_retries(core: Core) -> int:
     try:
         return max(0, int(core.settings.agent.provider_retries))
@@ -896,7 +969,9 @@ async def _model_turn(
             )
             budget, thinking = config.max_tokens, "off"
         else:
-            budget = context_windows.clamp_output_tokens(session.model, config.max_tokens * 2)
+            budget = context_windows.clamp_output_tokens(
+                config.model or session.model, config.max_tokens * 2
+            )
             thinking = config.thinking
             log.info(
                 "turn spent its whole %d-token budget on reasoning (%d tokens); retrying with %d",
@@ -1509,11 +1584,16 @@ async def _drive(
 ) -> str:
     """The loop proper; emits ``turn.done`` itself and returns its reason."""
     hub = core.hub
-    config = agent_config(core, session)
     policy: PermissionPolicy = core.policy
     backend = backend_for(core, session)
-    provider = core.providers.get(session.provider, session.model)
-    session.fixed_tool_list = core.providers.is_local_style(session.provider or "")
+    own = _RoundModel(
+        provider=core.providers.get(session.provider, session.model),
+        config=agent_config(core, session),
+        fixed_tool_list=core.providers.is_local_style(session.provider or ""),
+    )
+    current = _round_model(core, session, own)
+    provider, config = current.provider, current.config
+    session.fixed_tool_list = current.fixed_tool_list
     # Before the first tool split: the plan says which tools an agent defers.
     agent_mod.prompt_plan(session, core)
 
@@ -1529,13 +1609,9 @@ async def _drive(
     history_text = model_text if model_text is not None else text
     turn_message: ChatMessage | None = None
     if history_text or attachments:
+        blocks = content_parts.history_blocks(history_text, attachments) if attachments else None
         turn_message = ChatMessage(
-            role="user",
-            content=(
-                content_parts.history_blocks(history_text, attachments)
-                if attachments
-                else history_text
-            ),
+            role="user", content=blocks if blocks is not None else history_text
         )
         session.history.append(turn_message)
         session.history.compact()
@@ -1550,6 +1626,10 @@ async def _drive(
                 session.id,
                 events.message_user(text, attachments, refs=refs, expansion=expansion),
             )
+        if blocks is not None:
+            # A blind model gets the vision model's description of each image,
+            # stored with the turn before its first request (1.33.0).
+            await image_describe.describe_blocks(core, session, blocks)
         if not session.is_subagent:
             # What a host may judge intent by (a payment card only for a
             # request that means to pay): the person's words, never a task an
@@ -1611,6 +1691,9 @@ async def _drive(
     # tool.register yet: give it a moment, or the turn starts without repl.
     await host_tools_mod.wait_for_registration(core, session)
     while True:
+        current = _round_model(core, session, own)
+        provider, config = current.provider, current.config
+        session.fixed_tool_list = current.fixed_tool_list
         # Persist each safe round boundary, including steering and child evidence.
         # No outstanding tool-call/result pair is split by these notices.
         await _flush_notices(session)
@@ -1767,7 +1850,7 @@ async def _drive(
             # The first round was checked before the prompt joined history.
             await compaction.maybe_auto_compact(core, session)
         specs = core.tools.specs(session)
-        messages = build_messages(session, specs, memory_block, core=core)
+        messages = _round_messages(build_messages(session, specs, memory_block, core=core), current)
         try:
             attempt = await _model_turn(core, session, provider, messages, specs, config)
         except ProviderError as exc:
@@ -1780,7 +1863,9 @@ async def _drive(
             if not compacted.compacted:
                 raise
             specs = core.tools.specs(session)
-            messages = build_messages(session, specs, memory_block, core=core)
+            messages = _round_messages(
+                build_messages(session, specs, memory_block, core=core), current
+            )
             attempt = await _model_turn(core, session, provider, messages, specs, config)
         progress.add_usage(attempt)
         calls = _repair_calls(core, session, attempt.calls)
@@ -1865,7 +1950,9 @@ async def _drive(
                 tool_calls=list(calls),
                 reasoning=(
                     attempt.reasoning or None
-                    if getattr(provider, "replays_reasoning", False)
+                    # A deep round's thinking is never stored: the session's
+                    # own model would be sent it back.
+                    if getattr(provider, "replays_reasoning", False) and not current.deep
                     else None
                 ),
             )
@@ -2407,6 +2494,9 @@ async def _run_one_call(
             limit=prompt_env.context_file_max_chars(session.context_window, override),
         )
 
+    if result.ok and result.meta and (result.meta.get("image") or result.meta.get("images")):
+        # A blind model reads what the vision model saw (1.33.0); unset, a no-op.
+        result = await image_describe.describe_tool_images(core, session, result)
     sensitive = bool(result.meta and result.meta.get("sensitive"))
     raw_content = (result.meta or {}).get("content") if not sensitive else None
     event_content = (
