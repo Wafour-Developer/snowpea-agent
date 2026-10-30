@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.33.0";
+export const PROTOCOL_VERSION = "1.34.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -20,6 +20,7 @@ export type ErrorCode =
   | "invalid_output"
   | "invalid_params"
   | "login_unsupported"
+  | "mcp_auth_failed"
   | "mcp_exists"
   | "mcp_invalid"
   | "mcp_not_found"
@@ -45,6 +46,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "invalid_output",
   "invalid_params",
   "login_unsupported",
+  "mcp_auth_failed",
   "mcp_exists",
   "mcp_invalid",
   "mcp_not_found",
@@ -1202,6 +1204,15 @@ export interface McpAddParams {
   headers?: Record<string, string> | null;
   /** Server name; ^[a-zA-Z0-9_-]{1,64}$. */
   name: string;
+  /** OAuth client settings for an http/sse server (1.34.0); mcp.update merges them key by key. */
+  oauth?: {
+    /** Client ID registered with the server's authorization server; needed when it offers no dynamic client registration (RFC 7591). */
+    clientId?: string | null;
+    /** Secret of a confidential client; write it as ${NAME} to keep it in credentials.json. Never reported back. */
+    clientSecret?: string | null;
+    /** Scopes to ask for, space separated; default: what the server advertises. */
+    scope?: string | null;
+  } | null;
   /** Permission tag for the server's tools; stored in settings. */
   permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
   /** Catalog id copied before the explicit fields are applied. */
@@ -1232,6 +1243,15 @@ export interface McpAddParams {
 
 /** `mcp.add` result. */
 export interface McpAddResult {
+  /** OAuth standing (1.34.0). A probe that met 401 still writes the entry, with state needs_auth, so the client can go on to mcp.authorize. */
+  auth?: {
+    /** The entry's configured oauth.clientId, when it has one. */
+    clientId?: string | null;
+    /** True when the server asked for authorization (answered 401) or a sign-in is stored for it. */
+    required?: boolean;
+    /** ok (tokens stored for this URL), needs_auth (the server answered 401 and a refresh did not help: call mcp.authorize) or none. */
+    state?: "ok" | "needs_auth" | "none";
+  };
   /** Why the server did not start. */
   error?: string | null;
   /** True when the entry was written. */
@@ -1251,6 +1271,54 @@ export interface McpAddResult {
   warnings?: string[];
 }
 
+/** `mcp.authorize` params. Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0). */
+export interface McpAuthorizeParams {
+  /** Server name. */
+  name: string;
+  /** Redirect URI the host catches itself (its own tab) and hands back with mcp.authorize.complete: http on 127.0.0.1, localhost or [::1] (any port), https, or a private-use scheme; never javascript:, data:, file: or a fragment (invalid_params). Omitted, the daemon listens on http://127.0.0.1:<random port>/callback and completes on its own. */
+  redirectUri?: string | null;
+  /** Scopes to ask for; default: the entry's oauth.scope, then the server's WWW-Authenticate scope, then its advertised scopes_supported. */
+  scope?: string | null;
+  /** Session whose workdir to use. */
+  sessionId?: string | null;
+  /** Project directory that declares it. */
+  workdir?: string | null;
+}
+
+/** `mcp.authorize` result. */
+export interface McpAuthorizeResult {
+  /** When the flow stops waiting, ISO-8601 UTC. */
+  expiresAt: string;
+  /** Redirect URI the consent URL carries: the given one or the loopback listener. */
+  redirectUri: string;
+  /** Opaque flow id; mcp.authorize.complete takes it back. */
+  state: string;
+  /** Consent URL to open in a browser. */
+  url: string;
+}
+
+/** `mcp.authorize.complete` params. Finish an mcp.authorize flow with the code the host's own redirect caught. */
+export interface McpAuthorizeCompleteParams {
+  /** The redirect's ?code=. */
+  code?: string | null;
+  /** The redirect's ?error=, when the user or server refused. */
+  error?: string | null;
+  /** The redirect's ?iss= (RFC 9207). Checked against the authorization server's issuer; required when it advertises authorization_response_iss_parameter_supported. */
+  iss?: string | null;
+  /** The state mcp.authorize returned (the redirect's ?state=). */
+  state: string;
+}
+
+/** `mcp.authorize.complete` result. */
+export interface McpAuthorizeCompleteResult {
+  /** Server the sign-in was for. */
+  name: string;
+  /** True when the tokens were stored. */
+  ok?: boolean;
+  /** Server state after the restart with the new token. */
+  state?: "stopped" | "starting" | "ready" | "error";
+}
+
 /** `mcp.catalog` params. The curated MCP servers a client can offer as presets. */
 export type McpCatalogParams = Record<string, unknown>;
 
@@ -1258,6 +1326,8 @@ export type McpCatalogParams = Record<string, unknown>;
 export interface McpCatalogResult {
   /** Curated servers, in display order. */
   entries?: ({
+    /** How the server authenticates (1.34.0): oauth (sign in with mcp.authorize after adding it), token (a key listed in needs) or none. */
+    auth?: "oauth" | "token" | "none";
     /** What the server does. */
     description?: string;
     /** The .mcp.json entry this preset writes. */
@@ -1268,11 +1338,29 @@ export interface McpCatalogResult {
     id: string;
     /** Human name. */
     label: string;
-    /** Environment variables the user must supply. */
+    /** Variables the user must supply. The entry refers to them as ${NAME} (1.34.0), so the value can live in credentials.json or the daemon's environment, or a client may write it into the entry instead. */
     needs?: string[];
     /** stdio, http or sse. */
     transport: "stdio" | "http" | "sse";
   })[];
+}
+
+/** `mcp.deauthorize` params. Forget a remote MCP server's stored OAuth tokens (1.34.0). */
+export interface McpDeauthorizeParams {
+  /** Server name. */
+  name: string;
+  /** Session whose workdir to use. */
+  sessionId?: string | null;
+  /** Project directory that declares it. */
+  workdir?: string | null;
+}
+
+/** `mcp.deauthorize` result. */
+export interface McpDeauthorizeResult {
+  /** True when the call ran. */
+  ok?: boolean;
+  /** True when a stored sign-in was deleted. */
+  removed?: boolean;
 }
 
 /** `mcp.list` params. List every configured MCP server with its scope, state and tools. */
@@ -1291,6 +1379,15 @@ export interface McpListResult {
   servers?: ({
     /** Arguments, argv style. */
     args?: string[];
+    /** OAuth standing (1.34.0): needs_auth when the server answered 401, so a client can offer a sign-in instead of showing a generic error. */
+    auth?: {
+      /** The entry's configured oauth.clientId, when it has one. */
+      clientId?: string | null;
+      /** True when the server asked for authorization (answered 401) or a sign-in is stored for it. */
+      required?: boolean;
+      /** ok (tokens stored for this URL), needs_auth (the server answered 401 and a refresh did not help: call mcp.authorize) or none. */
+      state?: "ok" | "needs_auth" | "none";
+    };
     /** Executable, for a stdio server. */
     command?: string | null;
     /** Working directory for a stdio server. */
@@ -1395,6 +1492,15 @@ export interface McpTestParams {
   headersRemove?: string[] | null;
   /** Saved server to probe. */
   name?: string | null;
+  /** OAuth client settings for an http/sse server (1.34.0); mcp.update merges them key by key. */
+  oauth?: {
+    /** Client ID registered with the server's authorization server; needed when it offers no dynamic client registration (RFC 7591). */
+    clientId?: string | null;
+    /** Secret of a confidential client; write it as ${NAME} to keep it in credentials.json. Never reported back. */
+    clientSecret?: string | null;
+    /** Scopes to ask for, space separated; default: what the server advertises. */
+    scope?: string | null;
+  } | null;
   /** Permission tag for the server's tools; stored in settings. */
   permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
   /** Scope of the saved server. Given, that scope's declaration is the one probed or merged onto, not whichever wins; when it has none the draft is probed on its own (1.33.0). */
@@ -1412,7 +1518,7 @@ export interface McpTestParams {
   /** Force a transport instead of inferring it. */
   type?: "stdio" | "http" | "sse" | null;
   /** Probe with these optional keys cleared, as mcp.update would (1.33.0). */
-  unset?: ("args" | "cwd" | "disabled" | "env" | "headers" | "timeoutSec" | "toolTimeoutSec" | "toolsExclude" | "toolsInclude" | "type")[] | null;
+  unset?: ("args" | "cwd" | "disabled" | "env" | "headers" | "timeoutSec" | "toolTimeoutSec" | "toolsExclude" | "toolsInclude" | "type" | "oauth")[] | null;
   /** Endpoint for an http or sse server. */
   url?: string | null;
   /** Project directory for scope=project. */
@@ -1421,6 +1527,15 @@ export interface McpTestParams {
 
 /** `mcp.test` result. */
 export interface McpTestResult {
+  /** OAuth standing the probe found: needs_auth when it was refused with 401. */
+  auth?: {
+    /** The entry's configured oauth.clientId, when it has one. */
+    clientId?: string | null;
+    /** True when the server asked for authorization (answered 401) or a sign-in is stored for it. */
+    required?: boolean;
+    /** ok (tokens stored for this URL), needs_auth (the server answered 401 and a refresh did not help: call mcp.authorize) or none. */
+    state?: "ok" | "needs_auth" | "none";
+  };
   /** How long the probe took. */
   elapsedMs?: number;
   /** Spawn or protocol error, verbatim. */
@@ -1464,6 +1579,15 @@ export interface McpUpdateParams {
     env?: Record<string, string> | null;
     /** HTTP headers sent with every request. mcp.update, and mcp.test on a saved server, merge them key by key into the saved headers (1.33.0); headersRemove deletes keys. */
     headers?: Record<string, string> | null;
+    /** OAuth client settings for an http/sse server (1.34.0); mcp.update merges them key by key. */
+    oauth?: {
+      /** Client ID registered with the server's authorization server; needed when it offers no dynamic client registration (RFC 7591). */
+      clientId?: string | null;
+      /** Secret of a confidential client; write it as ${NAME} to keep it in credentials.json. Never reported back. */
+      clientSecret?: string | null;
+      /** Scopes to ask for, space separated; default: what the server advertises. */
+      scope?: string | null;
+    } | null;
     /** Permission tag for the server's tools; stored in settings. */
     permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
     /** Startup cap, in seconds. */
@@ -1484,7 +1608,7 @@ export interface McpUpdateParams {
   /** Session whose workdir to use. */
   sessionId?: string | null;
   /** Optional entry keys to clear, e.g. ['cwd', 'timeoutSec'] (1.33.0). Applied after the patch, as envRemove and headersRemove are, so a key named here is gone even if the patch also set it. */
-  unset?: ("args" | "cwd" | "disabled" | "env" | "headers" | "timeoutSec" | "toolTimeoutSec" | "toolsExclude" | "toolsInclude" | "type")[] | null;
+  unset?: ("args" | "cwd" | "disabled" | "env" | "headers" | "timeoutSec" | "toolTimeoutSec" | "toolsExclude" | "toolsInclude" | "type" | "oauth")[] | null;
   /** Project directory for scope=project. */
   workdir?: string | null;
 }
@@ -3588,6 +3712,8 @@ export interface SkillListResult {
   skills?: ({
     /** Download count, when the source publishes one; 0 means unknown. */
     downloads?: number;
+    /** False for an installed skill or command settings.skills.disabled names (1.34.0): kept out of the prompt index, the slash commands and auto-injection, but still readable and removable. */
+    enabled?: boolean;
     /** Registry id; empty for local entries. */
     id?: string;
     /** What to pass to skill.install to get this entry. */
@@ -3677,6 +3803,8 @@ export interface SkillSearchResult {
   skills?: ({
     /** Download count, when the source publishes one; 0 means unknown. */
     downloads?: number;
+    /** False for an installed skill or command settings.skills.disabled names (1.34.0): kept out of the prompt index, the slash commands and auto-injection, but still readable and removable. */
+    enabled?: boolean;
     /** Registry id; empty for local entries. */
     id?: string;
     /** What to pass to skill.install to get this entry. */
@@ -4479,8 +4607,27 @@ export interface LspInstallProgressPayload {
   stage: "start" | "output" | "done";
 }
 
+/** `mcp.auth.done` notification payload. */
+export interface McpAuthDonePayload {
+  /** Why it failed: refused, timed out, or the exchange failed. */
+  error?: string | null;
+  /** Server name. */
+  name: string;
+  /** True when tokens were stored and the server restarted. */
+  ok: boolean;
+}
+
 /** `mcp.changed` notification payload. */
 export interface McpChangedPayload {
+  /** OAuth standing after the transition (1.34.0). */
+  auth?: {
+    /** The entry's configured oauth.clientId, when it has one. */
+    clientId?: string | null;
+    /** True when the server asked for authorization (answered 401) or a sign-in is stored for it. */
+    required?: boolean;
+    /** ok (tokens stored for this URL), needs_auth (the server answered 401 and a refresh did not help: call mcp.authorize) or none. */
+    state?: "ok" | "needs_auth" | "none";
+  } | null;
   /** Why the server is in the error state. */
   error?: string | null;
   /** Server name. */
@@ -5369,7 +5516,10 @@ export interface MethodMap {
   "lsp.restart": { params: LspRestartParams; result: LspRestartResult };
   "lsp.status": { params: LspStatusParams; result: LspStatusResult };
   "mcp.add": { params: McpAddParams; result: McpAddResult };
+  "mcp.authorize": { params: McpAuthorizeParams; result: McpAuthorizeResult };
+  "mcp.authorize.complete": { params: McpAuthorizeCompleteParams; result: McpAuthorizeCompleteResult };
   "mcp.catalog": { params: McpCatalogParams; result: McpCatalogResult };
+  "mcp.deauthorize": { params: McpDeauthorizeParams; result: McpDeauthorizeResult };
   "mcp.list": { params: McpListParams; result: McpListResult };
   "mcp.reload": { params: McpReloadParams; result: McpReloadResult };
   "mcp.remove": { params: McpRemoveParams; result: McpRemoveResult };
@@ -5510,7 +5660,10 @@ export type ClientMethod =
   | "lsp.restart"
   | "lsp.status"
   | "mcp.add"
+  | "mcp.authorize"
+  | "mcp.authorize.complete"
   | "mcp.catalog"
+  | "mcp.deauthorize"
   | "mcp.list"
   | "mcp.reload"
   | "mcp.remove"
@@ -5616,6 +5769,7 @@ export interface EventMap {
   "job.event": JobEventPayload;
   "lsp.changed": LspChangedPayload;
   "lsp.install.progress": LspInstallProgressPayload;
+  "mcp.auth.done": McpAuthDonePayload;
   "mcp.changed": McpChangedPayload;
   "provider.loginProgress": ProviderLoginProgressPayload;
   "question.pending": QuestionPendingPayload;
@@ -5638,6 +5792,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "job.event",
   "lsp.changed",
   "lsp.install.progress",
+  "mcp.auth.done",
   "mcp.changed",
   "provider.loginProgress",
   "question.pending",

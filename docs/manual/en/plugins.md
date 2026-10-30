@@ -185,7 +185,8 @@ Permission defaults to `network` per server and can be overridden in settings un
 snowpea mcp list
 snowpea mcp add notes -- python -m my_notes_server
 snowpea mcp add remote --url https://example.internal/mcp --header Authorization=Bearer-xxx
-snowpea mcp add github --preset github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
+snowpea mcp add github --preset github     # sends Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}
+snowpea mcp add linear --preset linear     # then sign in: see below
 snowpea mcp test notes
 snowpea mcp get notes
 snowpea mcp disable notes
@@ -202,6 +203,35 @@ Secrets are never echoed back: `env` and `headers` stay in the file you chose, a
 Adding, removing or updating a server takes effect immediately: the old process is stopped, its tools leave the registry, and the new entry is picked up without restarting the daemon.
 
 Over RPC (protocol 1.33.0), `mcp.add` takes two separate answers: `acceptFindings` adds an entry despite the security findings `mcp_unsafe` reported, and `replace` overwrites a name already declared in the target file instead of answering `mcp_exists`. Neither implies the other; `force` is still both. `mcp.update` merges `env` and `headers` key by key, so one secret can be rotated without resending the others; `envRemove` and `headersRemove` delete keys, and `unset` clears optional keys (`args`, `cwd`, `disabled`, `env`, `headers`, `timeoutSec`, `toolTimeoutSec`, `toolsExclude`, `toolsInclude`, `type`) after the patch is applied. In a patch, `toolsInclude: []` or `toolsExclude: []` clears that filter, and `null` or an absent key leaves it as saved. A patch that changes `url` without giving `headers` drops the saved headers, so one endpoint's credentials never go to another. `mcp.update` runs the same security check as `mcp.add` on the entry it would save: a finding the patch brings in is `mcp_unsafe` unless `acceptFindings` (or `force`) is set, while findings the entry already had do not ask again. `mcp.test` takes `envRemove`, `headersRemove` and `unset` too, so a draft probes exactly what the update would save; with a `scope` it merges onto that scope's declaration rather than the winner's, and probes the draft alone when that scope has none. Writes only restart what runs when the copy in effect changes: adding, editing or removing a copy another scope shadows touches the file and nothing else, removing the winner starts the copy it shadowed, and removing the last copy stops the server. Pass the `workdir` (or `sessionId`) of the project you mean, since that decides which copy wins. `mcp.list {includeShadowed: true}` also lists each declaration another scope overrides — a global entry hidden by a project entry of the same name — right after its winner, marked `shadowed: true`.
+
+### Variables in an entry
+
+Since protocol 1.34.0 (capability `mcpVarExpansion`), `${NAME}` in a server's `args`, `env` values, `headers` values and `oauth.clientSecret` is filled in when the server starts, so a secret does not have to sit in `.mcp.json`:
+
+```json
+{"mcpServers": {"github": {
+  "url": "https://api.githubcopilot.com/mcp/",
+  "headers": {"Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"}
+}}}
+```
+
+A name is looked up in `$SNOWPEA_HOME/credentials.json` first (string values only) and then in the daemon's environment — the same order a gateway's `credentialsRef` uses, so one stored key serves both. `${NAME:-default}` falls back to `default`, and `$${NAME}` is the literal text `${NAME}`. A variable that is set nowhere and has no default stops that server from starting, with an error that names the variable and never a value.
+
+Only your own entries expand any name: `$SNOWPEA_HOME/.mcp.json` and `mcp.servers` in settings. A project's `.mcp.json` arrives with a checkout and a plugin's with an install, and an `mcp.test` draft with a request, so those may expand only the names you list in `settings.mcp.allowVars` (for example `["GITHUB_PERSONAL_ACCESS_TOKEN"]`); any other name fails the start with `<server>: ${NAME} is not allowed in a project entry; add it to settings.mcp.allowVars` — otherwise a cloned repository could send `${ANTHROPIC_API_KEY}` to a server of its choosing. A draft that edits a saved global or settings entry may keep using the names that entry already uses. The same rule covers `oauth.clientSecret`, and a default (`${NAME:-x}`) does not get around it. Expansion happens only when the server starts: `mcp.list` and `snowpea mcp get` show the entry as written, and still only key names for `env` and `headers`. The catalog presets that need a key now write it this way and list it in `needs`.
+
+### Signing in to a remote server (OAuth)
+
+A remote (`http` or `sse`) server that answers `401` shows `auth.state: "needs_auth"` in `mcp.list` instead of a generic error (capability `mcpOAuth`, protocol 1.34.0). `mcp.add` still saves such an entry even when its probe meets the 401, and answers `auth.state: "needs_auth"`, because there is no token before the entry exists. To sign in, a client calls `mcp.authorize {name, workdir?, scope?, redirectUri?}`, which answers `{url, state, expiresAt, redirectUri}`; the user opens `url` in a browser.
+
+The daemon follows the MCP authorization spec: the `WWW-Authenticate` header's `resource_metadata` (RFC 9728 protected resource metadata, with the well-known fallbacks), then the authorization server's RFC 8414 metadata (or its OpenID configuration), PKCE with S256, and the RFC 8707 `resource` indicator on every authorization and token request. It registers itself with dynamic client registration (RFC 7591) when the authorization server offers it; otherwise put a registered client in the entry as `"oauth": {"clientId": "…", "clientSecret": "${MY_SECRET}"}` (the secret only for a confidential client). Scope comes from `scope`, else `oauth.scope`, else the server's `WWW-Authenticate` scope, else its advertised `scopes_supported`.
+
+Discovery is strict: the protected resource metadata must name this very server as its `resource`, its authorization server and every metadata and endpoint URL must be https (http only on loopback), a loopback, private or link-local address is accepted only when the MCP server itself is on that host, metadata redirects are followed only within their origin and the token and registration requests follow none, and the authorization server's metadata must carry its own `issuer`. When it advertises `authorization_response_iss_parameter_supported`, the redirect's `iss` (RFC 9207) must be that issuer.
+
+Without `redirectUri` the daemon listens once on `http://127.0.0.1:<random port>/callback` and finishes on its own; a request to it with a wrong or missing `state` gets a 400 and the sign-in keeps waiting. A host that catches the redirect in its own tab passes its `redirectUri` — http on 127.0.0.1, localhost or [::1] (any port), https, or a private-use scheme such as `com.example.app:/cb`; never `javascript:`, `data:`, `file:` or a fragment — and then calls `mcp.authorize.complete {state, code, iss?}` (or `{state, error}` when the user refused). Either way `mcp.auth.done {name, ok, error?}` reports the end, and on success the server restarts with its token. A flow waits ten minutes; a new `mcp.authorize` for the same server replaces the old one. Failures are the error code `mcp_auth_failed`, with `details.stage` (`discovery`, `metadata`, `registration`, `client`, `exchange`, `state` or `callback`).
+
+Tokens stay in the daemon: `$SNOWPEA_HOME/mcp-oauth.json`, mode 0600, keyed by server name and resource URL, so changing the URL makes them unusable and a project entry that shadows a global one under the same name cannot overwrite its sign-in. The agent's file tools treat that file as a secret, like `credentials.json`. No RPC result, event or log line carries a token, a code or a verifier. The access token is sent as `Authorization: Bearer` on connect (an `Authorization` header configured on the entry wins); it is refreshed before it expires, and on a `401` it is refreshed once — keeping a rotated refresh token — before the server is marked `needs_auth`. `mcp.deauthorize {name}` deletes the stored sign-in.
+
+The catalog marks how each preset authenticates with `auth`: `oauth` (add it, then sign in), `token` (a key from `needs`) or `none`. GitHub's preset is now GitHub's official remote server (`https://api.githubcopilot.com/mcp/`, a personal access token in `Authorization`), with `github-docker` (`ghcr.io/github/github-mcp-server`, pinned) for running it locally; Linear (`https://mcp.linear.app/mcp`) signs in with OAuth; npm and Docker presets are pinned to a release instead of `@latest`.
 
 ## The skills index and `skill_view`
 
@@ -233,6 +263,9 @@ Descriptions are clipped at 60 characters in the index, so write a `description:
 | `indexInPrompt` | `true` | list skills in the prompt at all |
 | `indexMaxEntries` | `60` | how many to list before "… and K more" |
 | `protectRecentViews` | `2` | turns of `skill_view` results a compaction leaves whole |
+| `disabled` | `[]` | skills and commands switched off (1.34.0) |
+
+`skills.disabled` (capability `skillToggle`) takes skill or command names, or `<plugin>:<name>` for one plugin's copy. A disabled skill leaves the index, the slash commands and `autoInject`, and `skill_view` refuses it; `skill.list` still lists it with `enabled: false`, and `skill.read` and `skill.remove` still reach it. Changing the list with `settings.set` applies at once, the way a skill reload does: new sessions see the new index, and a running session keeps the index it started with until its next compaction. With the list empty the prompt is byte for byte what it was.
 
 ## Where things are found, and who wins
 

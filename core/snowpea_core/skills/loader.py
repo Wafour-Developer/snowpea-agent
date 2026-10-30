@@ -334,6 +334,37 @@ class SkillLoader:
                 seen[path] = -1
         return seen
 
+    def disabled_names(self) -> frozenset[str]:
+        """``settings.skills.disabled`` (1.34.0); empty when nothing is off."""
+        settings = getattr(getattr(self.core, "settings", None), "skills", None)
+        names = getattr(settings, "disabled", None) or ()
+        return frozenset(str(name) for name in names)
+
+    def enabled(self, skill: LoadedSkill) -> bool:
+        """False for a skill or command ``settings.skills.disabled`` names.
+
+        A bare name turns off every copy; ``<plugin>:<name>`` only that
+        plugin's.  Disabled entries stay in :attr:`skills`, so ``skill.read``
+        and ``skill.remove`` still find them.
+        """
+        off = self.disabled_names()
+        if not off:
+            return True
+        if skill.name in off:
+            return False
+        return not (skill.plugin and f"{skill.plugin}:{skill.name}" in off)
+
+    async def apply_enabled(self) -> None:
+        """Follow a ``settings.skills.disabled`` change without a rescan.
+
+        The index, the slash commands and ``commands.changed`` move the way a
+        reload moves them; nothing is read from disk.
+        """
+        async with self._lock:
+            self._index_groups = None
+            self._apply_commands()
+            await self._announce()
+
     def changed(self) -> bool:
         """True when a skill file or folder the last scan read has changed."""
         return bool(self._seen) and self._stat(set(self._seen)) != self._seen
@@ -657,7 +688,7 @@ class SkillLoader:
         self._registered = set()
         protected: frozenset[str] = getattr(registry, "protected", frozenset())
         for skill in self.skills.values():
-            if not skill.doc.user_invocable:
+            if not skill.doc.user_invocable or not self.enabled(skill):
                 continue
             name = skill.name
             if name in protected:
@@ -730,7 +761,7 @@ class SkillLoader:
 
         registered: list[str] = []
         for name, entry in self.mcp_servers.items():
-            config = mcp_client.McpServerConfig.parse(name, entry)
+            config = mcp_client.McpServerConfig.parse(name, entry, "plugin")
             if config is None:
                 continue
             try:
@@ -774,6 +805,8 @@ class SkillLoader:
         buckets: dict[str, list[tuple[str, str]]] = {}
         for skill in self.skills.values():
             if skill.kind != "skill" or not skill.doc.user_invocable:
+                continue
+            if not self.enabled(skill):
                 continue
             group_key = (
                 f"claude-plugin:{skill.plugin}"
@@ -837,6 +870,7 @@ class SkillLoader:
                     summary=skill.description,
                     source=skill.source,
                     installed=True,
+                    enabled=self.enabled(skill),
                 )
             )
         for agent in self.agents:

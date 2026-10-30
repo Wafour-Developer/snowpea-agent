@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.33.0"
+PROTOCOL_VERSION = "1.34.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -104,7 +104,15 @@ McpUnsetKey = Literal[
     "toolsExclude",
     "toolsInclude",
     "type",
+    "oauth",
 ]
+#: Whether an http/sse MCP server holds a usable OAuth sign-in (1.34.0):
+#: ``ok`` tokens are stored for its URL, ``needs_auth`` it answered 401 and a
+#: refresh did not help, ``none`` nothing is stored and nothing was refused.
+McpAuthState = Literal["ok", "needs_auth", "none"]
+#: How a catalog preset authenticates (1.34.0): ``oauth`` sign in with
+#: ``mcp.authorize``, ``token`` a key the user pastes, ``none`` nothing.
+McpCatalogAuth = Literal["oauth", "token", "none"]
 #: The ``models.categories`` slots core reads (1.33.0); advertised as
 #: ``system.hello {modelCategories}``.
 ModelCategory = Literal["fast", "standard", "deep", "vision"]
@@ -3752,6 +3760,14 @@ class SkillInfo(Payload):
     downloads: int = Field(
         default=0, description="Download count, when the source publishes one; 0 means unknown."
     )
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "False for an installed skill or command settings.skills.disabled names "
+            "(1.34.0): kept out of the prompt index, the slash commands and "
+            "auto-injection, but still readable and removable."
+        ),
+    )
 
 
 class SkillSourceNotIncluded(Payload):
@@ -5391,6 +5407,54 @@ class McpToolInfo(Payload):
     description: str = Field(default="", description="One-line description from the server.")
 
 
+class McpAuthInfo(Payload):
+    """OAuth standing of one MCP server (1.34.0, capability ``mcpOAuth``).
+
+    Tokens never travel: this says only whether one is stored and usable.
+    """
+
+    required: bool = Field(
+        default=False,
+        description=(
+            "True when the server asked for authorization (answered 401) or a sign-in "
+            "is stored for it."
+        ),
+    )
+    state: McpAuthState = Field(
+        default="none",
+        description=(
+            "ok (tokens stored for this URL), needs_auth (the server answered 401 and a "
+            "refresh did not help: call mcp.authorize) or none."
+        ),
+    )
+    clientId: str | None = Field(
+        default=None, description="The entry's configured oauth.clientId, when it has one."
+    )
+
+
+class McpOAuthFields(Payload):
+    """``oauth`` of a ``.mcp.json`` entry (1.34.0)."""
+
+    clientId: str | None = Field(
+        default=None,
+        description=(
+            "Client ID registered with the server's authorization server; needed when it "
+            "offers no dynamic client registration (RFC 7591)."
+        ),
+    )
+    clientSecret: str | None = Field(
+        default=None,
+        description=(
+            "Secret of a confidential client; write it as ${NAME} to keep it in "
+            "credentials.json. Never reported back."
+        ),
+    )
+    scope: str | None = Field(
+        default=None,
+        description="Scopes to ask for, space separated; default: what the server advertises.",
+    )
+
+
 class McpServerInfo(Payload):
     """One configured MCP server, from whichever scope declares it."""
 
@@ -5440,6 +5504,13 @@ class McpServerInfo(Payload):
             "True for a declaration another scope overrides under the same name (a "
             "global entry hidden by a project one, 1.33.0): listed so a client knows "
             "the name is taken there too, but never started."
+        ),
+    )
+    auth: McpAuthInfo = Field(
+        default_factory=McpAuthInfo,
+        description=(
+            "OAuth standing (1.34.0): needs_auth when the server answered 401, so a "
+            "client can offer a sign-in instead of showing a generic error."
         ),
     )
 
@@ -5521,6 +5592,13 @@ class McpEntryFields(Payload):
     permission: PermissionTag | None = Field(
         default=None, description="Permission tag for the server's tools; stored in settings."
     )
+    oauth: McpOAuthFields | None = Field(
+        default=None,
+        description=(
+            "OAuth client settings for an http/sse server (1.34.0); mcp.update merges them "
+            "key by key."
+        ),
+    )
 
 
 class McpAddParams(McpEntryFields):
@@ -5573,6 +5651,13 @@ class McpAddResult(Payload):
         default_factory=list, description="Security findings that --force accepted."
     )
     error: str | None = Field(default=None, description="Why the server did not start.")
+    auth: McpAuthInfo = Field(
+        default_factory=McpAuthInfo,
+        description=(
+            "OAuth standing (1.34.0). A probe that met 401 still writes the entry, with "
+            "state needs_auth, so the client can go on to mcp.authorize."
+        ),
+    )
 
 
 class McpRemoveParams(Payload):
@@ -5673,6 +5758,10 @@ class McpTestResult(Payload):
     tools: list[McpToolInfo] = Field(default_factory=list, description="What the server exposes.")
     error: str | None = Field(default=None, description="Spawn or protocol error, verbatim.")
     elapsedMs: int = Field(default=0, description="How long the probe took.")
+    auth: McpAuthInfo = Field(
+        default_factory=McpAuthInfo,
+        description="OAuth standing the probe found: needs_auth when it was refused with 401.",
+    )
 
 
 class McpReloadParams(Payload):
@@ -5701,9 +5790,21 @@ class McpCatalogEntry(Payload):
         default_factory=dict, description="The .mcp.json entry this preset writes."
     )
     needs: list[str] = Field(
-        default_factory=list, description="Environment variables the user must supply."
+        default_factory=list,
+        description=(
+            "Variables the user must supply. The entry refers to them as ${NAME} (1.34.0), "
+            "so the value can live in credentials.json or the daemon's environment, or a "
+            "client may write it into the entry instead."
+        ),
     )
     homepage: str = Field(default="", description="Where the server is documented.")
+    auth: McpCatalogAuth = Field(
+        default="none",
+        description=(
+            "How the server authenticates (1.34.0): oauth (sign in with mcp.authorize "
+            "after adding it), token (a key listed in needs) or none."
+        ),
+    )
 
 
 class McpCatalogResult(Payload):
@@ -5721,6 +5822,91 @@ class McpChangedNotification(Payload):
     toolCount: int = Field(default=0, description="Tools the server currently contributes.")
     error: str | None = Field(default=None, description="Why the server is in the error state.")
     removed: bool = Field(default=False, description="True when the entry itself is gone.")
+    auth: McpAuthInfo | None = Field(
+        default=None, description="OAuth standing after the transition (1.34.0)."
+    )
+
+
+class McpAuthorizeParams(Payload):
+    """``mcp.authorize`` — start an OAuth sign-in for an http/sse server (1.34.0)."""
+
+    name: str = Field(description="Server name.")
+    workdir: str | None = Field(default=None, description="Project directory that declares it.")
+    sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
+    scope: str | None = Field(
+        default=None,
+        description=(
+            "Scopes to ask for; default: the entry's oauth.scope, then the server's "
+            "WWW-Authenticate scope, then its advertised scopes_supported."
+        ),
+    )
+    redirectUri: str | None = Field(
+        default=None,
+        description=(
+            "Redirect URI the host catches itself (its own tab) and hands back with "
+            "mcp.authorize.complete: http on 127.0.0.1, localhost or [::1] (any port), "
+            "https, or a private-use scheme; never javascript:, data:, file: or a "
+            "fragment (invalid_params). Omitted, the daemon listens on "
+            "http://127.0.0.1:<random port>/callback and completes on its own."
+        ),
+    )
+
+
+class McpAuthorizeResult(Payload):
+    url: str = Field(description="Consent URL to open in a browser.")
+    state: str = Field(description="Opaque flow id; mcp.authorize.complete takes it back.")
+    expiresAt: str = Field(description="When the flow stops waiting, ISO-8601 UTC.")
+    redirectUri: str = Field(
+        description="Redirect URI the consent URL carries: the given one or the loopback listener."
+    )
+
+
+class McpAuthorizeCompleteParams(Payload):
+    """``mcp.authorize.complete`` — hand over the code the host's redirect caught (1.34.0)."""
+
+    state: str = Field(description="The state mcp.authorize returned (the redirect's ?state=).")
+    code: str | None = Field(default=None, description="The redirect's ?code=.")
+    error: str | None = Field(
+        default=None, description="The redirect's ?error=, when the user or server refused."
+    )
+    iss: str | None = Field(
+        default=None,
+        description=(
+            "The redirect's ?iss= (RFC 9207). Checked against the authorization server's "
+            "issuer; required when it advertises authorization_response_iss_parameter_supported."
+        ),
+    )
+
+
+class McpAuthorizeCompleteResult(Payload):
+    ok: bool = Field(default=True, description="True when the tokens were stored.")
+    name: str = Field(description="Server the sign-in was for.")
+    state: McpState = Field(
+        default="stopped", description="Server state after the restart with the new token."
+    )
+
+
+class McpDeauthorizeParams(Payload):
+    """``mcp.deauthorize`` — forget a server's OAuth tokens and client (1.34.0)."""
+
+    name: str = Field(description="Server name.")
+    workdir: str | None = Field(default=None, description="Project directory that declares it.")
+    sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
+
+
+class McpDeauthorizeResult(Payload):
+    ok: bool = Field(default=True, description="True when the call ran.")
+    removed: bool = Field(default=False, description="True when a stored sign-in was deleted.")
+
+
+class McpAuthDoneNotification(Payload):
+    """``mcp.auth.done`` — an ``mcp.authorize`` flow finished, either way (1.34.0)."""
+
+    name: str = Field(description="Server name.")
+    ok: bool = Field(description="True when tokens were stored and the server restarted.")
+    error: str | None = Field(
+        default=None, description="Why it failed: refused, timed out, or the exchange failed."
+    )
 
 
 # --------------------------------------------------------------------------
@@ -5821,6 +6007,24 @@ METHODS: dict[str, RpcMethod] = {
             McpReloadParams,
             McpReloadResult,
             "Restart one MCP server, or every configured one.",
+        ),
+        _m(
+            "mcp.authorize",
+            McpAuthorizeParams,
+            McpAuthorizeResult,
+            "Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0).",
+        ),
+        _m(
+            "mcp.authorize.complete",
+            McpAuthorizeCompleteParams,
+            McpAuthorizeCompleteResult,
+            "Finish an mcp.authorize flow with the code the host's own redirect caught.",
+        ),
+        _m(
+            "mcp.deauthorize",
+            McpDeauthorizeParams,
+            McpDeauthorizeResult,
+            "Forget a remote MCP server's stored OAuth tokens (1.34.0).",
         ),
         _m(
             "mcp.catalog",
@@ -6557,6 +6761,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "provider.loginProgress": ProviderLoginProgressNotification,
     "settings.changed": SettingsChangedNotification,
     "mcp.changed": McpChangedNotification,
+    "mcp.auth.done": McpAuthDoneNotification,
     "teams.changed": TeamsChangedNotification,
     "audio.install.progress": AudioInstallProgressNotification,
     "lsp.install.progress": LspInstallProgressNotification,
@@ -6618,6 +6823,9 @@ CAPABILITIES: list[str] = [
     "planAutoApprove",
     "modelCategories",
     "jobRuns",
+    "mcpOAuth",
+    "skillToggle",
+    "mcpVarExpansion",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -6727,6 +6935,9 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "mcp.test",
         "mcp.reload",
         "mcp.catalog",
+        "mcp.authorize",
+        "mcp.authorize.complete",
+        "mcp.deauthorize",
         "tool.register",
         "tool.unregister",
         "tool.progress",

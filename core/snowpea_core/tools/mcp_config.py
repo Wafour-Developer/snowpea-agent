@@ -79,10 +79,12 @@ def validate_entry(entry: dict[str, Any]) -> dict[str, Any]:
     if url is not None:
         if not isinstance(url, str) or not url.startswith(("http://", "https://")):
             raise McpConfigError("url", "url must be an http:// or https:// endpoint")
-    for key in ("env", "headers"):
+    for key in ("env", "headers", "oauth"):
         value = entry.get(key)
         if value is not None and not isinstance(value, dict):
             raise McpConfigError(key, f"{key} must be an object of string values")
+    if entry.get("oauth") and command is not None:
+        raise McpConfigError("oauth", "oauth applies to an http or sse server, not a command")
     return entry
 
 

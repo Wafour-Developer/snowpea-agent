@@ -37,6 +37,10 @@ MCP_READ_ONLY = "mcp_read_only"
 MCP_INVALID = "mcp_invalid"
 MCP_START_FAILED = "mcp_start_failed"
 MCP_UNSAFE = "mcp_unsafe"
+#: ``mcp.authorize`` / ``mcp.authorize.complete`` could not get a token
+#: (1.34.0): ``details.stage`` is discovery, metadata, registration, client,
+#: exchange, state or callback.  Never carries a token or a code.
+MCP_AUTH_FAILED = "mcp_auth_failed"
 #: ``skill.create`` without ``force`` on a target that already has a
 #: ``SKILL.md`` (1.33.0); ``details.path`` names it.
 SKILL_EXISTS = "skill_exists"
@@ -70,6 +74,7 @@ ERROR_CODES: tuple[str, ...] = (
     MCP_INVALID,
     MCP_START_FAILED,
     MCP_UNSAFE,
+    MCP_AUTH_FAILED,
     SKILL_EXISTS,
     UNAVAILABLE,
     INVALID_OUTPUT,

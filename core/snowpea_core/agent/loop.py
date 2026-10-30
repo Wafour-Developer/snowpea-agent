@@ -2206,9 +2206,12 @@ async def _auto_inject_skills(core: Core, session: Session, text: str) -> list[s
     folded = text.casefold()
     injected: list[str] = []
     done = session.auto_injected_skills
+    enabled = getattr(loader, "enabled", None)
     for skill in skills.values():
         doc = skill.doc
         if not doc.auto_inject or doc.name in done:
+            continue
+        if callable(enabled) and not enabled(skill):
             continue
         hit = next((word for word in doc.auto_inject if word.casefold() in folded), None)
         if hit is None:

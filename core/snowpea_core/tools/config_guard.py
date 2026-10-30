@@ -223,13 +223,19 @@ def _secret_path(raw: str, session: Any, core: Any) -> bool:
     except (OSError, RuntimeError):
         return False
     # The pattern rules (.ssh/.gnupg/.aws, .env*, *.pem/*.key, id_rsa*) plus
-    # snowpea's own credentials and token; settings.json stays an ordinary read.
+    # snowpea's own credentials, token and MCP OAuth tokens (1.34.0);
+    # settings.json stays an ordinary read.
     if is_secret_pattern(resolved):
         return True
     home = home_of(core)
     if home:
         base = Path(home)
-        if resolved in {(base / "credentials.json").resolve(), (base / "token").resolve()}:
+        secrets_at_home = {
+            (base / "credentials.json").resolve(),
+            (base / "token").resolve(),
+            (base / "mcp-oauth.json").resolve(),
+        }
+        if resolved in secrets_at_home:
             return True
     return _another_sessions_attachment(resolved, session, core)
 

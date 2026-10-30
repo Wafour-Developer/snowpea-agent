@@ -235,6 +235,14 @@ class Core:
         if self.lsp is not None and any(k == "lsp" or k.startswith("lsp.") for k in keys):
             # A server that was missing or broken may start now.
             self.lsp.invalidate()
+        if any(k == "skills" or k.startswith("skills.") for k in keys):
+            # settings.skills.disabled (1.34.0) moves the index and the commands.
+            apply_enabled = getattr(self.skills, "apply_enabled", None)
+            if apply_enabled is not None:
+                try:
+                    await apply_enabled()
+                except Exception:  # noqa: BLE001 - a broken loader must not stop the event
+                    log.warning("could not apply the skills settings", exc_info=True)
         hub = getattr(self, "hub", None)
         if hub is None:  # pragma: no cover - a core without a hub is a test double
             return
@@ -980,6 +988,11 @@ async def _close_tool_subprocesses() -> None:
             await provider.close()
     with contextlib.suppress(Exception):
         await mcp_client.MANAGER.close_all()
+    # An mcp.authorize still waiting holds a loopback listener (1.34.0).
+    from snowpea_core.server import mcp_handlers
+
+    with contextlib.suppress(Exception):
+        await mcp_handlers.close_pending()
 
 
 def _resolve_port(runner: web.AppRunner, requested: int) -> int:

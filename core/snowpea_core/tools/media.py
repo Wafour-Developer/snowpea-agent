@@ -72,6 +72,7 @@ def server_config(core: Core) -> mcp_client.McpServerConfig | None:
         args=list(getattr(block, "args", None) or []),
         env=env,
         url=getattr(block, "url", None),
+        source="settings",
     )
 
 

@@ -637,6 +637,10 @@ class McpSettings(_Model):
     #: Servers declared inline, same shape as ``.mcp.json``'s ``mcpServers``.
     servers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     enabled: bool = True
+    #: ``${NAME}`` variables a project, plugin or draft MCP entry may expand
+    #: (1.34.0).  The user's own ``$SNOWPEA_HOME/.mcp.json`` and
+    #: ``mcp.servers`` expand any name; everything else only these.
+    allowVars: list[str] = Field(default_factory=list)
 
 
 class SkillRegistrySettings(_Model):
@@ -664,6 +668,11 @@ class SkillsSettings(_Model):
     #: ``skill_view`` results loaded within this many turns survive a
     #: compaction intact instead of being replaced by a prune marker.
     protectRecentViews: int = 2
+    #: Skill and command names switched off (1.34.0): left out of the prompt
+    #: index, the slash commands and auto-injection, but still listed (with
+    #: ``enabled: false``), readable and removable.  ``<plugin>:<name>`` names
+    #: one plugin's copy.
+    disabled: list[str] = Field(default_factory=list)
 
 
 class Settings(_Model):

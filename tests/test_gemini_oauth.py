@@ -263,15 +263,20 @@ async def test_browser_login_round_trip_on_an_ephemeral_port() -> None:
     assert [params["phase"] for params in phases] == ["started", "await_user", "polling", "done"]
 
 
-async def test_browser_login_rejects_a_mismatched_state() -> None:
+async def test_browser_login_ignores_a_mismatched_state() -> None:
+    """A stray callback gets a 400 and neither ends the login nor is exchanged (1.34.0)."""
+
     def token_handler(_request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("the code must never be exchanged")
 
-    async def bad_state(url: str) -> Any:
-        return await _hit_callback(url, state="not-the-state")
+    async def bad_state_then_refusal(url: str) -> Any:
+        stray = await _hit_callback(url, state="not-the-state")
+        assert stray.status_code == 400
+        assert "state did not match" in stray.text
+        return await _hit_callback(url, code="", error="access_denied")
 
-    with pytest.raises(RpcError, match="state did not match"):
-        await _browser_login(token_handler=token_handler, callback=bad_state)
+    with pytest.raises(RpcError, match="access_denied"):
+        await _browser_login(token_handler=token_handler, callback=bad_state_then_refusal)
 
 
 async def test_browser_login_reports_a_refused_consent() -> None:
@@ -280,7 +285,11 @@ async def test_browser_login_reports_a_refused_consent() -> None:
 
     async def refused(url: str) -> Any:
         async with _RealAsyncClient(timeout=5.0) as browser:
-            return await browser.get(_redirect_of(url), params={"error": "access_denied"})
+            # The refusal carries the login's state, as a real provider's does.
+            state = parse_qs(urlparse(url).query)["state"][0]
+            return await browser.get(
+                _redirect_of(url), params={"error": "access_denied", "state": state}
+            )
 
     with pytest.raises(RpcError, match="access_denied"):
         await _browser_login(token_handler=token_handler, callback=refused)

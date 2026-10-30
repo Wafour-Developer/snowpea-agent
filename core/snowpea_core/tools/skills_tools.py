@@ -170,12 +170,19 @@ async def skill_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     else:
         lines.append("No plugins are installed.")
 
+    enabled = getattr(loader, "enabled", None)
+
+    def off(entry: Any) -> str:
+        # Only a skill settings.skills.disabled names reads differently (1.34.0).
+        return " (disabled)" if callable(enabled) and not enabled(entry) else ""
+
     for kind in ("skill", "command"):
         entries = [entry for entry in loader.skills.values() if entry.kind == kind]
         if entries:
             lines.append(f"{kind}s:")
             lines.extend(
-                f"- {entry.name} [{entry.source}] — {entry.description or 'no description'}"
+                f"- {entry.name} [{entry.source}]{off(entry)} — "
+                f"{entry.description or 'no description'}"
                 for entry in sorted(entries, key=lambda item: item.name)
             )
     if loader.agents:
@@ -229,6 +236,12 @@ async def skill_view(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if skill is None:
         known = ", ".join(sorted(loader.skills)[:MAX_HITS]) or "none"
         return ToolResult(ok=False, error=f"no skill named {name!r} (installed: {known})")
+    enabled = getattr(loader, "enabled", None)
+    if callable(enabled) and not enabled(skill):
+        return ToolResult(
+            ok=False,
+            error=f"skill {skill.name!r} is turned off (settings.skills.disabled)",
+        )
 
     doc = skill.doc
     text = (doc.body or "").strip()

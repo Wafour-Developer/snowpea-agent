@@ -19,9 +19,11 @@ import binascii
 import contextlib
 import json
 import logging
+import os
+import re
 import sys
-from collections.abc import Callable, Coroutine
-from dataclasses import dataclass, field
+from collections.abc import Callable, Coroutine, Iterable
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -55,11 +57,140 @@ ENTRY_KEYS: tuple[str, ...] = (
     "timeoutSec",
     "toolTimeoutSec",
     "tools",
+    "oauth",
 )
+
+#: In every error of a server that answered 401 (1.34.0), so a caller holding
+#: only the text — ``mcp.test``'s probe — can tell it from a broken server.
+NEEDS_AUTH_TEXT = "the server needs authorization (HTTP 401)"
+
+#: ``${NAME}`` and ``${NAME:-default}`` in args, env, headers and
+#: ``oauth.clientSecret``; ``$${NAME}`` is the literal text ``${NAME}`` (1.34.0).
+VAR_PATTERN = re.compile(r"\$(\$?)\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
 
 class McpError(RuntimeError):
     """A server could not be started, or a call to it failed."""
+
+
+def _variable_source(home: Path | str | None) -> Callable[[str], str | None]:
+    """``credentials.json`` keys first, then the daemon's environment.
+
+    The same order :meth:`CredentialStore.resolve` uses for a gateway's
+    ``credentialsRef``, so one stored secret serves both.  Only string values
+    count; an object-valued credential is not a variable.
+    """
+    stored: dict[str, Any] = {}
+    if home is not None:
+        from snowpea_core.config.credentials import CredentialStore
+        from snowpea_core.config.paths import Paths
+
+        stored = CredentialStore(Paths.create(home)).load()
+
+    def lookup(name: str) -> str | None:
+        value = stored.get(name)
+        if isinstance(value, str):
+            return value
+        return os.environ.get(name)
+
+    return lookup
+
+
+#: Where a config came from (1.34.0).  Only the user's own files may expand any
+#: variable: ``global`` (``$SNOWPEA_HOME/.mcp.json``) and ``settings``
+#: (``settings.mcp.servers``).  A ``project`` ``.mcp.json`` arrives with a
+#: checkout, a ``plugin`` with an install and a ``draft`` with a request, so
+#: those may expand only the names in ``settings.mcp.allowVars`` — otherwise a
+#: cloned repo could send ``${ANTHROPIC_API_KEY}`` to a server of its choosing.
+TRUSTED_SOURCES: frozenset[str] = frozenset({"global", "settings"})
+
+
+def var_names(text: str) -> set[str]:
+    """The variables ``text`` refers to, escaped ``$${...}`` excluded."""
+    return {match.group(2) for match in VAR_PATTERN.finditer(text) if not match.group(1)}
+
+
+def expand_vars(
+    text: str,
+    lookup: Callable[[str], str | None],
+    server: str,
+    allowed: Callable[[str], bool] | None = None,
+    source: str = "",
+) -> str:
+    """``text`` with its variables filled in; an unset one without a default raises.
+
+    ``allowed`` (an untrusted source) refuses every other name before it is
+    looked up.  Errors name the variable and the server, never a value.
+    """
+
+    def fill(match: re.Match[str]) -> str:
+        if match.group(1):
+            return match.group(0)[1:]
+        name = match.group(2)
+        if allowed is not None and not allowed(name):
+            raise McpError(
+                f"{server}: ${{{name}}} is not allowed in a {source} entry; "
+                "add it to settings.mcp.allowVars"
+            )
+        value = lookup(name)
+        if value is not None:
+            return value
+        if match.group(3) is not None:
+            return match.group(3)
+        raise McpError(
+            f"{server}: ${{{name}}} is not set; add it to credentials.json "
+            "or the daemon's environment"
+        )
+
+    return VAR_PATTERN.sub(fill, text)
+
+
+def expandable_fields(config: McpServerConfig) -> list[str]:
+    """Every value ``${VAR}`` expansion touches."""
+    fields = [*config.args, *config.env.values(), *config.headers.values()]
+    fields.append(config.oauth.get("clientSecret", ""))
+    return fields
+
+
+def resolve_config(
+    config: McpServerConfig,
+    home: Path | str | None,
+    allow_vars: Iterable[str] = (),
+) -> McpServerConfig:
+    """``config`` with ``${VAR}`` expanded where a server will see it.
+
+    Done when the server starts, never when the entry is read: ``mcp.list``
+    and the equality the manager compares configs by keep the text as written.
+    An entry with no ``$`` anywhere comes back as is.  A config whose
+    :attr:`~McpServerConfig.source` is not in :data:`TRUSTED_SOURCES` may
+    expand only ``allow_vars`` (``settings.mcp.allowVars``) and its own
+    :attr:`~McpServerConfig.inherited_vars`.
+    """
+    if not any("$" in item for item in expandable_fields(config)):
+        return config
+    lookup = _variable_source(home)
+    name = config.name
+    allowed: Callable[[str], bool] | None = None
+    if config.source not in TRUSTED_SOURCES:
+        permitted = set(allow_vars) | set(config.inherited_vars)
+        allowed = permitted.__contains__
+
+    def one(value: str) -> str:
+        return expand_vars(value, lookup, name, allowed, config.source)
+
+    def each(values: dict[str, str]) -> dict[str, str]:
+        return {key: one(value) for key, value in values.items()}
+
+    oauth = dict(config.oauth)
+    if oauth.get("clientSecret"):
+        oauth["clientSecret"] = one(oauth["clientSecret"])
+    return replace(
+        config,
+        args=[one(item) for item in config.args],
+        env=each(config.env),
+        headers=each(config.headers),
+        oauth=oauth,
+    )
 
 
 def _str_map(value: Any) -> dict[str, str]:
@@ -100,6 +231,16 @@ class McpServerConfig:
     #: Tool allow/deny lists applied when the server's tools are registered.
     tools_include: list[str] = field(default_factory=list)
     tools_exclude: list[str] = field(default_factory=list)
+    #: ``{clientId, clientSecret, scope}`` for a server whose authorization
+    #: server offers no dynamic registration (1.34.0).
+    oauth: dict[str, str] = field(default_factory=dict)
+    #: ``global``, ``settings``, ``project``, ``plugin`` or ``draft`` (1.34.0):
+    #: decides which ``${VAR}`` names may expand (:data:`TRUSTED_SOURCES`).
+    #: Unknown origins are drafts, so a forgotten caller fails closed.
+    source: str = "draft"
+    #: Names a draft may expand because the trusted saved entry it edits
+    #: already uses them (``mcp.test`` on a global server).
+    inherited_vars: tuple[str, ...] = ()
 
     @property
     def transport(self) -> str:
@@ -144,10 +285,14 @@ class McpServerConfig:
             tools["exclude"] = list(self.tools_exclude)
         if tools:
             entry["tools"] = tools
+        if self.oauth:
+            entry["oauth"] = dict(self.oauth)
         return entry
 
     @classmethod
-    def parse(cls, name: str, raw: dict[str, Any]) -> McpServerConfig | None:
+    def parse(
+        cls, name: str, raw: dict[str, Any], source: str = "draft"
+    ) -> McpServerConfig | None:
         command = raw.get("command")
         url = raw.get("url")
         if not command and not url:
@@ -169,10 +314,12 @@ class McpServerConfig:
             tool_timeout_sec=_seconds(raw.get("toolTimeoutSec")),
             tools_include=_str_list(tools.get("include")),
             tools_exclude=_str_list(tools.get("exclude")),
+            oauth=_str_map(raw.get("oauth")),
+            source=source,
         )
 
 
-def _read_config(path: Path) -> dict[str, McpServerConfig]:
+def _read_config(path: Path, source: str) -> dict[str, McpServerConfig]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -184,7 +331,7 @@ def _read_config(path: Path) -> dict[str, McpServerConfig]:
     for name, entry in servers.items():
         if not isinstance(entry, dict):
             continue
-        config = McpServerConfig.parse(str(name), entry)
+        config = McpServerConfig.parse(str(name), entry, source)
         if config is not None:
             out[config.name] = config
     return out
@@ -193,10 +340,10 @@ def _read_config(path: Path) -> dict[str, McpServerConfig]:
 def discover(home: Path | str | None, workdir: Path | str | None) -> dict[str, McpServerConfig]:
     """Servers from ``$SNOWPEA_HOME`` then ``<workdir>``; the workdir wins."""
     found: dict[str, McpServerConfig] = {}
-    for base in (home, workdir):
+    for base, source in ((home, "global"), (workdir, "project")):
         if base is None:
             continue
-        found.update(_read_config(Path(base).expanduser() / CONFIG_NAME))
+        found.update(_read_config(Path(base).expanduser() / CONFIG_NAME, source))
     return found
 
 
@@ -208,8 +355,20 @@ def discover(home: Path | str | None, workdir: Path | str | None) -> dict[str, M
 class McpServer:
     """A started MCP server plus its tool list."""
 
-    def __init__(self, config: McpServerConfig, *, announce: bool = True) -> None:
+    def __init__(
+        self,
+        config: McpServerConfig,
+        *,
+        announce: bool = True,
+        home: Path | str | None = None,
+    ) -> None:
         self.config = config
+        #: ``$SNOWPEA_HOME``: where ``${VAR}`` credentials and OAuth tokens
+        #: are read (1.34.0); :attr:`McpManager.home` when not given.
+        self.home = home
+        #: The server answered 401 and a refresh did not help (1.34.0).
+        self.needs_auth = False
+        self._auth: Any = None
         #: ``mcp.test`` probes a draft with a throwaway server; a draft must
         #: not publish state transitions under a name nobody configured.
         self.announce = announce
@@ -275,18 +434,23 @@ class McpServer:
                 raise
             self._set_state("ready")
 
+    @property
+    def home_dir(self) -> Path | str | None:
+        return self.home if self.home is not None else MANAGER.home
+
     @contextlib.asynccontextmanager
     async def _streams(self) -> Any:
         """The transport's ``(read, write)`` pair for this server's config."""
-        if self.config.transport == "stdio":
+        config = resolve_config(self.config, self.home_dir, MANAGER.allow_vars())
+        if config.transport == "stdio":
             from mcp import StdioServerParameters
             from mcp.client.stdio import stdio_client
 
             params = StdioServerParameters(
-                command=self.config.command or "",
-                args=list(self.config.args),
-                env=dict(self.config.env) or None,
-                cwd=self.config.cwd,
+                command=config.command or "",
+                args=list(config.args),
+                env=dict(config.env) or None,
+                cwd=config.cwd,
             )
             # ``errlog`` defaults to whatever ``sys.stderr`` was at import
             # time; binding it per call keeps a server's stderr going to the
@@ -294,20 +458,46 @@ class McpServer:
             async with stdio_client(params, errlog=sys.stderr) as streams:
                 yield streams[0], streams[1]
             return
-        url = self.config.url or ""
-        headers = dict(self.config.headers) or None
-        if self.config.transport == "sse":
+        url = config.url or ""
+        headers = dict(config.headers) or None
+        auth = self._bearer(config)
+        if config.transport == "sse":
             from mcp.client.sse import sse_client
 
-            async with sse_client(url, headers=headers) as streams:
+            async with sse_client(url, headers=headers, auth=auth) as streams:
                 yield streams[0], streams[1]
             return
         from mcp.client.streamable_http import streamable_http_client
         from mcp.shared._httpx_utils import create_mcp_http_client
 
-        async with create_mcp_http_client(headers=headers) as http_client:
+        async with create_mcp_http_client(headers=headers, auth=auth) as http_client:
             async with streamable_http_client(url, http_client=http_client) as streams:
                 yield streams[0], streams[1]
+
+    def _bearer(self, config: McpServerConfig) -> Any:
+        """The OAuth hook for an http/sse server (1.34.0), or ``None``.
+
+        A configured ``Authorization`` header wins: then nothing is injected
+        and a 401 is still noticed, through the same hook.
+        """
+        from snowpea_core.tools import mcp_oauth
+
+        home = self.home_dir
+        if home is None or not config.url:
+            self._auth = None
+            return None
+        store = mcp_oauth.TokenStore(home)
+        if any(key.lower() == "authorization" for key in config.headers):
+            store = _NoTokens(home)
+        self._auth = mcp_oauth.BearerAuth(store, config.name, config.url)
+        return self._auth
+
+    def _auth_failure(self) -> str | None:
+        """The ``needs_auth`` message when the last request was refused with 401."""
+        if self._auth is None or not getattr(self._auth, "unauthorized", False):
+            return None
+        self.needs_auth = True
+        return f"{self.config.name}: {NEEDS_AUTH_TEXT}; sign in with mcp.authorize"
 
     async def _supervise(self) -> None:
         """Hold the session open until :meth:`close` sets the event."""
@@ -333,16 +523,23 @@ class McpServer:
                     for tool in listing.tools
                 ]
                 self._session = session
+                self.needs_auth = False
                 if not ready.done():
                     ready.set_result(None)
                 await self._stop.wait()
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - any startup failure is reported once
+            needs_auth = self._auth_failure()
             detail = _flatten(exc)
-            log.info("mcp server %s failed: %s", self.config.name, detail)
+            log.info("mcp server %s failed: %s", self.config.name, needs_auth or detail)
             if not ready.done():
-                ready.set_exception(McpError(f"{self.config.name}: {detail}"))
+                if needs_auth:
+                    ready.set_exception(McpError(needs_auth))
+                elif isinstance(exc, McpError):
+                    ready.set_exception(exc)
+                else:
+                    ready.set_exception(McpError(f"{self.config.name}: {detail}"))
         finally:
             self._session = None
 
@@ -352,7 +549,14 @@ class McpServer:
         if session is None:
             raise McpError(f"{self.config.name}: the server is not running")
         timeout = self.config.tool_timeout_sec or CALL_TIMEOUT
-        result = await asyncio.wait_for(session.call_tool(tool, args), timeout)
+        try:
+            result = await asyncio.wait_for(session.call_tool(tool, args), timeout)
+        except Exception:
+            needs_auth = self._auth_failure()
+            if needs_auth:
+                self._set_state(self.state, needs_auth)
+                raise McpError(needs_auth) from None
+            raise
         return render_content(result)
 
     async def session_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
@@ -555,11 +759,29 @@ class McpManager:
 
     def __init__(self) -> None:
         self._servers: dict[str, McpServer] = {}
+        #: ``$SNOWPEA_HOME`` of the daemon, for ``${VAR}`` credentials and
+        #: OAuth tokens (1.34.0); set when the handlers are registered.
+        self.home: Path | str | None = None
+        #: The daemon core, for ``settings.mcp.allowVars`` (1.34.0).
+        self.core: Any = None
         #: Called on every state transition; the daemon registers the
         #: ``mcp.changed`` broadcaster here (M14 §3).
         self.listeners: list[StateListener] = []
         #: Live notification tasks, held so the loop cannot collect them.
         self._tasks: set[asyncio.Task[None]] = set()
+
+    def bind(self, core: Any) -> None:
+        """Remember the daemon's home and core; a test double may lack either."""
+        home = getattr(getattr(core, "paths", None), "home", None)
+        if home is not None:
+            self.home = home
+            self.core = core
+
+    def allow_vars(self) -> list[str]:
+        """``settings.mcp.allowVars``, read live so a settings change applies."""
+        mcp = getattr(getattr(self.core, "settings", None), "mcp", None)
+        names = getattr(mcp, "allowVars", None) or []
+        return [str(name) for name in names]
 
     def announce(self, server: McpServer) -> None:
         """Fan a state transition out to the listeners, never blocking."""
@@ -608,6 +830,16 @@ class McpManager:
 
 #: One manager per daemon process.
 MANAGER = McpManager()
+
+
+class _NoTokens:
+    """A token store with nothing in it: the entry brings its own header."""
+
+    def __init__(self, _home: Path | str) -> None:
+        pass
+
+    def get(self, _name: str, _url: str | None) -> None:
+        return None
 
 
 def tool_name(server: str, tool: str) -> str:
@@ -814,7 +1046,7 @@ async def sync_tools(core: Core, workdir: Path | str | None = None) -> list[str]
     if isinstance(inline, dict):
         for name, entry in inline.items():
             if isinstance(entry, dict):
-                parsed = McpServerConfig.parse(str(name), entry)
+                parsed = McpServerConfig.parse(str(name), entry, "settings")
                 if parsed is not None:
                     configs.setdefault(parsed.name, parsed)
 
@@ -854,6 +1086,7 @@ async def register_config(core: Core, config: McpServerConfig) -> list[str]:
     """
     if config.disabled:
         return []
+    MANAGER.bind(core)
     server = MANAGER.register(config)
     try:
         await server.start()
@@ -902,6 +1135,7 @@ __all__ = [
     "CONFIG_NAME",
     "ENTRY_KEYS",
     "MANAGER",
+    "NEEDS_AUTH_TEXT",
     "TOOL_PREFIX",
     "McpError",
     "McpManager",
@@ -911,6 +1145,11 @@ __all__ = [
     "UTILITY_SCHEMAS",
     "discover",
     "drop_tools",
+    "TRUSTED_SOURCES",
+    "expand_vars",
+    "expandable_fields",
+    "resolve_config",
+    "var_names",
     "permission_for",
     "register_config",
     "resync_if_changed",

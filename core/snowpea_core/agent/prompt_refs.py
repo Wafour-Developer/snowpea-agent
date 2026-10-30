@@ -68,6 +68,8 @@ _SECRET_FILE_NAMES = frozenset(
         "key4.db",
         "logins.json",
         "cookies.sqlite",
+        # snowpea's MCP OAuth token store (1.34.0), wherever a home puts it.
+        "mcp-oauth.json",
     }
 )
 #: Browser profiles, keyrings and keychains: ``(base, glob under it)``, where

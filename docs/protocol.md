@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.33.0` (semver)
+- **Protocol version:** `1.34.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.33.0"
+    "protocolVersion": "1.34.0"
   }
 }
 ```
@@ -56,6 +56,8 @@ Server capabilities advertised in the `system.hello` result:
 - `lspInstall`
 - `lspRestart`
 - `mcp`
+- `mcpOAuth`
+- `mcpVarExpansion`
 - `memoryCandidates`
 - `memorySafe`
 - `modelCategories`
@@ -82,6 +84,7 @@ Server capabilities advertised in the `system.hello` result:
 - `siteRecipes`
 - `siteStats`
 - `skillLearn`
+- `skillToggle`
 - `snapshotSupersede`
 - `standingOrders`
 - `tabReadAlways`
@@ -140,7 +143,10 @@ Server capabilities advertised in the `system.hello` result:
 | [`lsp.restart`](#lsprestart) | client → server | Stop a language server (or all) so it starts afresh; missing ones are re-probed. |
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
 | [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
+| [`mcp.authorize`](#mcpauthorize) | client → server | Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0). |
+| [`mcp.authorize.complete`](#mcpauthorizecomplete) | client → server | Finish an mcp.authorize flow with the code the host's own redirect caught. |
 | [`mcp.catalog`](#mcpcatalog) | client → server | The curated MCP servers a client can offer as presets. |
+| [`mcp.deauthorize`](#mcpdeauthorize) | client → server | Forget a remote MCP server's stored OAuth tokens (1.34.0). |
 | [`mcp.list`](#mcplist) | client → server | List every configured MCP server with its scope, state and tools. |
 | [`mcp.reload`](#mcpreload) | client → server | Restart one MCP server, or every configured one. |
 | [`mcp.remove`](#mcpremove) | client → server | Delete an MCP server entry and stop the server. |
@@ -1174,6 +1180,7 @@ Write an MCP server into the project or global .mcp.json and start it.
 | `force` | `boolean` | no | acceptFindings and replace together, as before 1.33.0. |
 | `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. mcp.update, and mcp.test on a saved server, merge them key by key into the saved headers (1.33.0); headersRemove deletes keys. |
 | `name` | `string` | yes | Server name; ^[a-zA-Z0-9_-]{1,64}$. |
+| `oauth` | `{ clientId?: string \| null; clientSecret?: string \| null; scope?: string \| null; } \| null` | no | OAuth client settings for an http/sse server (1.34.0); mcp.update merges them key by key. |
 | `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `preset` | `string \| null` | no | Catalog id copied before the explicit fields are applied. |
 | `replace` | `boolean` | no | Overwrite an entry already declared under this name in the target file instead of answering mcp_exists (1.33.0). Does not accept security findings. |
@@ -1192,12 +1199,61 @@ Write an MCP server into the project or global .mcp.json and start it.
 
 | field | type | required | description |
 |---|---|---|---|
+| `auth` | `{ clientId?: string \| null; required?: boolean; state?: "ok" \| "needs_auth" \| "none"; }` | no | OAuth standing (1.34.0). A probe that met 401 still writes the entry, with state needs_auth, so the client can go on to mcp.authorize. |
 | `error` | `string \| null` | no | Why the server did not start. |
 | `ok` | `boolean` | no | True when the entry was written. |
 | `path` | `string` | yes | File the entry was written to. |
 | `state` | `"stopped" \| "starting" \| "ready" \| "error"` | no | State of the server after the write. |
 | `tools` | `({ description?: string; name: string; })[]` | no | Tools the probe found, so a client can offer a picker. |
 | `warnings` | `string[]` | no | Security findings that --force accepted. |
+
+### `mcp.authorize`
+
+*Direction:* client → server
+
+Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Server name. |
+| `redirectUri` | `string \| null` | no | Redirect URI the host catches itself (its own tab) and hands back with mcp.authorize.complete: http on 127.0.0.1, localhost or [::1] (any port), https, or a private-use scheme; never javascript:, data:, file: or a fragment (invalid_params). Omitted, the daemon listens on http://127.0.0.1:<random port>/callback and completes on its own. |
+| `scope` | `string \| null` | no | Scopes to ask for; default: the entry's oauth.scope, then the server's WWW-Authenticate scope, then its advertised scopes_supported. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use. |
+| `workdir` | `string \| null` | no | Project directory that declares it. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `expiresAt` | `string` | yes | When the flow stops waiting, ISO-8601 UTC. |
+| `redirectUri` | `string` | yes | Redirect URI the consent URL carries: the given one or the loopback listener. |
+| `state` | `string` | yes | Opaque flow id; mcp.authorize.complete takes it back. |
+| `url` | `string` | yes | Consent URL to open in a browser. |
+
+### `mcp.authorize.complete`
+
+*Direction:* client → server
+
+Finish an mcp.authorize flow with the code the host's own redirect caught.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `code` | `string \| null` | no | The redirect's ?code=. |
+| `error` | `string \| null` | no | The redirect's ?error=, when the user or server refused. |
+| `iss` | `string \| null` | no | The redirect's ?iss= (RFC 9207). Checked against the authorization server's issuer; required when it advertises authorization_response_iss_parameter_supported. |
+| `state` | `string` | yes | The state mcp.authorize returned (the redirect's ?state=). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Server the sign-in was for. |
+| `ok` | `boolean` | no | True when the tokens were stored. |
+| `state` | `"stopped" \| "starting" \| "ready" \| "error"` | no | Server state after the restart with the new token. |
 
 ### `mcp.catalog`
 
@@ -1213,7 +1269,28 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `entries` | `({ description?: string; entry?: Record<string, unknown>; homepage?: string; id: string; label: string; needs?: string[]; transport: "stdio" \| "http" \| "sse"; })[]` | no | Curated servers, in display order. |
+| `entries` | `({ auth?: "oauth" \| "token" \| "none"; description?: string; entry?: Record<string, unknown>; homepage?: string; id: string; label: string; needs?: string[]; transport: "stdio" \| "http" \| "sse"; })[]` | no | Curated servers, in display order. |
+
+### `mcp.deauthorize`
+
+*Direction:* client → server
+
+Forget a remote MCP server's stored OAuth tokens (1.34.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Server name. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use. |
+| `workdir` | `string \| null` | no | Project directory that declares it. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call ran. |
+| `removed` | `boolean` | no | True when a stored sign-in was deleted. |
 
 ### `mcp.list`
 
@@ -1233,7 +1310,7 @@ List every configured MCP server with its scope, state and tools.
 
 | field | type | required | description |
 |---|---|---|---|
-| `servers` | `({ args?: string[]; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; shadowed?: boolean; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning; with includeShadowed, each declaration that loses to another scope follows its winner with shadowed: true (1.33.0). |
+| `servers` | `({ args?: string[]; auth?: { clientId?: string \| null; required?: boolean; state?: "ok" \| "needs_auth" \| "none"; }; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; shadowed?: boolean; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning; with includeShadowed, each declaration that loses to another scope follows its winner with shadowed: true (1.33.0). |
 
 ### `mcp.reload`
 
@@ -1296,6 +1373,7 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 | `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. mcp.update, and mcp.test on a saved server, merge them key by key into the saved headers (1.33.0); headersRemove deletes keys. |
 | `headersRemove` | `string[] \| null` | no | Probe without these saved HTTP headers, as mcp.update would (1.33.0). |
 | `name` | `string \| null` | no | Saved server to probe. |
+| `oauth` | `{ clientId?: string \| null; clientSecret?: string \| null; scope?: string \| null; } \| null` | no | OAuth client settings for an http/sse server (1.34.0); mcp.update merges them key by key. |
 | `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `scope` | `"project" \| "global" \| "plugin" \| "settings" \| null` | no | Scope of the saved server. Given, that scope's declaration is the one probed or merged onto, not whichever wins; when it has none the draft is probed on its own (1.33.0). |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
@@ -1304,7 +1382,7 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 | `toolsExclude` | `string[] \| null` | no | Never register these tools of the server. [] clears the filter; null or absent leaves it as saved. |
 | `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. [] clears the filter; null or absent leaves it as saved. |
 | `type` | `"stdio" \| "http" \| "sse" \| null` | no | Force a transport instead of inferring it. |
-| `unset` | `("args" \| "cwd" \| "disabled" \| "env" \| "headers" \| "timeoutSec" \| "toolTimeoutSec" \| "toolsExclude" \| "toolsInclude" \| "type")[] \| null` | no | Probe with these optional keys cleared, as mcp.update would (1.33.0). |
+| `unset` | `("args" \| "cwd" \| "disabled" \| "env" \| "headers" \| "timeoutSec" \| "toolTimeoutSec" \| "toolsExclude" \| "toolsInclude" \| "type" \| "oauth")[] \| null` | no | Probe with these optional keys cleared, as mcp.update would (1.33.0). |
 | `url` | `string \| null` | no | Endpoint for an http or sse server. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
 
@@ -1312,6 +1390,7 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 
 | field | type | required | description |
 |---|---|---|---|
+| `auth` | `{ clientId?: string \| null; required?: boolean; state?: "ok" \| "needs_auth" \| "none"; }` | no | OAuth standing the probe found: needs_auth when it was refused with 401. |
 | `elapsedMs` | `number` | no | How long the probe took. |
 | `error` | `string \| null` | no | Spawn or protocol error, verbatim. |
 | `ok` | `boolean` | yes | True when the server answered tools/list. |
@@ -1333,10 +1412,10 @@ Merge a patch into an existing MCP server entry.
 | `force` | `boolean` | no | Same as acceptFindings here (1.33.0). |
 | `headersRemove` | `string[] \| null` | no | HTTP headers to delete from the saved entry (1.33.0). |
 | `name` | `string` | yes | Server name. |
-| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent or null is kept. env and headers merge key by key (1.33.0), except that a new url with no headers drops the saved headers; toolsInclude/toolsExclude [] clears that filter. |
+| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; oauth?: { clientId?: string \| null; clientSecret?: string \| null; scope?: string \| null; } \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent or null is kept. env and headers merge key by key (1.33.0), except that a new url with no headers drops the saved headers; toolsInclude/toolsExclude [] clears that filter. |
 | `scope` | `"project" \| "global" \| null` | no | Which file to rewrite; omitted, the one that declares it. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
-| `unset` | `("args" \| "cwd" \| "disabled" \| "env" \| "headers" \| "timeoutSec" \| "toolTimeoutSec" \| "toolsExclude" \| "toolsInclude" \| "type")[] \| null` | no | Optional entry keys to clear, e.g. ['cwd', 'timeoutSec'] (1.33.0). Applied after the patch, as envRemove and headersRemove are, so a key named here is gone even if the patch also set it. |
+| `unset` | `("args" \| "cwd" \| "disabled" \| "env" \| "headers" \| "timeoutSec" \| "toolTimeoutSec" \| "toolsExclude" \| "toolsInclude" \| "type" \| "oauth")[] \| null` | no | Optional entry keys to clear, e.g. ['cwd', 'timeoutSec'] (1.33.0). Applied after the patch, as envRemove and headersRemove are, so a key named here is gone even if the patch also set it. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
 
 **Result**
@@ -2561,7 +2640,7 @@ List installed skills.
 
 | field | type | required | description |
 |---|---|---|---|
-| `skills` | `({ downloads?: number; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Installed skills. |
+| `skills` | `({ downloads?: number; enabled?: boolean; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Installed skills. |
 
 ### `skill.read`
 
@@ -2641,7 +2720,7 @@ Search available skills.
 | field | type | required | description |
 |---|---|---|---|
 | `notIncluded` | `({ label: string; reason?: string; })[]` | no | Hubs the registry has deliberately switched off (not failures). Clients should mention them quietly, never as an outage. |
-| `skills` | `({ downloads?: number; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Matching skills. |
+| `skills` | `({ downloads?: number; enabled?: boolean; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Matching skills. |
 | `unavailable` | `string[]` | no | Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. |
 
 ### `skill.write`
@@ -3206,10 +3285,19 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 | `ok` | `boolean \| null` | no | For done: whether it worked. |
 | `stage` | `"start" \| "output" \| "done"` | yes | start (the installer runs), output (a line it printed), done. |
 
+### `mcp.auth.done`
+
+| field | type | required | description |
+|---|---|---|---|
+| `error` | `string \| null` | no | Why it failed: refused, timed out, or the exchange failed. |
+| `name` | `string` | yes | Server name. |
+| `ok` | `boolean` | yes | True when tokens were stored and the server restarted. |
+
 ### `mcp.changed`
 
 | field | type | required | description |
 |---|---|---|---|
+| `auth` | `{ clientId?: string \| null; required?: boolean; state?: "ok" \| "needs_auth" \| "none"; } \| null` | no | OAuth standing after the transition (1.34.0). |
 | `error` | `string \| null` | no | Why the server is in the error state. |
 | `name` | `string` | yes | Server name. |
 | `removed` | `boolean` | no | True when the entry itself is gone. |
@@ -3707,6 +3795,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `invalid_output` |  |
 | `invalid_params` | Params failed schema validation. |
 | `login_unsupported` | The vendor does not support the requested login method. |
+| `mcp_auth_failed` |  |
 | `mcp_exists` |  |
 | `mcp_invalid` |  |
 | `mcp_not_found` |  |

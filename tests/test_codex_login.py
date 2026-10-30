@@ -333,24 +333,37 @@ async def test_browser_login_round_trip_exchanges_the_code_for_chatgpt_credentia
     assert phases[1]["verificationUri"] == started.verification_uri
 
 
-async def test_browser_login_rejects_a_callback_whose_state_does_not_match() -> None:
+async def test_browser_login_ignores_a_callback_whose_state_does_not_match() -> None:
+    """A stray callback gets a 400 and neither ends the login nor is exchanged (1.34.0)."""
+
     def token_handler(_request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("the code must never be exchanged")
 
-    async def bad_state(url: str) -> Any:
-        return await _hit_callback(url, state="not-the-state")
+    async def bad_state_then_refusal(url: str) -> Any:
+        stray = await _hit_callback(url, state="not-the-state")
+        assert stray.status_code == 400
+        assert "state did not match" in stray.text
+        async with _RealAsyncClient(timeout=5.0) as browser:
+            return await browser.get(
+                openai_oauth.REDIRECT_URI,
+                params={"error": "access_denied", "state": _state_of(url)},
+            )
 
-    with pytest.raises(RpcError, match="state did not match"):
-        await _browser_login(token_handler=token_handler, callback=bad_state)
+    with pytest.raises(RpcError, match="access_denied"):
+        await _browser_login(token_handler=token_handler, callback=bad_state_then_refusal)
 
 
 async def test_browser_login_reports_a_refused_consent() -> None:
     def token_handler(_request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("the code must never be exchanged")
 
-    async def refused(_url: str) -> Any:
+    async def refused(url: str) -> Any:
+        # The refusal carries the login's state, as a real provider's does.
         async with _RealAsyncClient(timeout=5.0) as browser:
-            return await browser.get(openai_oauth.REDIRECT_URI, params={"error": "access_denied"})
+            return await browser.get(
+                openai_oauth.REDIRECT_URI,
+                params={"error": "access_denied", "state": _state_of(url)},
+            )
 
     with pytest.raises(RpcError, match="access_denied"):
         await _browser_login(token_handler=token_handler, callback=refused)

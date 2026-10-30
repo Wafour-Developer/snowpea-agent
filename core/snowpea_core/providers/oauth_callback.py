@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import html
 import logging
 from typing import Any
 
@@ -47,7 +48,8 @@ def success_page() -> str:
 
 
 def failure_page(detail: str) -> str:
-    return _PAGE.format(heading="Login failed", body=detail)
+    # ``detail`` can quote the provider's ``?error=``; never reflect it as markup.
+    return _PAGE.format(heading="Login failed", body=html.escape(detail))
 
 
 class OAuthCallbackServer:
@@ -76,13 +78,16 @@ class OAuthCallbackServer:
         self.vendor = vendor
         self._future: asyncio.Future[str] | None = None
         self._runner: web.AppRunner | None = None
+        #: The accepted redirect's ``iss`` (RFC 9207), for a caller that checks it.
+        self.iss: str | None = None
 
     async def start(self) -> int:
         """Bind the port and return it.  Raises when it cannot be had."""
         self._future = asyncio.get_running_loop().create_future()
         app = web.Application()
         app.router.add_get(self.path, self._handle)
-        self._runner = web.AppRunner(app)
+        # No access log: the request line carries the authorization code.
+        self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self.host, self.port)
         try:
@@ -110,24 +115,31 @@ class OAuthCallbackServer:
         )
 
     def _verdict(self, query: Any) -> tuple[str, str]:
-        """``(code, failure detail)`` — exactly one of the two is non-empty."""
+        """``(code, failure detail)`` — exactly one of the two is non-empty.
+
+        Only called once ``state`` matched, so whatever it reports is about
+        the login this server is waiting for.
+        """
         error = query.get("error", "") or query.get("error_description", "")
         code = query.get("code", "")
         if error:
             return "", f"the provider refused the login: {error}"
         if not code:
             return "", "the callback carried no authorization code"
-        if query.get("state", "") != self.state:
-            # Not the login we started: never exchange this code.
-            return "", "the callback state did not match; the login was not completed"
         return code, ""
 
     async def _handle(self, request: web.Request) -> web.Response:
+        if request.query.get("state", "") != self.state:
+            # Not the login we started — a stray or forged request: never
+            # exchange its code, never end the login over it; keep waiting.
+            detail = "the callback state did not match; this is not the login in progress"
+            return web.Response(status=400, text=failure_page(detail), content_type="text/html")
         code, detail = self._verdict(request.query)
         if self._future is not None and not self._future.done():
             if detail:
                 self._future.set_exception(RpcError(errors.INTERNAL, f"{self.vendor}: {detail}"))
             else:
+                self.iss = request.query.get("iss")
                 self._future.set_result(code)
         if detail:
             return web.Response(text=failure_page(detail), content_type="text/html")
