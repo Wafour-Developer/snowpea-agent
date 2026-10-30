@@ -37655,7 +37655,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.72";
+var TUI_VERSION = "0.2.73";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -40298,11 +40298,33 @@ var APPROVAL_OPTIONS = [
   }
 ];
 var PLAN_ALLOW_EVERYTHING = "Allow Everything (plan, then Auto)";
-function approvalOptions(mode) {
-  if (mode !== "plan") return APPROVAL_OPTIONS;
-  return APPROVAL_OPTIONS.map(
-    (option) => option.value.switchToAuto ? { ...option, label: PLAN_ALLOW_EVERYTHING } : option
-  );
+var REMEMBER_DISPLAY_MAX = 40;
+function projectRow(request) {
+  if (!request || request.remember === void 0) return void 0;
+  if (request.remember === null) {
+    return typeof request.args?.command === "string" ? null : void 0;
+  }
+  const display = request.remember.display;
+  const shown = display.length > REMEMBER_DISPLAY_MAX ? `${display.slice(0, REMEMBER_DISPLAY_MAX - 1)}\u2026` : display;
+  const note = request.remember.note ? ` (${request.remember.note})` : "";
+  return {
+    label: `Yes, allow "${shown}" in this project${note}`,
+    value: { decision: "allow", scope: "project" },
+    shortcut: "p"
+  };
+}
+function approvalOptions(mode, request) {
+  const project = projectRow(request);
+  if (mode !== "plan" && project === void 0) return APPROVAL_OPTIONS;
+  return APPROVAL_OPTIONS.flatMap((option) => {
+    if (option.value.scope === "project" && project !== void 0) {
+      return project === null ? [] : [project];
+    }
+    if (mode === "plan" && option.value.switchToAuto) {
+      return [{ ...option, label: PLAN_ALLOW_EVERYTHING }];
+    }
+    return [option];
+  });
 }
 function formatArgs(args, max = 72) {
   return Object.entries(args ?? {}).map(([key, value]) => {
@@ -40317,7 +40339,7 @@ function ApprovalPrompt({
   isActive = true,
   mode
 }) {
-  const options = approvalOptions(mode);
+  const options = approvalOptions(mode, request);
   const suggested = options.findIndex(
     (option) => option.value.decision === "allow" && option.value.scope === request.scopeHint
   );
