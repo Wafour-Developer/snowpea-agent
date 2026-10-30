@@ -381,6 +381,7 @@ async def test_a_project_answer_stores_the_offered_rule_or_nothing(
         "pattern": "^grep( .*)?$",
         "display": "grep …",
         "scopes": ["project", "always"],
+        "note": None,
     }
     # Inline interpreter code has no safe rule: allowed once, nothing stored.
     unsafe = await prompt(client, session_id, "use unsafe shell")

@@ -45,7 +45,7 @@ from snowpea_core.permissions.allowlist import (
 from snowpea_core.permissions.allowlist import (
     Scope as AllowlistScope,
 )
-from snowpea_core.permissions.shell_remember import propose
+from snowpea_core.permissions.shell_remember import matchable, propose
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import ApprovalRemember, ApprovalRequest
@@ -128,6 +128,7 @@ def remember_for(
         pattern=proposal.pattern,
         display=proposal.display,
         scopes=list(proposal.scopes),  # type: ignore[arg-type]
+        note=proposal.note,
     )
 
 
@@ -176,7 +177,14 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
     ):
         log.info("approval %s: %s for %s kept to once", request.requestId, decision.scope, tool)
         return replace(decision, scope="once")
-    if decision.scope in ("always", "project") and _shell_command(request):
+    command = _shell_command(request)
+    if decision.scope == "session" and command and not matchable(command):
+        # The session cache is keyed by the first word: "for this session" on
+        # ``ls | sh`` must not quietly cover every ``ls`` after it.
+        log.info("approval %s: session for a compound command kept to once",
+                 request.requestId)
+        return replace(decision, scope="once")
+    if decision.scope in ("always", "project") and command:
         remember = _remembered(request)
         if remember is None:
             log.info("approval %s: %s for a command with no safe rule kept to once",
@@ -354,8 +362,13 @@ class ApprovalQueue:
 
         A subagent's call is covered by a "for this session" answer its parent
         (or grandparent) gave (addendum 18); the parent's ``always`` answers
-        live in the allowlist and cover it already.
+        live in the allowlist and cover it already.  A command line that is
+        not one plain command (``git status ; id``) is never covered: the
+        cache is keyed by its first word only.
         """
+        command = command_of(args or {})
+        if command and not folder and not matchable(command):
+            return False
         for ancestor in self._lineage(session_id):
             if self.cache_key(ancestor, tool, args, folder) in self._cache:
                 return True

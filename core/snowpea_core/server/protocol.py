@@ -1726,6 +1726,15 @@ class ApprovalRemember(Payload):
         )
     )
     display: str = Field(description="The same rule for people, e.g. 'git status …'.")
+    note: str | None = Field(
+        default=None,
+        description=(
+            "A warning to show with the rule, or null: 'scripts in this project decide "
+            "what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/"
+            "yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle "
+            "and mvn. Such rules are offered for the project only."
+        ),
+    )
     scopes: list[Literal["project", "always"]] = Field(
         description=(
             "The remembered answers the card may offer: ['project'], or "
@@ -1801,12 +1810,15 @@ class ApprovalRequest(Payload):
         description=(
             "For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' "
             "or 'always' answer would store. Null when only 'once' (or 'session') can be "
-            "given: a compound or complex line (; && || | & backticks $( ) redirects, "
-            "heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and "
-            "the like, shells and interpreters, network tools, npx-style package runners, "
-            "git push/reset/clean/rm and other history rewrites, onceOnly args, an "
-            "agent-switch guard, any reasonCode, and every non-shell call. Core keeps a "
-            "'project'/'always' answer to a shell request with a null remember to 'once'."
+            "given: a compound or complex line (; && || | & backticks $ redirects, "
+            "heredocs, an env-var prefix, unquoted subshells or globs), a program named by "
+            "a path or with non-ASCII letters, an argument that runs a command "
+            "(--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and "
+            "the like, shells, interpreters and editors, network tools, npx-style package "
+            "runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, "
+            "onceOnly args, an agent-switch guard, any reasonCode, and every non-shell "
+            "call. Core keeps a 'project'/'always' answer to a shell request with a null "
+            "remember to 'once'. Stored shell rules only ever match one such plain command."
         ),
     )
 
@@ -5867,10 +5879,19 @@ class McpAuthorizeParams(Payload):
     name: str = Field(description="Server name.")
     workdir: str | None = Field(default=None, description="Project directory that declares it.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
-    scope: str | None = Field(
+    scope: McpWritableScope | None = Field(
         default=None,
         description=(
-            "Scopes to ask for; default: the entry's oauth.scope, then the server's "
+            "Which declaration signs in: the global or the project entry of this name. "
+            "Omitted, the one in effect; but when a project or plugin entry shadows a "
+            "global one with another URL, that is invalid_params and scope is required, "
+            "so a cloned project cannot collect the sign-in meant for the global server."
+        ),
+    )
+    oauthScope: str | None = Field(
+        default=None,
+        description=(
+            "OAuth scopes to ask for; default: the entry's oauth.scope, then the server's "
             "WWW-Authenticate scope, then its advertised scopes_supported."
         ),
     )
@@ -5893,6 +5914,16 @@ class McpAuthorizeResult(Payload):
     redirectUri: str = Field(
         description="Redirect URI the consent URL carries: the given one or the loopback listener."
     )
+    serverUrl: str = Field(
+        description="URL of the entry signing in, for the host to show before opening url."
+    )
+    resource: str = Field(
+        description=(
+            "Canonical resource (RFC 8707) the token will be for; the host can check it "
+            "matches serverUrl before opening url."
+        )
+    )
+    scope: McpScope = Field(description="Scope of the declaration signing in.")
 
 
 class McpAuthorizeCompleteParams(Payload):
@@ -5926,6 +5957,13 @@ class McpDeauthorizeParams(Payload):
     name: str = Field(description="Server name.")
     workdir: str | None = Field(default=None, description="Project directory that declares it.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
+    scope: McpWritableScope | None = Field(
+        default=None,
+        description=(
+            "Forget the sign-in of this scope's declaration; omitted, the one in effect, "
+            "or every record of the name when none is declared."
+        ),
+    )
 
 
 class McpDeauthorizeResult(Payload):
@@ -5939,8 +5977,19 @@ class McpAuthDoneNotification(Payload):
     name: str = Field(description="Server name.")
     ok: bool = Field(description="True when tokens were stored and the server restarted.")
     error: str | None = Field(
-        default=None, description="Why it failed: refused, timed out, or the exchange failed."
+        default=None,
+        description=(
+            "Why it failed: refused, timed out, the exchange failed, or 'cancelled' when "
+            "the connection that started it closed."
+        ),
     )
+    state: str = Field(
+        description=(
+            "The flow's state, as mcp.authorize returned it; a flow another authorize "
+            "replaced reports nothing, so a host matches on this."
+        )
+    )
+    scope: McpScope = Field(description="Scope of the declaration that signed in.")
 
 
 # --------------------------------------------------------------------------

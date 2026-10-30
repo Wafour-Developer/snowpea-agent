@@ -36,6 +36,7 @@ const GIT_STATUS = {
   pattern: "^git status( .*)?$",
   display: "git status …",
   scopes: ["project", "always"] as Array<"project" | "always">,
+  note: null,
 };
 
 async function show(request: ApprovalEntry) {
@@ -61,6 +62,20 @@ describe("remembering a shell command", () => {
     expect(answers).toEqual([{ decision: "allow", scope: "project" }]);
   });
 
+  it("shows the rule's note on the same row", async () => {
+    const remember = {
+      pattern: "^npm run build( .*)?$",
+      display: "npm run build …",
+      scopes: ["project"] as Array<"project" | "always">,
+      note: "scripts in this project decide what runs",
+    };
+    const { stdout, instance } = await show(entry("npm run build", remember));
+    instance.unmount();
+    expect(stdout.text()).toContain(
+      'Yes, allow "npm run build …" in this project (scripts in this project decide what runs)',
+    );
+  });
+
   it("leaves the project row out when nothing may be remembered", async () => {
     const { stdin, stdout, instance, answers } = await show(entry("git push --force", null));
     expect(stdout.text()).not.toContain("project");
@@ -81,7 +96,8 @@ describe("remembering a shell command", () => {
   });
 
   it("keeps its height while the cursor moves", async () => {
-    for (const remember of [GIT_STATUS, null]) {
+    const noted = { ...GIT_STATUS, note: "scripts in this project decide what runs" };
+    for (const remember of [GIT_STATUS, noted, null]) {
       const { stdin, stdout, instance } = await show(entry("git status", remember));
       for (let i = 0; i < 6; i += 1) {
         stdin.write("\u001B[B");

@@ -795,12 +795,18 @@ class PendingAuth:
     name: str
     url: str
     workdir: Path
+    #: The flow's own ``state`` and the scope of the declaration signing in,
+    #: both echoed in ``mcp.auth.done``.
+    state: str
+    scope: McpScope
     #: What the token record will hold, minus the tokens.
     record: dict[str, Any]
     verifier: str
     deadline: float
     listener: OAuthCallbackServer | None = None
     waiter: asyncio.Task[None] | None = None
+    #: The connection that started it; closing that connection cancels it.
+    conn: Any = None
 
 
 #: ``state`` -> its flow.
@@ -813,11 +819,13 @@ def _auth_failed(name: str, exc: mcp_oauth.OAuthError | str, stage: str = "") ->
     return RpcError(errors.MCP_AUTH_FAILED, f"{name}: {text}", {"stage": stage})
 
 
-async def _auth_done(core: Any, name: str, ok: bool, error: str | None = None) -> None:
-    hub = getattr(core, "hub", None)
+async def _auth_done(pending: PendingAuth, ok: bool, error: str | None = None) -> None:
+    hub = getattr(pending.core, "hub", None)
     if hub is None:  # pragma: no cover - a core without a hub is a test double
         return
-    payload = McpAuthDoneNotification(name=name, ok=ok, error=error)
+    payload = McpAuthDoneNotification(
+        name=pending.name, ok=ok, error=error, state=pending.state, scope=pending.scope
+    )
     try:
         await hub.notify("mcp.auth.done", payload.model_dump(mode="json"))
     except Exception:  # noqa: BLE001 - a dead socket must not break the sign-in
@@ -838,6 +846,18 @@ async def _discard(state: str) -> PendingAuth | None:
     return pending
 
 
+async def cancel_for(conn: Any) -> None:
+    """``on_close``: drop the flows ``conn`` started and say so to everyone else.
+
+    Each ends with ``mcp.auth.done {ok: false, error: "cancelled"}``, so a host
+    that shares the daemon stops showing a sign-in nobody can finish; the
+    loopback listener is closed with it.
+    """
+    for state, pending in list(_PENDING.items()):
+        if pending.conn is conn and await _discard(state) is not None:
+            await _auth_done(pending, False, "cancelled")
+
+
 async def close_pending() -> None:
     """Drop every flow still waiting (daemon shutdown, tests)."""
     for state in list(_PENDING):
@@ -854,17 +874,17 @@ async def _wait(state: str) -> None:
         await asyncio.sleep(remaining)
         if state in _PENDING:
             await _discard(state)
-            await _auth_done(pending.core, pending.name, False, "the sign-in timed out")
+            await _auth_done(pending, False, "the sign-in timed out")
         return
     try:
         code = await pending.listener.wait(remaining)
     except TimeoutError:
         if await _discard(state) is not None:
-            await _auth_done(pending.core, pending.name, False, "the sign-in timed out")
+            await _auth_done(pending, False, "the sign-in timed out")
         return
     except RpcError as exc:
         if await _discard(state) is not None:
-            await _auth_done(pending.core, pending.name, False, exc.message)
+            await _auth_done(pending, False, exc.message)
         return
     with contextlib.suppress(RpcError):
         await _finish(state, code, pending.listener.iss)
@@ -881,13 +901,13 @@ async def _finish(state: str, code: str, iss: str | None = None) -> McpAuthorize
         )
     core, name = pending.core, pending.name
     if time.monotonic() > pending.deadline:
-        await _auth_done(core, name, False, "the sign-in timed out")
+        await _auth_done(pending, False, "the sign-in timed out")
         raise RpcError(errors.MCP_AUTH_FAILED, f"{name}: the sign-in timed out", {"stage": "state"})
     try:
         mcp_oauth.check_iss(pending.record, iss)
         record = await mcp_oauth.exchange(pending.record, code, pending.verifier)
     except mcp_oauth.OAuthError as exc:
-        await _auth_done(core, name, False, str(exc))
+        await _auth_done(pending, False, str(exc))
         raise _auth_failed(name, exc) from None
     mcp_oauth.TokenStore(core.paths.home).put(name, record)
     log.info("mcp server %s: signed in", name)
@@ -895,7 +915,7 @@ async def _finish(state: str, code: str, iss: str | None = None) -> McpAuthorize
     row = declared(core, pending.workdir).get(name)
     if row is not None and row.config.url == pending.url and not row.config.disabled:
         state_after = (await apply(core, row)).state
-    await _auth_done(core, name, True)
+    await _auth_done(pending, True)
     return McpAuthorizeCompleteResult(ok=True, name=name, state=state_after)
 
 
@@ -931,8 +951,45 @@ def check_redirect_uri(uri: str) -> str:
     return uri
 
 
+def signing_row(core: Core, name: str, scope: str | None, workdir: Path) -> Declared:
+    """The declaration ``mcp.authorize``/``mcp.deauthorize`` act on.
+
+    With ``scope``, that scope's own entry, shadowed or not.  Without, the one
+    in effect — unless it is a project or plugin entry hiding a global one at
+    another URL: then the caller must say which, or a cloned repository could
+    collect the sign-in the user meant for their global server.
+    """
+    every = declarations(core, workdir)
+    if scope is not None:
+        row = next((r for r in reversed(every) if r.name == name and r.scope == scope), None)
+        if row is None:
+            raise RpcError(errors.MCP_NOT_FOUND, f"'{name}' is not declared in scope {scope}")
+        return row
+    row = declared(core, workdir).get(name)
+    if row is None:
+        raise RpcError(errors.MCP_NOT_FOUND, f"'{name}' is not a configured server")
+    if row.scope in ("project", "plugin") and row.config.url:
+        hidden = next((r for r in every if r.name == name and r.scope == "global"), None)
+        if (
+            hidden is not None
+            and hidden.config.url
+            and canonical(hidden.config.url) != canonical(row.config.url)
+        ):
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                f"'{name}' is declared globally and, at another URL, by the {row.scope} "
+                "scope; pass scope ('global' or 'project') to say which one signs in",
+                {"field": "scope"},
+            )
+    return row
+
+
+def canonical(url: str) -> str:
+    return mcp_oauth.canonical_resource(url).rstrip("/")
+
+
 async def mcp_authorize_handler(
-    _conn: RpcConnection | None, params: McpAuthorizeParams, core: Core
+    conn: RpcConnection | None, params: McpAuthorizeParams, core: Core
 ) -> McpAuthorizeResult:
     """``mcp.authorize`` — discover, register, and hand back the consent URL.
 
@@ -942,9 +999,7 @@ async def mcp_authorize_handler(
     """
     workdir = workdir_of(core, params.sessionId, params.workdir)
     MANAGER.bind(core)
-    row = declared(core, workdir).get(params.name)
-    if row is None:
-        raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not a configured server")
+    row = signing_row(core, params.name, params.scope, workdir)
     name = row.name
     if not row.config.url or row.config.transport == "stdio":
         raise RpcError(
@@ -957,8 +1012,8 @@ async def mcp_authorize_handler(
     except mcp_client.McpError as exc:
         raise _auth_failed(name, str(exc), "client") from None
     for state, pending in list(_PENDING.items()):
-        if pending.name == name:
-            await _discard(state)
+        if pending.name == name and pending.scope == row.scope:
+            await _discard(state)  # replaced: it reports nothing
 
     state = mcp_oauth.new_state()
     verifier, challenge = new_pkce_pair()
@@ -974,7 +1029,7 @@ async def mcp_authorize_handler(
     try:
         async with mcp_oauth.new_client() as http:
             found = await mcp_oauth.discover(http, config.url or "", config.headers)
-            scope = params.scope or config.oauth.get("scope") or found.scope
+            scope = params.oauthScope or config.oauth.get("scope") or found.scope
             client_id = config.oauth.get("clientId")
             if client_id:
                 secret = config.oauth.get("clientSecret") or None
@@ -1023,19 +1078,32 @@ async def mcp_authorize_handler(
         name=name,
         url=row.config.url,
         workdir=workdir,
+        state=state,
+        scope=row.scope,
         record=record,
         verifier=verifier,
         deadline=time.monotonic() + AUTH_TIMEOUT,
         listener=listener,
+        conn=conn,
     )
     _PENDING[state] = pending
+    if conn is not None and cancel_for not in getattr(conn, "on_close", [cancel_for]):
+        conn.on_close.append(cancel_for)
     pending.waiter = asyncio.create_task(_wait(state), name=f"mcp-auth:{name}")
     expires_at = (
         (datetime.now(UTC) + timedelta(seconds=AUTH_TIMEOUT))
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z")
     )
-    return McpAuthorizeResult(url=url, state=state, expiresAt=expires_at, redirectUri=redirect_uri)
+    return McpAuthorizeResult(
+        url=url,
+        state=state,
+        expiresAt=expires_at,
+        redirectUri=redirect_uri,
+        serverUrl=row.config.url,
+        resource=found.resource,
+        scope=row.scope,
+    )
 
 
 async def mcp_authorize_complete_handler(
@@ -1055,7 +1123,7 @@ async def mcp_authorize_complete_handler(
             if params.error
             else "the redirect carried no authorization code"
         )
-        await _auth_done(pending.core, pending.name, False, reason)
+        await _auth_done(pending, False, reason)
         raise RpcError(errors.MCP_AUTH_FAILED, f"{pending.name}: {reason}", {"stage": "callback"})
     return await _finish(params.state, params.code, params.iss)
 
@@ -1063,18 +1131,28 @@ async def mcp_authorize_complete_handler(
 async def mcp_deauthorize_handler(
     _conn: RpcConnection | None, params: McpDeauthorizeParams, core: Core
 ) -> McpDeauthorizeResult:
-    """``mcp.deauthorize`` — delete the stored sign-in; a running server restarts without it."""
-    for state, pending in list(_PENDING.items()):
-        if pending.name == params.name:
-            await _discard(state)
+    """``mcp.deauthorize`` — delete the stored sign-in; a running server restarts without it.
+
+    ``scope`` picks that declaration's record; without it the one in effect,
+    or every record of the name when none is declared.
+    """
     workdir = workdir_of(core, params.sessionId, params.workdir)
-    row = declared(core, workdir).get(params.name)
-    # The declaration in effect names which record goes; with none, all of them.
+    row: Declared | None
+    if params.scope is not None:
+        row = signing_row(core, params.name, params.scope, workdir)
+    else:
+        row = declared(core, workdir).get(params.name)
+    only = row.scope if params.scope is not None and row is not None else None
+    for state, pending in list(_PENDING.items()):
+        if pending.name == params.name and only in (None, pending.scope):
+            await _discard(state)
     url = row.config.url if row is not None else None
     removed = mcp_oauth.TokenStore(core.paths.home).drop(params.name, url)
-    if removed:
-        if row is not None and MANAGER.get(params.name) is not None:
-            await apply(core, row)
+    winner = declared(core, workdir).get(params.name)
+    if removed and winner is not None and MANAGER.get(params.name) is not None:
+        # Only the copy in effect runs; dropping a shadowed copy's record leaves it.
+        if winner.config.url and url and canonical(winner.config.url) == canonical(url):
+            await apply(core, winner)
     return McpDeauthorizeResult(ok=True, removed=removed)
 
 
@@ -1106,12 +1184,14 @@ __all__ = [
     "PendingAuth",
     "apply",
     "auth_of",
+    "cancel_for",
     "close_pending",
     "declarations",
     "declared",
     "entry_from",
     "info_of",
     "needs_auth",
+    "signing_row",
     "mcp_add_handler",
     "mcp_authorize_complete_handler",
     "mcp_authorize_handler",

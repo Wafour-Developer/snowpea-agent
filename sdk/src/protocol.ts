@@ -239,10 +239,12 @@ export interface ApprovalListResult {
     paths?: string[] | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
-    /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $( ) redirects, heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and the like, shells and interpreters, network tools, npx-style package runners, git push/reset/clean/rm and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. */
+    /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
     remember?: {
       /** The same rule for people, e.g. 'git status …'. */
       display: string;
+      /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
+      note?: string | null;
       /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
       pattern: string;
       /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
@@ -281,10 +283,12 @@ export interface ApprovalRequestParams {
   paths?: string[] | null;
   /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
   reasonCode?: string | null;
-  /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $( ) redirects, heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and the like, shells and interpreters, network tools, npx-style package runners, git push/reset/clean/rm and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. */
+  /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
   remember?: {
     /** The same rule for people, e.g. 'git status …'. */
     display: string;
+    /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
+    note?: string | null;
     /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
     pattern: string;
     /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
@@ -1293,10 +1297,12 @@ export interface McpAddResult {
 export interface McpAuthorizeParams {
   /** Server name. */
   name: string;
+  /** OAuth scopes to ask for; default: the entry's oauth.scope, then the server's WWW-Authenticate scope, then its advertised scopes_supported. */
+  oauthScope?: string | null;
   /** Redirect URI the host catches itself (its own tab) and hands back with mcp.authorize.complete: http on 127.0.0.1, localhost or [::1] (any port), https, or a private-use scheme; never javascript:, data:, file: or a fragment (invalid_params). Omitted, the daemon listens on http://127.0.0.1:<random port>/callback and completes on its own. */
   redirectUri?: string | null;
-  /** Scopes to ask for; default: the entry's oauth.scope, then the server's WWW-Authenticate scope, then its advertised scopes_supported. */
-  scope?: string | null;
+  /** Which declaration signs in: the global or the project entry of this name. Omitted, the one in effect; but when a project or plugin entry shadows a global one with another URL, that is invalid_params and scope is required, so a cloned project cannot collect the sign-in meant for the global server. */
+  scope?: "project" | "global" | null;
   /** Session whose workdir to use. */
   sessionId?: string | null;
   /** Project directory that declares it. */
@@ -1309,6 +1315,12 @@ export interface McpAuthorizeResult {
   expiresAt: string;
   /** Redirect URI the consent URL carries: the given one or the loopback listener. */
   redirectUri: string;
+  /** Canonical resource (RFC 8707) the token will be for; the host can check it matches serverUrl before opening url. */
+  resource: string;
+  /** Scope of the declaration signing in. */
+  scope: "project" | "global" | "plugin" | "settings";
+  /** URL of the entry signing in, for the host to show before opening url. */
+  serverUrl: string;
   /** Opaque flow id; mcp.authorize.complete takes it back. */
   state: string;
   /** Consent URL to open in a browser. */
@@ -1367,6 +1379,8 @@ export interface McpCatalogResult {
 export interface McpDeauthorizeParams {
   /** Server name. */
   name: string;
+  /** Forget the sign-in of this scope's declaration; omitted, the one in effect, or every record of the name when none is declared. */
+  scope?: "project" | "global" | null;
   /** Session whose workdir to use. */
   sessionId?: string | null;
   /** Project directory that declares it. */
@@ -4513,10 +4527,12 @@ export interface ApprovalPendingPayload {
     paths?: string[] | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
-    /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $( ) redirects, heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and the like, shells and interpreters, network tools, npx-style package runners, git push/reset/clean/rm and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. */
+    /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
     remember?: {
       /** The same rule for people, e.g. 'git status …'. */
       display: string;
+      /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
+      note?: string | null;
       /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
       pattern: string;
       /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
@@ -4636,12 +4652,16 @@ export interface LspInstallProgressPayload {
 
 /** `mcp.auth.done` notification payload. */
 export interface McpAuthDonePayload {
-  /** Why it failed: refused, timed out, or the exchange failed. */
+  /** Why it failed: refused, timed out, the exchange failed, or 'cancelled' when the connection that started it closed. */
   error?: string | null;
   /** Server name. */
   name: string;
   /** True when tokens were stored and the server restarted. */
   ok: boolean;
+  /** Scope of the declaration that signed in. */
+  scope: "project" | "global" | "plugin" | "settings";
+  /** The flow's state, as mcp.authorize returned it; a flow another authorize replaced reports nothing, so a host matches on this. */
+  state: string;
 }
 
 /** `mcp.changed` notification payload. */

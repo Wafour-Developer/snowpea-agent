@@ -382,7 +382,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; remember?: { display: string; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -401,7 +401,7 @@ Ask the client to approve a tool call.
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `paths` | `string[] \| null` | no | With reasonCode: the resolved absolute paths concerned (1.30.0). |
 | `reasonCode` | `string \| null` | no | Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. |
-| `remember` | `{ display: string; pattern: string; scopes: ("project" \| "always")[]; } \| null` | no | For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && \|\| \| & backticks $( ) redirects, heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and the like, shells and interpreters, network tools, npx-style package runners, git push/reset/clean/rm and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. |
+| `remember` | `{ display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null` | no | For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && \|\| \| & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
 | `risk` | `string` | no | Risk hint for the UI. |
 | `scopeHint` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the UI should preselect. |
@@ -1220,8 +1220,9 @@ Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0)
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes | Server name. |
+| `oauthScope` | `string \| null` | no | OAuth scopes to ask for; default: the entry's oauth.scope, then the server's WWW-Authenticate scope, then its advertised scopes_supported. |
 | `redirectUri` | `string \| null` | no | Redirect URI the host catches itself (its own tab) and hands back with mcp.authorize.complete: http on 127.0.0.1, localhost or [::1] (any port), https, or a private-use scheme; never javascript:, data:, file: or a fragment (invalid_params). Omitted, the daemon listens on http://127.0.0.1:<random port>/callback and completes on its own. |
-| `scope` | `string \| null` | no | Scopes to ask for; default: the entry's oauth.scope, then the server's WWW-Authenticate scope, then its advertised scopes_supported. |
+| `scope` | `"project" \| "global" \| null` | no | Which declaration signs in: the global or the project entry of this name. Omitted, the one in effect; but when a project or plugin entry shadows a global one with another URL, that is invalid_params and scope is required, so a cloned project cannot collect the sign-in meant for the global server. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `workdir` | `string \| null` | no | Project directory that declares it. |
 
@@ -1231,6 +1232,9 @@ Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0)
 |---|---|---|---|
 | `expiresAt` | `string` | yes | When the flow stops waiting, ISO-8601 UTC. |
 | `redirectUri` | `string` | yes | Redirect URI the consent URL carries: the given one or the loopback listener. |
+| `resource` | `string` | yes | Canonical resource (RFC 8707) the token will be for; the host can check it matches serverUrl before opening url. |
+| `scope` | `"project" \| "global" \| "plugin" \| "settings"` | yes | Scope of the declaration signing in. |
+| `serverUrl` | `string` | yes | URL of the entry signing in, for the host to show before opening url. |
 | `state` | `string` | yes | Opaque flow id; mcp.authorize.complete takes it back. |
 | `url` | `string` | yes | Consent URL to open in a browser. |
 
@@ -1284,6 +1288,7 @@ Forget a remote MCP server's stored OAuth tokens (1.34.0).
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes | Server name. |
+| `scope` | `"project" \| "global" \| null` | no | Forget the sign-in of this scope's declaration; omitted, the one in effect, or every record of the name when none is declared. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `workdir` | `string \| null` | no | Project directory that declares it. |
 
@@ -3221,7 +3226,7 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
-| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; remember?: { display: string; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 
@@ -3291,9 +3296,11 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 
 | field | type | required | description |
 |---|---|---|---|
-| `error` | `string \| null` | no | Why it failed: refused, timed out, or the exchange failed. |
+| `error` | `string \| null` | no | Why it failed: refused, timed out, the exchange failed, or 'cancelled' when the connection that started it closed. |
 | `name` | `string` | yes | Server name. |
 | `ok` | `boolean` | yes | True when tokens were stored and the server restarted. |
+| `scope` | `"project" \| "global" \| "plugin" \| "settings"` | yes | Scope of the declaration that signed in. |
+| `state` | `string` | yes | The flow's state, as mcp.authorize returned it; a flow another authorize replaced reports nothing, so a host matches on this. |
 
 ### `mcp.changed`
 

@@ -4,7 +4,9 @@ A pattern is a **regular expression**.  What it is matched against depends on
 the entry's ``target``:
 
 * ``shell`` — the command line of an ``exec``-tagged tool call, e.g.
-  ``^ls( .*)?$`` matches ``ls`` and ``ls -la src``.
+  ``^ls( .*)?$`` matches ``ls`` and ``ls -la src``, but never ``ls; id``:
+  only one plain command is matched at all (1.34.0,
+  :func:`~snowpea_core.permissions.shell_remember.matchable`).
 * ``tool:<name>`` — the tool name itself, for everything that is not a shell.
 
 Two stores back the same API: ``project`` lives in
@@ -28,6 +30,7 @@ from typing import Any, Literal
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.project import AllowlistEntry, ProjectSettings
 from snowpea_core.config.settings import Settings
+from snowpea_core.permissions.shell_remember import matchable
 from snowpea_core.tools.renames import former_names
 
 log = logging.getLogger("snowpea.permissions.allowlist")
@@ -342,6 +345,9 @@ class Allowlist:
     ) -> bool:
         """True when some stored pattern covers this call.
 
+        A ``shell`` entry only covers a command
+        :func:`~snowpea_core.permissions.shell_remember.matchable` accepts: one
+        plain command with no command-running argument.
         An entry with an ``origin`` only covers calls on that site (``site``,
         else the origin of ``args["url"]``). A global entry covers only the
         sessions of its own browser profile ``host`` (``None``: IDE/CLI). An
@@ -355,7 +361,11 @@ class Allowlist:
         permission = None if isinstance(tool, str) else getattr(tool, "permission", None)
         command = command_of(args or {})
         is_shell = permission == "exec" or name in SHELL_TOOLS
-        shell_subject = command if (command and is_shell) else None
+        # A shell rule covers one plain command only (1.34.0): never a line
+        # that chains, pipes, substitutes or redirects, never an env prefix,
+        # never an argument that runs another command.  Old first-word rules
+        # (``^git( .*)?$``) are held to the same.
+        shell_subject = command if (command and is_shell and matchable(command)) else None
         # A rule saved under a tool's old name (memory_write) still covers it.
         wanted_tool_targets = {tool_target(n) for n in (name, *former_names(name))}
         for item in self.list(workdir=workdir, host=host, any_host=False):

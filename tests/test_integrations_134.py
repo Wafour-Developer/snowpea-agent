@@ -285,7 +285,11 @@ async def test_loopback_flow_discovers_registers_and_stores_tokens(
         page = await client.get(location)
     assert page.status_code == 200
     await wait_for(lambda: bool(auth_events(events)))
-    assert auth_events(events) == [{"name": "remote", "ok": True, "error": None}]
+    assert auth_events(events) == [
+        {"name": "remote", "ok": True, "error": None, "state": result.state, "scope": "project"}
+    ]
+    assert result.serverUrl == fake_as.mcp_url and result.resource == fake_as.mcp_url
+    assert result.scope == "project"
 
     # The exchange carried the verifier and the resource indicator.
     exchange = fake_as.token_forms[-1]
@@ -326,7 +330,9 @@ async def test_host_completed_flow_uses_the_given_redirect(
     redirect = "https://browser.example/oauth/callback"
     result = await mcp_handlers.mcp_authorize_handler(
         None,
-        McpAuthorizeParams(name="remote", workdir=str(workdir), redirectUri=redirect, scope="read"),
+        McpAuthorizeParams(
+            name="remote", workdir=str(workdir), redirectUri=redirect, oauthScope="read"
+        ),
         core,
     )
     assert result.redirectUri == redirect

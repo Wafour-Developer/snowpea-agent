@@ -88,8 +88,11 @@ function projectRow(
     display.length > REMEMBER_DISPLAY_MAX
       ? `${display.slice(0, REMEMBER_DISPLAY_MAX - 1)}…`
       : display;
+  // The note (1.34.0: "scripts in this project decide what runs") shares the
+  // row, which truncates rather than wraps, so the prompt's height is fixed.
+  const note = request.remember.note ? ` (${request.remember.note})` : "";
   return {
-    label: `Yes, allow "${shown}" in this project`,
+    label: `Yes, allow "${shown}" in this project${note}`,
     value: { decision: "allow", scope: "project" },
     shortcut: "p",
   };
