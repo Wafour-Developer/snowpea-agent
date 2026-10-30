@@ -87,6 +87,14 @@ snowpea -c "draft a migration plan" --mode plan
 | `project` | `<project>/.snowpea/settings.json`에 저장 |
 | `always` | `$SNOWPEA_HOME/settings.json`에 저장 |
 
+### 셸 명령 기억하기
+
+셸 명령에서 `project`와 `always`는 *규칙*을 기억하고, 요청은 답하기 전에 그 규칙을 알려 줍니다(`remember`, 프로토콜 1.34.0, capability `shellRemember`). 규칙은 프로그램 이름, `git`·`npm`·`pnpm`·`yarn`·`bun`·`cargo`·`go`·`docker`·`kubectl`·`pip`·`uv`·`poetry`·`make`·`gradle`·`mvn`·`dotnet` 같은 툴이면 하위 명령까지, `npm run …`이면 스크립트 이름까지, `uv run …`이면 안쪽 명령까지입니다. 그 뒤의 인자는 자유입니다. `git status -s`에 `project`로 답하면 `^git status( .*)?$`(화면에는 `git status …`)가 저장되고, `git push`는 허용되지 않습니다.
+
+어떤 명령은 `once`(또는 `session`)로만 허용할 수 있고, 카드도 그 이상을 내놓지 않습니다. 복합·복잡한 줄(`;`, `&&`, `||`, `|`, 끝의 `&`, 백틱, `$(…)`, `$VAR`, 리다이렉트, heredoc, `NAME=value` 접두, 서브셸), `sudo`·`su`·`doas`, `rm`·`rmdir`·`dd`·`mkfs`·`shred`·`chmod`·`chown`·`chgrp`·`kill`·`pkill`·`killall`·`reboot`·`shutdown`, 셸과 인터프리터(`sh`, `bash`, `python`, `node`, `perl`, `ruby`, `awk`, `sed` 등), 다른 명령을 실행하는 명령(`env`, `eval`, `xargs`, `find`, `timeout` 등), 네트워크 도구(`curl`, `wget`, `ssh`, `scp`, `rsync`, `nc`), 패키지 실행기(`npx`, `uvx`, `pipx`, `bunx`), `git push`·`reset`·`clean`·`rm`·`rebase`·`checkout`·`restore`·`config` 같은 이력 변경, `npm publish`/`exec`, `pip install`, `cargo install`, `go install`, `kubectl delete`/`apply`/`exec` 등, 하위 명령이 없는 툴 호출(`git -C dir …`), 그리고 모드와 상관없이 묻는 호출(에이전트 전환 가드, 설정·비밀 파일, 프로젝트 밖 쓰기)이나 `onceOnly` 호출이 그렇습니다. 이런 명령에 `project`나 `always`로 답하면 `once`로 낮춰지고 아무것도 저장되지 않습니다.
+
+`always`는 뒤에 어떤 인자가 와도 쓰거나 실행할 수 없는 규칙에만 제안됩니다. `ls`, `pwd`, `cat`, `head`, `tail`, `wc`, `stat`, `du`, `df`, `echo`, `grep`, `which`, `git status`, `git blame`, `git ls-files`입니다. 나머지 규칙은 프로젝트용으로만 제안되고, 거기에 `always`로 답하면 프로젝트에 저장됩니다. `remember`를 읽지 않는 클라이언트도 똑같이 처리됩니다. 코어는 좁은 규칙을 저장하거나, 아무것도 저장하지 않습니다.
+
 아무도 답하지 않는 것도 하나의 답입니다. `approvals.timeoutSec`(기본 300초)이 지나면 요청은 거부되고 턴이 끝납니다. 타임아웃을 포함한 모든 결정은 `$SNOWPEA_HOME/logs/approvals.jsonl`에 남습니다.
 
 예약 잡이나 들어오는 채팅 메시지가 올린 요청은 *무인* 요청이며 동작이 다릅니다 — [게이트웨이](gateway.md)를 보세요.

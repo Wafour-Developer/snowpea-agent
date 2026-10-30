@@ -87,6 +87,14 @@ An answer carries a scope:
 | `project` | stored in `<project>/.snowpea/settings.json` |
 | `always` | stored in `$SNOWPEA_HOME/settings.json` |
 
+### Remembering a shell command
+
+For a shell command, `project` and `always` remember a *rule*, and the request says which one before you answer (`remember`, protocol 1.34.0, capability `shellRemember`): the program, plus its subcommand for tools such as `git`, `npm`, `pnpm`, `yarn`, `bun`, `cargo`, `go`, `docker`, `kubectl`, `pip`, `uv`, `poetry`, `make`, `gradle`, `mvn` and `dotnet`, plus the script for `npm run …` and the inner command for `uv run …`. Arguments after that are free. Answering `project` to `git status -s` stores `^git status( .*)?$`, shown as `git status …`; it does not allow `git push`.
+
+Some commands can only be allowed `once` (or for the `session`), and the card offers nothing more for them: a compound or complex line (`;`, `&&`, `||`, `|`, a trailing `&`, backticks, `$(…)`, `$VAR`, redirects, heredocs, an `NAME=value` prefix, subshells); `sudo`, `su`, `doas`; `rm`, `rmdir`, `dd`, `mkfs`, `shred`, `chmod`, `chown`, `chgrp`, `kill`, `pkill`, `killall`, `reboot`, `shutdown`; shells and interpreters (`sh`, `bash`, `python`, `node`, `perl`, `ruby`, `awk`, `sed`, …); commands that run another one (`env`, `eval`, `xargs`, `find`, `timeout`, …); network tools (`curl`, `wget`, `ssh`, `scp`, `rsync`, `nc`); package runners (`npx`, `uvx`, `pipx`, `bunx`); `git push`, `reset`, `clean`, `rm`, `rebase`, `checkout`, `restore`, `config` and other history rewrites; `npm publish`/`exec`, `pip install`, `cargo install`, `go install`, `kubectl delete`/`apply`/`exec` and similar; a tool with no subcommand (`git -C dir …`); and any call that is asked whatever the mode (an agent-switch guard, a settings or secret file, a write outside the project) or marked `onceOnly`. A `project` or `always` answer to one of these is kept to `once` and nothing is stored.
+
+`always` is offered only when the rule cannot write or run anything whatever arguments follow: `ls`, `pwd`, `cat`, `head`, `tail`, `wc`, `stat`, `du`, `df`, `echo`, `grep`, `which`, `git status`, `git blame` and `git ls-files`. Every other rule is offered for the project only, and an `always` answer to it is stored for the project. A client that does not read `remember` gets the same treatment: core stores the narrow rule, or nothing.
+
 Nobody answering is an answer. After `approvals.timeoutSec` (300 seconds by default) the request is denied and the turn ends. Every decision, including timeouts, is appended to `$SNOWPEA_HOME/logs/approvals.jsonl`.
 
 Requests raised by a scheduled job or an incoming chat message are *unattended*, and behave differently — see [Gateway](gateway.md).

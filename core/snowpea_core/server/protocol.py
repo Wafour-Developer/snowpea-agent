@@ -1715,6 +1715,27 @@ class ToolProgressParams(Payload):
 # --------------------------------------------------------------------------
 
 
+class ApprovalRemember(Payload):
+    """What a remembered answer to a shell approval would allow (1.34.0, ``shellRemember``)."""
+
+    pattern: str = Field(
+        description=(
+            "The allowlist regex a 'project' or 'always' answer stores, e.g. "
+            "'^git status( .*)?$': the program, its subcommand for subcommand tools, then "
+            "any arguments."
+        )
+    )
+    display: str = Field(description="The same rule for people, e.g. 'git status …'.")
+    scopes: list[Literal["project", "always"]] = Field(
+        description=(
+            "The remembered answers the card may offer: ['project'], or "
+            "['project', 'always'] when the rule cannot write or run anything whatever "
+            "arguments follow. An 'always' answer to a ['project'] offer is stored for the "
+            "project."
+        )
+    )
+
+
 class ApprovalRequest(Payload):
     """A tool call waiting for a human decision."""
 
@@ -1773,6 +1794,19 @@ class ApprovalRequest(Payload):
             "project), and a 'session' answer for this session (1.30.0). Null when that "
             "folder would be too wide (a filesystem root, the home folder, or above the "
             "project): every answer then covers this call only."
+        ),
+    )
+    remember: ApprovalRemember | None = Field(
+        default=None,
+        description=(
+            "For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' "
+            "or 'always' answer would store. Null when only 'once' (or 'session') can be "
+            "given: a compound or complex line (; && || | & backticks $( ) redirects, "
+            "heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and "
+            "the like, shells and interpreters, network tools, npx-style package runners, "
+            "git push/reset/clean/rm and other history rewrites, onceOnly args, an "
+            "agent-switch guard, any reasonCode, and every non-shell call. Core keeps a "
+            "'project'/'always' answer to a shell request with a null remember to 'once'."
         ),
     )
 
@@ -6826,6 +6860,7 @@ CAPABILITIES: list[str] = [
     "mcpOAuth",
     "skillToggle",
     "mcpVarExpansion",
+    "shellRemember",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and

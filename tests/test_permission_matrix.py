@@ -366,6 +366,31 @@ async def test_respond_with_project_scope_adds_an_allowlist_entry(
     await client.stop()
 
 
+async def test_a_project_answer_stores_the_offered_rule_or_nothing(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    """1.34.0 ``shellRemember``: the request says what remembering covers."""
+    client = await connect(http, daemon)
+    client.approval_mode = "allow"
+    client.approval_scope = "project"
+    session_id = await open_session(client, workdir, "accept")
+
+    turn_id = await prompt(client, session_id, "use grep_lines")
+    assert await client.wait_turn(turn_id) == "complete"
+    assert client.approval_requests[-1]["remember"] == {
+        "pattern": "^grep( .*)?$",
+        "display": "grep …",
+        "scopes": ["project", "always"],
+    }
+    # Inline interpreter code has no safe rule: allowed once, nothing stored.
+    unsafe = await prompt(client, session_id, "use unsafe shell")
+    assert await client.wait_turn(unsafe) == "complete"
+    assert client.approval_requests[-1]["remember"] is None
+    assert [entry["pattern"] for entry in project_allowlist(workdir)] == ["^grep( .*)?$"]
+
+    await client.stop()
+
+
 async def test_respond_with_session_scope_keys_on_the_command(
     daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
 ) -> None:

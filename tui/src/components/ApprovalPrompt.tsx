@@ -68,12 +68,53 @@ export const APPROVAL_OPTIONS: ConfirmOption<ApprovalAnswer>[] = [
 /** The row label "Allow Everything" carries in plan mode (1.32.0). */
 export const PLAN_ALLOW_EVERYTHING = "Allow Everything (plan, then Auto)";
 
-/** The rows for a session in `mode`: plan mode names what "e" does there. */
-export function approvalOptions(mode?: Mode): ConfirmOption<ApprovalAnswer>[] {
-  if (mode !== "plan") return APPROVAL_OPTIONS;
-  return APPROVAL_OPTIONS.map((option) =>
-    option.value.switchToAuto ? { ...option, label: PLAN_ALLOW_EVERYTHING } : option,
-  );
+/** Longest rule text the project row shows, so it stays one line. */
+const REMEMBER_DISPLAY_MAX = 40;
+
+/**
+ * The project row for a shell request (1.34.0, `shellRemember`): it names the
+ * rule the daemon would store, or is left out when only "once" can be kept.
+ * `undefined` keeps the row as it was: an older daemon sends no `remember`.
+ */
+function projectRow(
+  request: Pick<ApprovalEntry, "args" | "remember"> | undefined,
+): ConfirmOption<ApprovalAnswer> | null | undefined {
+  if (!request || request.remember === undefined) return undefined;
+  if (request.remember === null) {
+    return typeof request.args?.command === "string" ? null : undefined;
+  }
+  const display = request.remember.display;
+  const shown =
+    display.length > REMEMBER_DISPLAY_MAX
+      ? `${display.slice(0, REMEMBER_DISPLAY_MAX - 1)}…`
+      : display;
+  return {
+    label: `Yes, allow "${shown}" in this project`,
+    value: { decision: "allow", scope: "project" },
+    shortcut: "p",
+  };
+}
+
+/**
+ * The rows for a session in `mode`: plan mode names what "e" does there, and
+ * a shell request's project row says what it remembers. The rows are fixed
+ * once the request is known, so the prompt never changes height while shown.
+ */
+export function approvalOptions(
+  mode?: Mode,
+  request?: Pick<ApprovalEntry, "args" | "remember">,
+): ConfirmOption<ApprovalAnswer>[] {
+  const project = projectRow(request);
+  if (mode !== "plan" && project === undefined) return APPROVAL_OPTIONS;
+  return APPROVAL_OPTIONS.flatMap((option) => {
+    if (option.value.scope === "project" && project !== undefined) {
+      return project === null ? [] : [project];
+    }
+    if (mode === "plan" && option.value.switchToAuto) {
+      return [{ ...option, label: PLAN_ALLOW_EVERYTHING }];
+    }
+    return [option];
+  });
 }
 
 export function formatArgs(args: Record<string, unknown> | undefined, max = 72): string[] {
@@ -96,7 +137,7 @@ export function ApprovalPrompt({
   /** The session's mode, which decides what "Allow Everything" means. */
   mode?: Mode;
 }): React.ReactElement {
-  const options = approvalOptions(mode);
+  const options = approvalOptions(mode, request);
   // A daemon that suggests a scope moves the cursor to it; otherwise the
   // cursor sits on plain Yes, which is what Enter should mean by default.
   const suggested = options.findIndex(

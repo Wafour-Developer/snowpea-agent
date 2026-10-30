@@ -77,6 +77,7 @@ Server capabilities advertised in the `system.hello` result:
 - `settings`
 - `setup`
 - `sharedDaemon`
+- `shellRemember`
 - `siteActionParts`
 - `siteFrameActions`
 - `siteMemory`
@@ -381,7 +382,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; remember?: { display: string; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -400,6 +401,7 @@ Ask the client to approve a tool call.
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `paths` | `string[] \| null` | no | With reasonCode: the resolved absolute paths concerned (1.30.0). |
 | `reasonCode` | `string \| null` | no | Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. |
+| `remember` | `{ display: string; pattern: string; scopes: ("project" \| "always")[]; } \| null` | no | For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && \|\| \| & backticks $( ) redirects, heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and the like, shells and interpreters, network tools, npx-style package runners, git push/reset/clean/rm and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
 | `risk` | `string` | no | Risk hint for the UI. |
 | `scopeHint` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the UI should preselect. |
@@ -3219,7 +3221,7 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
-| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; remember?: { display: string; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 

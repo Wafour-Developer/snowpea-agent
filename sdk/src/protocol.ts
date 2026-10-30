@@ -239,6 +239,15 @@ export interface ApprovalListResult {
     paths?: string[] | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
+    /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $( ) redirects, heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and the like, shells and interpreters, network tools, npx-style package runners, git push/reset/clean/rm and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. */
+    remember?: {
+      /** The same rule for people, e.g. 'git status …'. */
+      display: string;
+      /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
+      pattern: string;
+      /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
+      scopes: ("project" | "always")[];
+    } | null;
     /** Id to answer with approval.respond. */
     requestId: string;
     /** Risk hint for the UI. */
@@ -272,6 +281,15 @@ export interface ApprovalRequestParams {
   paths?: string[] | null;
   /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
   reasonCode?: string | null;
+  /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $( ) redirects, heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and the like, shells and interpreters, network tools, npx-style package runners, git push/reset/clean/rm and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. */
+  remember?: {
+    /** The same rule for people, e.g. 'git status …'. */
+    display: string;
+    /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
+    pattern: string;
+    /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
+    scopes: ("project" | "always")[];
+  } | null;
   /** Id to answer with approval.respond. */
   requestId: string;
   /** Risk hint for the UI. */
@@ -4495,6 +4513,15 @@ export interface ApprovalPendingPayload {
     paths?: string[] | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
+    /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $( ) redirects, heredocs, an env-var prefix, subshells), sudo/su/doas, rm/dd/chmod/kill and the like, shells and interpreters, network tools, npx-style package runners, git push/reset/clean/rm and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. */
+    remember?: {
+      /** The same rule for people, e.g. 'git status …'. */
+      display: string;
+      /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
+      pattern: string;
+      /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
+      scopes: ("project" | "always")[];
+    } | null;
     /** Id to answer with approval.respond. */
     requestId: string;
     /** Risk hint for the UI. */

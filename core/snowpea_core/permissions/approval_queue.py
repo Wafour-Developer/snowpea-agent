@@ -45,9 +45,10 @@ from snowpea_core.permissions.allowlist import (
 from snowpea_core.permissions.allowlist import (
     Scope as AllowlistScope,
 )
+from snowpea_core.permissions.shell_remember import propose
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
-from snowpea_core.server.protocol import ApprovalRequest
+from snowpea_core.server.protocol import ApprovalRemember, ApprovalRequest
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.manager import EventHub
@@ -95,6 +96,50 @@ REPL_ALWAYS_OK: frozenset[str] = frozenset(
 REPL_PROJECT_OK: frozenset[str] = frozenset({"repl.files"})
 
 
+def _shell_command(request: ApprovalRequest) -> str | None:
+    """The command line of a request whose remembered answer is a shell rule."""
+    if request.reasonCode == OUTSIDE_REASON or (request.tool or "").startswith("repl."):
+        return None
+    return command_of(request.args)
+
+
+def remember_for(
+    tool: str,
+    args: dict[str, Any],
+    *,
+    cacheable: bool = True,
+    guard: str | None = None,
+    reason_code: str | None = None,
+) -> ApprovalRemember | None:
+    """``ApprovalRequest.remember`` for a call (1.34.0): the shell rule it would store.
+
+    ``None`` off-shell, for an answer that is never remembered (``onceOnly``,
+    an agent-switch guard, an uncacheable ``config``/``secret`` call, any
+    ``reasonCode``), and whenever :func:`~snowpea_core.permissions.shell_remember.propose`
+    finds no safe rule.
+    """
+    if not cacheable or guard or reason_code or once_only(args) or tool.startswith("repl."):
+        return None
+    command = command_of(args)
+    proposal = propose(command) if command else None
+    if proposal is None:
+        return None
+    return ApprovalRemember(
+        pattern=proposal.pattern,
+        display=proposal.display,
+        scopes=list(proposal.scopes),  # type: ignore[arg-type]
+    )
+
+
+def _remembered(request: ApprovalRequest) -> ApprovalRemember | None:
+    """The request's offered rule; one built without it (older code) gets it now."""
+    if request.remember is not None:
+        return request.remember
+    return remember_for(
+        request.tool or "", request.args, guard=request.guard, reason_code=request.reasonCode
+    )
+
+
 def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = None) -> Decision:
     """Downgrade a remembered answer that would be broader than it looks.
 
@@ -107,6 +152,10 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
     The exception is a local-dev-server navigation (``repl.navigate`` with
     ``reasonCode: "localDevServer"``) answered "project": it is stored for
     the session's project *and* the URL's origin only.
+
+    A shell command answered "project"/"always" (1.34.0) is remembered only
+    as its ``remember`` rule: with none it is kept to ``once``, and "always"
+    for a rule offered for the project only is kept to ``project``.
     """
     if not decision.allowed or decision.scope == "once":
         return decision
@@ -127,6 +176,16 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
     ):
         log.info("approval %s: %s for %s kept to once", request.requestId, decision.scope, tool)
         return replace(decision, scope="once")
+    if decision.scope in ("always", "project") and _shell_command(request):
+        remember = _remembered(request)
+        if remember is None:
+            log.info("approval %s: %s for a command with no safe rule kept to once",
+                     request.requestId, decision.scope)
+            return replace(decision, scope="once")
+        if decision.scope not in remember.scopes:
+            log.info("approval %s: always for %r kept to project",
+                     request.requestId, remember.display)
+            return replace(decision, scope="project")
     if decision.scope == "site":
         origin = site_of(request.args, request.site)
         if origin is None or not origin.startswith(("http://", "https://")):
@@ -378,6 +437,9 @@ class ApprovalQueue:
             reasonCode=reason_code,
             paths=list(paths) if paths else None,
             folder=folder,
+            remember=remember_for(
+                tool, args, cacheable=cacheable, guard=guard, reason_code=reason_code
+            ),
         )
         loop = asyncio.get_running_loop()
         origin = None if unattended else getattr(session, "origin_conn", None)
@@ -616,6 +678,13 @@ class ApprovalQueue:
                 return
             pattern, target = pattern_for_dir(request.folder), DIR_TARGET
             reason_code = OUTSIDE_REASON
+        elif command and origin is None and _shell_command(request):
+            # The rule the card offered (1.34.0), never the bare first word.
+            remember = _remembered(request)
+            if remember is None:
+                log.info("approval %s: no safe rule for %r; not stored", request.requestId, command)
+                return
+            pattern, target = remember.pattern, SHELL_TARGET
         elif command and origin is None:
             pattern, target = pattern_for_command(command), SHELL_TARGET
         else:
@@ -668,4 +737,5 @@ __all__ = [
     "PERSISTING_SCOPES",
     "ApprovalQueue",
     "Decision",
+    "remember_for",
 ]
