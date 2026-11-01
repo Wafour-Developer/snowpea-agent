@@ -2497,3 +2497,36 @@ async def test_set_agent_guard_turn_and_agent_scoped_host_tools(
         assert session.agent_guard
     finally:
         await host.stop()
+
+
+async def test_a_host_tool_can_carry_a_description_for_one_agent(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """1.35.0: ``descriptionBy`` swaps the description for that agent's sessions only."""
+    host = await open_client(http, daemon, client_id="snowpea-browser-D")
+    try:
+        await host.ok(
+            "tool.register",
+            {
+                "tools": [
+                    spec(
+                        "repl",
+                        description="the long manual",
+                        descriptionBy={"browser-code": "short"},
+                    )
+                ]
+            },
+        )
+        session_id = await new_session(host, tmp_path / "w")
+        session = daemon.core.sessions.get(session_id)
+
+        def described() -> str:
+            return HOST_TOOLS.for_session(session)["repl"].description
+
+        assert described() == "the long manual"
+        session.agent = "browser"
+        assert described() == "the long manual"
+        session.agent = "browser-code"
+        assert described() == "short"
+    finally:
+        await host.stop()

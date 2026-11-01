@@ -345,7 +345,7 @@ async def test_a_long_answer_reaches_the_model_capped(
 # -- 5, 6: the root's siteMemory switch decides, for its children too -------
 
 
-async def test_site_memory_off_at_the_root_means_no_request_for_it_or_its_children(
+async def test_site_memory_off_at_the_root_still_asks_but_says_so_for_it_and_its_children(
     daemon: Daemon, tmp_path: Path, hosts: Any
 ) -> None:
     core = daemon.core
@@ -358,15 +358,18 @@ async def test_site_memory_off_at_the_root_means_no_request_for_it_or_its_childr
     child.child_context = "full"
     child.host_tools_from = host.surface_id
 
+    # The host's own notes (the code agent's AGENTS.md setting) do not depend on
+    # site memory, so it is still asked, with siteMemory false (1.35.0).
     await run_turn(core, root, "open danawa")
-    assert await host_context.fetch(core, child, "t", "open danawa") == ""
-    assert host.calls == []
+    await host_context.fetch(core, child, "t", "open danawa")
+    assert host.calls and all(call[1]["siteMemory"] is False for call in host.calls)
 
-    # The setting off and no override: no request either.
+    # The setting off and no override says the same.
     root.site_memory_override = None
     core.settings.browser.siteMemory = False
-    assert await host_context.fetch(core, child, "t", "open danawa") == ""
-    assert host.calls == []
+    host.calls.clear()
+    await host_context.fetch(core, child, "t", "open danawa")
+    assert [call[1]["siteMemory"] for call in host.calls] == [False]
 
 
 async def test_site_memory_true_at_the_root_wins_over_the_setting(
@@ -602,8 +605,8 @@ async def test_the_switches_survive_a_restart_and_still_send_nothing(
             assert restored.memory_override is False
             assert memory_mod.enabled(core, restored) is False
             host = hosts(core, restored)
-            assert await host_context.fetch(core, restored, "t", "open danawa") == ""
-            assert host.calls == []
+            await host_context.fetch(core, restored, "t", "open danawa")
+            assert [call[1]["siteMemory"] for call in host.calls] == [False]
         finally:
             await second.stop()
 

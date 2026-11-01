@@ -610,6 +610,8 @@ class Environment:
     #: The session workspace (``tmp/``, ``artifacts/``), when it has one.
     workspace: str | None = None
     git: GitSnapshot | None = None
+    #: Layout, manifest scripts and check commands (``repo_orientation``).
+    orientation: str = ""
     #: The project's own instruction files, already discovered and clipped.
     project_context: ProjectContext = field(default_factory=ProjectContext)
 
@@ -617,6 +619,12 @@ class Environment:
     def context_files(self) -> list[ContextFile]:
         """The loaded sections, for a caller that wants them structured."""
         return list(self.project_context.files)
+
+
+def orientation_block(workdir: Path | str) -> str:
+    from snowpea_core.prompts.repo_orientation import orientation
+
+    return orientation(workdir)
 
 
 def _date_line(now: datetime) -> str:
@@ -646,6 +654,7 @@ def collect(
     mode: str | None = None,
     backend: str = "local",
     workspace: str | None = None,
+    orient: bool = False,
 ) -> Environment:
     """Gather the environment, taking anything injected over anything probed."""
     moment = now or datetime.now().astimezone()
@@ -674,6 +683,9 @@ def collect(
         backend=backend,
         workspace=workspace,
         git=snapshot,
+        orientation=(
+            orientation_block(workdir) if orient and not remote and read_git else ""
+        ),
         project_context=project,
     )
 
@@ -763,7 +775,7 @@ def build_environment_block(env: Environment) -> str:
     return render(
         "fragments/environment",
         ENVIRONMENT_LINES=environment_lines(env),
-        WORKSPACE=workspace_block(env.git),
+        WORKSPACE=workspace_block(env.git) + env.orientation,
     )
 
 

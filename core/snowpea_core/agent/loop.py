@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -31,6 +32,7 @@ from snowpea_core.agent import (
     host_context,
     image_describe,
     plan_store,
+    shell_writes,
     verify_gate,
 )
 from snowpea_core.agent.agent import AgentConfig, build_messages
@@ -2385,6 +2387,14 @@ async def _run_one_call(
                 events.error(code, f"{tool.name} was not approved ({decision.by})"),
             )
             refusal = f"the user declined {tool.name}"
+            if code == errors.APPROVAL_TIMEOUT:
+                # Silence is not a no: do not read it as a refusal, and do not
+                # find another way to the same end.
+                refusal = (
+                    f"{tool.name} was not run: the user has not answered the approval "
+                    "yet. This is not a refusal. Do not work around it with another "
+                    "tool; continue with other work or ask again later"
+                )
             if decision.reason:
                 # The refusal the human typed is the whole point of "deny with
                 # a reason": the model must read it, not guess at it.
@@ -2414,6 +2424,7 @@ async def _run_one_call(
     was_interrupted = False
     shell_scan = call.name in {"shell", "execute_code"} or call.name.startswith("process_")
     shell_baseline: dict[str, str] | None = None
+    shell_started = time.time()
     try:
         if repeated is not None:
             result = repeated.as_result()
@@ -2464,6 +2475,9 @@ async def _run_one_call(
     except Exception as exc:  # noqa: BLE001 - a broken tool is a failed call
         log.exception("tool %s raised", tool.name)
         result = ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    if call.name == "shell" and repeated is None and not was_interrupted:
+        # A heredoc, tee or sed -i is an edit like patch: diagnostics, verify gate.
+        result = await shell_writes.annotate(ctx, dict(call.arguments), result, shell_started)
     if repeated is None:
         try:
             if result.ok and result.path:

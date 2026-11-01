@@ -95,7 +95,7 @@ snowpea -c "draft a migration plan" --mode plan
 
 `always`는 뒤에 어떤 인자가 와도 쓰거나 실행할 수 없는 규칙에만 제안됩니다. `ls`, `pwd`, `cat`, `head`, `tail`, `wc`, `stat`, `du`, `df`, `echo`, `grep`, `which`, `git status`, `git blame`, `git ls-files`입니다. 나머지 규칙은 프로젝트용으로만 제안되고, 거기에 `always`로 답하면 프로젝트에 저장됩니다. 프로젝트 파일이 실행 내용을 정하는 규칙 — `make <target>`, `npm`/`pnpm`/`yarn`/`bun run <script>`(와 `test`/`start`), `go run`/`test`, `cargo run`/`test`/`build`, `uv`/`poetry`/`pdm run`, `pytest`, `gradle`, `mvn` — 에는 "이 프로젝트의 스크립트가 무엇을 실행할지 정한다"는 안내가 붙습니다. `remember`를 읽지 않는 클라이언트도 똑같이 처리됩니다. 코어는 좁은 규칙을 저장하거나, 아무것도 저장하지 않습니다.
 
-아무도 답하지 않는 것도 하나의 답입니다. `approvals.timeoutSec`(기본 300초)이 지나면 요청은 거부되고 턴이 끝납니다. 타임아웃을 포함한 모든 결정은 `$SNOWPEA_HOME/logs/approvals.jsonl`에 남습니다.
+TUI와 데스크톱 앱에서는 답하거나 턴을 중단할 때까지 승인이 대기합니다. 앞에 사람이 없는 세션(메신저, 스케줄 작업, 브라우저가 몰고 가는 실행)에서는 무응답이 하나의 답입니다. `approvals.timeoutSec`(기본 300초)이 지나면 요청은 버려지고 도구는 실행되지 않으며, 에이전트에게는 "아직 답하지 않았다(거절이 아님)"고 전달됩니다. 타임아웃을 포함한 모든 결정은 `$SNOWPEA_HOME/logs/approvals.jsonl`에 남습니다.
 
 예약 잡이나 들어오는 채팅 메시지가 올린 요청은 *무인* 요청이며 동작이 다릅니다 — [게이트웨이](gateway.md)를 보세요.
 

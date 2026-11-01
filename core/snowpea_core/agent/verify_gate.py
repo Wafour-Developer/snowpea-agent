@@ -235,6 +235,15 @@ def observe(session: Session, name: str, args: dict[str, Any], result: Any) -> N
             turn.code_edits[path] = turn.step
         return
     if name == "shell":
+        # Files a heredoc, tee or sed -i wrote count as edits (1.35.0).
+        wrote = (getattr(result, "meta", None) or {}).get("wrote") if ok else None
+        workdir = getattr(session, "workdir", None)
+        for path in wrote or ():
+            kind = _kind(str(path), Path(workdir) if workdir else None)
+            if kind == "ui":
+                turn.ui_edits[str(path)] = turn.step
+            elif kind == "code":
+                turn.code_edits[str(path)] = turn.step
         command = str(args.get("command") or "")
         if is_check_command(command):
             turn.last_check = (turn.step, ok, command.strip()[:200])

@@ -92,3 +92,24 @@ def test_skill_allowed_tools_preapprove_instead_of_restricting() -> None:
     assert policy.decide("accept", "exec", shell, {"command": "make"}, session) == "ask"
     session.skill_approved_tools = {"shell"}
     assert policy.decide("accept", "exec", shell, {"command": "make"}, session) == "allow"
+
+
+def test_a_todo_list_spelled_as_a_string_still_becomes_a_list() -> None:
+    from snowpea_core.tools.todos import _clean
+
+    as_json = '[{"id": "1", "content": "read", "status": "pending"}]'
+    as_python = "[{'content': 'read', 'status': 'in_progress'},]"
+    as_lines = "- read the code\n2. fix it"
+    assert _clean(as_json)[0][0]["content"] == "read"
+    assert _clean(as_python)[0][0]["status"] == "in_progress"
+    assert [t["content"] for t in _clean(as_lines)[0]] == ["read the code", "fix it"]
+    assert [t["content"] for t in _clean(["a", "b"])[0]] == ["a", "b"]
+    assert _clean(3)[1] is not None
+
+
+def test_a_python_looking_array_argument_is_decoded_but_never_evaluated() -> None:
+    schema = {"type": "object", "properties": {"q": {"type": "array"}}}
+    assert call_fixups.coerce_arguments({"q": "['a', 'b',]"}, schema) == {"q": ["a", "b"]}
+    assert call_fixups.coerce_arguments({"q": "[__import__('os')]"}, schema) == {
+        "q": "[__import__('os')]"
+    }

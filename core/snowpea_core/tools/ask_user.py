@@ -36,9 +36,9 @@ history.  Queued, not run inline, and the difference is why.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
+from snowpea_core.agent import call_fixups
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.server.protocol import QuestionItem, QuestionOption
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
@@ -74,10 +74,9 @@ def _option(raw: Any) -> QuestionOption:
 def _as_list(value: Any, name: str) -> list[Any]:
     """A list, or a JSON array some models send as a string instead of a list."""
     if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except ValueError:
-            raise AskUserError(f"'{name}' must be a list, not a string") from None
+        value = call_fixups.decode_container(value)
+        if isinstance(value, str):
+            raise AskUserError(f"'{name}' must be a list, not a string")
     if not isinstance(value, list):
         raise AskUserError(f"'{name}' must be a list")
     return value
@@ -196,8 +195,9 @@ async def ask_user(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     output = "\n".join(_describe(q, a) for q, a in zip(questions, answers, strict=False))
     if all(answer.timed_out for answer in answers):
         output += (
-            "\n\nNo interactive client answered. Say what you will assume and why, "
-            "or ask again once the user is back."
+            "\n\nThe user has not answered yet; this is not a refusal. Do not decide "
+            "for them or work around the question: continue with what does not depend "
+            "on it, or ask again once the user is back."
         )
     elif all(answer.declined for answer in answers):
         output += "\n\nThe user declined to choose. Do not treat this as agreement."

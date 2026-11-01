@@ -393,7 +393,9 @@ def parse_agent_text(
         child_context=_child_context(meta.get("childContext", meta.get("child_context"))),
         identity=_choice(meta.get("identity"), ("own", "core")),
         deferred_tools=_names(meta.get("deferredTools", meta.get("deferred_tools"))),
-        skills_index=_choice(meta.get("skillsIndex", meta.get("skills_index")), ("plugin", "all")),
+        skills_index=_choice(
+            meta.get("skillsIndex", meta.get("skills_index")), ("plugin", "all", "none")
+        ),
         default_child=str(meta.get("defaultChild") or meta.get("default_child") or "").strip()
         or None,
         prompt=body,

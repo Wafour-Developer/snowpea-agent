@@ -88,7 +88,7 @@ async def test_a_plugin_agent_lists_only_its_own_skills(
         ("[plugin:other]", [("lint", "lint it")]),
         ("[builtin]", [("skill-create", "make a skill")]),
     ]
-    monkeypatch.setattr(agent_mod, "skill_groups", lambda core: groups)
+    monkeypatch.setattr(agent_mod, "skill_groups", lambda core, agent=None: groups)
     core, session = await _session(
         daemon, tmp_path, skills="plugin", plugin="snowpea-browser"
     )
@@ -117,6 +117,71 @@ async def test_deferred_tools_stay_behind_tool_search_on_a_fixed_tool_list(
     _, hosted = await _session(daemon, tmp_path, provider="openai", deferred=["grep"])
     agent_mod.prompt_plan(hosted, core)
     assert "grep" in {spec.name for spec in core.tools.specs(hosted)}
+
+
+async def test_a_skill_tagged_for_an_agent_is_listed_only_for_it(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    core, session = await _session(daemon, tmp_path)
+    home_skills = tmp_path / "home" / "skills"
+    for name, agents in (("site-tips", "agents: [browser]"), ("plain-tip", "")):
+        folder = home_skills / name
+        folder.mkdir(parents=True)
+        (folder / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: tip {name}\n{agents}\n---\nbody\n"
+        )
+    core.skills.scan()
+
+    assert [n for _l, rows in core.skills.index_groups("browser") for n, _d in rows
+            if n in ("site-tips", "plain-tip")] == ["plain-tip", "site-tips"]
+    listed = [n for _l, rows in core.skills.index_groups("browser-code") for n, _d in rows]
+    assert "plain-tip" in listed and "site-tips" not in listed
+    assert "site-tips" not in [n for _l, rows in core.skills.index_groups() for n, _d in rows]
+
+    # skillsIndex: none lists nothing at all.
+    _, bare = await _session(daemon, tmp_path, skills="none")
+    assert "plain-tip" not in _prompt(core, bare)
+    assert "plain-tip" in _prompt(core, session)
+
+
+async def test_a_definitions_deferred_tools_need_no_global_switch(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    core, session = await _session(daemon, tmp_path, deferred=["grep", "glob"])
+    agent_mod.prompt_plan(session, core)
+    sent = {spec.name for spec in core.tools.specs(session)}
+    named = {spec.name for spec in core.tools.deferred_specs(session)}
+    assert not {"grep", "glob"} & sent and {"grep", "glob"} <= named
+    # The model is told the names it can ask for.
+    assert "glob" in _prompt(core, session).split("Deferred (load with tool_search)")[1]
+
+    # Without a definition's list nothing is held back, and a hosted provider's
+    # growing tool list is left alone.
+    _, plain = await _session(daemon, tmp_path)
+    assert "grep" in {spec.name for spec in core.tools.specs(plain)}
+    _, hosted = await _session(daemon, tmp_path, provider="openai", deferred=["grep"])
+    assert "grep" in {spec.name for spec in core.tools.specs(hosted)}
+
+
+async def test_a_loaded_tools_full_text_returns_after_a_compaction_only(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    core, session = await _session(daemon, tmp_path, deferred=["grep"])
+    session.fixed_tool_list = True  # what the loop sets for a local-style provider
+    agent_mod.prompt_plan(session, core)
+    before = _prompt(core, session)
+    from snowpea_core.tools import deferred as deferred_mod
+
+    deferred_mod.load(session, ["grep"])
+    # Loading never rewrites the cached prefix ...
+    assert _prompt(core, session) == before
+    assert "Loaded earlier with tool_search" not in before
+    # ... a compaction drops the result that carried the text, so it comes back.
+    session.history.compactions += 1
+    agent_mod.prompt_plan(session, core)
+    after = _prompt(core, session)
+    assert "Loaded earlier with tool_search" in after
+    assert core.tools.get("grep", session).description in after
 
 
 SCRIPT = {

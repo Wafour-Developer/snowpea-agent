@@ -317,12 +317,17 @@ def resolve_path(workdir: Path, raw: str) -> Path | None:
         return None
     if text.startswith("file://"):
         text = text[7:]
-    expanded = Path(text).expanduser()
     try:
+        # Only "~" and "~/..." mean the home directory.  "~user" is not looked
+        # up, and "~~~^~~" (the caret line of a pasted traceback) is just text.
+        if text == "~" or text.startswith(("~/", "~\\")):
+            expanded = Path(text).expanduser()
+        else:
+            expanded = Path(text)
         if expanded.is_absolute():
             return expanded.resolve()
         return (workdir / expanded).resolve()
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         return None
 
 

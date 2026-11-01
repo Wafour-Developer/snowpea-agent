@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.34.0";
+export const PROTOCOL_VERSION = "1.35.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -260,7 +260,7 @@ export interface ApprovalListResult {
     sessionId: string;
     /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
     site?: string | null;
-    /** Seconds before the request auto-denies. */
+    /** Seconds before the request is dropped as unanswered; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). */
     timeoutSec?: number;
     /** Tool the model wants to run. */
     tool: string;
@@ -304,7 +304,7 @@ export interface ApprovalRequestParams {
   sessionId: string;
   /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
   site?: string | null;
-  /** Seconds before the request auto-denies. */
+  /** Seconds before the request is dropped as unanswered; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). */
   timeoutSec?: number;
   /** Tool the model wants to run. */
   tool: string;
@@ -807,6 +807,8 @@ export interface HostTurnContextParams {
   rootSessionId: string;
   /** Session whose turn is starting. */
   sessionId: string;
+  /** Whether site memory is on for the root conversation (1.35.0). When false, leave out the part of the note that comes from site memory; a note about the host's own settings still goes. */
+  siteMemory?: boolean;
   /** The turn that is starting. */
   turnId: string;
 }
@@ -2080,7 +2082,7 @@ export interface QuestionListResult {
     requestId: string;
     /** Session whose turn is blocked. */
     sessionId: string;
-    /** Seconds before the batch gives up. */
+    /** Seconds before the batch gives up; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). */
     timeoutSec?: number;
   })[];
 }
@@ -2113,7 +2115,7 @@ export interface QuestionRequestParams {
   requestId: string;
   /** Session whose turn is blocked. */
   sessionId: string;
-  /** Seconds before the batch gives up. */
+  /** Seconds before the batch gives up; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). */
   timeoutSec?: number;
 }
 
@@ -2297,7 +2299,7 @@ export interface SessionCreateParams {
   originSurface?: string | null;
   /** Chat provider vendor; defaults to configured. */
   provider?: string | null;
-  /** Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. Kept with the session across a daemon restart and followed by its delegated children (1.31.0); false also means no host.turnContext. */
+  /** Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. Kept with the session across a daemon restart and followed by its delegated children (1.31.0); false does not stop host.turnContext (1.35.0): the request says siteMemory false, so the host leaves its site-memory part out. */
   siteMemory?: boolean | null;
   /** Absolute path the session operates in. */
   workdir: string;
@@ -4399,6 +4401,8 @@ export interface ToolRegisterParams {
     deferred?: boolean;
     /** What the model reads about the tool. */
     description: string;
+    /** A description for the sessions of one agent definition (1.35.0), by agent name: a tool a coding agent uses a little can carry a short manual while the browsing agent keeps the long one in description. Other agents read description. */
+    descriptionBy?: Record<string, string> | null;
     /** JSON Schema of the arguments. */
     inputSchema?: Record<string, unknown>;
     /** A successful call shows the rendered page (a snapshot or screenshot), which verify-on-stop counts as looking at a UI change (1.29.0). A result can also say so itself with meta look: true; repl code calling snapshot(, annotatedScreenshot(, snapshotTabs(, display( or .screenshot( counts too. */
@@ -4548,7 +4552,7 @@ export interface ApprovalPendingPayload {
     sessionId: string;
     /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
     site?: string | null;
-    /** Seconds before the request auto-denies. */
+    /** Seconds before the request is dropped as unanswered; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). */
     timeoutSec?: number;
     /** Tool the model wants to run. */
     tool: string;
@@ -4741,7 +4745,7 @@ export interface QuestionPendingPayload {
     requestId: string;
     /** Session whose turn is blocked. */
     sessionId: string;
-    /** Seconds before the batch gives up. */
+    /** Seconds before the batch gives up; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). */
     timeoutSec?: number;
   };
 }

@@ -16,7 +16,6 @@ leading substring: anything that changes per turn has to come last.
 from __future__ import annotations
 
 import re
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -191,6 +190,7 @@ def tools_block(
     root: Path | None = None,
     *,
     describe: bool = False,
+    loaded: Sequence[ToolSpec] = (),
 ) -> str:
     """The rendered ``Available tools:`` fragment for one round.
 
@@ -201,12 +201,19 @@ def tools_block(
     byte-identical between rounds.
     """
     from snowpea_core.tools.deferred import deferred_line
+    from snowpea_core.tools.tool_search import render as render_specs
 
-    return render(
+    block = render(
         "fragments/tools",
         root,
         TOOL_LINES=tool_lines(tools, describe=describe),
         DEFERRED_LINE=deferred_line(deferred),
+    )
+    if not loaded:
+        return block
+    return (
+        f"{block}\n\nLoaded earlier with tool_search (still callable by name; the full "
+        f"text again, after a compaction):\n{render_specs(list(loaded))}"
     )
 
 

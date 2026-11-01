@@ -101,6 +101,9 @@ def test_a_named_tool_can_be_forced_eager(core: Core, session: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
+group_label = deferred.group_of
+
+
 def test_deferred_tools_are_named_by_group_and_never_described(
     core: Core, session: Session
 ) -> None:
@@ -109,11 +112,21 @@ def test_deferred_tools_are_named_by_group_and_never_described(
 
     assert deferred.DEFERRED_PREFIX in block
     line = next(row for row in block.splitlines() if row.startswith(deferred.DEFERRED_PREFIX))
-    assert "browser (8)" in line
-    assert "git (4)" in line
+    # A small group is listed by name, so a model can ask for it.
+    assert "browser: " in line and "git: " in line
+    assert all(spec.name in line for spec in hidden if group_label(spec) in ("browser", "git"))
     # Names only: no deferred tool's description reaches the prompt.
     for spec in hidden:
         assert spec.description not in block
+
+
+def test_a_big_group_stays_a_count() -> None:
+    specs = [
+        type("S", (), {"name": f"mcp__big__t{i}", "source": "mcp:big", "category": ""})()
+        for i in range(deferred.NAMED_GROUP_MAX + 1)
+    ]
+    line = deferred.deferred_line(specs)
+    assert f"mcp:big ({len(specs)})" in line and "mcp__big__t0" not in line
 
 
 def test_no_deferred_line_when_nothing_is_deferred() -> None:

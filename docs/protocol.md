@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.34.0` (semver)
+- **Protocol version:** `1.35.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.34.0"
+    "protocolVersion": "1.35.0"
   }
 }
 ```
@@ -407,7 +407,7 @@ Ask the client to approve a tool call.
 | `scopeHint` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the UI should preselect. |
 | `sessionId` | `string` | yes | Session whose turn is blocked. |
 | `site` | `string \| null` | no | Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). |
-| `timeoutSec` | `number` | no | Seconds before the request auto-denies. |
+| `timeoutSec` | `number` | no | Seconds before the request is dropped as unanswered; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). |
 | `tool` | `string` | yes | Tool the model wants to run. |
 
 **Result**
@@ -860,6 +860,7 @@ At turn start, ask the session's host-tools connection for a note for the turn's
 | `prompt` | `string` | no | The turn's user text, at most 4000 characters. Use it to pick sites; keep none of it. |
 | `rootSessionId` | `string` | yes | Its root conversation (the parent chain's top; the session itself for a root). |
 | `sessionId` | `string` | yes | Session whose turn is starting. |
+| `siteMemory` | `boolean` | no | Whether site memory is on for the root conversation (1.35.0). When false, leave out the part of the note that comes from site memory; a note about the host's own settings still goes. |
 | `turnId` | `string` | yes | The turn that is starting. |
 
 **Result**
@@ -1791,7 +1792,7 @@ Ask the client to put a question to the human.
 | `questions` | `({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]` | no | The questions, in the order they were asked. |
 | `requestId` | `string` | yes | Id to answer with question.respond. |
 | `sessionId` | `string` | yes | Session whose turn is blocked. |
-| `timeoutSec` | `number` | no | Seconds before the batch gives up. |
+| `timeoutSec` | `number` | no | Seconds before the batch gives up; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). |
 
 **Result**
 
@@ -1962,7 +1963,7 @@ Open a session rooted at a working directory.
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
 | `originSurface` | `string \| null` | no | Surface that owns approvals for this session (TUI, gateway, ...). |
 | `provider` | `string \| null` | no | Chat provider vendor; defaults to configured. |
-| `siteMemory` | `boolean \| null` | no | Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. Kept with the session across a daemon restart and followed by its delegated children (1.31.0); false also means no host.turnContext. |
+| `siteMemory` | `boolean \| null` | no | Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. Kept with the session across a daemon restart and followed by its delegated children (1.31.0); false does not stop host.turnContext (1.35.0): the request says siteMemory false, so the host leaves its site-memory part out. |
 | `workdir` | `string` | yes | Absolute path the session operates in. |
 
 **Result**
@@ -3128,7 +3129,7 @@ Register tools this connection runs itself (host tools).
 | field | type | required | description |
 |---|---|---|---|
 | `capabilities` | `string[] \| null` | no | What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only). A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. |
-| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; descriptionBy?: Record<string, string> \| null; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
 

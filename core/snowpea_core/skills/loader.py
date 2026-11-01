@@ -207,7 +207,7 @@ class SkillLoader:
         #: :meth:`search` — surfaced by ``skill.search`` as ``notIncluded``.
         self.last_not_included: list[tuple[str, str]] = []
         #: Cached :meth:`index_groups` result, dropped by every scan (M15 §B1).
-        self._index_groups: IndexGroups | None = None
+        self._index_groups: dict[str | None, IndexGroups] = {}
         #: Plugin names detected in Claude Code's installed_plugins.json.
         self.claude_plugin_names: set[str] = set()
         #: mtimes of the skill files and folders the last scan read, so a
@@ -287,7 +287,7 @@ class SkillLoader:
         self.hooks = HookRegistry()
         self.mcp_servers = {}
         self.mcp_server_plugins = {}
-        self._index_groups = None
+        self._index_groups = {}
         self.claude_plugin_names = set()
 
         self._scan_builtins()
@@ -361,7 +361,7 @@ class SkillLoader:
         reload moves them; nothing is read from disk.
         """
         async with self._lock:
-            self._index_groups = None
+            self._index_groups = {}
             self._apply_commands()
             await self._announce()
 
@@ -659,7 +659,7 @@ class SkillLoader:
             before = len(self.skills), len(self.agents)
             for name, source in PROJECT_DIRS:
                 self._scan_bundle(root / name, source)
-            self._index_groups = None
+            self._index_groups = {}
             self._apply_commands()
             report = ReloadReport(
                 skills=len(self.skills) - before[0],
@@ -790,7 +790,7 @@ class SkillLoader:
             log.debug("could not announce commands.changed", exc_info=True)
 
     # -- queries -------------------------------------------------------
-    def index_groups(self) -> IndexGroups:
+    def index_groups(self, agent: str | None = None) -> IndexGroups:
         """Visible skills for the prompt index, grouped by origin (M15 §B1).
 
         ``[project]`` first, then ``[global]``, then each ``[plugin:<name>]``
@@ -799,14 +799,20 @@ class SkillLoader:
         listed: a ``commands/*.md`` file is a slash command the user runs, not
         something ``skill_view`` explains. Cached until the next scan, because
         the index is rebuilt into the context tier of every prompt.
+
+        A skill whose frontmatter names ``agents`` is listed only for sessions
+        of those agent definitions (``agent``); it stays loadable by name.
         """
-        if self._index_groups is not None:
-            return self._index_groups
+        cached = self._index_groups.get(agent)
+        if cached is not None:
+            return cached
         buckets: dict[str, list[tuple[str, str]]] = {}
         for skill in self.skills.values():
             if skill.kind != "skill" or not skill.doc.user_invocable:
                 continue
             if not self.enabled(skill):
+                continue
+            if skill.doc.agents and agent not in skill.doc.agents:
                 continue
             group_key = (
                 f"claude-plugin:{skill.plugin}"
@@ -837,7 +843,7 @@ class SkillLoader:
             for source in order
             if buckets.get(source)
         ]
-        self._index_groups = groups
+        self._index_groups[agent] = groups
         return groups
 
     def list(self, workdir: Path | str | None = None) -> SkillInfos:

@@ -269,6 +269,7 @@ async def test_a_client_that_cannot_ask_declines_at_once() -> None:
 async def test_a_question_nobody_answers_times_out() -> None:
     class _Silent:
         closed = False
+        client_kind = "browser"  # nobody sits at a browser-driven run
 
         async def call(self, method: str, params: dict[str, Any], timeout: float | None = None):
             await asyncio.sleep(3600)
@@ -278,7 +279,35 @@ async def test_a_question_nobody_answers_times_out() -> None:
         ask_user(_ctx(core, _session(_Silent())), dict(RENDERER)), timeout=8.0
     )
     assert result.meta is not None and result.meta["timed_out"] is True
-    assert "No interactive client answered" in result.output
+    assert "has not answered yet" in result.output
+    assert "not a refusal" in result.output
+
+
+@pytest.mark.asyncio
+async def test_a_tui_or_desktop_question_waits_for_the_person() -> None:
+    """No clock on a session with a person in front of it (1.35.0)."""
+    answered = asyncio.Event()
+
+    class _Slow:
+        closed = False
+        client_kind = "tui"
+        timeouts: list[float | None] = []
+
+        async def call(self, method: str, params: dict[str, Any], timeout: float | None = None):
+            self.timeouts.append(timeout)
+            assert params["timeoutSec"] == 0
+            await answered.wait()
+            return {"answers": [{"selected": ["Raw WebGL2"], "text": None}]}
+
+    origin = _Slow()
+    core = _core(timeout_sec=1)
+    task = asyncio.ensure_future(ask_user(_ctx(core, _session(origin)), dict(RENDERER)))
+    await asyncio.sleep(1.6)  # past the 1 s setting
+    assert not task.done()
+    answered.set()
+    result = await asyncio.wait_for(task, 5.0)
+    assert result.meta is not None and result.meta["timed_out"] is False
+    assert origin.timeouts == [None]
 
 
 @pytest.mark.asyncio
@@ -483,6 +512,9 @@ async def test_a_client_that_never_answers_times_the_question_out(
     try:
         client = await connect(http, daemon)  # question_answer=None: never answers
         created = await client.ok("session.create", {"workdir": str(tmp_path)})
+        assert daemon.core is not None
+        origin = daemon.core.sessions.get(created["sessionId"]).origin_conn
+        origin.client_kind = "browser"  # a person's TUI would wait; a browser run does not
         ctx = await _tool_ctx(daemon, created["sessionId"])
         result = await asyncio.wait_for(ask_user(ctx, dict(RENDERER)), TIMEOUT)
         assert result.meta is not None and result.meta["timed_out"] is True

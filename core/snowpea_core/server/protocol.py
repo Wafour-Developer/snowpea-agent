@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.34.0"
+PROTOCOL_VERSION = "1.35.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -408,7 +408,8 @@ class SessionCreateParams(Payload):
             "markPart called with this sessionId answer tool_inactive; true allows them "
             "although browser.siteMemory is off. Omit to follow the setting. Kept with "
             "the session across a daemon restart and followed by its delegated children "
-            "(1.31.0); false also means no host.turnContext."
+            "(1.31.0); false does not stop host.turnContext (1.35.0): the request says "
+            "siteMemory false, so the host leaves its site-memory part out."
         ),
     )
     locale: str | None = Field(
@@ -1449,6 +1450,15 @@ class HostToolSpec(Payload):
             "null: every session of this host."
         ),
     )
+    descriptionBy: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "A description for the sessions of one agent definition (1.35.0), by agent "
+            "name: a tool a coding agent uses a little can carry a short manual while "
+            "the browsing agent keeps the long one in description. Other agents read "
+            "description."
+        ),
+    )
     look: bool = Field(
         default=False,
         description=(
@@ -1657,8 +1667,9 @@ class HostTurnContextRequest(Payload):
 
     Sent once per turn, only to the connection that serves the session's host
     tools and declared ``tool.register {capabilities: ["turnContext"]}``, and
-    only while site memory is on for the root conversation.  Core waits 300 ms
-    at most; a late, failed or missing answer means no note.
+    even while site memory is off for the root conversation (``siteMemory``
+    says which, 1.35.0).  Core waits 300 ms at most; a late, failed or missing
+    answer means no note.
     """
 
     sessionId: str = Field(description="Session whose turn is starting.")
@@ -1666,6 +1677,14 @@ class HostTurnContextRequest(Payload):
         description="Its root conversation (the parent chain's top; the session itself for a root)."
     )
     turnId: str = Field(description="The turn that is starting.")
+    siteMemory: bool = Field(
+        default=True,
+        description=(
+            "Whether site memory is on for the root conversation (1.35.0). When false, leave "
+            "out the part of the note that comes from site memory; a note about the host's "
+            "own settings still goes."
+        ),
+    )
     prompt: str = Field(
         default="",
         description=(
@@ -1753,7 +1772,13 @@ class ApprovalRequest(Payload):
     tool: str = Field(description="Tool the model wants to run.")
     args: dict[str, Any] = Field(default_factory=dict, description="Arguments it wants to use.")
     risk: str = Field(default="low", description="Risk hint for the UI.")
-    timeoutSec: int = Field(default=300, description="Seconds before the request auto-denies.")
+    timeoutSec: int = Field(
+        default=300,
+        description=(
+            "Seconds before the request is dropped as unanswered; 0 means no limit "
+            "(1.35.0: a TUI or desktop session waits for its person)."
+        ),
+    )
     scopeHint: ApprovalScope = Field(default="once", description="Scope the UI should preselect.")
     note: str = Field(
         default="",
@@ -1997,7 +2022,13 @@ class QuestionRequest(Payload):
     questions: list[QuestionItem] = Field(
         default_factory=list, description="The questions, in the order they were asked."
     )
-    timeoutSec: int = Field(default=600, description="Seconds before the batch gives up.")
+    timeoutSec: int = Field(
+        default=600,
+        description=(
+            "Seconds before the batch gives up; 0 means no limit (1.35.0: a TUI or "
+            "desktop session waits for its person)."
+        ),
+    )
 
 
 class QuestionListResult(Payload):

@@ -7,8 +7,10 @@ desktop app) can show what the agent plans to do and how far it got.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
+from snowpea_core.agent import call_fixups
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 STATUSES = ("pending", "in_progress", "completed")
@@ -17,11 +19,28 @@ STATUSES = ("pending", "in_progress", "completed")
 MAX_TODOS = 50
 
 
+def _items(raw: Any) -> Any:
+    """``raw`` as a list: a JSON or Python-looking list spelled as a string, or
+    one task per line.  Anything else comes back unchanged."""
+    if isinstance(raw, str):
+        decoded = call_fixups.decode_container(raw)
+        if isinstance(decoded, list):
+            return decoded
+        if isinstance(decoded, dict):
+            return [decoded]
+        lines = [re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", row).strip() for row in raw.splitlines()]
+        return [row for row in lines if row]
+    return raw
+
+
 def _clean(raw: Any) -> tuple[list[dict[str, str]], str | None]:
+    raw = _items(raw)
     if not isinstance(raw, list):
-        return [], "todos must be a list"
+        return [], "todos must be a list of {id, content, status} objects"
     out: list[dict[str, str]] = []
     for index, item in enumerate(raw):
+        if isinstance(item, str) and item.strip():
+            item = {"content": item}
         if not isinstance(item, dict):
             return [], f"todos[{index}] must be an object"
         todo_id = str(item.get("id") or "").strip() or str(index + 1)

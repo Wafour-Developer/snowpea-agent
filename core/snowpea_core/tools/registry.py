@@ -121,6 +121,9 @@ class Tool:
     deferred_hint: bool = False
     #: Host tools only: the agents whose sessions see it (``None``: all).
     agents: tuple[str, ...] | None = None
+    #: Host tools only: a description for one agent's sessions (``agent -> text``)
+    #: in place of ``description`` (1.35.0).
+    description_by: dict[str, str] | None = None
     #: Host tools only: a successful call shows the rendered page, which
     #: verify-on-stop counts as a look (``HostToolSpec.look``, 1.29.0).
     look: bool = False

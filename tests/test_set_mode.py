@@ -254,6 +254,7 @@ async def test_headless_declines_at_once_and_stays_in_plan() -> None:
 async def test_nobody_answering_is_not_a_switch_either() -> None:
     class _Silent:
         closed = False
+        client_kind = "browser"  # a person at a TUI is waited for; a browser run is not
 
         async def call(self, method: str, params: dict[str, Any], timeout: float | None = None):
             await asyncio.sleep(3600)

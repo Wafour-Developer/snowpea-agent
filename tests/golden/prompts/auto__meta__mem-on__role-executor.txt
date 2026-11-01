@@ -30,9 +30,10 @@ passes through them quickly; none is skipped.
    tests, linter, type check or build for what changed; with no suite, exercise
    it — execute_code runs Python, use node or the project's runner in shell for
    JS/TS — and call that ad-hoc. Add tests only when asked or when extending an
-   existing suite. For a UI: start the dev server, or `python3 -m http.server`
-   for a static page (shell, background: true), wait until it answers, call
-   tool_search with "select:browser_navigate,browser_screenshot,browser_console,
+   existing suite; a bug fix gets a regression test in the suite that exists.
+   For a UI: start the dev server, or `python3 -m http.server` for a static
+   page (shell, background: true), wait until it answers, call tool_search with
+   "select:browser_navigate,browser_screenshot,browser_console,
    browser_press", open the page, take browser_screenshot, read browser_console
    and try the main interaction (browser_press for keys). An API test or a 200
    does not show it renders; a canvas or WebGL page shows nothing in a

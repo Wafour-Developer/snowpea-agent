@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.settings import Settings
+from snowpea_core.permissions.approval_queue import waits_for_a_person
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import QuestionItem, QuestionRequest
@@ -69,6 +70,8 @@ class _Pending:
     future: asyncio.Future[list[Answer]]
     origin_conn: Any = None
     task: asyncio.Task[None] | None = None
+    #: A person at a TUI or desktop session is waited for without a clock.
+    no_limit: bool = False
 
 
 class QuestionQueue:
@@ -147,7 +150,14 @@ class QuestionQueue:
         if getattr(session, "owned_by", None):
             # Nobody may put words into a browser-owned job's run (1.23.0).
             return _declined(len(questions), by="owned-run")
-        timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
+        origin = getattr(session, "origin_conn", None)
+        # An explicit timeout_sec is a caller's own deadline and always counts
+        # (0 expires at once).  Otherwise a person at the session is waited for.
+        no_limit = timeout_sec is None and waits_for_a_person(origin)
+        if timeout_sec is not None:
+            timeout = timeout_sec
+        else:
+            timeout = 0 if no_limit else self.timeout_sec  # on the wire, 0: no limit
         request = QuestionRequest(
             requestId=f"qu-{uuid.uuid4().hex[:12]}",
             sessionId=session.id,
@@ -155,8 +165,9 @@ class QuestionQueue:
             timeoutSec=timeout,
         )
         loop = asyncio.get_running_loop()
-        origin = getattr(session, "origin_conn", None)
-        entry = _Pending(request=request, future=loop.create_future(), origin_conn=origin)
+        entry = _Pending(
+            request=request, future=loop.create_future(), origin_conn=origin, no_limit=no_limit
+        )
         self._pending[request.requestId] = entry
         host = getattr(session, "host_tools_from", None)
         await self._announce_status(session.id, "awaiting_question", host)
@@ -166,7 +177,11 @@ class QuestionQueue:
             await tell("question.pending", {"request": request.model_dump(mode="json")})
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
-        outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
+        outer = (
+            None
+            if no_limit
+            else float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
+        )
         try:
             answers = await self._await_answers(entry, outer, cancel_event)
         except RpcError as exc:  # pragma: no cover - transport failure
@@ -196,7 +211,7 @@ class QuestionQueue:
         )
 
     async def _await_answers(
-        self, entry: _Pending, timeout: float, cancel_event: asyncio.Event | None
+        self, entry: _Pending, timeout: float | None, cancel_event: asyncio.Event | None
     ) -> list[Answer]:
         """Wait for the answer, the timeout, or an interrupt — whichever comes first."""
         waiters: list[asyncio.Future[Any]] = [entry.future]
@@ -225,7 +240,7 @@ class QuestionQueue:
             reply = await entry.origin_conn.call(
                 "question.request",
                 request.model_dump(mode="json"),
-                timeout=float(request.timeoutSec),
+                timeout=None if entry.no_limit else float(request.timeoutSec),
             )
             answers = _answers_from(reply.get("answers"), by="origin")
         except TimeoutError:

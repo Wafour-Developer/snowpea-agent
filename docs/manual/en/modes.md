@@ -95,7 +95,7 @@ Some commands can only be allowed `once` (or for the `session`), and the card of
 
 `always` is offered only when the rule cannot write or run anything whatever arguments follow: `ls`, `pwd`, `cat`, `head`, `tail`, `wc`, `stat`, `du`, `df`, `echo`, `grep`, `which`, `git status`, `git blame` and `git ls-files`. Every other rule is offered for the project only, and an `always` answer to it is stored for the project. Rules whose program runs what the project's own files say — `make <target>`, `npm`/`pnpm`/`yarn`/`bun run <script>` (and `test`/`start`), `go run`/`test`, `cargo run`/`test`/`build`, `uv`/`poetry`/`pdm run`, `pytest`, `gradle`, `mvn` — carry a note: scripts in this project decide what runs. A client that does not read `remember` gets the same treatment: core stores the narrow rule, or nothing.
 
-Nobody answering is an answer. After `approvals.timeoutSec` (300 seconds by default) the request is denied and the turn ends. Every decision, including timeouts, is appended to `$SNOWPEA_HOME/logs/approvals.jsonl`.
+In the TUI and the desktop app an approval waits until you answer or interrupt the turn. Where nobody sits at the session (a messenger, a scheduled job, a browser-driven run), no answer is an answer: after `approvals.timeoutSec` (300 seconds by default) the request is dropped, the tool does not run, and the agent is told you have not answered yet, which is not a refusal. Every decision, including timeouts, is appended to `$SNOWPEA_HOME/logs/approvals.jsonl`.
 
 Requests raised by a scheduled job or an incoming chat message are *unattended*, and behave differently — see [Gateway](gateway.md).
 

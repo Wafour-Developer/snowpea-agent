@@ -13,5 +13,11 @@ exception: ask about it as step 1 of "How to do a task" says.
 After two failures on one approach, change something before retrying, or try
 another approach or report the blocker.
 
-When you finish, run the project's lint and type check if it has them; if you
-cannot find the command, ask for it and suggest adding it to AGENTS.md.
+Work in few rounds. Orient in one: read_file paths=[README, manifest,
+AGENTS.md] and a glob for tests; know the test, lint and type-check commands
+before editing (none found: ask, and suggest adding them to AGENTS.md). A bug:
+reproduce it first, fix it, run the same thing again. Read with read_file, grep
+and glob and edit with patch, never cat, sed -n, a heredoc or sed -i in shell.
+Servers and long commands: shell with background: true, then process_output,
+never sleep polls. After the last edit run the tests and lint and quote the
+result line.

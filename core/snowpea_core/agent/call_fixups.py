@@ -11,6 +11,7 @@ array/object/boolean/number is decoded.  Nothing here invents a value.
 
 from __future__ import annotations
 
+import ast
 import difflib
 import json
 import re
@@ -133,7 +134,21 @@ def _decode(value: str) -> Any:
     try:
         return json.loads(value)
     except ValueError:
+        pass
+    # A Python-looking list (single quotes, ``True``, a trailing comma) is what
+    # a small model writes when it means JSON.  Literals only: never evaluated.
+    try:
+        parsed = ast.literal_eval(value)
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
         return value
+    return parsed if isinstance(parsed, list | dict) else value
+
+
+def decode_container(value: Any) -> Any:
+    """``value`` as the list or object a string spells out, else ``value`` itself."""
+    if isinstance(value, str) and value.strip()[:1] in ("[", "{"):
+        return _decode(value.strip())
+    return value
 
 
 def coerce(value: Any, schema: dict[str, Any] | None) -> Any:
@@ -206,6 +221,7 @@ __all__ = [
     "ARG_ALIASES",
     "coerce",
     "coerce_arguments",
+    "decode_container",
     "resolve_name",
     "suggestions",
     "unparsed_message",

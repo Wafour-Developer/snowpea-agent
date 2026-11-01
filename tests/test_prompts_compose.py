@@ -34,7 +34,8 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: ``small-local`` edit guidance; raised for the execute_code verification rule;
 #: raised from 3600 for the UI-verification, product-scope and plan
 #: Requirements-table rules (the ystudy post-mortem, Hermes/opencode review).
-TIER_BUDGET_TOKENS = {"stable": 3900, "context": 800, "volatile": 600}
+#: raised from 3900 for the small-model repository playbook (browser-code request).
+TIER_BUDGET_TOKENS = {"stable": 4000, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "gemini", "meta", "small-local")

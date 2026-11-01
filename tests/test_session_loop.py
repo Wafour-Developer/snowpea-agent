@@ -707,6 +707,9 @@ async def test_approval_timeout_denies_and_is_logged(
         client = await connect(http, daemon)
         client.approval_mode = "ignore"
         session_id = await start_session(client, workdir)
+        # A TUI would be waited for; a browser-driven run keeps the clock.
+        assert daemon.core is not None
+        daemon.core.sessions.get(session_id).origin_conn.client_kind = "browser"
 
         turn_id = await prompt(client, session_id, "please run ls")
         # The timeout denies the call and the model is told so; the turn goes on.

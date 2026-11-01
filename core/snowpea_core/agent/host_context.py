@@ -120,7 +120,7 @@ def _owner(core: Core, session: Session) -> Any:
     from snowpea_core.agent.agent import is_lean_child
     from snowpea_core.tools.host_tools import HOST_TOOLS
 
-    if is_lean_child(session, core) or not site_memory_on(core, session):
+    if is_lean_child(session, core):
         return None
     owner = HOST_TOOLS.owner_of(session)
     if not HOST_TOOLS.declares(owner, CAPABILITY):
@@ -151,6 +151,7 @@ async def fetch(core: Core, session: Session, turn_id: str, prompt: str) -> str:
             "sessionId": session.id,
             "rootSessionId": str(getattr(root, "id", session.id)),
             "turnId": turn_id,
+            "siteMemory": site_memory_on(core, session),
             "prompt": prompt[:MAX_PROMPT_CHARS],
         }
         answer = await asyncio.wait_for(conn.call(METHOD, params, timeout=None), DEADLINE_SEC)

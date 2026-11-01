@@ -223,11 +223,22 @@ class Decision:
         return self.decision == "allow"
 
 
+def waits_for_a_person(conn: Any) -> bool:
+    """True for a live TUI or desktop connection: nobody is racing a clock there.
+
+    A browser-driven run, a messenger or a scheduled job has no one watching,
+    so those keep ``approvals.timeoutSec`` / ``questions.timeoutSec``.
+    """
+    return conn is not None and getattr(conn, "client_kind", None) != "browser"
+
+
 @dataclass
 class _Pending:
     request: ApprovalRequest
     future: asyncio.Future[Decision]
     unattended: bool
+    #: A person at a TUI or desktop session is waited for without a clock.
+    no_limit: bool = False
     origin_conn: Any = None
     task: asyncio.Task[None] | None = field(default=None)
     #: Session workdir, kept so a ``project`` answer knows where to write.
@@ -434,7 +445,14 @@ class ApprovalQueue:
         if cacheable and self.cached(session.id, tool, args, folder):
             return Decision("allow", "session", "cache")
 
-        timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
+        origin = None if unattended else getattr(session, "origin_conn", None)
+        # An explicit timeout_sec is a caller's own deadline and always counts
+        # (0 expires at once).  Otherwise a person at the session is waited for.
+        no_limit = timeout_sec is None and waits_for_a_person(origin)
+        if timeout_sec is not None:
+            timeout = timeout_sec
+        else:
+            timeout = 0 if no_limit else self.timeout_sec  # on the wire, 0: no limit
         request = ApprovalRequest(
             requestId=f"ap-{uuid.uuid4().hex[:12]}",
             sessionId=session.id,
@@ -455,11 +473,11 @@ class ApprovalQueue:
             ),
         )
         loop = asyncio.get_running_loop()
-        origin = None if unattended else getattr(session, "origin_conn", None)
         entry = _Pending(
             request=request,
             future=loop.create_future(),
             unattended=unattended,
+            no_limit=no_limit,
             origin_conn=origin,
             workdir=getattr(session, "workdir", None),
             cacheable=cacheable,
@@ -533,7 +551,11 @@ class ApprovalQueue:
             watcher = asyncio.ensure_future(cancel_event.wait())
             waiters.append(watcher)
         try:
-            await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait(
+                waiters,
+                timeout=None if entry.no_limit else timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
         finally:
             if watcher is not None and not watcher.done():
                 watcher.cancel()
@@ -552,7 +574,7 @@ class ApprovalQueue:
             answer = await entry.origin_conn.call(
                 "approval.request",
                 request.model_dump(mode="json"),
-                timeout=float(request.timeoutSec),
+                timeout=None if entry.no_limit else float(request.timeoutSec),
             )
             decision = Decision(
                 decision="allow" if answer.get("decision") == "allow" else "deny",

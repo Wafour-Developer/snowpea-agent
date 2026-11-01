@@ -494,3 +494,35 @@ def test_browser_profiles_keyrings_and_cookie_stores_are_secret(
     ]
     assert [p for p in secret if not is_secret_pattern(p)] == []
     assert [p for p in plain if is_secret_pattern(p)] == []
+
+
+TRACEBACK = """\
+Traceback (most recent call last):
+  File "/work/app/calc.py", line 7, in <module>
+    print(ratio(3, 0))
+          ~~~~~^~~~~~
+  File "/work/app/calc.py", line 3, in ratio
+    return a / b
+           ~~^~~
+ZeroDivisionError: division by zero
+"""
+
+
+def test_a_pasted_traceback_with_caret_lines_is_not_a_home_lookup(
+    core: Core, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``Path("~~~~^~~").expanduser()`` raised "Could not determine home directory"."""
+    monkeypatch.delenv("HOME", raising=False)
+    prepared = prepare_prompt(
+        core, session, f"fix this\n\n{TRACEBACK}", None, accept_wire=_accept_attachments
+    )
+    assert "ZeroDivisionError" in prepared.text
+    assert resolve_path(Path(session.workdir), "~~~~~^~~~~~") == (
+        Path(session.workdir) / "~~~~~^~~~~~"
+    ).resolve()
+    assert resolve_path(Path(session.workdir), "~someoneelse/x") == (
+        Path(session.workdir) / "~someoneelse" / "x"
+    ).resolve()
+    assert resolve_path(Path(session.workdir), "~/notes.txt") == (
+        Path("~").expanduser() / "notes.txt"
+    ).resolve()

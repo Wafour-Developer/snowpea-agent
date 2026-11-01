@@ -197,18 +197,22 @@ def held_back(session: Any) -> Any:
     allowed, host or always-allowed tools behind ``tool_search``.  Only when
     the session's prompt plan switched it on (``tools.agentDeferred``) and only
     on a provider whose tool list stays fixed for the session: elsewhere a
-    loaded tool joins the list and rewrites the cached prefix.
+    loaded tool joins the list and rewrites the cached prefix.  A definition's
+    own ``deferredTools`` is its explicit opt-in, so it applies on such a
+    provider without the global switch; the hosts' ``deferred`` hints still
+    need the switch.
     """
     plan = getattr(session, "prompt_plan", None)
     patterns = tuple(getattr(plan, "deferred", ()) or ())
-    if not getattr(plan, "agent_deferred", False):
+    switched = bool(getattr(plan, "agent_deferred", False))
+    if not switched and not (patterns and getattr(plan, "fixed_list", False)):
         return None
     from snowpea_core.tools.host_tools import HOST_TOOLS
 
     hosted = {
         name
         for name, tool in HOST_TOOLS.for_session(session).items()
-        if getattr(tool, "deferred_hint", False)
+        if switched and getattr(tool, "deferred_hint", False)
     }
     if not patterns and not hosted:
         return None
@@ -262,20 +266,32 @@ def group_of(spec: Any) -> str:
     return name.partition("_")[0] or "other"
 
 
+#: A group this small is listed by tool name: a model that cannot see the name
+#: cannot ask ``tool_search`` for it, and a short list costs less than the
+#: round spent guessing.
+NAMED_GROUP_MAX = 15
+
+
 def deferred_line(specs: Sequence[Any]) -> str:
     """``Deferred (load with tool_search): browser (8), git (4), …``.
 
     Names only, grouped, no descriptions — the descriptions are the whole cost
-    this scheme exists to avoid.
+    this scheme exists to avoid.  A group of at most :data:`NAMED_GROUP_MAX`
+    tools names them (``browser: repl, current_tab``); a larger one, an MCP
+    server's forty tools, stays a count.
     """
     if not specs:
         return ""
-    counts: dict[str, int] = {}
+    groups_by_label: dict[str, list[str]] = {}
     for spec in specs:
-        label = group_of(spec)
-        counts[label] = counts.get(label, 0) + 1
-    groups = ", ".join(f"{label} ({count})" for label, count in sorted(counts.items()))
-    return f"{DEFERRED_HINT}\n\n{DEFERRED_PREFIX} {groups}"
+        groups_by_label.setdefault(group_of(spec), []).append(str(getattr(spec, "name", "")))
+    parts = []
+    for label, names in sorted(groups_by_label.items()):
+        if len(names) <= NAMED_GROUP_MAX:
+            parts.append(f"{label}: {', '.join(sorted(names))}")
+        else:
+            parts.append(f"{label} ({len(names)})")
+    return f"{DEFERRED_HINT}\n\n{DEFERRED_PREFIX} {'; '.join(parts)}"
 
 
 # ---------------------------------------------------------------------------

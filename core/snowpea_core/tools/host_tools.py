@@ -33,7 +33,7 @@ import re
 import time
 from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -118,6 +118,24 @@ PARALLEL_SAFE_PERMISSIONS: frozenset[str] = frozenset({"read", "network"})
 
 class HostToolError(ValueError):
     """A registration the daemon refuses; the message names the tool."""
+
+
+def _description_by(raw: Any) -> dict[str, str] | None:
+    """``descriptionBy`` of a spec: non-empty ``agent -> text`` pairs, or ``None``."""
+    if not isinstance(raw, dict):
+        return None
+    pairs = {
+        str(agent): text
+        for agent, text in raw.items()
+        if isinstance(text, str) and text.strip() and str(agent).strip()
+    }
+    return pairs or None
+
+
+def _described_for(tool: Tool, agent: str | None) -> Tool:
+    """``tool`` with the description written for ``agent``, when it has one."""
+    text = tool.description_by.get(agent) if tool.description_by and agent else None
+    return replace(tool, description=text) if text else tool
 
 
 @dataclass
@@ -236,6 +254,7 @@ class HostTools:
                         if isinstance(spec.get("agents"), list) and spec["agents"]
                         else None
                     ),
+                    description_by=_description_by(spec.get("descriptionBy")),
                 )
             )
         host = self._hosts.get(conn.surface_id)
@@ -375,7 +394,7 @@ class HostTools:
         # An agent-scoped tool (1.24.0) stays out of other agents' sessions.
         # Visibility only: it is no boundary for a delegation naming that agent.
         return {
-            name: tool
+            name: _described_for(tool, agent)
             for name, tool in host.tools.items()
             if tool.agents is None or (agent is not None and agent in tool.agents)
         }

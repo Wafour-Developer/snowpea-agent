@@ -164,6 +164,9 @@ class SkillDoc:
     #: ``autoInject: {keywords: [...]}``: words that bring this skill into a
     #: turn on their own, matched case-insensitively in any script (1.7.0).
     auto_inject: list[str] = field(default_factory=list)
+    #: ``agents: [browser]``: listed in the prompt index only for sessions of
+    #: these agent definitions (1.35.0).  Empty: every session lists it.
+    agents: list[str] = field(default_factory=list)
 
     def render(self, arguments: str = "") -> str:
         """The body with ``$ARGUMENTS`` substituted (appended when absent)."""
@@ -249,6 +252,7 @@ def parse_skill_md(text: str, *, default_name: str, path: Path | None = None) ->
         path=path,
         frontmatter=front,
         auto_inject=auto_inject_keywords(text),
+        agents=as_list(front.get("agents")),
     )
 
 

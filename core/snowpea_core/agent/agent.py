@@ -122,6 +122,7 @@ def tools_fragment(
     root: Any = None,
     *,
     describe: bool = False,
+    loaded: list[ToolSpec] | None = None,
 ) -> str:
     """The rendered tool list for this round, cached per session.
 
@@ -136,12 +137,13 @@ def tools_fragment(
         str(getattr(session, "mode", "")),
         str(getattr(session, "prompt_role", "") or ""),
         describe,
+        tuple(spec.name for spec in loaded or ()),
     )
     session_id = str(getattr(session, "id", ""))
     cached = _TOOLS_CACHE.get(session_id)
     if cached is not None and cached[0] == key:
         return cached[1]
-    text = compose.tools_block(tools, deferred, root, describe=describe)
+    text = compose.tools_block(tools, deferred, root, describe=describe, loaded=loaded or ())
     _TOOLS_CACHE[session_id] = (key, text)
     return text
 
@@ -245,6 +247,7 @@ def environment_blocks(session: Session, core: Core | None = None) -> tuple[str,
         context_file_chars=override,
         context_files_chars=total_override,
         include_nested=nested,
+        orient=nested,
     )
     project = env.project_context
     entry = _EnvCacheEntry(
@@ -284,6 +287,14 @@ class PromptPlan:
     describe_tools: bool = False
     #: ``tools.agentDeferred`` on and a fixed tool list: ``deferred`` applies.
     agent_deferred: bool = False
+    #: The provider keeps one tool list for the session (``is_local_style``): a
+    #: definition's own ``deferredTools`` applies without the global switch.
+    fixed_list: bool = False
+    #: Deferred tools already loaded with ``tool_search`` when this plan was
+    #: made (a fixed tool list only): their full text is repeated in the tools
+    #: block, so what a tool's description says (a browser tool's safety rules)
+    #: outlives the compaction that dropped the tool result carrying it.
+    loaded: tuple[str, ...] = ()
     deferred: tuple[str, ...] = ()
     skill_groups: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
     skills_scoped: bool = False
@@ -297,6 +308,12 @@ def _switch(env: str, setting: Any) -> bool:
     return bool(setting)
 
 
+def _loaded_names(session: Session) -> set[str]:
+    from snowpea_core.tools.deferred import loaded
+
+    return loaded(session)
+
+
 def prompt_plan(session: Session, core: Core | None) -> PromptPlan:
     """The session's :class:`PromptPlan`, made on first use and per compaction.
 
@@ -308,6 +325,7 @@ def prompt_plan(session: Session, core: Core | None) -> PromptPlan:
         session.provider,
         session.model,
         session.mode,
+        getattr(session, "agent", None),
     )
     plan = getattr(session, "prompt_plan", None)
     if isinstance(plan, PromptPlan) and plan.key == key:
@@ -320,7 +338,9 @@ def prompt_plan(session: Session, core: Core | None) -> PromptPlan:
     )
     scoped = getattr(session, "agent_skills_index", None) == "plugin"
     groups: list[tuple[str, list[tuple[str, str]]]] = (
-        [] if is_lean_child(session, core) else skill_groups(core)
+        []
+        if is_lean_child(session, core) or getattr(session, "agent_skills_index", None) == "none"
+        else skill_groups(core, getattr(session, "agent", None))
     )
     if scoped:
         plugin = getattr(session, "agent_plugin", None)
@@ -335,6 +355,8 @@ def prompt_plan(session: Session, core: Core | None) -> PromptPlan:
         describe_tools=list_descriptions(core),
         agent_deferred=fixed
         and _switch("SNOWPEA_AGENT_DEFERRED", getattr(tools, "agentDeferred", False)),
+        fixed_list=fixed,
+        loaded=tuple(sorted(_loaded_names(session))) if fixed else (),
         deferred=tuple(getattr(session, "agent_deferred", None) or ()),
         skill_groups=tuple((label, tuple(rows)) for label, rows in groups),
         skills_scoped=scoped,
@@ -346,7 +368,9 @@ def prompt_plan(session: Session, core: Core | None) -> PromptPlan:
     return plan
 
 
-def skill_groups(core: Core | None) -> list[tuple[str, list[tuple[str, str]]]]:
+def skill_groups(
+    core: Core | None, agent: str | None = None
+) -> list[tuple[str, list[tuple[str, str]]]]:
     """Grouped skills for the prompt index, or ``[]`` when it is switched off.
 
     ``skills.indexInPrompt`` turns the whole block off; the loader caches the
@@ -360,7 +384,7 @@ def skill_groups(core: Core | None) -> list[tuple[str, list[tuple[str, str]]]]:
         settings = core.settings.skills  # type: ignore[union-attr]
         if not getattr(settings, "indexInPrompt", True):
             return []
-        return loader.index_groups()
+        return loader.index_groups(agent)
     except Exception:  # noqa: BLE001 - a broken loader must not cost the prompt
         log.debug("could not build the skills index", exc_info=True)
         return []
@@ -511,8 +535,13 @@ def build_system_prompt(
     environment, context_files = environment_blocks(session, core)
     lean = is_lean_child(session, core)
     deferred_specs: list[ToolSpec] = []
+    loaded_specs: list[ToolSpec] = []
     if core is not None and getattr(core, "tools", None) is not None:
         deferred_specs = core.tools.deferred_specs(session)
+        if plan.loaded:
+            loaded_specs = [
+                spec for spec in deferred_specs if spec.name in plan.loaded
+            ]
     persona = getattr(session, "system_prompt", None) or ""
     if session.team_agents:
         team_rule = (
@@ -558,7 +587,12 @@ def build_system_prompt(
         tools=tools,
         deferred_tools=deferred_specs,
         tools_text=tools_fragment(
-            session, tools, deferred_specs, session.workdir, describe=plan.describe_tools
+            session,
+            tools,
+            deferred_specs,
+            session.workdir,
+            describe=plan.describe_tools,
+            loaded=loaded_specs,
         )
         if tools
         else None,

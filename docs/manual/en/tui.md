@@ -229,7 +229,7 @@ One `ask_user` call may carry several questions. They arrive together and become
 
 `←`/`→` (or `Tab` / `Shift+Tab`) switch tabs, a `✓` marks the ones you have answered, and each tab keeps its own selection. The bottom row reads **다음 질문 / Next question** until the last tab, where it becomes **확인 / Confirm** and submits every answer at once. `Esc` on any tab declines the whole batch.
 
-A question is drawn ahead of a pending approval and owns the keyboard while it is up. It gives up after ten minutes by default — `questions.timeoutSec` in `settings.json`.
+A question is drawn ahead of a pending approval and owns the keyboard while it is up. In the TUI it waits until you answer or interrupt the turn; `questions.timeoutSec` (ten minutes by default) only applies to sessions nobody sits at, such as a messenger or a scheduled job.
 
 Two lines of it, from a skill:
 
