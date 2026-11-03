@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.35.0";
+export const PROTOCOL_VERSION = "1.36.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -3769,6 +3769,8 @@ export interface SkillListResult {
 
 /** `skill.read` params. Read a skill's SKILL.md. */
 export interface SkillReadParams {
+  /** Read an agent or a command instead of a skill (1.36.0): the file is agents/<name>.md or commands/<name>.md in the same places a skill's directory would be. Omitted or 'skill', the SKILL.md as before. */
+  kind?: "skill" | "agent" | "command" | null;
   /** Skill to read. */
   name: string;
   /** Read this plugin's copy, by its manifest or directory name, when several plugins ship the same skill (1.33.0). Implies scope 'plugin'; any other scope with it is invalid_params. */
@@ -3864,6 +3866,8 @@ export interface SkillSearchResult {
 export interface SkillWriteParams {
   /** Full SKILL.md text to save. */
   content: string;
+  /** Write an agent or a command instead of a skill (1.36.0): the file is agents/<name>.md or commands/<name>.md in the same places a skill's directory would be. Omitted or 'skill', the SKILL.md as before. */
+  kind?: "skill" | "agent" | "command" | null;
   /** Skill to write. */
   name: string;
   /** Where to write the skill. */

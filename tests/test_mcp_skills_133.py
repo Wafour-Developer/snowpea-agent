@@ -395,6 +395,54 @@ async def test_read_with_a_scope_looks_only_there(
         await client.stop()
 
 
+async def test_read_and_write_an_agent_or_a_command_file(
+    daemon: Daemon, http: aiohttp.ClientSession
+) -> None:
+    """1.36.0: ``kind`` makes skill.read/write reach ``commands/`` and ``agents/``."""
+    home = daemon.paths.home
+    (home / "commands").mkdir(parents=True)
+    (home / "commands" / "git-commit.md").write_text("---\ndescription: c\n---\nbody\n")
+    (home / "agents").mkdir()
+    (home / "agents" / "helper.md").write_text("---\nname: helper\ndescription: h\n---\nhi\n")
+    root = home / "plugins" / "kit"
+    (root / "commands").mkdir(parents=True)
+    (root / "plugin.json").write_text(json.dumps({"name": "kit"}), encoding="utf-8")
+    (root / "commands" / "kit-cmd.md").write_text("---\ndescription: k\n---\nk\n")
+    client = await client_for(http, daemon)
+    try:
+        await client.ok("skill.reload", {})
+        # Without a kind the same name is still a skill lookup: not found.
+        plain = await client.call("skill.read", {"name": "git-commit"})
+        assert code_of(plain) == "not_found"
+        cmd = await client.ok("skill.read", {"name": "git-commit", "kind": "command"})
+        assert cmd["path"] == str(home / "commands" / "git-commit.md")
+        assert cmd["scope"] == "global" and cmd["readOnly"] is False
+        agent = await client.ok("skill.read", {"name": "helper", "kind": "agent"})
+        assert agent["path"] == str(home / "agents" / "helper.md")
+        plugin = await client.ok("skill.read", {"name": "kit-cmd", "kind": "command"})
+        assert plugin["scope"] == "plugin" and plugin["readOnly"] is True
+
+        saved = await client.ok(
+            "skill.write",
+            {
+                "name": "git-commit",
+                "kind": "command",
+                "scope": "global",
+                "content": "---\ndescription: changed\n---\nnew\n",
+            },
+        )
+        assert saved["path"] == str(home / "commands" / "git-commit.md") and saved["active"]
+        assert "changed" in (home / "commands" / "git-commit.md").read_text()
+        assert not (home / "skills" / "git-commit").exists()
+        empty = await client.call(
+            "skill.write",
+            {"name": "git-commit", "kind": "command", "scope": "global", "content": "  "},
+        )
+        assert code_of(empty) == "invalid_params"
+    finally:
+        await client.stop()
+
+
 async def test_a_claude_code_global_skill_is_read_only(
     daemon: Daemon, http: aiohttp.ClientSession
 ) -> None:

@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.35.0` (semver)
+- **Protocol version:** `1.36.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.35.0"
+    "protocolVersion": "1.36.0"
   }
 }
 ```
@@ -2660,6 +2660,7 @@ Read a skill's SKILL.md.
 
 | field | type | required | description |
 |---|---|---|---|
+| `kind` | `"skill" \| "agent" \| "command" \| null` | no | Read an agent or a command instead of a skill (1.36.0): the file is agents/<name>.md or commands/<name>.md in the same places a skill's directory would be. Omitted or 'skill', the SKILL.md as before. |
 | `name` | `string` | yes | Skill to read. |
 | `plugin` | `string \| null` | no | Read this plugin's copy, by its manifest or directory name, when several plugins ship the same skill (1.33.0). Implies scope 'plugin'; any other scope with it is invalid_params. |
 | `scope` | `"project" \| "global" \| "builtin" \| "plugin" \| null` | no | Look only in this scope (1.33.0); 'project' needs workdir. Omitted: the project (with a workdir), then global, then any other loaded skill. |
@@ -2742,6 +2743,7 @@ Save a skill's SKILL.md verbatim; says where, and whether it is in effect.
 | field | type | required | description |
 |---|---|---|---|
 | `content` | `string` | yes | Full SKILL.md text to save. |
+| `kind` | `"skill" \| "agent" \| "command" \| null` | no | Write an agent or a command instead of a skill (1.36.0): the file is agents/<name>.md or commands/<name>.md in the same places a skill's directory would be. Omitted or 'skill', the SKILL.md as before. |
 | `name` | `string` | yes | Skill to write. |
 | `scope` | `"project" \| "global"` | no | Where to write the skill. |
 | `workdir` | `string \| null` | no | Project directory, when scope is 'project'; optional for 'global' (1.33.0), where it decides which project's skills may shadow the written copy (active). An empty string is no directory, never the daemon's; a relative one is refused. |

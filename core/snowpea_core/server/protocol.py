@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.35.0"
+PROTOCOL_VERSION = "1.36.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -87,6 +87,7 @@ TeamTaskState = Literal[
 ]
 SkillKind = Literal["skill", "agent", "command", "plugin"]
 SkillScope = Literal["project", "global"]
+SkillEntryKind = Literal["skill", "agent", "command"]
 #: Where ``skill.read`` may look and what it answers (1.33.0): the two writable
 #: scopes, plus the skills that ship with the engine or come with a plugin.
 SkillReadScope = Literal["project", "global", "builtin", "plugin"]
@@ -4039,6 +4040,14 @@ class SkillReadParams(Payload):
             "scope with it is invalid_params."
         ),
     )
+    kind: SkillEntryKind | None = Field(
+        default=None,
+        description=(
+            "Read an agent or a command instead of a skill (1.36.0): the file is "
+            "agents/<name>.md or commands/<name>.md in the same places a skill's "
+            "directory would be. Omitted or 'skill', the SKILL.md as before."
+        ),
+    )
 
 
 class SkillReadResult(Payload):
@@ -4071,6 +4080,14 @@ class SkillWriteParams(Payload):
         ),
     )
     scope: SkillScope = Field(default="project", description="Where to write the skill.")
+    kind: SkillEntryKind | None = Field(
+        default=None,
+        description=(
+            "Write an agent or a command instead of a skill (1.36.0): the file is "
+            "agents/<name>.md or commands/<name>.md in the same places a skill's "
+            "directory would be. Omitted or 'skill', the SKILL.md as before."
+        ),
+    )
 
 
 class SkillWriteResult(Payload):
