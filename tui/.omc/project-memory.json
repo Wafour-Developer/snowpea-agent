@@ -1,0 +1,175 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1790745504767,
+  "projectRoot": "/mnt/data/work/mediagen/snowpea/tui",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "react",
+        "version": "18.3.1",
+        "category": "frontend"
+      },
+      {
+        "name": "esbuild",
+        "version": "0.24.0",
+        "category": "build"
+      },
+      {
+        "name": "vitest",
+        "version": "2.1.5",
+        "category": "testing"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": "npm test",
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "prebuild": "npm --prefix ../sdk run build",
+      "build": "node esbuild.config.mjs",
+      "dev": "tsx src/index.tsx",
+      "typecheck": "tsc -p tsconfig.json --noEmit",
+      "test": "vitest run"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": "*.test.ts",
+    "fileOrganization": "type-based"
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "scripts",
+      "src",
+      "test"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 2,
+      "lastAccessed": 1790745504759,
+      "keyFiles": [
+        "snowpea-tui.js",
+        "snowpea-tui.js.map"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1790745504763,
+      "keyFiles": [
+        "generate-mark.mjs"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1790745504764,
+      "keyFiles": [
+        "app.tsx",
+        "index.tsx",
+        "version.ts"
+      ]
+    },
+    "test": {
+      "path": "test",
+      "purpose": "Test files",
+      "fileCount": 77,
+      "lastAccessed": 1790745504764,
+      "keyFiles": [
+        "agent-completion.test.ts",
+        "agent-flicker.test.tsx",
+        "agent-palette.test.tsx",
+        "agent-qualified.test.ts",
+        "agents.test.ts"
+      ]
+    },
+    "src/components": {
+      "path": "src/components",
+      "purpose": "UI components",
+      "fileCount": 34,
+      "lastAccessed": 1790745504764,
+      "keyFiles": [
+        "AgentPalette.tsx",
+        "AgentPanel.tsx",
+        "AgentTranscript.tsx"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src/state/lsp.ts",
+      "accessCount": 3,
+      "lastAccessed": 1793000960604,
+      "type": "file"
+    },
+    {
+      "path": "src/layout/hud.ts",
+      "accessCount": 2,
+      "lastAccessed": 1793000961313,
+      "type": "file"
+    },
+    {
+      "path": "src/layout/screen-transcript.ts",
+      "accessCount": 1,
+      "lastAccessed": 1791763955346,
+      "type": "file"
+    },
+    {
+      "path": "test/screen-transcript.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1791764227649,
+      "type": "file"
+    },
+    {
+      "path": "src/input/keys.ts",
+      "accessCount": 1,
+      "lastAccessed": 1792386980221,
+      "type": "file"
+    },
+    {
+      "path": "src/app.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1793000961715,
+      "type": "file"
+    },
+    {
+      "path": "test/lsp.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1793000989483,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
