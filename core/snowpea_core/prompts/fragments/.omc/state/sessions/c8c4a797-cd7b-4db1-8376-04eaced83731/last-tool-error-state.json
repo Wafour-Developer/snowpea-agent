@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /mnt/data/work/mediagen/snowpea && python3 - <<'EOF'\\ndef edit(p, pairs):\\n    s=open(p).read()\\n    for a,b in pairs:\\n        assert a in s, (p,a[:70]); s=s.replace(a,b,1)\\n    open(p...",
+  "error": "Exit code 1\nI001 [*] Import block is un-sorted or un-formatted\n  --> core/snowpea_core/prompts/compose.py:16:1\n   |\n14 |   \"\"\"\n15 |\n16 | / from __future__ import annotations\n17 | |\n18 | | import re\n19 | |\n20 | | from collections.abc import Sequence\n21 | | from dataclasses import dataclass\n22 | | from typing import TYPE_CHECKING, Any\n23 | |\n24 | | from snowpea_core.prompts.loader import load, render\n   | |____________________________________________________^\n25 |\n26 |   if TYPE_CHECKING:  # pragm...",
+  "timestamp": "2026-10-20T14:07:07.184Z",
+  "retry_count": 1
+}

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -29,6 +30,18 @@ log = logging.getLogger("snowpea.providers.openai_compat")
 
 DEFAULT_TIMEOUT = 300.0
 DONE = "[DONE]"
+
+
+_IMAGE_DECODE_REJECTION = re.compile(
+    r"failed to load image|cannot identify image|invalid image|image file is truncated"
+    r"|unable to (?:decode|process) image|could not (?:decode|process) image",
+    re.IGNORECASE,
+)
+
+
+def _is_image_decode_rejection(detail: str) -> bool:
+    """True when a 400 says the server could not decode an image in the request."""
+    return bool(_IMAGE_DECODE_REJECTION.search(detail))
 
 
 def _is_image_count_rejection(detail: str) -> bool:
@@ -277,6 +290,15 @@ class OpenAICompatProvider:
                                 ):
                                     yield event
                                 return
+                        if response.status_code == 400 and _is_image_decode_rejection(detail):
+                            # A picture in the history the server cannot decode.
+                            # The loop finds it, stubs it in the stored history
+                            # and asks again, so the session does not wedge.
+                            raise ProviderError(
+                                "image_rejected",
+                                f"{self._tag()}: HTTP 400: the server could not read an "
+                                f"image in the request: {detail[:200]}",
+                            )
                         if wanted and effort_scale.UNSUPPORTED.is_unsupported_error(detail):
                             # The supported-model list is a guess about someone
                             # else's catalog; a wrong guess costs one retry, not

@@ -53,6 +53,9 @@ INVALID_OUTPUT = "invalid_output"
 INTERNAL = "internal"
 #: The model ended its turn with no text and no tool call, twice (1.23.0).
 EMPTY_RESPONSE = "empty_response"
+#: The model server could not decode an image in the request (1.37.2); core
+#: replaces the unreadable picture with text and asks once more before this.
+IMAGE_REJECTED = "image_rejected"
 
 ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,
@@ -80,6 +83,7 @@ ERROR_CODES: tuple[str, ...] = (
     INVALID_OUTPUT,
     INTERNAL,
     EMPTY_RESPONSE,
+    IMAGE_REJECTED,
 )
 
 # JSON-RPC 2.0 reserved codes.

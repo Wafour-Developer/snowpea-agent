@@ -846,6 +846,56 @@ def persist_image_stubs(session: Session, max_images: int, seen_len: int) -> boo
     return changed
 
 
+def stub_unreadable_images(session: Session) -> int:
+    """Replace the images the model server cannot decode with text, in the stored history.
+
+    Called when the server answered a request with "failed to load image":
+    a picture that is still in the history would make every later request fail
+    the same way.  Every image block is checked (a full decode when Pillow is
+    there); when none can be identified as broken, the newest one goes, since
+    that is the one most likely to be the new one.  Returns how many were
+    replaced.
+    """
+    from snowpea_core.attachments.model import broken_image_note, validate_image
+
+    messages = session.history.messages
+    slots: list[tuple[int, int]] = []
+    broken: dict[tuple[int, int], str] = {}
+    for message_index, message in enumerate(messages):
+        if message.role != "user" or not content.has_blocks(message.content):
+            continue
+        for block_index, block in enumerate(message.content):  # type: ignore[union-attr]
+            if not isinstance(block, dict) or block.get("type") != "image":
+                continue
+            slots.append((message_index, block_index))
+            raw = content._read_block(block)
+            if raw is None:
+                broken[(message_index, block_index)] = "no longer on disk"
+                continue
+            problem = validate_image(raw, str(block.get("mime") or ""), decode=True)
+            if problem:
+                broken[(message_index, block_index)] = problem
+    if not broken and slots:
+        broken[slots[-1]] = "the model server could not read it"
+    changed = 0
+    for message_index in sorted({slot[0] for slot in broken}):
+        message = messages[message_index]
+        blocks: list[dict[str, object]] = []
+        for block_index, block in enumerate(message.content):  # type: ignore[union-attr]
+            reason = broken.get((message_index, block_index))
+            if reason is None:
+                blocks.append(block)  # type: ignore[arg-type]
+                continue
+            size = int(block.get("size") or 0)  # type: ignore[union-attr]
+            name = str(block.get("name") or "image")  # type: ignore[union-attr]
+            blocks.append({"type": "text", "text": broken_image_note(name, size, reason)})
+            changed += 1
+        messages[message_index] = replace(message, content=blocks)
+    if changed:
+        session.history.mark_rewritten()
+    return changed
+
+
 def prune_request_images(
     history: list[ChatMessage],
     max_images: int = DEFAULT_MAX_REQUEST_IMAGES,

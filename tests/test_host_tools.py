@@ -24,13 +24,9 @@ from snowpea_core.server.protocol import PROTOCOL_VERSION
 from snowpea_core.tools.host_tools import HOST_TOOLS
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "host_tools.json"
-PNG = base64.b64encode(
-    bytes.fromhex(
-        "89504e470d0a1a0a0000000d494844520000000100000001080600000"
-        "01f15c4890000000a49444154789c6360000002000100ffff0300000600"
-        "0557bfabd40000000049454e44ae426082"
-    )
-).decode()
+PNG = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
 
 Handler = Callable[[dict[str, Any]], dict[str, Any] | Awaitable[dict[str, Any]] | None]
 

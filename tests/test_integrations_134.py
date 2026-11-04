@@ -66,7 +66,7 @@ from snowpea_core.tools.registry import ToolContext
 
 
 def test_version_methods_events_capabilities_and_error_code() -> None:
-    assert PROTOCOL_VERSION == "1.37.1"
+    assert PROTOCOL_VERSION == "1.37.2"
     for method in ("mcp.authorize", "mcp.authorize.complete", "mcp.deauthorize"):
         assert method in METHODS
     assert "mcp.auth.done" in EVENTS

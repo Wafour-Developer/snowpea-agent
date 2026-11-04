@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 import unicodedata
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,109 @@ def sniff_mime(data: bytes, name: str | None = None) -> str:
     if name and Path(name).suffix.lower() in {".md", ".markdown"}:
         return "text/markdown"
     return "text/plain"
+
+
+def validate_image(data: bytes, mime: str, *, decode: bool = False) -> str | None:
+    """Why ``data`` cannot be decoded as an ``mime`` image, or ``None`` when it can.
+
+    The magic bytes only prove a file *starts* like an image: a screenshot cut
+    short by a flaky ``adb exec-out`` keeps a valid PNG signature and is
+    refused by the model server, and since the picture stays in the history
+    every later request fails the same way.  Two levels:
+
+    * always, a structural walk that needs no library -- PNG chunk layout
+      (IHDR with its CRC, a non-empty size, an IDAT, an IEND), JPEG
+      SOI...SOF...EOI, GIF header and trailer, WebP RIFF length;
+    * with ``decode=True`` and Pillow importable, a full decode.
+
+    Types it knows nothing about (BMP, ...) pass.
+    """
+    if not data:
+        return "empty file"
+    reason: str | None = None
+    if mime == "image/png":
+        reason = _png_problem(data)
+    elif mime == "image/jpeg":
+        reason = _jpeg_problem(data)
+    elif mime == "image/gif":
+        reason = _gif_problem(data)
+    elif mime == "image/webp":
+        reason = _webp_problem(data)
+    if reason is None and decode:
+        reason = _decode_problem(data)
+    return reason
+
+
+def _png_problem(data: bytes) -> str | None:
+    if len(data) < 33 or data[12:16] != b"IHDR" or int.from_bytes(data[8:12], "big") != 13:
+        return "truncated PNG (no readable IHDR)"
+    if zlib.crc32(data[12:29]) != int.from_bytes(data[29:33], "big"):
+        return "corrupt PNG (IHDR checksum)"
+    if not int.from_bytes(data[16:20], "big") or not int.from_bytes(data[20:24], "big"):
+        return "corrupt PNG (zero width or height)"
+    offset, seen_idat = 8, False
+    while offset + 8 <= len(data):
+        length = int.from_bytes(data[offset : offset + 4], "big")
+        kind = data[offset + 4 : offset + 8]
+        end = offset + 12 + length
+        if end > len(data):
+            return "truncated PNG (a chunk is cut off)"
+        if kind == b"IDAT":
+            seen_idat = True
+        elif kind == b"IEND":
+            return None if seen_idat else "truncated PNG (no image data)"
+        offset = end
+    return "truncated PNG (no IEND)"
+
+
+def _jpeg_problem(data: bytes) -> str | None:
+    if len(data) < 4:
+        return "truncated JPEG"
+    # Frame header: SOF0..SOF15 except DHT (C4), JPG (C8) and DAC (CC).
+    if not any(
+        data[i] == 0xFF and 0xC0 <= data[i + 1] <= 0xCF and data[i + 1] not in (0xC4, 0xC8, 0xCC)
+        for i in range(2, min(len(data) - 1, 1 << 16))
+    ):
+        return "truncated JPEG (no frame header)"
+    if b"\xff\xd9" not in data[-1024:]:
+        return "truncated JPEG (no end marker)"
+    return None
+
+
+def _gif_problem(data: bytes) -> str | None:
+    if len(data) < 14:
+        return "truncated GIF"
+    if b";" not in data[-16:]:
+        return "truncated GIF (no trailer)"
+    return None
+
+
+def _webp_problem(data: bytes) -> str | None:
+    if len(data) < 16:
+        return "truncated WebP"
+    if int.from_bytes(data[4:8], "little") + 8 > len(data):
+        return "truncated WebP (shorter than its header says)"
+    return None
+
+
+def _decode_problem(data: bytes) -> str | None:
+    try:
+        from PIL import Image  # noqa: PLC0415 - optional dependency, imported lazily
+    except ImportError:
+        return None
+    import io
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+    except Exception as exc:  # noqa: BLE001 - any decode failure means the model's would fail
+        return f"cannot be decoded ({type(exc).__name__})"
+    return None
+
+
+def broken_image_note(name: str, size: int, reason: str) -> str:
+    """The text that stands in for an image that failed :func:`validate_image`."""
+    return f"[image {name} not sent: {reason}, {size} bytes; capture it again]"
 
 
 def extension_for(mime: str, name: str | None = None) -> str:

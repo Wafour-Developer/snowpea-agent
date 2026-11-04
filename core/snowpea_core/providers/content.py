@@ -24,7 +24,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from snowpea_core.attachments.model import Attachment, is_image, is_text
+from snowpea_core.attachments.model import (
+    Attachment,
+    broken_image_note,
+    is_image,
+    is_text,
+    validate_image,
+)
 
 #: Attachment types Anthropic accepts as a ``document`` block.
 DOCUMENT_MIMES = frozenset({"application/pdf"})
@@ -136,7 +142,12 @@ def parts_from_attachments(
         parts.append(TextPart(text=text))
     for item in attachments:
         if is_image(item.mime):
-            parts.append(ImagePart(mime=item.mime, base64=item.to_base64(), name=item.name))
+            raw = item.read_bytes()
+            problem = validate_image(raw, item.mime)
+            if problem:
+                parts.append(TextPart(text=broken_image_note(item.name, len(raw), problem)))
+            else:
+                parts.append(ImagePart(mime=item.mime, base64=item.to_base64(), name=item.name))
         elif is_text(item.mime):
             parts.append(FilePart(name=item.name, mime=item.mime, text=item.to_text(text_limit)))
         elif item.mime in DOCUMENT_MIMES:
@@ -239,6 +250,12 @@ def _append_media(
 ) -> None:
     """The model's part for one stored block's bytes."""
     if kind == "image" and is_image(mime):
+        problem = validate_image(raw, mime)
+        if problem:
+            # A cut-off picture the model server would refuse, and refuse again
+            # on every later request: say so in words instead.
+            parts.append(TextPart(text=broken_image_note(name, len(raw), problem)))
+            return
         parts.append(ImagePart(mime=mime, base64=b64encode(raw).decode("ascii"), name=name))
     elif is_text(mime):
         body = raw.decode("utf-8", "replace")

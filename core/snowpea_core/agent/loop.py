@@ -1762,6 +1762,7 @@ async def _drive(
     stop_continuations = 0
     empty_retries = 0
     overflow_retried = False
+    image_retried = False
     session.lead_direct_calls = 0
     verify_gate.begin_turn(session, text)
     # One acknowledgement per turn, not per tool round.
@@ -1941,19 +1942,31 @@ async def _drive(
         try:
             attempt = await _model_turn(core, session, provider, messages, specs, config)
         except ProviderError as exc:
+            if getattr(exc, "code", None) == errors.IMAGE_REJECTED and not image_retried:
+                # A picture the server cannot decode sits in the history: it
+                # becomes text there, once, and the request goes again.
+                image_retried = True
+                if not compaction.stub_unreadable_images(session):
+                    raise
+                await persist_history(getattr(core, "store", None), session)
+                messages = _round_messages(
+                    build_messages(session, specs, memory_block, core=core), current
+                )
+                attempt = await _model_turn(core, session, provider, messages, specs, config)
             # The server's own count beat our estimate: summarise and try once more.
-            if not context_overflow(exc) or overflow_retried:
+            elif not context_overflow(exc) or overflow_retried:
                 raise
-            overflow_retried = True
-            await hub.emit_event(session.id, events.hook_continue(OVERFLOW_NOTE, 1))
-            compacted = await compaction.compact_session(core, session, auto=True)
-            if not compacted.compacted:
-                raise
-            specs = core.tools.specs(session)
-            messages = _round_messages(
-                build_messages(session, specs, memory_block, core=core), current
-            )
-            attempt = await _model_turn(core, session, provider, messages, specs, config)
+            else:
+                overflow_retried = True
+                await hub.emit_event(session.id, events.hook_continue(OVERFLOW_NOTE, 1))
+                compacted = await compaction.compact_session(core, session, auto=True)
+                if not compacted.compacted:
+                    raise
+                specs = core.tools.specs(session)
+                messages = _round_messages(
+                    build_messages(session, specs, memory_block, core=core), current
+                )
+                attempt = await _model_turn(core, session, provider, messages, specs, config)
         progress.add_usage(attempt)
         calls = _repair_calls(core, session, attempt.calls)
 

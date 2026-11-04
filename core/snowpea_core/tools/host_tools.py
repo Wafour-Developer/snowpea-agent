@@ -901,6 +901,20 @@ def root_user_turn(core: Any, session: Any, *, root: Any = None) -> dict[str, An
     }
 
 
+def _host_image_problem(data: Any, mime: str) -> str | None:
+    """Why a host's base64 image cannot be decoded, or ``None`` (see ``validate_image``)."""
+    import base64
+    import binascii
+
+    from snowpea_core.attachments.model import validate_image
+
+    try:
+        raw = base64.b64decode(str(data), validate=False)
+    except (binascii.Error, ValueError):
+        return "not valid base64"
+    return validate_image(raw, mime, decode=True)
+
+
 def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:
     """A ``tool.invoke`` answer as a :class:`ToolResult`.
 
@@ -923,6 +937,10 @@ def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:
             texts.append(str(block["text"]))
         elif block.get("type") == "image" and block.get("data"):
             mime = str(block.get("mediaType") or "image/png")
+            problem = _host_image_problem(block["data"], mime)
+            if problem:
+                texts.append(f"[image {name}-{index} not used: {problem}]")
+                continue
             image: dict[str, Any] = {
                 "bytes_b64": str(block["data"]),
                 "mime": mime,

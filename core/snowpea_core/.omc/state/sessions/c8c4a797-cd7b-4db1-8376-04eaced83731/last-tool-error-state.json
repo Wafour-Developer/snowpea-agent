@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"pkill -f \\\"pytest -q -p no:cacheprovider --deselect tests/test_interrupt.py\\\" ; cd /mnt/data/work/mediagen/snowpea; git add core sdk/src/protocol.ts docs/protocol.md tests && git -c user.n...",
-  "error": "Exit code 144",
-  "timestamp": "2026-10-01T07:50:56.245Z",
+  "tool_input_preview": "{\"command\":\"cd /mnt/data/work/mediagen/snowpea && ls tests | grep -i compact; grep -n \\\"def test_.*verbatim\\\\|def test_render_conversation\\\" tests/test_compaction*.py | head -5; sed -n 1,30p tests/tes...",
+  "error": "Exit code 2\nugrep: warning: tests/test_compaction*.py: No such file or directory\nsed: can't read tests/test_compaction.py: No such file or directory",
+  "timestamp": "2026-11-04T00:03:56.005Z",
   "retry_count": 1
 }

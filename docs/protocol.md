@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.37.1` (semver)
+- **Protocol version:** `1.37.2` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.37.1"
+    "protocolVersion": "1.37.2"
   }
 }
 ```
@@ -3827,6 +3827,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `approval_timeout` | No approval arrived before `approvals.timeoutSec` elapsed. |
 | `auth_expired` |  |
 | `empty_response` |  |
+| `image_rejected` |  |
 | `internal` | Unexpected server-side failure. |
 | `invalid_output` |  |
 | `invalid_params` | Params failed schema validation. |

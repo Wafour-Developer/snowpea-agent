@@ -13,6 +13,7 @@ from snowpea_core.attachments.model import (
     downscale_image,
     is_image,
     sniff_mime,
+    validate_image,
 )
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.providers import content as content_parts
@@ -258,6 +259,17 @@ async def view_image(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(
             ok=False,
             error=f"{raw} is not a supported image (png/jpg/webp/gif)",
+        )
+    problem = validate_image(data, mime, decode=True)
+    if problem:
+        return ToolResult(
+            ok=False,
+            error=(
+                f"{raw} is not a usable image: {problem} ({len(data)} bytes). "
+                "Capture it again; on Android over Windows, "
+                "`adb shell screencap -p /sdcard/x.png` then `adb pull` is safer than "
+                "redirecting `adb exec-out screencap -p`."
+            ),
         )
     detail = str(args.get("detail") or "high").strip().lower()
     max_edge = LOW_DETAIL_EDGE if detail == "low" else MAX_IMAGE_EDGE

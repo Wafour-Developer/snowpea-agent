@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.37.1"
+PROTOCOL_VERSION = "1.37.2"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
