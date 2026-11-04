@@ -29,10 +29,13 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 
 from snowpea_core import __version__
+from snowpea_core.cli.render import EXIT_NO_DAEMON, EXIT_OK, EXIT_USAGE
 
 #: ``[user@]host[:port]``.  Host names, IPv4 and bracketed IPv6; no whitespace,
 #: no leading dash (that would be read as an ssh option).
@@ -346,15 +349,97 @@ def ask_yes_no(question: str) -> bool:
         return False
 
 
+def tui_flags(*, port: int, token: str, cwd: str, label: str) -> list[str]:
+    """The TUI flags that point it at a daemon that is not the local one.
+
+    ``label`` is what the screen shows instead of "local" (``me@box``,
+    ``docker:snowpea-sandbox-ab12``).  Shared by ``--remote`` and ``--docker``.
+    """
+    return ["--port", str(port), "--token", token, "--cwd", cwd, "--remote", label]
+
+
 def tui_arguments(session: RemoteSession, cwd: str | None) -> list[str]:
     """The TUI flags that point it at the tunnel, with the remote working directory."""
     assert session.advert is not None
-    return [
-        "--port", str(session.local_port),
-        "--token", session.advert.token,
-        "--cwd", cwd or session.advert.cwd or "~",
-        "--remote", session.target.label,
-    ]  # fmt: skip
+    return tui_flags(
+        port=session.local_port,
+        token=session.advert.token,
+        cwd=cwd or session.advert.cwd or "~",
+        label=session.target.label,
+    )
+
+
+def daemon_healthy(port: int) -> bool:
+    """``GET /health`` on the loopback port answers ``{"status": "ok"}``."""
+    try:
+        with urllib.request.urlopen(  # noqa: S310 - a fixed http://127.0.0.1 URL
+            f"http://127.0.0.1:{port}/health", timeout=1.5
+        ) as reply:
+            return reply.status == 200 and b'"ok"' in reply.read(256)
+    except (OSError, ValueError):
+        return False
+
+
+def wait_until_ready(
+    port: int,
+    *,
+    alive: Callable[[], bool] = lambda: True,
+    timeout: float = 60.0,
+    interval: float = 0.3,
+    probe: Callable[[int], bool] = daemon_healthy,
+) -> bool:
+    """Poll the daemon's ``/health`` until it answers.
+
+    False when ``alive()`` says whatever hosts the daemon is gone, or ``timeout`` ran out.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if probe(port):
+            return True
+        if not alive():
+            return False
+        time.sleep(interval)
+    return probe(port)
+
+
+def run_tui_loop(
+    command: Sequence[str],
+    open_session: Callable[[], AbstractContextManager[Sequence[str]]],
+    *,
+    mode: str | None,
+    inline: bool,
+    restart_code: int,
+    say: Callable[[str], None],
+    restart_delay: float = 2.0,
+) -> int:
+    """Run the terminal UI against a daemon somewhere else, again after a restart exit.
+
+    ``open_session()`` returns a context manager that yields the TUI flags for the
+    daemon (and cleans up behind it); it raises :class:`RemoteError` when the daemon
+    cannot be reached.  The TUI exits with ``restart_code`` after an in-place update:
+    the loop then asks for the daemon again, as the first time.  Returns the exit code.
+    """
+    while True:
+        try:
+            with open_session() as flags:
+                argv = [*command, *flags]
+                if mode:
+                    argv += ["--mode", mode]
+                if inline:
+                    argv.append("--inline")
+                try:
+                    code = subprocess.call(argv)  # noqa: S603 - argv built above
+                except FileNotFoundError:
+                    say(f"could not run the TUI: {argv[0]} is not on PATH")
+                    return EXIT_USAGE
+        except RemoteError as exc:
+            say(str(exc))
+            return EXIT_NO_DAEMON
+        except KeyboardInterrupt:  # pragma: no cover - interactive
+            return EXIT_OK
+        if code != restart_code:
+            return code
+        time.sleep(restart_delay)
 
 
 __all__ = [
@@ -365,6 +450,11 @@ __all__ = [
     "ask_yes_no",
     "check_compatible",
     "parse_probe_output",
+    "daemon_healthy",
+    "free_port",
     "parse_target",
+    "run_tui_loop",
     "tui_arguments",
+    "tui_flags",
+    "wait_until_ready",
 ]

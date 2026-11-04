@@ -130,7 +130,7 @@ With a TTY, an approval request becomes a y/n prompt on stdin. Without one — a
 snowpea -c "run the linter" --approve-none
 ```
 
-The two honest configurations for automation are plan mode for anything that only needs to read, and auto mode inside a container you are willing to discard.
+The two honest configurations for automation are plan mode for anything that only needs to read, and auto mode inside a [sandbox container](sandbox.md) you are willing to discard.
 
 ## Session-free subcommands
 

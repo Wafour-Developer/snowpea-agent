@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,7 @@ import snowpea_core
 from snowpea_core import __version__
 from snowpea_core import update as update_mod
 from snowpea_core.cli import commands as cli_commands
+from snowpea_core.cli import remote
 from snowpea_core.cli.daemon_client import (
     DaemonClient,
     DaemonError,
@@ -119,6 +120,28 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="[USER@]HOST",
         help="work on another machine: its daemon runs the session, reached over ssh "
         "(snowpea is installed there if it is missing; --cwd names a path on that machine)",
+    )
+    parser.add_argument(
+        "--docker",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="IMAGE",
+        help="run the whole session in a throwaway Docker container that holds the agent and "
+        "its tools; --cwd is mounted into it at the same path (the image is built on first "
+        "use; IMAGE must already have snowpea)",
+    )
+    parser.add_argument(
+        "--docker-volume",
+        default=None,
+        metavar="NAME",
+        help="with --docker: keep the sandbox's ~/.snowpea in the named Docker volume, so "
+        "sessions and memory survive the container",
+    )
+    parser.add_argument(
+        "--docker-keep",
+        action="store_true",
+        help="with --docker: stop the container when the terminal UI exits but do not remove it",
     )
     parser.add_argument(
         "-c",
@@ -278,7 +301,6 @@ def resolve_tui_command(
 
 def launch_remote_tui(args: argparse.Namespace) -> int:
     """``snowpea --remote host``: set the host up, tunnel to it, run the TUI against it."""
-    from snowpea_core.cli import remote
     from snowpea_core.server.protocol import PROTOCOL_VERSION
 
     try:
@@ -290,33 +312,66 @@ def launch_remote_tui(args: argparse.Namespace) -> int:
     except remote.RemoteError as exc:
         _err(str(exc))
         return EXIT_USAGE
-    while True:
-        session = remote.RemoteSession(
+
+    @contextlib.contextmanager
+    def open_session() -> Iterator[list[str]]:
+        with remote.RemoteSession(
             target, local_protocol=PROTOCOL_VERSION, confirm=remote.ask_yes_no
+        ) as session:
+            session.prepare()
+            session.open_tunnel()
+            yield remote.tui_arguments(session, args.cwd)
+
+    # The remote daemon was updated and restarted (exit 75): ask it again where it is.
+    return remote.run_tui_loop(
+        command,
+        open_session,
+        mode=args.mode,
+        inline=bool(getattr(args, "inline", False)),
+        restart_code=TUI_RESTART_EXIT,
+        say=_err,
+    )
+
+
+def launch_sandbox_tui(args: argparse.Namespace) -> int:
+    """``snowpea --docker``: the session's daemon runs in a container, the terminal stays here."""
+    from snowpea_core.cli import sandbox
+    from snowpea_core.server.protocol import PROTOCOL_VERSION
+
+    try:
+        command = resolve_tui_command()
+    except TuiNotFound as exc:
+        _err(str(exc))
+        return EXIT_USAGE
+    try:
+        options = sandbox.options_from_args(
+            cwd=args.cwd,
+            home=args.home,
+            image=args.docker,
+            volume=args.docker_volume,
+            keep=args.docker_keep,
         )
-        try:
-            with session:
-                session.prepare()
-                session.open_tunnel()
-                argv = command + remote.tui_arguments(session, args.cwd)
-                if args.mode:
-                    argv += ["--mode", args.mode]
-                if getattr(args, "inline", False):
-                    argv.append("--inline")
-                try:
-                    code = subprocess.call(argv)  # noqa: S603 - argv built above
-                except FileNotFoundError:
-                    _err(f"could not run the TUI: {argv[0]} is not on PATH")
-                    return EXIT_USAGE
-        except remote.RemoteError as exc:
-            _err(str(exc))
-            return EXIT_NO_DAEMON
-        except KeyboardInterrupt:  # pragma: no cover - interactive
-            return EXIT_OK
-        if code != TUI_RESTART_EXIT:
-            return code
-        # The remote daemon was updated and restarted: ask it again where it is.
-        time.sleep(2.0)
+    except sandbox.SandboxError as exc:
+        _err(str(exc))
+        return EXIT_USAGE
+    try:
+        box = sandbox.Sandbox(options, local_protocol=PROTOCOL_VERSION)
+        box.prepare_image()
+    except sandbox.SandboxError as exc:
+        _err(str(exc))
+        return EXIT_NO_DAEMON
+    try:
+        # A restart exit (75) finds the same container again if it is still up.
+        return remote.run_tui_loop(
+            command,
+            box.open_session,
+            mode=args.mode,
+            inline=bool(getattr(args, "inline", False)),
+            restart_code=TUI_RESTART_EXIT,
+            say=_err,
+        )
+    finally:
+        box.close()
 
 
 def launch_tui(args: argparse.Namespace, home: str | None) -> int:
@@ -651,6 +706,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_OK if ok else 1
 
     home: str | None = args.home
+
+    if args.docker is not None or args.docker_volume or args.docker_keep:
+        if args.docker is None:
+            _err("--docker-volume and --docker-keep go with --docker")
+            return EXIT_USAGE
+        if args.remote:
+            _err("--docker and --remote are different places to run the session; pick one")
+            return EXIT_USAGE
+        if args.subcommand or args.prompt is not None:
+            _err("--docker opens the interactive TUI in a sandbox container; it does not "
+                 "combine with -c or a subcommand yet")
+            return EXIT_USAGE
+        return launch_sandbox_tui(args)
 
     if args.remote:
         if args.subcommand or args.prompt is not None:

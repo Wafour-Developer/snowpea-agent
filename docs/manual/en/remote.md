@@ -40,4 +40,4 @@ When you leave, the host's daemon keeps running until its idle timeout (`daemon.
 - A path you attach or mention is read on the host, not on this machine. Files that exist only here cannot be attached by path.
 - Microphone and speakers belong to the daemon's machine, so voice input and spoken replies are not available.
 - An MCP server's browser login (OAuth) listens on the host's loopback address, which this machine's browser cannot open.
-- Docker is not covered yet; a container runs a daemon the same way and will use the same flow.
+- A container on this machine is [a sandbox session](sandbox.md), not a remote one.

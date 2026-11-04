@@ -23,6 +23,7 @@ snowpea를 막 설치했다면 [설치](install.md)를 읽고, 이어서 [설정
 | [스케줄러](scheduler.md) | 자리를 비운 사이 작업이 돌아가야 할 때 |
 | [게이트웨이](gateway.md) | Telegram, Discord, Slack에서 에이전트와 대화하고 싶을 때 |
 | [원격 세션](remote.md) | ssh로 다른 머신에서 작업할 때 |
+| [샌드박스 세션](sandbox.md) | auto 모드 등 세션을 버려도 되는 Docker 컨테이너에서 실행할 때 |
 | [헤드리스](headless.md) | snowpea를 스크립트로 돌리거나 CI에 엮을 때 |
 | [프로토콜](protocol.md) | 데몬을 상대로 클라이언트를 만들 때 |
 

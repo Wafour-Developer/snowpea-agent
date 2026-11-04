@@ -23,6 +23,7 @@ If you have just installed snowpea, read [Install](install.md), then [Setup](set
 | [Scheduler](scheduler.md) | you want work to happen while you are away |
 | [Gateway](gateway.md) | you want to talk to the agent from Telegram, Discord or Slack |
 | [Remote sessions](remote.md) | working on another machine over ssh |
+| [Sandbox sessions](sandbox.md) | running a session, auto mode included, in a throwaway Docker container |
 | [Headless](headless.md) | scripting snowpea, or wiring it into CI |
 | [Protocol](protocol.md) | building a client against the daemon |
 

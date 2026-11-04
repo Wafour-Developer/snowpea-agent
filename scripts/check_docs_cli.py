@@ -267,7 +267,10 @@ def check_invocation(root: HelpNode, tokens: list[str]) -> list[str]:
                     problems.append(f"unknown flag {flag!r} for `{where}`")
                 i += 1
                 continue
-            if known.flags[flag] and not inline_value:
+            # A value never starts with a dash, so `--docker --mode auto` (a flag with an
+            # optional value, `--docker [IMAGE]`) does not swallow the next flag.
+            following = tokens[i + 1] if i + 1 < len(tokens) else ""
+            if known.flags[flag] and not inline_value and not following.startswith("-"):
                 i += 2
             else:
                 i += 1
