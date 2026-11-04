@@ -51,7 +51,6 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 | gateway | `gateway.bind`, `gateway.list`, `gateway.unbind` |
 | memory | `memory.search`, `memory.write` |
 | skills | `skill.search`, `skill.install`, `skill.list`, `skill.remove`, `skill.reload`, `skill.create`, `skill.read`, `skill.write` |
-| backend | `backend.set` |
 
 방향이 반대인 메서드가 하나 있습니다. `approval.request`는 알림이 아니라 서버가 클라이언트에게 보내는 *요청*입니다 — 데몬이 클라이언트에게 결정을 묻고 답을 기다립니다. 프로토콜이 HTTP에 스트림을 얹은 형태가 아니라 WebSocket JSON-RPC인 이유가 바로 이 양방향성입니다.
 

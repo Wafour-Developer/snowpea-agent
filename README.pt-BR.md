@@ -33,7 +33,6 @@ snowpea é um agente de codificação que roda na sua própria máquina e respon
 <tr><td><b>Delega e paraleliza</b></td><td>Subagentes de execução única rodam concorrentemente sob um limite configurável, o modo equipe dá a cada trabalhador seu próprio git worktree e faz o merge das branches, e agentes nomeados persistem entre reinícios do daemon com sua própria memória e canais.</td></tr>
 <tr><td><b>Lembra entre sessões</b></td><td>Memória de longo prazo com SQLite FTS mais um perfil de usuário. Memórias relevantes são injetadas no prompt de sistema e citadas por id na resposta.</td></tr>
 <tr><td><b>Trabalha enquanto você está fora</b></td><td>Um agendador de cron e linguagem natural roda dentro do daemon e entrega resultados no Telegram, Discord ou Slack. As aprovações chegam no mesmo chat como botões, e expiram em uma negação se ninguém responder.</td></tr>
-<tr><td><b>Roda onde o código está</b></td><td>O mesmo conjunto de ferramentas executa localmente, dentro de um container Docker, ou via SSH em outra máquina. Troque no meio da sessão com <code>/backend</code>.</td></tr>
 <tr><td><b>Fala plugin do Claude Code</b></td><td>Instale plugins escritos para o Claude Code — <code>plugin.json</code>, skills <code>SKILL.md</code>, markdown de agentes e comandos, hooks, servidores <code>.mcp.json</code> — e pesquise três marketplaces com um único comando.</td></tr>
 </table>
 
@@ -99,7 +98,6 @@ flowchart TB
         GW[gateway: Telegram, Discord, Slack]
     end
 
-    TOOL --> EXEC[backends de execução: local, docker, ssh]
     GW <--> CHAT[Plataformas de chat]
     SCH --> GW
 ```
@@ -152,7 +150,7 @@ Uma entrada de allowlist só transforma *pergunta* em *permite*; ela nunca pode 
 ## Comandos integrados
 
 ```
-/help        /tools       /mode        /allow       /allowlist    /backend
+/help        /tools       /mode        /allow       /allowlist
 /plan        /accept      /auto        /approvals   /schedule
 /agent       /skill       /ralph       /ultrawork   /deepinit
 /deep-interview           /deep-research            /ralplan
@@ -189,18 +187,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 
 Os jobs rodam dentro do daemon, no modo em que foram registrados, e entregam a resposta no canal que você indicou. As especificações podem ser cron, `in 10m`, `every 30m`, ou linguagem natural em inglês ou coreano. Quando uma execução não supervisionada precisa de uma aprovação, ela chega no chat vinculado com botões de permitir/negar, aparece simultaneamente na fila de aprovação da TUI, aceita a resposta que chegar primeiro, e expira em uma negação depois de `approvals.timeoutSec` (300 por padrão). Somente o id de usuário vinculado pode aprovar. Veja [scheduler.md](docs/manual/en/scheduler.md) e [gateway.md](docs/manual/en/gateway.md).
 
-## Backends de execução
-
-O conjunto de ferramentas é idêntico seja rodando na sua máquina, em um container, ou em um host remoto — as ferramentas sempre passam pelo backend, nunca diretamente pelo sistema de arquivos.
-
-```
-/backend docker {"image": "python:3.11-slim"}
-/backend ssh {"host": "10.0.0.5", "user": "build", "key": "~/.ssh/id_ed25519"}
-/backend local
-```
-
-[backends.md](docs/manual/en/backends.md) traz a configuração de cada um.
-
 ## Comparação
 
 | | snowpea | Claude Code | Codex CLI | opencode | Hermes |
@@ -212,7 +198,6 @@ O conjunto de ferramentas é idêntico seja rodando na sua máquina, em um conta
 | Formato de plugin | plugins do Claude Code + SKILL.md | plugins do Claude Code | — | plugins TypeScript | skills agentskills.io |
 | Gateway de mensageiros | Telegram, Discord, Slack | — | — | — | seis plataformas |
 | Agendador | cron + linguagem natural, no daemon | — | — | — | cron |
-| Backends de execução | local, Docker, SSH | local | local, sandbox | local | sete backends |
 | Modo equipe | lista de tarefas compartilhada + git worktrees | subagentes | — | — | subagentes |
 
 As linhas descrevem o snowpea v0.1 em relação a esses projetos no momento da escrita; os outros projetos evoluem rápido, então confira a documentação deles antes de confiar em uma célula.
@@ -228,7 +213,6 @@ As linhas descrevem o snowpea v0.1 em relação a esses projetos no momento da e
 | [Plugins](docs/manual/en/plugins.md) | formato de plugin do Claude Code, SKILL.md, hooks, MCP, marketplaces |
 | [Agendador](docs/manual/en/scheduler.md) | jobs cron e de linguagem natural, canais de entrega |
 | [Gateway](docs/manual/en/gateway.md) | Telegram, Discord, Slack, aprovações não supervisionadas |
-| [Backends](docs/manual/en/backends.md) | local, Docker, SSH |
 | [Headless](docs/manual/en/headless.md) | `-c`, JSON Lines, códigos de saída, uso em CI |
 | [Protocolo](docs/manual/en/protocol.md) | handshake, métodos, eventos, versionamento |
 | [Arquitetura](docs/ARCHITECTURE.md) | mapa de módulos, diagramas, gate de congelamento do protocolo |

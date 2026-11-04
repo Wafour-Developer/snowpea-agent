@@ -19,7 +19,6 @@ snowpea 是一个跑在你自己机器上的开源多供应商编码 agent。一
 | [Plugins](plugins.md) | 安装或编写 skill、agent、命令、hook 和 MCP server 时 |
 | [Scheduler](scheduler.md) | 希望工作在你不在的时候照常发生时 |
 | [Gateway](gateway.md) | 想从 Telegram、Discord 或 Slack 跟 agent 对话时 |
-| [Backends](backends.md) | 代码在容器里或者在另一台主机上时 |
 | [Headless](headless.md) | 用脚本驱动 snowpea，或者把它接进 CI 时 |
 | [Protocol](protocol.md) | 要针对守护进程写一个客户端时 |
 
@@ -48,7 +47,7 @@ snowpea daemon status
 | `$SNOWPEA_HOME/state.db` | 会话、事件、记忆、任务、team 任务、已命名的 agent |
 | `$SNOWPEA_HOME/logs/` | `daemon.log`、`approvals.jsonl` |
 | `$SNOWPEA_HOME/plugins/`、`skills/`、`agents/`、`commands/` | 安装的以及手写的扩展 |
-| `<project>/.snowpea/settings.json` | 这个仓库的默认模式、allowlist、backend |
+| `<project>/.snowpea/settings.json` | 这个仓库的默认模式、allowlist |
 | `<project>/.snowpea/{skills,agents,commands}/` | 项目本地的扩展 |
 | `<project>/.claude/{skills,agents,commands}/` | 为兼容 Claude Code 而读取的位置 |
 

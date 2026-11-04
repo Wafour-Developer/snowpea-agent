@@ -2,7 +2,7 @@
 
 Other languages: [한국어](../ko/agents.md)
 
-A **subagent** is one delegated task running in its own session. It inherits your working directory, your mode, your provider and your backend, and nothing else: it cannot see this conversation, it cannot ask you a question, and only its final message comes back. That isolation is the point — a search that would flood your context with a hundred file excerpts costs you one paragraph instead.
+A **subagent** is one delegated task running in its own session. It inherits your working directory, your mode, and your provider, and nothing else: it cannot see this conversation, it cannot ask you a question, and only its final message comes back. That isolation is the point — a search that would flood your context with a hundred file excerpts costs you one paragraph instead.
 
 The agent delegates with the `delegate_task` tool. You can do it yourself with `/delegate <agent> <task>`, or with the `$<agent> <task>` shorthand at the start of a prompt.
 

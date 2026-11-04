@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.38.0` (semver)
+- **Protocol version:** `1.39.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.38.0"
+    "protocolVersion": "1.39.0"
   }
 }
 ```
@@ -121,7 +121,6 @@ Server capabilities advertised in the `system.hello` result:
 | [`audio.speak`](#audiospeak) | client → server | Synthesise speech, optionally playing it on the daemon's machine. |
 | [`audio.transcribe`](#audiotranscribe) | client → server | Transcribe recorded audio to text. |
 | [`audio.voices`](#audiovoices) | client → server | List the voices one speech engine offers here. |
-| [`backend.set`](#backendset) | client → server | Choose where a session's tools execute: local, docker or ssh. |
 | [`checkpoint.delete`](#checkpointdelete) | client → server | Delete one checkpoint, or all checkpoints for a session. |
 | [`checkpoint.diff`](#checkpointdiff) | client → server | Show what restoring a checkpoint would change from the current workdir. |
 | [`checkpoint.list`](#checkpointlist) | client → server | List restore checkpoints for a session, newest first. |
@@ -619,26 +618,6 @@ List the voices one speech engine offers here.
 | field | type | required | description |
 |---|---|---|---|
 | `voices` | `({ gender?: string \| null; id: string; installed?: boolean; label: string; language?: string; sample?: boolean; sizeBytes?: number \| null; })[]` | no | Installed voices first, then by language and id. |
-
-### `backend.set`
-
-*Direction:* client → server
-
-Choose where a session's tools execute: local, docker or ssh.
-
-**Params**
-
-| field | type | required | description |
-|---|---|---|---|
-| `config` | `Record<string, unknown>` | no | Backend settings, e.g. container or SSH target. |
-| `kind` | `"local" \| "docker" \| "ssh"` | yes | Where tools execute. |
-| `sessionId` | `string` | yes | Session whose execution backend changes. |
-
-**Result**
-
-| field | type | required | description |
-|---|---|---|---|
-| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `checkpoint.delete`
 
@@ -3540,13 +3519,6 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `provider` | `string` | no | Backend that synthesised it. |
 | `utterance` | `string` | no | reply = the turn's answer; ack = the opening acknowledgement the agent writes before its first tool call. A surface may label or skip an ack; one that does not know the field treats everything as a reply. |
 | `voice` | `string \| null` | no | Voice that was used. |
-
-### kind `backend.changed`
-
-| field | type | required | description |
-|---|---|---|---|
-| `backend` | `"local" \| "docker" \| "ssh"` | yes | Where tools now execute. |
-| `kind` | `"backend.changed"` | no |  |
 
 ### kind `checkpoint.restored`
 

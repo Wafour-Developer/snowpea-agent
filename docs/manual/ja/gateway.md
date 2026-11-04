@@ -92,6 +92,3 @@ snowpea agents --json
 - 認証情報は `0600` のファイルに置かれ、利用できる場合は OS のキーチェーンが使われます。
 - ときどき `approvals.jsonl` を読むこと。あなたが見ていないあいだに何が許されたかの記録です。
 
-## Next
-
-[Backends](backends.md) — ツールを別の場所で走らせる。

@@ -2246,7 +2246,6 @@ async def test_an_owned_run_takes_no_outside_input(
                     ("session.compact", {"sessionId": session.id}),
                     ("session.attach", {"sessionId": session.id}),
                     ("session.setActive", {"sessionId": session.id}),
-                    ("backend.set", {"sessionId": session.id, "kind": "local"}),
                 ):
                     frame = await client.call(method, params)
                     error = frame.get("error") or {}
@@ -2273,7 +2272,7 @@ async def test_an_owned_run_takes_no_outside_input(
             await asyncio.sleep(0.01)
         await asyncio.wait_for(seen["task"], 30)
         assert {code for _, code in seen["codes"]} == {"unauthorized"}, seen["codes"]
-        assert len(seen["codes"]) == 20 and seen["mode"] == "accept"
+        assert len(seen["codes"]) == 18 and seen["mode"] == "accept"
         # Once the run is over the session is an ordinary closed run again.
         for _ in range(3000):
             if not daemon.core.sessions.get(seen["sessionId"]):

@@ -27,7 +27,6 @@ from snowpea_core.attachments.model import Attachment as FileAttachment
 from snowpea_core.attachments.model import AttachmentError, decode_base64
 from snowpea_core.attachments.store import AttachmentStore
 from snowpea_core.commands.registry import register_builtin_commands
-from snowpea_core.exec.factory import build_backend
 from snowpea_core.lsp import wire_lsp
 from snowpea_core.memory import services as memory_services
 from snowpea_core.memory import wire_memory, write_preference
@@ -43,7 +42,6 @@ from snowpea_core.server.protocol import (
     ApprovalListResult,
     ApprovalRespondParams,
     Attachment,
-    BackendSetParams,
     CommandListResult,
     CommandRunParams,
     Empty,
@@ -149,7 +147,6 @@ HANDLED_METHODS: tuple[str, ...] = (
     "question.respond",
     "provider.list",
     "provider.models",
-    "backend.set",
     "memory.search",
     "memory.write",
     "memory.list",
@@ -1057,24 +1054,6 @@ async def question_respond_handler(
     return Ok(ok=True)
 
 
-async def backend_set_handler(_conn: RpcConnection, params: BackendSetParams, core: Core) -> Ok:
-    """``backend.set`` — swap where a session's tools run, closing the old backend."""
-    session = _session(core, params.sessionId)
-    try:
-        backend = build_backend(
-            params.kind,
-            params.config,
-            workdir=session.workdir,
-            session_id=session.id,
-        )
-    except ValueError as exc:
-        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    await session.set_backend(backend)
-    await core.hub.emit_event(session.id, events.backend_changed(params.kind))
-    log.info("session %s backend is now %s", session.id, params.kind)
-    return Ok(ok=True)
-
-
 async def provider_list_handler(
     _conn: RpcConnection, _params: Empty, core: Core
 ) -> ProviderListResult:
@@ -1327,7 +1306,6 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("question.respond", question_respond_handler)
     dispatcher.register("provider.list", provider_list_handler)
     dispatcher.register("provider.models", provider_models_handler)
-    dispatcher.register("backend.set", backend_set_handler)
     dispatcher.register("memory.search", memory_search_handler)
     dispatcher.register("memory.write", memory_write_handler)
     dispatcher.register("memory.list", memory_list_handler)

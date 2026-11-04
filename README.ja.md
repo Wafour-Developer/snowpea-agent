@@ -33,7 +33,6 @@ snowpeaは自分のマシン上で動き、自分がお金を払っているモ�
 <tr><td><b>委任し、並列に動かす</b></td><td>使い捨てのサブエージェントは設定された同時実行数の範囲内で並行して動き、チームモードでは作業者ごとにgit worktreeを与えてブランチをマージします。名前付きエージェントは自分自身のメモリとチャンネルを持ったまま、デーモンの再起動をまたいで存続します。</td></tr>
 <tr><td><b>セッションをまたいで記憶する</b></td><td>SQLite FTSによる長期記憶とユーザープロフィール。関連する記憶がシステムプロンプトに注入され、回答の中でidとともに引用されます。</td></tr>
 <tr><td><b>席を外していても働く</b></td><td>cronと自然言語のスケジューラがデーモン内で動き、結果をTelegram・Discord・Slackに届けます。承認依頼も同じチャットにボタン付きで届き、誰も答えなければ時間切れで拒否になります。</td></tr>
-<tr><td><b>コードがある場所で実行する</b></td><td>同じツールスイートが、ローカルでも、Dockerコンテナの中でも、SSH越しの別マシンでも動作します。セッションの途中でも<code>/backend</code>で切り替えられます。</td></tr>
 <tr><td><b>Claude Codeのプラグインを読める</b></td><td>Claude Code向けに書かれたプラグインをそのままインストールできます——<code>plugin.json</code>、<code>SKILL.md</code>スキル、エージェントおよびコマンドのMarkdown、フック、<code>.mcp.json</code>サーバー。3つのマーケットプレイスをひとつのコマンドから検索できます。</td></tr>
 </table>
 
@@ -99,7 +98,6 @@ flowchart TB
         GW[gateway: Telegram, Discord, Slack]
     end
 
-    TOOL --> EXEC[実行バックエンド: local, docker, ssh]
     GW <--> CHAT[チャットプラットフォーム]
     SCH --> GW
 ```
@@ -152,7 +150,7 @@ allowlistのエントリは*確認*を*許可*に変えるだけで、モード�
 ## 組み込みコマンド
 
 ```
-/help        /tools       /mode        /allow       /allowlist    /backend
+/help        /tools       /mode        /allow       /allowlist
 /plan        /accept      /auto        /approvals   /schedule
 /agent       /skill       /ralph       /ultrawork   /deepinit
 /deep-interview           /deep-research            /ralplan
@@ -189,18 +187,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 
 ジョブはデーモン内で、登録時に指定したモードで実行され、結果は指定したチャンネルに届けられます。スケジュール指定はcron、`in 10m`、`every 30m`、あるいは英語や韓国語による自然言語でも構いません。無人実行中に承認が必要になると、紐づけられたチャットに許可・拒否ボタンとともに届き、同時にTUIの承認キューにも表示されます。先に答えた方が採用され、`approvals.timeoutSec`（デフォルト300秒）を過ぎると拒否として自動的に期限切れになります。承認できるのは紐づけられたユーザーidのみです。詳しくは[scheduler.md](docs/manual/en/scheduler.md)と[gateway.md](docs/manual/en/gateway.md)を参照してください。
 
-## 実行バックエンド
-
-ツールスイートは、あなたのマシン上でも、コンテナの中でも、リモートホスト上でも同一です——ツールは常にバックエンドを経由し、ファイルシステムに直接触れることはありません。
-
-```
-/backend docker {"image": "python:3.11-slim"}
-/backend ssh {"host": "10.0.0.5", "user": "build", "key": "~/.ssh/id_ed25519"}
-/backend local
-```
-
-それぞれの設定は[backends.md](docs/manual/en/backends.md)にあります。
-
 ## 他ツールとの比較
 
 | | snowpea | Claude Code | Codex CLI | opencode | Hermes |
@@ -212,7 +198,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 | プラグイン形式 | Claude Codeプラグイン + SKILL.md | Claude Codeプラグイン | — | TypeScriptプラグイン | agentskills.ioスキル |
 | メッセンジャーゲートウェイ | Telegram, Discord, Slack | — | — | — | 6プラットフォーム |
 | スケジューラ | デーモン内cron + 自然言語 | — | — | — | cron |
-| 実行バックエンド | local, Docker, SSH | local | local, サンドボックス | local | 7バックエンド |
 | チームモード | 共有タスクリスト + git worktree | サブエージェント | — | — | サブエージェント |
 
 各行は本稿執筆時点のsnowpea v0.1をこれらのプロジェクトと比較したものです。他のプロジェクトは変化が速いため、各セルの内容を鵜呑みにせず、それぞれの公式ドキュメントを確認してください。
@@ -228,7 +213,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 | [プラグイン](docs/manual/en/plugins.md) | Claude Codeプラグイン形式、SKILL.md、フック、MCP、マーケットプレイス |
 | [スケジューラ](docs/manual/en/scheduler.md) | cronおよび自然言語ジョブ、配信チャンネル |
 | [ゲートウェイ](docs/manual/en/gateway.md) | Telegram、Discord、Slack、無人承認 |
-| [バックエンド](docs/manual/en/backends.md) | local、Docker、SSH |
 | [ヘッドレス](docs/manual/en/headless.md) | `-c`、JSON Lines、終了コード、CIでの利用 |
 | [プロトコル](docs/manual/en/protocol.md) | ハンドシェイク、メソッド、イベント、バージョニング |
 | [アーキテクチャ](docs/ARCHITECTURE.md) | モジュールマップ、図、プロトコル凍結ゲート |

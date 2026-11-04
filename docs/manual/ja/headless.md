@@ -125,7 +125,7 @@ TTY があれば、承認リクエストは標準入力の y/n の確認にな�
 snowpea -c "run the linter" --approve-none
 ```
 
-自動化における正直な構成は2つです。読むだけで済むものには plan モード、そして捨ててよいコンテナの中での auto モード。コンテナの部分は [Backends](backends.md) を参照してください。
+自動化における正直な構成は2つです。読むだけで済むものには plan モード、そして捨ててよいコンテナの中での auto モード。
 
 ## Session-free subcommands
 

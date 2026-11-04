@@ -167,6 +167,3 @@ The gateway is a remote execution path. Treat it that way.
 - Credentials live in a `0600` file, and the OS keychain is used where available.
 - Read `approvals.jsonl` occasionally. It is the record of what was allowed while you were not looking.
 
-## Next
-
-[Backends](backends.md) — running the tools somewhere else.

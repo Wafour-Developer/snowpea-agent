@@ -33,7 +33,6 @@ snowpea ist ein Coding-Agent, der auf Ihrem eigenen Rechner läuft und nur dem M
 <tr><td><b>Delegiert und parallelisiert</b></td><td>Einmalige Subagenten laufen gleichzeitig unter einem konfigurierbaren Limit, der Team-Modus gibt jedem Worker sein eigenes git-Worktree und führt deren Branches zusammen, und benannte Agenten überdauern Daemon-Neustarts mit eigenem Gedächtnis und eigenen Kanälen.</td></tr>
 <tr><td><b>Erinnert sich über Sitzungen hinweg</b></td><td>SQLite-FTS-Langzeitgedächtnis plus ein Nutzerprofil. Relevante Erinnerungen werden in den System-Prompt eingespeist und in der Antwort per id zitiert.</td></tr>
 <tr><td><b>Arbeitet auch, wenn Sie weg sind</b></td><td>Ein Cron- und Natursprache-Scheduler läuft im Daemon und liefert Ergebnisse an Telegram, Discord oder Slack. Genehmigungen kommen als Buttons in denselben Chat und verfallen zu einer Ablehnung, wenn niemand antwortet.</td></tr>
-<tr><td><b>Läuft dort, wo der Code ist</b></td><td>Dieselbe Tool-Suite läuft lokal, in einem Docker-Container oder per SSH auf einem anderen Rechner. Mitten in der Sitzung wechselbar mit <code>/backend</code>.</td></tr>
 <tr><td><b>Spricht Claude-Code-Plugin</b></td><td>Installiert Plugins, die für Claude Code geschrieben wurden — <code>plugin.json</code>, <code>SKILL.md</code>-Skills, Agent- und Befehls-Markdown, Hooks, <code>.mcp.json</code>-Server — und durchsucht drei Marktplätze mit einem Befehl.</td></tr>
 </table>
 
@@ -99,7 +98,6 @@ flowchart TB
         GW[gateway: Telegram, Discord, Slack]
     end
 
-    TOOL --> EXEC[Ausführungs-Backends: local, docker, ssh]
     GW <--> CHAT[Chat-Plattformen]
     SCH --> GW
 ```
@@ -152,7 +150,7 @@ Ein Allowlist-Eintrag macht immer nur aus *fragt* ein *erlaubt*; er kann niemals
 ## Eingebaute Befehle
 
 ```
-/help        /tools       /mode        /allow       /allowlist    /backend
+/help        /tools       /mode        /allow       /allowlist
 /plan        /accept      /auto        /approvals   /schedule
 /agent       /skill       /ralph       /ultrawork   /deepinit
 /deep-interview           /deep-research            /ralplan
@@ -189,18 +187,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 
 Jobs laufen im Daemon, in dem Modus, mit dem Sie sie registriert haben, und liefern die Antwort an den benannten Kanal. Spezifikationen können Cron sein, `in 10m`, `every 30m`, oder natürliche Sprache auf Englisch oder Koreanisch. Wenn ein unbeaufsichtigter Lauf eine Genehmigung benötigt, trifft sie im gebundenen Chat mit Erlauben/Ablehnen-Buttons ein, erscheint gleichzeitig in der TUI-Genehmigungswarteschlange, akzeptiert die Antwort, die zuerst kommt, und verfällt nach `approvals.timeoutSec` (standardmäßig 300) zu einer Ablehnung. Nur die gebundene Nutzer-id darf genehmigen. Siehe [scheduler.md](docs/manual/en/scheduler.md) und [gateway.md](docs/manual/en/gateway.md).
 
-## Ausführungs-Backends
-
-Die Tool-Suite ist identisch, egal ob sie auf Ihrem Rechner, in einem Container oder auf einem entfernten Host läuft — Tools laufen immer über das Backend, nie direkt auf das Dateisystem.
-
-```
-/backend docker {"image": "python:3.11-slim"}
-/backend ssh {"host": "10.0.0.5", "user": "build", "key": "~/.ssh/id_ed25519"}
-/backend local
-```
-
-[backends.md](docs/manual/en/backends.md) enthält die Konfiguration für jedes.
-
 ## Wie es sich vergleicht
 
 | | snowpea | Claude Code | Codex CLI | opencode | Hermes |
@@ -212,7 +198,6 @@ Die Tool-Suite ist identisch, egal ob sie auf Ihrem Rechner, in einem Container 
 | Plugin-Format | Claude-Code-Plugins + SKILL.md | Claude-Code-Plugins | — | TypeScript-Plugins | agentskills.io-Skills |
 | Messenger-Gateway | Telegram, Discord, Slack | — | — | — | sechs Plattformen |
 | Scheduler | Cron + natürliche Sprache, im Daemon | — | — | — | Cron |
-| Ausführungs-Backends | local, Docker, SSH | local | local, Sandbox | local | sieben Backends |
 | Team-Modus | geteilte Aufgabenliste + git-Worktrees | Subagenten | — | — | Subagenten |
 
 Die Zeilen beschreiben snowpea v0.1 im Vergleich zu diesen Projekten zum Zeitpunkt der Erstellung; die anderen Projekte entwickeln sich schnell weiter, prüfen Sie also deren eigene Dokumentation, bevor Sie sich auf eine Zelle verlassen.
@@ -228,7 +213,6 @@ Die Zeilen beschreiben snowpea v0.1 im Vergleich zu diesen Projekten zum Zeitpun
 | [Plugins](docs/manual/en/plugins.md) | Claude-Code-Plugin-Format, SKILL.md, Hooks, MCP, Marktplätze |
 | [Scheduler](docs/manual/en/scheduler.md) | Cron- und Natursprache-Jobs, Zustellkanäle |
 | [Gateway](docs/manual/en/gateway.md) | Telegram, Discord, Slack, unbeaufsichtigte Genehmigungen |
-| [Backends](docs/manual/en/backends.md) | local, Docker, SSH |
 | [Headless](docs/manual/en/headless.md) | `-c`, JSON Lines, Exit-Codes, CI-Nutzung |
 | [Protokoll](docs/manual/en/protocol.md) | Handshake, Methoden, Events, Versionierung |
 | [Architektur](docs/ARCHITECTURE.md) | Modulübersicht, Diagramme, Protokoll-Freeze-Gate |

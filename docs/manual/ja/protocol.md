@@ -53,7 +53,6 @@ HTTP のエンドポイントは、プローブ、インストーラー、デバ
 | gateway | `gateway.bind`, `gateway.list`, `gateway.unbind` |
 | memory | `memory.search`, `memory.write` |
 | skills | `skill.search`, `skill.install`, `skill.list`, `skill.remove`, `skill.reload` |
-| backend | `backend.set` |
 
 1つだけ向きが逆のメソッドがあります。`approval.request` は通知ではなく、サーバーからクライアントへの *リクエスト* です。デーモンがクライアントに判断を求め、返事を待ちます。この双方向性こそ、このプロトコルが HTTP とストリームではなく WebSocket JSON-RPC である理由です。
 

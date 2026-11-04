@@ -90,6 +90,3 @@ El gateway es una vía de ejecución remota. Trátalo como tal.
 - Las credenciales viven en un fichero `0600`, y se usa el llavero del sistema operativo donde está disponible.
 - Lee `approvals.jsonl` de vez en cuando. Es el registro de lo que se permitió mientras no mirabas.
 
-## Siguiente
-
-[Backends](backends.md) — ejecutar las herramientas en otro sitio.

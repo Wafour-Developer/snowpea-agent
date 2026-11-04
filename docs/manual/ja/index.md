@@ -19,7 +19,6 @@ snowpea をインストールしたばかりなら、[Install](install.md)、続
 | [Plugins](plugins.md) | スキル、エージェント、コマンド、フック、MCP サーバーをインストールまたは自作するとき |
 | [Scheduler](scheduler.md) | 席を外しているあいだに作業を進めてほしいとき |
 | [Gateway](gateway.md) | Telegram、Discord、Slack からエージェントと話したいとき |
-| [Backends](backends.md) | コードがコンテナの中や別のホストにあるとき |
 | [Headless](headless.md) | snowpea をスクリプト化する、または CI に組み込むとき |
 | [Protocol](protocol.md) | デーモンを相手にクライアントを作るとき |
 
@@ -48,7 +47,7 @@ snowpea daemon status
 | `$SNOWPEA_HOME/state.db` | セッション、イベント、メモリ、ジョブ、チームのタスク、名前付きエージェント |
 | `$SNOWPEA_HOME/logs/` | `daemon.log`、`approvals.jsonl` |
 | `$SNOWPEA_HOME/plugins/`, `skills/`, `agents/`, `commands/` | インストール済みおよび手書きの拡張 |
-| `<project>/.snowpea/settings.json` | このリポジトリのデフォルトモード、allowlist、バックエンド |
+| `<project>/.snowpea/settings.json` | このリポジトリのデフォルトモード、allowlist |
 | `<project>/.snowpea/{skills,agents,commands}/` | プロジェクトローカルの拡張 |
 | `<project>/.claude/{skills,agents,commands}/` | Claude Code 互換のために読み込まれます |
 

@@ -53,7 +53,6 @@ uv run python scripts/gen_protocol.py --check
 | gateway | `gateway.bind`, `gateway.list`, `gateway.unbind` |
 | 记忆 | `memory.search`, `memory.write` |
 | skill | `skill.search`, `skill.install`, `skill.list`, `skill.remove`, `skill.reload` |
-| backend | `backend.set` |
 
 有一个方法是反方向走的。`approval.request` 是一个服务端到客户端的*请求*，而不是通知：守护进程向客户端要一个决定，并等待回复。正是这种双向性，才让这套协议是 WebSocket JSON-RPC，而不是 HTTP 加一条流。
 

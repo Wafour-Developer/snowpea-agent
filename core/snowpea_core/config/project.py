@@ -155,7 +155,6 @@ class ProjectSettings(BaseModel):
 
     defaultMode: Mode | None = None
     allowlist: list[AllowlistEntry] = Field(default_factory=list)
-    backend: dict[str, Any] = Field(default_factory=dict)
     agents: ProjectAgentsSettings = Field(default_factory=ProjectAgentsSettings)
     models: ProjectModelsSettings = Field(default_factory=ProjectModelsSettings)
 

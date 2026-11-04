@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.38.0"
+PROTOCOL_VERSION = "1.39.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -45,7 +45,6 @@ Decision = Literal["allow", "deny"]
 #: site's origin ("always allow on github.com").
 ApprovalScope = Literal["once", "session", "project", "always", "site"]
 AllowlistScope = Literal["session", "project", "always"]
-BackendKind = Literal["local", "docker", "ssh"]
 #: How hard a reasoning model may think; one scale for every vendor.
 EffortLevel = Literal["low", "medium", "high", "max"]
 #: Which rule decided the effective effort, for a surface that shows why.
@@ -2403,14 +2402,6 @@ class ProviderLoginWebResult(Payload):
     )
     expiresInSec: float | None = Field(
         default=None, description="Seconds until the code or session expires, when known."
-    )
-
-
-class BackendSetParams(Payload):
-    sessionId: str = Field(description="Session whose execution backend changes.")
-    kind: BackendKind = Field(description="Where tools execute.")
-    config: dict[str, Any] = Field(
-        default_factory=dict, description="Backend settings, e.g. container or SSH target."
     )
 
 
@@ -5014,13 +5005,6 @@ class ModeChanged(Payload):
     )
 
 
-class BackendChanged(Payload):
-    """The session's execution backend was replaced."""
-
-    kind: Literal["backend.changed"] = "backend.changed"
-    backend: BackendKind = Field(description="Where tools now execute.")
-
-
 class UsageEvent(Payload):
     """Token usage for the turn."""
 
@@ -5370,7 +5354,6 @@ SessionEventPayload = Annotated[
     | HookContinue
     | ProviderWaiting
     | ProviderRetry
-    | BackendChanged
     | ModelChanged
     | UsageEvent
     | ContextEvent
@@ -5413,7 +5396,6 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "hook.continue": HookContinue,
     "provider.waiting": ProviderWaiting,
     "provider.retry": ProviderRetry,
-    "backend.changed": BackendChanged,
     "model.changed": ModelChanged,
     "usage": UsageEvent,
     "context": ContextEvent,
@@ -6684,12 +6666,6 @@ METHODS: dict[str, RpcMethod] = {
             "Start a browser-based login flow for a provider.",
         ),
         _m(
-            "backend.set",
-            BackendSetParams,
-            Ok,
-            "Choose where a session's tools execute: local, docker or ssh.",
-        ),
-        _m(
             "checkpoint.list",
             CheckpointListParams,
             CheckpointListResult,
@@ -7371,7 +7347,6 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.configure",
         "provider.remove",
         "provider.loginWeb",
-        "backend.set",
         "checkpoint.list",
         "checkpoint.diff",
         "checkpoint.restore",

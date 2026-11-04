@@ -33,7 +33,6 @@ snowpea는 내 컴퓨터에서 돌고, 내가 비용을 내는 모델에게만 �
 <tr><td><b>위임하고 병렬로 돌립니다</b></td><td>일회성 서브에이전트가 설정한 동시성 한도 안에서 함께 돌고, 팀 모드는 작업자마다 git worktree를 주고 브랜치를 병합하며, 이름 있는 에이전트는 자기 메모리와 채널을 가진 채 데몬 재시작을 넘겨 살아남습니다.</td></tr>
 <tr><td><b>세션을 넘어 기억합니다</b></td><td>SQLite FTS 장기 메모리와 사용자 프로필. 관련 기억이 시스템 프롬프트에 주입되고 답변에 id로 인용됩니다.</td></tr>
 <tr><td><b>자리를 비워도 일합니다</b></td><td>cron과 자연어 스케줄러가 데몬 안에서 돌며 결과를 Telegram·Discord·Slack으로 보냅니다. 승인 요청도 같은 대화방에 버튼으로 오고, 아무도 답하지 않으면 시간이 지나 거부로 끝납니다.</td></tr>
-<tr><td><b>코드가 있는 곳에서 실행</b></td><td>내 컴퓨터든, 컨테이너 안이든, SSH 너머 다른 머신이든 툴셋은 동일합니다. 툴은 항상 백엔드를 거치지 파일시스템을 직접 건드리지 않습니다. 세션 도중 <code>/backend</code>로 바꿉니다.</td></tr>
 <tr><td><b>Claude Code 플러그인을 읽습니다</b></td><td>Claude Code용으로 쓰인 플러그인을 그대로 설치합니다 — <code>plugin.json</code>, <code>SKILL.md</code> 스킬, 에이전트·명령 마크다운, 훅, <code>.mcp.json</code> 서버. 마켓플레이스 세 곳을 명령 하나로 검색합니다.</td></tr>
 </table>
 
@@ -99,7 +98,6 @@ flowchart TB
         GW[gateway: Telegram, Discord, Slack]
     end
 
-    TOOL --> EXEC[실행 백엔드: local, docker, ssh]
     GW <--> CHAT[메신저 플랫폼]
     SCH --> GW
 ```
@@ -154,7 +152,7 @@ allowlist는 *질문*을 *허용*으로 올릴 뿐이고, 모드가 거부한 �
 ## 내장 명령
 
 ```
-/help        /tools       /mode        /allow       /allowlist    /backend
+/help        /tools       /mode        /allow       /allowlist
 /plan        /accept      /auto        /approvals   /schedule
 /agent       /skill       /ralph       /ultrawork   /deepinit
 /deep-interview           /deep-research            /ralplan
@@ -191,18 +189,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 
 잡은 데몬 안에서, 등록할 때 지정한 모드로 돌고, 결과를 지정한 채널로 보냅니다. 스펙은 cron, `in 10m`, `every 30m`, 또는 한국어·영어 자연어("매일 09:00")입니다. 무인 실행 중 승인이 필요해지면 바인딩된 대화방에 허용·거부 버튼과 함께 도착하고, 동시에 TUI 승인 큐에도 뜹니다. 먼저 온 응답이 이기고, `approvals.timeoutSec`(기본 300초)이 지나면 자동 거부됩니다. 승인은 바인딩된 사용자 id만 할 수 있습니다. [scheduler.md](docs/manual/ko/scheduler.md)와 [gateway.md](docs/manual/ko/gateway.md)를 보세요.
 
-## 실행 백엔드
-
-툴셋은 내 머신이든 컨테이너든 원격 호스트든 동일합니다.
-
-```
-/backend docker {"image": "python:3.11-slim"}
-/backend ssh {"host": "10.0.0.5", "user": "build", "key": "~/.ssh/id_ed25519"}
-/backend local
-```
-
-각각의 설정은 [backends.md](docs/manual/ko/backends.md)에 있습니다.
-
 ## 다른 도구와 비교
 
 | | snowpea | Claude Code | Codex CLI | opencode | Hermes |
@@ -214,7 +200,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 | 플러그인 포맷 | Claude Code 플러그인 + SKILL.md | Claude Code 플러그인 | — | TypeScript 플러그인 | agentskills.io 스킬 |
 | 메신저 게이트웨이 | Telegram, Discord, Slack | — | — | — | 6개 플랫폼 |
 | 스케줄러 | 데몬 내 cron + 자연어 | — | — | — | cron |
-| 실행 백엔드 | local, Docker, SSH | local | local, 샌드박스 | local | 7종 |
 | 팀 모드 | 공유 태스크 리스트 + git worktree | 서브에이전트 | — | — | 서브에이전트 |
 
 작성 시점의 snowpea v0.1 기준 비교입니다. 다른 프로젝트들은 빠르게 바뀌므로 각 칸에 기대기 전에 해당 문서를 확인하세요.
@@ -230,7 +215,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 | [플러그인](docs/manual/ko/plugins.md) | Claude Code 플러그인 포맷, SKILL.md, 훅, MCP, 마켓플레이스 |
 | [스케줄러](docs/manual/ko/scheduler.md) | cron·자연어 잡, 전달 채널 |
 | [게이트웨이](docs/manual/ko/gateway.md) | Telegram, Discord, Slack, 무인 승인 |
-| [백엔드](docs/manual/ko/backends.md) | local, Docker, SSH |
 | [헤드리스](docs/manual/ko/headless.md) | `-c`, JSON Lines, 종료 코드, CI 사용 |
 | [프로토콜](docs/manual/ko/protocol.md) | 핸드셰이크, 메서드, 이벤트, 버전 정책 |
 | [아키텍처](docs/ARCHITECTURE.md) | 모듈 지도, 다이어그램, 프로토콜 동결 게이트 |

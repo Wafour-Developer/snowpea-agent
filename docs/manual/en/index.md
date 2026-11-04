@@ -22,7 +22,6 @@ If you have just installed snowpea, read [Install](install.md), then [Setup](set
 | [Language servers](lsp.md) | diagnostics after an edit, and the lsp_* tools |
 | [Scheduler](scheduler.md) | you want work to happen while you are away |
 | [Gateway](gateway.md) | you want to talk to the agent from Telegram, Discord or Slack |
-| [Backends](backends.md) | the code lives in a container or on another host |
 | [Headless](headless.md) | scripting snowpea, or wiring it into CI |
 | [Protocol](protocol.md) | building a client against the daemon |
 
@@ -51,7 +50,7 @@ snowpea daemon status
 | `$SNOWPEA_HOME/state.db` | sessions, events, memory, jobs, team tasks, named agents |
 | `$SNOWPEA_HOME/logs/` | `daemon.log`, `approvals.jsonl` |
 | `$SNOWPEA_HOME/plugins/`, `skills/`, `agents/`, `commands/` | installed and hand-written extensions |
-| `<project>/.snowpea/settings.json` | default mode, allowlist, backend for this repository |
+| `<project>/.snowpea/settings.json` | default mode, allowlist for this repository |
 | `<project>/.snowpea/{skills,agents,commands}/` | project-local extensions |
 | `<project>/.claude/{skills,agents,commands}/` | read for Claude Code compatibility |
 

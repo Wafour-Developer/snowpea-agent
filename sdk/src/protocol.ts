@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.38.0";
+export const PROTOCOL_VERSION = "1.39.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -528,22 +528,6 @@ export interface AudioVoicesResult {
     /** Roughly what the download weighs, when it is one. */
     sizeBytes?: number | null;
   })[];
-}
-
-/** `backend.set` params. Choose where a session's tools execute: local, docker or ssh. */
-export interface BackendSetParams {
-  /** Backend settings, e.g. container or SSH target. */
-  config?: Record<string, unknown>;
-  /** Where tools execute. */
-  kind: "local" | "docker" | "ssh";
-  /** Session whose execution backend changes. */
-  sessionId: string;
-}
-
-/** `backend.set` result. */
-export interface BackendSetResult {
-  /** True when the call succeeded. */
-  ok?: boolean;
 }
 
 /** `checkpoint.delete` params. Delete one checkpoint, or all checkpoints for a session. */
@@ -5727,13 +5711,6 @@ export interface AudioSpokenEventPayload {
   voice?: string | null;
 }
 
-/** Payload of `session.event` with kind `backend.changed`. */
-export interface BackendChangedEventPayload {
-  /** Where tools now execute. */
-  backend: "local" | "docker" | "ssh";
-  kind?: "backend.changed";
-}
-
 /** Payload of `session.event` with kind `checkpoint.restored`. */
 export interface CheckpointRestoredEventPayload {
   /** Undo checkpoint for the restore, null when none was written. */
@@ -6334,7 +6311,6 @@ export interface UsageEventPayload {
 export interface SessionEventKindMap {
   "agent.changed": AgentChangedEventPayload;
   "audio.spoken": AudioSpokenEventPayload;
-  "backend.changed": BackendChangedEventPayload;
   "checkpoint.restored": CheckpointRestoredEventPayload;
   "checkpoint.updated": CheckpointUpdatedEventPayload;
   "command.progress": CommandProgressEventPayload;
@@ -6379,7 +6355,6 @@ export type SessionEventKind = keyof SessionEventKindMap;
 export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "agent.changed",
   "audio.spoken",
-  "backend.changed",
   "checkpoint.restored",
   "checkpoint.updated",
   "command.progress",
@@ -6442,7 +6417,6 @@ export interface MethodMap {
   "audio.speak": { params: AudioSpeakParams; result: AudioSpeakResult };
   "audio.transcribe": { params: AudioTranscribeParams; result: AudioTranscribeResult };
   "audio.voices": { params: AudioVoicesParams; result: AudioVoicesResult };
-  "backend.set": { params: BackendSetParams; result: BackendSetResult };
   "checkpoint.delete": { params: CheckpointDeleteParams; result: CheckpointDeleteResult };
   "checkpoint.diff": { params: CheckpointDiffParams; result: CheckpointDiffResult };
   "checkpoint.list": { params: CheckpointListParams; result: CheckpointListResult };
@@ -6592,7 +6566,6 @@ export type ClientMethod =
   | "audio.speak"
   | "audio.transcribe"
   | "audio.voices"
-  | "backend.set"
   | "checkpoint.delete"
   | "checkpoint.diff"
   | "checkpoint.list"

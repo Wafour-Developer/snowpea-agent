@@ -105,6 +105,8 @@ from snowpea_core.tools.registry import ToolRegistry
 log = logging.getLogger("snowpea.server")
 
 HOST = "127.0.0.1"
+#: Addresses that cannot be reached from another machine.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 def _utc_now() -> str:
@@ -686,9 +688,14 @@ class Daemon:
     """Owns the listening socket, ``daemon.json`` and the shutdown signal."""
 
     def __init__(
-        self, port: int = 0, home: Path | str | None = None, token: str | None = None
+        self,
+        port: int = 0,
+        home: Path | str | None = None,
+        token: str | None = None,
+        host: str = HOST,
     ) -> None:
         self._requested_port = port
+        self._host = host or HOST
         self._home = home
         self._preissued_token = token
         self._runner: web.AppRunner | None = None
@@ -747,7 +754,16 @@ class Daemon:
         self.app = create_app(dispatcher, daemon=self, core=core)
         runner = web.AppRunner(self.app)
         await runner.setup()
-        site = web.TCPSite(runner, HOST, self._requested_port)
+        if self._host not in LOOPBACK_HOSTS:
+            # Anyone who can reach the port and holds the token drives this
+            # machine's shell and files: reach it through an ssh tunnel or a
+            # private network, never a public address.
+            log.warning(
+                "listening on %s, not loopback: the token is the only protection and "
+                "the connection is not encrypted; use an ssh tunnel or a private network",
+                self._host,
+            )
+        site = web.TCPSite(runner, self._host, self._requested_port)
         await site.start()
         self._runner = runner
         core.port = _resolve_port(runner, self._requested_port)
@@ -1026,13 +1042,16 @@ def _install_signal_handlers(daemon: Daemon) -> None:
 
 
 async def run_daemon(
-    port: int = 0, home: Path | str | None = None, token: str | None = None
+    port: int = 0,
+    home: Path | str | None = None,
+    token: str | None = None,
+    host: str = HOST,
 ) -> None:
     """Run the daemon until a signal, ``system.shutdown`` or the idle timeout."""
     from snowpea_core.util.no_window import hide_child_consoles
 
     hide_child_consoles()
-    daemon = Daemon(port=port, home=home, token=token)
+    daemon = Daemon(port=port, home=home, token=token, host=host)
     await daemon.start()
     _install_signal_handlers(daemon)
     try:
@@ -1044,6 +1063,7 @@ async def run_daemon(
 __all__ = [
     "HOME_LOCKED_EXIT",
     "HOST",
+    "LOOPBACK_HOSTS",
     "Core",
     "HomeLocked",
     "Daemon",

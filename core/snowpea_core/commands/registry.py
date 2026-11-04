@@ -304,11 +304,10 @@ class CommandRegistry:
 
 
 def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
-    """Register the built-ins: ``help``/``tools``, modes, ``/backend``, ``/agent``,
+    """Register the built-ins: ``help``/``tools``, modes, ``/agent``,
     ``/mcp`` and ``/skill``."""
     from snowpea_core.commands import (
         agent_cmd,
-        backend_cmd,
         deepinit,
         delegate_cmd,
         delegation_cmd,
@@ -337,7 +336,6 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *model_cmd.COMMANDS,
         *effort_cmd.COMMANDS,
         *delegation_cmd.COMMANDS,
-        *backend_cmd.COMMANDS,
         *schedule_cmd.COMMANDS,
         *agent_cmd.COMMANDS,
         *delegate_cmd.COMMANDS,

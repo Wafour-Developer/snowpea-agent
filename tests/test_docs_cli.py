@@ -86,7 +86,6 @@ def test_every_readme_and_manual_page_is_covered():
         "plugins",
         "scheduler",
         "gateway",
-        "backends",
         "headless",
         "protocol",
     ]:

@@ -14,7 +14,6 @@ from snowpea_core.server.protocol import (
     SESSION_EVENT_MODELS,
     AgentChanged,
     AudioSpoken,
-    BackendChanged,
     CheckpointInfo,
     CheckpointRestored,
     CheckpointRestoreSkipped,
@@ -294,10 +293,6 @@ def model_changed(
     )
 
 
-def backend_changed(backend: str) -> Event:
-    return _pack(BackendChanged(backend=backend))  # type: ignore[arg-type]
-
-
 def usage(
     input_tokens: int,
     output_tokens: int,
@@ -478,7 +473,6 @@ def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "Event",
-    "backend_changed",
     "command_progress",
     "compaction",
     "compaction_started",

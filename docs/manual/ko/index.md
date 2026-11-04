@@ -22,7 +22,6 @@ snowpea를 막 설치했다면 [설치](install.md)를 읽고, 이어서 [설정
 | [언어 서버](lsp.md) | 편집 직후의 진단, 그리고 lsp_* 툴 |
 | [스케줄러](scheduler.md) | 자리를 비운 사이 작업이 돌아가야 할 때 |
 | [게이트웨이](gateway.md) | Telegram, Discord, Slack에서 에이전트와 대화하고 싶을 때 |
-| [백엔드](backends.md) | 코드가 컨테이너 안이나 다른 호스트에 있을 때 |
 | [헤드리스](headless.md) | snowpea를 스크립트로 돌리거나 CI에 엮을 때 |
 | [프로토콜](protocol.md) | 데몬을 상대로 클라이언트를 만들 때 |
 
@@ -51,7 +50,7 @@ snowpea daemon status
 | `$SNOWPEA_HOME/state.db` | 세션, 이벤트, 메모리, 잡, 팀 태스크, 이름 있는 에이전트 |
 | `$SNOWPEA_HOME/logs/` | `daemon.log`, `approvals.jsonl` |
 | `$SNOWPEA_HOME/plugins/`, `skills/`, `agents/`, `commands/` | 설치했거나 직접 만든 확장 |
-| `<project>/.snowpea/settings.json` | 이 저장소의 기본 모드, allowlist, 백엔드 |
+| `<project>/.snowpea/settings.json` | 이 저장소의 기본 모드, allowlist |
 | `<project>/.snowpea/{skills,agents,commands}/` | 프로젝트 로컬 확장 |
 | `<project>/.claude/{skills,agents,commands}/` | Claude Code 호환을 위해 읽는 위치 |
 

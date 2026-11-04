@@ -33,7 +33,6 @@ snowpea is a coding agent that runs on your own machine and answers to whichever
 <tr><td><b>Delegates and parallelizes</b></td><td>One-shot subagents run concurrently under a configurable limit, team mode gives each worker its own git worktree and merges their branches, and named agents persist across daemon restarts with their own memory and channels.</td></tr>
 <tr><td><b>Remembers across sessions</b></td><td>SQLite FTS long-term memory plus a user profile. Relevant memories are injected into the system prompt and cited by id in the answer.</td></tr>
 <tr><td><b>Works while you are away</b></td><td>A cron and natural-language scheduler runs inside the daemon and delivers results to Telegram, Discord or Slack. Approvals come to the same chat as buttons, and expire into a denial if nobody answers.</td></tr>
-<tr><td><b>Runs where the code is</b></td><td>The same tool suite executes locally, inside a Docker container, or over SSH on another machine. Switch mid-session with <code>/backend</code>.</td></tr>
 <tr><td><b>Speaks Claude Code plugin</b></td><td>Install plugins written for Claude Code — <code>plugin.json</code>, <code>SKILL.md</code> skills, agent and command markdown, hooks, <code>.mcp.json</code> servers — and search three marketplaces from one command.</td></tr>
 </table>
 
@@ -99,7 +98,6 @@ flowchart TB
         GW[gateway: Telegram, Discord, Slack]
     end
 
-    TOOL --> EXEC[exec backends: local, docker, ssh]
     GW <--> CHAT[Chat platforms]
     SCH --> GW
 ```
@@ -156,7 +154,7 @@ An allowlist entry only ever turns *ask* into *allow*; it can never unblock some
 ## Built-in commands
 
 ```
-/help        /tools       /mode        /allow       /allowlist    /backend
+/help        /tools       /mode        /allow       /allowlist
 /plan        /accept      /auto        /approvals   /schedule
 /agent       /skill       /ralph       /ultrawork   /deepinit
 /deep-interview           /deep-research            /ralplan
@@ -193,17 +191,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 
 Jobs run inside the daemon, in the mode you registered them with, and deliver the answer to the channel you named. Specs can be cron, `in 10m`, `every 30m`, or natural language in English or Korean. When an unattended run needs an approval it arrives in the bound chat with allow/deny buttons, appears simultaneously in the TUI approval queue, accepts whichever answer comes first, and expires into a denial after `approvals.timeoutSec` (300 by default). Only the bound user id may approve. See [scheduler.md](docs/manual/en/scheduler.md) and [gateway.md](docs/manual/en/gateway.md).
 
-## Execution backends
-
-The tool suite is identical whether it runs on your machine, in a container, or on a remote host — tools always go through the backend, never straight to the filesystem.
-
-```
-/backend docker {"image": "python:3.11-slim"}
-/backend ssh {"host": "10.0.0.5", "user": "build", "key": "~/.ssh/id_ed25519"}
-/backend local
-```
-
-[backends.md](docs/manual/en/backends.md) has the configuration for each.
 
 ## How it compares
 
@@ -216,7 +203,6 @@ The tool suite is identical whether it runs on your machine, in a container, or 
 | Plugin format | Claude Code plugins + SKILL.md | Claude Code plugins | — | TypeScript plugins | agentskills.io skills |
 | Messenger gateway | Telegram, Discord, Slack | — | — | — | six platforms |
 | Scheduler | cron + natural language, in-daemon | — | — | — | cron |
-| Execution backends | local, Docker, SSH | local | local, sandbox | local | seven backends |
 | Team mode | shared task list + git worktrees | subagents | — | — | subagents |
 
 Rows describe snowpea v0.1 against these projects as of writing; the other projects move fast, so check their own documentation before relying on a cell.
@@ -232,7 +218,6 @@ Rows describe snowpea v0.1 against these projects as of writing; the other proje
 | [Plugins](docs/manual/en/plugins.md) | Claude Code plugin format, SKILL.md, hooks, MCP, marketplaces |
 | [Scheduler](docs/manual/en/scheduler.md) | cron and natural-language jobs, delivery channels |
 | [Gateway](docs/manual/en/gateway.md) | Telegram, Discord, Slack, unattended approvals |
-| [Backends](docs/manual/en/backends.md) | local, Docker, SSH |
 | [Headless](docs/manual/en/headless.md) | `-c`, JSON Lines, exit codes, CI usage |
 | [Protocol](docs/manual/en/protocol.md) | handshake, methods, events, versioning |
 | [Architecture](docs/ARCHITECTURE.md) | module map, diagrams, protocol freeze gate |

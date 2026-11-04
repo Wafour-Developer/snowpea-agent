@@ -19,7 +19,6 @@ Si acabas de instalar snowpea, lee [Instalar](install.md), luego [Setup](setup.m
 | [Plugins](plugins.md) | instalas o escribes skills, agentes, comandos, hooks y servidores MCP |
 | [Planificador](scheduler.md) | quieres que el trabajo ocurra mientras no estás |
 | [Gateway](gateway.md) | quieres hablar con el agente desde Telegram, Discord o Slack |
-| [Backends](backends.md) | el código vive en un contenedor o en otra máquina |
 | [Headless](headless.md) | scripteas snowpea, o lo conectas a CI |
 | [Protocolo](protocol.md) | construyes un cliente contra el daemon |
 
@@ -48,7 +47,7 @@ snowpea daemon status
 | `$SNOWPEA_HOME/state.db` | sesiones, eventos, memoria, jobs, tareas de team, agentes nombrados |
 | `$SNOWPEA_HOME/logs/` | `daemon.log`, `approvals.jsonl` |
 | `$SNOWPEA_HOME/plugins/`, `skills/`, `agents/`, `commands/` | extensiones instaladas y escritas a mano |
-| `<project>/.snowpea/settings.json` | modo por defecto, allowlist, backend para este repositorio |
+| `<project>/.snowpea/settings.json` | modo por defecto, allowlist para este repositorio |
 | `<project>/.snowpea/{skills,agents,commands}/` | extensiones locales del proyecto |
 | `<project>/.claude/{skills,agents,commands}/` | se leen por compatibilidad con Claude Code |
 

@@ -298,7 +298,7 @@ class Session:
     context_estimated: bool = True
     #: Context window of :attr:`model` in tokens; ``None`` when unknown.
     context_window: int | None = None
-    #: Where this session's tools run; ``backend.set`` / ``/backend`` swaps it
+    #: Where this session's tools run
     #: (US-010).  Defaults to the local machine, rooted at :attr:`workdir`.
     backend: ExecutionBackend = None  # type: ignore[assignment]
 
@@ -324,13 +324,6 @@ class Session:
     @max_tool_rounds.setter
     def max_tool_rounds(self, value: int | None) -> None:
         self.tool_rounds = value
-
-    async def set_backend(self, backend: ExecutionBackend) -> None:
-        """Replace the backend, closing whatever it was using before."""
-        previous = self.backend
-        self.backend = backend
-        if previous is not None and previous is not backend:
-            await previous.close()
 
     def next_seq(self) -> int:
         self.seq += 1

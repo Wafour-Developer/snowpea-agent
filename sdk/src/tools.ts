@@ -47,16 +47,6 @@ export function llmSample(client: Client, params: P<"llm.sample">): Promise<R<"l
   return client.call("llm.sample", params);
 }
 
-/** Choose the execution backend (local, docker, ssh) for a session. */
-export function setBackend(
-  client: Client,
-  sessionId: string,
-  kind: P<"backend.set">["kind"],
-  config: P<"backend.set">["config"],
-): Promise<R<"backend.set">> {
-  return client.call("backend.set", { sessionId, kind, config } as P<"backend.set">);
-}
-
 /** One host tool: what `tool.register` takes (protocol 1.6.0). */
 export type HostToolSpec = P<"tool.register">["tools"][number];
 

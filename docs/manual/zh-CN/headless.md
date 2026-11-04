@@ -125,7 +125,7 @@ snowpea -c "list the modules" --json | jq -r 'select(.kind=="message.delta") | .
 snowpea -c "run the linter" --approve-none
 ```
 
-自动化场景下诚实的两种配置是：只需要读的事情用 plan 模式，以及在一个你愿意丢弃的容器里用 auto 模式。容器那一半见 [Backends](backends.md)。
+自动化场景下诚实的两种配置是：只需要读的事情用 plan 模式，以及在一个你愿意丢弃的容器里用 auto 模式。
 
 ## 不需要会话的子命令
 

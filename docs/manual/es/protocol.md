@@ -51,7 +51,6 @@ El resultado lleva `protocolVersion`, `serverVersion` y una lista de `capabiliti
 | gateway | `gateway.bind`, `gateway.list`, `gateway.unbind` |
 | memoria | `memory.search`, `memory.write` |
 | skills | `skill.search`, `skill.install`, `skill.list`, `skill.remove`, `skill.reload` |
-| backend | `backend.set` |
 
 Un método va en el sentido contrario. `approval.request` es una *petición* del servidor al cliente, no una notificación: el daemon le pide al cliente una decisión y espera la respuesta. Esa bidireccionalidad es la razón de que el protocolo sea WebSocket JSON-RPC y no HTTP más un stream.
 

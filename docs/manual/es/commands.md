@@ -25,7 +25,6 @@ Eso imprime el registro en vivo, incluyendo los comandos aportados por plugins i
 | `/approvals` | lista las aprobaciones desatendidas esperando una respuesta |
 | `/allow <regex> [--global]` | promueve un prompt repetido a una autorización silenciosa |
 | `/allowlist [remove <id>]` | muestra o depura la allowlist |
-| `/backend [local\|docker\|ssh] [json]` | muestra o cambia dónde se ejecutan las herramientas |
 
 ### Terminal UI
 

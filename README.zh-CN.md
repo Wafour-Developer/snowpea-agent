@@ -33,7 +33,6 @@ snowpea 是一款运行在你自己机器上的编程代理,只听命于你付�
 <tr><td><b>委派与并行</b></td><td>一次性子代理在可配置的并发上限内同时运行,团队模式为每个工作者分配各自的 git worktree 并合并分支,具名代理则带着各自的记忆和频道跨守护进程重启持续存在。</td></tr>
 <tr><td><b>跨会话记忆</b></td><td>SQLite FTS 长期记忆加用户画像。相关记忆会被注入系统提示词,并在回答中以 id 形式引用。</td></tr>
 <tr><td><b>你不在时也在工作</b></td><td>cron 与自然语言调度器在守护进程内运行,并把结果发送到 Telegram、Discord 或 Slack。审批请求也会以按钮形式发到同一个聊天窗口,若无人回应则超时自动拒绝。</td></tr>
-<tr><td><b>代码在哪就在哪运行</b></td><td>同一套工具在你本机、Docker 容器内,或 SSH 连接的另一台机器上执行方式完全一致。用 <code>/backend</code> 在会话中途切换。</td></tr>
 <tr><td><b>读懂 Claude Code 插件</b></td><td>可直接安装为 Claude Code 编写的插件 —— <code>plugin.json</code>、<code>SKILL.md</code> 技能、代理与命令的 markdown、hooks、<code>.mcp.json</code> 服务器 —— 并用一条命令搜索三个应用市场。</td></tr>
 </table>
 
@@ -99,7 +98,6 @@ flowchart TB
         GW[gateway: Telegram, Discord, Slack]
     end
 
-    TOOL --> EXEC[执行后端: local, docker, ssh]
     GW <--> CHAT[聊天平台]
     SCH --> GW
 ```
@@ -152,7 +150,7 @@ allowlist 条目只能把*询问*变为*允许*;它永远无法解锁被模式�
 ## 内置命令
 
 ```
-/help        /tools       /mode        /allow       /allowlist    /backend
+/help        /tools       /mode        /allow       /allowlist
 /plan        /accept      /auto        /approvals   /schedule
 /agent       /skill       /ralph       /ultrawork   /deepinit
 /deep-interview           /deep-research            /ralplan
@@ -189,18 +187,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 
 任务在守护进程内运行,使用你注册它时指定的模式,并把结果发送到你指定的频道。时间规格可以是 cron、`in 10m`、`every 30m`,也可以是英语或韩语的自然语言。当一次无人值守的运行需要审批时,请求会连同允许/拒绝按钮一起发到绑定的聊天窗口,同时也会出现在 TUI 的审批队列中,以先到的回答为准,并在 `approvals.timeoutSec`(默认 300 秒)后超时自动拒绝。只有绑定的用户 id 可以批准。参见 [scheduler.md](docs/manual/en/scheduler.md) 和 [gateway.md](docs/manual/en/gateway.md)。
 
-## 执行后端
-
-无论运行在你的机器上、容器内,还是远程主机上,工具套件都完全一致 —— 工具始终经由后端执行,从不直接触碰文件系统。
-
-```
-/backend docker {"image": "python:3.11-slim"}
-/backend ssh {"host": "10.0.0.5", "user": "build", "key": "~/.ssh/id_ed25519"}
-/backend local
-```
-
-各自的配置详见 [backends.md](docs/manual/en/backends.md)。
-
 ## 与同类工具的对比
 
 | | snowpea | Claude Code | Codex CLI | opencode | Hermes |
@@ -228,7 +214,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 | [插件](docs/manual/en/plugins.md) | Claude Code 插件格式、SKILL.md、hooks、MCP、应用市场 |
 | [调度器](docs/manual/en/scheduler.md) | cron 与自然语言任务、投递频道 |
 | [网关](docs/manual/en/gateway.md) | Telegram、Discord、Slack、无人值守审批 |
-| [后端](docs/manual/en/backends.md) | local、Docker、SSH |
 | [无头模式](docs/manual/en/headless.md) | `-c`、JSON Lines、退出码、CI 用法 |
 | [协议](docs/manual/en/protocol.md) | 握手、方法、事件、版本策略 |
 | [架构](docs/ARCHITECTURE.md) | 模块地图、图示、协议冻结门禁 |

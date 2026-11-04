@@ -25,7 +25,6 @@ snowpea commands list --json
 | `/approvals` | list unattended approvals waiting for an answer |
 | `/allow <regex> [--global]` | promote a repeated prompt to a silent allow |
 | `/allowlist [remove <id>]` | show or prune the allowlist |
-| `/backend [local\|docker\|ssh] [json]` | show or change where tools execute |
 
 ### Terminal UI
 

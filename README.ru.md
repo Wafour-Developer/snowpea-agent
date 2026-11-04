@@ -33,7 +33,6 @@ snowpea — это агент для кодинга, который работа
 <tr><td><b>Делегирует и распараллеливает</b></td><td>Одноразовые субагенты работают одновременно в пределах настраиваемого лимита, командный режим выделяет каждому воркеру собственный git worktree и сливает их ветки, а именованные агенты переживают перезапуск демона вместе со своей памятью и каналами.</td></tr>
 <tr><td><b>Помнит между сессиями</b></td><td>Долговременная память на SQLite FTS плюс профиль пользователя. Релевантные воспоминания подмешиваются в системный промпт и цитируются в ответе по id.</td></tr>
 <tr><td><b>Работает, пока вас нет</b></td><td>Планировщик на cron и естественном языке работает внутри демона и доставляет результаты в Telegram, Discord или Slack. Запросы на подтверждение приходят в тот же чат в виде кнопок и истекают отказом, если никто не ответил.</td></tr>
-<tr><td><b>Выполняется там, где код</b></td><td>Один и тот же набор инструментов работает локально, внутри контейнера Docker или по SSH на другой машине. Переключайтесь прямо посреди сессии командой <code>/backend</code>.</td></tr>
 <tr><td><b>Говорит на языке плагинов Claude Code</b></td><td>Устанавливает плагины, написанные для Claude Code, — <code>plugin.json</code>, скиллы <code>SKILL.md</code>, markdown-описания агентов и команд, хуки, серверы <code>.mcp.json</code> — и ищет по трём маркетплейсам одной командой.</td></tr>
 </table>
 
@@ -99,7 +98,6 @@ flowchart TB
         GW[gateway: Telegram, Discord, Slack]
     end
 
-    TOOL --> EXEC[бэкенды выполнения: local, docker, ssh]
     GW <--> CHAT[Мессенджер-платформы]
     SCH --> GW
 ```
@@ -152,7 +150,7 @@ snowpea setup --vendor deepseek --key sk-...   # неинтерактивно
 ## Встроенные команды
 
 ```
-/help        /tools       /mode        /allow       /allowlist    /backend
+/help        /tools       /mode        /allow       /allowlist
 /plan        /accept      /auto        /approvals   /schedule
 /agent       /skill       /ralph       /ultrawork   /deepinit
 /deep-interview           /deep-research            /ralplan
@@ -189,18 +187,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 
 Задания выполняются внутри демона, в том режиме, с которым были зарегистрированы, и доставляют ответ в указанный канал. Расписание может быть в формате cron, `in 10m`, `every 30m` или на естественном языке — английском или корейском. Когда автономный запуск требует подтверждения, оно приходит в привязанный чат с кнопками разрешить/отклонить, одновременно появляется в очереди подтверждений TUI, принимается тот ответ, который пришёл первым, а по истечении `approvals.timeoutSec` (по умолчанию 300) истекает отказом. Подтвердить может только привязанный id пользователя. См. [scheduler.md](docs/manual/en/scheduler.md) и [gateway.md](docs/manual/en/gateway.md).
 
-## Бэкенды выполнения
-
-Набор инструментов одинаков независимо от того, работает ли он на вашей машине, в контейнере или на удалённом хосте — инструменты всегда проходят через бэкенд, никогда напрямую в файловую систему.
-
-```
-/backend docker {"image": "python:3.11-slim"}
-/backend ssh {"host": "10.0.0.5", "user": "build", "key": "~/.ssh/id_ed25519"}
-/backend local
-```
-
-[backends.md](docs/manual/en/backends.md) содержит настройки для каждого.
-
 ## Сравнение
 
 | | snowpea | Claude Code | Codex CLI | opencode | Hermes |
@@ -212,7 +198,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 | Формат плагинов | плагины Claude Code + SKILL.md | плагины Claude Code | — | плагины на TypeScript | скиллы agentskills.io |
 | Шлюз мессенджеров | Telegram, Discord, Slack | — | — | — | шесть платформ |
 | Планировщик | cron + естественный язык, в демоне | — | — | — | cron |
-| Бэкенды выполнения | local, Docker, SSH | local | local, sandbox | local | семь бэкендов |
 | Командный режим | общий список задач + git worktree | субагенты | — | — | субагенты |
 
 Строки описывают snowpea v0.1 в сравнении с этими проектами на момент написания; остальные проекты быстро развиваются, так что перед тем как полагаться на ячейку, сверьтесь с их собственной документацией.
@@ -228,7 +213,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 | [Плагины](docs/manual/en/plugins.md) | формат плагинов Claude Code, SKILL.md, хуки, MCP, маркетплейсы |
 | [Планировщик](docs/manual/en/scheduler.md) | задания на cron и естественном языке, каналы доставки |
 | [Шлюз](docs/manual/en/gateway.md) | Telegram, Discord, Slack, подтверждения без присмотра |
-| [Бэкенды](docs/manual/en/backends.md) | local, Docker, SSH |
 | [Headless](docs/manual/en/headless.md) | `-c`, JSON Lines, коды выхода, использование в CI |
 | [Протокол](docs/manual/en/protocol.md) | рукопожатие, методы, события, версионирование |
 | [Архитектура](docs/ARCHITECTURE.md) | карта модулей, диаграммы, ворота заморозки протокола |

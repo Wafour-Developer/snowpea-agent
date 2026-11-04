@@ -320,7 +320,7 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
 
 
 def backend_for(core: Core, session: Session) -> Any:
-    """Execution backend for a session; ``backend.set`` / ``/backend`` swaps it."""
+    """Execution backend for a session."""
     return session.backend or LocalBackend(session.workdir)
 
 

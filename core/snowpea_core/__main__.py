@@ -18,7 +18,13 @@ def build_parser() -> argparse.ArgumentParser:
         prog="snowpea-core", description="Run the snowpea core daemon."
     )
     parser.add_argument(
-        "--port", type=int, default=0, help="TCP port on 127.0.0.1 (0 = pick a free one)"
+        "--port", type=int, default=0, help="TCP port (0 = pick a free one)"
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="address to listen on (default 127.0.0.1; 0.0.0.0 inside a container whose port "
+        "is published to the host only; anything else is reachable by other machines)",
     )
     parser.add_argument("--home", default=None, help="override SNOWPEA_HOME")
     parser.add_argument(
@@ -96,7 +102,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from snowpea_core.server.app_server import HOME_LOCKED_EXIT, HomeLocked
 
     try:
-        asyncio.run(run_daemon(port=args.port, home=args.home, token=args.token))
+        asyncio.run(run_daemon(port=args.port, home=args.home, token=args.token, host=args.host))
     except HomeLocked as exc:
         print(f"snowpea-core: {exc}", file=sys.stderr)
         return HOME_LOCKED_EXIT

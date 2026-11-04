@@ -33,7 +33,6 @@ snowpea est un agent de codage qui tourne sur votre propre machine et ne répond
 <tr><td><b>Délègue et parallélise</b></td><td>Des sous-agents ponctuels tournent en parallèle sous une limite configurable, le mode équipe donne à chaque travailleur son propre git worktree et fusionne leurs branches, et les agents nommés survivent aux redémarrages du démon avec leur propre mémoire et leurs propres canaux.</td></tr>
 <tr><td><b>Se souvient d'une session à l'autre</b></td><td>Mémoire à long terme SQLite FTS plus un profil utilisateur. Les souvenirs pertinents sont injectés dans le prompt système et cités par id dans la réponse.</td></tr>
 <tr><td><b>Travaille en votre absence</b></td><td>Un planificateur cron et en langage naturel tourne dans le démon et livre les résultats sur Telegram, Discord ou Slack. Les approbations arrivent dans la même discussion sous forme de boutons, et expirent en refus si personne ne répond.</td></tr>
-<tr><td><b>S'exécute là où se trouve le code</b></td><td>Le même ensemble d'outils s'exécute localement, dans un conteneur Docker, ou via SSH sur une autre machine. Changez en cours de session avec <code>/backend</code>.</td></tr>
 <tr><td><b>Parle le langage des plugins Claude Code</b></td><td>Installez des plugins écrits pour Claude Code — <code>plugin.json</code>, skills <code>SKILL.md</code>, markdown d'agents et de commandes, hooks, serveurs <code>.mcp.json</code> — et cherchez dans trois places de marché depuis une seule commande.</td></tr>
 </table>
 
@@ -99,7 +98,6 @@ flowchart TB
         GW[passerelle : Telegram, Discord, Slack]
     end
 
-    TOOL --> EXEC[backends d'exécution : local, docker, ssh]
     GW <--> CHAT[Plateformes de messagerie]
     SCH --> GW
 ```
@@ -152,7 +150,7 @@ Une entrée d'allowlist ne fait que transformer *demande* en *autorisé* ; elle 
 ## Commandes intégrées
 
 ```
-/help        /tools       /mode        /allow       /allowlist    /backend
+/help        /tools       /mode        /allow       /allowlist
 /plan        /accept      /auto        /approvals   /schedule
 /agent       /skill       /ralph       /ultrawork   /deepinit
 /deep-interview           /deep-research            /ralplan
@@ -189,18 +187,6 @@ snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
 
 Les tâches s'exécutent dans le démon, dans le mode avec lequel vous les avez enregistrées, et livrent la réponse au canal que vous avez nommé. Les spécifications peuvent être du cron, `in 10m`, `every 30m`, ou du langage naturel en anglais ou en coréen. Quand une exécution sans surveillance nécessite une approbation, elle arrive dans la discussion liée avec des boutons autoriser/refuser, apparaît simultanément dans la file d'approbation du TUI, accepte la réponse qui arrive en premier, et expire en refus après `approvals.timeoutSec` (300 par défaut). Seul l'id utilisateur lié peut approuver. Voir [scheduler.md](docs/manual/en/scheduler.md) et [gateway.md](docs/manual/en/gateway.md).
 
-## Backends d'exécution
-
-L'ensemble d'outils est identique qu'il s'exécute sur votre machine, dans un conteneur, ou sur un hôte distant — les outils passent toujours par le backend, jamais directement par le système de fichiers.
-
-```
-/backend docker {"image": "python:3.11-slim"}
-/backend ssh {"host": "10.0.0.5", "user": "build", "key": "~/.ssh/id_ed25519"}
-/backend local
-```
-
-[backends.md](docs/manual/en/backends.md) contient la configuration pour chacun.
-
 ## Comparaison
 
 | | snowpea | Claude Code | Codex CLI | opencode | Hermes |
@@ -212,7 +198,6 @@ L'ensemble d'outils est identique qu'il s'exécute sur votre machine, dans un co
 | Format de plugin | plugins Claude Code + SKILL.md | plugins Claude Code | — | plugins TypeScript | skills agentskills.io |
 | Passerelle de messagerie | Telegram, Discord, Slack | — | — | — | six plateformes |
 | Planificateur | cron + langage naturel, dans le démon | — | — | — | cron |
-| Backends d'exécution | local, Docker, SSH | local | local, sandbox | local | sept backends |
 | Mode équipe | liste de tâches partagée + git worktrees | sous-agents | — | — | sous-agents |
 
 Les lignes décrivent snowpea v0.1 face à ces projets au moment de la rédaction ; les autres projets évoluent vite, donc vérifiez leur propre documentation avant de vous fier à une cellule.
@@ -228,7 +213,6 @@ Les lignes décrivent snowpea v0.1 face à ces projets au moment de la rédactio
 | [Plugins](docs/manual/en/plugins.md) | format des plugins Claude Code, SKILL.md, hooks, MCP, places de marché |
 | [Planificateur](docs/manual/en/scheduler.md) | tâches cron et en langage naturel, canaux de livraison |
 | [Passerelle](docs/manual/en/gateway.md) | Telegram, Discord, Slack, approbations sans surveillance |
-| [Backends](docs/manual/en/backends.md) | local, Docker, SSH |
 | [Headless](docs/manual/en/headless.md) | `-c`, JSON Lines, codes de sortie, usage CI |
 | [Protocole](docs/manual/en/protocol.md) | prise de contact, méthodes, événements, gestion des versions |
 | [Architecture](docs/ARCHITECTURE.md) | carte des modules, diagrammes, verrou de gel du protocole |

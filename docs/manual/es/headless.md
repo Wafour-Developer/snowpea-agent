@@ -123,7 +123,7 @@ Con un TTY, una petición de aprobación se convierte en un diálogo y/n en stdi
 snowpea -c "run the linter" --approve-none
 ```
 
-Las dos configuraciones honestas para automatización son el modo plan para cualquier cosa que solo necesite leer, y el modo auto dentro de un contenedor que estés dispuesto a tirar. Para la parte del contenedor, mira [Backends](backends.md).
+Las dos configuraciones honestas para automatización son el modo plan para cualquier cosa que solo necesite leer, y el modo auto dentro de un contenedor que estés dispuesto a tirar.md).
 
 ## Subcomandos sin sesión
 
