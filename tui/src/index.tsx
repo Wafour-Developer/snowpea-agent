@@ -56,6 +56,8 @@ export interface CliArgs {
   token: string;
   mode?: Mode;
   cwd: string;
+  /** `--remote HOST`: the daemon is HOST's, reached through a tunnel on `port`. */
+  remote?: string;
   /**
    * Draw full screen on the alternate buffer: the input, the HUD and the agent
    * panel stay put at the bottom and only the transcript scrolls. The default
@@ -114,6 +116,7 @@ export function parseArgs(
     token,
     mode: modeRaw as Mode | undefined,
     cwd: values.get("cwd") || cwd,
+    remote: values.get("remote") || undefined,
     fullscreen: !inlineRequested,
   };
 }
@@ -253,6 +256,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     port: args.port,
     token: args.token,
     clientVersion: CLIENT_VERSION,
+    remote: args.remote !== undefined,
   });
 
   let sessionId: string;
@@ -347,6 +351,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         restart = true;
       }}
       startDaemon={() => {
+        // A remote daemon is not ours to start: the ssh tunnel brings it back.
+        if (args.remote !== undefined) return;
         const cmd = process.env.SNOWPEA_DAEMON_CMD;
         if (cmd) {
           const parts = cmd.split(" ");

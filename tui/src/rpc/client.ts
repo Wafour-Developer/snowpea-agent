@@ -69,6 +69,13 @@ export interface TuiClientOptions {
   port: number;
   token: string;
   clientVersion: string;
+  /**
+   * True when the daemon is on another machine, reached through a tunnel on
+   * `port`.  A reconnect then retries that same port and token: the SDK's
+   * default re-reads the *local* daemon.json, which would quietly move the
+   * session to a different daemon.
+   */
+  remote?: boolean;
   /** Injected in tests; defaults to the real `@snowpea/sdk` `connect`. */
   connectFn?: ConnectFn;
 }
@@ -144,6 +151,9 @@ export class TuiClient {
       port: this.options.port,
       token: this.options.token,
       clientVersion: this.options.clientVersion,
+      ...(this.options.remote
+        ? { resolveEndpoint: () => ({ port: this.options.port, token: this.options.token }) }
+        : {}),
     });
     this.client = client;
 

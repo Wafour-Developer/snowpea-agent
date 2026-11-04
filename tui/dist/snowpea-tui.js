@@ -44134,7 +44134,8 @@ var TuiClient = class {
     const client = await connect2({
       port: this.options.port,
       token: this.options.token,
-      clientVersion: this.options.clientVersion
+      clientVersion: this.options.clientVersion,
+      ...this.options.remote ? { resolveEndpoint: () => ({ port: this.options.port, token: this.options.token }) } : {}
     });
     this.client = client;
     client.on("session.event", (event) => this.handleSessionEvent(event));
@@ -44332,6 +44333,7 @@ function parseArgs(argv, cwd2 = process.cwd(), env3 = process.env) {
     token,
     mode: modeRaw,
     cwd: values.get("cwd") || cwd2,
+    remote: values.get("remote") || void 0,
     fullscreen: !inlineRequested
   };
 }
@@ -44434,7 +44436,8 @@ async function main(argv = process.argv.slice(2)) {
   const client = new TuiClient({
     port: args.port,
     token: args.token,
-    clientVersion: CLIENT_VERSION
+    clientVersion: CLIENT_VERSION,
+    remote: args.remote !== void 0
   });
   let sessionId;
   let delegation = false;
@@ -44509,6 +44512,7 @@ async function main(argv = process.argv.slice(2)) {
           restart = true;
         },
         startDaemon: () => {
+          if (args.remote !== void 0) return;
           const cmd = process.env.SNOWPEA_DAEMON_CMD;
           if (cmd) {
             const parts = cmd.split(" ");

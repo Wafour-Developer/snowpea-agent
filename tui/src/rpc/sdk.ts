@@ -69,6 +69,8 @@ export type ConnectFn = (options: {
   port: number;
   token: string;
   clientVersion: string;
+  /** Where to find the daemon again after a drop; the SDK's default reads the local daemon.json. */
+  resolveEndpoint?: () => { port: number; token: string } | null;
 }) => Promise<SdkClient>;
 
 /** `lsp.status` result (M13 §4). */

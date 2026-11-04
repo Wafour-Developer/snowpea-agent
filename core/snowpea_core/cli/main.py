@@ -114,6 +114,13 @@ def build_parser() -> argparse.ArgumentParser:
     layout.add_argument("--fullscreen", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--home", default=None, help="override SNOWPEA_HOME")
     parser.add_argument(
+        "--remote",
+        default=None,
+        metavar="[USER@]HOST",
+        help="work on another machine: its daemon runs the session, reached over ssh "
+        "(snowpea is installed there if it is missing; --cwd names a path on that machine)",
+    )
+    parser.add_argument(
         "-c",
         "--prompt",
         dest="prompt",
@@ -267,6 +274,49 @@ def resolve_tui_command(
         f"the TUI bundle ({TUI_BUNDLE}) was not found; build it with "
         "`npm run build --prefix tui` or set SNOWPEA_TUI_ENTRY"
     )
+
+
+def launch_remote_tui(args: argparse.Namespace) -> int:
+    """``snowpea --remote host``: set the host up, tunnel to it, run the TUI against it."""
+    from snowpea_core.cli import remote
+    from snowpea_core.server.protocol import PROTOCOL_VERSION
+
+    try:
+        command = resolve_tui_command()
+        target = remote.parse_target(args.remote)
+    except TuiNotFound as exc:
+        _err(str(exc))
+        return EXIT_USAGE
+    except remote.RemoteError as exc:
+        _err(str(exc))
+        return EXIT_USAGE
+    while True:
+        session = remote.RemoteSession(
+            target, local_protocol=PROTOCOL_VERSION, confirm=remote.ask_yes_no
+        )
+        try:
+            with session:
+                session.prepare()
+                session.open_tunnel()
+                argv = command + remote.tui_arguments(session, args.cwd)
+                if args.mode:
+                    argv += ["--mode", args.mode]
+                if getattr(args, "inline", False):
+                    argv.append("--inline")
+                try:
+                    code = subprocess.call(argv)  # noqa: S603 - argv built above
+                except FileNotFoundError:
+                    _err(f"could not run the TUI: {argv[0]} is not on PATH")
+                    return EXIT_USAGE
+        except remote.RemoteError as exc:
+            _err(str(exc))
+            return EXIT_NO_DAEMON
+        except KeyboardInterrupt:  # pragma: no cover - interactive
+            return EXIT_OK
+        if code != TUI_RESTART_EXIT:
+            return code
+        # The remote daemon was updated and restarted: ask it again where it is.
+        time.sleep(2.0)
 
 
 def launch_tui(args: argparse.Namespace, home: str | None) -> int:
@@ -601,6 +651,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_OK if ok else 1
 
     home: str | None = args.home
+
+    if args.remote:
+        if args.subcommand or args.prompt is not None:
+            _err("--remote opens the interactive TUI on another machine; it does not combine "
+                 "with -c or a subcommand yet")
+            return EXIT_USAGE
+        return launch_remote_tui(args)
 
     try:
         if args.subcommand == "init":
