@@ -15,6 +15,7 @@ symlink into the home directory are caught too.
 from __future__ import annotations
 
 import posixpath
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -39,19 +40,24 @@ PROJECT_FILES: frozenset[str] = frozenset({"settings.json", "credentials.json"})
 HOME_WORKING_DIRS: frozenset[str] = frozenset({"plans"})
 
 
-#: Subdirectories of a session workspace (``sessions/<day>_<id>/``) that are
-#: scratch and output: an agent writing a helper script to ``tmp/`` in AUTO
-#: mode was asked for approval every time, as if it were editing settings.
-SESSION_WORKING_DIRS: frozenset[str] = frozenset({"tmp", "artifacts"})
+#: ``<day>_<session id>``, the name core gives a workspace directory.
+_WORKSPACE_NAME = re.compile(r"^\d{4}.*_.")
 
 
 def _in_session_workspace(resolved: Path, snowpea_home: Path) -> bool:
-    """True for a path inside ``sessions/<workspace>/tmp`` or ``/artifacts``."""
+    """True for any file inside a session workspace (``sessions/<day>_<id>/``).
+
+    A workspace is the agent's own scratch and output area: core keeps only
+    ``tmp/``, ``artifacts/`` and ``downloads/`` there, and nothing it reads as
+    settings.  An agent writing a helper script to ``tmp/`` -- or straight into
+    the workspace root -- in AUTO mode was asked for approval every time, as if
+    it were editing settings.
+    """
     try:
         parts = resolved.relative_to(snowpea_home / "sessions").parts
     except ValueError:
         return False
-    return len(parts) >= 3 and parts[1] in SESSION_WORKING_DIRS
+    return len(parts) >= 2 and _WORKSPACE_NAME.match(parts[0]) is not None
 
 
 def _resolve(path: str, workdir: Any) -> Path | None:

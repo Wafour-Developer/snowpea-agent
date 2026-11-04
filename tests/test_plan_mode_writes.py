@@ -372,6 +372,7 @@ def test_a_session_workspaces_scratch_is_not_config(tmp_path: Path) -> None:
     ws = home / "sessions" / "2026-10-01_s-abc"
     assert not is_config_path(str(ws / "tmp" / "shoot.py"), home=home)
     assert not is_config_path(str(ws / "artifacts" / "shot.png"), home=home)
-    assert is_config_path(str(ws / "meta.json"), home=home)
+    assert not is_config_path(str(ws / "tr_detail.py"), home=home)  # workspace root
+    assert not is_config_path(str(ws / "downloads" / "a.zip"), home=home)
     assert is_config_path(str(home / "settings.json"), home=home)
     assert is_config_path(str(home / "sessions" / "tmp" / "x"), home=home)
