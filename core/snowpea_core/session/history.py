@@ -21,7 +21,7 @@ the real ``input_tokens`` for the turn, which then becomes authoritative.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from snowpea_core.providers.base import REDACTED, ChatMessage, ToolCall
@@ -100,13 +100,32 @@ def message_text(message: ChatMessage) -> str:
     return "\n".join(part for part in parts if part)
 
 
+def with_turn_context(message: ChatMessage) -> ChatMessage:
+    """``message`` as the request sends it: the user's words, then the turn context.
+
+    The one place the two halves are joined.  A message without a context is
+    returned as it is.
+    """
+    context = message.turn_context
+    if not context:
+        return message
+    content = message.content
+    merged: str | list[dict[str, Any]]
+    if isinstance(content, list):
+        merged = [*content, {"type": "text", "text": context}]
+    else:
+        merged = f"{content}\n\n{context}" if content else context
+    return replace(message, content=merged, turn_context=None)
+
+
 def estimate_message(message: ChatMessage) -> int:
     """Estimated tokens one message costs, including wire overhead.
 
     Reasoning kept for the running turn counts: it goes out with the message.
     """
     reasoning = estimate_tokens(message.reasoning) if message.reasoning else 0
-    return estimate_tokens(message_text(message)) + reasoning + MESSAGE_OVERHEAD_TOKENS
+    context = estimate_tokens(message.turn_context) if message.turn_context else 0
+    return estimate_tokens(message_text(message)) + context + reasoning + MESSAGE_OVERHEAD_TOKENS
 
 
 def estimate_messages(messages: list[ChatMessage]) -> int:
@@ -128,9 +147,37 @@ def message_to_json(message: ChatMessage) -> dict[str, Any]:
     }
     if message.snapshot_tab:
         data["snapshot_tab"] = message.snapshot_tab
-    if message.own_chars is not None:
-        data["own_chars"] = message.own_chars
+    if message.turn_context:
+        data["turn_context"] = message.turn_context
     return data
+
+
+def split_stored_turn_context(content: Any) -> tuple[Any, str | None]:
+    """A user message stored before ``turn_context`` existed, split back in two.
+
+    The recall block used to be appended to the user's words in ``content``.
+    Cut where it starts and the two parts rebuild the same bytes on the wire
+    (``words + "\n\n" + context``), so an upgrade does not touch a server's
+    prefix cache.  Without a recall block (a plan line or host note alone)
+    there is nothing to find, and the message stays as it was stored.
+    """
+    from snowpea_core.memory.retrieval import HEADER
+
+    marker = HEADER[:60]
+    if isinstance(content, str):
+        cut = content.find("\n\n" + marker)
+        if cut >= 0:
+            return content[:cut], content[cut + 2 :]
+    elif isinstance(content, list) and len(content) > 1:
+        last = content[-1]
+        if (
+            isinstance(last, dict)
+            and last.get("type") == "text"
+            and set(last) == {"type", "text"}
+            and str(last.get("text", "")).startswith(marker)
+        ):
+            return content[:-1], str(last["text"])
+    return content, None
 
 
 def message_from_json(role: str, data: dict[str, Any]) -> ChatMessage:
@@ -140,14 +187,19 @@ def message_from_json(role: str, data: dict[str, Any]) -> ChatMessage:
         ToolCall(id=str(c["id"]), name=str(c["name"]), arguments=dict(c.get("arguments") or {}))
         for c in raw_calls
     ]
+    content = data.get("content", "")
+    stored_context = data.get("turn_context")
+    turn_context = stored_context if isinstance(stored_context, str) else None
+    if role == "user" and turn_context is None:
+        content, turn_context = split_stored_turn_context(content)
     return ChatMessage(
         role=role,  # type: ignore[arg-type]
-        content=data.get("content", ""),
+        content=content,
         tool_call_id=data.get("tool_call_id"),
         name=data.get("name"),
         tool_calls=calls or None,
         snapshot_tab=str(data["snapshot_tab"]) if data.get("snapshot_tab") else None,
-        own_chars=data["own_chars"] if isinstance(data.get("own_chars"), int) else None,
+        turn_context=turn_context,
     )
 
 
@@ -258,4 +310,6 @@ __all__ = [
     "message_from_json",
     "message_text",
     "message_to_json",
+    "split_stored_turn_context",
+    "with_turn_context",
 ]

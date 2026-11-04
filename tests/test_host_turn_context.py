@@ -552,7 +552,12 @@ async def test_user_words_keep_the_note_out_of_last_prompt_and_the_summary(
     hosts(core, session)
     await run_turn(core, session, "open danawa and find a 5090")
     stored = next(m for m in session.history.messages if m.role == "user")
-    assert host_context.OPEN in str(stored.content)
+    # The note rides beside the user's words, not inside them; the request joins them.
+    assert stored.content == "open danawa and find a 5090"
+    assert stored.turn_context is not None and host_context.OPEN in stored.turn_context
+    from snowpea_core.session.history import with_turn_context
+
+    assert host_context.OPEN in str(with_turn_context(stored).content)
 
     listed = await session_list_handler(
         SimpleNamespace(client_id=None, client_kind=None, surface_id="t"),  # type: ignore[arg-type]

@@ -344,26 +344,6 @@ SUMMARY_CHARS_PER_TOKEN = 2.5
 SUMMARY_DEFAULT_CHARS = 300_000
 
 
-def own_text(message: ChatMessage) -> str:
-    """A message's text without the turn context stored after the user's words.
-
-    Memory recall, the browser host's note, the plan line and the context
-    notice ride on the user's own message so the prefix stays byte-stable, but
-    they are not what the user said: summarised or quoted, they crowd out the
-    conversation with whatever memory and other sessions held.  A message from
-    before ``own_chars`` existed is cut at the recall block's own header.
-    """
-    text = message_text(message)
-    if message.role != "user":
-        return text
-    if message.own_chars is not None:
-        return text[: message.own_chars]
-    from snowpea_core.memory.retrieval import HEADER
-
-    cut = text.find("\n\n" + HEADER[:60])
-    return text[:cut] if cut >= 0 else text
-
-
 def render_conversation(messages: list[ChatMessage], *, budget: int | None = None) -> str:
     """The conversation as plain text for the summariser to read.
 
@@ -374,7 +354,7 @@ def render_conversation(messages: list[ChatMessage], *, budget: int | None = Non
 
     lines: list[str] = []
     for message in messages:
-        body = REDACTED if message.sensitive else own_text(message).strip()
+        body = REDACTED if message.sensitive else message_text(message).strip()
         if message.role == "user" and not message.sensitive:
             # The summariser reads what the user said, not the host's note.
             body = host_context.user_words(body)
@@ -472,7 +452,7 @@ def _verbatim_entries(messages: list[ChatMessage]) -> list[str]:
     """The user's words in ``messages``, oldest first, carried-over ones included."""
     out: list[str] = []
     for message in messages:
-        text = own_text(message).strip() if not message.sensitive else ""
+        text = message_text(message).strip() if not message.sensitive else ""
         if not text:
             continue
         if message.role == "system" and VERBATIM_HEADING in text:

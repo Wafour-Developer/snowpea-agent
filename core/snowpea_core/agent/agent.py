@@ -22,6 +22,7 @@ from snowpea_core.prompts import compose
 from snowpea_core.prompts import environment as prompt_env
 from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage, ToolSpec
+from snowpea_core.session.history import with_turn_context
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -628,7 +629,10 @@ def build_messages(
     # Local import: ``session/compaction.py`` imports this function.
     from snowpea_core.session import compaction
 
-    history = compaction.pair_tool_results(session.history.snapshot())
+    # The turn context rejoins the user's words here, and only here.
+    history = compaction.pair_tool_results(
+        [with_turn_context(m) for m in session.history.snapshot()]
+    )
     on, keep, max_chars = compaction.tool_prune_settings(core)
     if on and compaction.over_compact_threshold(core, session, history):
         pruned: list[str] = []

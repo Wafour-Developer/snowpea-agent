@@ -61,11 +61,13 @@ class ChatMessage:
     #: its last tool call continues that line of thought instead of working it
     #: all out again every round.
     reasoning: str | None = None
-    #: On a user message that carries the turn's context after the user's words
-    #: (memory recall, host note, plan line): how many characters of
-    #: ``message_text`` are the user's own.  Compaction summarises and quotes
-    #: only that part.  ``None`` on a message with no such tail.
-    own_chars: int | None = None
+    #: On a user message: what the turn added after the user's words (memory
+    #: recall, the browser host's note, the plan line, the context notice).
+    #: ``content`` stays what the user said, so everything that reads a message
+    #: (compaction, the session list, delegation) sees only that.  The request
+    #: sends ``content + "\n\n" + turn_context`` (``agent.build_messages``),
+    #: byte for byte what the turn first sent, so a server's prefix cache holds.
+    turn_context: str | None = None
 
 
 #: What a sensitive message's content becomes outside the running turn.

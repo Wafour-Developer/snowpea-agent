@@ -2690,15 +2690,14 @@ def _with_plan_auto_note(session: Session, content: str) -> str:
 
 
 def _append_turn_context(message: ChatMessage, extra: str) -> None:
-    """Add ``extra`` after the user's words in ``message``."""
-    from snowpea_core.session.history import message_text
+    """Keep ``extra`` with ``message``, after the user's words, apart from them.
 
-    if extra and message.own_chars is None:
-        message.own_chars = len(message_text(message))
-    if isinstance(message.content, list):
-        message.content = [*message.content, {"type": "text", "text": extra}]
-    else:
-        message.content = f"{message.content}\n\n{extra}" if message.content else extra
+    ``content`` stays what the user said; the request joins the two
+    (``history.with_turn_context``) into the bytes this turn sends.
+    """
+    if extra:
+        kept = message.turn_context
+        message.turn_context = f"{kept}\n\n{extra}" if kept else extra
 
 
 async def _fail_call(core: Core, session: Session, call: ToolCall, message: str) -> None:
