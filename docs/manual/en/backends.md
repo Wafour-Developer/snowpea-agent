@@ -61,6 +61,16 @@ snowpea -c "run hostname and tell me what it printed"
 
 Under `local` it is your machine, under `docker` the container id, under `ssh` the remote host. Since the agent's whole view of the filesystem comes through the backend, this is not a detail it can be wrong about.
 
+## Where files end up
+
+| Backend | Files the agent writes |
+|---|---|
+| `local` | On your disk. |
+| `docker` | Inside the session workdir: on your disk too, because that directory is bind-mounted. Anywhere else in the container (`/tmp`, installed packages): in the container only, gone when the session closes. |
+| `ssh` | On the remote host only. Nothing is mirrored locally. |
+
+The session's working directory is always a path on the machine the daemon runs on, whichever backend is chosen. The backend moves tool execution, not the project: `AGENTS.md`, `.snowpea/settings.json`, skills and project memory are read from that local directory. A directory that exists only on an ssh host or inside a container cannot be opened as a project; under `ssh`, set `cwd` to work there, while the session itself stays tied to the local workdir.
+
 ## What does not move
 
 The backend covers tool execution, not the daemon. Sessions, memory, the approval queue, the scheduler and the gateway all stay in the daemon on your machine, whichever backend a session uses. Network tools — `web_search`, `web_extract`, the browser tools, media tools and MCP servers — run from the daemon, not from the backend host.
