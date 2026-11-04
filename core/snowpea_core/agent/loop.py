@@ -2691,6 +2691,10 @@ def _with_plan_auto_note(session: Session, content: str) -> str:
 
 def _append_turn_context(message: ChatMessage, extra: str) -> None:
     """Add ``extra`` after the user's words in ``message``."""
+    from snowpea_core.session.history import message_text
+
+    if extra and message.own_chars is None:
+        message.own_chars = len(message_text(message))
     if isinstance(message.content, list):
         message.content = [*message.content, {"type": "text", "text": extra}]
     else:

@@ -61,6 +61,11 @@ class ChatMessage:
     #: its last tool call continues that line of thought instead of working it
     #: all out again every round.
     reasoning: str | None = None
+    #: On a user message that carries the turn's context after the user's words
+    #: (memory recall, host note, plan line): how many characters of
+    #: ``message_text`` are the user's own.  Compaction summarises and quotes
+    #: only that part.  ``None`` on a message with no such tail.
+    own_chars: int | None = None
 
 
 #: What a sensitive message's content becomes outside the running turn.

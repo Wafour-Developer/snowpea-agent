@@ -128,6 +128,8 @@ def message_to_json(message: ChatMessage) -> dict[str, Any]:
     }
     if message.snapshot_tab:
         data["snapshot_tab"] = message.snapshot_tab
+    if message.own_chars is not None:
+        data["own_chars"] = message.own_chars
     return data
 
 
@@ -145,6 +147,7 @@ def message_from_json(role: str, data: dict[str, Any]) -> ChatMessage:
         name=data.get("name"),
         tool_calls=calls or None,
         snapshot_tab=str(data["snapshot_tab"]) if data.get("snapshot_tab") else None,
+        own_chars=data["own_chars"] if isinstance(data.get("own_chars"), int) else None,
     )
 
 
