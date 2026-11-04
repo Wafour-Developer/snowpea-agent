@@ -2675,6 +2675,16 @@ def _spill_long_result(
     result carries a ``read_file`` pointer to it (M15 §A4), so nothing is lost
     and the conversation stops paying for the middle on every later turn.
     """
+    if name.startswith("mcp__") and result.ok and result.output:
+        # An MCP server decides how much it returns, and some return 80 KB of
+        # JSON: every later request would carry it, and a local model spends
+        # minutes in prefill on a few of them.  Cap it once, on arrival.
+        limit = output_spill.mcp_result_max_chars(core)
+        if len(result.output) > limit:
+            result.output = output_spill.spill_chars(
+                result.output, max_chars=limit, head_chars=limit * 3 // 4, kind="mcp"
+            ).text
+        return result
     # A host tool's output is spilled too: a browser REPL can print a page.
     spilled_tool = name in output_spill.SPILLED_TOOLS or host
     if not result.ok or not spilled_tool or not result.output:

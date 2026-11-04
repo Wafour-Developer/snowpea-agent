@@ -145,6 +145,16 @@ SPILLED_TOOLS: frozenset[str] = frozenset(
 )
 
 
+def mcp_result_max_chars(core: object) -> int:
+    """``tools.mcpResultMaxChars`` (default 24 000), never below 2 000."""
+    tools = getattr(getattr(core, "settings", None), "tools", None)
+    try:
+        value = int(getattr(tools, "mcpResultMaxChars", 24000))
+    except (TypeError, ValueError):
+        value = 24000
+    return max(2000, value)
+
+
 def snapshot_max_chars(core: object) -> int:
     """``tools.snapshotMaxChars`` (default 40 000), never below 2 000."""
     tools = getattr(getattr(core, "settings", None), "tools", None)
@@ -170,6 +180,7 @@ __all__ = [
     "DEFAULT_TAIL_LINES",
     "MAX_SPILL_FILES",
     "SPILLED_TOOLS",
+    "mcp_result_max_chars",
     "snapshot_max_chars",
     "Spilled",
     "max_result_lines",

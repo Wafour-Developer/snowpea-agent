@@ -416,6 +416,10 @@ class ToolsSettings(_Model):
     #: file the agent can read back.  Applied once, when the result arrives, so
     #: the stored message never changes afterwards (prefix caching).
     snapshotMaxChars: int = 40000
+    #: Longest MCP tool result kept in the conversation; the rest is on disk
+    #: with a pointer.  An 80 KB ``get_project`` is ~25k tokens on every later
+    #: request, and a few of them turn each model call into minutes of prefill.
+    mcpResultMaxChars: int = 24000
     #: False disables the read-before-write guard (M15 §A3): ``patch`` and
     #: ``write_file`` stop refusing a write to a file this session has not read
     #: in full.  The prompt rule stays either way.
