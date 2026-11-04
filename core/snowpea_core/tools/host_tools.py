@@ -923,13 +923,14 @@ def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:
             texts.append(str(block["text"]))
         elif block.get("type") == "image" and block.get("data"):
             mime = str(block.get("mediaType") or "image/png")
-            images.append(
-                {
-                    "bytes_b64": str(block["data"]),
-                    "mime": mime,
-                    "name": f"{name}-{index}.{mime.rsplit('/', 1)[-1]}",
-                }
-            )
+            image: dict[str, Any] = {
+                "bytes_b64": str(block["data"]),
+                "mime": mime,
+                "name": f"{name}-{index}.{mime.rsplit('/', 1)[-1]}",
+            }
+            if block.get("ephemeral") is True:
+                image["ephemeral"] = True
+            images.append(image)
     if texts:
         output = "\n\n".join([output, *texts]) if output else "\n\n".join(texts)
     blocks = [block for block in answer.get("content") or [] if isinstance(block, dict)]

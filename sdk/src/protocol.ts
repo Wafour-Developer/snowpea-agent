@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.36.0";
+export const PROTOCOL_VERSION = "1.37.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -803,6 +803,8 @@ export interface GatewayUnbindResult {
 export interface HostTurnContextParams {
   /** The turn's user text, at most 4000 characters. Use it to pick sites; keep none of it. */
   prompt?: string;
+  /** Why core asks (1.37.0). 'turn': a turn is starting. 'compaction': the conversation was just summarised, and the summary drops the earlier notes; answer again with what the work needs now. Core sends 'compaction' only to a connection that declared the capability 'turnContextCompaction', with the user's latest words in 'prompt' and a 1 s deadline. */
+  reason?: "turn" | "compaction";
   /** Its root conversation (the parent chain's top; the session itself for a root). */
   rootSessionId: string;
   /** Session whose turn is starting. */
@@ -815,7 +817,9 @@ export interface HostTurnContextParams {
 
 /** `host.turnContext` result. */
 export interface HostTurnContextResult {
-  /** Site memory for the first call, or '' for nothing. Core keeps at most 4000 characters (cut at a line boundary), drops control characters but newlines, and adds it to the turn's user message as an untrusted <host-context> block. */
+  /** Names of skills this note already carries (1.37.0). Core does not auto-inject them on the turn this answer belongs to (a 'compaction' answer: the next turn), and does not count them as injected, so a later turn without this cover can still bring them in. At most 16 names, not counted in the 4000-character limit. */
+  coversSkills?: string[] | null;
+  /** Site memory for the first call, or '' for nothing. Core keeps at most 4000 characters (cut at a line boundary), drops control characters but newlines, and adds it to the turn's user message as an untrusted <host-context> block. After a compaction (reason 'compaction') it is kept with the summary instead and the summariser never reads it. */
   text?: string;
 }
 
@@ -2738,6 +2742,8 @@ export interface SessionToolContentResult {
     contentRef?: string | null;
     /** Base64 bytes, for 'image'. */
     data?: string | null;
+    /** For 'image' (1.37.0): a picture taken only to look at (a screenshot). The model sees it in the next request; after that it stays in the conversation as a one-line text stub, so the requests after it share a prefix and a long session does not carry old pictures. */
+    ephemeral?: boolean | null;
     /** e.g. image/png, for 'image'. */
     mediaType?: string | null;
     /** Text, for 'text'. */
@@ -4327,6 +4333,8 @@ export interface ToolInvokeResult {
     contentRef?: string | null;
     /** Base64 bytes, for 'image'. */
     data?: string | null;
+    /** For 'image' (1.37.0): a picture taken only to look at (a screenshot). The model sees it in the next request; after that it stays in the conversation as a one-line text stub, so the requests after it share a prefix and a long session does not carry old pictures. */
+    ephemeral?: boolean | null;
     /** e.g. image/png, for 'image'. */
     mediaType?: string | null;
     /** Text, for 'text'. */
@@ -4393,7 +4401,7 @@ export interface ToolProgressResult {
 
 /** `tool.register` params. Register tools this connection runs itself (host tools). */
 export interface ToolRegisterParams {
-  /** What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only). A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. */
+  /** What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only); 'turnContextCompaction' (1.37.0) also asks it again after each compaction. A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. */
   capabilities?: string[] | null;
   /** Tools to add or replace for this connection; all-or-nothing. */
   tools: ({
@@ -5187,6 +5195,28 @@ export interface PlanUpdatedEventPayload {
   total?: number;
 }
 
+/** Payload of `session.event` with kind `provider.retry`. */
+export interface ProviderRetryEventPayload {
+  /** The retry about to run, 1-based. */
+  attempt: number;
+  /** Seconds before it runs. */
+  delaySec: number;
+  /** Short class of the failure, e.g. ReadTimeout. */
+  error: string;
+  kind?: "provider.retry";
+  /** Retries allowed (agent.provider_retries). */
+  max: number;
+}
+
+/** Payload of `session.event` with kind `provider.waiting`. */
+export interface ProviderWaitingEventPayload {
+  kind?: "provider.waiting";
+  /** 'first_token' before the call's first event, 'idle' between events. */
+  phase: "first_token" | "idle";
+  /** Seconds of silence so far. */
+  sinceSec: number;
+}
+
 /** Payload of `session.event` with kind `subagent.done`. */
 export interface SubagentDoneEventPayload {
   /** Subagent that finished. */
@@ -5337,6 +5367,8 @@ export interface ToolResultEventPayload {
     contentRef?: string | null;
     /** Base64 bytes, for 'image'. */
     data?: string | null;
+    /** For 'image' (1.37.0): a picture taken only to look at (a screenshot). The model sees it in the next request; after that it stays in the conversation as a one-line text stub, so the requests after it share a prefix and a long session does not carry old pictures. */
+    ephemeral?: boolean | null;
     /** e.g. image/png, for 'image'. */
     mediaType?: string | null;
     /** Text, for 'text'. */
@@ -5462,6 +5494,8 @@ export interface SessionEventKindMap {
   "mode.changed": ModeChangedEventPayload;
   "model.changed": ModelChangedEventPayload;
   "plan.updated": PlanUpdatedEventPayload;
+  "provider.retry": ProviderRetryEventPayload;
+  "provider.waiting": ProviderWaitingEventPayload;
   "subagent.done": SubagentDoneEventPayload;
   "subagent.spawn": SubagentSpawnEventPayload;
   "subagent.update": SubagentUpdateEventPayload;
@@ -5505,6 +5539,8 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "mode.changed",
   "model.changed",
   "plan.updated",
+  "provider.retry",
+  "provider.waiting",
   "subagent.done",
   "subagent.spawn",
   "subagent.update",

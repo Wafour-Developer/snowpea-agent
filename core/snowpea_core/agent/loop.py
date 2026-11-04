@@ -611,6 +611,25 @@ def transient_provider_error(exc: BaseException) -> bool:
     return isinstance(exc, ProviderError) and bool(_TRANSIENT_PROVIDER.search(str(exc)))
 
 
+#: How often a wait on the model server wakes to look at the clock, and when
+#: and how often it says so (``provider.waiting``, 1.37.0).
+PROVIDER_WAIT_TICK = 5.0
+PROVIDER_WAIT_NOTICE_AFTER = 15.0
+PROVIDER_WAIT_NOTICE_EVERY = 10.0
+
+
+def _silence_limits(core: Core) -> tuple[float, float]:
+    """``(first_token, idle)`` seconds after which a silent call fails; 0 is no limit."""
+    agent = getattr(core.settings, "agent", None)
+    try:
+        return (
+            max(0.0, float(getattr(agent, "provider_first_token_sec", 0) or 0)),
+            max(0.0, float(getattr(agent, "provider_idle_sec", 0) or 0)),
+        )
+    except (TypeError, ValueError):
+        return 0.0, 0.0
+
+
 #: First backoff before a provider retry, doubled each time (capped at 30 s).
 PROVIDER_RETRY_BASE_SEC = 2.0
 
@@ -680,6 +699,25 @@ def _round_messages(messages: list[ChatMessage], current: _RoundModel) -> list[C
     return [replace(m, reasoning=None) if m.reasoning else m for m in messages]
 
 
+def _error_class(exc: BaseException) -> str:
+    """A short name for a provider failure: ``ReadTimeout``, ``HTTP 503``, ….
+
+    The adapters wrap the transport's error in a :class:`ProviderError`; the
+    wrapped one's class is the useful name when there is one.
+    """
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None and not isinstance(cause, ProviderError):
+        return type(cause).__name__
+    text = str(exc)
+    named = re.search(r"\b([A-Z][A-Za-z]*(?:Timeout|Error|Exception))\b", text)
+    if named:
+        return named.group(1)
+    status = re.search(r"http (\d{3})", text, re.IGNORECASE)
+    if status:
+        return f"HTTP {status.group(1)}"
+    return "timeout" if re.search(r"timed? ?out", text, re.IGNORECASE) else "error"
+
+
 def _provider_retries(core: Core) -> int:
     try:
         return max(0, int(core.settings.agent.provider_retries))
@@ -731,6 +769,10 @@ async def _stream_once(
                 attempt_no + 1,
                 retries,
                 delay,
+            )
+            await core.hub.emit_event(
+                session.id,
+                events.provider_retry(attempt_no + 1, retries, delay, _error_class(exc)),
             )
             await core.hub.emit_event(
                 session.id,
@@ -864,14 +906,41 @@ async def _stream_once_raw(
     # HTTP client inside one sees which session the call is for.
     routed = routing.for_session(session.id)
     routed.__enter__()
+    first_limit, idle_limit = _silence_limits(core)
+    got_event = False
     try:
         while True:
             next_event = asyncio.ensure_future(stream.__anext__())
+            silent_from = monotonic()
+            last_notice = 0.0
             try:
-                done, _ = await asyncio.wait(
-                    {next_event, interrupt_watcher},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
+                while True:
+                    done, _ = await asyncio.wait(
+                        {next_event, interrupt_watcher},
+                        timeout=PROVIDER_WAIT_TICK,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if done:
+                        break
+                    silent = monotonic() - silent_from
+                    phase = "idle" if got_event else "first_token"
+                    limit = idle_limit if got_event else first_limit
+                    if limit and silent >= limit:
+                        next_event.cancel()
+                        with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                            await next_event
+                        raise ProviderError(
+                            "timeout",
+                            f"the model server sent no {phase.replace('_', ' ')} for "
+                            f"{silent:.0f}s (timed out)",
+                        )
+                    if silent >= PROVIDER_WAIT_NOTICE_AFTER and (
+                        monotonic() - last_notice >= PROVIDER_WAIT_NOTICE_EVERY
+                    ):
+                        last_notice = monotonic()
+                        await hub.emit_event(
+                            session.id, events.provider_waiting(int(silent), phase)
+                        )
             except asyncio.CancelledError:
                 next_event.cancel()
                 with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
@@ -890,6 +959,7 @@ async def _stream_once_raw(
                 except StopAsyncIteration:
                     break
                 timing.first()
+                got_event = True
                 if await handle_event(event):
                     break
     finally:
@@ -1650,18 +1720,25 @@ async def _drive(
     # turn and alongside the recall, so a host that answers within the
     # recall's time adds no latency; 300 ms at most, and nothing on failure.
     host_task = (
-        asyncio.ensure_future(host_context.fetch(core, session, turn_id, text))
+        asyncio.ensure_future(host_context.fetch_note(core, session, turn_id, text))
         if turn_message is not None and not system and text.strip()
         else None
     )
+    recall_task = asyncio.ensure_future(context_for_turn(core, session, text))
     try:
+        # The host's answer comes first: a skill it already covers is not
+        # injected again (coversSkills, 1.37.0).  Recall runs meanwhile.
+        host_note = await host_task if host_task is not None else host_context.HostNote()
+        if host_task is not None:
+            session.host_covered_skills = host_note.covers
+        await _auto_inject_skills(core, session, text, skip=session.host_covered_skills)
         # Recall once per turn, on the user's own words (M5 contract §1).
-        await _auto_inject_skills(core, session, text)
-        memory_block = await context_for_turn(core, session, text)
-        host_text = await host_task if host_task is not None else ""
+        memory_block = await recall_task
+        host_text = host_note.text
     finally:
-        if host_task is not None and not host_task.done():
-            host_task.cancel()
+        for task in (host_task, recall_task):
+            if task is not None and not task.done():
+                task.cancel()
     # The turn's recall, host note, plan line and context pressure join its
     # own message, stored, so the system prompt and every earlier message stay
     # byte-stable and a server's prefix cache covers the whole conversation.
@@ -1760,7 +1837,9 @@ async def _drive(
                     ),
                 )
                 unverified = (
-                    None if session.interrupt.is_set() else verify_gate.nudge(core, session)
+                    None
+                    if session.interrupt.is_set()
+                    else verify_gate.nudge(core, session, assistant_text)
                 )
                 if unverified:
                     window = _budget_probe_continue_window(core, budget_continuations)
@@ -1852,6 +1931,12 @@ async def _drive(
             # The first round was checked before the prompt joined history.
             await compaction.maybe_auto_compact(core, session)
         specs = core.tools.specs(session)
+        # Pictures that have been seen go to text in the history itself, so
+        # this request continues the last one (R3, 1.37.0).
+        compaction.persist_image_stubs(
+            session, compaction.request_image_cap(core, session), session.images_seen_len
+        )
+        session.images_seen_len = len(session.history)
         messages = _round_messages(build_messages(session, specs, memory_block, core=core), current)
         try:
             attempt = await _model_turn(core, session, provider, messages, specs, config)
@@ -1902,7 +1987,11 @@ async def _drive(
             )
             # Verify-on-stop (Hermes): edited code with no fresh passing check,
             # or a UI never looked at, goes back for verification first.
-            unverified = None if session.interrupt.is_set() else verify_gate.nudge(core, session)
+            unverified = (
+                None
+                if session.interrupt.is_set()
+                else verify_gate.nudge(core, session, assistant_text)
+            )
             if unverified:
                 session.history.append(ChatMessage(role="user", content=unverified))
                 await hub.emit_event(session.id, events.hook_continue(unverified, 0))
@@ -2193,13 +2282,16 @@ async def _ask_to_continue(core: Core, session: Session, config: AgentConfig) ->
 AUTO_INJECT_BODY_LIMIT = 8000
 
 
-async def _auto_inject_skills(core: Core, session: Session, text: str) -> list[str]:
+async def _auto_inject_skills(
+    core: Core, session: Session, text: str, *, skip: frozenset[str] = frozenset()
+) -> list[str]:
     """Bring in skills whose ``autoInject`` keywords appear in the user's words.
 
     Each skill comes in once per session, as a user-role note right after the
     prompt: its body when short, else a pointer to ``skill_view``
     (addendum 2 §P). Matching is a case-insensitive substring test, so
-    "구글" and "Google" both work.
+    "구글" and "Google" both work.  A skill in ``skip`` (one the browser host's
+    note covers, 1.37.0) waits: it is not marked as brought in.
     """
     loader = getattr(core, "skills", None)
     skills = getattr(loader, "skills", None)
@@ -2211,7 +2303,7 @@ async def _auto_inject_skills(core: Core, session: Session, text: str) -> list[s
     enabled = getattr(loader, "enabled", None)
     for skill in skills.values():
         doc = skill.doc
-        if not doc.auto_inject or doc.name in done:
+        if not doc.auto_inject or doc.name in done or doc.name in skip:
             continue
         if callable(enabled) and not enabled(skill):
             continue

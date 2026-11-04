@@ -136,6 +136,18 @@ def _image_metas(result: ToolResult) -> list[dict[str, Any]]:
     return images
 
 
+def _mark_ephemeral(blocks: list[dict[str, Any]], flags: list[bool]) -> None:
+    """Flag the image blocks a host marked ``ephemeral`` (1.37.0).
+
+    ``history_blocks`` writes the label text first, then one block per
+    attachment, so flag ``i`` belongs to the block after the label.
+    """
+    attachment_blocks = [b for b in blocks if b.get("type") in ("image", "file")]
+    for block, flag in zip(attachment_blocks, flags, strict=False):
+        if flag:
+            block["ephemeral"] = True
+
+
 def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -> None:
     """Append one user message for all pending tool images, or clear without appending."""
     pending = session.pending_tool_images
@@ -145,6 +157,7 @@ def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -
         pending.clear()
         return
     attachments: list[Attachment] = []
+    ephemeral: list[bool] = []
     segments: list[str] = []
     for source, result in pending:
         labels: list[str] = []
@@ -160,6 +173,7 @@ def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -
             else:
                 continue
             attachments.append(attachment)
+            ephemeral.append(image_meta.get("ephemeral") is True)
             labels.append(path or name)
         if labels:
             segments.append(f"{source}: {', '.join(labels)}")
@@ -167,12 +181,9 @@ def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -
     if not attachments:
         return
     label = f"(images from {'; '.join(segments)})"
-    session.history.append(
-        ChatMessage(
-            role="user",
-            content=content_parts.history_blocks(label, attachments),
-        )
-    )
+    blocks = content_parts.history_blocks(label, attachments)
+    _mark_ephemeral(blocks, ephemeral)
+    session.history.append(ChatMessage(role="user", content=blocks))
 
 
 def append_tool_image_messages(
@@ -182,6 +193,7 @@ def append_tool_image_messages(
     if not session_can_see_images(core, session):
         return
     attachments: list[Attachment] = []
+    ephemeral: list[bool] = []
     labels: list[str] = []
     for image_meta in _image_metas(result):
         path = str(image_meta.get("path") or "").strip()
@@ -195,19 +207,14 @@ def append_tool_image_messages(
         else:
             continue
         attachments.append(attachment)
+        ephemeral.append(image_meta.get("ephemeral") is True)
         labels.append(path or name)
     if not attachments:
         return
     label = ", ".join(labels)
-    session.history.append(
-        ChatMessage(
-            role="user",
-            content=content_parts.history_blocks(
-                f"(image from {source}: {label})",
-                attachments,
-            ),
-        )
-    )
+    blocks = content_parts.history_blocks(f"(image from {source}: {label})", attachments)
+    _mark_ephemeral(blocks, ephemeral)
+    session.history.append(ChatMessage(role="user", content=blocks))
 
 
 def append_view_image_message(session: Any, result: ToolResult) -> None:

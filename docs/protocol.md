@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.36.0` (semver)
+- **Protocol version:** `1.37.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.36.0"
+    "protocolVersion": "1.37.0"
   }
 }
 ```
@@ -45,9 +45,11 @@ Server capabilities advertised in the `system.hello` result:
 - `browserMemoryList`
 - `checkpoints`
 - `commands`
+- `ephemeralImages`
 - `hostToolParallel`
 - `hostTools`
 - `hostTurnContext`
+- `hostTurnContextCompaction`
 - `jobRuns`
 - `llmSample`
 - `llmTimings`
@@ -65,6 +67,7 @@ Server capabilities advertised in the `system.hello` result:
 - `pageActionAlways`
 - `planAutoApprove`
 - `providerModelsError`
+- `providerStatusEvents`
 - `readOnlyDelegation`
 - `sessionAttachments`
 - `sessionContinue`
@@ -858,6 +861,7 @@ At turn start, ask the session's host-tools connection for a note for the turn's
 | field | type | required | description |
 |---|---|---|---|
 | `prompt` | `string` | no | The turn's user text, at most 4000 characters. Use it to pick sites; keep none of it. |
+| `reason` | `"turn" \| "compaction"` | no | Why core asks (1.37.0). 'turn': a turn is starting. 'compaction': the conversation was just summarised, and the summary drops the earlier notes; answer again with what the work needs now. Core sends 'compaction' only to a connection that declared the capability 'turnContextCompaction', with the user's latest words in 'prompt' and a 1 s deadline. |
 | `rootSessionId` | `string` | yes | Its root conversation (the parent chain's top; the session itself for a root). |
 | `sessionId` | `string` | yes | Session whose turn is starting. |
 | `siteMemory` | `boolean` | no | Whether site memory is on for the root conversation (1.35.0). When false, leave out the part of the note that comes from site memory; a note about the host's own settings still goes. |
@@ -867,7 +871,8 @@ At turn start, ask the session's host-tools connection for a note for the turn's
 
 | field | type | required | description |
 |---|---|---|---|
-| `text` | `string` | no | Site memory for the first call, or '' for nothing. Core keeps at most 4000 characters (cut at a line boundary), drops control characters but newlines, and adds it to the turn's user message as an untrusted <host-context> block. |
+| `coversSkills` | `string[] \| null` | no | Names of skills this note already carries (1.37.0). Core does not auto-inject them on the turn this answer belongs to (a 'compaction' answer: the next turn), and does not count them as injected, so a later turn without this cover can still bring them in. At most 16 names, not counted in the 4000-character limit. |
+| `text` | `string` | no | Site memory for the first call, or '' for nothing. Core keeps at most 4000 characters (cut at a line boundary), drops control characters but newlines, and adds it to the turn's user message as an untrusted <host-context> block. After a compaction (reason 'compaction') it is kept with the summary instead and the summariser never reads it. |
 
 ### `job.cancel`
 
@@ -2312,7 +2317,7 @@ A host tool result's content blocks with image bytes; results with images are ke
 | field | type | required | description |
 |---|---|---|---|
 | `callId` | `string` | yes | The call. |
-| `content` | `({ contentRef?: string \| null; data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[]` | no | The content blocks, images with their bytes. |
+| `content` | `({ contentRef?: string \| null; data?: string \| null; ephemeral?: boolean \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[]` | no | The content blocks, images with their bytes. |
 
 ### `settings.get`
 
@@ -3077,7 +3082,7 @@ Ask the client to run one of its host tools.
 
 | field | type | required | description |
 |---|---|---|---|
-| `content` | `({ contentRef?: string \| null; data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | Rich result blocks. Images reach vision models as image input; text blocks are appended to output. |
+| `content` | `({ contentRef?: string \| null; data?: string \| null; ephemeral?: boolean \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | Rich result blocks. Images reach vision models as image input; text blocks are appended to output. |
 | `error` | `string \| null` | no | Error text when ok is false. |
 | `meta` | `Record<string, unknown> \| null` | no | Extra facts. meta.sensitive=true keeps the output out of the session store ([redacted]), memory and compaction summaries. |
 | `ok` | `boolean` | yes | False reports the call as a tool error. |
@@ -3130,7 +3135,7 @@ Register tools this connection runs itself (host tools).
 
 | field | type | required | description |
 |---|---|---|---|
-| `capabilities` | `string[] \| null` | no | What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only). A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. |
+| `capabilities` | `string[] \| null` | no | What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only); 'turnContextCompaction' (1.37.0) also asks it again after each compaction. A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. |
 | `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; descriptionBy?: Record<string, string> \| null; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
@@ -3632,6 +3637,24 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `title` | `string` | yes | The plan's title. |
 | `total` | `number` | no | Steps in the plan. |
 
+### kind `provider.retry`
+
+| field | type | required | description |
+|---|---|---|---|
+| `attempt` | `number` | yes | The retry about to run, 1-based. |
+| `delaySec` | `number` | yes | Seconds before it runs. |
+| `error` | `string` | yes | Short class of the failure, e.g. ReadTimeout. |
+| `kind` | `"provider.retry"` | no |  |
+| `max` | `number` | yes | Retries allowed (agent.provider_retries). |
+
+### kind `provider.waiting`
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"provider.waiting"` | no |  |
+| `phase` | `"first_token" \| "idle"` | yes | 'first_token' before the call's first event, 'idle' between events. |
+| `sinceSec` | `number` | yes | Seconds of silence so far. |
+
 ### kind `subagent.done`
 
 | field | type | required | description |
@@ -3723,7 +3746,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `callId` | `string` | yes | Id of the matching tool.call. |
-| `content` | `({ contentRef?: string \| null; data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | A host tool's content blocks: text inline, images as contentRef (session.toolContent). Absent for sensitive results (1.7.0). |
+| `content` | `({ contentRef?: string \| null; data?: string \| null; ephemeral?: boolean \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | A host tool's content blocks: text inline, images as contentRef (session.toolContent). Absent for sensitive results (1.7.0). |
 | `error` | `string \| null` | no | Failure detail when ok is false. |
 | `kind` | `"tool.result"` | no |  |
 | `meta` | `Record<string, unknown> \| null` | no | Host-tool facts for surfaces (e.g. pages for page preview cards); not shown to the model. Forwarded as the host gave it, also for sensitive results; dropped above 16 KB (addendum 13). |

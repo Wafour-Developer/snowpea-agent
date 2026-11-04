@@ -281,6 +281,18 @@ class AgentSettings(_Model):
     #: Retries of a model call that failed transiently (timeout, reset, 429/5xx),
     #: with 2 s, 4 s, 8 s … backoff; 0 turns retrying off.
     provider_retries: int = Field(default=3, ge=0)
+    #: Seconds a model server may stay silent on the socket before the call
+    #: fails (and is retried): the HTTP read timeout (1.37.0).  ``None`` keeps
+    #: each adapter's own (300 s; the Anthropic SDK's 600 s).
+    provider_timeout_sec: float | None = Field(default=None, ge=5)
+    #: Seconds without the first streamed event before the call is treated as
+    #: timed out and retried; ``0`` waits (a long local prefill is normal).
+    provider_first_token_sec: float = Field(default=0, ge=0)
+    #: Seconds between two streamed events before the call is treated as
+    #: timed out; ``0`` waits.  Adapters emit a tool call only when its
+    #: arguments are complete, so a long file write is silent: keep this off
+    #: or generous.
+    provider_idle_sec: float = Field(default=0, ge=0)
     #: Consecutive rounds with no new call signature or output before stopping.
     no_progress_rounds: int = Field(default=40, ge=0)
     #: Optional wall-clock ceiling for one turn. ``0`` keeps Hermes-like unlimited.

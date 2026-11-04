@@ -39,6 +39,8 @@ from snowpea_core.server.protocol import (
     ModeChanged,
     ModelChanged,
     PlanUpdated,
+    ProviderRetry,
+    ProviderWaiting,
     TodoItem,
     TodosUpdated,
     ToolCallEvent,
@@ -244,6 +246,16 @@ def checkpoint_restored(
 
 def hook_continue(reason: str, count: int) -> Event:
     return _pack(HookContinue(reason=reason, count=count))
+
+
+def provider_waiting(since_sec: int, phase: str) -> Event:
+    return _pack(ProviderWaiting(sinceSec=since_sec, phase=phase))  # type: ignore[arg-type]
+
+
+def provider_retry(attempt: int, max_retries: int, delay_sec: float, error: str) -> Event:
+    return _pack(
+        ProviderRetry(attempt=attempt, max=max_retries, delaySec=delay_sec, error=error)
+    )
 
 
 def agent_changed(agent: str | None) -> Event:

@@ -188,6 +188,8 @@ class TurnEvidence:
     last_look: int = -1
     nudges: int = 0
     todo_nudged: bool = False
+    #: The turn was already told its deliverable sits in throwaway ``tmp/``.
+    tmp_nudged: bool = False
     #: The person declined a check (a shell/execute_code approval) this turn.
     check_declined: bool = False
     #: ... or a look at the page.
@@ -276,7 +278,50 @@ def enabled(core: Core, session: Session) -> bool:
     return not surface.startswith("gateway")
 
 
-def nudge(core: Core, session: Session) -> str | None:
+def tmp_deliverable(session: Session, final_text: str) -> str | None:
+    """The first path under the session's ``tmp/`` that ``final_text`` names, if any."""
+    workspace = getattr(session, "workspace_dir", None)
+    if not workspace or not final_text:
+        return None
+    root = str(workspace).rstrip("/\\") + "/tmp/"
+    start = final_text.find(root)
+    if start < 0:
+        return None
+    end = start + len(root)
+    stops = "`'\")>]"
+    while end < len(final_text) and not final_text[end].isspace() and final_text[end] not in stops:
+        end += 1
+    return final_text[start:end].rstrip(".,;:")
+
+
+def nudge(core: Core, session: Session, final_text: str = "") -> str | None:
+    """The follow-up for a turn about to end unchecked or with its work in ``tmp/``.
+
+    ``None`` lets the turn end.  ``final_text`` is the answer it is about to
+    give: one that points the user at a file in the session's throwaway
+    ``tmp/`` is sent back once to put the deliverable somewhere it stays
+    (R5, 1.37.0).
+    """
+    unverified = _nudge_unverified(core, session)
+    if unverified is not None:
+        return unverified
+    turn: TurnEvidence | None = getattr(session, "verify_turn", None)
+    if turn is None or turn.tmp_nudged or turn.nudges >= MAX_NUDGES or not enabled(core, session):
+        return None
+    path = tmp_deliverable(session, final_text)
+    if path is None:
+        return None
+    turn.tmp_nudged = True
+    turn.nudges += 1
+    return (
+        f"[system] Your answer points at {path}, in the session's scratch space (tmp/), "
+        "which is throwaway and not where the user looks. Unless they named another place, "
+        "move the file into the working directory (or the workspace's artifacts/ folder), "
+        "check it is there, and give the new path."
+    )
+
+
+def _nudge_unverified(core: Core, session: Session) -> str | None:
     """The follow-up for a turn about to end unverified, or ``None`` to let it end."""
     turn: TurnEvidence | None = getattr(session, "verify_turn", None)
     if turn is None or turn.nudges >= MAX_NUDGES or not enabled(core, session):

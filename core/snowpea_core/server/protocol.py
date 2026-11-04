@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.36.0"
+PROTOCOL_VERSION = "1.37.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1480,7 +1480,8 @@ class ToolRegisterParams(Payload):
         description=(
             "What this connection answers besides its tools (1.31.0): 'turnContext' "
             "opts in to host.turnContext for the sessions whose host tools it serves "
-            "(a browser host only). A list replaces the connection's earlier one; "
+            "(a browser host only); 'turnContextCompaction' (1.37.0) also asks it again "
+            "after each compaction. A list replaces the connection's earlier one; "
             "omitted keeps it. Unknown names are ignored."
         ),
     )
@@ -1510,6 +1511,15 @@ class ToolContentBlock(Payload):
         description=(
             "In a tool.result event, an image is sent as a reference instead of its "
             "bytes; fetch them with session.toolContent (1.7.0)."
+        ),
+    )
+    ephemeral: bool | None = Field(
+        default=None,
+        description=(
+            "For 'image' (1.37.0): a picture taken only to look at (a screenshot). "
+            "The model sees it in the next request; after that it stays in the "
+            "conversation as a one-line text stub, so the requests after it share a "
+            "prefix and a long session does not carry old pictures."
         ),
     )
 
@@ -1693,6 +1703,16 @@ class HostTurnContextRequest(Payload):
             "keep none of it."
         ),
     )
+    reason: Literal["turn", "compaction"] = Field(
+        default="turn",
+        description=(
+            "Why core asks (1.37.0). 'turn': a turn is starting. 'compaction': the "
+            "conversation was just summarised, and the summary drops the earlier notes; "
+            "answer again with what the work needs now. Core sends 'compaction' only to a "
+            "connection that declared the capability 'turnContextCompaction', with the "
+            "user's latest words in 'prompt' and a 1 s deadline."
+        ),
+    )
 
 
 class HostTurnContextResult(Payload):
@@ -1701,7 +1721,19 @@ class HostTurnContextResult(Payload):
         description=(
             "Site memory for the first call, or '' for nothing. Core keeps at most 4000 "
             "characters (cut at a line boundary), drops control characters but newlines, "
-            "and adds it to the turn's user message as an untrusted <host-context> block."
+            "and adds it to the turn's user message as an untrusted <host-context> block. "
+            "After a compaction (reason 'compaction') it is kept with the summary instead "
+            "and the summariser never reads it."
+        ),
+    )
+    coversSkills: list[str] | None = Field(
+        default=None,
+        description=(
+            "Names of skills this note already carries (1.37.0). Core does not "
+            "auto-inject them on the turn this answer belongs to (a 'compaction' answer: "
+            "the next turn), and does not count them as injected, so a later turn without "
+            "this cover can still bring them in. At most 16 names, not counted in the "
+            "4000-character limit."
         ),
     )
 
@@ -4688,6 +4720,26 @@ class HookContinue(Payload):
     count: int = Field(description="How many times Stop hooks continued this turn so far.")
 
 
+class ProviderWaiting(Payload):
+    """The model server has sent nothing for a while (1.37.0)."""
+
+    kind: Literal["provider.waiting"] = "provider.waiting"
+    sinceSec: int = Field(description="Seconds of silence so far.")
+    phase: Literal["first_token", "idle"] = Field(
+        description="'first_token' before the call's first event, 'idle' between events."
+    )
+
+
+class ProviderRetry(Payload):
+    """A model call failed transiently and will be tried again (1.37.0)."""
+
+    kind: Literal["provider.retry"] = "provider.retry"
+    attempt: int = Field(description="The retry about to run, 1-based.")
+    max: int = Field(description="Retries allowed (agent.provider_retries).")
+    delaySec: float = Field(description="Seconds before it runs.")
+    error: str = Field(description="Short class of the failure, e.g. ReadTimeout.")
+
+
 class AgentChanged(Payload):
     """The agent a human session runs as changed (addendum 17)."""
 
@@ -5073,6 +5125,8 @@ SessionEventPayload = Annotated[
     | ModeChanged
     | AgentChanged
     | HookContinue
+    | ProviderWaiting
+    | ProviderRetry
     | BackendChanged
     | ModelChanged
     | UsageEvent
@@ -5114,6 +5168,8 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "mode.changed": ModeChanged,
     "agent.changed": AgentChanged,
     "hook.continue": HookContinue,
+    "provider.waiting": ProviderWaiting,
+    "provider.retry": ProviderRetry,
     "backend.changed": BackendChanged,
     "model.changed": ModelChanged,
     "usage": UsageEvent,
@@ -6958,6 +7014,9 @@ CAPABILITIES: list[str] = [
     "skillToggle",
     "mcpVarExpansion",
     "shellRemember",
+    "hostTurnContextCompaction",
+    "providerStatusEvents",
+    "ephemeralImages",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and

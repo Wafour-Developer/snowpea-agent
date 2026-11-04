@@ -195,6 +195,10 @@ class Session:
     queued_turns: list[Any] = field(default_factory=list)
     #: Images from tool results in the current tool round, flushed after the last call.
     pending_tool_images: list[tuple[str, Any]] = field(default_factory=list)
+    #: Messages the last request carried, for ``compaction.persist_image_stubs``.
+    images_seen_len: int = 0
+    #: Skills the browser host's last note said it covers (``coversSkills``, 1.37.0).
+    host_covered_skills: frozenset[str] = frozenset()
     #: Steering prompts inherited from a parent turn.  They are injected at the
     #: same point as local busy-steer prompts, but have no queued turn id of
     #: their own.

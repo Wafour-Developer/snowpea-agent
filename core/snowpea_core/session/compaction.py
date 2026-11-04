@@ -138,6 +138,28 @@ def prune_skill_views(
     return out, markers
 
 
+def skills_in_use(messages: list[ChatMessage]) -> list[str]:
+    """Skills ``skill_view`` loaded in ``messages``, the one used last at the end.
+
+    A skill the conversation was following when it was cut is what the model
+    must be able to find again (R9, 1.37.0), whatever the size of its body.
+    """
+    order: dict[str, int] = {}
+    for index, name in enumerate(_skill_names_by_call(messages).values()):
+        order.pop(name, None)
+        order[name] = index
+    return list(order)
+
+
+def reinject_skill_pointers(summary: str, names: list[str]) -> str:
+    """Append a reload pointer for any skill in use that the summary never names."""
+    missing = [name for name in names if name not in summary]
+    if not missing:
+        return summary
+    pointers = [f'- {name}: skill_view(name="{name}")' for name in missing]
+    return "\n".join([summary, "", "Skills in use when the conversation was cut:", *pointers])
+
+
 def reinject_markers(summary: str, markers: list[str]) -> str:
     """Append any prune marker the summariser dropped, so none is lost."""
     missing = [marker for marker in markers if marker not in summary]
@@ -396,6 +418,12 @@ async def summarise(
     transcript = render_conversation(messages, budget=summary_budget(session))
     if not transcript:
         return ""
+    in_use = skills_in_use(messages)
+    if in_use:
+        transcript = (
+            f"Skills the agent loaded in this conversation, oldest first: {', '.join(in_use)}.\n\n"
+            + transcript
+        )
     ask = "Summarise the conversation below.\n\n" + transcript
     if instructions:
         ask = (
@@ -496,6 +524,38 @@ def summary_message(text: str) -> ChatMessage:
     return ChatMessage(role="system", content=f"{SUMMARY_HEADING}\n\n{text}")
 
 
+async def _attach_host_note(
+    core: Core, session: Session, summary: ChatMessage, messages: list[ChatMessage]
+) -> None:
+    """Ask the browser host again, and keep its answer beside the summary (R1, 1.37.0).
+
+    The summary drops the notes the earlier turns carried, and the host's
+    record of having shown them stays.  The answer is kept as the summary's
+    ``turn_context``: it rides to the model, the next summary does not read
+    it, and a host that declared no compaction capability is not asked.
+    """
+    last = next(
+        (
+            words
+            for message in reversed(messages)
+            if message.role == "user"
+            and not message.sensitive
+            and not (text := message_text(message).strip()).startswith(_SYNTHETIC_PREFIXES)
+            and (words := host_context.user_words(text.removeprefix(_STEER_PREFIX)))
+        ),
+        "",
+    )
+    if not last:
+        return
+    note = await host_context.fetch_note(
+        core, session, getattr(session, "current_turn", None) or "", last, reason="compaction"
+    )
+    if note.text:
+        summary.turn_context = host_context.render(note.text)
+    if note.text or note.covers:
+        session.host_covered_skills = note.covers
+
+
 @dataclass
 class CompactionResult:
     """What one compaction did, in estimated tokens."""
@@ -548,6 +608,7 @@ async def compact_session(
     if not text:
         text = fallback_summary(head)
     text = reinject_markers(text, markers)
+    text = reinject_skill_pointers(text, skills_in_use(head))
     if VERBATIM_HEADING in text:  # a model copying the old block would duplicate it
         text = text.split(VERBATIM_HEADING, 1)[0].rstrip()
     # Never more than half of what is being replaced: a compaction must shrink.
@@ -568,7 +629,9 @@ async def compact_session(
             from snowpea_core.tools import repeat_guard
 
             repeat_guard.forget_pruned(session, messages, pruned)
-    replacement = [summary_message(text), *tail]
+    summary = summary_message(text)
+    await _attach_host_note(core, session, summary, messages)
+    replacement = [summary, *tail]
     session.history.replace(replacement)
     after = estimate_messages(replacement)
     # The prompt is a different size now, so the provider's old count no longer
@@ -716,6 +779,71 @@ DEFAULT_MAX_REQUEST_IMAGES = 2
 def _image_block_marker(block: dict[str, object]) -> str:
     name = block.get("name") or "image"
     return str(block.get("text") or f"[image: {name}]")
+
+
+def request_image_cap(core: Core | None, session: Session) -> int:
+    """Images per request this session's model can take; 0 means no cap.
+
+    The server is local-style and its model can (or may) see images: many such
+    VLMs hard-fail above two (:data:`DEFAULT_MAX_REQUEST_IMAGES`).
+    """
+    if core is None or not session.provider or not core.providers.is_local_style(session.provider):
+        return 0
+    if core.providers.vision_for(session.provider, session.model) is False:
+        return 0
+    return DEFAULT_MAX_REQUEST_IMAGES
+
+
+def _image_stub(block: dict[str, object], note: str) -> dict[str, object]:
+    return {"type": "text", "text": f"{_image_block_marker(block)} ({note})"}
+
+
+def persist_image_stubs(session: Session, max_images: int, seen_len: int) -> bool:
+    """Turn the images the next request would drop into text, in the stored history.
+
+    ``prune_request_images`` alone rewrites the older images of every
+    request again, so the request after it was never a continuation of the
+    last one.  Writing the stub into the history once makes it part of the
+    prefix every later request shares (what turn N sent is what N+1 replays).
+
+    Two kinds go: images past the newest ``max_images`` (a server cap), and
+    ``ephemeral`` ones (a screenshot taken only to look) in messages the last
+    request already carried — ``seen_len`` messages — so the model sees each
+    once.  Returns whether anything changed.
+    """
+    messages = session.history.messages
+    positions: list[tuple[int, int]] = []
+    for message_index, message in enumerate(messages):
+        if message.role != "user" or not content.has_blocks(message.content):
+            continue
+        for block_index, block in enumerate(message.content):  # type: ignore[union-attr]
+            if isinstance(block, dict) and block.get("type") == "image":
+                positions.append((message_index, block_index))
+    over = set(positions[: max(0, len(positions) - max_images)]) if max_images > 0 else set()
+    changed = False
+    for message_index in sorted({slot[0] for slot in positions}):
+        message = messages[message_index]
+        blocks: list[dict[str, object]] = []
+        touched = False
+        for block_index, block in enumerate(message.content):  # type: ignore[union-attr]
+            if not isinstance(block, dict) or block.get("type") != "image":
+                blocks.append(block)  # type: ignore[arg-type]
+                continue
+            if (message_index, block_index) in over:
+                note = f"not sent — at most {max_images} images per request"
+                blocks.append(_image_stub(block, note))
+                touched = True
+            elif block.get("ephemeral") and message_index < seen_len:
+                blocks.append(_image_stub(block, "shown once; not kept"))
+                touched = True
+            else:
+                blocks.append(block)
+        if touched:
+            messages[message_index] = replace(message, content=blocks)
+            changed = True
+    if changed:
+        session.history.mark_rewritten()
+    return changed
 
 
 def prune_request_images(
@@ -994,7 +1122,9 @@ __all__ = [
     "DEFAULT_MAX_REQUEST_IMAGES",
     "prune_old_tool_outputs",
     "supersede_snapshots",
+    "persist_image_stubs",
     "prune_request_images",
+    "request_image_cap",
     "prune_skill_views",
     "reinject_markers",
     "record_provider_usage",

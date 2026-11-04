@@ -771,7 +771,12 @@ class ProviderRegistry:
         if preset.adapter == "anthropic_native":
             from snowpea_core.providers.anthropic_native import AnthropicProvider
 
-            return AnthropicProvider(api_key=api_key, model=resolved_model, base_url=base_url)
+            return AnthropicProvider(
+                api_key=api_key,
+                model=resolved_model,
+                base_url=base_url,
+                **self._timeout_kwargs(),
+            )
         if preset.adapter == "gemini_native":
             from snowpea_core.providers.gemini_native import GeminiProvider
 
@@ -782,6 +787,7 @@ class ProviderRegistry:
                 oauth_token=str(self.vendor_config(vendor).get("oauth_token") or "") or None,
                 model=resolved_model,
                 base_url=base_url,
+                **self._timeout_kwargs(),
             )
         from snowpea_core.providers.openai_compat import OpenAICompatProvider
 
@@ -806,7 +812,13 @@ class ProviderRegistry:
             vision=self.vision_for(vendor, model),
             on_vision=learned,
             settings=self.settings,
+            **self._timeout_kwargs(),
         )
+
+    def _timeout_kwargs(self) -> dict[str, float]:
+        """``agent.provider_timeout_sec`` as an adapter argument, or nothing (1.37.0)."""
+        value = getattr(self.settings.agent, "provider_timeout_sec", None)
+        return {"timeout": float(value)} if value else {}
 
     def default_vendor(self) -> str:
         """``settings.providers.default``, else the first configured vendor."""

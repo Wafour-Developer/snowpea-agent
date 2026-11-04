@@ -125,7 +125,9 @@ class AnthropicProvider:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        timeout: float | None = None,
     ) -> None:
+        self._timeout = timeout
         self.model = model or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         self._base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL")
@@ -158,6 +160,8 @@ class AnthropicProvider:
         kwargs: dict[str, Any] = {"api_key": self._api_key}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        if self._timeout:
+            kwargs["timeout"] = self._timeout
         http_client = self._replay_client()
         if http_client is not None:
             # Swap only the HTTP layer so replay exercises the real adapter.
