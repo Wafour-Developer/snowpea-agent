@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.37.0` (semver)
+- **Protocol version:** `1.37.1` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.37.0"
+    "protocolVersion": "1.37.1"
   }
 }
 ```
@@ -48,6 +48,7 @@ Server capabilities advertised in the `system.hello` result:
 - `ephemeralImages`
 - `hostToolParallel`
 - `hostTools`
+- `hostToolsSessionEvents`
 - `hostTurnContext`
 - `hostTurnContextCompaction`
 - `jobRuns`

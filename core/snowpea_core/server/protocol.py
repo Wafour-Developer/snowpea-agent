@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.37.0"
+PROTOCOL_VERSION = "1.37.1"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -7017,6 +7017,7 @@ CAPABILITIES: list[str] = [
     "hostTurnContextCompaction",
     "providerStatusEvents",
     "ephemeralImages",
+    "hostToolsSessionEvents",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and

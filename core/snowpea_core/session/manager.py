@@ -661,6 +661,26 @@ def _mark_history_persisted(
     )
 
 
+#: Events the connection that serves a session's host tools receives even when
+#: it never subscribed to the session (1.37.1, capability ``hostToolsSessionEvents``):
+#: a browser that lends its tools to a session another client owns still learns
+#: when that session's turns start and end.  Read-only: nothing here attaches,
+#: moves the session's origin, or lets that connection steer it.
+HOST_LIFECYCLE_KINDS = frozenset({"turn.started", "turn.done", "error"})
+
+
+def _host_tools_connection(session: Any) -> Any:
+    """The live connection serving ``session``'s host tools, if any."""
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    surface = HOST_TOOLS.owner_of(session)
+    host = HOST_TOOLS._hosts.get(surface) if surface else None
+    conn = getattr(host, "conn", None)
+    if conn is None or getattr(conn, "closed", False):
+        return None
+    return conn
+
+
 class EventHub:
     """Assigns sequence numbers, persists events and fans them out."""
 
@@ -770,7 +790,12 @@ class EventHub:
         params = event.model_dump(mode="json")
         owner = self.sessions.get(session_id) if self.sessions is not None else None
         params["hostToolsFrom"] = getattr(owner, "host_tools_from", None)
-        for conn in self.subscribers_for(session_id):
+        targets = self.subscribers_for(session_id)
+        if kind in HOST_LIFECYCLE_KINDS and owner is not None:
+            host_conn = _host_tools_connection(owner)
+            if host_conn is not None and not any(host_conn is conn for conn in targets):
+                targets.append(host_conn)
+        for conn in targets:
             try:
                 await conn.notify("session.event", params)
             except Exception:  # noqa: BLE001 - a dead socket must not stop the turn
