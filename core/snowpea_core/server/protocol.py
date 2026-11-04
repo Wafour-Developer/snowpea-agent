@@ -13,14 +13,15 @@ See ``docs/design/m1-core-contract.md`` §1 and plan §3.5.
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.37.2"
+PROTOCOL_VERSION = "1.38.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -3781,6 +3782,11 @@ class SiteOriginStats(Payload):
     readMiss: int = Field(default=0, description="site.markPart recipe miss or stale.")
     puts: int = Field(default=0, description="site.put.")
     staleMarks: int = Field(default=0, description="Marks that flagged an entry or recipe stale.")
+    playbookPuts: int = Field(default=0, description="site.playbook.put (1.38.0).")
+    playbookOk: int = Field(default=0, description="site.playbook.mark ok (1.38.0).")
+    playbookMiss: int = Field(
+        default=0, description="site.playbook.mark partial or failed (1.38.0)."
+    )
 
 
 class SiteStatsResult(Payload):
@@ -3819,6 +3825,9 @@ class SiteSummary(Payload):
             "(1.28.0). An origin known only from a pack is not listed."
         ),
     )
+    playbooks: int = Field(
+        default=0, description="Typed playbooks stored for the origin (1.38.0)."
+    )
 
 
 class SiteListResult(Payload):
@@ -3840,6 +3849,240 @@ class SiteDeleteParams(Payload):
 
 class SiteDeleteResult(Payload):
     deleted: int = Field(description="Entries removed.")
+
+
+# ---------------------------------------------------------------------------
+# site playbooks (1.38.0)
+# ---------------------------------------------------------------------------
+
+SitePlaybookSlotKind = Literal["text", "html", "files", "choice", "date", "lines"]
+SitePlaybookState = Literal["candidate", "verified", "trusted", "healing", "retired"]
+SitePlaybookResult = Literal["ok", "partial", "failed"]
+SitePlaybookEditOp = Literal[
+    "rename",
+    "alwaysAsk",
+    "retire",
+    "unretire",
+    "restore",
+    "acknowledge",
+    "removeSegment",
+    "removePitfall",
+]
+
+#: A playbook, slot or segment name.
+SITE_PLAYBOOK_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,39}$"
+SITE_SLOT_NAME_PATTERN = r"^[A-Za-z][A-Za-z0-9_]{0,31}$"
+SITE_VERB_PATTERN = r"^[A-Za-z][A-Za-z0-9]{0,23}$"
+
+
+class SitePlaybookSlot(Payload):
+    """A parameter of the task: its name and type, never a value."""
+
+    name: str = Field(pattern=SITE_SLOT_NAME_PATTERN, description="Slot name.")
+    kind: SitePlaybookSlotKind = Field(description="What the slot holds.")
+    optional: bool = Field(default=False, description="The task can run without it.")
+
+
+class SitePlaybookStep(Payload):
+    """One step; it names an action of the origin's entries and holds no locator."""
+
+    do: str = Field(
+        pattern=SITE_VERB_PATTERN, description="The verb: goto, click, fill, choose, ..."
+    )
+    action: str | None = Field(
+        default=None,
+        pattern=SITE_NAME_PATTERN,
+        description="An action of this origin's entries. A login field is refused.",
+    )
+    slot: str | None = Field(default=None, description="A slot of this playbook.")
+    url: str | None = Field(
+        default=None, max_length=200, description="For goto: a path on the origin, '/...'."
+    )
+    mode: str | None = Field(default=None, pattern=SITE_VERB_PATTERN, description="E.g. replace.")
+    via: str | None = Field(default=None, pattern=SITE_NAME_PATTERN, description="E.g. an action.")
+    consequential: bool | str = Field(
+        default=False,
+        description="Publishes, sends or pays: always asks. A short word names what.",
+    )
+    optional: bool = Field(default=False, description="Skipped when the step has no target.")
+    ask: bool = Field(default=False, description="Stops for the user's confirmation first.")
+
+    @field_validator("consequential")
+    @classmethod
+    def _short_word(cls, value: bool | str) -> bool | str:
+        if isinstance(value, str) and not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _-]{0,31}", value):
+            raise ValueError("a short plain word")
+        return value
+
+
+class SitePlaybookCheck(Payload):
+    """A check from the host's fixed vocabulary, run after a segment."""
+
+    kind: str = Field(
+        pattern=SITE_VERB_PATTERN, description="present, fieldEquals, editorContains, ..."
+    )
+    action: str | None = Field(default=None, pattern=SITE_NAME_PATTERN)
+    slot: str | None = Field(default=None)
+    measure: list[Annotated[str, Field(max_length=40)]] = Field(
+        default_factory=list, max_length=4
+    )
+    atLeast: str | None = Field(default=None, max_length=40, description='E.g. "len(images)".')
+
+
+class SitePlaybookSegment(Payload):
+    """The unit of replay and of fallback."""
+
+    name: str = Field(pattern=SITE_PLAYBOOK_NAME_PATTERN)
+    page: str | None = Field(default=None, max_length=200, description="A path pattern, '/...'.")
+    steps: list[SitePlaybookStep] = Field(default_factory=list, max_length=16)
+    checks: list[SitePlaybookCheck] = Field(default_factory=list, max_length=8)
+
+
+class SitePlaybookPitfall(Payload):
+    text: str = Field(min_length=1, max_length=200, description="What goes wrong. No values.")
+    seen: int = Field(default=1, ge=0, le=SITE_COUNT_MAX, strict=True)
+    lastVerified: str | None = Field(default=None, description="YYYY-MM-DD.")
+    contradicted: int = Field(default=0, ge=0, le=SITE_COUNT_MAX, strict=True)
+    source: Literal["host", "agent", "user"] | None = Field(default=None)
+
+
+class SitePlaybookRun(Payload):
+    """One run, counts only."""
+
+    day: str = Field(description="YYYY-MM-DD (UTC).")
+    result: SitePlaybookResult
+    done: int = Field(ge=0, le=64, strict=True, description="Segments done.")
+    total: int = Field(ge=0, le=64, strict=True, description="Segments in the playbook.")
+    rounds: int | None = Field(default=None, ge=0, le=100_000, strict=True)
+
+
+class SitePlaybookInput(Payload):
+    """What the host sends to ``site.playbook.put``: structure only, no values."""
+
+    name: str = Field(pattern=SITE_PLAYBOOK_NAME_PATTERN, description="Unique per origin.")
+    goal: str = Field(min_length=1, max_length=100, description="What the task achieves.")
+    intents: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+        description="Words that match a prompt to this playbook, each up to 60 characters.",
+    )
+    start: str | None = Field(
+        default=None, max_length=200, description="Where the task begins: a path or a page type."
+    )
+    skills: list[str] = Field(
+        default_factory=list, max_length=8, description="Skills this playbook covers."
+    )
+    slots: list[SitePlaybookSlot] = Field(default_factory=list, max_length=8)
+    segments: list[SitePlaybookSegment] = Field(default_factory=list, max_length=8)
+    pitfalls: list[SitePlaybookPitfall] = Field(default_factory=list, max_length=12)
+    history: list[SitePlaybookRun] = Field(
+        default_factory=list,
+        max_length=10,
+        description="When not empty it replaces the stored rows; when empty they stay.",
+    )
+    state: SitePlaybookState = Field(default="candidate")
+    verifiedAt: str | None = Field(default=None, description="YYYY-MM-DD.")
+    alwaysAsk: bool | None = Field(
+        default=None, description="Left out, the stored value stays (the user may have set it)."
+    )
+    acked: bool | None = Field(
+        default=None, description="The user acknowledged it. Left out, the stored value stays."
+    )
+    mac: str | None = Field(
+        default=None, max_length=200, description="The host's MAC over the playbook; opaque."
+    )
+
+    @field_validator("intents", "skills")
+    @classmethod
+    def _short_items(cls, value: list[str]) -> list[str]:
+        for item in value:
+            if not item.strip() or len(item) > 64:
+                raise ValueError("each item is 1 to 64 characters")
+        return value
+
+
+class SitePlaybook(SitePlaybookInput):
+    """A stored playbook: the input, plus what core owns."""
+
+    id: str = Field(description="pb_..., assigned by core.")
+    origin: str
+    version: int = Field(description="Counts up when slots or segments change.")
+    prev: SitePlaybookInput | None = Field(
+        default=None, description="The version before the last structural change, one deep."
+    )
+    alwaysAsk: bool = Field(default=False)
+    acked: bool = Field(default=False)
+    createdAt: str
+    updatedAt: str
+
+
+class SitePlaybookGetParams(Payload):
+    origin: str
+    name: str | None = Field(default=None, description="Only this playbook.")
+    sessionId: str | None = Field(
+        default=None,
+        description="The session the call is made for; its siteMemory override applies.",
+    )
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description="The browser profile (its clientId). Required from a UI client.",
+    )
+
+
+class SitePlaybookGetResult(Payload):
+    playbooks: list[SitePlaybook] = Field(default_factory=list)
+
+
+class SitePlaybookPutParams(Payload):
+    origin: str
+    playbook: SitePlaybookInput = Field(description="Upserted by (origin, name).")
+    sessionId: str | None = Field(default=None)
+
+
+class SitePlaybookPutResult(Payload):
+    playbook: SitePlaybook = Field(description="As stored: id, version and prev are core's.")
+    created: bool
+
+
+class SitePlaybookMarkParams(Payload):
+    origin: str
+    playbookId: str
+    outcome: SitePlaybookResult
+    done: int = Field(ge=0, le=64, strict=True, description="Segments done.")
+    total: int = Field(ge=0, le=64, strict=True, description="Segments in the playbook.")
+    rounds: int | None = Field(default=None, ge=0, le=100_000, strict=True)
+    sessionId: str | None = Field(default=None)
+
+
+class SitePlaybookEditParams(Payload):
+    origin: str
+    playbookId: str
+    op: SitePlaybookEditOp
+    name: str | None = Field(default=None, description="rename: the new name.")
+    value: bool | None = Field(default=None, description="alwaysAsk: on or off.")
+    segment: str | None = Field(default=None, description="removeSegment: the segment's name.")
+    index: int | None = Field(default=None, ge=0, description="removePitfall: its index.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description="The browser profile (its clientId). Required from a UI client.",
+    )
+
+
+class SitePlaybookResultOne(Payload):
+    playbook: SitePlaybook
+
+
+class SitePlaybookDeleteParams(Payload):
+    origin: str
+    playbookId: str | None = Field(default=None, description="One playbook; omitted = all.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description="The browser profile (its clientId). Required from a UI client.",
+    )
+
+
+class SitePlaybookDeleteResult(Payload):
+    deleted: int
 
 
 class SkillSearchParams(Payload):
@@ -6886,6 +7129,61 @@ METHODS: dict[str, RpcMethod] = {
             ),
         ),
         _m(
+            "site.playbook.get",
+            SitePlaybookGetParams,
+            SitePlaybookGetResult,
+            (
+                "Site playbooks (1.38.0): the typed task procedures stored for an origin, "
+                "by name. A browser client reads its own profile; any other owner client "
+                "names one with hostToolsFrom. Untrusted page-derived data; core never "
+                "puts it in a prompt. Capability sitePlaybooks."
+            ),
+        ),
+        _m(
+            "site.playbook.put",
+            SitePlaybookPutParams,
+            SitePlaybookPutResult,
+            (
+                "Site playbooks (1.38.0): upsert a playbook by (origin, name). Core refuses "
+                "strings that look like personal data or credentials, a step that names a "
+                "login field, a slot or a step the schema cannot express, and 16 KB per "
+                "playbook or 10 per origin ('invalid_params' naming the field). Core owns "
+                "id, version and prev: a change of slots or segments keeps the stored body "
+                "one deep as prev and counts the version up. alwaysAsk, acked and an empty "
+                "history keep their stored values. Browser host clients only."
+            ),
+        ),
+        _m(
+            "site.playbook.mark",
+            SitePlaybookMarkParams,
+            SitePlaybookResultOne,
+            (
+                "Site playbooks (1.38.0): append one run (day, result, segments done of "
+                "total, rounds) to the history, keeping the last 10; an 'ok' run sets "
+                "verifiedAt. Counts for site.stats. Browser host clients only."
+            ),
+        ),
+        _m(
+            "site.playbook.edit",
+            SitePlaybookEditParams,
+            SitePlaybookResultOne,
+            (
+                "Site playbooks (1.38.0): one edit the user makes in settings: rename, "
+                "alwaysAsk, retire, unretire, restore (swap with the previous version), "
+                "acknowledge, removeSegment, removePitfall. A browser client edits its own "
+                "profile; any other owner client names one with hostToolsFrom."
+            ),
+        ),
+        _m(
+            "site.playbook.delete",
+            SitePlaybookDeleteParams,
+            SitePlaybookDeleteResult,
+            (
+                "Site playbooks (1.38.0): delete one playbook, or every playbook of an "
+                "origin. site.delete of a whole origin removes them too."
+            ),
+        ),
+        _m(
             "site.stats",
             SiteStatsParams,
             SiteStatsResult,
@@ -7018,6 +7316,7 @@ CAPABILITIES: list[str] = [
     "providerStatusEvents",
     "ephemeralImages",
     "hostToolsSessionEvents",
+    "sitePlaybooks",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -7156,6 +7455,11 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "site.put",
         "site.mark",
         "site.markPart",
+        "site.playbook.get",
+        "site.playbook.put",
+        "site.playbook.mark",
+        "site.playbook.edit",
+        "site.playbook.delete",
         "site.stats",
         "site.list",
         "site.delete",

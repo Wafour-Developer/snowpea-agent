@@ -59,6 +59,9 @@ async def test_stats_count_every_call_kind(
             "readMiss": 2,
             "puts": 2,
             "staleMarks": 2,
+            "playbookPuts": 0,
+            "playbookOk": 0,
+            "playbookMiss": 0,
         }
         # The entry's own count is the two 'ok' marks, not the puts.
         [stored] = (await host.ok("site.get", {"origin": ORIGIN}))["entries"]

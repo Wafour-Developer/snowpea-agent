@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.37.2` (semver)
+- **Protocol version:** `1.38.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.37.2"
+    "protocolVersion": "1.38.0"
   }
 }
 ```
@@ -86,6 +86,7 @@ Server capabilities advertised in the `system.hello` result:
 - `siteFrameActions`
 - `siteMemory`
 - `sitePacks`
+- `sitePlaybooks`
 - `siteRecipes`
 - `siteStats`
 - `skillLearn`
@@ -209,6 +210,11 @@ Server capabilities advertised in the `system.hello` result:
 | [`site.list`](#sitelist) | client → server | Site memory (1.9.0): one browser profile's remembered sites, by origin, for a settings UI. A browser client sees its own profile; any other owner client names one with hostToolsFrom. |
 | [`site.mark`](#sitemark) | client → server | Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 'stale' counts a failure and flags the entry until the next put. Browser host clients only. |
 | [`site.markPart`](#sitemarkpart) | client → server | Site memory (1.15.0): count one use of a flow or recipe of an entry without a put. The entry's successCount, failureCount, stale and lastVerified are untouched, so this never counts as verification. 'not_found' for an unknown entry, flow or recipe. Browser host clients only. |
+| [`site.playbook.delete`](#siteplaybookdelete) | client → server | Site playbooks (1.38.0): delete one playbook, or every playbook of an origin. site.delete of a whole origin removes them too. |
+| [`site.playbook.edit`](#siteplaybookedit) | client → server | Site playbooks (1.38.0): one edit the user makes in settings: rename, alwaysAsk, retire, unretire, restore (swap with the previous version), acknowledge, removeSegment, removePitfall. A browser client edits its own profile; any other owner client names one with hostToolsFrom. |
+| [`site.playbook.get`](#siteplaybookget) | client → server | Site playbooks (1.38.0): the typed task procedures stored for an origin, by name. A browser client reads its own profile; any other owner client names one with hostToolsFrom. Untrusted page-derived data; core never puts it in a prompt. Capability sitePlaybooks. |
+| [`site.playbook.mark`](#siteplaybookmark) | client → server | Site playbooks (1.38.0): append one run (day, result, segments done of total, rounds) to the history, keeping the last 10; an 'ok' run sets verifiedAt. Counts for site.stats. Browser host clients only. |
+| [`site.playbook.put`](#siteplaybookput) | client → server | Site playbooks (1.38.0): upsert a playbook by (origin, name). Core refuses strings that look like personal data or credentials, a step that names a login field, a slot or a step the schema cannot express, and 16 KB per playbook or 10 per origin ('invalid_params' naming the field). Core owns id, version and prev: a change of slots or segments keeps the stored body one deep as prev and counts the version up. alwaysAsk, acked and an empty history keep their stored values. Browser host clients only. |
 | [`site.put`](#siteput) | client → server | Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 24 KB per entry (16 KB before 1.15.0) and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. |
 | [`site.stats`](#sitestats) | client → server | Site memory (1.27.0): per-origin counts of the profile's site.put, site.mark and site.markPart calls over the last days. Browser clients only, for their own profile; nothing page-derived is in it. |
 | [`skill.create`](#skillcreate) | client → server | Write a new SKILL.md, generated from a brief or supplied verbatim. |
@@ -2483,7 +2489,7 @@ Site memory (1.9.0): one browser profile's remembered sites, by origin, for a se
 | field | type | required | description |
 |---|---|---|---|
 | `cursor` | `string \| null` | no | Pass back for the next page. |
-| `sites` | `({ entries: number; failureCount?: number; lastVerified: string; origin: string; packEntries?: number; pageTypes?: string[]; stale: number; successCount?: number; })[]` | no | Sites, by origin. |
+| `sites` | `({ entries: number; failureCount?: number; lastVerified: string; origin: string; packEntries?: number; pageTypes?: string[]; playbooks?: number; stale: number; successCount?: number; })[]` | no | Sites, by origin. |
 
 ### `site.mark`
 
@@ -2530,6 +2536,117 @@ Site memory (1.15.0): count one use of a flow or recipe of an entry without a pu
 |---|---|---|---|
 | `entry` | `{ actions?: ({ frames?: ({ origin: string; path: string; selector: string; })[] \| null; kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; missCount?: number; name: string; stale?: boolean; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; packVersion?: string \| null; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; source?: "learned" \| "pack" \| "shared"; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the count. |
 
+### `site.playbook.delete`
+
+*Direction:* client → server
+
+Site playbooks (1.38.0): delete one playbook, or every playbook of an origin. site.delete of a whole origin removes them too.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | The browser profile (its clientId). Required from a UI client. |
+| `origin` | `string` | yes |  |
+| `playbookId` | `string \| null` | no | One playbook; omitted = all. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `deleted` | `number` | yes |  |
+
+### `site.playbook.edit`
+
+*Direction:* client → server
+
+Site playbooks (1.38.0): one edit the user makes in settings: rename, alwaysAsk, retire, unretire, restore (swap with the previous version), acknowledge, removeSegment, removePitfall. A browser client edits its own profile; any other owner client names one with hostToolsFrom.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | The browser profile (its clientId). Required from a UI client. |
+| `index` | `number \| null` | no | removePitfall: its index. |
+| `name` | `string \| null` | no | rename: the new name. |
+| `op` | `"rename" \| "alwaysAsk" \| "retire" \| "unretire" \| "restore" \| "acknowledge" \| "removeSegment" \| "removePitfall"` | yes |  |
+| `origin` | `string` | yes |  |
+| `playbookId` | `string` | yes |  |
+| `segment` | `string \| null` | no | removeSegment: the segment's name. |
+| `value` | `boolean \| null` | no | alwaysAsk: on or off. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `playbook` | `{ acked?: boolean; alwaysAsk?: boolean; createdAt: string; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; id: string; intents?: string[]; mac?: string \| null; name: string; origin: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; prev?: { acked?: boolean \| null; alwaysAsk?: boolean \| null; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; intents?: string[]; mac?: string \| null; name: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; verifiedAt?: string \| null; } \| null; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; updatedAt: string; verifiedAt?: string \| null; version: number; }` | yes | A stored playbook: the input, plus what core owns. |
+
+### `site.playbook.get`
+
+*Direction:* client → server
+
+Site playbooks (1.38.0): the typed task procedures stored for an origin, by name. A browser client reads its own profile; any other owner client names one with hostToolsFrom. Untrusted page-derived data; core never puts it in a prompt. Capability sitePlaybooks.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | The browser profile (its clientId). Required from a UI client. |
+| `name` | `string \| null` | no | Only this playbook. |
+| `origin` | `string` | yes |  |
+| `sessionId` | `string \| null` | no | The session the call is made for; its siteMemory override applies. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `playbooks` | `({ acked?: boolean; alwaysAsk?: boolean; createdAt: string; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; id: string; intents?: string[]; mac?: string \| null; name: string; origin: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; prev?: { acked?: boolean \| null; alwaysAsk?: boolean \| null; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; intents?: string[]; mac?: string \| null; name: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; verifiedAt?: string \| null; } \| null; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; updatedAt: string; verifiedAt?: string \| null; version: number; })[]` | no |  |
+
+### `site.playbook.mark`
+
+*Direction:* client → server
+
+Site playbooks (1.38.0): append one run (day, result, segments done of total, rounds) to the history, keeping the last 10; an 'ok' run sets verifiedAt. Counts for site.stats. Browser host clients only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `done` | `number` | yes | Segments done. |
+| `origin` | `string` | yes |  |
+| `outcome` | `"ok" \| "partial" \| "failed"` | yes |  |
+| `playbookId` | `string` | yes |  |
+| `rounds` | `number \| null` | no |  |
+| `sessionId` | `string \| null` | no |  |
+| `total` | `number` | yes | Segments in the playbook. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `playbook` | `{ acked?: boolean; alwaysAsk?: boolean; createdAt: string; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; id: string; intents?: string[]; mac?: string \| null; name: string; origin: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; prev?: { acked?: boolean \| null; alwaysAsk?: boolean \| null; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; intents?: string[]; mac?: string \| null; name: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; verifiedAt?: string \| null; } \| null; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; updatedAt: string; verifiedAt?: string \| null; version: number; }` | yes | A stored playbook: the input, plus what core owns. |
+
+### `site.playbook.put`
+
+*Direction:* client → server
+
+Site playbooks (1.38.0): upsert a playbook by (origin, name). Core refuses strings that look like personal data or credentials, a step that names a login field, a slot or a step the schema cannot express, and 16 KB per playbook or 10 per origin ('invalid_params' naming the field). Core owns id, version and prev: a change of slots or segments keeps the stored body one deep as prev and counts the version up. alwaysAsk, acked and an empty history keep their stored values. Browser host clients only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `origin` | `string` | yes |  |
+| `playbook` | `{ acked?: boolean \| null; alwaysAsk?: boolean \| null; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; intents?: string[]; mac?: string \| null; name: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; verifiedAt?: string \| null; }` | yes | Upserted by (origin, name). |
+| `sessionId` | `string \| null` | no |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `created` | `boolean` | yes |  |
+| `playbook` | `{ acked?: boolean; alwaysAsk?: boolean; createdAt: string; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; id: string; intents?: string[]; mac?: string \| null; name: string; origin: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; prev?: { acked?: boolean \| null; alwaysAsk?: boolean \| null; goal: string; history?: ({ day: string; done: number; result: "ok" \| "partial" \| "failed"; rounds?: number \| null; total: number; })[]; intents?: string[]; mac?: string \| null; name: string; pitfalls?: ({ contradicted?: number; lastVerified?: string \| null; seen?: number; source?: "host" \| "agent" \| "user" \| null; text: string; })[]; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; verifiedAt?: string \| null; } \| null; segments?: ({ checks?: ({ action?: string \| null; atLeast?: string \| null; kind: string; measure?: string[]; slot?: string \| null; })[]; name: string; page?: string \| null; steps?: ({ action?: string \| null; ask?: boolean; consequential?: boolean \| string; do: string; mode?: string \| null; optional?: boolean; slot?: string \| null; url?: string \| null; via?: string \| null; })[]; })[]; skills?: string[]; slots?: ({ kind: "text" \| "html" \| "files" \| "choice" \| "date" \| "lines"; name: string; optional?: boolean; })[]; start?: string \| null; state?: "candidate" \| "verified" \| "trusted" \| "healing" \| "retired"; updatedAt: string; verifiedAt?: string \| null; version: number; }` | yes | As stored: id, version and prev are core's. |
+
 ### `site.put`
 
 *Direction:* client → server
@@ -2568,7 +2685,7 @@ Site memory (1.27.0): per-origin counts of the profile's site.put, site.mark and
 
 | field | type | required | description |
 |---|---|---|---|
-| `origins` | `({ locateMiss?: number; locateOk?: number; origin: string; puts?: number; readMiss?: number; readOk?: number; runMiss?: number; runOk?: number; staleMarks?: number; })[]` | no | Origins with any count in the window, by origin. |
+| `origins` | `({ locateMiss?: number; locateOk?: number; origin: string; playbookMiss?: number; playbookOk?: number; playbookPuts?: number; puts?: number; readMiss?: number; readOk?: number; runMiss?: number; runOk?: number; staleMarks?: number; })[]` | no | Origins with any count in the window, by origin. |
 
 ### `skill.create`
 

@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS site_entries (
     UNIQUE (profile, origin, page_type)
 );
 CREATE INDEX IF NOT EXISTS site_entries_profile_origin ON site_entries (profile, origin);
+CREATE TABLE IF NOT EXISTS site_playbooks (
+    playbook_id   TEXT PRIMARY KEY,
+    profile       TEXT NOT NULL,
+    origin        TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    playbook_json TEXT NOT NULL,
+    last_verified TEXT NOT NULL,
+    UNIQUE (profile, origin, name)
+);
+CREATE INDEX IF NOT EXISTS site_playbooks_profile_origin ON site_playbooks (profile, origin);
 CREATE TABLE IF NOT EXISTS site_counts (
     profile  TEXT NOT NULL,
     origin   TEXT NOT NULL,
@@ -731,6 +741,10 @@ class Store:
                             "DELETE FROM site_entries WHERE profile = ? AND origin = ?",
                             (profile, gone),
                         )
+                        conn.execute(
+                            "DELETE FROM site_playbooks WHERE profile = ? AND origin = ?",
+                            (profile, gone),
+                        )
             entry = build(existing)
             self._write_site_row(conn, profile, entry)
             return entry, existing is None, evicted
@@ -796,13 +810,152 @@ class Store:
         def work(conn: sqlite3.Connection) -> int:
             removed = max(conn.execute(sql, params).rowcount, 0)
             if entry_id is None:
-                # Forgetting a site forgets that it was visited, counts included.
+                # Forgetting a site forgets that it was visited, counts and
+                # playbooks included.
                 conn.execute(
                     "DELETE FROM site_counts WHERE profile = ? AND origin = ?", (profile, origin)
+                )
+                conn.execute(
+                    "DELETE FROM site_playbooks WHERE profile = ? AND origin = ?",
+                    (profile, origin),
                 )
             return removed
 
         return int(await asyncio.to_thread(self._locked, work))
+
+    # -- typed playbooks (1.38.0) ----------------------------------------
+    async def playbook_sweep(self, profile: str, unverified_before: str) -> int:
+        """Drop a profile's playbooks nobody verified or changed for too long."""
+        return int(
+            await asyncio.to_thread(
+                self._locked,
+                lambda conn: conn.execute(
+                    "DELETE FROM site_playbooks WHERE profile = ? AND last_verified < ?",
+                    (profile, unverified_before),
+                ).rowcount,
+            )
+        )
+
+    async def playbooks(
+        self, profile: str, origin: str, name: str | None = None
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT playbook_json FROM site_playbooks WHERE profile = ? AND origin = ?"
+        params: tuple[Any, ...] = (profile, origin)
+        if name is not None:
+            sql += " AND name = ?"
+            params = (*params, name)
+        rows = await asyncio.to_thread(self._query, sql + " ORDER BY name", params)
+        return [json.loads(row["playbook_json"]) for row in rows]
+
+    async def playbook_counts(self, profile: str) -> dict[str, int]:
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT origin, COUNT(*) AS n FROM site_playbooks WHERE profile = ? GROUP BY origin",
+            (profile,),
+        )
+        return {str(row["origin"]): int(row["n"]) for row in rows}
+
+    @staticmethod
+    def _write_playbook(conn: sqlite3.Connection, profile: str, playbook: dict[str, Any]) -> None:
+        conn.execute(
+            "INSERT OR REPLACE INTO site_playbooks (playbook_id, profile, origin, name,"
+            " playbook_json, last_verified) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                playbook["id"],
+                profile,
+                playbook["origin"],
+                playbook["name"],
+                json.dumps(playbook, ensure_ascii=False),
+                playbook["updatedAt"],
+            ),
+        )
+
+    async def playbook_put(
+        self,
+        profile: str,
+        origin: str,
+        name: str,
+        build: Callable[[dict[str, Any] | None], dict[str, Any]],
+        *,
+        max_per_origin: int,
+        max_origins: int,
+    ) -> tuple[dict[str, Any], bool]:
+        """Upsert by (profile, origin, name) in one transaction.
+
+        ``build(existing)`` returns the playbook to store and may raise to
+        refuse.  A new name on a full origin raises :class:`OverflowError`
+        ("playbooks"), and so does a first playbook for an origin past
+        ``max_origins`` ("origins").
+        """
+
+        def work(conn: sqlite3.Connection) -> tuple[dict[str, Any], bool]:
+            row = conn.execute(
+                "SELECT playbook_json FROM site_playbooks"
+                " WHERE profile = ? AND origin = ? AND name = ?",
+                (profile, origin, name),
+            ).fetchone()
+            existing = json.loads(row["playbook_json"]) if row is not None else None
+            if existing is None:
+                count = conn.execute(
+                    "SELECT COUNT(*) AS n FROM site_playbooks WHERE profile = ? AND origin = ?",
+                    (profile, origin),
+                ).fetchone()["n"]
+                if count >= max_per_origin:
+                    raise OverflowError("playbooks")
+                if count == 0:
+                    origins = conn.execute(
+                        "SELECT COUNT(DISTINCT origin) AS n FROM site_playbooks WHERE profile = ?",
+                        (profile,),
+                    ).fetchone()["n"]
+                    if origins >= max_origins:
+                        raise OverflowError("origins")
+            playbook = build(existing)
+            self._write_playbook(conn, profile, playbook)
+            return playbook, existing is None
+
+        return await asyncio.to_thread(self._locked, work)
+
+    async def playbook_update(
+        self,
+        profile: str,
+        origin: str,
+        playbook_id: str,
+        change: Callable[[dict[str, Any], list[dict[str, Any]]], dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Rewrite one playbook through ``change(playbook, siblings)``; ``None`` when absent."""
+
+        def work(conn: sqlite3.Connection) -> dict[str, Any] | None:
+            rows = conn.execute(
+                "SELECT playbook_json FROM site_playbooks WHERE profile = ? AND origin = ?",
+                (profile, origin),
+            ).fetchall()
+            everyone = [json.loads(row["playbook_json"]) for row in rows]
+            current = next((p for p in everyone if p["id"] == playbook_id), None)
+            if current is None:
+                return None
+            siblings = [p for p in everyone if p["id"] != playbook_id]
+            before = current["name"]
+            changed = change(current, siblings)
+            if changed["name"] != before:
+                conn.execute(
+                    "DELETE FROM site_playbooks WHERE playbook_id = ?", (playbook_id,)
+                )
+            self._write_playbook(conn, profile, changed)
+            return changed
+
+        return await asyncio.to_thread(self._locked, work)
+
+    async def playbook_delete(self, profile: str, origin: str, playbook_id: str | None) -> int:
+        sql = "DELETE FROM site_playbooks WHERE profile = ? AND origin = ?"
+        params: tuple[Any, ...] = (profile, origin)
+        if playbook_id is not None:
+            sql += " AND playbook_id = ?"
+            params = (*params, playbook_id)
+        return int(
+            await asyncio.to_thread(
+                self._locked, lambda conn: max(conn.execute(sql, params).rowcount, 0)
+            )
+        )
 
     async def site_count(self, profile: str, origin: str, day: str, *metrics: str) -> None:
         """Add one to each of ``metrics`` for (profile, origin, day) (1.27.0)."""

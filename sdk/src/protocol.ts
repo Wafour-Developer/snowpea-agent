@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.37.2";
+export const PROTOCOL_VERSION = "1.38.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -3252,6 +3252,8 @@ export interface SiteListResult {
     packEntries?: number;
     /** Distinct page types of its entries, sorted (1.9.0). */
     pageTypes?: string[];
+    /** Typed playbooks stored for the origin (1.38.0). */
+    playbooks?: number;
     /** How many of them are stale. */
     stale: number;
     /** Sum over its entries (1.9.0). */
@@ -3529,6 +3531,859 @@ export interface SiteMarkPartResult {
   };
 }
 
+/** `site.playbook.delete` params. Site playbooks (1.38.0): delete one playbook, or every playbook of an origin. site.delete of a whole origin removes them too. */
+export interface SitePlaybookDeleteParams {
+  /** The browser profile (its clientId). Required from a UI client. */
+  hostToolsFrom?: string | null;
+  origin: string;
+  /** One playbook; omitted = all. */
+  playbookId?: string | null;
+}
+
+/** `site.playbook.delete` result. */
+export interface SitePlaybookDeleteResult {
+  deleted: number;
+}
+
+/** `site.playbook.edit` params. Site playbooks (1.38.0): one edit the user makes in settings: rename, alwaysAsk, retire, unretire, restore (swap with the previous version), acknowledge, removeSegment, removePitfall. A browser client edits its own profile; any other owner client names one with hostToolsFrom. */
+export interface SitePlaybookEditParams {
+  /** The browser profile (its clientId). Required from a UI client. */
+  hostToolsFrom?: string | null;
+  /** removePitfall: its index. */
+  index?: number | null;
+  /** rename: the new name. */
+  name?: string | null;
+  op: "rename" | "alwaysAsk" | "retire" | "unretire" | "restore" | "acknowledge" | "removeSegment" | "removePitfall";
+  origin: string;
+  playbookId: string;
+  /** removeSegment: the segment's name. */
+  segment?: string | null;
+  /** alwaysAsk: on or off. */
+  value?: boolean | null;
+}
+
+/** `site.playbook.edit` result. */
+export interface SitePlaybookEditResult {
+  /** A stored playbook: the input, plus what core owns. */
+  playbook: {
+    acked?: boolean;
+    alwaysAsk?: boolean;
+    createdAt: string;
+    /** What the task achieves. */
+    goal: string;
+    /** When not empty it replaces the stored rows; when empty they stay. */
+    history?: ({
+      /** YYYY-MM-DD (UTC). */
+      day: string;
+      /** Segments done. */
+      done: number;
+      result: "ok" | "partial" | "failed";
+      rounds?: number | null;
+      /** Segments in the playbook. */
+      total: number;
+    })[];
+    /** pb_..., assigned by core. */
+    id: string;
+    /** Words that match a prompt to this playbook, each up to 60 characters. */
+    intents?: string[];
+    /** The host's MAC over the playbook; opaque. */
+    mac?: string | null;
+    /** Unique per origin. */
+    name: string;
+    origin: string;
+    pitfalls?: ({
+      contradicted?: number;
+      /** YYYY-MM-DD. */
+      lastVerified?: string | null;
+      seen?: number;
+      source?: "host" | "agent" | "user" | null;
+      /** What goes wrong. No values. */
+      text: string;
+    })[];
+    /** The version before the last structural change, one deep. */
+    prev?: {
+      /** The user acknowledged it. Left out, the stored value stays. */
+      acked?: boolean | null;
+      /** Left out, the stored value stays (the user may have set it). */
+      alwaysAsk?: boolean | null;
+      /** What the task achieves. */
+      goal: string;
+      /** When not empty it replaces the stored rows; when empty they stay. */
+      history?: ({
+        /** YYYY-MM-DD (UTC). */
+        day: string;
+        /** Segments done. */
+        done: number;
+        result: "ok" | "partial" | "failed";
+        rounds?: number | null;
+        /** Segments in the playbook. */
+        total: number;
+      })[];
+      /** Words that match a prompt to this playbook, each up to 60 characters. */
+      intents?: string[];
+      /** The host's MAC over the playbook; opaque. */
+      mac?: string | null;
+      /** Unique per origin. */
+      name: string;
+      pitfalls?: ({
+        contradicted?: number;
+        /** YYYY-MM-DD. */
+        lastVerified?: string | null;
+        seen?: number;
+        source?: "host" | "agent" | "user" | null;
+        /** What goes wrong. No values. */
+        text: string;
+      })[];
+      segments?: ({
+        checks?: ({
+          action?: string | null;
+          /** E.g. "len(images)". */
+          atLeast?: string | null;
+          /** present, fieldEquals, editorContains, ... */
+          kind: string;
+          measure?: string[];
+          slot?: string | null;
+        })[];
+        name: string;
+        /** A path pattern, '/...'. */
+        page?: string | null;
+        steps?: ({
+          /** An action of this origin's entries. A login field is refused. */
+          action?: string | null;
+          /** Stops for the user's confirmation first. */
+          ask?: boolean;
+          /** Publishes, sends or pays: always asks. A short word names what. */
+          consequential?: boolean | string;
+          /** The verb: goto, click, fill, choose, ... */
+          do: string;
+          /** E.g. replace. */
+          mode?: string | null;
+          /** Skipped when the step has no target. */
+          optional?: boolean;
+          /** A slot of this playbook. */
+          slot?: string | null;
+          /** For goto: a path on the origin, '/...'. */
+          url?: string | null;
+          /** E.g. an action. */
+          via?: string | null;
+        })[];
+      })[];
+      /** Skills this playbook covers. */
+      skills?: string[];
+      slots?: ({
+        /** What the slot holds. */
+        kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+        /** Slot name. */
+        name: string;
+        /** The task can run without it. */
+        optional?: boolean;
+      })[];
+      /** Where the task begins: a path or a page type. */
+      start?: string | null;
+      state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+      /** YYYY-MM-DD. */
+      verifiedAt?: string | null;
+    } | null;
+    segments?: ({
+      checks?: ({
+        action?: string | null;
+        /** E.g. "len(images)". */
+        atLeast?: string | null;
+        /** present, fieldEquals, editorContains, ... */
+        kind: string;
+        measure?: string[];
+        slot?: string | null;
+      })[];
+      name: string;
+      /** A path pattern, '/...'. */
+      page?: string | null;
+      steps?: ({
+        /** An action of this origin's entries. A login field is refused. */
+        action?: string | null;
+        /** Stops for the user's confirmation first. */
+        ask?: boolean;
+        /** Publishes, sends or pays: always asks. A short word names what. */
+        consequential?: boolean | string;
+        /** The verb: goto, click, fill, choose, ... */
+        do: string;
+        /** E.g. replace. */
+        mode?: string | null;
+        /** Skipped when the step has no target. */
+        optional?: boolean;
+        /** A slot of this playbook. */
+        slot?: string | null;
+        /** For goto: a path on the origin, '/...'. */
+        url?: string | null;
+        /** E.g. an action. */
+        via?: string | null;
+      })[];
+    })[];
+    /** Skills this playbook covers. */
+    skills?: string[];
+    slots?: ({
+      /** What the slot holds. */
+      kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+      /** Slot name. */
+      name: string;
+      /** The task can run without it. */
+      optional?: boolean;
+    })[];
+    /** Where the task begins: a path or a page type. */
+    start?: string | null;
+    state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+    updatedAt: string;
+    /** YYYY-MM-DD. */
+    verifiedAt?: string | null;
+    /** Counts up when slots or segments change. */
+    version: number;
+  };
+}
+
+/** `site.playbook.get` params. Site playbooks (1.38.0): the typed task procedures stored for an origin, by name. A browser client reads its own profile; any other owner client names one with hostToolsFrom. Untrusted page-derived data; core never puts it in a prompt. Capability sitePlaybooks. */
+export interface SitePlaybookGetParams {
+  /** The browser profile (its clientId). Required from a UI client. */
+  hostToolsFrom?: string | null;
+  /** Only this playbook. */
+  name?: string | null;
+  origin: string;
+  /** The session the call is made for; its siteMemory override applies. */
+  sessionId?: string | null;
+}
+
+/** `site.playbook.get` result. */
+export interface SitePlaybookGetResult {
+  playbooks?: ({
+    acked?: boolean;
+    alwaysAsk?: boolean;
+    createdAt: string;
+    /** What the task achieves. */
+    goal: string;
+    /** When not empty it replaces the stored rows; when empty they stay. */
+    history?: ({
+      /** YYYY-MM-DD (UTC). */
+      day: string;
+      /** Segments done. */
+      done: number;
+      result: "ok" | "partial" | "failed";
+      rounds?: number | null;
+      /** Segments in the playbook. */
+      total: number;
+    })[];
+    /** pb_..., assigned by core. */
+    id: string;
+    /** Words that match a prompt to this playbook, each up to 60 characters. */
+    intents?: string[];
+    /** The host's MAC over the playbook; opaque. */
+    mac?: string | null;
+    /** Unique per origin. */
+    name: string;
+    origin: string;
+    pitfalls?: ({
+      contradicted?: number;
+      /** YYYY-MM-DD. */
+      lastVerified?: string | null;
+      seen?: number;
+      source?: "host" | "agent" | "user" | null;
+      /** What goes wrong. No values. */
+      text: string;
+    })[];
+    /** The version before the last structural change, one deep. */
+    prev?: {
+      /** The user acknowledged it. Left out, the stored value stays. */
+      acked?: boolean | null;
+      /** Left out, the stored value stays (the user may have set it). */
+      alwaysAsk?: boolean | null;
+      /** What the task achieves. */
+      goal: string;
+      /** When not empty it replaces the stored rows; when empty they stay. */
+      history?: ({
+        /** YYYY-MM-DD (UTC). */
+        day: string;
+        /** Segments done. */
+        done: number;
+        result: "ok" | "partial" | "failed";
+        rounds?: number | null;
+        /** Segments in the playbook. */
+        total: number;
+      })[];
+      /** Words that match a prompt to this playbook, each up to 60 characters. */
+      intents?: string[];
+      /** The host's MAC over the playbook; opaque. */
+      mac?: string | null;
+      /** Unique per origin. */
+      name: string;
+      pitfalls?: ({
+        contradicted?: number;
+        /** YYYY-MM-DD. */
+        lastVerified?: string | null;
+        seen?: number;
+        source?: "host" | "agent" | "user" | null;
+        /** What goes wrong. No values. */
+        text: string;
+      })[];
+      segments?: ({
+        checks?: ({
+          action?: string | null;
+          /** E.g. "len(images)". */
+          atLeast?: string | null;
+          /** present, fieldEquals, editorContains, ... */
+          kind: string;
+          measure?: string[];
+          slot?: string | null;
+        })[];
+        name: string;
+        /** A path pattern, '/...'. */
+        page?: string | null;
+        steps?: ({
+          /** An action of this origin's entries. A login field is refused. */
+          action?: string | null;
+          /** Stops for the user's confirmation first. */
+          ask?: boolean;
+          /** Publishes, sends or pays: always asks. A short word names what. */
+          consequential?: boolean | string;
+          /** The verb: goto, click, fill, choose, ... */
+          do: string;
+          /** E.g. replace. */
+          mode?: string | null;
+          /** Skipped when the step has no target. */
+          optional?: boolean;
+          /** A slot of this playbook. */
+          slot?: string | null;
+          /** For goto: a path on the origin, '/...'. */
+          url?: string | null;
+          /** E.g. an action. */
+          via?: string | null;
+        })[];
+      })[];
+      /** Skills this playbook covers. */
+      skills?: string[];
+      slots?: ({
+        /** What the slot holds. */
+        kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+        /** Slot name. */
+        name: string;
+        /** The task can run without it. */
+        optional?: boolean;
+      })[];
+      /** Where the task begins: a path or a page type. */
+      start?: string | null;
+      state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+      /** YYYY-MM-DD. */
+      verifiedAt?: string | null;
+    } | null;
+    segments?: ({
+      checks?: ({
+        action?: string | null;
+        /** E.g. "len(images)". */
+        atLeast?: string | null;
+        /** present, fieldEquals, editorContains, ... */
+        kind: string;
+        measure?: string[];
+        slot?: string | null;
+      })[];
+      name: string;
+      /** A path pattern, '/...'. */
+      page?: string | null;
+      steps?: ({
+        /** An action of this origin's entries. A login field is refused. */
+        action?: string | null;
+        /** Stops for the user's confirmation first. */
+        ask?: boolean;
+        /** Publishes, sends or pays: always asks. A short word names what. */
+        consequential?: boolean | string;
+        /** The verb: goto, click, fill, choose, ... */
+        do: string;
+        /** E.g. replace. */
+        mode?: string | null;
+        /** Skipped when the step has no target. */
+        optional?: boolean;
+        /** A slot of this playbook. */
+        slot?: string | null;
+        /** For goto: a path on the origin, '/...'. */
+        url?: string | null;
+        /** E.g. an action. */
+        via?: string | null;
+      })[];
+    })[];
+    /** Skills this playbook covers. */
+    skills?: string[];
+    slots?: ({
+      /** What the slot holds. */
+      kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+      /** Slot name. */
+      name: string;
+      /** The task can run without it. */
+      optional?: boolean;
+    })[];
+    /** Where the task begins: a path or a page type. */
+    start?: string | null;
+    state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+    updatedAt: string;
+    /** YYYY-MM-DD. */
+    verifiedAt?: string | null;
+    /** Counts up when slots or segments change. */
+    version: number;
+  })[];
+}
+
+/** `site.playbook.mark` params. Site playbooks (1.38.0): append one run (day, result, segments done of total, rounds) to the history, keeping the last 10; an 'ok' run sets verifiedAt. Counts for site.stats. Browser host clients only. */
+export interface SitePlaybookMarkParams {
+  /** Segments done. */
+  done: number;
+  origin: string;
+  outcome: "ok" | "partial" | "failed";
+  playbookId: string;
+  rounds?: number | null;
+  sessionId?: string | null;
+  /** Segments in the playbook. */
+  total: number;
+}
+
+/** `site.playbook.mark` result. */
+export interface SitePlaybookMarkResult {
+  /** A stored playbook: the input, plus what core owns. */
+  playbook: {
+    acked?: boolean;
+    alwaysAsk?: boolean;
+    createdAt: string;
+    /** What the task achieves. */
+    goal: string;
+    /** When not empty it replaces the stored rows; when empty they stay. */
+    history?: ({
+      /** YYYY-MM-DD (UTC). */
+      day: string;
+      /** Segments done. */
+      done: number;
+      result: "ok" | "partial" | "failed";
+      rounds?: number | null;
+      /** Segments in the playbook. */
+      total: number;
+    })[];
+    /** pb_..., assigned by core. */
+    id: string;
+    /** Words that match a prompt to this playbook, each up to 60 characters. */
+    intents?: string[];
+    /** The host's MAC over the playbook; opaque. */
+    mac?: string | null;
+    /** Unique per origin. */
+    name: string;
+    origin: string;
+    pitfalls?: ({
+      contradicted?: number;
+      /** YYYY-MM-DD. */
+      lastVerified?: string | null;
+      seen?: number;
+      source?: "host" | "agent" | "user" | null;
+      /** What goes wrong. No values. */
+      text: string;
+    })[];
+    /** The version before the last structural change, one deep. */
+    prev?: {
+      /** The user acknowledged it. Left out, the stored value stays. */
+      acked?: boolean | null;
+      /** Left out, the stored value stays (the user may have set it). */
+      alwaysAsk?: boolean | null;
+      /** What the task achieves. */
+      goal: string;
+      /** When not empty it replaces the stored rows; when empty they stay. */
+      history?: ({
+        /** YYYY-MM-DD (UTC). */
+        day: string;
+        /** Segments done. */
+        done: number;
+        result: "ok" | "partial" | "failed";
+        rounds?: number | null;
+        /** Segments in the playbook. */
+        total: number;
+      })[];
+      /** Words that match a prompt to this playbook, each up to 60 characters. */
+      intents?: string[];
+      /** The host's MAC over the playbook; opaque. */
+      mac?: string | null;
+      /** Unique per origin. */
+      name: string;
+      pitfalls?: ({
+        contradicted?: number;
+        /** YYYY-MM-DD. */
+        lastVerified?: string | null;
+        seen?: number;
+        source?: "host" | "agent" | "user" | null;
+        /** What goes wrong. No values. */
+        text: string;
+      })[];
+      segments?: ({
+        checks?: ({
+          action?: string | null;
+          /** E.g. "len(images)". */
+          atLeast?: string | null;
+          /** present, fieldEquals, editorContains, ... */
+          kind: string;
+          measure?: string[];
+          slot?: string | null;
+        })[];
+        name: string;
+        /** A path pattern, '/...'. */
+        page?: string | null;
+        steps?: ({
+          /** An action of this origin's entries. A login field is refused. */
+          action?: string | null;
+          /** Stops for the user's confirmation first. */
+          ask?: boolean;
+          /** Publishes, sends or pays: always asks. A short word names what. */
+          consequential?: boolean | string;
+          /** The verb: goto, click, fill, choose, ... */
+          do: string;
+          /** E.g. replace. */
+          mode?: string | null;
+          /** Skipped when the step has no target. */
+          optional?: boolean;
+          /** A slot of this playbook. */
+          slot?: string | null;
+          /** For goto: a path on the origin, '/...'. */
+          url?: string | null;
+          /** E.g. an action. */
+          via?: string | null;
+        })[];
+      })[];
+      /** Skills this playbook covers. */
+      skills?: string[];
+      slots?: ({
+        /** What the slot holds. */
+        kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+        /** Slot name. */
+        name: string;
+        /** The task can run without it. */
+        optional?: boolean;
+      })[];
+      /** Where the task begins: a path or a page type. */
+      start?: string | null;
+      state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+      /** YYYY-MM-DD. */
+      verifiedAt?: string | null;
+    } | null;
+    segments?: ({
+      checks?: ({
+        action?: string | null;
+        /** E.g. "len(images)". */
+        atLeast?: string | null;
+        /** present, fieldEquals, editorContains, ... */
+        kind: string;
+        measure?: string[];
+        slot?: string | null;
+      })[];
+      name: string;
+      /** A path pattern, '/...'. */
+      page?: string | null;
+      steps?: ({
+        /** An action of this origin's entries. A login field is refused. */
+        action?: string | null;
+        /** Stops for the user's confirmation first. */
+        ask?: boolean;
+        /** Publishes, sends or pays: always asks. A short word names what. */
+        consequential?: boolean | string;
+        /** The verb: goto, click, fill, choose, ... */
+        do: string;
+        /** E.g. replace. */
+        mode?: string | null;
+        /** Skipped when the step has no target. */
+        optional?: boolean;
+        /** A slot of this playbook. */
+        slot?: string | null;
+        /** For goto: a path on the origin, '/...'. */
+        url?: string | null;
+        /** E.g. an action. */
+        via?: string | null;
+      })[];
+    })[];
+    /** Skills this playbook covers. */
+    skills?: string[];
+    slots?: ({
+      /** What the slot holds. */
+      kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+      /** Slot name. */
+      name: string;
+      /** The task can run without it. */
+      optional?: boolean;
+    })[];
+    /** Where the task begins: a path or a page type. */
+    start?: string | null;
+    state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+    updatedAt: string;
+    /** YYYY-MM-DD. */
+    verifiedAt?: string | null;
+    /** Counts up when slots or segments change. */
+    version: number;
+  };
+}
+
+/** `site.playbook.put` params. Site playbooks (1.38.0): upsert a playbook by (origin, name). Core refuses strings that look like personal data or credentials, a step that names a login field, a slot or a step the schema cannot express, and 16 KB per playbook or 10 per origin ('invalid_params' naming the field). Core owns id, version and prev: a change of slots or segments keeps the stored body one deep as prev and counts the version up. alwaysAsk, acked and an empty history keep their stored values. Browser host clients only. */
+export interface SitePlaybookPutParams {
+  origin: string;
+  /** Upserted by (origin, name). */
+  playbook: {
+    /** The user acknowledged it. Left out, the stored value stays. */
+    acked?: boolean | null;
+    /** Left out, the stored value stays (the user may have set it). */
+    alwaysAsk?: boolean | null;
+    /** What the task achieves. */
+    goal: string;
+    /** When not empty it replaces the stored rows; when empty they stay. */
+    history?: ({
+      /** YYYY-MM-DD (UTC). */
+      day: string;
+      /** Segments done. */
+      done: number;
+      result: "ok" | "partial" | "failed";
+      rounds?: number | null;
+      /** Segments in the playbook. */
+      total: number;
+    })[];
+    /** Words that match a prompt to this playbook, each up to 60 characters. */
+    intents?: string[];
+    /** The host's MAC over the playbook; opaque. */
+    mac?: string | null;
+    /** Unique per origin. */
+    name: string;
+    pitfalls?: ({
+      contradicted?: number;
+      /** YYYY-MM-DD. */
+      lastVerified?: string | null;
+      seen?: number;
+      source?: "host" | "agent" | "user" | null;
+      /** What goes wrong. No values. */
+      text: string;
+    })[];
+    segments?: ({
+      checks?: ({
+        action?: string | null;
+        /** E.g. "len(images)". */
+        atLeast?: string | null;
+        /** present, fieldEquals, editorContains, ... */
+        kind: string;
+        measure?: string[];
+        slot?: string | null;
+      })[];
+      name: string;
+      /** A path pattern, '/...'. */
+      page?: string | null;
+      steps?: ({
+        /** An action of this origin's entries. A login field is refused. */
+        action?: string | null;
+        /** Stops for the user's confirmation first. */
+        ask?: boolean;
+        /** Publishes, sends or pays: always asks. A short word names what. */
+        consequential?: boolean | string;
+        /** The verb: goto, click, fill, choose, ... */
+        do: string;
+        /** E.g. replace. */
+        mode?: string | null;
+        /** Skipped when the step has no target. */
+        optional?: boolean;
+        /** A slot of this playbook. */
+        slot?: string | null;
+        /** For goto: a path on the origin, '/...'. */
+        url?: string | null;
+        /** E.g. an action. */
+        via?: string | null;
+      })[];
+    })[];
+    /** Skills this playbook covers. */
+    skills?: string[];
+    slots?: ({
+      /** What the slot holds. */
+      kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+      /** Slot name. */
+      name: string;
+      /** The task can run without it. */
+      optional?: boolean;
+    })[];
+    /** Where the task begins: a path or a page type. */
+    start?: string | null;
+    state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+    /** YYYY-MM-DD. */
+    verifiedAt?: string | null;
+  };
+  sessionId?: string | null;
+}
+
+/** `site.playbook.put` result. */
+export interface SitePlaybookPutResult {
+  created: boolean;
+  /** As stored: id, version and prev are core's. */
+  playbook: {
+    acked?: boolean;
+    alwaysAsk?: boolean;
+    createdAt: string;
+    /** What the task achieves. */
+    goal: string;
+    /** When not empty it replaces the stored rows; when empty they stay. */
+    history?: ({
+      /** YYYY-MM-DD (UTC). */
+      day: string;
+      /** Segments done. */
+      done: number;
+      result: "ok" | "partial" | "failed";
+      rounds?: number | null;
+      /** Segments in the playbook. */
+      total: number;
+    })[];
+    /** pb_..., assigned by core. */
+    id: string;
+    /** Words that match a prompt to this playbook, each up to 60 characters. */
+    intents?: string[];
+    /** The host's MAC over the playbook; opaque. */
+    mac?: string | null;
+    /** Unique per origin. */
+    name: string;
+    origin: string;
+    pitfalls?: ({
+      contradicted?: number;
+      /** YYYY-MM-DD. */
+      lastVerified?: string | null;
+      seen?: number;
+      source?: "host" | "agent" | "user" | null;
+      /** What goes wrong. No values. */
+      text: string;
+    })[];
+    /** The version before the last structural change, one deep. */
+    prev?: {
+      /** The user acknowledged it. Left out, the stored value stays. */
+      acked?: boolean | null;
+      /** Left out, the stored value stays (the user may have set it). */
+      alwaysAsk?: boolean | null;
+      /** What the task achieves. */
+      goal: string;
+      /** When not empty it replaces the stored rows; when empty they stay. */
+      history?: ({
+        /** YYYY-MM-DD (UTC). */
+        day: string;
+        /** Segments done. */
+        done: number;
+        result: "ok" | "partial" | "failed";
+        rounds?: number | null;
+        /** Segments in the playbook. */
+        total: number;
+      })[];
+      /** Words that match a prompt to this playbook, each up to 60 characters. */
+      intents?: string[];
+      /** The host's MAC over the playbook; opaque. */
+      mac?: string | null;
+      /** Unique per origin. */
+      name: string;
+      pitfalls?: ({
+        contradicted?: number;
+        /** YYYY-MM-DD. */
+        lastVerified?: string | null;
+        seen?: number;
+        source?: "host" | "agent" | "user" | null;
+        /** What goes wrong. No values. */
+        text: string;
+      })[];
+      segments?: ({
+        checks?: ({
+          action?: string | null;
+          /** E.g. "len(images)". */
+          atLeast?: string | null;
+          /** present, fieldEquals, editorContains, ... */
+          kind: string;
+          measure?: string[];
+          slot?: string | null;
+        })[];
+        name: string;
+        /** A path pattern, '/...'. */
+        page?: string | null;
+        steps?: ({
+          /** An action of this origin's entries. A login field is refused. */
+          action?: string | null;
+          /** Stops for the user's confirmation first. */
+          ask?: boolean;
+          /** Publishes, sends or pays: always asks. A short word names what. */
+          consequential?: boolean | string;
+          /** The verb: goto, click, fill, choose, ... */
+          do: string;
+          /** E.g. replace. */
+          mode?: string | null;
+          /** Skipped when the step has no target. */
+          optional?: boolean;
+          /** A slot of this playbook. */
+          slot?: string | null;
+          /** For goto: a path on the origin, '/...'. */
+          url?: string | null;
+          /** E.g. an action. */
+          via?: string | null;
+        })[];
+      })[];
+      /** Skills this playbook covers. */
+      skills?: string[];
+      slots?: ({
+        /** What the slot holds. */
+        kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+        /** Slot name. */
+        name: string;
+        /** The task can run without it. */
+        optional?: boolean;
+      })[];
+      /** Where the task begins: a path or a page type. */
+      start?: string | null;
+      state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+      /** YYYY-MM-DD. */
+      verifiedAt?: string | null;
+    } | null;
+    segments?: ({
+      checks?: ({
+        action?: string | null;
+        /** E.g. "len(images)". */
+        atLeast?: string | null;
+        /** present, fieldEquals, editorContains, ... */
+        kind: string;
+        measure?: string[];
+        slot?: string | null;
+      })[];
+      name: string;
+      /** A path pattern, '/...'. */
+      page?: string | null;
+      steps?: ({
+        /** An action of this origin's entries. A login field is refused. */
+        action?: string | null;
+        /** Stops for the user's confirmation first. */
+        ask?: boolean;
+        /** Publishes, sends or pays: always asks. A short word names what. */
+        consequential?: boolean | string;
+        /** The verb: goto, click, fill, choose, ... */
+        do: string;
+        /** E.g. replace. */
+        mode?: string | null;
+        /** Skipped when the step has no target. */
+        optional?: boolean;
+        /** A slot of this playbook. */
+        slot?: string | null;
+        /** For goto: a path on the origin, '/...'. */
+        url?: string | null;
+        /** E.g. an action. */
+        via?: string | null;
+      })[];
+    })[];
+    /** Skills this playbook covers. */
+    skills?: string[];
+    slots?: ({
+      /** What the slot holds. */
+      kind: "text" | "html" | "files" | "choice" | "date" | "lines";
+      /** Slot name. */
+      name: string;
+      /** The task can run without it. */
+      optional?: boolean;
+    })[];
+    /** Where the task begins: a path or a page type. */
+    start?: string | null;
+    state?: "candidate" | "verified" | "trusted" | "healing" | "retired";
+    updatedAt: string;
+    /** YYYY-MM-DD. */
+    verifiedAt?: string | null;
+    /** Counts up when slots or segments change. */
+    version: number;
+  };
+}
+
 /** `site.put` params. Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 24 KB per entry (16 KB before 1.15.0) and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. */
 export interface SitePutParams {
   /** The entry; upserted by (origin, pageType). */
@@ -3663,6 +4518,12 @@ export interface SiteStatsResult {
     locateOk?: number;
     /** Origin. */
     origin: string;
+    /** site.playbook.mark partial or failed (1.38.0). */
+    playbookMiss?: number;
+    /** site.playbook.mark ok (1.38.0). */
+    playbookOk?: number;
+    /** site.playbook.put (1.38.0). */
+    playbookPuts?: number;
     /** site.put. */
     puts?: number;
     /** site.markPart recipe miss or stale. */
@@ -5670,6 +6531,11 @@ export interface MethodMap {
   "site.list": { params: SiteListParams; result: SiteListResult };
   "site.mark": { params: SiteMarkParams; result: SiteMarkResult };
   "site.markPart": { params: SiteMarkPartParams; result: SiteMarkPartResult };
+  "site.playbook.delete": { params: SitePlaybookDeleteParams; result: SitePlaybookDeleteResult };
+  "site.playbook.edit": { params: SitePlaybookEditParams; result: SitePlaybookEditResult };
+  "site.playbook.get": { params: SitePlaybookGetParams; result: SitePlaybookGetResult };
+  "site.playbook.mark": { params: SitePlaybookMarkParams; result: SitePlaybookMarkResult };
+  "site.playbook.put": { params: SitePlaybookPutParams; result: SitePlaybookPutResult };
   "site.put": { params: SitePutParams; result: SitePutResult };
   "site.stats": { params: SiteStatsParams; result: SiteStatsResult };
   "skill.create": { params: SkillCreateParams; result: SkillCreateResult };
@@ -5813,6 +6679,11 @@ export type ClientMethod =
   | "site.list"
   | "site.mark"
   | "site.markPart"
+  | "site.playbook.delete"
+  | "site.playbook.edit"
+  | "site.playbook.get"
+  | "site.playbook.mark"
+  | "site.playbook.put"
   | "site.put"
   | "site.stats"
   | "skill.create"

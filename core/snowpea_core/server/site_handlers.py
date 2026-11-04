@@ -35,6 +35,16 @@ from snowpea_core.server.protocol import (
     SiteMarkPartResult,
     SiteMarkResult,
     SiteOriginStats,
+    SitePlaybook,
+    SitePlaybookDeleteParams,
+    SitePlaybookDeleteResult,
+    SitePlaybookEditParams,
+    SitePlaybookGetParams,
+    SitePlaybookGetResult,
+    SitePlaybookMarkParams,
+    SitePlaybookPutParams,
+    SitePlaybookPutResult,
+    SitePlaybookResultOne,
     SitePutParams,
     SitePutResult,
     SiteStatsParams,
@@ -43,6 +53,7 @@ from snowpea_core.server.protocol import (
 )
 from snowpea_core.session import site_memory as sm
 from snowpea_core.session import site_packs
+from snowpea_core.session import site_playbooks as sp
 from snowpea_core.session.session import inherited_override
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -409,6 +420,7 @@ async def site_list_handler(
     rows = await store.site_list(profile, origin, params.cursor, params.limit + 1)
     page = rows[: params.limit]
     packs = site_packs.packs_for(core)
+    playbook_counts = await store.playbook_counts(profile)
     return SiteListResult(
         sites=[
             SiteSummary(
@@ -420,6 +432,7 @@ async def site_list_handler(
                 successCount=int(row["success_count"] or 0),
                 failureCount=int(row["failure_count"] or 0),
                 packEntries=_pack_count(packs, row),
+                playbooks=playbook_counts.get(row["origin"], 0),
             )
             for row in page
         ],
@@ -484,11 +497,173 @@ async def site_delete_handler(
     return SiteDeleteResult(deleted=await store.site_delete(profile, origin, params.entryId))
 
 
+# ---------------------------------------------------------------------------
+# typed playbooks (1.38.0)
+# ---------------------------------------------------------------------------
+
+
+async def _playbook_sweep(store: Any, profile: str, now: datetime) -> None:
+    dropped = await store.playbook_sweep(profile, sp.retention_cutoff(now))
+    if dropped:
+        log.info("site playbooks: dropped %d expired", dropped)
+
+
+async def _login_actions(store: Any, profile: str, origin: str) -> set[str]:
+    """Names of the origin's actions flagged ``loginField``, across its entries."""
+    return {
+        str(action["name"])
+        for entry in await store.site_entries(profile, origin)
+        for action in entry.get("actions") or []
+        if action.get("loginField")
+    }
+
+
+async def site_playbook_get_handler(
+    conn: RpcConnection, params: SitePlaybookGetParams, core: Core
+) -> SitePlaybookGetResult:
+    """``site.playbook.get`` — an origin's playbooks, by name."""
+    profile = _ui_profile(conn, params.hostToolsFrom)
+    if params.sessionId is not None or getattr(conn, "client_kind", None) == "browser":
+        # A browser host is bound by the siteMemory switch; a settings UI is not.
+        _require_enabled(core, params.sessionId)
+    store = _store(core)
+    origin = _origin(params.origin)
+    await _playbook_sweep(store, profile, datetime.now(UTC))
+    rows = await store.playbooks(profile, origin, params.name)
+    return SitePlaybookGetResult(playbooks=[SitePlaybook(**row) for row in rows])
+
+
+async def site_playbook_put_handler(
+    conn: RpcConnection, params: SitePlaybookPutParams, core: Core
+) -> SitePlaybookPutResult:
+    """``site.playbook.put`` — upsert by (origin, name)."""
+    profile = _host_profile(conn)
+    _require_enabled(core, params.sessionId)
+    store = _store(core)
+    origin = _origin(params.origin)
+    data = params.playbook.model_dump(mode="json")
+    now = datetime.now(UTC)
+    await _playbook_sweep(store, profile, now)
+    try:
+        sp.check_playbook(data, await _login_actions(store, profile, origin))
+    except sm.SiteMemoryError as exc:
+        raise _invalid(exc) from exc
+
+    def build(existing: dict[str, Any] | None) -> dict[str, Any]:
+        built = sp.build_put(data, existing, origin, now)
+        sp.check_stored(built)
+        return built
+
+    try:
+        stored, created = await store.playbook_put(
+            profile,
+            origin,
+            data["name"],
+            build,
+            max_per_origin=sp.MAX_PLAYBOOKS_PER_ORIGIN,
+            max_origins=sm.MAX_ORIGINS_PER_PROFILE,
+        )
+    except sm.SiteMemoryError as exc:
+        raise _invalid(exc) from exc
+    except OverflowError as exc:
+        reason = (
+            f"this profile already has playbooks for {sm.MAX_ORIGINS_PER_PROFILE} origins"
+            if str(exc) == "origins"
+            else f"{origin} already has {sp.MAX_PLAYBOOKS_PER_ORIGIN} playbooks; "
+            "replace or delete one first"
+        )
+        raise _invalid(sm.SiteMemoryError("playbook.name", reason)) from exc
+    await _count(store, profile, origin, now, "playbookPuts")
+    return SitePlaybookPutResult(playbook=SitePlaybook(**stored), created=created)
+
+
+async def site_playbook_mark_handler(
+    conn: RpcConnection, params: SitePlaybookMarkParams, core: Core
+) -> SitePlaybookResultOne:
+    """``site.playbook.mark`` — append one run to the history."""
+    profile = _host_profile(conn)
+    _require_enabled(core, params.sessionId)
+    store = _store(core)
+    origin = _origin(params.origin)
+    now = datetime.now(UTC)
+    await _playbook_sweep(store, profile, now)
+
+    def change(playbook: dict[str, Any], _siblings: list[dict[str, Any]]) -> dict[str, Any]:
+        return sp.append_run(
+            playbook, params.outcome, params.done, params.total, params.rounds, now
+        )
+
+    try:
+        stored = await store.playbook_update(profile, origin, params.playbookId, change)
+    except sm.SiteMemoryError as exc:
+        raise _invalid(exc) from exc
+    if stored is None:
+        raise RpcError(errors.NOT_FOUND, f"no playbook {params.playbookId} for {origin}")
+    await _count(
+        store, profile, origin, now, "playbookOk" if params.outcome == "ok" else "playbookMiss"
+    )
+    return SitePlaybookResultOne(playbook=SitePlaybook(**stored))
+
+
+async def site_playbook_edit_handler(
+    conn: RpcConnection, params: SitePlaybookEditParams, core: Core
+) -> SitePlaybookResultOne:
+    """``site.playbook.edit`` — one edit made by the user in settings."""
+    profile = _ui_profile(conn, params.hostToolsFrom)
+    store = _store(core)
+    origin = _origin(params.origin)
+    now = datetime.now(UTC)
+    logins = await _login_actions(store, profile, origin)
+
+    def change(playbook: dict[str, Any], siblings: list[dict[str, Any]]) -> dict[str, Any]:
+        edited = sp.apply_edit(
+            playbook,
+            siblings,
+            params.op,
+            name=params.name,
+            value=params.value,
+            segment=params.segment,
+            index=params.index,
+            now=now,
+        )
+        if params.op in ("restore", "removeSegment", "unretire"):
+            # Content that comes back is checked against today's rules: an action
+            # may have been flagged a login field since it was stored.
+            sp.check_playbook(sp.plain_body(edited), logins)
+            sp.check_stored(edited)
+        return edited
+
+    try:
+        stored = await store.playbook_update(profile, origin, params.playbookId, change)
+    except sm.SiteMemoryError as exc:
+        raise _invalid(exc) from exc
+    if stored is None:
+        raise RpcError(errors.NOT_FOUND, f"no playbook {params.playbookId} for {origin}")
+    return SitePlaybookResultOne(playbook=SitePlaybook(**stored))
+
+
+async def site_playbook_delete_handler(
+    conn: RpcConnection, params: SitePlaybookDeleteParams, core: Core
+) -> SitePlaybookDeleteResult:
+    """``site.playbook.delete`` — one playbook, or all of an origin's."""
+    profile = _ui_profile(conn, params.hostToolsFrom)
+    store = _store(core)
+    origin = _origin(params.origin)
+    return SitePlaybookDeleteResult(
+        deleted=await store.playbook_delete(profile, origin, params.playbookId)
+    )
+
+
 def register_site_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("site.get", site_get_handler)
     dispatcher.register("site.put", site_put_handler)
     dispatcher.register("site.mark", site_mark_handler)
     dispatcher.register("site.markPart", site_mark_part_handler)
+    dispatcher.register("site.playbook.get", site_playbook_get_handler)
+    dispatcher.register("site.playbook.put", site_playbook_put_handler)
+    dispatcher.register("site.playbook.mark", site_playbook_mark_handler)
+    dispatcher.register("site.playbook.edit", site_playbook_edit_handler)
+    dispatcher.register("site.playbook.delete", site_playbook_delete_handler)
     dispatcher.register("site.stats", site_stats_handler)
     dispatcher.register("site.list", site_list_handler)
     dispatcher.register("site.delete", site_delete_handler)
