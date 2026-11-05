@@ -39,6 +39,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
 
 Server capabilities advertised in the `system.hello` result:
 
+- `approvalEvaluate`
 - `approvals`
 - `audio`
 - `batchedFileTools`
@@ -55,6 +56,7 @@ Server capabilities advertised in the `system.hello` result:
 - `hostTurnContextCompaction`
 - `jobRuns`
 - `llmSample`
+- `llmSampleHost`
 - `llmTimings`
 - `lsp`
 - `lspChanged`
@@ -114,6 +116,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`agent.list`](#agentlist) | client → server | List the named agents that are defined. |
 | [`agent.spawn`](#agentspawn) | client → server | Run a named agent on a task. |
 | [`approval.ask`](#approvalask) | client → server | Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known. A local dev server navigation (tool 'repl.navigate', args.reasonCode 'localDevServer', args.url, args.project) gets scopeHint 'project': a 'project' answer stores a rule for the session's project and the URL's origin that only such asks match. |
+| [`approval.evaluate`](#approvalevaluate) | client → server | Would a saved rule or the mode allow this action? A host-level, side-effect-free check (1.40.0): the allowlist entries of the caller's own profile (its clientId), then the mode matrix. Nothing is asked or stored. |
 | [`approval.list`](#approvallist) | client → server | List tool calls still waiting for a decision. |
 | [`approval.request`](#approvalrequest) | server → client | Ask the client to approve a tool call. |
 | [`approval.respond`](#approvalrespond) | client → server | Answer a pending approval and unblock the turn. |
@@ -383,6 +386,30 @@ Escalate one host action through the approval pipeline. The approver's approval.
 | `by` | `string` | no | Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), 'readOnly' (a read-only delegation refuses changes and never asks; 1.14.0), or 'timeout' / 'interrupted' (denied without an answer). |
 | `decision` | `"allow" \| "deny"` | yes | allow or deny. |
 | `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate); 'always' for a page action only for repl.tabs, repl.clipboard and (1.13.0) repl.read and repl.attach, others are kept to 'once'. For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. |
+
+### `approval.evaluate`
+
+*Direction:* client → server
+
+Would a saved rule or the mode allow this action? A host-level, side-effect-free check (1.40.0): the allowlist entries of the caller's own profile (its clientId), then the mode matrix. Nothing is asked or stored.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `args` | `Record<string, unknown>` | no | The action's arguments (a shell command line, a url), for rules on them. |
+| `mode` | `"plan" \| "accept" \| "auto"` | no | The permission mode the action would run in; the mode matrix is consulted. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"` | yes | Permission class of the action. |
+| `risk` | `string \| null` | no | 'payment' (or args.onceOnly): the allowlist is never consulted. |
+| `site` | `string \| null` | no | Origin of the page (https://host); matched against site rules. |
+| `tool` | `string` | yes | Tool the action belongs to; the allowlist is keyed by it. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `by` | `"mode" \| "allowlist" \| "none"` | yes | What decided: the mode matrix, a saved rule of this profile, or neither. |
+| `decision` | `"allow" \| "ask" \| "deny"` | yes | 'allow', 'deny', or 'ask' (a person has to decide). |
 
 ### `approval.list`
 
@@ -1225,7 +1252,7 @@ One tool-less model call for a session's browser host (1.14.0): no tools, no his
 | `modelCategory` | `"fast" \| "default" \| "standard" \| "deep"` | no | 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model; 'standard' (1.33.0) = models.categories.standard, then the session's model; 'deep' (1.33.0) = models.categories.deep, then .standard, then the session's model. |
 | `schema` | `Record<string, unknown> \| null` | no | JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. |
 | `schemaAfterInput` | `boolean` | no | Put the schema instruction after the fenced input (with task) instead of in the system message, for a schema that varies per call (1.21.0). |
-| `sessionId` | `string` | yes | Session whose provider settings and bill this call uses; its host only. |
+| `sessionId` | `string \| null` | no | Session whose provider settings and bill this call uses; its host only. Omitted (1.40.0, capability 'llmSampleHost'): a host-level call for a connection that has registered host tools -- the default model of this daemon (models.default), with 'fast', 'standard' and 'deep' choosing browser.fastModel / models.categories as for a session. No session is billed and no usage event is written. |
 | `system` | `string \| null` | no | Instructions the host wrote. |
 | `task` | `string \| null` | no | Trusted per-call instruction from the host, placed after the fenced input, so system + page stay a prefix several samples of one page share (1.21.0). |
 

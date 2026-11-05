@@ -4,7 +4,8 @@ Contract for an app that drives a remote or container daemon with its own UI (th
 browser, `snowpea-browser/docs/design/remote-sessions.md`). User-facing text: `docs/manual/en/remote.md`
 ("For a program"). Wire reference: `docs/protocol.md` (`fs.*`, `system.hello`, `session.list`).
 
-Capabilities added to `system.hello.capabilities`: `fs`, `machineIdentity`, `holdSec`.
+Capabilities added to `system.hello.capabilities`: `fs`, `machineIdentity`, `holdSec`, `llmSampleHost`,
+`approvalEvaluate`.
 Protocol: `1.39.0` → `1.40.0`.
 
 ## 1. `remote up` (R1)
@@ -163,7 +164,21 @@ Errors (`error.data.code`): `outside_root`, `protected`, `too_large`, `not_found
 - Frame size: an 8 MiB read is ~11.2 MB of base64 in one WebSocket message. The daemon accepts 160 MB;
   clients must raise their receive limit (Python aiohttp defaults to 4 MiB; `ws` for Node defaults to 100 MiB).
 
-## 5. Deviations from the browser doc's assumptions (§9.5) and why
+## 5. Host-level calls (C3, C4)
+
+- `llm.sample` without `sessionId` (capability `llmSampleHost`): allowed for a connection that has
+  registered host tools (`tool.register`), refused `unauthorized` otherwise. The model is the daemon's own
+  default (`models.default`); `modelCategory` `fast`/`standard`/`deep` pick `browser.fastModel` /
+  `models.categories.*` and fall back to that default. No session is billed and no `usage` event is written.
+  With a `sessionId` nothing changes (that session's host only).
+- `approval.evaluate {tool, permission, site?, mode="accept", args?, risk?}` → `{decision: "allow"|"ask"|"deny",
+  by: "mode"|"allowlist"|"none"}` (capability `approvalEvaluate`). Host connections only. The mode matrix
+  first (`deny`/`allow` outright), then the allowlist entries of the caller's own profile (`clientId` from its
+  hello, as for a session's `hostToolsFrom`), with the `site`/origin rule; `risk:"payment"` or
+  `args.onceOnly` never consult the allowlist. Nothing is asked, stored or logged. The reason codes
+  and `scopeHint` of a real `approval.ask` are not produced.
+
+## 6. Deviations from the browser doc's assumptions (§9.5) and why
 
 | browser doc | here | reason |
 |---|---|---|

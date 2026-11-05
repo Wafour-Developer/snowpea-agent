@@ -332,6 +332,10 @@ class HostTools:
         return None
 
     # -- lookup --------------------------------------------------------
+    def is_host(self, conn: Any) -> bool:
+        """True when ``conn`` has registered host tools (it is a host, not a plain client)."""
+        return getattr(conn, "surface_id", None) in self._hosts
+
     def owner_of(self, session: Any) -> str | None:
         """The surface id whose host tools ``session`` sees, if any."""
         if session is None:

@@ -2930,8 +2930,16 @@ class JobPreviewResult(Payload):
 
 
 class LlmSampleParams(Payload):
-    sessionId: str = Field(
-        description="Session whose provider settings and bill this call uses; its host only."
+    sessionId: str | None = Field(
+        default=None,
+        description=(
+            "Session whose provider settings and bill this call uses; its host only. "
+            "Omitted (1.40.0, capability 'llmSampleHost'): a host-level call for a connection "
+            "that has registered host tools -- the default model of this daemon "
+            "(models.default), with 'fast', 'standard' and 'deep' choosing "
+            "browser.fastModel / models.categories as for a session. No session is billed "
+            "and no usage event is written."
+        ),
     )
     modelCategory: Literal["fast", "default", "standard", "deep"] = Field(
         default="default",
@@ -6489,6 +6497,42 @@ class FsHashResult(Payload):
 
 
 # --------------------------------------------------------------------------
+# approval.evaluate (1.40.0, capability 'approvalEvaluate')
+# --------------------------------------------------------------------------
+
+ApprovalVerdict = Literal["allow", "ask", "deny"]
+
+
+class ApprovalEvaluateParams(Payload):
+    tool: str = Field(description="Tool the action belongs to; the allowlist is keyed by it.")
+    permission: PermissionTag = Field(description="Permission class of the action.")
+    site: str | None = Field(
+        default=None, description="Origin of the page (https://host); matched against site rules."
+    )
+    mode: Mode = Field(
+        default="accept",
+        description="The permission mode the action would run in; the mode matrix is consulted.",
+    )
+    args: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The action's arguments (a shell command line, a url), for rules on them.",
+    )
+    risk: str | None = Field(
+        default=None,
+        description="'payment' (or args.onceOnly): the allowlist is never consulted.",
+    )
+
+
+class ApprovalEvaluateResult(Payload):
+    decision: ApprovalVerdict = Field(
+        description="'allow', 'deny', or 'ask' (a person has to decide)."
+    )
+    by: Literal["mode", "allowlist", "none"] = Field(
+        description="What decided: the mode matrix, a saved rule of this profile, or neither."
+    )
+
+
+# --------------------------------------------------------------------------
 # registries
 # --------------------------------------------------------------------------
 
@@ -7159,6 +7203,14 @@ METHODS: dict[str, RpcMethod] = {
             "Set a session's title.",
         ),
         _m(
+            "approval.evaluate",
+            ApprovalEvaluateParams,
+            ApprovalEvaluateResult,
+            "Would a saved rule or the mode allow this action? A host-level, side-effect-free "
+            "check (1.40.0): the allowlist entries of the caller's own profile (its clientId), "
+            "then the mode matrix. Nothing is asked or stored.",
+        ),
+        _m(
             "fs.stat",
             FsPathParams,
             FsStatResult,
@@ -7176,8 +7228,8 @@ METHODS: dict[str, RpcMethod] = {
             "fs.glob",
             FsGlobParams,
             FsListResult,
-            "Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for "
-            "any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never "
+            "Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment "
+            "for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never "
             "followed; '**' does not enter .git or node_modules.",
         ),
         _m(
@@ -7506,6 +7558,8 @@ CAPABILITIES: list[str] = [
     "fs",
     "machineIdentity",
     "holdSec",
+    "llmSampleHost",
+    "approvalEvaluate",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -7630,6 +7684,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.events",
         "turn.outcome",
         "session.toolContent",
+        "approval.evaluate",
         "fs.stat",
         "fs.list",
         "fs.glob",

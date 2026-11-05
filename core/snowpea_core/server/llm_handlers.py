@@ -19,7 +19,13 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.config.model_routing import ModelRoute, category_route, deep_route, fast_route
+from snowpea_core.config.model_routing import (
+    ModelRoute,
+    category_route,
+    deep_route,
+    fast_route,
+    route_for,
+)
 from snowpea_core.providers import routing
 from snowpea_core.providers.base import ChatMessage, ProviderError
 from snowpea_core.providers.call_timing import CallTiming
@@ -77,14 +83,20 @@ def _require_host(conn: RpcConnection, session: Session) -> None:
         )
 
 
-def _route(core: Core, session: Session, category: str) -> ModelRoute:
-    own = ModelRoute(session.provider, session.model)
+def _route(core: Core, session: Session | None, category: str) -> ModelRoute:
+    """The model for a session's call; with no session, this daemon's own default (1.40.0)."""
+    if session is None:
+        own = route_for(core.settings)
+        workdir = None
+    else:
+        own = ModelRoute(session.provider, session.model)
+        workdir = session.workdir
     if category == "fast":
-        return fast_route(core.settings, own, workdir=session.workdir)
+        return fast_route(core.settings, own, workdir=workdir)
     if category == "deep":
-        return deep_route(core.settings, own, workdir=session.workdir)
+        return deep_route(core.settings, own, workdir=workdir)
     if category == "standard":
-        route = category_route(core.settings, "standard", workdir=session.workdir)
+        route = category_route(core.settings, "standard", workdir=workdir)
         return route if route.resolved() else own
     return own
 
@@ -172,8 +184,14 @@ async def llm_sample_handler(
     conn: RpcConnection, params: LlmSampleParams, core: Core
 ) -> LlmSampleResult:
     """``llm.sample`` — one completion without tools or history."""
-    session = _session(core, params.sessionId)
-    _require_host(conn, session)
+    session: Session | None = None
+    if params.sessionId is not None:
+        session = _session(core, params.sessionId)
+        _require_host(conn, session)
+    elif not HOST_TOOLS.is_host(conn):
+        raise RpcError(
+            errors.UNAUTHORIZED, "only a host that registered tools may sample without a session"
+        )
     validator = _check_schema(params.jsonSchema) if params.jsonSchema is not None else None
     route = _route(core, session, params.modelCategory)
     try:
@@ -193,10 +211,11 @@ async def llm_sample_handler(
         extra["response_format"] = JSON_MODE
     chunks: list[str] = []
     input_tokens = output_tokens = cached_tokens = 0
-    timing = CallTiming(session.id, "sample", vendor, model)
+    owner = session.id if session is not None else f"host-{conn.client_id or conn.surface_id}"
+    timing = CallTiming(owner, "sample", vendor, model)
     outcome = "error"
     try:
-        with routing.for_session(routing.side_key(session.id, "sample")):
+        with routing.for_session(routing.side_key(owner, "sample")):
             async for event in provider.stream(
                 _messages(params), [], max_tokens=params.maxTokens, thinking="off", **extra
             ):
@@ -221,7 +240,7 @@ async def llm_sample_handler(
             cached_input_tokens=cached_tokens,
             outcome=outcome,
         )
-        if input_tokens or output_tokens:
+        if session is not None and (input_tokens or output_tokens):
             # The one trace this call leaves in the session: what it cost.
             await core.hub.emit_event(
                 session.id,

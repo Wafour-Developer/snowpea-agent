@@ -227,6 +227,30 @@ export interface ApprovalAskResult {
   scope?: "once" | "session" | "project" | "always" | "site";
 }
 
+/** `approval.evaluate` params. Would a saved rule or the mode allow this action? A host-level, side-effect-free check (1.40.0): the allowlist entries of the caller's own profile (its clientId), then the mode matrix. Nothing is asked or stored. */
+export interface ApprovalEvaluateParams {
+  /** The action's arguments (a shell command line, a url), for rules on them. */
+  args?: Record<string, unknown>;
+  /** The permission mode the action would run in; the mode matrix is consulted. */
+  mode?: "plan" | "accept" | "auto";
+  /** Permission class of the action. */
+  permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside";
+  /** 'payment' (or args.onceOnly): the allowlist is never consulted. */
+  risk?: string | null;
+  /** Origin of the page (https://host); matched against site rules. */
+  site?: string | null;
+  /** Tool the action belongs to; the allowlist is keyed by it. */
+  tool: string;
+}
+
+/** `approval.evaluate` result. */
+export interface ApprovalEvaluateResult {
+  /** What decided: the mode matrix, a saved rule of this profile, or neither. */
+  by: "mode" | "allowlist" | "none";
+  /** 'allow', 'deny', or 'ask' (a person has to decide). */
+  decision: "allow" | "ask" | "deny";
+}
+
 /** `approval.list` params. List tool calls still waiting for a decision. */
 export interface ApprovalListParams {
   /** Scope the listing to one session; omit for the global set. */
@@ -1264,8 +1288,8 @@ export interface LlmSampleParams {
   schema?: Record<string, unknown> | null;
   /** Put the schema instruction after the fenced input (with task) instead of in the system message, for a schema that varies per call (1.21.0). */
   schemaAfterInput?: boolean;
-  /** Session whose provider settings and bill this call uses; its host only. */
-  sessionId: string;
+  /** Session whose provider settings and bill this call uses; its host only. Omitted (1.40.0, capability 'llmSampleHost'): a host-level call for a connection that has registered host tools -- the default model of this daemon (models.default), with 'fast', 'standard' and 'deep' choosing browser.fastModel / models.categories as for a session. No session is billed and no usage event is written. */
+  sessionId?: string | null;
   /** Instructions the host wrote. */
   system?: string | null;
   /** Trusted per-call instruction from the host, placed after the fenced input, so system + page stay a prefix several samples of one page share (1.21.0). */
@@ -6607,6 +6631,7 @@ export interface MethodMap {
   "agent.list": { params: AgentListParams; result: AgentListResult };
   "agent.spawn": { params: AgentSpawnParams; result: AgentSpawnResult };
   "approval.ask": { params: ApprovalAskParams; result: ApprovalAskResult };
+  "approval.evaluate": { params: ApprovalEvaluateParams; result: ApprovalEvaluateResult };
   "approval.list": { params: ApprovalListParams; result: ApprovalListResult };
   "approval.request": { params: ApprovalRequestParams; result: ApprovalRequestResult };
   "approval.respond": { params: ApprovalRespondParams; result: ApprovalRespondResult };
@@ -6763,6 +6788,7 @@ export type ClientMethod =
   | "agent.list"
   | "agent.spawn"
   | "approval.ask"
+  | "approval.evaluate"
   | "approval.list"
   | "approval.respond"
   | "audio.capabilities"

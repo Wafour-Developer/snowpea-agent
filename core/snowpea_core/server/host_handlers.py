@@ -29,6 +29,8 @@ from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     ApprovalAskParams,
     ApprovalAskResult,
+    ApprovalEvaluateParams,
+    ApprovalEvaluateResult,
     MemoryIngestParams,
     MemoryIngestResult,
     Ok,
@@ -193,6 +195,41 @@ async def tool_progress_handler(
 ) -> Ok:
     """``tool.progress`` (notification) — re-emit as ``session.event tool.progress``."""
     return Ok(ok=await HOST_TOOLS.progress(conn, params.callId, params.message))
+
+
+# ---------------------------------------------------------------------------
+# approval.evaluate
+# ---------------------------------------------------------------------------
+
+
+async def approval_evaluate_handler(
+    conn: RpcConnection, params: ApprovalEvaluateParams, core: Core
+) -> ApprovalEvaluateResult:
+    """``approval.evaluate`` — would the mode or a saved rule allow this? (1.40.0)
+
+    For a host that asks the person itself (a browser driving a remote daemon)
+    but wants to honour the "always allow" rules the person saved on *this*
+    daemon.  The mode matrix may deny or allow outright; otherwise the caller's
+    own profile's allowlist entries are consulted (global entries only cover
+    their own ``clientId``, as for a session).  ``risk: "payment"`` and
+    ``args.onceOnly`` skip the allowlist, as in ``approval.ask``.  Nothing is
+    asked, stored or logged.
+    """
+    if not HOST_TOOLS.is_host(conn):
+        raise RpcError(
+            errors.UNAUTHORIZED, "only a host that registered tools may evaluate approvals"
+        )
+    matrix = MODE_MATRIX.get(params.mode, {}).get(params.permission, "ask")
+    if matrix == "deny":
+        return ApprovalEvaluateResult(decision="deny", by="mode")
+    if matrix == "allow":
+        return ApprovalEvaluateResult(decision="allow", by="mode")
+    unremembered = (params.risk or "").strip().lower() == PAYMENT_RISK or once_only(params.args)
+    if not unremembered and core.allowlist.matches(
+        params.tool, params.args, site=params.site, host=conn.client_id
+    ):
+        return ApprovalEvaluateResult(decision="allow", by="allowlist")
+    return ApprovalEvaluateResult(decision="ask", by="none")
 
 
 # ---------------------------------------------------------------------------
@@ -1000,6 +1037,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("tool.unregister", tool_unregister_handler)
     dispatcher.register("tool.progress", tool_progress_handler)
     dispatcher.register("approval.ask", approval_ask_handler)
+    dispatcher.register("approval.evaluate", approval_evaluate_handler)
     dispatcher.register("session.attach", session_attach_handler)
     dispatcher.register("session.setBrowserProvider", session_set_browser_provider_handler)
     dispatcher.register("session.setAgent", session_set_agent_handler)
