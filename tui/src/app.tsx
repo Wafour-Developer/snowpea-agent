@@ -317,6 +317,8 @@ export interface AppProps {
   sessionId: string;
   mode: Mode;
   workdir: string;
+  /** Label of a non-local daemon (`--remote` / `--docker`); the HUD shows it. */
+  remote?: string;
   provider?: string;
   model?: string;
   /** Delegation mode as `session.create` reported it. */
@@ -503,6 +505,7 @@ export function App({
   sessionId: initialSessionId,
   mode,
   workdir,
+  remote,
   provider,
   model,
   initialDelegation,
@@ -1300,6 +1303,7 @@ export function App({
         version,
         latestVersion: updateAvailable ? update.latest : null,
         workdir,
+        remote,
         sessionId: state.sessionId,
         provider: state.provider,
         model: state.model,
@@ -1335,6 +1339,7 @@ export function App({
       update.latest,
       updateAvailable,
       workdir,
+      remote,
       state.sessionId,
       state.provider,
       state.model,

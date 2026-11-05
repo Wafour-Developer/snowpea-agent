@@ -18,6 +18,8 @@ snowpea --remote me@build-box:2222 --cwd /srv/app
 
 The daemon listens only on the host's own loopback address; no port is opened on the host. Everything crosses the ssh connection.
 
+While you are connected to a remote daemon the status line shows `⇄ user@host` (`⇄ docker:<name>` for `--docker`); a local session shows nothing.
+
 ## Requirements
 
 - `ssh` on this machine, and a login on the host that your ssh setup already accepts (keys, agent, `~/.ssh/config` aliases all work).

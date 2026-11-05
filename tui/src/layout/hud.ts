@@ -104,6 +104,8 @@ export interface HudInput {
   latestVersion?: string | null;
   /** Directory the session runs in; the HUD is the only place it appears. */
   workdir?: string;
+  /** `--remote` / `--docker` label (`me@box`, `docker:name`); absent for a local daemon. */
+  remote?: string;
   /** Session id, shortened; likewise only here. */
   sessionId?: string | null;
   provider: string | null;
@@ -178,6 +180,16 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     dimColor: !input.latestVersion,
     priority: input.latestVersion ? 1 : 5,
   });
+
+  if (input.remote) {
+    segments.push({
+      key: "remote",
+      text: `⇄ ${input.remote}`,
+      color: "magenta",
+      bold: true,
+      priority: 2,
+    });
+  }
 
   if (input.workdir) {
     segments.push({

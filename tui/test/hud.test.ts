@@ -68,6 +68,14 @@ describe("formatters", () => {
 });
 
 describe("buildHudSegments", () => {
+  it("names a remote daemon, and says nothing for a local one", () => {
+    expect(buildHudSegments(base).some((s) => s.key === "remote")).toBe(false);
+    const segments = buildHudSegments({ ...base, remote: "dev@box" });
+    expect(segments.find((s) => s.key === "remote")?.text).toBe("⇄ dev@box");
+    const rows = layoutHud(segments, 40);
+    expect(text(rows).join(" ")).toContain("⇄ dev@box");
+  });
+
   it("reports the version alone when no update is waiting", () => {
     const segments = buildHudSegments(base);
     expect(segments.find((s) => s.key === "version")?.text).toBe("snowpea v0.1.2");

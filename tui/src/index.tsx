@@ -338,6 +338,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       initialDelegation={delegation}
       mode={args.mode ?? "accept"}
       workdir={args.cwd}
+      remote={args.remote}
       fullscreen={args.fullscreen}
       history={history}
       sessions={sessions}
