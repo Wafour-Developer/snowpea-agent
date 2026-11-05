@@ -24,8 +24,8 @@ def test_the_capabilities() -> None:
 
 async def test_a_host_can_sample_without_a_session(
     http: aiohttp.ClientSession,
-    daemon: Daemon,
-    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+    daemon: Daemon,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider, asked = stub(monkeypatch, daemon, '{"price": 3, "title": "Cup"}')
     host = await open_client(http, daemon, client_id="profile-1")
@@ -51,8 +51,8 @@ async def test_a_host_can_sample_without_a_session(
 
 async def test_a_plain_client_cannot_sample_without_a_session(
     http: aiohttp.ClientSession,
-    daemon: Daemon,
-    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+    daemon: Daemon,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub(monkeypatch, daemon, "x")
     plain = await connect(http, daemon)  # said hello, registered no host tools
@@ -65,9 +65,9 @@ async def test_a_plain_client_cannot_sample_without_a_session(
 
 async def test_a_session_call_still_needs_its_own_host(
     http: aiohttp.ClientSession,
-    daemon: Daemon,
+    daemon: Daemon,  # noqa: F811
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub(monkeypatch, daemon, "x")
     other = await open_client(http, daemon)
