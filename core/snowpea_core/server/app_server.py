@@ -28,6 +28,7 @@ from snowpea_core.config.patch import reject_masked_secrets
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
 from snowpea_core.gateway.router import GatewayRouter
+from snowpea_core.machine import machine_info
 from snowpea_core.permissions.allowlist import SHELL_TARGET, Allowlist
 from snowpea_core.permissions.allowlist import Scope as AllowlistStore
 from snowpea_core.permissions.approval_queue import ApprovalQueue
@@ -152,6 +153,8 @@ class Core:
     port: int = 0
     started_at: str = field(default_factory=_utc_now)
     request_shutdown: Any = None
+    #: Where this daemon runs (1.40.0): ``system.hello`` and ``session.list`` report it.
+    machine: Any = None
     #: Set once ``system.update`` finished successfully; ``system.info``
     #: reports it so a surface can tell the user to restart (CORE-update).
     restart_required: bool = False
@@ -745,6 +748,7 @@ class Daemon:
             on_idle=self._on_idle,
         )
         core.request_shutdown = self.request_shutdown
+        core.machine = machine_info(paths.home)
         core.gateway = GatewayRouter()
         core.gateway.bind_core(core)
         core.named_agents = NamedAgentRegistry(core)

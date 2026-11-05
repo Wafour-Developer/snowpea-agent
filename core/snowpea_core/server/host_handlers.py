@@ -102,6 +102,28 @@ def _session(core: Core, session_id: str) -> Session:
 # ---------------------------------------------------------------------------
 
 
+#: Clients that use a daemon on purpose; their hello without ``holdSec`` lifts a hold.
+ORDINARY_CLIENT_KINDS = frozenset({"tui", "desktop", "ide"})
+
+
+def apply_hold(core: Core, params: Any) -> None:
+    """``holdSec`` of a hello (1.40.0): see :mod:`snowpea_core.server.lifecycle`."""
+    lifecycle = getattr(core, "lifecycle", None)
+    if lifecycle is None:
+        return
+    hold = getattr(params, "holdSec", None)
+    if hold is not None:
+        lifecycle.running_turns = lambda: sum(
+            1 for session in core.sessions.all() if session.current_turn is not None
+        )
+        lifecycle.set_hold(hold)
+        log.info("idle timeout held to %ss by %s", lifecycle.hold_sec, params.clientKind)
+    elif lifecycle.hold_sec is not None and params.clientKind in ORDINARY_CLIENT_KINDS:
+        lifecycle.set_hold(None)
+        log.info("idle timeout back to %ss: %s connected", lifecycle.idle_timeout_sec,
+                 params.clientKind)
+
+
 def adopt_hello(core: Core, conn: RpcConnection, params: Any) -> None:
     """Record a hello's client identity; re-bind that client's sessions; keep alive.
 
@@ -124,6 +146,7 @@ def adopt_hello(core: Core, conn: RpcConnection, params: Any) -> None:
                 rebound += 1
         if rebound:
             log.info("client %s re-attached to %d session(s)", params.clientId, rebound)
+    apply_hold(core, params)
     if params.keepAlive and not conn.keep_alive:
         conn.keep_alive = True
         lifecycle = getattr(core, "lifecycle", None)
@@ -986,6 +1009,9 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("session.events", session_events_handler)
     dispatcher.register("turn.outcome", turn_outcome_handler)
     dispatcher.register("session.toolContent", session_tool_content_handler)
+    from snowpea_core.server.fs_handlers import register_fs_handlers
+
+    register_fs_handlers(dispatcher)
     dispatcher.register("session.artifacts", session_artifacts_handler)
     dispatcher.register("session.attachments", session_attachments_handler)
     dispatcher.register("session.rename", session_rename_handler)

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.39.0"
+PROTOCOL_VERSION = "1.40.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -180,6 +180,35 @@ class HelloParams(Payload):
             "Keep the daemon from its idle shutdown while this client is connected (1.6.0)."
         ),
     )
+    holdSec: int | None = Field(
+        default=None,
+        ge=30,
+        le=3600,
+        description=(
+            "A connector-held client (1.40.0, capability 'holdSec'): once nothing but "
+            "loaded, idle sessions is left, the daemon exits this many seconds after the "
+            "last connection goes instead of after daemon.idleTimeoutSec. A running turn, "
+            "job, gateway binding, named agent or keep-alive client still keeps it up. "
+            "Clamped to 30..3600; a later hello from a tui/desktop/ide client without it "
+            "restores the ordinary timeout."
+        ),
+    )
+
+
+class MachineInfo(Payload):
+    """Which machine (and state home) a daemon runs on (1.40.0, capability 'machineIdentity')."""
+
+    id: str = Field(
+        description=(
+            "UUID made once and kept in <home>/machine-id (mode 0600): stable for one machine "
+            "and one state home, not derived from hardware."
+        )
+    )
+    hostname: str = Field(description="socket.gethostname() of the daemon's machine.")
+    os: Literal["linux", "darwin", "windows"] = Field(description="The daemon machine's OS.")
+    container: bool = Field(
+        description="True when the daemon runs inside Docker (or another Linux container)."
+    )
 
 
 class HelloResult(Payload):
@@ -194,6 +223,10 @@ class HelloResult(Payload):
             "The models.categories slots this daemon routes by (1.33.0, capability "
             "'modelCategories'); empty from an older daemon."
         ),
+    )
+    machine: MachineInfo | None = Field(
+        default=None,
+        description="The machine this daemon runs on (1.40.0); absent from an older daemon.",
     )
 
 
@@ -923,6 +956,13 @@ class SessionSummary(Payload):
         description=(
             "The connection that owns approvals now; null when none ever attached "
             "in this daemon run (saved rows, schedules) (1.26.0)."
+        ),
+    )
+    machine: MachineInfo | None = Field(
+        default=None,
+        description=(
+            "The machine whose daemon listed the row (1.40.0): a client that caches rows "
+            "from several daemons matches them by machine.id."
         ),
     )
 
@@ -6322,6 +6362,133 @@ class McpAuthDoneNotification(Payload):
 
 
 # --------------------------------------------------------------------------
+# fs.* (1.40.0, capability 'fs')
+# --------------------------------------------------------------------------
+
+FsType = Literal["file", "dir", "other"]
+#: Largest read or write one fs call carries.
+FS_MAX_BYTES = 8 * 1024 * 1024
+#: Largest listing one fs.list / fs.glob call returns.
+FS_MAX_ENTRIES = 20000
+
+
+class FsPathParams(Payload):
+    sessionId: str = Field(
+        description=(
+            "Session whose roots bound the call: its workdir, its workspaceDir and its root "
+            "conversation's attachments dir. A relative path is relative to the workdir."
+        )
+    )
+    path: str = Field(description="File or directory; absolute, or relative to the workdir.")
+
+
+class FsStatResult(Payload):
+    path: str = Field(description="The path as resolved (symlinks in the directories followed).")
+    type: FsType = Field(
+        description=(
+            "'file', 'dir' or 'other'. A symbolic link reports the type of its target when "
+            "that target lies inside a root, else 'other'."
+        )
+    )
+    size: int = Field(description="Bytes (the link itself for a symbolic link).")
+    mtimeMs: float = Field(description="Last change, milliseconds since the epoch.")
+    nlink: int = Field(description="Hard link count.")
+    isLink: bool = Field(description="True when the last component is a symbolic link.")
+
+
+class FsListParams(FsPathParams):
+    depth: int = Field(
+        default=1, ge=1, le=32, description="1 lists the directory itself; more recurses."
+    )
+    maxEntries: int = Field(
+        default=2000, ge=1, le=FS_MAX_ENTRIES, description="Stop after this many entries."
+    )
+
+
+class FsEntry(Payload):
+    path: str = Field(description="Path relative to the listed directory, with '/'.")
+    type: FsType = Field(description="As in fs.stat.")
+    size: int = Field(description="Bytes.")
+    mtimeMs: float = Field(description="Last change, milliseconds since the epoch.")
+    nlink: int = Field(description="Hard link count.")
+    isLink: bool = Field(description="True for a symbolic link (never followed while listing).")
+
+
+class FsListResult(Payload):
+    path: str = Field(description="The directory as resolved.")
+    entries: list[FsEntry] = Field(
+        default_factory=list, description="Sorted by path, directories before their children."
+    )
+    truncated: bool = Field(default=False, description="True when maxEntries cut the listing.")
+
+
+class FsGlobParams(Payload):
+    sessionId: str = Field(description="Session whose roots bound the call (see fs.stat).")
+    path: str = Field(
+        default=".", description="Directory the pattern starts from; default the workdir."
+    )
+    pattern: str = Field(
+        description=(
+            "Relative glob: '*', '?', '[..]' within a name and a segment '**' for any number of "
+            "directories, as in 'src/**' followed by '/*.ts'. No '..' and not absolute."
+        )
+    )
+    maxEntries: int = Field(
+        default=2000, ge=1, le=FS_MAX_ENTRIES, description="Stop after this many matches."
+    )
+
+
+class FsReadParams(FsPathParams):
+    offset: int = Field(default=0, ge=0, description="First byte to read.")
+    length: int | None = Field(
+        default=None, ge=0, description="Bytes to read; omitted reads to the end of the file."
+    )
+    maxBytes: int = Field(
+        default=FS_MAX_BYTES,
+        ge=1,
+        description=(
+            "Refuse (too_large) a read of more than this many bytes; at most 8 MiB, a larger "
+            "value is capped."
+        ),
+    )
+
+
+class FsReadResult(Payload):
+    dataBase64: str = Field(description="The bytes read, base64.")
+    size: int = Field(description="Size of the whole file.")
+    offset: int = Field(description="Where the bytes start.")
+    length: int = Field(description="How many bytes came back.")
+    mtimeMs: float = Field(description="Last change, milliseconds since the epoch.")
+    eof: bool = Field(description="True when the bytes reach the end of the file.")
+
+
+FsWriteMode = Literal["create", "overwrite"]
+
+
+class FsWriteParams(FsPathParams):
+    dataBase64: str = Field(description="The whole new content, base64; at most 8 MiB decoded.")
+    mode: FsWriteMode = Field(
+        description=(
+            "'create' fails with 'exists' when the path is there; 'overwrite' replaces a "
+            "regular file (a symbolic link or a file with other hard links is refused)."
+        )
+    )
+
+
+class FsWriteResult(Payload):
+    path: str = Field(description="The path written, as resolved.")
+    size: int = Field(description="Bytes written.")
+    mtimeMs: float = Field(description="Last change, milliseconds since the epoch.")
+    created: bool = Field(description="True when the file did not exist before.")
+
+
+class FsHashResult(Payload):
+    sha256: str = Field(description="Hex SHA-256 of the whole file, read in a stream.")
+    size: int = Field(description="Bytes.")
+    mtimeMs: float = Field(description="Last change, milliseconds since the epoch.")
+
+
+# --------------------------------------------------------------------------
 # registries
 # --------------------------------------------------------------------------
 
@@ -6992,6 +7159,49 @@ METHODS: dict[str, RpcMethod] = {
             "Set a session's title.",
         ),
         _m(
+            "fs.stat",
+            FsPathParams,
+            FsStatResult,
+            "File metadata inside the session's roots (1.40.0): type, size, mtimeMs, nlink, "
+            "isLink. Errors outside_root, not_found.",
+        ),
+        _m(
+            "fs.list",
+            FsListParams,
+            FsListResult,
+            "List a directory, recursively up to depth, capped by maxEntries (1.40.0). "
+            "Symbolic links are listed, never followed.",
+        ),
+        _m(
+            "fs.glob",
+            FsGlobParams,
+            FsListResult,
+            "Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for "
+            "any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never "
+            "followed; '**' does not enter .git or node_modules.",
+        ),
+        _m(
+            "fs.read",
+            FsReadParams,
+            FsReadResult,
+            "Read a byte range of a file, at most 8 MiB per call (1.40.0). Errors outside_root, "
+            "protected, not_found, is_dir, too_large.",
+        ),
+        _m(
+            "fs.write",
+            FsWriteParams,
+            FsWriteResult,
+            "Write a whole file through a temp file and an atomic rename, at most 8 MiB "
+            "(1.40.0). 'create' never replaces; parents are created inside the roots. "
+            "Errors outside_root, protected, exists, is_dir, too_large.",
+        ),
+        _m(
+            "fs.hash",
+            FsPathParams,
+            FsHashResult,
+            "SHA-256 of a file, read in a stream (1.40.0).",
+        ),
+        _m(
             "session.artifacts",
             SessionIdParams,
             SessionArtifactsResult,
@@ -7293,6 +7503,9 @@ CAPABILITIES: list[str] = [
     "ephemeralImages",
     "hostToolsSessionEvents",
     "sitePlaybooks",
+    "fs",
+    "machineIdentity",
+    "holdSec",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -7417,6 +7630,12 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.events",
         "turn.outcome",
         "session.toolContent",
+        "fs.stat",
+        "fs.list",
+        "fs.glob",
+        "fs.read",
+        "fs.write",
+        "fs.hash",
         "session.artifacts",
         "session.attachments",
         "session.rename",

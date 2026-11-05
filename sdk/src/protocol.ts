@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.39.0";
+export const PROTOCOL_VERSION = "1.40.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -16,10 +16,12 @@ export type ErrorCode =
   | "approval_timeout"
   | "auth_expired"
   | "empty_response"
+  | "exists"
   | "image_rejected"
   | "internal"
   | "invalid_output"
   | "invalid_params"
+  | "is_dir"
   | "login_unsupported"
   | "mcp_auth_failed"
   | "mcp_exists"
@@ -32,9 +34,12 @@ export type ErrorCode =
   | "mode_denied"
   | "not_found"
   | "not_implemented"
+  | "outside_root"
+  | "protected"
   | "protocol_incompatible"
   | "session_busy"
   | "skill_exists"
+  | "too_large"
   | "tool_inactive"
   | "unauthorized"
   | "unavailable";
@@ -43,10 +48,12 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "approval_timeout",
   "auth_expired",
   "empty_response",
+  "exists",
   "image_rejected",
   "internal",
   "invalid_output",
   "invalid_params",
+  "is_dir",
   "login_unsupported",
   "mcp_auth_failed",
   "mcp_exists",
@@ -59,9 +66,12 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "mode_denied",
   "not_found",
   "not_implemented",
+  "outside_root",
+  "protected",
   "protocol_incompatible",
   "session_busy",
   "skill_exists",
+  "too_large",
   "tool_inactive",
   "unauthorized",
   "unavailable",
@@ -712,6 +722,172 @@ export interface FileCompleteResult {
   })[];
   /** True when more matches exist than returned. */
   truncated?: boolean;
+}
+
+/** `fs.glob` params. Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never followed; '**' does not enter .git or node_modules. */
+export interface FsGlobParams {
+  /** Stop after this many matches. */
+  maxEntries?: number;
+  /** Directory the pattern starts from; default the workdir. */
+  path?: string;
+  /** Relative glob: '*', '?', '[..]' within a name and a segment '**' for any number of directories, as in 'src/**' followed by '/*.ts'. No '..' and not absolute. */
+  pattern: string;
+  /** Session whose roots bound the call (see fs.stat). */
+  sessionId: string;
+}
+
+/** `fs.glob` result. */
+export interface FsGlobResult {
+  /** Sorted by path, directories before their children. */
+  entries?: ({
+    /** True for a symbolic link (never followed while listing). */
+    isLink: boolean;
+    /** Last change, milliseconds since the epoch. */
+    mtimeMs: number;
+    /** Hard link count. */
+    nlink: number;
+    /** Path relative to the listed directory, with '/'. */
+    path: string;
+    /** Bytes. */
+    size: number;
+    /** As in fs.stat. */
+    type: "file" | "dir" | "other";
+  })[];
+  /** The directory as resolved. */
+  path: string;
+  /** True when maxEntries cut the listing. */
+  truncated?: boolean;
+}
+
+/** `fs.hash` params. SHA-256 of a file, read in a stream (1.40.0). */
+export interface FsHashParams {
+  /** File or directory; absolute, or relative to the workdir. */
+  path: string;
+  /** Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. */
+  sessionId: string;
+}
+
+/** `fs.hash` result. */
+export interface FsHashResult {
+  /** Last change, milliseconds since the epoch. */
+  mtimeMs: number;
+  /** Hex SHA-256 of the whole file, read in a stream. */
+  sha256: string;
+  /** Bytes. */
+  size: number;
+}
+
+/** `fs.list` params. List a directory, recursively up to depth, capped by maxEntries (1.40.0). Symbolic links are listed, never followed. */
+export interface FsListParams {
+  /** 1 lists the directory itself; more recurses. */
+  depth?: number;
+  /** Stop after this many entries. */
+  maxEntries?: number;
+  /** File or directory; absolute, or relative to the workdir. */
+  path: string;
+  /** Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. */
+  sessionId: string;
+}
+
+/** `fs.list` result. */
+export interface FsListResult {
+  /** Sorted by path, directories before their children. */
+  entries?: ({
+    /** True for a symbolic link (never followed while listing). */
+    isLink: boolean;
+    /** Last change, milliseconds since the epoch. */
+    mtimeMs: number;
+    /** Hard link count. */
+    nlink: number;
+    /** Path relative to the listed directory, with '/'. */
+    path: string;
+    /** Bytes. */
+    size: number;
+    /** As in fs.stat. */
+    type: "file" | "dir" | "other";
+  })[];
+  /** The directory as resolved. */
+  path: string;
+  /** True when maxEntries cut the listing. */
+  truncated?: boolean;
+}
+
+/** `fs.read` params. Read a byte range of a file, at most 8 MiB per call (1.40.0). Errors outside_root, protected, not_found, is_dir, too_large. */
+export interface FsReadParams {
+  /** Bytes to read; omitted reads to the end of the file. */
+  length?: number | null;
+  /** Refuse (too_large) a read of more than this many bytes; at most 8 MiB, a larger value is capped. */
+  maxBytes?: number;
+  /** First byte to read. */
+  offset?: number;
+  /** File or directory; absolute, or relative to the workdir. */
+  path: string;
+  /** Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. */
+  sessionId: string;
+}
+
+/** `fs.read` result. */
+export interface FsReadResult {
+  /** The bytes read, base64. */
+  dataBase64: string;
+  /** True when the bytes reach the end of the file. */
+  eof: boolean;
+  /** How many bytes came back. */
+  length: number;
+  /** Last change, milliseconds since the epoch. */
+  mtimeMs: number;
+  /** Where the bytes start. */
+  offset: number;
+  /** Size of the whole file. */
+  size: number;
+}
+
+/** `fs.stat` params. File metadata inside the session's roots (1.40.0): type, size, mtimeMs, nlink, isLink. Errors outside_root, not_found. */
+export interface FsStatParams {
+  /** File or directory; absolute, or relative to the workdir. */
+  path: string;
+  /** Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. */
+  sessionId: string;
+}
+
+/** `fs.stat` result. */
+export interface FsStatResult {
+  /** True when the last component is a symbolic link. */
+  isLink: boolean;
+  /** Last change, milliseconds since the epoch. */
+  mtimeMs: number;
+  /** Hard link count. */
+  nlink: number;
+  /** The path as resolved (symlinks in the directories followed). */
+  path: string;
+  /** Bytes (the link itself for a symbolic link). */
+  size: number;
+  /** 'file', 'dir' or 'other'. A symbolic link reports the type of its target when that target lies inside a root, else 'other'. */
+  type: "file" | "dir" | "other";
+}
+
+/** `fs.write` params. Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large. */
+export interface FsWriteParams {
+  /** The whole new content, base64; at most 8 MiB decoded. */
+  dataBase64: string;
+  /** 'create' fails with 'exists' when the path is there; 'overwrite' replaces a regular file (a symbolic link or a file with other hard links is refused). */
+  mode: "create" | "overwrite";
+  /** File or directory; absolute, or relative to the workdir. */
+  path: string;
+  /** Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. */
+  sessionId: string;
+}
+
+/** `fs.write` result. */
+export interface FsWriteResult {
+  /** True when the file did not exist before. */
+  created: boolean;
+  /** Last change, milliseconds since the epoch. */
+  mtimeMs: number;
+  /** The path written, as resolved. */
+  path: string;
+  /** Bytes written. */
+  size: number;
 }
 
 /** `gateway.bind` params. Attach the daemon to a chat platform channel. */
@@ -2417,6 +2593,17 @@ export interface SessionListResult {
     lastActivityAt?: string | null;
     /** Latest saved user input. */
     lastPrompt?: string | null;
+    /** The machine whose daemon listed the row (1.40.0): a client that caches rows from several daemons matches them by machine.id. */
+    machine?: {
+      /** True when the daemon runs inside Docker (or another Linux container). */
+      container: boolean;
+      /** socket.gethostname() of the daemon's machine. */
+      hostname: string;
+      /** UUID made once and kept in <home>/machine-id (mode 0600): stable for one machine and one state home, not derived from hardware. */
+      id: string;
+      /** The daemon machine's OS. */
+      os: "linux" | "darwin" | "windows";
+    } | null;
     /** Current permission mode. */
     mode: "plan" | "accept" | "auto";
     /** Model id in use. */
@@ -4784,6 +4971,8 @@ export interface SystemHelloParams {
   clientKind?: string | null;
   /** Version string of the connecting client. */
   clientVersion: string;
+  /** A connector-held client (1.40.0, capability 'holdSec'): once nothing but loaded, idle sessions is left, the daemon exits this many seconds after the last connection goes instead of after daemon.idleTimeoutSec. A running turn, job, gateway binding, named agent or keep-alive client still keeps it up. Clamped to 30..3600; a later hello from a tui/desktop/ide client without it restores the ordinary timeout. */
+  holdSec?: number | null;
   /** Id of this run of the client (1.6.0). */
   instanceId?: string | null;
   /** Keep the daemon from its idle shutdown while this client is connected (1.6.0). */
@@ -4798,6 +4987,17 @@ export interface SystemHelloParams {
 export interface SystemHelloResult {
   /** Feature flags this daemon supports. */
   capabilities?: string[];
+  /** The machine this daemon runs on (1.40.0); absent from an older daemon. */
+  machine?: {
+    /** True when the daemon runs inside Docker (or another Linux container). */
+    container: boolean;
+    /** socket.gethostname() of the daemon's machine. */
+    hostname: string;
+    /** UUID made once and kept in <home>/machine-id (mode 0600): stable for one machine and one state home, not derived from hardware. */
+    id: string;
+    /** The daemon machine's OS. */
+    os: "linux" | "darwin" | "windows";
+  } | null;
   /** The models.categories slots this daemon routes by (1.33.0, capability 'modelCategories'); empty from an older daemon. */
   modelCategories?: ("fast" | "standard" | "deep" | "vision")[];
   /** Protocol semver the daemon speaks. */
@@ -6424,6 +6624,12 @@ export interface MethodMap {
   "command.list": { params: CommandListParams; result: CommandListResult };
   "command.run": { params: CommandRunParams; result: CommandRunResult };
   "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
+  "fs.glob": { params: FsGlobParams; result: FsGlobResult };
+  "fs.hash": { params: FsHashParams; result: FsHashResult };
+  "fs.list": { params: FsListParams; result: FsListResult };
+  "fs.read": { params: FsReadParams; result: FsReadResult };
+  "fs.stat": { params: FsStatParams; result: FsStatResult };
+  "fs.write": { params: FsWriteParams; result: FsWriteResult };
   "gateway.bind": { params: GatewayBindParams; result: GatewayBindResult };
   "gateway.list": { params: GatewayListParams; result: GatewayListResult };
   "gateway.sync": { params: GatewaySyncParams; result: GatewaySyncResult };
@@ -6573,6 +6779,12 @@ export type ClientMethod =
   | "command.list"
   | "command.run"
   | "file.complete"
+  | "fs.glob"
+  | "fs.hash"
+  | "fs.list"
+  | "fs.read"
+  | "fs.stat"
+  | "fs.write"
   | "gateway.bind"
   | "gateway.list"
   | "gateway.sync"

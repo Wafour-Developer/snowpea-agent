@@ -303,7 +303,8 @@ async def connect(
     question_answer: list[dict[str, Any]] | None = None,
 ) -> RpcClient:
     """Open ``/ws``, complete ``system.hello`` and return the ready client."""
-    ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
+    # aiohttp's default 4 MiB frame limit is below what fs.read answers with (8 MiB of base64).
+    ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws", max_msg_size=64 * 1024 * 1024)
     client = RpcClient(
         ws,
         timeout=timeout,

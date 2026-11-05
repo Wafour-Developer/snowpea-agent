@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import WSMsgType, web
 
+from snowpea_core.machine import machine_of
 from snowpea_core.server import errors
 from snowpea_core.server.auth import token_matches
 from snowpea_core.server.errors import RpcError
@@ -68,6 +69,7 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
         serverVersion=SERVER_VERSION,
         capabilities=list(CAPABILITIES),
         modelCategories=list(MODEL_CATEGORIES),
+        machine=machine_of(core),
     )
 
 

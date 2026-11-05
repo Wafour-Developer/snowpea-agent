@@ -28,6 +28,7 @@ from snowpea_core.attachments.model import AttachmentError, decode_base64
 from snowpea_core.attachments.store import AttachmentStore
 from snowpea_core.commands.registry import register_builtin_commands
 from snowpea_core.lsp import wire_lsp
+from snowpea_core.machine import machine_of
 from snowpea_core.memory import services as memory_services
 from snowpea_core.memory import wire_memory, write_preference
 from snowpea_core.memory.retrieval import agent_namespace_of, project_namespace_of
@@ -434,7 +435,9 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
             )
             enriched.append(row.model_copy(update={"lastPrompt": prompt}))
         rows = enriched
-    rows = [_with_effort(core, _with_waits(core, row)) for row in rows]
+    machine = machine_of(core)
+    rows = [_with_effort(core, _with_waits(core, row)).model_copy(update={"machine": machine})
+            for row in rows]
     return sorted(rows, key=lambda row: row.createdAt, reverse=True)
 
 

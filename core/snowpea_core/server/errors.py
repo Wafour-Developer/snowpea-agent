@@ -57,6 +57,17 @@ EMPTY_RESPONSE = "empty_response"
 #: replaces the unreadable picture with text and asks once more before this.
 IMAGE_REJECTED = "image_rejected"
 
+#: ``fs.*`` (1.40.0): the path resolves outside every root of the session
+#: (``..``, an absolute path or a symbolic link), or a write would go through a
+#: link; the content is too big for one call; the path is already there
+#: (``fs.write`` ``create``) or is a directory where a file is needed; or the
+#: file is one of snowpea's own secrets or a credential file.
+OUTSIDE_ROOT = "outside_root"
+TOO_LARGE = "too_large"
+EXISTS = "exists"
+IS_DIR = "is_dir"
+PROTECTED = "protected"
+
 ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,
     PROTOCOL_INCOMPATIBLE,
@@ -84,6 +95,11 @@ ERROR_CODES: tuple[str, ...] = (
     INTERNAL,
     EMPTY_RESPONSE,
     IMAGE_REJECTED,
+    OUTSIDE_ROOT,
+    TOO_LARGE,
+    EXISTS,
+    IS_DIR,
+    PROTECTED,
 )
 
 # JSON-RPC 2.0 reserved codes.
@@ -129,6 +145,11 @@ class RpcError(Exception):
 
 
 __all__ = [
+    "EXISTS",
+    "IS_DIR",
+    "OUTSIDE_ROOT",
+    "PROTECTED",
+    "TOO_LARGE",
     "APPROVAL_DENIED",
     "APPROVAL_TIMEOUT",
     "ERROR_CODES",

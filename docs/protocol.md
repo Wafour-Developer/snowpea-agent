@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.39.0` (semver)
+- **Protocol version:** `1.40.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.39.0"
+    "protocolVersion": "1.40.0"
   }
 }
 ```
@@ -46,6 +46,8 @@ Server capabilities advertised in the `system.hello` result:
 - `checkpoints`
 - `commands`
 - `ephemeralImages`
+- `fs`
+- `holdSec`
 - `hostToolParallel`
 - `hostTools`
 - `hostToolsSessionEvents`
@@ -58,6 +60,7 @@ Server capabilities advertised in the `system.hello` result:
 - `lspChanged`
 - `lspInstall`
 - `lspRestart`
+- `machineIdentity`
 - `mcp`
 - `mcpOAuth`
 - `mcpVarExpansion`
@@ -128,6 +131,12 @@ Server capabilities advertised in the `system.hello` result:
 | [`command.list`](#commandlist) | client → server | List the slash commands available to a session. |
 | [`command.run`](#commandrun) | client → server | Run a slash command; the only execution path for them. |
 | [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
+| [`fs.glob`](#fsglob) | client → server | Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never followed; '**' does not enter .git or node_modules. |
+| [`fs.hash`](#fshash) | client → server | SHA-256 of a file, read in a stream (1.40.0). |
+| [`fs.list`](#fslist) | client → server | List a directory, recursively up to depth, capped by maxEntries (1.40.0). Symbolic links are listed, never followed. |
+| [`fs.read`](#fsread) | client → server | Read a byte range of a file, at most 8 MiB per call (1.40.0). Errors outside_root, protected, not_found, is_dir, too_large. |
+| [`fs.stat`](#fsstat) | client → server | File metadata inside the session's roots (1.40.0): type, size, mtimeMs, nlink, isLink. Errors outside_root, not_found. |
+| [`fs.write`](#fswrite) | client → server | Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large. |
 | [`gateway.bind`](#gatewaybind) | client → server | Attach the daemon to a chat platform channel. |
 | [`gateway.list`](#gatewaylist) | client → server | List live gateway bindings. |
 | [`gateway.sync`](#gatewaysync) | client → server | Reconcile the messenger bindings with settings.gateway. |
@@ -761,6 +770,148 @@ Complete file and directory paths under a session workdir.
 |---|---|---|---|
 | `entries` | `({ kind: "file" \| "dir"; path: string; size?: number \| null; })[]` | no | Matching paths, best first. |
 | `truncated` | `boolean` | no | True when more matches exist than returned. |
+
+### `fs.glob`
+
+*Direction:* client → server
+
+Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never followed; '**' does not enter .git or node_modules.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `maxEntries` | `number` | no | Stop after this many matches. |
+| `path` | `string` | no | Directory the pattern starts from; default the workdir. |
+| `pattern` | `string` | yes | Relative glob: '*', '?', '[..]' within a name and a segment '**' for any number of directories, as in 'src/**' followed by '/*.ts'. No '..' and not absolute. |
+| `sessionId` | `string` | yes | Session whose roots bound the call (see fs.stat). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entries` | `({ isLink: boolean; mtimeMs: number; nlink: number; path: string; size: number; type: "file" \| "dir" \| "other"; })[]` | no | Sorted by path, directories before their children. |
+| `path` | `string` | yes | The directory as resolved. |
+| `truncated` | `boolean` | no | True when maxEntries cut the listing. |
+
+### `fs.hash`
+
+*Direction:* client → server
+
+SHA-256 of a file, read in a stream (1.40.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `path` | `string` | yes | File or directory; absolute, or relative to the workdir. |
+| `sessionId` | `string` | yes | Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `mtimeMs` | `number` | yes | Last change, milliseconds since the epoch. |
+| `sha256` | `string` | yes | Hex SHA-256 of the whole file, read in a stream. |
+| `size` | `number` | yes | Bytes. |
+
+### `fs.list`
+
+*Direction:* client → server
+
+List a directory, recursively up to depth, capped by maxEntries (1.40.0). Symbolic links are listed, never followed.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `depth` | `number` | no | 1 lists the directory itself; more recurses. |
+| `maxEntries` | `number` | no | Stop after this many entries. |
+| `path` | `string` | yes | File or directory; absolute, or relative to the workdir. |
+| `sessionId` | `string` | yes | Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entries` | `({ isLink: boolean; mtimeMs: number; nlink: number; path: string; size: number; type: "file" \| "dir" \| "other"; })[]` | no | Sorted by path, directories before their children. |
+| `path` | `string` | yes | The directory as resolved. |
+| `truncated` | `boolean` | no | True when maxEntries cut the listing. |
+
+### `fs.read`
+
+*Direction:* client → server
+
+Read a byte range of a file, at most 8 MiB per call (1.40.0). Errors outside_root, protected, not_found, is_dir, too_large.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `length` | `number \| null` | no | Bytes to read; omitted reads to the end of the file. |
+| `maxBytes` | `number` | no | Refuse (too_large) a read of more than this many bytes; at most 8 MiB, a larger value is capped. |
+| `offset` | `number` | no | First byte to read. |
+| `path` | `string` | yes | File or directory; absolute, or relative to the workdir. |
+| `sessionId` | `string` | yes | Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `dataBase64` | `string` | yes | The bytes read, base64. |
+| `eof` | `boolean` | yes | True when the bytes reach the end of the file. |
+| `length` | `number` | yes | How many bytes came back. |
+| `mtimeMs` | `number` | yes | Last change, milliseconds since the epoch. |
+| `offset` | `number` | yes | Where the bytes start. |
+| `size` | `number` | yes | Size of the whole file. |
+
+### `fs.stat`
+
+*Direction:* client → server
+
+File metadata inside the session's roots (1.40.0): type, size, mtimeMs, nlink, isLink. Errors outside_root, not_found.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `path` | `string` | yes | File or directory; absolute, or relative to the workdir. |
+| `sessionId` | `string` | yes | Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `isLink` | `boolean` | yes | True when the last component is a symbolic link. |
+| `mtimeMs` | `number` | yes | Last change, milliseconds since the epoch. |
+| `nlink` | `number` | yes | Hard link count. |
+| `path` | `string` | yes | The path as resolved (symlinks in the directories followed). |
+| `size` | `number` | yes | Bytes (the link itself for a symbolic link). |
+| `type` | `"file" \| "dir" \| "other"` | yes | 'file', 'dir' or 'other'. A symbolic link reports the type of its target when that target lies inside a root, else 'other'. |
+
+### `fs.write`
+
+*Direction:* client → server
+
+Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `dataBase64` | `string` | yes | The whole new content, base64; at most 8 MiB decoded. |
+| `mode` | `"create" \| "overwrite"` | yes | 'create' fails with 'exists' when the path is there; 'overwrite' replaces a regular file (a symbolic link or a file with other hard links is refused). |
+| `path` | `string` | yes | File or directory; absolute, or relative to the workdir. |
+| `sessionId` | `string` | yes | Session whose roots bound the call: its workdir, its workspaceDir and its root conversation's attachments dir. A relative path is relative to the workdir. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `created` | `boolean` | yes | True when the file did not exist before. |
+| `mtimeMs` | `number` | yes | Last change, milliseconds since the epoch. |
+| `path` | `string` | yes | The path written, as resolved. |
+| `size` | `number` | yes | Bytes written. |
 
 ### `gateway.bind`
 
@@ -2048,7 +2199,7 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `complete` | `boolean` | no | True when the list is all there is for what was asked (1.27.0): the daemon's boot has restored the sessions it reopens, and with includeClosed the saved ones were read. Without includeClosed it covers live sessions only, which after a restart is usually none; ask with includeClosed before forgetting a closed chat. False (or absent, from an older daemon) means an empty or short list proves nothing, so a client must not forget its own records by it. |
-| `sessions` | `({ agent?: string \| null; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -2913,6 +3064,7 @@ Authenticate a connection and agree on the protocol version.
 | `clientId` | `string \| null` | no | Id stable across restarts of this client install (1.6.0). Sessions a previous connection with the same clientId started re-bind to this one. |
 | `clientKind` | `string \| null` | no | What the client is, e.g. "tui", "desktop", "browser" (1.6.0). |
 | `clientVersion` | `string` | yes | Version string of the connecting client. |
+| `holdSec` | `number \| null` | no | A connector-held client (1.40.0, capability 'holdSec'): once nothing but loaded, idle sessions is left, the daemon exits this many seconds after the last connection goes instead of after daemon.idleTimeoutSec. A running turn, job, gateway binding, named agent or keep-alive client still keeps it up. Clamped to 30..3600; a later hello from a tui/desktop/ide client without it restores the ordinary timeout. |
 | `instanceId` | `string \| null` | no | Id of this run of the client (1.6.0). |
 | `keepAlive` | `boolean` | no | Keep the daemon from its idle shutdown while this client is connected (1.6.0). |
 | `protocolVersion` | `string` | yes | Protocol semver the client speaks; major must match. |
@@ -2923,6 +3075,7 @@ Authenticate a connection and agree on the protocol version.
 | field | type | required | description |
 |---|---|---|---|
 | `capabilities` | `string[]` | no | Feature flags this daemon supports. |
+| `machine` | `{ container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null` | no | The machine this daemon runs on (1.40.0); absent from an older daemon. |
 | `modelCategories` | `("fast" \| "standard" \| "deep" \| "vision")[]` | no | The models.categories slots this daemon routes by (1.33.0, capability 'modelCategories'); empty from an older daemon. |
 | `protocolVersion` | `string` | yes | Protocol semver the daemon speaks. |
 | `serverVersion` | `string` | yes | Version of the running daemon. |
@@ -3916,10 +4069,12 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `approval_timeout` | No approval arrived before `approvals.timeoutSec` elapsed. |
 | `auth_expired` |  |
 | `empty_response` |  |
+| `exists` |  |
 | `image_rejected` |  |
 | `internal` | Unexpected server-side failure. |
 | `invalid_output` |  |
 | `invalid_params` | Params failed schema validation. |
+| `is_dir` |  |
 | `login_unsupported` | The vendor does not support the requested login method. |
 | `mcp_auth_failed` |  |
 | `mcp_exists` |  |
@@ -3932,9 +4087,12 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `mode_denied` | The session mode forbids this tool or action. |
 | `not_found` | No such session, request, job, agent or content (`-32004`). |
 | `not_implemented` | Defined in the schema but not implemented in this milestone. |
+| `outside_root` |  |
+| `protected` |  |
 | `protocol_incompatible` | Client and server protocol majors differ. |
 | `session_busy` |  |
 | `skill_exists` |  |
+| `too_large` |  |
 | `tool_inactive` | The tool exists but is disabled for this session. |
 | `unauthorized` | Missing or invalid token, or a call before `system.hello`. |
 | `unavailable` |  |
