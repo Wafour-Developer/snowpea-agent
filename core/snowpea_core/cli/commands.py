@@ -2429,6 +2429,20 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     tools_list_parser = tools_sub.add_parser("list", help="list registered tools")
     tools_list_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
+    remote_parser = sub.add_parser(
+        "remote",
+        help="connect to a remote or container daemon (`remote up`, JSON lines, no terminal UI)",
+    )
+    remote_sub = remote_parser.add_subparsers(dest="action", metavar="<action>")
+    from snowpea_core.cli.remote_up import add_arguments as add_remote_up_arguments
+
+    add_remote_up_arguments(
+        remote_sub.add_parser(
+            "up",
+            help="connect, then report the daemon's port and token as JSON lines on stdout",
+        )
+    )
+
     commands = sub.add_parser("commands", help="inspect the slash-command registry")
     commands_sub = commands.add_subparsers(dest="action", metavar="<action>")
     commands_list_parser = commands_sub.add_parser("list", help="list registered commands")
@@ -3113,6 +3127,9 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         return setup_command(args, home)
     if subcommand == "service":
         return service_command(str(action or ""), home)
+    if subcommand == "remote":
+        # ``remote up`` is routed before parsing (cli/main.py); this is a bare ``snowpea remote``.
+        return _fail("usage: snowpea remote up <[user@]host | --docker> --json", EXIT_USAGE)
     if subcommand == "tools":
         if action != "list":
             return _fail("usage: snowpea tools list [--json]", EXIT_USAGE)

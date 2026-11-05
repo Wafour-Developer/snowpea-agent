@@ -33,6 +33,7 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from snowpea_core import __version__
 from snowpea_core.cli.render import EXIT_NO_DAEMON, EXIT_OK, EXIT_USAGE
@@ -71,7 +72,18 @@ INSTALL_SCRIPT = (
 
 
 class RemoteError(RuntimeError):
-    """The remote session could not be set up; the message says what to do."""
+    """The remote session could not be set up; the message says what to do.
+
+    ``code`` is what ``snowpea remote up`` reports in its ``error`` event
+    (``auth``, ``hostKey``, ``unreachable``, ``notInstalled``, ``installDeclined``,
+    ``versionMajor``, ``dockerMissing``, ``dockerBuild``, else ``internal``);
+    ``reason`` is an optional finer label for the same failure.
+    """
+
+    def __init__(self, message: str, code: str = "internal", reason: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -151,7 +163,8 @@ def check_compatible(advert: Advert, local_protocol: str) -> str | None:
     if remote_major != local_major:
         raise RemoteError(
             f"the remote snowpea {advert.version} speaks protocol {advert.protocol}, this one "
-            f"{local_protocol}; update the older side (`snowpea update`) and try again"
+            f"{local_protocol}; update the older side (`snowpea update`) and try again",
+            code="versionMajor",
         )
     if advert.protocol != local_protocol:
         return (
@@ -159,6 +172,60 @@ def check_compatible(advert: Advert, local_protocol: str) -> str | None:
             f"machine's {local_protocol}; features newer than the older side are unavailable"
         )
     return None
+
+
+#: What ssh says on stderr, by failure; the first match wins.
+_SSH_FAILURES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "hostKey",
+        (
+            "host key verification failed",
+            "remote host identification has changed",
+            "offending key",
+            "no matching host key type",
+        ),
+    ),
+    (
+        "auth",
+        (
+            "permission denied",
+            "too many authentication failures",
+            "no supported authentication methods",
+            "authentication failed",
+        ),
+    ),
+    (
+        "unreachable",
+        (
+            "could not resolve hostname",
+            "name or service not known",
+            "connection refused",
+            "connection timed out",
+            "operation timed out",
+            "no route to host",
+            "network is unreachable",
+            "connection closed by",
+            "connection reset",
+            "kex_exchange_identification",
+            "connect to host",
+            "broken pipe",
+            "ssh_exchange_identification",
+        ),
+    ),
+)
+
+
+def classify_ssh_failure(returncode: int, stderr: str | None) -> str:
+    """The ``error`` code for a failed ssh call (``hostKey``, ``auth``, ``unreachable``, else
+    ``internal``).
+
+    Exit 255 is ssh's own failure; any other status is the remote script's.
+    """
+    text = (stderr or "").lower()
+    for code, needles in _SSH_FAILURES:
+        if any(needle in text for needle in needles):
+            return code
+    return "unreachable" if returncode == 255 else "internal"
 
 
 def free_port() -> int:
@@ -187,8 +254,32 @@ def _run(argv: Sequence[str], stdin: str | None, capture: bool) -> subprocess.Co
     )
 
 
+def find_ssh_tool(name: str = "ssh") -> str:
+    """``ssh``, ``ssh-keygen`` or ``ssh-keyscan``: on PATH, else where Windows keeps OpenSSH.
+
+    An app started from the Start menu or the Dock may not have the tools on its PATH.
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    if sys.platform == "win32":
+        import os
+
+        root = os.environ.get("SystemRoot") or r"C:\Windows"
+        candidate = Path(root) / "System32" / "OpenSSH" / f"{name}.exe"
+        if candidate.is_file():
+            return str(candidate)
+    return ""
+
+
 class RemoteSession:
-    """Bootstraps the remote daemon and keeps the tunnel to it open."""
+    """Bootstraps the remote daemon and keeps the tunnel to it open.
+
+    ``batch`` is for a caller with no terminal (``snowpea remote up``): ssh never
+    prompts (``BatchMode``), gives up on a silent host (``ConnectTimeout``) and runs
+    the installer without a pty.  ``options`` are extra ``-o`` values for every call
+    (the host-key pin of ``remote up``).
+    """
 
     def __init__(
         self,
@@ -199,11 +290,15 @@ class RemoteSession:
         ssh: str | None = None,
         run: Runner = _run,
         say: Callable[[str], None] | None = None,
+        batch: bool = False,
+        options: Sequence[str] = (),
     ) -> None:
         self.target = target
         self.local_protocol = local_protocol
         self._confirm = confirm
-        self._ssh = ssh or shutil.which("ssh") or ""
+        self._ssh = ssh if ssh is not None else find_ssh_tool("ssh")
+        self._batch = batch
+        self._options = list(options)
         self._run = run
         self._say = say or (lambda text: print(f"snowpea: {text}", file=sys.stderr))
         self._control_dir: str | None = None
@@ -215,13 +310,22 @@ class RemoteSession:
 
     # -- ssh -------------------------------------------------------------
 
-    def ssh_argv(self, *extra: str) -> list[str]:
+    def ssh_argv(self, *extra: str, mux: bool = True) -> list[str]:
         if not self._ssh:
-            raise RemoteError("`ssh` is not installed on this machine")
+            raise RemoteError(
+                "`ssh` is not installed on this machine (install the OpenSSH client)",
+                reason="sshMissing",
+            )
         argv = [self._ssh, "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+        if self._batch:
+            argv += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+        for option in self._options:
+            argv += ["-o", option]
         if self.target.port:
             argv += ["-p", str(self.target.port)]
-        if sys.platform != "win32":  # OpenSSH for Windows has no ControlMaster
+        if sys.platform != "win32" and not mux:
+            argv += ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
+        elif sys.platform != "win32":  # OpenSSH for Windows has no ControlMaster
             if self._control_dir is None:
                 self._control_dir = tempfile.mkdtemp(prefix="snowpea-ssh-")
             argv += [
@@ -244,14 +348,23 @@ class RemoteSession:
         if done.returncode == MISSING:
             self._install()
             done = self._remote(PROBE_SCRIPT)
+            if done.returncode == MISSING:
+                raise RemoteError(
+                    f"snowpea was installed on {self.target.label} but is still not found there "
+                    "(`snowpea` must be on the PATH of a non-interactive ssh login, or in "
+                    "~/.local/bin)",
+                    code="notInstalled",
+                )
         if done.returncode == START_FAILED:
             raise RemoteError(
                 f"snowpea is installed on {self.target.label} but its daemon would not start; "
-                "run `snowpea daemon start` there to see why"
+                "run `snowpea daemon start` there to see why",
+                reason="daemonFailed",
             )
         if done.returncode != 0:
             raise RemoteError(
-                f"could not reach {self.target.label} over ssh (exit {done.returncode})"
+                f"could not reach {self.target.label} over ssh (exit {done.returncode})",
+                code=classify_ssh_failure(done.returncode, done.stderr),
             )
         advert = parse_probe_output(done.stdout or "")
         warning = check_compatible(advert, self.local_protocol)
@@ -266,38 +379,89 @@ class RemoteSession:
             f"there (runs {INSTALLER_URL} on that host)?"
         )
         if not self._confirm(question):
-            raise RemoteError(f"snowpea is not installed on {self.target.label}")
+            raise RemoteError(
+                f"snowpea is not installed on {self.target.label}", code="installDeclined"
+            )
         script = INSTALL_SCRIPT.format(
             source=INSTALL_SOURCE.format(version=__version__), url=INSTALLER_URL
         )
-        done = self._run([*self.ssh_argv("-t"), script], None, False)
+        argv = self.ssh_argv() if self._batch else self.ssh_argv("-t")
+        done = self._run([*argv, script], None, False)
         if done.returncode != 0:
             raise RemoteError(
                 f"the installer failed on {self.target.label}; install snowpea there by hand "
-                "and try again"
+                "and try again",
+                code="notInstalled",
             )
 
-    def open_tunnel(self) -> int:
-        """Start ``ssh -L`` to the remote daemon; the local port to give the terminal UI."""
+    def open_tunnel(self, *, watch: bool = True, prefer_port: int | None = None) -> int:
+        """Start ``ssh -L`` to the remote daemon; the local port to give the terminal UI.
+
+        ``watch=False`` leaves reopening a dropped tunnel to the caller
+        (:meth:`tunnel_alive`, then :meth:`reopen_tunnel`); ``prefer_port`` is the local port
+        to try first (the previous one, so a client that kept it need not move).
+        """
         assert self.advert is not None
-        self.local_port = free_port()
+        self.local_port = self._pick_port(prefer_port)
+        self._stop.clear()
         self._start_tunnel()
+        if self._wait_for_tunnel():
+            if watch:
+                self._watch = threading.Thread(target=self._keep_open, daemon=True)
+                self._watch.start()
+            return self.local_port
+        if watch:
+            self.close()
+        else:
+            self.stop_tunnel()
+        raise RemoteError(
+            f"could not open the ssh tunnel to {self.target.label}", code="unreachable"
+        )
+
+    @staticmethod
+    def _pick_port(prefer: int | None) -> int:
+        if prefer is not None and not port_open(prefer):
+            with contextlib.suppress(OSError), socket.socket() as probe:
+                probe.bind(("127.0.0.1", prefer))
+                return prefer
+        return free_port()
+
+    def _wait_for_tunnel(self) -> bool:
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             if port_open(self.local_port):
-                self._watch = threading.Thread(target=self._keep_open, daemon=True)
-                self._watch.start()
-                return self.local_port
+                return True
             if self._tunnel is not None and self._tunnel.poll() is not None:
-                break
+                return False
             time.sleep(0.2)
-        self.close()
-        raise RemoteError(f"could not open the ssh tunnel to {self.target.label}")
+        return False
+
+    def reopen_tunnel(self) -> bool:
+        """Start ``ssh -L`` again on the same local port; True when it answers."""
+        self.stop_tunnel()
+        self._start_tunnel()
+        return self._wait_for_tunnel()
+
+    def tunnel_alive(self) -> bool:
+        return self._tunnel is not None and self._tunnel.poll() is None
+
+    def stop_tunnel(self) -> None:
+        """End the ``ssh -L`` process only; the control master and the session stay."""
+        tunnel, self._tunnel = self._tunnel, None
+        if tunnel is not None and tunnel.poll() is None:
+            tunnel.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                tunnel.wait(timeout=3)
 
     def _start_tunnel(self) -> None:
         assert self.advert is not None
         forward = f"127.0.0.1:{self.local_port}:127.0.0.1:{self.advert.port}"
-        argv = self.ssh_argv("-N", "-o", "ExitOnForwardFailure=yes", "-L", forward)
+        # A key-only (batch) tunnel is its own connection: as a client of the ControlMaster, ssh -N
+        # would hand the forward to the master and exit, and its death would say nothing about
+        # the tunnel.  An interactive session shares the master so a password is asked once.
+        argv = self.ssh_argv(
+            "-N", "-o", "ExitOnForwardFailure=yes", "-L", forward, mux=not self._batch
+        )
         self._tunnel = subprocess.Popen(  # noqa: S603 - argv is built from a validated target
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL
         )
@@ -323,7 +487,7 @@ class RemoteSession:
         if self._control_dir:
             with contextlib.suppress(Exception):
                 self._run(
-                    [self._ssh, "-O", "exit", "-o", f"ControlPath={self._control_dir}/c-%C",
+                    [self._ssh, "-q", "-O", "exit", "-o", f"ControlPath={self._control_dir}/c-%C",
                      self.target.destination],
                     None,
                     True,

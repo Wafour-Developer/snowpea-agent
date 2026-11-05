@@ -693,6 +693,11 @@ def parse_argv(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     """``snowpea`` console script."""
     _configure_windows_stdio_encoding()
+    words = list(sys.argv[1:] if argv is None else argv)
+    if words[:2] == ["remote", "up"]:
+        from snowpea_core.cli.remote_up import main as remote_up_main
+
+        return remote_up_main(words[2:])
     args = parse_argv(argv)
 
     if args.version:

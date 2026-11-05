@@ -129,13 +129,17 @@ def check_docker(binary: str | None, run: DockerRun) -> str:
     if not binary:
         raise SandboxError(
             "Docker is not installed (no `docker` on PATH); install Docker Engine or Docker "
-            "Desktop and run `snowpea --docker` again"
+            "Desktop and run `snowpea --docker` again",
+            code="dockerMissing",
+            reason="notInstalled",
         )
     try:
         done = run([binary, "info", "--format", "{{.ServerVersion}}"], True)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SandboxError(
-            "Docker did not answer in time; check that its daemon is running and try again"
+            "Docker did not answer in time; check that its daemon is running and try again",
+            code="dockerMissing",
+            reason="notRunning",
         ) from exc
     if done.returncode != 0:
         detail = (done.stdout or "").lower()
@@ -143,11 +147,15 @@ def check_docker(binary: str | None, run: DockerRun) -> str:
             raise SandboxError(
                 "this user cannot use the Docker daemon (permission denied); add yourself to the "
                 "docker group (`sudo usermod -aG docker $USER`, then log in again) or use "
-                "rootless Docker"
+                "rootless Docker",
+                code="dockerMissing",
+                reason="denied",
             )
         raise SandboxError(
             "the Docker daemon is not running; start it (`sudo systemctl start docker`, or open "
-            "Docker Desktop) and run `snowpea --docker` again"
+            "Docker Desktop) and run `snowpea --docker` again",
+            code="dockerMissing",
+            reason="notRunning",
         )
     return binary
 
@@ -184,11 +192,14 @@ def resolve_source(override: str | None = None, *, version: str = __version__) -
     if candidate.is_dir():
         raise SandboxError(
             f"{SOURCE_ENV} names a directory; build a wheel first (`uv build --wheel`) and "
-            "point it at the .whl file, or give a pip requirement"
+            "point it at the .whl file, or give a pip requirement",
+            code="dockerBuild",
         )
     if candidate.is_file():
         if candidate.suffix != ".whl":
-            raise SandboxError(f"{SOURCE_ENV} points at {candidate}, which is not a .whl file")
+            raise SandboxError(
+                f"{SOURCE_ENV} points at {candidate}, which is not a .whl file", code="dockerBuild"
+            )
         digest = hashlib.sha256(candidate.read_bytes()).hexdigest()[:8]
         return ImageSource(
             update_mod.with_images(f"/tmp/wheels/{candidate.name}"), candidate.resolve(), digest
@@ -225,7 +236,9 @@ def validate_cwd(cwd: Path) -> Path:
     if sys.platform == "win32":
         raise SandboxError(
             "--docker is not available on Windows yet (the project directory is mounted at the "
-            "same absolute path, which Windows drive paths cannot give a Linux container)"
+            "same absolute path, which Windows drive paths cannot give a Linux container)",
+            code="dockerMissing",
+            reason="unsupportedPlatform",
         )
     try:
         resolved = cwd.expanduser().resolve(strict=True)
@@ -371,7 +384,8 @@ class Sandbox:
             raise SandboxError(
                 f"building the sandbox image failed (docker build exit {done.returncode}); if "
                 f"snowpea {__version__} is a development version with no release tag, point "
-                f"{SOURCE_ENV} at a wheel (`uv build --wheel`) or a pip requirement"
+                f"{SOURCE_ENV} at a wheel (`uv build --wheel`) or a pip requirement",
+                code="dockerBuild",
             )
         self.image = tag
         return tag
@@ -385,6 +399,11 @@ class Sandbox:
     @property
     def label(self) -> str:
         return f"docker:{self.name}"
+
+    @property
+    def token(self) -> str:
+        """The daemon's token (for a caller that hands it to the client itself)."""
+        return self._token
 
     def start(self) -> list[str]:
         """Start the container and return the terminal UI's flags for it."""
@@ -448,7 +467,9 @@ class Sandbox:
             warning = remote.check_compatible(advert, self.local_protocol)
         except RemoteError as exc:
             self.stop()
-            raise SandboxError(f"{exc} (image {self.image})") from exc
+            raise SandboxError(
+                f"{exc} (image {self.image})", code=exc.code, reason=exc.reason
+            ) from exc
         if warning:
             self._say(warning)
 
@@ -464,7 +485,7 @@ class Sandbox:
                 f"{self.options.image} needs `snowpea-core` on PATH, `sh`, and a writable "
                 f"{CONTAINER_STATE}; building FROM the image snowpea builds gives all three"
             )
-        raise SandboxError("\n".join(parts))
+        raise SandboxError("\n".join(parts), reason="containerFailed")
 
     def stop(self) -> None:
         """Stop the container (and remove it unless it is kept)."""
