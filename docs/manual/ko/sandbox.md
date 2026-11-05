@@ -86,6 +86,17 @@ snowpea는 `/`나 홈 디렉터리(또는 그 상위)를 마운트하지 않습�
 - **네트워크는 열려 있고**(위) 비밀 값은 읽을 수 있습니다(위).
 - 가상 머신이 아니라 컨테이너이며 호스트의 커널을 공유합니다. 사고와 부주의한 에이전트를 막는 용도이지, 커널 취약점을 가진 작정한 공격자를 막는 용도가 아닙니다.
 
+## 프로그램에서 쓰기: `snowpea remote up --docker`
+
+자체 UI가 있는 앱(스노우피 브라우저)은 터미널 UI 없이 같은 컨테이너를 시작합니다.
+
+```
+snowpea remote up --docker --cwd ~/src/app --json
+snowpea-core remote up --docker my/snowpea-dev:1 --docker-volume work --cwd ~/src/app --json
+```
+
+이미지, 마운트, 자격 증명 복사, 토큰 처리는 위에서 설명한 그대로입니다. UI를 시작하는 대신 stdout에 JSON 줄을 내보냅니다. 데몬이 응답하면 `port`, `token`, `version`, `protocol`, `machine`(`container: true`), `cwd`가 담긴 `ready`, 끝나면 `closed`입니다. 토큰은 `ready` 줄에만 있습니다. stdin이 닫히거나 SIGTERM·SIGINT를 받으면 컨테이너를 멈추고(`--docker-keep`이 아니면 삭제), `closed`를 내보내고 0으로 종료합니다. 이미지 빌드 출력은 stderr로 갑니다. 실패는 `error` 이벤트입니다. `dockerMissing`(Docker 없음, 데몬 꺼짐, 권한 없음, Windows), `dockerBuild`(이미지 빌드 실패), `versionMajor`(지정한 `IMAGE`의 프로토콜 major가 다름), 그 밖에는 `internal`입니다. 컨테이너가 스스로 멈추면 새로 만들지 않고 `error`로 끝납니다. 이벤트, 코드, 유휴 시간 제한은 [원격 세션](remote.md#프로그램에서-쓰기-snowpea-remote-up)에 있습니다.
+
 ## 요구 사항과 한계
 
 - 사용자가 실행할 수 있는 Docker Engine 또는 Docker Desktop(`docker info`가 동작해야 함). Linux와 macOS이며 Windows는 아직 지원하지 않습니다.

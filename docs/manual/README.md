@@ -20,8 +20,8 @@ Start at [English](en/index.md) or [한국어](ko/index.md).
 | Language servers | diagnostics after every edit, the seven `lsp_*` tools, per-server settings | [en](en/lsp.md) | [ko](ko/lsp.md) | — | — | — |
 | Scheduler | cron and natural-language jobs, delivery channels, unattended modes | [en](en/scheduler.md) | [ko](ko/scheduler.md) | [ja](ja/scheduler.md) | [zh-CN](zh-CN/scheduler.md) | [es](es/scheduler.md) |
 | Gateway | Telegram, Discord, Slack, named agents, unattended approvals | [en](en/gateway.md) | [ko](ko/gateway.md) | [ja](ja/gateway.md) | [zh-CN](zh-CN/gateway.md) | [es](es/gateway.md) |
-| Remote sessions | `snowpea --remote`, the ssh tunnel, what stays on the host | [en](en/remote.md) | [ko](ko/remote.md) | — | — | — |
-| Sandbox sessions | `snowpea --docker`, the image, credentials in the container, what it does not protect | [en](en/sandbox.md) | [ko](ko/sandbox.md) | — | — | — |
+| Remote sessions | `snowpea --remote`, the ssh tunnel, what stays on the host, `remote up` for programs | [en](en/remote.md) | [ko](ko/remote.md) | — | — | — |
+| Sandbox sessions | `snowpea --docker`, the image, credentials in the container, what it does not protect, `remote up --docker` | [en](en/sandbox.md) | [ko](ko/sandbox.md) | — | — | — |
 | Headless | `-c`, JSON Lines, exit codes, CI | [en](en/headless.md) | [ko](ko/headless.md) | [ja](ja/headless.md) | [zh-CN](zh-CN/headless.md) | [es](es/headless.md) |
 | Protocol | handshake, methods, events, versioning and the freeze gate | [en](en/protocol.md) | [ko](ko/protocol.md) | [ja](ja/protocol.md) | [zh-CN](zh-CN/protocol.md) | [es](es/protocol.md) |
 
