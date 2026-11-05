@@ -12,7 +12,7 @@ snowpea --remote me@build-box:2222 --cwd /srv/app
 ## What happens
 
 1. `snowpea` calls `ssh` once. A password or key passphrase is asked for here, once; later steps reuse that login.
-2. If the host has no `snowpea`, it asks before installing: `Install snowpea 0.2.80 there?` Answer `y` and the project's installer runs on the host, pinned to the same version as this machine, without Node (the terminal UI stays here) and without editing shell rc files. With no answer, or a non-interactive terminal, nothing is installed.
+2. If the host has no `snowpea`, it asks before installing: `Install snowpea 0.2.81 there?` Answer `y` and the project's installer runs on the host, pinned to the same version as this machine, without Node (the terminal UI stays here) and without editing shell rc files. With no answer, or a non-interactive terminal, nothing is installed.
 3. It starts the host's daemon (or reuses the one already running) and reads where it listens and its token.
 4. It opens an `ssh -L` tunnel to that daemon and starts the terminal UI against the tunnel. If the connection drops, the tunnel is opened again and the UI reconnects to the same daemon.
 

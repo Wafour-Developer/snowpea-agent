@@ -1,6 +1,6 @@
 {
   "name": "@snowpea/tui",
-  "version": "0.2.80",
+  "version": "0.2.81",
   "description": "Ink terminal UI for the snowpea agent.",
   "license": "MIT",
   "type": "module",

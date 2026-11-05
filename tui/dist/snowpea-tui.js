@@ -35290,6 +35290,15 @@ function buildHudSegments(input) {
     dimColor: !input.latestVersion,
     priority: input.latestVersion ? 1 : 5
   });
+  if (input.remote) {
+    segments.push({
+      key: "remote",
+      text: `\u21C4 ${input.remote}`,
+      color: "magenta",
+      bold: true,
+      priority: 2
+    });
+  }
   if (input.workdir) {
     segments.push({
       key: "cwd",
@@ -37655,7 +37664,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.80";
+var TUI_VERSION = "0.2.81";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -41774,6 +41783,7 @@ function App2({
   sessionId: initialSessionId,
   mode,
   workdir,
+  remote,
   provider,
   model,
   initialDelegation,
@@ -42305,6 +42315,7 @@ function App2({
       version,
       latestVersion: updateAvailable ? update.latest : null,
       workdir,
+      remote,
       sessionId: state.sessionId,
       provider: state.provider,
       model: state.model,
@@ -42340,6 +42351,7 @@ function App2({
       update.latest,
       updateAvailable,
       workdir,
+      remote,
       state.sessionId,
       state.provider,
       state.model,
@@ -44499,6 +44511,7 @@ async function main(argv = process.argv.slice(2)) {
         initialDelegation: delegation,
         mode: args.mode ?? "accept",
         workdir: args.cwd,
+        remote: args.remote,
         fullscreen: args.fullscreen,
         history,
         sessions,
