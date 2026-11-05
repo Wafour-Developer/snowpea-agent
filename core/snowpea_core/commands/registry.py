@@ -240,10 +240,21 @@ class CommandRegistry:
         turn_id = turn_id or f"t-{uuid.uuid4().hex[:12]}"
         command = self._commands.get(name)
         if command is None:
+            # Open and close the turn like any other: ``start`` already made it
+            # the session's current turn, and a client that saw ``turn.done``
+            # without a ``turn.started`` (an IDE, a browser) never closes the
+            # turn it opened locally, so it keeps spinning for ever while the
+            # TUI shows "Stopped".  Clearing ``current_turn`` matters just as
+            # much: ``session.list`` reads it as "running".
+            await core.hub.emit_event(
+                session.id, events.turn_started(turn_id, f"/{name} {args}".strip())
+            )
             await core.hub.emit_event(
                 session.id, events.error(errors.NOT_FOUND, f"unknown command: /{name}")
             )
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "error"))
+            if session.current_turn == turn_id:
+                session.current_turn = None
             return turn_id
         ctx = CommandContext(
             core=core,

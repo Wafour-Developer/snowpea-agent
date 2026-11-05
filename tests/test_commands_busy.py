@@ -66,3 +66,32 @@ async def test_busy_command_shows_sets_and_persists(
     # Persisted to the same daemon settings file path as other settings writes.
     saved = json.loads(Paths.create(home).settings_json.read_text(encoding="utf-8"))
     assert saved["agent"]["busy"] == "queue"
+
+
+async def test_unknown_command_opens_and_closes_its_turn(
+    http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """An unknown ``/name`` must not leave the session looking busy.
+
+    The IDE and the browser keep a turn open until they see ``turn.done`` for
+    one they saw start; the TUI showed "Stopped" while they spun for hours.
+    """
+    home = tmp_path / "home"
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+
+    with fake_provider(FIXTURE):
+        daemon = await make_daemon(home)
+        try:
+            client = await connect(http, daemon, timeout=TIMEOUT)
+            session_id = await _start_session(client, workdir)
+
+            turn = await _prompt(client, session_id, "/nosuchcommand")
+            assert await client.wait_turn(turn, timeout=TIMEOUT) == "error"
+
+            kinds = [e["kind"] for e in client.events if e["kind"].startswith("turn.")]
+            assert kinds == ["turn.started", "turn.done"]
+            assert client.of_kind("turn.started")[-1]["payload"]["turnId"] == turn
+            assert daemon.core.sessions.get(session_id).current_turn is None
+        finally:
+            await daemon.stop()
