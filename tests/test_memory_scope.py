@@ -16,6 +16,7 @@ get quietly wrong:
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -230,9 +231,7 @@ async def test_cancel_writes_nothing(services: MemoryServices, tmp_path: Path) -
     assert await services.store.list_many(namespaces=namespaces_for(ctx.session)) == []
 
 
-async def test_a_declining_surface_writes_nothing(
-    services: MemoryServices, tmp_path: Path
-) -> None:
+async def test_a_declining_surface_writes_nothing(services: MemoryServices, tmp_path: Path) -> None:
     """A headless client answers the s2c call with nothing; that is not assent."""
     root = git_repo(tmp_path / "repo")
     ctx = ctx_for(_Core(services), root)
@@ -456,9 +455,7 @@ async def test_a_recall_hit_the_digest_shows_is_not_repeated(
     assert "<memory id=" not in block
 
 
-async def test_memory_search_tool_labels_its_hits(
-    services: MemoryServices, tmp_path: Path
-) -> None:
+async def test_memory_search_tool_labels_its_hits(services: MemoryServices, tmp_path: Path) -> None:
     root = git_repo(tmp_path / "repo")
     ctx = ctx_for(_Core(services), root)
     await services.store.write("duho 서버에 배포한다", namespace=ctx.session.project_namespace)
@@ -606,9 +603,7 @@ async def test_memory_list_filters_by_scope(
             root.resolve()
         )
 
-        only_project = await client.ok(
-            "memory.list", {"sessionId": session_id, "scope": "project"}
-        )
+        only_project = await client.ok("memory.list", {"sessionId": session_id, "scope": "project"})
         assert [entry["id"] for entry in only_project["entries"]] == [project.id]
 
         only_global = await client.ok("memory.list", {"scope": "global"})
@@ -618,9 +613,7 @@ async def test_memory_list_filters_by_scope(
         by_path = await client.ok("memory.list", {"scope": "project", "project": str(root)})
         assert [entry["id"] for entry in by_path["entries"]] == [project.id]
 
-        filtered = await client.ok(
-            "memory.list", {"sessionId": session_id, "query": "whitevil"}
-        )
+        filtered = await client.ok("memory.list", {"sessionId": session_id, "query": "whitevil"})
         assert [entry["id"] for entry in filtered["entries"]] == [glob.id]
 
         assert await client.ok("memory.delete", {"id": project.id}) == {"ok": True}
@@ -719,3 +712,59 @@ async def test_search_memory_still_reaches_visited_pages_when_asked(
     assert "saved address" not in found.output
     refused = await search_memory(ctx, {"query": "checkout", "namespace": "secrets"})
     assert not refused.ok and "browser" in (refused.error or "")
+
+
+async def test_browser_pages_never_reach_the_global_mirror(services: MemoryServices) -> None:
+    """Only the global namespace itself is mirrored, not "anything unprefixed"."""
+    from snowpea_core.memory.browser import BROWSER_NAMESPACE, ingest
+
+    await services.store.write("이름은 whitevil", namespace=GLOBAL_NAMESPACE)
+    await ingest(
+        services.store,
+        [{"url": "https://example.com/a", "title": "A", "text": "private page text"}],
+        None,
+    )
+    assert mirror.mirror_path(BROWSER_NAMESPACE, services.store.home) is None
+    assert mirror.mirror_path("anything-else", services.store.home) is None
+    text = (services.store.home / "memory.md").read_text(encoding="utf-8")
+    assert "private page text" not in text and "#source:browser" not in text
+    assert "이름은 whitevil" in text
+
+
+async def test_forgetting_browser_pages_leaves_the_global_mirror_whole(
+    services: MemoryServices,
+) -> None:
+    from snowpea_core.memory.browser import BROWSER_NAMESPACE, ingest
+
+    await services.store.write("이름은 whitevil", namespace=GLOBAL_NAMESPACE)
+    await ingest(
+        services.store, [{"url": "https://example.com/a", "title": "A", "text": "x"}], None
+    )
+    page = (await services.store.list(namespace=BROWSER_NAMESPACE))[0]
+    await services.store.delete(page.id)
+    assert "이름은 whitevil" in (services.store.home / "memory.md").read_text(encoding="utf-8")
+
+
+async def test_old_browser_lines_are_cleaned_out_once(services: MemoryServices) -> None:
+    await services.store.write("이름은 whitevil", namespace=GLOBAL_NAMESPACE)
+    path = services.store.home / "memory.md"
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "- [2026-11-01] [visited page] Secret — https://x #source:browser #url:https://x\n",
+        encoding="utf-8",
+    )
+    fresh = MemoryServices.open(Paths.create(services.store.home.parent / "home"))
+    try:
+        await fresh.store.write("두 번째 사실", namespace=GLOBAL_NAMESPACE)
+    finally:
+        await fresh.close()
+    text = path.read_text(encoding="utf-8")
+    assert "#source:browser" not in text and "Secret" not in text
+    assert "이름은 whitevil" in text and "두 번째 사실" in text
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX modes")
+async def test_mirror_files_are_private(services: MemoryServices) -> None:
+    await services.store.write("이름은 whitevil", namespace=GLOBAL_NAMESPACE)
+    mode = (services.store.home / "memory.md").stat().st_mode & 0o777
+    assert mode == 0o600

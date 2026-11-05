@@ -7,6 +7,10 @@ put under review:
 * global memories  → ``$SNOWPEA_HOME/memory.md``
 * agent memories   → no mirror (they belong to an agent, not to a human's
   working directory).
+* any other namespace (``browser`` and the like) → no mirror.  Only the global
+  namespace itself is mirrored: ``scope_of`` calls every unprefixed name
+  "global", and the browser's visited pages ended up in a file that says it is
+  safe to git.
 
 One line per memory, newest appended at the end::
 
@@ -21,10 +25,11 @@ user a memory.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from snowpea_core.memory.scopes import project_of, scope_of
+from snowpea_core.memory.scopes import GLOBAL_NAMESPACE, project_of, scope_of
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.memory.store import MemoryEntry
@@ -46,10 +51,11 @@ NOTE = (
 
 def mirror_path(namespace: str, home: Path) -> Path | None:
     """Where ``namespace``'s mirror lives, or ``None`` when it has none."""
-    scope = scope_of(namespace)
-    if scope == "global":
+    # A whitelist: a namespace is mirrored because it is the global one or a
+    # project's, never because it merely is not an agent's.
+    if namespace == GLOBAL_NAMESPACE:
         return home / FILENAME
-    if scope == "project":
+    if scope_of(namespace) == "project":
         root = project_of(namespace)
         return Path(root) / PROJECT_DIR / FILENAME if root else None
     return None
@@ -79,6 +85,41 @@ def render_document(namespace: str, entries: list[MemoryEntry]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _write_private(path: Path, text: str, *, append: bool = False) -> None:
+    """Write ``text`` to ``path``, creating it readable by its owner only.
+
+    A mirror can hold personal facts, so a new file is mode 0600; an existing
+    one is narrowed too.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    if os.name != "nt":
+        path.chmod(0o600)
+
+
+#: What the browser tags every page line with.
+BROWSER_TAG = "#source:browser"
+
+
+def scrub_global(home: Path, entries: list[MemoryEntry]) -> bool:
+    """Rebuild the global mirror from ``entries`` when it holds browser lines.
+
+    Older versions mirrored every visited page into ``$SNOWPEA_HOME/memory.md``.
+    Returns True when the file was rewritten.
+    """
+    path = home / FILENAME
+    try:
+        if not path.is_file() or BROWSER_TAG not in path.read_text(encoding="utf-8"):
+            return False
+        _write_private(path, render_document(GLOBAL_NAMESPACE, entries))
+    except OSError as exc:
+        log.warning("could not clean the global memory mirror %s: %s", path, exc)
+        return False
+    return True
+
+
 def append(namespace: str, home: Path, entry: MemoryEntry) -> Path | None:
     """Append one line, creating the file (and its directory) if needed."""
     path = mirror_path(namespace, home)
@@ -87,10 +128,8 @@ def append(namespace: str, home: Path, entry: MemoryEntry) -> Path | None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         fresh = not path.exists() or not path.read_text(encoding="utf-8").strip()
-        with path.open("a", encoding="utf-8") as handle:
-            if fresh:
-                handle.write(f"{header_for(namespace)}\n\n{NOTE}\n\n")
-            handle.write(f"{render_line(entry)}\n")
+        head = f"{header_for(namespace)}\n\n{NOTE}\n\n" if fresh else ""
+        _write_private(path, f"{head}{render_line(entry)}\n", append=True)
     except OSError as exc:
         log.warning("could not mirror memory %s to %s: %s", entry.id, path, exc)
         return None
@@ -104,7 +143,7 @@ def rewrite(namespace: str, home: Path, entries: list[MemoryEntry]) -> Path | No
         return None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render_document(namespace, entries), encoding="utf-8")
+        _write_private(path, render_document(namespace, entries))
     except OSError as exc:
         log.warning("could not rewrite the memory mirror %s: %s", path, exc)
         return None
@@ -116,6 +155,7 @@ __all__ = [
     "HEADER_GLOBAL",
     "HEADER_PROJECT",
     "NOTE",
+    "BROWSER_TAG",
     "PROJECT_DIR",
     "append",
     "header_for",
@@ -123,4 +163,5 @@ __all__ = [
     "render_document",
     "render_line",
     "rewrite",
+    "scrub_global",
 ]

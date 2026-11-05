@@ -25,7 +25,7 @@ from typing import Any
 
 from snowpea_core.config.paths import Paths, utc_now
 from snowpea_core.memory import mirror
-from snowpea_core.memory.scopes import project_of, scope_of
+from snowpea_core.memory.scopes import GLOBAL_NAMESPACE, project_of, scope_of
 
 log = logging.getLogger("snowpea.memory")
 
@@ -56,7 +56,6 @@ LATER_COLUMNS: tuple[tuple[str, str], ...] = (
 #: (``memory.write`` / ``memory.update``), the model (``save_memory``), the
 #: auto-remember nudge, or the preference extractor.
 ORIGINS = frozenset({"user-said", "model", "nudge", "auto-pref"})
-
 
 
 #: Aliases so annotations below still mean the builtins even though
@@ -309,14 +308,32 @@ class MemoryStore:
         """Append ``entry`` to the human-readable mirror; never raises (§1b)."""
         if not self.mirror:
             return
+        await self._scrub_global_mirror()
         try:
             await asyncio.to_thread(mirror.append, entry.namespace, self.home, entry)
         except Exception:  # noqa: BLE001 - a mirror is a convenience, not the truth
             log.warning("memory mirror append failed for %s", entry.id, exc_info=True)
 
+    async def _scrub_global_mirror(self) -> None:
+        """Once per store: drop browser lines an older version wrote to the global mirror."""
+        if getattr(self, "_mirror_scrubbed", False):
+            return
+        self._mirror_scrubbed = True
+        try:
+            entries = await self.list_many(
+                namespaces=[GLOBAL_NAMESPACE], limit=100000, ascending=True
+            )
+            if await asyncio.to_thread(mirror.scrub_global, self.home, entries):
+                log.info("removed browser page lines from the global memory mirror")
+        except Exception:  # noqa: BLE001 - a mirror is a convenience, not the truth
+            log.warning("global memory mirror cleanup failed", exc_info=True)
+
     async def mirror_rewrite(self, namespace: str) -> None:
         """Rebuild one namespace's mirror from the store; never raises (§1b)."""
-        if not self.mirror or mirror.mirror_path(namespace, self.home) is None:
+        if not self.mirror:
+            return
+        await self._scrub_global_mirror()
+        if mirror.mirror_path(namespace, self.home) is None:
             return
         try:
             entries = await self.list_many(namespaces=[namespace], limit=100000, ascending=True)
@@ -517,9 +534,7 @@ class MemoryStore:
         """True when this exact text is already remembered in the namespace."""
         return await self.exists_any(text, namespaces=[namespace or "default"])
 
-    async def exists_any(
-        self, text: str, *, namespaces: Namespaces
-    ) -> bool:
+    async def exists_any(self, text: str, *, namespaces: Namespaces) -> bool:
         """True when this exact text is already remembered in *any* namespace given.
 
         The auto-remember nudge asks across every scope the session can see, so
