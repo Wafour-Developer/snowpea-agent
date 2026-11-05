@@ -43,6 +43,36 @@ beforeEach(() => {
   __resetIdCounter();
 });
 
+describe("what the model is chewing on", () => {
+  it("names the last result of this turn, not an earlier turn's", () => {
+    const call = (name: string, startedAt: number) => ({
+      callId: name + startedAt,
+      name,
+      args: {},
+      state: "done" as const,
+      startedAt,
+    });
+    const base = { ...initialState, turnActive: true, turnStartedAt: 1000 };
+    expect(derivePhase({ ...base, toolCalls: [call("bash", 500)] })).toEqual({ kind: "thinking" });
+    expect(derivePhase({ ...base, toolCalls: [call("bash", 1500)] })).toEqual({
+      kind: "thinking",
+      after: "shell output",
+    });
+    expect(
+      derivePhase({ ...base, toolCalls: [call("read_file", 1500)], reasoningChars: 2000 }),
+    ).toEqual({ kind: "reasoning", chars: 2000, after: "file contents" });
+  });
+
+  it("says it in the line", () => {
+    expect(workingLine({ phase: { kind: "thinking", after: "shell output" }, elapsedMs: 1000 })).toContain(
+      "Reviewing the shell output…",
+    );
+    expect(
+      workingLine({ phase: { kind: "reasoning", chars: 1800, after: "search results" }, elapsedMs: 1000 }),
+    ).toContain("Reasoning about the search results (1.8k chars)…");
+  });
+});
+
 describe("verb rotation", () => {
   it("holds a verb for the whole period and then moves on", () => {
     expect(verbAt(0)).toBe(VERBS[0]);
@@ -203,7 +233,7 @@ describe("formatting", () => {
       frame: 0,
       verbOffset: 0,
     });
-    expect(line).toBe(`${SPINNER_FRAMES[0]} ${VERBS[8]}… (1m 11s · ↓ 3.7k tokens)`);
+    expect(line).toBe(`${SPINNER_FRAMES[0]} Thinking… (1m 11s · ↓ 3.7k tokens)`);
   });
 
   it("cycles the spinner glyph with the frame", () => {
@@ -274,7 +304,7 @@ describe("hidden reasoning", () => {
     );
     const phase = derivePhase(state);
     expect(phase).toEqual({ kind: "reasoning", chars: 1788 });
-    expect(workingLine({ phase, elapsedMs: 1000 })).toContain("Thinking (1.8k chars)");
+    expect(workingLine({ phase, elapsedMs: 1000 })).toContain("Reasoning (1.8k chars)");
   });
 
   it("starts each turn from nothing", () => {

@@ -11,7 +11,6 @@
 
 import { formatTokens } from "../layout/hud.js";
 import type { State, ToolCallEntry } from "./store.js";
-import { verbAt } from "./verbs.js";
 
 /** The glyphs the spinner cycles through. */
 export const SPINNER_FRAMES: readonly string[] = ["✢", "✳", "✶", "✻", "✽"];
@@ -37,10 +36,14 @@ export type WorkingPhase =
   | { kind: "subagents"; running: number; inputTokens: number; outputTokens: number }
   /** A slash command owns the turn. */
   | { kind: "command"; name: string }
-  /** The model is thinking. */
-  | { kind: "thinking" }
+  /**
+   * The model is thinking. `after` names what it was last handed (a finished
+   * tool's result, a delegate's report), so the line can say what it is
+   * chewing on instead of a bare "Thinking".
+   */
+  | { kind: "thinking"; after?: string }
   /** The model is thinking *out loud*, and the daemon is counting it. */
-  | { kind: "reasoning"; chars: number }
+  | { kind: "reasoning"; chars: number; after?: string }
   /** The history is being compacted; nothing else can run until it is done. */
   | { kind: "compacting"; reason: string };
 
@@ -97,6 +100,18 @@ export function toolLabel(call: ToolCallEntry): string {
   return `Running ${clip(call.name, 30)}`;
 }
 
+/** What a finished call handed the model, in words ("shell output"). */
+export function resultNoun(call: ToolCallEntry): string {
+  const name = call.name.toLowerCase();
+  if (/(^|_)(bash|shell|exec|run|terminal)/.test(name)) return "shell output";
+  if (/(^|_)(read|cat|open|view)/.test(name)) return "file contents";
+  if (/(^|_)(search|grep|glob|find|rg)/.test(name)) return "search results";
+  if (/(^|_)(edit|patch|apply|replace|write|create|save)/.test(name)) return "edit";
+  if (/(^|_)(fetch|http|curl|web|browse)/.test(name)) return "page";
+  if (/(^|_)(delegate|agent|task)/.test(name)) return "delegate's report";
+  return `${clip(call.name, 24)} result`;
+}
+
 /**
  * What the indicator should be showing.
  *
@@ -131,10 +146,27 @@ export function derivePhase(
   }
 
   if (runningCommand) return { kind: "command", name: runningCommand };
+  // Nothing is running, so the newest finished call is what the model was
+  // last handed; a delegate that has ended counts the same way.
+  // Calls of earlier turns stay in the list, so only those started since this
+  // turn began count.
+  const since = state.turnStartedAt ?? 0;
+  const lastCall = state.toolCalls
+    .filter((call) => (call.startedAt ?? Number.POSITIVE_INFINITY) >= since)
+    .pop();
+  const after = lastCall
+    ? resultNoun(lastCall)
+    : state.subagents.some((agent) => agent.status !== "running" && agent.startedAt >= since)
+      ? "delegate's report"
+      : undefined;
   // Hidden reasoning is the one thing the transcript cannot show, so the
   // indicator says how much of it there has been.
-  if (state.reasoningChars > 0) return { kind: "reasoning", chars: state.reasoningChars };
-  return { kind: "thinking" };
+  if (state.reasoningChars > 0) {
+    return after
+      ? { kind: "reasoning", chars: state.reasoningChars, after }
+      : { kind: "reasoning", chars: state.reasoningChars };
+  }
+  return after ? { kind: "thinking", after } : { kind: "thinking" };
 }
 
 /** `71000` → `1m 11s`. Coarser than the HUD's clock, and easier to read. */
@@ -214,11 +246,13 @@ export function workingLine(input: WorkingLineInput): string | null {
   }
   if (phase.kind === "command") return `${spinner} ${phase.name}… ${stats}`;
   if (phase.kind === "reasoning") {
-    return `${spinner} Thinking (${formatTokens(phase.chars)} chars)… ${stats}`;
+    const about = phase.after ? ` about the ${phase.after}` : "";
+    return `${spinner} Reasoning${about} (${formatTokens(phase.chars)} chars)… ${stats}`;
   }
 
-  const verb = verbAt(input.elapsedMs, input.verbOffset ?? 0);
-  return `${spinner} ${verb}… ${stats}`;
+  // Say what is happening rather than a rotating word: a random verb said
+  // nothing, and over a turn that had in fact died it looked like progress.
+  return `${spinner} ${phase.after ? `Reviewing the ${phase.after}` : "Thinking"}… ${stats}`;
 }
 
 /**
