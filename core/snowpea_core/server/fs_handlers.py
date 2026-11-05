@@ -25,8 +25,8 @@ import contextlib
 import fnmatch
 import hashlib
 import os
+import secrets
 import stat as stat_mod
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +62,12 @@ _CHUNK = 1024 * 1024
 
 def _real(path: str | Path) -> Path:
     return Path(os.path.realpath(path))
+
+
+def _fold(text: str) -> str:
+    import unicodedata
+
+    return unicodedata.normalize("NFC", text).casefold()
 
 
 def _under(child: Path, parent: Path) -> bool:
@@ -124,11 +130,31 @@ class Roots:
         from snowpea_core.agent.prompt_refs import is_secret_pattern
         from snowpea_core.tools.config_guard import PROJECT_DIR, PROJECT_FILES
 
-        if is_secret_pattern(real):
-            return True
-        if real.parent.name == PROJECT_DIR and real.name in PROJECT_FILES:
-            return True
-        return _under(real, self.home) and not any(_under(real, r) for r in self.home_roots)
+        # A case-insensitive file system (macOS, Windows) or another Unicode form
+        # reaches the same file under a different spelling: judge both spellings.
+        folded = Path(_fold(str(real)))
+        for candidate in (real, folded):
+            if is_secret_pattern(candidate):
+                return True
+            if candidate.parent.name == PROJECT_DIR and candidate.name in PROJECT_FILES:
+                return True
+        home = Path(_fold(str(self.home)))
+        if _under(folded, home):
+            return not any(_under(folded, Path(_fold(str(r)))) for r in self.home_roots)
+        return False
+
+    def is_home_file(self, info: os.stat_result) -> bool:
+        """True when ``info`` is a file directly in the home (a hard link to a secret)."""
+        try:
+            with os.scandir(self.home) as scan:
+                for entry in scan:
+                    if entry.is_file(follow_symlinks=False):
+                        other = entry.stat(follow_symlinks=False)
+                        if (other.st_dev, other.st_ino) == (info.st_dev, info.st_ino):
+                            return True
+        except OSError:
+            return False
+        return False
 
     def refuse_protected(self, real: Path) -> None:
         if self.protected(real):
@@ -262,13 +288,21 @@ def fs_glob(roots: Roots, params: FsGlobParams) -> FsListResult:
     entries: list[FsEntry] = []
     seen: set[str] = set()
     full = False
+    budget = params.maxEntries * 10 + 1000  # directory entries looked at, matched or not
+    visited: set[tuple[str, int]] = set()
 
     def children(directory: Path) -> list[os.DirEntry[str]]:
+        nonlocal budget, full
         try:
             with os.scandir(directory) as scan:
-                return sorted(scan, key=lambda item: item.name)
+                found = sorted(scan, key=lambda item: item.name)
         except OSError:
             return []
+        budget -= len(found) + 1
+        if budget < 0:
+            full = True  # looked at enough: report a short, truncated answer
+            return []
+        return found
 
     def is_real_dir(entry: os.DirEntry[str]) -> bool:
         try:
@@ -287,8 +321,9 @@ def fs_glob(roots: Roots, params: FsGlobParams) -> FsListResult:
         entries.append(FsEntry(path=rel, **_describe(roots, Path(entry.path))))
 
     def match(directory: Path, prefix: str, index: int) -> None:
-        if full:
-            return
+        if full or (str(directory), index) in visited:
+            return  # reached again by another '**' split: the same work
+        visited.add((str(directory), index))
         segment = segments[index]
         last = index == len(segments) - 1
         if segment == "**":
@@ -349,6 +384,9 @@ def _open_regular(roots: Roots, text: str) -> tuple[int, Path, os.stat_result]:
     if not stat_mod.S_ISREG(info.st_mode):
         os.close(descriptor)
         raise RpcError(errors.INVALID_PARAMS, "not a regular file")
+    if info.st_nlink > 1 and roots.is_home_file(info):
+        os.close(descriptor)  # a project name for one of snowpea's own files
+        raise RpcError(errors.PROTECTED, f"{real.name} is a protected file")
     return descriptor, real, info
 
 
@@ -407,12 +445,6 @@ def _decode(text: str) -> bytes:
     return data
 
 
-def _umask() -> int:
-    current = os.umask(0)
-    os.umask(current)
-    return current
-
-
 def fs_write(roots: Roots, params: FsWriteParams) -> FsWriteResult:
     data = _decode(params.dataBase64)
     target = roots.no_follow(params.path, secrets=True)
@@ -442,17 +474,19 @@ def fs_write(roots: Roots, params: FsWriteParams) -> FsWriteResult:
         raise RpcError(errors.INVALID_PARAMS, "a parent of the path is a file") from exc
     except OSError as exc:
         raise RpcError(errors.UNAVAILABLE, f"could not create the folder: {exc.strerror}") from exc
-    handle, temp_name = tempfile.mkstemp(prefix=f".{target.name[:40]}.", suffix=".tmp", dir=parent)
-    temp = Path(temp_name)
+    temp = parent / f".{target.name[:40]}.{secrets.token_hex(6)}.tmp"
     try:
+        # The kernel applies the umask to 0o666; os.umask is process-wide and not touched.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        handle = os.open(temp, flags | getattr(os, "O_BINARY", 0), 0o666)
         with os.fdopen(handle, "wb") as out:
             out.write(data)
             out.flush()
             with contextlib.suppress(OSError):
                 os.fsync(out.fileno())
-        mode = existing.st_mode & 0o7777 if existing is not None else 0o666 & ~_umask()
-        with contextlib.suppress(OSError):
-            os.chmod(temp, mode)
+        if existing is not None:
+            with contextlib.suppress(OSError):
+                os.chmod(temp, existing.st_mode & 0o7777)
         if params.mode == "create":
             _publish_new(temp, target)
         else:
@@ -504,6 +538,8 @@ def _handler(
             return await asyncio.to_thread(work, roots, params)
         except RpcError:
             raise
+        except ValueError as exc:  # a path Python cannot encode
+            raise RpcError(errors.INVALID_PARAMS, "the path is not valid") from exc
         except OSError as exc:
             raise RpcError(errors.INTERNAL, f"{exc.strerror or exc}") from exc
 

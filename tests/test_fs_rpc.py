@@ -6,6 +6,7 @@ import base64
 import hashlib
 import os
 import sys
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -464,3 +465,55 @@ async def test_a_failed_write_leaves_the_old_content(env: Env) -> None:
     )
     assert (env.work / "keep.txt").read_text() == "keep"
     assert [p.name for p in env.work.iterdir()] == ["keep.txt"]
+
+
+@posix_only
+async def test_a_hard_link_to_a_snowpea_file_is_still_protected(env: Env) -> None:
+    home = env.daemon.paths.home
+    (home / "credentials.json").write_text('{"k": "secret"}')
+    os.link(home / "credentials.json", env.work / "notes.txt")
+    assert await env.error("fs.read", path="notes.txt") == "protected"
+    assert await env.error("fs.hash", path="notes.txt") == "protected"
+    (env.work / "plain.txt").write_text("x")
+    os.link(env.work / "plain.txt", env.work / "plain2.txt")  # an ordinary link is readable
+    assert (await env.ok("fs.read", path="plain2.txt"))["length"] == 1
+
+
+async def test_other_spellings_of_a_protected_name_are_protected(env: Env) -> None:
+    # a case-insensitive file system reaches `.env` as `.ENV`; the check judges both spellings
+    for name in (".ENV", ".Env.Local", "ID_RSA", "Server.PEM", "API.Key"):
+        (env.work / name).write_text("s")
+        assert await env.error("fs.read", path=name) == "protected"
+    (env.work / ".SSH").mkdir()
+    (env.work / ".SSH" / "config").write_text("s")
+    assert await env.error("fs.read", path=".SSH/config") == "protected"
+    (env.work / ".Snowpea").mkdir()
+    (env.work / ".Snowpea" / "Settings.JSON").write_text("{}")
+    assert await env.error("fs.read", path=".Snowpea/Settings.JSON") == "protected"
+
+
+async def test_glob_with_many_double_stars_is_bounded(env: Env) -> None:
+    deep = env.work
+    for _ in range(14):
+        deep = deep / "d"
+        deep.mkdir()
+    started = time.monotonic()
+    got = await env.ok("fs.glob", pattern="**/*/**/*/**/*/**/*/**/nomatch")
+    assert got["entries"] == []
+    assert time.monotonic() - started < 10
+
+
+async def test_a_write_does_not_touch_the_process_umask(env: Env) -> None:
+    seen = []
+    real = os.umask
+
+    def spy(mask: int) -> int:
+        seen.append(mask)
+        return real(mask)
+
+    os.umask = spy  # type: ignore[assignment]
+    try:
+        await env.ok("fs.write", path="u.txt", dataBase64=b64(b"x"), mode="create")
+    finally:
+        os.umask = real
+    assert seen == []

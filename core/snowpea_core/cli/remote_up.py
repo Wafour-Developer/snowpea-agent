@@ -406,12 +406,18 @@ class HostKeys:
                 f"the host key of {target.label} was not accepted", code="hostKey",
                 reason="rejected",
             )  # fmt: skip
-        self._add(lookup, key, (user_files or [_expand_home("~/.ssh/known_hosts")])[0])
-        return [*strict, f"HostKeyAlgorithms={_ALGORITHMS.get(key.key_type, key.key_type)}"]
+        pinned = [] if user_files else [_expand_home("~/.ssh/known_hosts")]
+        self._add(lookup, key, (user_files or pinned)[0])
+        extra = [f"UserKnownHostsFile={pinned[0]}"] if pinned else []  # ssh was told "none"
+        return [
+            *strict,
+            f"HostKeyAlgorithms={_ALGORITHMS.get(key.key_type, key.key_type)}",
+            *extra,
+        ]
 
     @staticmethod
     def _files(value: str) -> list[str]:
-        return [os.path.expanduser(item) for item in value.split() if item.lower() != "none"]
+        return [_expand_home(item) for item in value.split() if item.lower() != "none"]
 
     def _known(self, lookup: str, path: str) -> bool:
         if not self._keygen or not Path(path).is_file():
@@ -750,6 +756,8 @@ def supervise(
                     return
                 delay = min(delay * 2, backoff_cap)
                 continue
+            if stop.is_set():
+                return
             emitter.emit("ready", **ready_event(ready))
             failures = 0
             next_check = time.monotonic() + health_every
@@ -767,6 +775,8 @@ def run_up(
     try:
         try:
             ready = conn.start()
+            if stop.is_set():
+                raise Stopped  # the client left while this was blocking: no ready for it
             emitter.emit("ready", **ready_event(ready))
             supervise(conn, emitter, stop, **supervise_options)
         except Stopped:
@@ -906,7 +916,9 @@ def main(
                 remote.parse_target(args.target), cwd=args.cwd, hold_sec=args.hold_sec,
                 emitter=emitter, asks=asks,
             )  # fmt: skip
-    except RemoteError as exc:
+    except Exception as exc:  # noqa: BLE001 - bad setup is an event, never a traceback
+        if not isinstance(exc, RemoteError):
+            exc = RemoteError(f"{type(exc).__name__}: {exc}")
         emitter.emit("error", code=exc.code, message=str(exc),
                      **({"reason": exc.reason} if exc.reason else {}))  # fmt: skip
         emitter.emit("closed")

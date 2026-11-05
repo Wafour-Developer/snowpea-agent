@@ -152,6 +152,9 @@ Errors (`error.data.code`): `outside_root`, `protected`, `too_large`, `not_found
   (`tools/config_guard`). `fs.stat`/`fs.list`/`fs.glob` still show these names. **Consequence for the
   browser:** a `.key` file cannot be peeked (the design's tier-2 "first 64 bytes of `.key`"); `protected` is
   the answer. Treat it like tier 1.
+- `protected` also judges the case-folded, NFC-normalised spelling (macOS and Windows reach `.env` as `.ENV`), and
+  a hard-linked name for one of the files directly in `$SNOWPEA_HOME` (read/hash refuse when `nlink > 1` and the inode matches).
+- `fs.glob` looks at no more than `10 × maxEntries + 1000` directory entries; past that it answers `truncated: true`.
 - `fs.read`: `length` over the cap (or no `length` and the rest of the file over the cap) is `too_large`;
   read in ranges (`offset`,`length` ≤ 8 MiB; `eof` says when to stop). An `offset` past the end gives an empty
   read with `eof:true`. A FIFO or device is `invalid_params`.
