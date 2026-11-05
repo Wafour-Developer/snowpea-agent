@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react45 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.39.0";
+var PROTOCOL_VERSION = "1.40.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -35485,63 +35485,6 @@ function shortEngine(name) {
   return tail.length > 12 ? `${tail.slice(0, 11)}\u2026` : tail;
 }
 
-// src/state/verbs.ts
-var VERB_PERIOD_MS = 8e3;
-var VERBS = [
-  "Scurrying",
-  "Pondering",
-  "Brewing",
-  "Noodling",
-  "Sprouting",
-  "Germinating",
-  "Weaving",
-  "Spelunking",
-  "Puttering",
-  "Tinkering",
-  "Percolating",
-  "Simmering",
-  "Rummaging",
-  "Untangling",
-  "Conjuring",
-  "Whittling",
-  "Burrowing",
-  "Foraging",
-  "Composting",
-  "Trellising",
-  "Pollinating",
-  "Mulching",
-  "Sifting",
-  "Kneading",
-  "Marinating",
-  "Distilling",
-  "Wandering",
-  "Scheming",
-  "Doodling",
-  "Shuffling",
-  "Juggling",
-  "Orbiting",
-  "Hatching",
-  "Blossoming",
-  "Rooting",
-  "Vining",
-  "Podding",
-  "Harvesting",
-  "Reticulating",
-  "Calibrating",
-  "Meandering",
-  "Fermenting",
-  "Nesting",
-  "Puzzling",
-  "Wrangling",
-  "Shelling"
-];
-function verbAt(elapsedMs, offset = 0, verbs = VERBS, periodMs = VERB_PERIOD_MS) {
-  if (verbs.length === 0) return "";
-  const steps = Math.floor(Math.max(0, elapsedMs) / Math.max(1, periodMs));
-  const index = (steps + Math.max(0, Math.floor(offset))) % verbs.length;
-  return verbs[index];
-}
-
 // src/state/working.ts
 var SPINNER_FRAMES = ["\u2722", "\u2733", "\u2736", "\u273B", "\u273D"];
 var SPINNER_INTERVAL_MS = 200;
@@ -35591,6 +35534,16 @@ function toolLabel(call) {
   }
   return `Running ${clip(call.name, 30)}`;
 }
+function resultNoun(call) {
+  const name = call.name.toLowerCase();
+  if (/(^|_)(bash|shell|exec|run|terminal)/.test(name)) return "shell output";
+  if (/(^|_)(read|cat|open|view)/.test(name)) return "file contents";
+  if (/(^|_)(search|grep|glob|find|rg)/.test(name)) return "search results";
+  if (/(^|_)(edit|patch|apply|replace|write|create|save)/.test(name)) return "edit";
+  if (/(^|_)(fetch|http|curl|web|browse)/.test(name)) return "page";
+  if (/(^|_)(delegate|agent|task)/.test(name)) return "delegate's report";
+  return `${clip(call.name, 24)} result`;
+}
 function derivePhase(state, { runningCommand = null } = {}) {
   if (state.pendingApproval || state.approvalQueue.length > 0) return { kind: "approval" };
   if (state.compacting) return { kind: "compacting", reason: state.compacting.reason };
@@ -35610,8 +35563,13 @@ function derivePhase(state, { runningCommand = null } = {}) {
     };
   }
   if (runningCommand) return { kind: "command", name: runningCommand };
-  if (state.reasoningChars > 0) return { kind: "reasoning", chars: state.reasoningChars };
-  return { kind: "thinking" };
+  const since = state.turnStartedAt ?? 0;
+  const lastCall = state.toolCalls.filter((call) => (call.startedAt ?? Number.POSITIVE_INFINITY) >= since).pop();
+  const after = lastCall ? resultNoun(lastCall) : state.subagents.some((agent) => agent.status !== "running" && agent.startedAt >= since) ? "delegate's report" : void 0;
+  if (state.reasoningChars > 0) {
+    return after ? { kind: "reasoning", chars: state.reasoningChars, after } : { kind: "reasoning", chars: state.reasoningChars };
+  }
+  return after ? { kind: "thinking", after } : { kind: "thinking" };
 }
 function formatDuration(ms) {
   const seconds = Math.max(0, Math.round(ms / 1e3));
@@ -35654,10 +35612,10 @@ function workingLine(input) {
   }
   if (phase.kind === "command") return `${spinner} ${phase.name}\u2026 ${stats}`;
   if (phase.kind === "reasoning") {
-    return `${spinner} Thinking (${formatTokens(phase.chars)} chars)\u2026 ${stats}`;
+    const about = phase.after ? ` about the ${phase.after}` : "";
+    return `${spinner} Reasoning${about} (${formatTokens(phase.chars)} chars)\u2026 ${stats}`;
   }
-  const verb = verbAt(input.elapsedMs, input.verbOffset ?? 0);
-  return `${spinner} ${verb}\u2026 ${stats}`;
+  return `${spinner} ${phase.after ? `Reviewing the ${phase.after}` : "Thinking"}\u2026 ${stats}`;
 }
 function queuedLabel(count2) {
   return `\u23F3 ${count2} queued`;
@@ -37664,7 +37622,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.81";
+var TUI_VERSION = "0.2.82";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
