@@ -84,6 +84,10 @@ def _split_env(value: str) -> tuple[str, str | None]:
     return vendor.strip(), (model.strip() or None)
 
 
+#: Largest window assumed for a local-style server nobody has asked yet.
+UNVERIFIED_LOCAL_WINDOW = 131072
+
+
 class ProviderRegistry:
     """Vendor/model -> :class:`ChatProvider` lookup."""
 
@@ -425,6 +429,12 @@ class ProviderRegistry:
             return known
         return self._table_window(vendor, resolved_model)
 
+    def learn_context_window(self, vendor: str, model: str | None, window: int) -> None:
+        """Keep a window a server named in a refusal; it beats any table entry."""
+        resolved = self.model_for(vendor, model)
+        base = (self.base_url_for(vendor) or "").rstrip("/")
+        context_windows.remember_discovered(vendor, base, resolved, int(window))
+
     def _table_window(self, vendor: str, model: str) -> int | None:
         """The window no server was asked for: the table and the catalog.
 
@@ -440,6 +450,11 @@ class ProviderRegistry:
             return None
         table = preset.context_window(model)
         if self.is_local_style(vendor):
+            # A self-hosted server serves whatever it was started with; a big
+            # hosted family default (deepseek-v4 = 1M) must not stand in for it
+            # when the server could not be asked.
+            if table is not None and table > UNVERIFIED_LOCAL_WINDOW:
+                return UNVERIFIED_LOCAL_WINDOW
             return table
         home = self.paths.home if self.paths is not None else None
         listed = context_windows.catalog_window(vendor, model, home)

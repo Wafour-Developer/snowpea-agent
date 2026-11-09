@@ -293,6 +293,12 @@ class AgentSettings(_Model):
     #: arguments are complete, so a long file write is silent: keep this off
     #: or generous.
     provider_idle_sec: float = Field(default=0, ge=0)
+    #: Seconds one model step may spend over all its tries.  A server that stays
+    #: silent for the read timeout gets one more try, not three; once this much
+    #: time has passed no further retry starts and the turn ends with "model
+    #: server too slow".  ``0`` removes the cap.  The first-token and idle
+    #: limits stay off by default: a long local prefill is silent by design.
+    provider_step_budget_sec: float = Field(default=600, ge=0)
     #: Consecutive rounds with no new call signature or output before stopping.
     no_progress_rounds: int = Field(default=40, ge=0)
     #: Optional wall-clock ceiling for one turn. ``0`` keeps Hermes-like unlimited.

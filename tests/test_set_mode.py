@@ -260,7 +260,7 @@ async def test_nobody_answering_is_not_a_switch_either() -> None:
             await asyncio.sleep(3600)
 
     core = _Core(timeout_sec=1)
-    session = _session(_Silent())
+    session = _session(None)  # no live client: a job or messenger keeps the clock
     result = await asyncio.wait_for(set_mode(_ctx(core, session), {"mode": "accept"}), timeout=8.0)
 
     assert session.mode == "plan"

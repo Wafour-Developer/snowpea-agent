@@ -633,6 +633,9 @@ def build_messages(
     history = compaction.pair_tool_results(
         [with_turn_context(m) for m in session.history.snapshot()]
     )
+    history = compaction.cap_single_results(
+        history, compaction.window_for(core, session) or session.context_window
+    )
     on, keep, max_chars = compaction.tool_prune_settings(core)
     if on and compaction.over_compact_threshold(core, session, history):
         pruned: list[str] = []

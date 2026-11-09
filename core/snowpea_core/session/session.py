@@ -296,6 +296,13 @@ class Session:
     #: True while :attr:`context_used` is a local estimate rather than a count
     #: the provider itself reported.
     context_estimated: bool = True
+    #: ``len(history)`` when :attr:`context_used` was reported; messages after
+    #: that index (tool results, the reply) are not in the count and are
+    #: estimated on top.  ``-1``: unknown.
+    context_used_len: int = -1
+    #: Provider-reported tokens over our estimate for the same messages
+    #: (1.0 to 2.0): how far the chars/4 guess runs low for this model.
+    context_ratio: float = 1.0
     #: Context window of :attr:`model` in tokens; ``None`` when unknown.
     context_window: int | None = None
     #: Where this session's tools run

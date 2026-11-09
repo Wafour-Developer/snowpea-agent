@@ -196,9 +196,13 @@ async def ask_user(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if all(answer.timed_out for answer in answers):
         output += (
             "\n\nThe user has not answered yet; this is not a refusal. Do not decide "
-            "for them or work around the question: continue with what does not depend "
-            "on it, or ask again once the user is back."
+            "for them or work around the question. Stop here and end the turn with a "
+            "short note saying what you are waiting for; the user will reply when back."
         )
+        turn = getattr(getattr(ctx, "session", None), "verify_turn", None)
+        if turn is not None:
+            # An unanswered question is a reason to wait, not an open to-do.
+            turn.question_unanswered = True
     elif all(answer.declined for answer in answers):
         output += "\n\nThe user declined to choose. Do not treat this as agreement."
     return ToolResult(

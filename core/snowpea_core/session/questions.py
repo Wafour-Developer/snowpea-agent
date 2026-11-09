@@ -25,7 +25,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.settings import Settings
-from snowpea_core.permissions.approval_queue import waits_for_a_person
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import QuestionItem, QuestionRequest
@@ -153,7 +152,9 @@ class QuestionQueue:
         origin = getattr(session, "origin_conn", None)
         # An explicit timeout_sec is a caller's own deadline and always counts
         # (0 expires at once).  Otherwise a person at the session is waited for.
-        no_limit = timeout_sec is None and waits_for_a_person(origin)
+        # An interactive browser chat has a person too; only jobs (owned runs,
+        # declined above) and sessions with no live client keep the clock.
+        no_limit = timeout_sec is None and origin is not None
         if timeout_sec is not None:
             timeout = timeout_sec
         else:

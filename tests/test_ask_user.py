@@ -276,11 +276,30 @@ async def test_a_question_nobody_answers_times_out() -> None:
 
     core = _core(timeout_sec=1)
     result = await asyncio.wait_for(
-        ask_user(_ctx(core, _session(_Silent())), dict(RENDERER)), timeout=8.0
+        ask_user(_ctx(core, _session(None)), dict(RENDERER)), timeout=8.0
     )
     assert result.meta is not None and result.meta["timed_out"] is True
     assert "has not answered yet" in result.output
     assert "not a refusal" in result.output
+    assert "end the turn" in result.output
+
+
+@pytest.mark.asyncio
+async def test_an_interactive_browser_question_waits_without_a_clock() -> None:
+    """A browser chat has a person at it; only unattended runs time out."""
+
+    class _Browser:
+        closed = False
+        client_kind = "browser"
+
+        async def call(self, method: str, params: dict[str, Any], timeout: float | None = None):
+            await asyncio.sleep(3600)
+
+    core = _core(timeout_sec=1)
+    task = asyncio.ensure_future(ask_user(_ctx(core, _session(_Browser())), dict(RENDERER)))
+    await asyncio.sleep(2.5)
+    assert not task.done()
+    task.cancel()
 
 
 @pytest.mark.asyncio
@@ -513,8 +532,8 @@ async def test_a_client_that_never_answers_times_the_question_out(
         client = await connect(http, daemon)  # question_answer=None: never answers
         created = await client.ok("session.create", {"workdir": str(tmp_path)})
         assert daemon.core is not None
-        origin = daemon.core.sessions.get(created["sessionId"]).origin_conn
-        origin.client_kind = "browser"  # a person's TUI would wait; a browser run does not
+        # A run with no live client (a job, a messenger) keeps the clock.
+        daemon.core.sessions.get(created["sessionId"]).origin_conn = None
         ctx = await _tool_ctx(daemon, created["sessionId"])
         result = await asyncio.wait_for(ask_user(ctx, dict(RENDERER)), TIMEOUT)
         assert result.meta is not None and result.meta["timed_out"] is True

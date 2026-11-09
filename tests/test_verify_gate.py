@@ -137,3 +137,11 @@ def test_a_ui_only_turn_is_proved_by_a_screenshot_and_node_counts_as_a_check(
     assert verify_gate.nudge(_core(), session) is None
     assert verify_gate.is_check_command("node scripts/smoke.mjs")
     assert not verify_gate.is_check_command("node --version")
+
+
+def test_no_todo_reminder_after_a_question_nobody_answered(tmp_path: Path) -> None:
+    """Open items wait on the person; pushing on made the agent decide for them."""
+    session = _session(tmp_path)
+    session.todos = [{"id": "1", "content": "pick the topic", "status": "pending"}]
+    session.verify_turn.question_unanswered = True
+    assert verify_gate.nudge(_core(), session) is None

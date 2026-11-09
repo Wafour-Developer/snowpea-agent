@@ -143,6 +143,12 @@ class OpenAICompatProvider:
         async with client.stream("POST", "/chat/completions", json=body) as response:
             if response.status_code >= 400:
                 detail = (await response.aread()).decode("utf-8", "replace")[:400]
+                if response.status_code == 400 and _is_image_decode_rejection(detail):
+                    raise ProviderError(
+                        "image_rejected",
+                        f"{self._tag()}: HTTP 400: the server could not read an "
+                        f"image in the request: {detail[:200]}",
+                    )
                 raise ProviderError(
                     "internal", f"{self._tag()}: HTTP {response.status_code}: {detail}"
                 )
@@ -236,6 +242,15 @@ class OpenAICompatProvider:
                 async with client.stream("POST", "/chat/completions", json=body) as response:
                     if response.status_code >= 400:
                         detail = (await response.aread()).decode("utf-8", "replace")[:400]
+                        if response.status_code == 400 and _is_image_decode_rejection(detail):
+                            # A picture in the history the server cannot decode.
+                            # The loop finds it, stubs it in the stored history
+                            # and asks again, so the session does not wedge.
+                            raise ProviderError(
+                                "image_rejected",
+                                f"{self._tag()}: HTTP 400: the server could not read an "
+                                f"image in the request: {detail[:200]}",
+                            )
                         if probing and vision_scale.is_rejection(response.status_code, detail):
                             # The server cannot take image parts. Remember it,
                             # say so once, and finish the turn with the text
@@ -290,15 +305,6 @@ class OpenAICompatProvider:
                                 ):
                                     yield event
                                 return
-                        if response.status_code == 400 and _is_image_decode_rejection(detail):
-                            # A picture in the history the server cannot decode.
-                            # The loop finds it, stubs it in the stored history
-                            # and asks again, so the session does not wedge.
-                            raise ProviderError(
-                                "image_rejected",
-                                f"{self._tag()}: HTTP 400: the server could not read an "
-                                f"image in the request: {detail[:200]}",
-                            )
                         if wanted and effort_scale.UNSUPPORTED.is_unsupported_error(detail):
                             # The supported-model list is a guess about someone
                             # else's catalog; a wrong guess costs one retry, not

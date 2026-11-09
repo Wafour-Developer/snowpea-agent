@@ -60,7 +60,7 @@ from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError, To
 from snowpea_core.providers.call_timing import CallTiming
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
-from snowpea_core.session.history import CHARS_PER_TOKEN
+from snowpea_core.session.history import CHARS_PER_TOKEN, estimate_messages
 from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools import deferred as deferred_tools
@@ -606,6 +606,37 @@ def context_overflow(exc: BaseException) -> bool:
     return isinstance(exc, ProviderError) and bool(_CONTEXT_OVERFLOW.search(str(exc)))
 
 
+_OVERFLOW_NUMBERS = re.compile(
+    r"prompt[^0-9]{0,20}\((\d+)\)|exceeds the (?:available )?context[^0-9]{0,20}\((\d+)\)"
+    r"|maximum context length is (\d+)",
+    re.IGNORECASE,
+)
+
+
+def _learn_overflow(
+    core: Core, session: Session, exc: BaseException, sent: list[ChatMessage]
+) -> None:
+    """Keep what a context-overflow 400 says: the real window and the real prompt size."""
+    text = str(exc)
+    prompt = window = 0
+    for match in _OVERFLOW_NUMBERS.finditer(text):
+        if match.group(1):
+            prompt = int(match.group(1))
+        if match.group(2):
+            window = int(match.group(2))
+        if match.group(3):
+            window = int(match.group(3))
+    if prompt:
+        compaction.learn_from_overflow(session, prompt, estimate_messages(sent))
+    if window >= 1024:
+        try:
+            vendor = session.provider or core.providers.default_vendor()
+            core.providers.learn_context_window(vendor, session.model, window)
+            session.context_window = window
+        except Exception:  # noqa: BLE001 - learning is a bonus
+            log.debug("could not keep the window an overflow named", exc_info=True)
+
+
 def transient_provider_error(exc: BaseException) -> bool:
     """True for a provider error a retry can fix (timeouts, resets, 429/5xx)."""
     return isinstance(exc, ProviderError) and bool(_TRANSIENT_PROVIDER.search(str(exc)))
@@ -718,6 +749,19 @@ def _error_class(exc: BaseException) -> str:
     return "timeout" if re.search(r"timed? ?out", text, re.IGNORECASE) else "error"
 
 
+def _step_budget(core: Core) -> float:
+    """Seconds one model step may spend across its retries; ``0`` is no cap."""
+    try:
+        return max(0.0, float(core.settings.agent.provider_step_budget_sec))
+    except (AttributeError, TypeError, ValueError):
+        return 0.0
+
+
+def _is_silence_timeout(exc: BaseException) -> bool:
+    """True when the failure is the server saying nothing for the read timeout."""
+    return bool(re.search(r"timeout|timed out", str(exc), re.IGNORECASE))
+
+
 def _provider_retries(core: Core) -> int:
     try:
         return max(0, int(core.settings.agent.provider_retries))
@@ -744,6 +788,9 @@ async def _stream_once(
     server refused (a 400, a bad key) is not retried: it would fail the same way.
     """
     retries = _provider_retries(core)
+    budget = _step_budget(core)
+    started = time.monotonic()
+    silent_failures = 0
     for attempt_no in range(retries + 1):
         try:
             return await _stream_once_raw(
@@ -762,6 +809,16 @@ async def _stream_once(
                 raise
             if session.interrupt.is_set():
                 raise
+            if _is_silence_timeout(exc):
+                # A server that sat silent for the whole read timeout is not
+                # likely to answer the next try: one more, not three.
+                silent_failures += 1
+            if (silent_failures > 1) or (budget and time.monotonic() - started >= budget):
+                raise ProviderError(
+                    "internal",
+                    f"model server too slow: no answer after "
+                    f"{time.monotonic() - started:.0f}s over {attempt_no + 1} tries ({exc})",
+                ) from exc
             delay = min(30.0, PROVIDER_RETRY_BASE_SEC * (2**attempt_no))
             log.warning(
                 "provider call failed (%s); retry %d/%d in %.0fs",
@@ -805,6 +862,7 @@ async def _stream_once_raw(
     hub = core.hub
     attempt = _Attempt()
     chunks: list[str] = []
+    sent_estimate = estimate_messages(messages)
     # ``thinking`` is offered only to an adapter that declares a switch, so a
     # provider written before the option existed (or a test double) keeps its
     # two-argument signature.
@@ -870,7 +928,7 @@ async def _stream_once_raw(
             attempt.cached_input_tokens += event.usage.cached_input_tokens
             if event.usage.timings:
                 attempt.timings = event.usage.timings
-            compaction.record_provider_usage(session, event.usage.input_tokens)
+            compaction.record_provider_usage(session, event.usage.input_tokens, sent_estimate)
             await hub.emit_event(
                 session.id,
                 events.usage(
@@ -1953,11 +2011,13 @@ async def _drive(
                     build_messages(session, specs, memory_block, core=core), current
                 )
                 attempt = await _model_turn(core, session, provider, messages, specs, config)
-            # The server's own count beat our estimate: summarise and try once more.
+            # The server's own count beat our estimate: learn its numbers,
+            # summarise and try once more (once per model call, not per turn).
             elif not context_overflow(exc) or overflow_retried:
                 raise
             else:
                 overflow_retried = True
+                _learn_overflow(core, session, exc, messages)
                 await hub.emit_event(session.id, events.hook_continue(OVERFLOW_NOTE, 1))
                 compacted = await compaction.compact_session(core, session, auto=True)
                 if not compacted.compacted:
@@ -1967,6 +2027,7 @@ async def _drive(
                     build_messages(session, specs, memory_block, core=core), current
                 )
                 attempt = await _model_turn(core, session, provider, messages, specs, config)
+        overflow_retried = False
         progress.add_usage(attempt)
         calls = _repair_calls(core, session, attempt.calls)
 

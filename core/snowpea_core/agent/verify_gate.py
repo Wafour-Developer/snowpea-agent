@@ -188,6 +188,8 @@ class TurnEvidence:
     last_look: int = -1
     nudges: int = 0
     todo_nudged: bool = False
+    #: A question to the person timed out this turn; open to-dos then wait on them.
+    question_unanswered: bool = False
     #: The turn was already told its deliverable sits in throwaway ``tmp/``.
     tmp_nudged: bool = False
     #: The person declined a check (a shell/execute_code approval) this turn.
@@ -394,7 +396,7 @@ def _nudge_unverified(core: Core, session: Session) -> str | None:
 def _open_todos(session: Session, turn: TurnEvidence) -> str | None:
     """A turn ending with its own task list unfinished (opencode states the rule,
     nothing enforces it): once, ask to finish or say what blocks each item."""
-    if turn.todo_nudged:
+    if turn.todo_nudged or turn.question_unanswered:
         return None
     todos = [t for t in (getattr(session, "todos", None) or []) if isinstance(t, dict)]
     open_items = [

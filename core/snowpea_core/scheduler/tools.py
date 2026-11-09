@@ -27,7 +27,9 @@ CREATE_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": (
                 "When to run: a cron expression, 'in 10m', 'every 30m', "
-                "'every day at 9am' or '매일 09:00'."
+                "'every day at 9am' or '매일 09:00'. A request for one moment "
+                "('at 8', 'tomorrow 9am', 'until 8 then report') is a ONE-SHOT: use "
+                "'in 2h' or a single date and time, never a daily or interval spec."
             ),
         },
         "task": {"type": "string", "description": "Prompt to run on each firing."},

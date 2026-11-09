@@ -277,7 +277,7 @@ def measure(core: Core, session: Session) -> ContextState:
     return ContextState(used=used, window=window_for(core, session), estimated=True)
 
 
-def record_provider_usage(session: Session, input_tokens: int) -> None:
+def record_provider_usage(session: Session, input_tokens: int, sent_estimate: int = 0) -> None:
     """Adopt the vendor's own prompt-token count for this turn.
 
     The provider knows exactly what it billed; once it has said so, the local
@@ -287,13 +287,35 @@ def record_provider_usage(session: Session, input_tokens: int) -> None:
         return
     session.context_used = int(input_tokens)
     session.context_estimated = False
+    history = getattr(session, "history", None)
+    session.context_used_len = len(history) if history is not None else -1
+    if sent_estimate > 0:
+        # Remember how far our guess ran low so what is added before the next
+        # report is counted at the same rate.
+        session.context_ratio = min(2.0, max(1.0, input_tokens / sent_estimate))
+
+
+def learn_from_overflow(session: Session, prompt_tokens: int, sent_estimate: int) -> None:
+    """The server said how long the refused prompt really was: keep the ratio."""
+    if prompt_tokens > 0 and sent_estimate > 0:
+        session.context_ratio = min(2.0, max(1.0, prompt_tokens / sent_estimate))
 
 
 def state_for(core: Core, session: Session) -> ContextState:
     """Current accounting for ``session``, provider-reported where possible."""
     window = window_for(core, session)
     if session.context_used and not session.context_estimated:
-        return ContextState(used=session.context_used, window=window, estimated=False)
+        used = session.context_used
+        sent = session.context_used_len
+        messages = session.history.messages
+        if 0 <= sent <= len(messages):
+            # Tool results and the reply added since the last report are not
+            # in that count; add them at the rate our estimate has run low.
+            added = estimate_messages(list(messages[sent:])) if sent < len(messages) else 0
+            used += int(added * max(1.0, session.context_ratio))
+            return ContextState(used=used, window=window, estimated=False)
+        if sent < 0:
+            return ContextState(used=used, window=window, estimated=False)
     used = estimate_messages(prompt_messages(core, session))
     return ContextState(used=used, window=window, estimated=True)
 
@@ -321,6 +343,8 @@ async def emit_context(
             resolved.window = live
     session.context_used = resolved.used
     session.context_estimated = resolved.estimated
+    if not resolved.estimated and getattr(session, "history", None) is not None:
+        session.context_used_len = len(session.history)
     session.context_window = resolved.window
     vendor, model = resolved_identity(core, session)
     await core.hub.emit_event(
@@ -701,8 +725,19 @@ def should_auto_compact(core: Core, session: Session, state: ContextState) -> bo
         return False
     if len(session.history) <= _keep_last(core):
         return False
-    percent = state.percent
-    return percent is not None and percent >= threshold
+    # The server refuses a prompt plus the output it is asked to leave room for.
+    reserve = _output_reserve(core, session, state.window)
+    return (state.used + reserve) * 100.0 / state.window >= threshold
+
+
+def _output_reserve(core: Core, session: Session, window: int) -> int:
+    """Tokens the next reply may take, capped so a small window still works."""
+    try:
+        vendor = session.provider or core.providers.default_vendor()
+        reserve = int(core.providers.max_tokens_for(vendor, session.model))
+    except Exception:  # noqa: BLE001 - accounting must not break the turn
+        return 0
+    return max(0, min(reserve, window // 4))
 
 
 async def maybe_auto_compact(core: Core, session: Session) -> CompactionResult | None:
@@ -737,6 +772,33 @@ DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0
 
 #: Marker left where the middle of a trimmed tool result used to be.
 TRIM_MARKER = "\n…[trimmed]…\n"
+
+
+#: A single tool result may take this fraction of the window (as characters
+#: at ~3 per token, so ~40%) in an outgoing request before head/tail trimming.
+SINGLE_RESULT_WINDOW_SHARE = 0.4
+SINGLE_RESULT_FLOOR_CHARS = 20_000
+
+
+def cap_single_results(history: list[ChatMessage], window: int | None) -> list[ChatMessage]:
+    """Trim any one tool result that alone would take too much of the window.
+
+    Outgoing copy only; the stored transcript keeps the whole result.  With
+    no tool-output cap by default, a 200 000-character log read went in whole.
+    """
+    if not window or window <= 0:
+        return history
+    limit = max(SINGLE_RESULT_FLOOR_CHARS, int(window * SINGLE_RESULT_WINDOW_SHARE))
+    out: list[ChatMessage] | None = None
+    for index, message in enumerate(history):
+        if message.role != "tool" or not isinstance(message.content, str):
+            continue
+        if len(message.content) <= limit or message.name in KEPT_RESULT_TOOLS:
+            continue
+        if out is None:
+            out = list(history)
+        out[index] = replace(message, content=_trim_tool_output(message.content, limit))
+    return out if out is not None else history
 
 
 def _tool_output_stub(name: str, chars: int) -> str:
@@ -1166,6 +1228,8 @@ __all__ = [
     "emit_context",
     "fallback_summary",
     "format_tokens",
+    "cap_single_results",
+    "learn_from_overflow",
     "maybe_auto_compact",
     "measure",
     "prompt_messages",

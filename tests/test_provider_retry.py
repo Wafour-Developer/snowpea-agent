@@ -89,3 +89,21 @@ async def test_a_refused_request_is_not_retried(
         assert recorder.of_kind("turn.done")[-1]["payload"]["reason"] == "error"
     finally:
         await daemon.stop()
+
+
+async def test_a_server_silent_twice_ends_the_step_as_too_slow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A read timeout gets one more try, not three: 20 minutes of waiting is not recovery."""
+    daemon, provider, recorder = await _run(
+        tmp_path,
+        monkeypatch,
+        ["x: ReadTimeout: ", "x: ReadTimeout: ", "x: ReadTimeout: ", "x: ReadTimeout: "],
+    )
+    try:
+        assert provider.calls == 2
+        errors = recorder.of_kind("error")
+        assert errors and "model server too slow" in errors[-1]["payload"]["message"]
+        assert recorder.of_kind("turn.done")[-1]["payload"]["reason"] == "error"
+    finally:
+        await daemon.stop()

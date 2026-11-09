@@ -504,3 +504,24 @@ async def test_the_override_survives_provider_configure(
         await client.stop()
     finally:
         await daemon.stop()
+
+
+async def test_an_undecodable_image_is_not_read_as_blindness(
+    tmp_path: Path, image: Path
+) -> None:
+    """The word "image" in a decode error must not mark a seeing model blind."""
+    from snowpea_core.providers.base import ProviderError
+
+    server = FakeServer(
+        accepts_images=False,
+        detail="Failed to load image: cannot identify image file <_io.BytesIO>",
+    )
+    try:
+        registry = ProviderRegistry(_local_settings(server.base_url), Paths.create(tmp_path))
+        with pytest.raises(ProviderError) as caught:
+            async for _ in registry.build("hon2").stream(_messages(image), []):
+                pass
+        assert caught.value.code == "image_rejected"
+        assert registry.vision_for("hon2") is None  # nothing was learned about the model
+    finally:
+        server.close()

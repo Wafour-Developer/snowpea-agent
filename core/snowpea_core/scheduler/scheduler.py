@@ -109,6 +109,10 @@ def _run_error(status: str, text: str) -> str | None:
     return clipped or status
 
 
+#: Consecutive failed runs after which a repeating job pauses itself.
+PAUSE_AFTER_FAILURES = 3
+
+
 class _Collector:
     """A pseudo-connection that records one unattended session's events.
 
@@ -618,8 +622,22 @@ class Scheduler:
                 fresh.state = "scheduled"
         else:
             fresh.state = "cancelled" if fresh.next_run is None else "scheduled"
+        paused = False
+        if status in ("error", "denied_by_timeout") and fresh.kind != "once" and fresh.enabled:
+            recent = await self.store.runs(fresh.id, limit=PAUSE_AFTER_FAILURES)
+            if len(recent) >= PAUSE_AFTER_FAILURES and all(
+                row.get("status") in ("error", "denied_by_timeout") for row in recent
+            ):
+                fresh.enabled = False
+                paused = True
         await self.store.update(fresh)
         await self.refresh_counter()
+        if paused:
+            await self.deliver(
+                fresh,
+                f"Schedule {fresh.id} paused: its last {PAUSE_AFTER_FAILURES} runs failed. "
+                "Fix the cause and enable it again, or cancel it.",
+            )
 
     # -- delivery ------------------------------------------------------
     async def deliver(self, job: Job, text: str) -> None:
