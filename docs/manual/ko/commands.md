@@ -37,6 +37,7 @@ snowpea commands list --json
 |---|---|
 | `/resume` | 이 디렉터리에서 마지막으로 쓰던 세션을 다시 열고 재생 |
 | `/model`, `/models` | 설정된 모든 벤더가 지원하는 모델 전체를 나열하고 선택. `/model <vendor:model>` 은 이 세션에 고정(저장되어 재시작 후에도 유지), `/model inherit` 은 고정 해제, `/model default <id>` 는 `models.default` 설정 |
+| `/vision [<이름>\|<번호>\|off]` | 이미지를 볼 수 없는 모델을 위해 이미지를 설명해 주는 모델(`models.categories.vision`)을 보이거나 지정·해제. 인자 없이 쓰면 선택지 목록. 설정하면 비전 여부를 아직 확인하지 않은 모델에도 쓰임 |
 | `/effort` | 모델이 얼마나 오래 생각할지와 그것을 정한 규칙을 보여 줌. `/effort low\|medium\|high\|max` 는 이 세션에 고정(저장됨), `/effort auto` 는 고정 해제. [추론 강도](setup.md#추론-강도effort) 참고 |
 | `/attach <경로>` | 다음 프롬프트에 파일을 첨부 |
 | `/voice` | 음성 입력을 켬. 이후 `Ctrl+Space` 로 녹음 |

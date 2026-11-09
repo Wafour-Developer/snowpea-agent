@@ -53,18 +53,20 @@ def vision_assist(core: Core, session: Any) -> ModelRoute | None:
     """The route that describes images for ``session``, or ``None`` (today's behaviour).
 
     ``None`` whenever ``models.categories.vision`` is unset, the session's model
-    can see images itself, or neither ``vision`` nor ``standard`` resolves to a
+    is known to see images itself, or neither ``vision`` nor ``standard`` resolves to a
     model that can.
     """
-    from snowpea_core.tools.view_image import session_can_see_images
-
     settings = getattr(core, "settings", None)
     categories = getattr(getattr(settings, "models", None), "categories", None) or {}
     if not isinstance(categories, dict) or not str(categories.get("vision") or "").strip():
         return None
-    if session_can_see_images(core, session):
-        return None
     registry = core.providers
+    # A model known to see needs no help.  One nobody has probed is not asked
+    # either: the person named a vision model, so it is used instead of spending
+    # a request to learn what it would say.
+    own_vendor = session.provider or registry.default_vendor()
+    if registry.vision_for(own_vendor, session.model) is True:
+        return None
     workdir = getattr(session, "workdir", None)
     for slot, need_known in (("vision", False), ("standard", True)):
         route = category_route(settings, slot, workdir=workdir)  # type: ignore[arg-type]

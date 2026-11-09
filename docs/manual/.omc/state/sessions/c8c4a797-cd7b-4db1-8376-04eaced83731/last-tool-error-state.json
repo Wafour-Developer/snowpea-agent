@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"python3 - <<'EOF'\\nimport re\\ndef edit(path, anchor, add, before=True):\\n    s=open(path,encoding=\\\"utf-8\\\").read()\\n    assert anchor in s, (path, anchor)\\n    s=s.replace(anchor, add+anc...",
+  "error": "Exit code 128\n .../pre-tool-advisory-throttle.json                            |  4 ++--\n docs/manual/en/backends.md                                     | 10 ++++++++++\n docs/manual/ko/backends.md                                     | 10 ++++++++++\n 3 files changed, 22 insertions(+), 2 deletions(-)\nwarning: could not open directory 'docs/manual/docs/manual/': No such file or directory\nfatal: pathspec 'docs/manual/en/backends.md' did not match any files",
+  "timestamp": "2026-11-04T21:24:45.677Z",
+  "retry_count": 1
+}

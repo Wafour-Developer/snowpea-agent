@@ -133,7 +133,7 @@ The vision model never takes over the turn. It looks at each image once and writ
 {"models": {"categories": {"deep": "reasoning", "vision": "openai:gpt-4o"}}}
 ```
 
-`settings.set {"patch": {"models": {"categories": {"vision": null}}}}` clears one slot. Other keys under `models.categories` are kept but unused. A client can tell a daemon that routes by these slots from the `modelCategories` capability and the `modelCategories` list `system.hello` answers with (protocol 1.33.0).
+`/vision <name>` sets the vision slot and `/vision off` clears it (the TUI and the desktop app have a picker for it). With the slot set, a model nobody has probed for vision (a new local server) is not sent images to find out; it uses the vision model from the first picture. `settings.set {"patch": {"models": {"categories": {"vision": null}}}}` clears one slot. Other keys under `models.categories` are kept but unused. A client can tell a daemon that routes by these slots from the `modelCategories` capability and the `modelCategories` list `system.hello` answers with (protocol 1.33.0).
 
 ### Reply language
 

@@ -389,3 +389,33 @@ async def test_settings_set_and_get_carry_the_new_slots(
         assert daemon.core.settings.models.categories == {"deep": "deepv:think-1"}
     finally:
         await client.stop()
+
+
+def test_an_unprobed_local_model_gets_the_vision_model_without_a_probe(
+    core: Core, tmp_path: Path
+) -> None:
+    """The person named a vision model: a local model nobody has probed uses it."""
+    session = Session(id="s-lg", workdir=tmp_path, provider="local", model="k-exaone_v2.5")
+    core.settings.models.categories["vision"] = "openai:gpt-4o"
+    assert core.providers.vision_for("local", "k-exaone_v2.5") is None
+    assert image_describe.vision_assist(core, session) == ModelRoute("openai", "gpt-4o")
+
+
+async def test_the_vision_command_sets_shows_and_clears_the_slot(
+    core: Core, tmp_path: Path
+) -> None:
+    from snowpea_core.commands import vision_cmd
+
+    said: list[str] = []
+
+    async def say(text: str) -> None:
+        said.append(text)
+
+    ctx = SimpleNamespace(core=core, session=Session(id="s-v", workdir=tmp_path), say=say)
+    await vision_cmd.cmd_vision(ctx, "openai:gpt-4o")  # type: ignore[arg-type]
+    assert core.settings.models.categories["vision"] == "openai:gpt-4o"
+    assert "openai:gpt-4o" in said[-1]
+    await vision_cmd.cmd_vision(ctx, "nonsense:::")  # type: ignore[arg-type]
+    assert core.settings.models.categories["vision"] == "openai:gpt-4o"
+    await vision_cmd.cmd_vision(ctx, "off")  # type: ignore[arg-type]
+    assert "vision" not in core.settings.models.categories

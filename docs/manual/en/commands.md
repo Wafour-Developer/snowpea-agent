@@ -17,6 +17,7 @@ That prints the live registry, including commands contributed by installed plugi
 |---|---|
 | `/help` | list every available command |
 | `/tools` | list registered tools with category, permission and state |
+| `/vision [<name>\|<number>\|off]` | show, set or clear the model that describes images for a model that cannot see them (`models.categories.vision`); bare `/vision` lists the choices. A model nobody has probed for vision also uses it once it is set |
 | `/compact [instructions]` | summarise the conversation so far and continue with the summary |
 | `/plan`, `/accept`, `/auto` [request] | switch mode; with a request after it, run that request in the new mode right away (`/plan design the game`); `/plan clear` abandons the current plan (see Plans) |
 | `/mode [plan\|accept\|auto\|save\|show]` | show, switch, or save the project default |

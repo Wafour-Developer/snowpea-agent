@@ -335,6 +335,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         skill_cmd,
         team_cmd,
         ultrawork,
+        vision_cmd,
         workers_cmd,
     )
     from snowpea_core.commands.builtin import COMMANDS
@@ -345,6 +346,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *memory_cmd.COMMANDS,
         *mode_cmd.COMMANDS,
         *model_cmd.COMMANDS,
+        *vision_cmd.COMMANDS,
         *effort_cmd.COMMANDS,
         *delegation_cmd.COMMANDS,
         *schedule_cmd.COMMANDS,
