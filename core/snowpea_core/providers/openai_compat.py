@@ -10,6 +10,7 @@ does HTTP and SSE framing.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -29,6 +30,10 @@ from snowpea_core.providers.presets import PRESETS, VendorPreset
 log = logging.getLogger("snowpea.providers.openai_compat")
 
 DEFAULT_TIMEOUT = 300.0
+
+#: Pause before replaying a refused picture request as text; a gateway that
+#: limits to one call per second would answer the immediate replay with a 429.
+OPAQUE_REPLAY_PAUSE_SEC = 1.5
 DONE = "[DONE]"
 
 
@@ -270,6 +275,8 @@ class OpenAICompatProvider:
                             # request as text.  If that works the pictures were
                             # the problem; if not, the original error stands and
                             # nothing is learned about the model.
+                            # Some gateways allow one request per second.
+                            await asyncio.sleep(OPAQUE_REPLAY_PAUSE_SEC)
                             replay = build_openai_request(
                                 self.preset,
                                 model,
@@ -283,7 +290,8 @@ class OpenAICompatProvider:
                             )
                             try:
                                 events = [e async for e in self._retry(client, replay, normalizer)]
-                            except ProviderError:
+                            except ProviderError as _replay_exc:
+                                log.debug('text replay failed: %s', _replay_exc)
                                 events = None
                             if events is not None:
                                 self._forget_vision(model)
