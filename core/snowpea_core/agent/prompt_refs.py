@@ -53,7 +53,7 @@ _REF_RE = re.compile(
     r'(?<![\w\\])@(?:"([^"]+)"(?:\:(\d+)(?:-(\d+))?)?|([^\s@]+))'
 )
 _RANGE_RE = re.compile(r"^(.+?):(\d+)(?:-(\d+))?$")
-_SECRET_DIR_PARTS = frozenset({".ssh", ".gnupg", ".aws"})
+_SECRET_DIR_PARTS = frozenset({".ssh", ".gnupg", ".aws", ".docker", ".kube", ".azure"})
 #: Browser credential stores, by file name in any directory (Chromium's
 #: cookies, saved logins and keys; Firefox's ``key4.db`` and friends).
 _SECRET_FILE_NAMES = frozenset(
@@ -70,6 +70,13 @@ _SECRET_FILE_NAMES = frozenset(
         "cookies.sqlite",
         # snowpea's MCP OAuth token store (1.34.0), wherever a home puts it.
         "mcp-oauth.json",
+        # Credentials other tools keep in a plain file.
+        ".netrc",
+        "_netrc",
+        ".git-credentials",
+        ".npmrc",
+        ".pypirc",
+        ".pgpass",
     }
 )
 #: Browser profiles, keyrings and keychains: ``(base, glob under it)``, where
@@ -175,6 +182,24 @@ def _ref_entry(
     return entry
 
 
+#: Certificate, key-store, password-vault and state files by extension.
+_SECRET_SUFFIXES = (
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".jks",
+    ".keystore",
+    ".kdbx",
+    ".tfstate",
+    ".tfstate.backup",
+    ".ovpn",
+    ".ppk",
+)
+#: SSH private-key file names (``id_rsa``, ``id_ed25519``, ``id_ecdsa``, ``id_dsa``, …).
+_SECRET_KEY_PREFIXES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa")
+
+
 def is_secret_pattern(resolved: Path) -> bool:
     """True when the path itself says "credential".
 
@@ -188,9 +213,9 @@ def is_secret_pattern(resolved: Path) -> bool:
     lower = name.lower()
     if name == ".env" or name.startswith(".env."):
         return True
-    if lower.endswith(".pem") or lower.endswith(".key"):
+    if lower.endswith(_SECRET_SUFFIXES):
         return True
-    if name.startswith("id_rsa") or name.startswith("id_ed25519"):
+    if name.startswith(_SECRET_KEY_PREFIXES):
         return True
     return lower in _SECRET_FILE_NAMES or _under_secret_root(resolved)
 

@@ -25,6 +25,7 @@ import contextlib
 import fnmatch
 import hashlib
 import os
+import re
 import secrets
 import stat as stat_mod
 from collections.abc import Callable
@@ -62,6 +63,25 @@ _CHUNK = 1024 * 1024
 
 def _real(path: str | Path) -> Path:
     return Path(os.path.realpath(path))
+
+
+def _windows_clean(text: str) -> str:
+    """``text`` as Windows would name the file: no ``:stream`` suffix, no trailing dots or spaces.
+
+    ``secret.pem::$DATA``, ``secret.pem.`` and ``secret.pem `` all open
+    ``secret.pem`` on NTFS, so each is judged as the plain name too.
+    """
+    segments = re.split(r"([\\/])", text)
+    cleaned: list[str] = []
+    for index, segment in enumerate(segments):
+        if segment in ("/", "\\") or not segment:
+            cleaned.append(segment)
+            continue
+        if index == 0 and re.fullmatch(r"[A-Za-z]:", segment):
+            cleaned.append(segment)  # a drive letter keeps its colon
+            continue
+        cleaned.append(segment.split(":", 1)[0].rstrip(". "))
+    return "".join(cleaned)
 
 
 def _fold(text: str) -> str:
@@ -133,7 +153,8 @@ class Roots:
         # A case-insensitive file system (macOS, Windows) or another Unicode form
         # reaches the same file under a different spelling: judge both spellings.
         folded = Path(_fold(str(real)))
-        for candidate in (real, folded):
+        cleaned = Path(_windows_clean(str(real)))
+        for candidate in (real, folded, cleaned, Path(_fold(str(cleaned)))):
             if is_secret_pattern(candidate):
                 return True
             if candidate.parent.name == PROJECT_DIR and candidate.name in PROJECT_FILES:
