@@ -242,3 +242,24 @@ export function modelSource(session: unknown): string | null {
   const raw = value?.modelSource ?? value?.model_source;
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
+
+/** The ref of the row that clears the vision model. */
+export const VISION_OFF_REF = "off";
+
+/**
+ * The list for `/vision`: the same models, a "none" row first, and the one the
+ * `models.categories.vision` slot names marked as in use.
+ */
+export function visionOptions(options: ModelOption[], currentRef: string): ModelOption[] {
+  const marked = options
+    .filter((option) => option.ref !== EFFORT_REF && option.ref !== INHERIT_REF)
+    .map((option) => ({ ...option, current: currentRef !== "" && option.ref === currentRef }));
+  const none: ModelOption = {
+    ref: VISION_OFF_REF,
+    label: "none",
+    detail: "images reach a text-only model as a short note",
+    origin: "profile" as ModelOption["origin"],
+    current: currentRef === "",
+  };
+  return [none, ...marked];
+}

@@ -10,6 +10,7 @@ import {
   modelOptions,
   modelSource,
   nextEffort,
+  visionOptions,
 } from "../src/state/models.js";
 
 /** The picker always ends with the row that clears the pin. */
@@ -180,3 +181,28 @@ describe("per-model effort tiers", () => {
   });
 });
 
+
+describe("visionOptions", () => {
+  const base = modelOptions({
+    profiles: { eyes: { provider: "openai", model: "gpt-4o" } },
+    discoveries: [{ vendor: "lg", models: ["k-exaone_v2.5"] }],
+    current: "k-exaone_v2.5",
+    vendor: "lg",
+    efforts: ["low", "high"],
+    effort: "low",
+  });
+
+  it("starts with a none row and drops the effort and inherit rows", () => {
+    const rows = visionOptions(base, "");
+    expect(rows[0].ref).toBe("off");
+    expect(rows[0].current).toBe(true);
+    expect(rows.some((row) => row.ref === "__effort__" || row.ref === "inherit")).toBe(false);
+  });
+
+  it("marks the model the slot names, not the session's own", () => {
+    const rows = visionOptions(base, "eyes");
+    expect(rows.find((row) => row.ref === "eyes")?.current).toBe(true);
+    expect(rows.filter((row) => row.current)).toHaveLength(1);
+    expect(rows[0].current).toBe(false);
+  });
+});

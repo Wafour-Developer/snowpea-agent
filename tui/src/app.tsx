@@ -86,6 +86,7 @@ import {
   modelSource,
   nextEffort,
   type ModelOption,
+  visionOptions,
 } from "./state/models.js";
 import { lspTable, readLspStatus } from "./state/lsp.js";
 import { delegationHint, delegationLabel } from "./state/delegation.js";
@@ -587,6 +588,8 @@ export function App({
   const [agentModels, setAgentModels] = useState<Record<string, string>>({});
   /** Options for the `/model` picker, or null while it is closed. */
   const [modelPicker, setModelPicker] = useState<ModelOption[] | null>(null);
+  /** What the open picker chooses: the session's model, or the vision model. */
+  const [pickerPurpose, setPickerPurpose] = useState<"model" | "vision">("model");
   /** `/skill create` with no arguments: the three questions are up. */
   const [skillForm, setSkillForm] = useState(false);
   /** Installed skills, for `/skill learn|edit <name>` completion. */
@@ -1781,7 +1784,7 @@ export function App({
    * to list — so a failure still opens the picker with whatever came back,
    * including the model already in use.
    */
-  const openModelPicker = useCallback(() => {
+  const openModelPicker = useCallback((purpose: "model" | "vision" = "model") => {
     const settings = client
       .call("settings.get", { scope: "global" })
       .catch(() => ({ settings: {} }));
@@ -1807,19 +1810,26 @@ export function App({
       ([settingsResult, projectResult, modelListings]) => {
       const document = (settingsResult?.settings ?? {}) as Record<string, any>;
       const project = (projectResult?.settings ?? {}) as Record<string, any>;
+      const visionRef = String(document.models?.categories?.vision ?? "");
       const options = modelOptions({
         profiles: document.models?.profiles ?? null,
         projectProfiles: project.models?.profiles ?? null,
         defaultProfile: document.models?.default ?? null,
         agentModels: document.agents?.models ?? null,
         discoveries: modelListings,
-        current: state.model ?? null,
-        vendor: state.provider ?? null,
-        effort: state.effort,
-        effortSource: state.effortSource,
-        efforts: state.efforts,
+        current: purpose === "vision" ? null : (state.model ?? null),
+        vendor: purpose === "vision" ? null : (state.provider ?? null),
+        effort: purpose === "vision" ? null : state.effort,
+        effortSource: purpose === "vision" ? null : state.effortSource,
+        efforts: purpose === "vision" ? null : state.efforts,
       });
-        setModelPicker(options);
+        if (purpose === "vision") {
+          setModelPicker(visionOptions(options, visionRef));
+          setPickerPurpose("vision");
+        } else {
+          setModelPicker(options);
+          setPickerPurpose("model");
+        }
       },
     );
   }, [client, workdir, state.provider, state.model, state.effort, state.effortSource, state.efforts]);
@@ -2279,6 +2289,11 @@ export function App({
       // list to pick from, which is this surface's job.
       if (/^\/model\s*$/.test(text.trim())) {
         openModelPicker();
+        return;
+      }
+      // Bare `/vision` is the same list for the model that describes images.
+      if (/^\/vision\s*$/.test(text.trim())) {
+        openModelPicker("vision");
         return;
       }
       // So are the ones that only move this surface's own switches.
@@ -2887,11 +2902,19 @@ export function App({
       {modelPicker ? (
         <ModelPicker
           options={modelPicker}
+          title={pickerPurpose === "vision" ? "Vision model" : "Model"}
+          emptyText={
+            pickerPurpose === "vision" ? "no configured model to choose from" : undefined
+          }
           width={contentWidth}
           isActive={state.pendingApproval === null && state.pendingQuestion === null}
           onCancel={() => setModelPicker(null)}
           onChoose={(option) => {
             setModelPicker(null);
+            if (pickerPurpose === "vision") {
+              submit(`/vision ${option.ref}`);
+              return;
+            }
             chooseModel(option.ref);
           }}
         />

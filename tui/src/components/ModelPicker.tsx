@@ -24,6 +24,10 @@ export interface ModelPickerProps {
   onCancel: () => void;
   isActive?: boolean;
   width: number;
+  /** Heading; "Model" unless this picks something else (the vision model). */
+  title?: string;
+  /** Shown when there is nothing to pick. */
+  emptyText?: string;
 }
 
 export function ModelPicker({
@@ -32,6 +36,8 @@ export function ModelPicker({
   onCancel,
   isActive = true,
   width,
+  title = "Model",
+  emptyText = "no profiles configured and the vendor listed nothing",
 }: ModelPickerProps): React.ReactElement {
   const [index, setIndex] = useState(() => {
     const current = options.findIndex((option) => option.current);
@@ -55,11 +61,11 @@ export function ModelPicker({
   return (
     <Box flexDirection="column" width={width} borderStyle="round" borderColor="cyan" paddingX={1}>
       <Text bold color="cyan">
-        Model
+        {title}
       </Text>
       {options.length === 0 ? (
         <>
-          <Text dimColor>no profiles configured and the vendor listed nothing</Text>
+          <Text dimColor>{emptyText}</Text>
           <Text dimColor>{choiceHint({ enter: "pick", digits: false })}</Text>
         </>
       ) : (
