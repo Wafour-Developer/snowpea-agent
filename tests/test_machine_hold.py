@@ -126,7 +126,7 @@ async def test_hello_reports_the_machine_and_the_capabilities(
         await ws.close()
     finally:
         await daemon.stop()
-    assert reply["protocolVersion"] == "1.40.0"
+    assert reply["protocolVersion"] == "1.41.0"
     machine = reply["machine"]
     assert set(machine) == {"id", "hostname", "os", "container"}
     assert machine["id"] == machine_mod.machine_id(tmp_path / "home")

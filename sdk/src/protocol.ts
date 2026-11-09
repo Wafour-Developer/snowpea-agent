@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.40.0";
+export const PROTOCOL_VERSION = "1.41.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2234,6 +2234,24 @@ export interface ProviderTestResult {
   provider: string;
   /** The model's reply, trimmed. */
   reply?: string | null;
+}
+
+/** `provider.visionReset` params. Forget the learned vision answer for a model so the next picture is tried again (1.41.0, capability 'visionNotice'). A configured providers.<v>.vision wins as before. */
+export interface ProviderVisionResetParams {
+  /** Model whose learned 'cannot see images' answer is forgotten; null: the vendor's current model. */
+  model?: string | null;
+  /** Vendor to reset; defaults to the configured one. */
+  vendor?: string | null;
+}
+
+/** `provider.visionReset` result. */
+export interface ProviderVisionResetResult {
+  /** True when something had been learned and is now forgotten. */
+  forgotten: boolean;
+  /** Model that was reset. */
+  model: string;
+  /** Vendor that was reset. */
+  vendor: string;
 }
 
 /** `question.list` params. List questions the agent is still waiting on. */
@@ -6531,6 +6549,25 @@ export interface UsageEventPayload {
   timings?: Record<string, number> | null;
 }
 
+/** Payload of `session.event` with kind `vision.unavailable`. */
+export interface VisionUnavailableEventPayload {
+  /** How many images went unseen in this report. */
+  count?: number;
+  /** Short text of why the vision slot failed ('describe_failed' only). */
+  error?: string | null;
+  kind?: "vision.unavailable";
+  /** The session's model that could not see. */
+  model?: string | null;
+  /** The session's provider. */
+  provider?: string | null;
+  /** 'no_vision_model': the session's model cannot see images and models.categories.vision is not set (or does not resolve to a model that can). 'describe_failed': the vision slot is set but did not describe the image (see 'error'). */
+  reason: "no_vision_model" | "describe_failed";
+  /** 'attachment': the user's message; 'tool': a tool result (view_image, a screenshot). */
+  source: "attachment" | "tool";
+  /** models.categories.vision as configured ('vendor:model' or a profile id); null if unset. */
+  visionModel?: string | null;
+}
+
 /** Maps every `session.event` kind to its payload type. */
 export interface SessionEventKindMap {
   "agent.changed": AgentChangedEventPayload;
@@ -6573,6 +6610,7 @@ export interface SessionEventKindMap {
   "turn.queued": TurnQueuedEventPayload;
   "turn.started": TurnStartedEventPayload;
   "usage": UsageEventPayload;
+  "vision.unavailable": VisionUnavailableEventPayload;
 }
 
 export type SessionEventKind = keyof SessionEventKindMap;
@@ -6617,6 +6655,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "turn.queued",
   "turn.started",
   "usage",
+  "vision.unavailable",
 ];
 
 // ---------------------------------------------------------------------------
@@ -6700,6 +6739,7 @@ export interface MethodMap {
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
   "provider.remove": { params: ProviderRemoveParams; result: ProviderRemoveResult };
   "provider.test": { params: ProviderTestParams; result: ProviderTestResult };
+  "provider.visionReset": { params: ProviderVisionResetParams; result: ProviderVisionResetResult };
   "question.list": { params: QuestionListParams; result: QuestionListResult };
   "question.request": { params: QuestionRequestParams; result: QuestionRequestResult };
   "question.respond": { params: QuestionRespondParams; result: QuestionRespondResult };
@@ -6855,6 +6895,7 @@ export type ClientMethod =
   | "provider.models"
   | "provider.remove"
   | "provider.test"
+  | "provider.visionReset"
   | "question.list"
   | "question.respond"
   | "session.artifacts"

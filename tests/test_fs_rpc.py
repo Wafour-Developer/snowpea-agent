@@ -62,7 +62,7 @@ async def env(tmp_path: Path, http: aiohttp.ClientSession) -> AsyncIterator[Env]
 
 async def test_the_capability_and_the_version_are_announced(env: Env) -> None:
     assert "fs" in CAPABILITIES
-    assert PROTOCOL_VERSION == "1.40.0"
+    assert PROTOCOL_VERSION == "1.41.0"
     for method in ("fs.stat", "fs.list", "fs.glob", "fs.read", "fs.write", "fs.hash"):
         frame = await env.call(method, path=".")
         assert frame.get("error", {}).get("data", {}).get("code") != "method_not_found"

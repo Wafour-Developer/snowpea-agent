@@ -66,6 +66,8 @@ from snowpea_core.server.protocol import (
     ProviderListResult,
     ProviderModelsParams,
     ProviderModelsResult,
+    ProviderVisionResetParams,
+    ProviderVisionResetResult,
     QuestionListResult,
     QuestionRespondParams,
     SessionCompactParams,
@@ -148,6 +150,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "question.respond",
     "provider.list",
     "provider.models",
+    "provider.visionReset",
     "memory.search",
     "memory.write",
     "memory.list",
@@ -1063,6 +1066,15 @@ async def provider_list_handler(
     return ProviderListResult(providers=core.providers.list())
 
 
+async def provider_vision_reset_handler(
+    _conn: RpcConnection, params: ProviderVisionResetParams, core: Core
+) -> ProviderVisionResetResult:
+    """``provider.visionReset`` — forget a learned "cannot see images" (1.41.0)."""
+    vendor = (params.vendor or "").strip() or core.providers.default_vendor()
+    model, forgotten = core.providers.forget_vision(vendor, (params.model or "").strip() or None)
+    return ProviderVisionResetResult(vendor=vendor, model=model, forgotten=forgotten)
+
+
 async def provider_models_handler(
     _conn: RpcConnection, params: ProviderModelsParams, core: Core
 ) -> ProviderModelsResult:
@@ -1309,6 +1321,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("question.respond", question_respond_handler)
     dispatcher.register("provider.list", provider_list_handler)
     dispatcher.register("provider.models", provider_models_handler)
+    dispatcher.register("provider.visionReset", provider_vision_reset_handler)
     dispatcher.register("memory.search", memory_search_handler)
     dispatcher.register("memory.write", memory_write_handler)
     dispatcher.register("memory.list", memory_list_handler)

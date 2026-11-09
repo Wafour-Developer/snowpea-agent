@@ -51,6 +51,7 @@ from snowpea_core.server.protocol import (
     TurnQueued,
     TurnStarted,
     UsageEvent,
+    VisionUnavailable,
 )
 
 Event = tuple[str, dict[str, Any]]
@@ -254,6 +255,28 @@ def provider_waiting(since_sec: int, phase: str) -> Event:
 def provider_retry(attempt: int, max_retries: int, delay_sec: float, error: str) -> Event:
     return _pack(
         ProviderRetry(attempt=attempt, max=max_retries, delaySec=delay_sec, error=error)
+    )
+
+
+def vision_unavailable(
+    reason: str,
+    source: str,
+    provider: str | None,
+    model: str | None,
+    vision_model: str | None,
+    count: int = 1,
+    error: str | None = None,
+) -> Event:
+    return _pack(
+        VisionUnavailable(
+            reason=reason,  # type: ignore[arg-type]
+            source=source,  # type: ignore[arg-type]
+            provider=provider,
+            model=model,
+            visionModel=vision_model,
+            count=count,
+            error=error,
+        )
     )
 
 

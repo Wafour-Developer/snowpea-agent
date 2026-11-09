@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.40.0` (semver)
+- **Protocol version:** `1.41.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.40.0"
+    "protocolVersion": "1.41.0"
   }
 }
 ```
@@ -103,6 +103,7 @@ Server capabilities advertised in the `system.hello` result:
 - `tools`
 - `turnOutcome`
 - `update`
+- `visionNotice`
 - `webSearch`
 - `writeOutsideAsks`
 
@@ -185,6 +186,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`provider.models`](#providermodels) | client → server | Ask a vendor's endpoint which models it serves. |
 | [`provider.remove`](#providerremove) | client → server | Forget a configured provider, typically a named local server. |
 | [`provider.test`](#providertest) | client → server | Send one short completion to check a provider and model. |
+| [`provider.visionReset`](#providervisionreset) | client → server | Forget the learned vision answer for a model so the next picture is tried again (1.41.0, capability 'visionNotice'). A configured providers.<v>.vision wins as before. |
 | [`question.list`](#questionlist) | client → server | List questions the agent is still waiting on. |
 | [`question.request`](#questionrequest) | server → client | Ask the client to put a question to the human. |
 | [`question.respond`](#questionrespond) | client → server | Answer a pending question and unblock the turn. |
@@ -1929,6 +1931,27 @@ Send one short completion to check a provider and model.
 | `ok` | `boolean` | yes | True when a one-line completion came back. |
 | `provider` | `string` | yes | Vendor tested. |
 | `reply` | `string \| null` | no | The model's reply, trimmed. |
+
+### `provider.visionReset`
+
+*Direction:* client → server
+
+Forget the learned vision answer for a model so the next picture is tried again (1.41.0, capability 'visionNotice'). A configured providers.<v>.vision wins as before.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `model` | `string \| null` | no | Model whose learned 'cannot see images' answer is forgotten; null: the vendor's current model. |
+| `vendor` | `string \| null` | no | Vendor to reset; defaults to the configured one. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `forgotten` | `boolean` | yes | True when something had been learned and is now forgotten. |
+| `model` | `string` | yes | Model that was reset. |
+| `vendor` | `string` | yes | Vendor that was reset. |
 
 ### `question.list`
 
@@ -4083,6 +4106,19 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `outputTokens` | `number` | no | Completion tokens produced. |
 | `provider` | `string \| null` | no | Vendor that served the call (1.7.0). |
 | `timings` | `Record<string, number> \| null` | no | llama.cpp's own timings when the server sends them (1.25.0): prompt_n, prompt_ms, cache_n, predicted_n, predicted_ms. A first token much later than prompt_ms was spent waiting for a slot. |
+
+### kind `vision.unavailable`
+
+| field | type | required | description |
+|---|---|---|---|
+| `count` | `number` | no | How many images went unseen in this report. |
+| `error` | `string \| null` | no | Short text of why the vision slot failed ('describe_failed' only). |
+| `kind` | `"vision.unavailable"` | no |  |
+| `model` | `string \| null` | no | The session's model that could not see. |
+| `provider` | `string \| null` | no | The session's provider. |
+| `reason` | `"no_vision_model" \| "describe_failed"` | yes | 'no_vision_model': the session's model cannot see images and models.categories.vision is not set (or does not resolve to a model that can). 'describe_failed': the vision slot is set but did not describe the image (see 'error'). |
+| `source` | `"attachment" \| "tool"` | yes | 'attachment': the user's message; 'tool': a tool result (view_image, a screenshot). |
+| `visionModel` | `string \| null` | no | models.categories.vision as configured ('vendor:model' or a profile id); null if unset. |
 
 ## Error codes
 

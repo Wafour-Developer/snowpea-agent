@@ -749,6 +749,18 @@ def _error_class(exc: BaseException) -> str:
     return "timeout" if re.search(r"timed? ?out", text, re.IGNORECASE) else "error"
 
 
+def _unknown_vision_with_images(core: Core, session: Session, messages: list[ChatMessage]) -> bool:
+    """True when this request carries pictures to a model nobody has probed for vision."""
+    from snowpea_core.providers import content as content_parts
+
+    try:
+        vendor = session.provider or core.providers.default_vendor()
+        unknown = core.providers.vision_for(vendor, session.model) is None
+        return unknown and content_parts.messages_have_images(messages)
+    except Exception:  # noqa: BLE001 - this only decides whether to tell the surface
+        return False
+
+
 def _step_budget(core: Core) -> float:
     """Seconds one model step may spend across its retries; ``0`` is no cap."""
     try:
@@ -787,13 +799,14 @@ async def _stream_once(
     presses Stop, and says on the session that it is retrying. A request the
     server refused (a 400, a bad key) is not retried: it would fail the same way.
     """
+    probing = _unknown_vision_with_images(core, session, messages)
     retries = _provider_retries(core)
     budget = _step_budget(core)
     started = time.monotonic()
     silent_failures = 0
     for attempt_no in range(retries + 1):
         try:
-            return await _stream_once_raw(
+            done = await _stream_once_raw(
                 core,
                 session,
                 provider,
@@ -804,6 +817,10 @@ async def _stream_once(
                 effort=effort,
                 reasoning_base=reasoning_base,
             )
+            if probing and image_describe.cannot_see(core, session):
+                # The first picture taught the adapter this model is text-only.
+                await image_describe.notify_unseen(core, session, "no_vision_model", "attachment")
+            return done
         except ProviderError as exc:
             if attempt_no >= retries or not transient_provider_error(exc):
                 raise

@@ -296,6 +296,8 @@ class Session:
     #: True while :attr:`context_used` is a local estimate rather than a count
     #: the provider itself reported.
     context_estimated: bool = True
+    #: ``(turn id, reasons)`` already reported by ``vision.unavailable`` this turn.
+    vision_notified: tuple[str | None, set[str]] | None = None
     #: ``len(history)`` when :attr:`context_used` was reported; messages after
     #: that index (tool results, the reply) are not in the count and are
     #: estimated on top.  ``-1``: unknown.

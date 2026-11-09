@@ -206,6 +206,14 @@ class VisionMemory:
         self._known[self._key(vendor, base_url, model)] = (time.time(), vision)
         self.save()
 
+    def forget(self, vendor: str, base_url: str, model: str) -> bool:
+        """Drop what was learned about one model; True when there was something."""
+        self.load()
+        gone = self._known.pop(self._key(vendor, base_url, model), None) is not None
+        if gone:
+            self.save()
+        return gone
+
     def clear(self) -> None:
         self._known.clear()
         self._loaded = False

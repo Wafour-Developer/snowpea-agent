@@ -576,6 +576,12 @@ class ProviderRegistry:
             vision_scale.MEMORY.clear()
         return vision_scale.MEMORY
 
+    def forget_vision(self, vendor: str, model: str | None = None) -> tuple[str, bool]:
+        """Forget the learned answer for ``vendor``/``model``; ``(model, had_one)``."""
+        resolved = self.model_for(vendor, model)
+        gone = self._vision_memory().forget(vendor, self.base_url_for(vendor) or "", resolved)
+        return resolved, gone
+
     def remember_vision(self, vendor: str, model: str | None, vision: bool) -> None:
         """Record what a try-once probe found, so it is asked at most once."""
         self._vision_memory().remember(

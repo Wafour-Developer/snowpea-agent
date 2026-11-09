@@ -81,8 +81,10 @@ def vision_assist(core: Core, session: Any) -> ModelRoute | None:
     return None
 
 
-async def describe(core: Core, route: ModelRoute, attachment: Attachment) -> str | None:
-    """One image described by ``route``'s model; ``None`` when that fails or times out."""
+async def describe_with_error(
+    core: Core, route: ModelRoute, attachment: Attachment
+) -> tuple[str | None, str | None]:
+    """``(description, None)``, or ``(None, short reason)`` when the vision model failed."""
     from snowpea_core.agent.definition import complete_text
 
     try:
@@ -93,10 +95,65 @@ async def describe(core: Core, route: ModelRoute, attachment: Attachment) -> str
         text = await asyncio.wait_for(
             complete_text(provider, [message], max_tokens=MAX_TOKENS), DESCRIBE_TIMEOUT_SEC
         )
-    except Exception:  # noqa: BLE001 - a failed or slow description falls back to today's note
+    except TimeoutError:
+        log.info("the vision model timed out on %s", attachment.name)
+        return None, f"timed out after {int(DESCRIBE_TIMEOUT_SEC)}s"
+    except Exception as exc:  # noqa: BLE001 - a failed description falls back to today's note
         log.info("the vision model could not describe %s", attachment.name, exc_info=True)
-        return None
-    return text.strip() or None
+        return None, f"{type(exc).__name__}: {str(exc)[:120]}".strip()
+    text = text.strip()
+    return (text, None) if text else (None, "the vision model returned nothing")
+
+
+async def describe(core: Core, route: ModelRoute, attachment: Attachment) -> str | None:
+    """One image described by ``route``'s model; ``None`` when that fails or times out."""
+    text, _ = await describe_with_error(core, route, attachment)
+    return text
+
+
+def configured_vision_ref(core: Core) -> str | None:
+    categories = getattr(getattr(core.settings, "models", None), "categories", None) or {}
+    ref = str(categories.get("vision") or "").strip() if isinstance(categories, dict) else ""
+    return ref or None
+
+
+def cannot_see(core: Core, session: Any) -> bool:
+    """True when the session's model is known not to take images."""
+    from snowpea_core.tools.view_image import session_can_see_images
+
+    return not session_can_see_images(core, session)
+
+
+async def notify_unseen(
+    core: Core,
+    session: Any,
+    reason: str,
+    source: str,
+    *,
+    count: int = 1,
+    error: str | None = None,
+) -> None:
+    """Tell the surface a picture went unseen: ``vision.unavailable``, once per turn per reason."""
+    from snowpea_core.session import events
+
+    turn = getattr(session, "current_turn", None)
+    seen = getattr(session, "vision_notified", None)
+    if seen is None or seen[0] != turn:
+        seen = (turn, set())
+        session.vision_notified = seen
+    if reason in seen[1]:
+        return
+    seen[1].add(reason)
+    try:
+        vendor = session.provider or core.providers.default_vendor()
+    except Exception:  # noqa: BLE001 - naming is cosmetic
+        vendor = session.provider
+    await core.hub.emit_event(
+        session.id,
+        events.vision_unavailable(
+            reason, source, vendor, session.model, configured_vision_ref(core), count, error
+        ),
+    )
 
 
 async def describe_blocks(core: Core, session: Any, blocks: list[dict[str, Any]]) -> None:
@@ -106,11 +163,16 @@ async def describe_blocks(core: Core, session: Any, blocks: list[dict[str, Any]]
     "cannot see images" note would have been; a model that can see still gets
     the image itself.
     """
-    if not any(block.get("type") == "image" for block in blocks):
+    images = [block for block in blocks if block.get("type") == "image"]
+    if not images:
         return
     route = vision_assist(core, session)
     if route is None:
+        if cannot_see(core, session):
+            await notify_unseen(core, session, "no_vision_model", "attachment", count=len(images))
         return
+    failed = 0
+    last_error: str | None = None
     for block in blocks:
         if _interrupted(session):
             return
@@ -119,9 +181,16 @@ async def describe_blocks(core: Core, session: Any, blocks: list[dict[str, Any]]
         attachment = _attachment_of(block)
         if attachment is None:
             continue
-        text = await describe(core, route, attachment)
+        text, error = await describe_with_error(core, route, attachment)
         if text:
             block["description"] = text
+        else:
+            failed += 1
+            last_error = error
+    if failed:
+        await notify_unseen(
+            core, session, "describe_failed", "attachment", count=failed, error=last_error
+        )
 
 
 def _interrupted(session: Any) -> bool:
@@ -155,10 +224,15 @@ async def describe_tool_images(core: Core, session: Any, result: ToolResult) -> 
     if (result.meta or {}).get("sensitive"):
         return result
     route = vision_assist(core, session)
+    metas = _image_metas(result)
     if route is None:
+        if metas and cannot_see(core, session):
+            await notify_unseen(core, session, "no_vision_model", "tool", count=len(metas))
         return result
     parts: list[str] = []
-    for meta in _image_metas(result):
+    failed = 0
+    last_error: str | None = None
+    for meta in metas:
         if _interrupted(session):
             break
         name = str(meta.get("name") or Path(str(meta.get("path") or "image")).name)
@@ -172,9 +246,16 @@ async def describe_tool_images(core: Core, session: Any, result: ToolResult) -> 
         )
         if attachment is None:
             continue
-        text = await describe(core, route, attachment)
+        text, error = await describe_with_error(core, route, attachment)
         if text:
             parts.append(f"[image {name}, described by the vision model]\n{text}")
+        else:
+            failed += 1
+            last_error = error
+    if failed:
+        await notify_unseen(
+            core, session, "describe_failed", "tool", count=failed, error=last_error
+        )
     if not parts:
         return result
     output = "\n\n".join([result.output, *parts]) if result.output else "\n\n".join(parts)
@@ -184,6 +265,10 @@ async def describe_tool_images(core: Core, session: Any, result: ToolResult) -> 
 
 __all__ = [
     "DESCRIBE_PROMPT",
+    "cannot_see",
+    "configured_vision_ref",
+    "describe_with_error",
+    "notify_unseen",
     "describe",
     "describe_blocks",
     "describe_tool_images",

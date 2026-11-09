@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.40.0"
+PROTOCOL_VERSION = "1.41.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2313,6 +2313,21 @@ class ProviderModelsParams(Payload):
     vendor: str | None = Field(
         default=None, description="Vendor to query; defaults to the configured one."
     )
+
+
+class ProviderVisionResetParams(Payload):
+    vendor: str | None = Field(
+        default=None, description="Vendor to reset; defaults to the configured one."
+    )
+    model: str | None = Field(
+        default=None, description="Model whose learned 'cannot see images' answer is forgotten; null: the vendor's current model."
+    )
+
+
+class ProviderVisionResetResult(Payload):
+    vendor: str = Field(description="Vendor that was reset.")
+    model: str = Field(description="Model that was reset.")
+    forgotten: bool = Field(description="True when something had been learned and is now forgotten.")
 
 
 class ProviderModelsResult(Payload):
@@ -5012,6 +5027,38 @@ class ProviderWaiting(Payload):
     )
 
 
+class VisionUnavailable(Payload):
+    """A picture reached a model that cannot see it and nothing described it (1.41.0).
+
+    Capability ``visionNotice``.  At most once per turn per ``reason``.  The
+    model itself is told through a short text note in place of the image; this
+    event is for the surface, which can offer "set a vision model".
+    """
+
+    kind: Literal["vision.unavailable"] = "vision.unavailable"
+    reason: Literal["no_vision_model", "describe_failed"] = Field(
+        description=(
+            "'no_vision_model': the session's model cannot see images and "
+            "models.categories.vision is not set (or does not resolve to a model that can). "
+            "'describe_failed': the vision slot is set but did not describe the image "
+            "(see 'error')."
+        )
+    )
+    source: Literal["attachment", "tool"] = Field(
+        description="'attachment': the user's message; 'tool': a tool result (view_image, a screenshot)."
+    )
+    provider: str | None = Field(default=None, description="The session's provider.")
+    model: str | None = Field(default=None, description="The session's model that could not see.")
+    visionModel: str | None = Field(
+        default=None,
+        description="models.categories.vision as configured ('vendor:model' or a profile id); null if unset.",
+    )
+    count: int = Field(default=1, description="How many images went unseen in this report.")
+    error: str | None = Field(
+        default=None, description="Short text of why the vision slot failed ('describe_failed' only)."
+    )
+
+
 class ProviderRetry(Payload):
     """A model call failed transiently and will be tried again (1.37.0)."""
 
@@ -5402,6 +5449,7 @@ SessionEventPayload = Annotated[
     | HookContinue
     | ProviderWaiting
     | ProviderRetry
+    | VisionUnavailable
     | ModelChanged
     | UsageEvent
     | ContextEvent
@@ -5444,6 +5492,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "hook.continue": HookContinue,
     "provider.waiting": ProviderWaiting,
     "provider.retry": ProviderRetry,
+    "vision.unavailable": VisionUnavailable,
     "model.changed": ModelChanged,
     "usage": UsageEvent,
     "context": ContextEvent,
@@ -6853,6 +6902,13 @@ METHODS: dict[str, RpcMethod] = {
             "List chat providers and whether they are configured.",
         ),
         _m(
+            "provider.visionReset",
+            ProviderVisionResetParams,
+            ProviderVisionResetResult,
+            "Forget the learned vision answer for a model so the next picture is tried again "
+            "(1.41.0, capability 'visionNotice'). A configured providers.<v>.vision wins as before.",
+        ),
+        _m(
             "provider.models",
             ProviderModelsParams,
             ProviderModelsResult,
@@ -7560,6 +7616,7 @@ CAPABILITIES: list[str] = [
     "holdSec",
     "llmSampleHost",
     "approvalEvaluate",
+    "visionNotice",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -7611,6 +7668,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "question.respond",
         "provider.list",
         "provider.models",
+        "provider.visionReset",
         "provider.configure",
         "provider.remove",
         "provider.loginWeb",

@@ -232,6 +232,9 @@ async def view_image(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if error or resolved is None:
         return ToolResult(ok=False, error=error or "path is required")
     if not session_can_use_images(ctx):
+        from snowpea_core.agent.image_describe import notify_unseen
+
+        await notify_unseen(ctx.core, ctx.session, "no_vision_model", "tool")
         return ToolResult(
             ok=False,
             error=(
