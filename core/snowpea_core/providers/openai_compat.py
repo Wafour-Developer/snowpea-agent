@@ -44,6 +44,14 @@ def _is_image_decode_rejection(detail: str) -> bool:
     return bool(_IMAGE_DECODE_REJECTION.search(detail))
 
 
+_OPAQUE_REJECTION = re.compile(r"invalid request to model|invalid[_ ]request[^a-z_]*$", re.I)
+
+
+def _is_opaque_rejection(detail: str) -> bool:
+    """True for a 400 that names nothing: "invalid request to model" and the like."""
+    return bool(_OPAQUE_REJECTION.search(detail.strip().rstrip('"}').strip()))
+
+
 def _is_image_count_rejection(detail: str) -> bool:
     """True when a local VLM refused the request for carrying too many images."""
     lowered = detail.lower()
@@ -251,6 +259,43 @@ class OpenAICompatProvider:
                                 f"{self._tag()}: HTTP 400: the server could not read an "
                                 f"image in the request: {detail[:200]}",
                             )
+                        if (
+                            probing
+                            and response.status_code in vision_scale.REJECT_STATUSES
+                            and not vision_scale.is_rejection(response.status_code, detail)
+                            and _is_opaque_rejection(detail)
+                        ):
+                            # An opaque 400 ("invalid request to model") on the
+                            # first request that carries pictures: try the same
+                            # request as text.  If that works the pictures were
+                            # the problem; if not, the original error stands and
+                            # nothing is learned about the model.
+                            replay = build_openai_request(
+                                self.preset,
+                                model,
+                                messages,
+                                tools,
+                                max_tokens=max_tokens,
+                                thinking=thinking,
+                                effort=wanted,
+                                effort_profile=profile,
+                                vision=False,
+                            )
+                            try:
+                                events = [e async for e in self._retry(client, replay, normalizer)]
+                            except ProviderError:
+                                events = None
+                            if events is not None:
+                                self._forget_vision(model)
+                                log.warning(
+                                    "%s refused a request with images (%s) but took it as text; "
+                                    "remembering text only",
+                                    self._tag(),
+                                    detail[:120],
+                                )
+                                for event in events:
+                                    yield event
+                                return
                         if probing and vision_scale.is_rejection(response.status_code, detail):
                             # The server cannot take image parts. Remember it,
                             # say so once, and finish the turn with the text

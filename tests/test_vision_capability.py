@@ -525,3 +525,23 @@ async def test_an_undecodable_image_is_not_read_as_blindness(
         assert registry.vision_for("hon2") is None  # nothing was learned about the model
     finally:
         server.close()
+
+
+async def test_an_opaque_400_on_the_first_picture_falls_back_to_text(
+    tmp_path: Path, image: Path
+) -> None:
+    """A gateway that only says "invalid request to model" must not fail the turn."""
+    server = FakeServer(
+        accepts_images=False,
+        detail='{"error":{"message":"invalid request to model","type":"invalid_request_error"}}',
+    )
+    try:
+        registry = ProviderRegistry(_local_settings(server.base_url), Paths.create(tmp_path))
+        text = "".join(
+            [e.text async for e in registry.build("hon2").stream(_messages(image), [])]
+        )
+        assert text == "ok"
+        assert server.requests == [True, False]
+        assert registry.vision_for("hon2") is False
+    finally:
+        server.close()
