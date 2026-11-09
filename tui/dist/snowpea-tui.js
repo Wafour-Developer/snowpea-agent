@@ -37192,6 +37192,18 @@ function modelSource(session) {
   const raw = value?.modelSource ?? value?.model_source;
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
+var VISION_OFF_REF = "off";
+function visionOptions(options, currentRef) {
+  const marked = options.filter((option) => option.ref !== EFFORT_REF && option.ref !== INHERIT_REF).map((option) => ({ ...option, current: currentRef !== "" && option.ref === currentRef }));
+  const none = {
+    ref: VISION_OFF_REF,
+    label: "none",
+    detail: "images reach a text-only model as a short note",
+    origin: "profile",
+    current: currentRef === ""
+  };
+  return [none, ...marked];
+}
 
 // src/state/delegation.ts
 var PREFIX = /^\$([A-Za-z0-9][\w.-]*(?::[A-Za-z0-9][\w.-]*)?)(\s+([\s\S]*))?$/;
@@ -37622,7 +37634,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.82";
+var TUI_VERSION = "0.2.83";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -40768,7 +40780,9 @@ function ModelPicker({
   onChoose,
   onCancel,
   isActive = true,
-  width
+  width,
+  title = "Model",
+  emptyText = "no profiles configured and the vendor listed nothing"
 }) {
   const [index, setIndex] = (0, import_react37.useState)(() => {
     const current2 = options.findIndex((option) => option.current);
@@ -40788,9 +40802,9 @@ function ModelPicker({
     isActive
   });
   return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { bold: true, color: "cyan", children: "Model" }),
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { bold: true, color: "cyan", children: title }),
     options.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: "no profiles configured and the vendor listed nothing" }),
+      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: emptyText }),
       /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "pick", digits: false }) })
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
       ChoiceList,
@@ -41804,6 +41818,7 @@ function App2({
   const [sessionModelSource, setSessionModelSource] = (0, import_react45.useState)(null);
   const [agentModels, setAgentModels] = (0, import_react45.useState)({});
   const [modelPicker, setModelPicker] = (0, import_react45.useState)(null);
+  const [pickerPurpose, setPickerPurpose] = (0, import_react45.useState)("model");
   const [skillForm, setSkillForm] = (0, import_react45.useState)(false);
   const [skillRows, setSkillRows] = (0, import_react45.useState)([]);
   const [mcpForm, setMcpForm] = (0, import_react45.useState)(null);
@@ -42603,7 +42618,7 @@ function App2({
     },
     [client, editor, setMouseMode, setRawMode, showToast, workdir]
   );
-  const openModelPicker = (0, import_react45.useCallback)(() => {
+  const openModelPicker = (0, import_react45.useCallback)((purpose = "model") => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
     const projectSettings = client.call("settings.get", { scope: "project", workdir }).catch(() => ({ settings: {} }));
     const discovered = client.call("provider.list", {}).then(async (result) => {
@@ -42624,19 +42639,26 @@ function App2({
       ([settingsResult, projectResult, modelListings]) => {
         const document2 = settingsResult?.settings ?? {};
         const project = projectResult?.settings ?? {};
+        const visionRef = String(document2.models?.categories?.vision ?? "");
         const options = modelOptions({
           profiles: document2.models?.profiles ?? null,
           projectProfiles: project.models?.profiles ?? null,
           defaultProfile: document2.models?.default ?? null,
           agentModels: document2.agents?.models ?? null,
           discoveries: modelListings,
-          current: state.model ?? null,
-          vendor: state.provider ?? null,
-          effort: state.effort,
-          effortSource: state.effortSource,
-          efforts: state.efforts
+          current: purpose === "vision" ? null : state.model ?? null,
+          vendor: purpose === "vision" ? null : state.provider ?? null,
+          effort: purpose === "vision" ? null : state.effort,
+          effortSource: purpose === "vision" ? null : state.effortSource,
+          efforts: purpose === "vision" ? null : state.efforts
         });
-        setModelPicker(options);
+        if (purpose === "vision") {
+          setModelPicker(visionOptions(options, visionRef));
+          setPickerPurpose("vision");
+        } else {
+          setModelPicker(options);
+          setPickerPurpose("model");
+        }
       }
     );
   }, [client, workdir, state.provider, state.model, state.effort, state.effortSource, state.efforts]);
@@ -42970,6 +42992,10 @@ function App2({
       }
       if (/^\/model\s*$/.test(text2.trim())) {
         openModelPicker();
+        return;
+      }
+      if (/^\/vision\s*$/.test(text2.trim())) {
+        openModelPicker("vision");
         return;
       }
       const attach = /^\/attach\s+(.+)$/.exec(text2.trim());
@@ -43451,11 +43477,17 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       ModelPicker,
       {
         options: modelPicker,
+        title: pickerPurpose === "vision" ? "Vision model" : "Model",
+        emptyText: pickerPurpose === "vision" ? "no configured model to choose from" : void 0,
         width: contentWidth,
         isActive: state.pendingApproval === null && state.pendingQuestion === null,
         onCancel: () => setModelPicker(null),
         onChoose: (option) => {
           setModelPicker(null);
+          if (pickerPurpose === "vision") {
+            submit(`/vision ${option.ref}`);
+            return;
+          }
           chooseModel(option.ref);
         }
       }
