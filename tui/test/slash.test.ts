@@ -40,9 +40,9 @@ describe("SlashRegistry", () => {
 
     expect(client.call).toHaveBeenCalledWith("command.list", { sessionId: "sess-1" });
     expect(commands.map((c) => c.name)).toEqual([
-      "help", "plan", "mode", "ralph", "resume", "session", "sessions", "voice", "rec", "tts", "mouse",
+      "help", "plan", "mode", "ralph", "new", "resume", "session", "sessions", "voice", "rec", "tts", "mouse",
     ]);
-    expect(registry.list()).toHaveLength(11);
+    expect(registry.list()).toHaveLength(12);
   });
 
   it("has no built-in table before load", () => {
@@ -57,7 +57,7 @@ describe("SlashRegistry", () => {
     expect(registry.complete("p").map((c) => c.name)).toEqual(["plan"]);
     expect(registry.complete("/res").map((c) => c.name)).toEqual(["resume"]);
     expect(registry.complete("/ses").map((c) => c.name)).toEqual(["session", "sessions"]);
-    expect(registry.complete("/").map((c) => c.name)).toHaveLength(11);
+    expect(registry.complete("/").map((c) => c.name)).toHaveLength(12);
     expect(registry.complete("/zz")).toEqual([]);
   });
 

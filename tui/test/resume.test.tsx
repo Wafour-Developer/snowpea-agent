@@ -125,6 +125,35 @@ describe("session resume", () => {
       expect(client.calls.find(c => c.method === "session.prompt")?.params.sessionId).toBe("current");
     } finally { instance.unmount(); }
   });
+  it("opens a fresh session with /new and sends the next prompt to it", async () => {
+    const client = fakeClient() as any;
+    const created: any[] = [];
+    client.createSessionInfo = async (options: any) => {
+      created.push(options);
+      return { sessionId: "fresh-session", delegation: false };
+    };
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(100, 24);
+    const instance = render(
+      <App client={client} sessionId="current" mode="accept" workdir="/tmp/project" />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+    try {
+      await sleep(150);
+      stdin.write("/new ");
+      await sleep(60);
+      stdin.write("\r");
+      await sleep(200);
+      expect(created).toEqual([{ workdir: "/tmp/project", mode: "accept", originSurface: "tui" }]);
+      stdin.write("hello");
+      await sleep(60);
+      stdin.write("\r");
+      await sleep(150);
+      expect(client.calls.find((c: any) => c.method === "session.prompt")?.params.sessionId).toBe(
+        "fresh-session",
+      );
+    } finally { instance.unmount(); }
+  });
   it.each(["/resume", "/sessions", `/resume ${CHILD}`])("switches subsequent prompts and commands with %s without duplicate replay", async (command) => {
     const client = fakeClient();
     const stdin = fakeStdin();

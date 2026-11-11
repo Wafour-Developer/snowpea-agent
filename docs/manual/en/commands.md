@@ -36,6 +36,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 
 | Command | What it does |
 |---|---|
+| `/new`, `/session new` | open a fresh session in this directory; the one you leave stays open, `/resume` brings it back |
 | `/resume` | reopen the session this directory was last in, and replay it |
 | `/model`, `/models` | list every supported model from every configured vendor and pick one; `/model <vendor:model>` pins this session (persisted, survives a restart); `/model inherit` clears the pin; `/model default <id>` sets `models.default` |
 | `/effort` | show how hard the model may think and which rule decided it; `/effort low\|medium\|high\|max` pins this session (persisted); `/effort auto` clears the pin. See [Reasoning effort](setup.md#reasoning-effort) |

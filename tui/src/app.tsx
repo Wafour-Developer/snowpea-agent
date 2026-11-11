@@ -1247,6 +1247,46 @@ export function App({
     [client, state.turnActive, sessions, workdir],
   );
 
+  /**
+   * `/new`: a fresh session in this directory, without leaving the TUI. The
+   * one being left stays open on the daemon, so `/resume` brings it back.
+   */
+  const startNewSession = useCallback(() => {
+    if (resumingRef.current || state.turnActive) {
+      showToast("interrupt the current turn before opening a new session");
+      return;
+    }
+    resumingRef.current = true;
+    const mode = state.mode;
+    void client
+      .createSessionInfo({ workdir, mode, originSurface: "tui" })
+      .then(({ sessionId: created, delegation }) => {
+        activeSessionRef.current = created;
+        registryRef.current = new SlashRegistry(client, created);
+        staticCursorRef.current = 0;
+        streamCommittedRef.current = new Map();
+        turnRef.current = null;
+        turnActiveRef.current = false;
+        turnNotesRef.current = [];
+        setOpenAgent(null);
+        setScrollOffset(0);
+        setExpandedId(null);
+        setRunningCommand(null);
+        dispatch({ type: "session/reset", sessionId: created });
+        setSessionId(created);
+        dispatch({ type: "mode", mode });
+        dispatch({ type: "delegation", on: delegation });
+        sessions?.remember({ sessionId: created, workdir, firstPrompt: "", at: Date.now() });
+        showToast("new session");
+      })
+      .catch((error: unknown) =>
+        dispatch({ type: "error", message: `new session failed: ${String(error)}` }),
+      )
+      .finally(() => {
+        resumingRef.current = false;
+      });
+  }, [client, state.turnActive, state.mode, sessions, workdir, showToast]);
+
   /** Optimistically applies a mode change, then confirms it with the daemon. */
   const changeMode = useCallback(
     (next: Mode) => {
@@ -2214,6 +2254,10 @@ export function App({
         else openResumePicker();
         return;
       }
+      if (/^\/(?:new|session\s+new)\s*$/.test(text.trim())) {
+        startNewSession();
+        return;
+      }
       if (/^\/sessions\s*$/.test(text.trim())) {
         if (state.turnActive) {
           showToast("interrupt the current turn before resuming another session");
@@ -2445,6 +2489,7 @@ export function App({
       lastSession,
       resumeMemory,
       resumeSession,
+      startNewSession,
       openResumePicker,
       state.turnActive,
       update.phase,

@@ -28,6 +28,7 @@ const KEYS = [
   "/compact folds the conversation down when context is running low",
   "↑ walks through earlier prompts · ↓ past the newest moves to the footer",
   "Enter on an agent opens its conversation; Esc comes back",
+  "/new opens a fresh session without leaving the TUI; /resume brings an earlier one back",
   "/resume or R on empty input resumes the last session; /resume <sessionId> selects one",
   "From a shell: snowpea --resume <id> · session list --include-closed · session delete <id>",
   "Typing while a turn runs queues the prompt (⏳ N queued); Esc interrupts and drops the queue",

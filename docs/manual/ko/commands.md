@@ -35,6 +35,7 @@ snowpea commands list --json
 
 | 명령 | 하는 일 |
 |---|---|
+| `/new`, `/session new` | 이 디렉터리에서 새 세션을 엽니다. 떠난 세션은 열린 채로 남아 `/resume`으로 돌아갈 수 있습니다 |
 | `/resume` | 이 디렉터리에서 마지막으로 쓰던 세션을 다시 열고 재생 |
 | `/model`, `/models` | 설정된 모든 벤더가 지원하는 모델 전체를 나열하고 선택. `/model <vendor:model>` 은 이 세션에 고정(저장되어 재시작 후에도 유지), `/model inherit` 은 고정 해제, `/model default <id>` 는 `models.default` 설정 |
 | `/vision [<이름>\|<번호>\|off]` | 이미지를 볼 수 없는 모델을 위해 이미지를 설명해 주는 모델(`models.categories.vision`)을 보이거나 지정·해제. 인자 없이 쓰면 선택지 목록. 설정하면 비전 여부를 아직 확인하지 않은 모델에도 쓰임 |

@@ -11,13 +11,18 @@ import { rankCommandMatches } from "../state/slash-completion.js";
 
 const SURFACE_COMMANDS: CommandInfo[] = [
   {
+    name: "new",
+    summary: "Open a fresh session in this directory (/session new); /resume brings the old one back.",
+    source: "tui",
+  },
+  {
     name: "resume",
     summary: "Resume the last session in this directory, or /resume <sessionId>.",
     source: "tui",
   },
   {
     name: "session",
-    summary: "Delete saved sessions: /session delete <id> | clear [--all].",
+    summary: "Open a new session or delete saved ones: /session new | delete <id> | clear [--all].",
     source: "tui",
   },
   {

@@ -34518,13 +34518,18 @@ function shouldShowSlashPalette(draft, completions) {
 // src/slash/registry.ts
 var SURFACE_COMMANDS = [
   {
+    name: "new",
+    summary: "Open a fresh session in this directory (/session new); /resume brings the old one back.",
+    source: "tui"
+  },
+  {
     name: "resume",
     summary: "Resume the last session in this directory, or /resume <sessionId>.",
     source: "tui"
   },
   {
     name: "session",
-    summary: "Delete saved sessions: /session delete <id> | clear [--all].",
+    summary: "Open a new session or delete saved ones: /session new | delete <id> | clear [--all].",
     source: "tui"
   },
   {
@@ -41569,6 +41574,7 @@ var KEYS = [
   "/compact folds the conversation down when context is running low",
   "\u2191 walks through earlier prompts \xB7 \u2193 past the newest moves to the footer",
   "Enter on an agent opens its conversation; Esc comes back",
+  "/new opens a fresh session without leaving the TUI; /resume brings an earlier one back",
   "/resume or R on empty input resumes the last session; /resume <sessionId> selects one",
   "From a shell: snowpea --resume <id> \xB7 session list --include-closed \xB7 session delete <id>",
   "Typing while a turn runs queues the prompt (\u23F3 N queued); Esc interrupts and drops the queue",
@@ -42250,6 +42256,37 @@ function App2({
     },
     [client, state.turnActive, sessions, workdir]
   );
+  const startNewSession = (0, import_react45.useCallback)(() => {
+    if (resumingRef.current || state.turnActive) {
+      showToast("interrupt the current turn before opening a new session");
+      return;
+    }
+    resumingRef.current = true;
+    const mode2 = state.mode;
+    void client.createSessionInfo({ workdir, mode: mode2, originSurface: "tui" }).then(({ sessionId: created, delegation: delegation2 }) => {
+      activeSessionRef.current = created;
+      registryRef.current = new SlashRegistry(client, created);
+      staticCursorRef.current = 0;
+      streamCommittedRef.current = /* @__PURE__ */ new Map();
+      turnRef.current = null;
+      turnActiveRef.current = false;
+      turnNotesRef.current = [];
+      setOpenAgent(null);
+      setScrollOffset(0);
+      setExpandedId(null);
+      setRunningCommand(null);
+      dispatch({ type: "session/reset", sessionId: created });
+      setSessionId(created);
+      dispatch({ type: "mode", mode: mode2 });
+      dispatch({ type: "delegation", on: delegation2 });
+      sessions?.remember({ sessionId: created, workdir, firstPrompt: "", at: Date.now() });
+      showToast("new session");
+    }).catch(
+      (error) => dispatch({ type: "error", message: `new session failed: ${String(error)}` })
+    ).finally(() => {
+      resumingRef.current = false;
+    });
+  }, [client, state.turnActive, state.mode, sessions, workdir, showToast]);
   const changeMode = (0, import_react45.useCallback)(
     (next) => {
       setModeHintVisible(false);
@@ -42939,6 +42976,10 @@ function App2({
         else openResumePicker();
         return;
       }
+      if (/^\/(?:new|session\s+new)\s*$/.test(text2.trim())) {
+        startNewSession();
+        return;
+      }
       if (/^\/sessions\s*$/.test(text2.trim())) {
         if (state.turnActive) {
           showToast("interrupt the current turn before resuming another session");
@@ -43129,6 +43170,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       lastSession,
       resumeMemory,
       resumeSession,
+      startNewSession,
       openResumePicker,
       state.turnActive,
       update.phase,
