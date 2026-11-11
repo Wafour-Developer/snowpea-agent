@@ -16,6 +16,7 @@ import shlex
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.commands.registry import Command, CommandContext
+from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.mcp_handlers import (
     mcp_add_handler,
@@ -465,13 +466,83 @@ async def _add(ctx: CommandContext, kwargs: dict[str, Any]) -> None:
             f"Plan mode: would add MCP server '{kwargs.get('name')}'; nothing is written."
         )
         return
-    result = await mcp_add_handler(None, McpAddParams(**kwargs), ctx.core)
+    try:
+        result = await mcp_add_handler(None, McpAddParams(**kwargs), ctx.core)
+    except RpcError as exc:
+        # The security check found something (a plain-http url, say).  Where a
+        # person can answer, they decide; otherwise the refusal stands.
+        findings = (exc.data or {}).get("findings") if isinstance(exc.data, dict) else None
+        if exc.code != errors.MCP_UNSAFE or not findings or kwargs.get("force"):
+            raise
+        if not await _confirm_findings(ctx, str(kwargs.get("name")), [str(f) for f in findings]):
+            await ctx.say(f"Not added: '{kwargs.get('name')}' was declined; nothing is written.")
+            return
+        result = await mcp_add_handler(
+            None, McpAddParams(**{**kwargs, "acceptFindings": True}), ctx.core
+        )
     lines = [connected_line(result.tools, result.path)]
     if result.warnings:
         lines.append("Warnings: " + "; ".join(result.warnings))
     if result.error:
         lines.append(f"The server did not start: {result.error}")
     await ctx.say("\n".join(lines))
+
+
+_CONFIRM = {
+    "ko": {
+        "header": "MCP 추가",
+        "question": "'{name}' 서버에서 다음이 확인됐습니다:\n{findings}\n그래도 추가할까요?",
+        "yes": "추가",
+        "yes_hint": "확인했으니 그대로 추가합니다.",
+        "no": "취소",
+        "no_hint": "아무것도 저장하지 않습니다.",
+    },
+    "en": {
+        "header": "Add MCP",
+        "question": "The check on '{name}' found:\n{findings}\nAdd it anyway?",
+        "yes": "Add",
+        "yes_hint": "I have read it; add the server as typed.",
+        "no": "Cancel",
+        "no_hint": "Nothing is saved.",
+    },
+}
+
+
+async def _confirm_findings(ctx: CommandContext, name: str, findings: list[str]) -> bool:
+    """Ask the person whether to add a server the security check flagged.
+
+    False when nobody can answer (a schedule, a headless run), when they pick
+    cancel, and when the question goes unanswered: silence is never consent.
+    """
+    from snowpea_core.commands.plan_gate import _language, attended
+    from snowpea_core.server.protocol import QuestionItem, QuestionOption
+
+    queue = getattr(ctx.core, "questions", None)
+    if queue is None or not attended(ctx.session, ctx.core):
+        return False
+    listing = "\n".join(f"- {item}" for item in findings)
+    text = _CONFIRM[_language(ctx, listing)]
+    answers = await queue.ask(
+        ctx.session,
+        [
+            QuestionItem(
+                header=text["header"],
+                question=text["question"].format(name=name, findings=listing),
+                options=[
+                    QuestionOption(label=text["yes"], description=text["yes_hint"]),
+                    QuestionOption(label=text["no"], description=text["no_hint"]),
+                ],
+                multi=False,
+                allowOther=False,
+            )
+        ],
+        cancel_event=getattr(ctx.session, "interrupt", None),
+    )
+    answer = answers[0]
+    picked = {" ".join(str(item).split()).casefold() for item in answer.selected}
+    if answer.text:
+        picked.add(" ".join(str(answer.text).split()).casefold())
+    return text["yes"].casefold() in picked
 
 
 def connected_line(tools: list[McpToolInfo], path: str) -> str:
