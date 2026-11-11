@@ -752,3 +752,54 @@ async def test_provider_error_report_is_not_a_successful_child(
     assert not result.ok
     assert result.status == "error" and result.reason == "error"
     assert "provider unavailable" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# a child whose last round was its answer is finished, not "incomplete"
+# ---------------------------------------------------------------------------
+
+
+def test_the_budget_verdict_line_is_split_off_the_report() -> None:
+    from snowpea_core.agent.loop import split_budget_status
+
+    assert split_budget_status("all good\nBUDGET-STATUS: DONE") == ("all good", True)
+    assert split_budget_status("half\n`BUDGET-STATUS: UNFINISHED`") == ("half", False)
+    assert split_budget_status("no marker here") == ("no marker here", None)
+    # Named inside a sentence, it is not a verdict.
+    text = "I will end with BUDGET-STATUS: DONE when ready."
+    assert split_budget_status(text) == (text, None)
+
+
+@pytest.mark.parametrize(
+    ("fixture", "reason", "needs_retry"),
+    [
+        ("subagent_budget_done.json", "complete", False),
+        ("subagent_budget_unfinished.json", "budget", True),
+    ],
+)
+async def test_a_child_that_reports_done_at_the_budget_is_not_reissued(
+    tmp_path: Path, workdir: Path, fixture: str, reason: str, needs_retry: bool
+) -> None:
+    from snowpea_core.agent.subagent import is_incomplete
+
+    previous = os.environ.get("SNOWPEA_PROVIDER")
+    os.environ["SNOWPEA_PROVIDER"] = f"fake:{FIXTURE.parent / fixture}"
+    instance = await make_daemon(
+        tmp_path / "home",
+        settings={"agents": {"toolRounds": {"default": TINY}, "incompleteRetries": 0}},
+    )
+    try:
+        core = instance.core
+        assert core is not None
+        parent = await core.sessions.create(workdir, mode="auto")
+        result = await get_manager(core).run(parent, "endless child that never stops reading")
+        assert result.reason == reason
+        assert result.rounds_used == TINY
+        assert "BUDGET-STATUS" not in result.summary
+        assert is_incomplete(result) is needs_retry
+    finally:
+        await instance.stop()
+        if previous is None:
+            os.environ.pop("SNOWPEA_PROVIDER", None)
+        else:
+            os.environ["SNOWPEA_PROVIDER"] = previous

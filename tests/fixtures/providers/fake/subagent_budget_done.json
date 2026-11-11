@@ -1,0 +1,46 @@
+{
+ "steps": [
+  {
+   "match": "used the tool budget",
+   "repeat": true,
+   "text": "Review verdict: every claim checked, one blocker found.\nBUDGET-STATUS: DONE",
+   "tool_calls": [
+    {
+     "name": "read_file",
+     "arguments": {
+      "path": "a.txt"
+     }
+    }
+   ]
+  },
+  {
+   "match": "endless child",
+   "repeat": true,
+   "text": "reading",
+   "tool_calls": [
+    {
+     "name": "read_file",
+     "arguments": {
+      "path": "a.txt"
+     }
+    }
+   ]
+  },
+  {
+   "after_tool": "read_file",
+   "repeat": true,
+   "text": "reading again",
+   "tool_calls": [
+    {
+     "name": "read_file",
+     "arguments": {
+      "path": "a.txt"
+     }
+    }
+   ]
+  }
+ ],
+ "default": {
+  "text": "fake default reply"
+ }
+}

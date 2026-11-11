@@ -133,6 +133,38 @@ BUDGET_INSTRUCTION = (
     "changed — a checkpoint follows. Do not promise further work in this turn."
 )
 
+#: The budget prompt a *delegated child* gets.  The first sentences are the
+#: same; the last one asks for a machine-readable verdict, because a child that
+#: used its last round on a finished review or check looks, from the outside,
+#: exactly like one that was cut off — and the runtime re-issues the second kind
+#: for a whole new budget (minutes on a slow model) while the parent waits.
+BUDGET_STATUS_PREFIX = "BUDGET-STATUS:"
+SUBAGENT_BUDGET_INSTRUCTION = (
+    BUDGET_INSTRUCTION
+    + " Finish with one last line, exactly `BUDGET-STATUS: DONE` when your report is the "
+    "complete answer to the task (nothing left to check or do), or "
+    "`BUDGET-STATUS: UNFINISHED` when work remains."
+)
+_BUDGET_STATUS_LINE = re.compile(
+    r"^[ \t>*`_-]*BUDGET-STATUS:\s*(DONE|UNFINISHED)\b[ \t`*_.]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def split_budget_status(text: str) -> tuple[str, bool | None]:
+    """``(report without the marker, True/False for DONE/UNFINISHED, None if absent)``.
+
+    The last marker wins.  A report that names the marker in passing (inside a
+    sentence) is not a verdict: only a line of its own counts.
+    """
+    matches = list(_BUDGET_STATUS_LINE.finditer(text))
+    if not matches:
+        return text, None
+    finished = matches[-1].group(1).upper() == "DONE"
+    cleaned = _BUDGET_STATUS_LINE.sub("", text).rstrip()
+    return cleaned, finished
+
+
 #: What is fed back after the person chose to keep going at the checkpoint, so
 #: the model resumes the work instead of answering its own report.
 BUDGET_CONTINUE_INSTRUCTION = (
@@ -1881,10 +1913,27 @@ async def _drive(
             if session.is_subagent:
                 # Hermes-style grace call: one tools-free model call to summarise what
                 # it has and what remains.
-                await _budget_report(core, session, provider, config, memory_block, probe_text="")
+                finished: list[bool] = []
+                await _budget_report(
+                    core,
+                    session,
+                    provider,
+                    config,
+                    memory_block,
+                    probe_text="",
+                    instruction=SUBAGENT_BUDGET_INSTRUCTION,
+                    finished_out=finished,
+                )
                 if session.interrupt.is_set():
                     await finish_turn(core, session, turn_id, "interrupted")
                     return "interrupted"
+                if finished:
+                    # The last round went into the answer itself (a review or a
+                    # check that found what it came for): that is a finished
+                    # delegation, not one to re-issue for a whole new budget.
+                    log.info("subagent %s used its rounds but reported DONE", session.id)
+                    await finish_turn(core, session, turn_id, "complete")
+                    return "complete"
                 await finish_turn(core, session, turn_id, "budget")
                 return "budget"
 
@@ -2225,8 +2274,14 @@ async def _budget_report(
     memory_block: str,
     *,
     probe_text: str = "",
+    instruction: str = BUDGET_INSTRUCTION,
+    finished_out: list[bool] | None = None,
 ) -> str:
     """One last model call, with no tools, so the turn always says something.
+
+    ``finished_out`` is for a delegated child: given the verdict-asking
+    instruction, the marker line is stripped from the report and ``True`` is
+    appended when the model said the report is the complete answer.
 
     Running out of rounds used to end the turn on an ``error`` event alone: no
     ``message.done``, so a delegating parent got an empty summary and a person
@@ -2247,7 +2302,7 @@ async def _budget_report(
         try:
             messages = [
                 *build_messages(session, [], memory_block, core=core),
-                ChatMessage(role="user", content=BUDGET_INSTRUCTION),
+                ChatMessage(role="user", content=instruction),
             ]
             attempt = await _model_turn(core, session, provider, messages, [], config)
             text = attempt.text.strip()
@@ -2255,6 +2310,10 @@ async def _budget_report(
             continuations = attempt.continuations
         except Exception:  # noqa: BLE001 - the report is a courtesy, never a failure
             log.exception("the tool-budget report failed for %s", session.id)
+    if finished_out is not None:
+        text, verdict = split_budget_status(text)
+        if verdict:
+            finished_out.append(True)
     if not text:
         text = BUDGET_EMPTY_REPORT.format(n=config.max_tool_rounds)
     session.history.append(ChatMessage(role="assistant", content=text))
