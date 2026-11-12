@@ -38,6 +38,8 @@ DEFAULT_MAX_OUTPUT_CHARS = 20_000
 
 #: Returned when no provider in the chain could answer.
 SEARCH_UNAVAILABLE = "search_provider_unavailable"
+#: Why the preferred provider dropped out when it answered with zero hits.
+EMPTY_REASON = "it returned no results"
 #: Returned when the SSRF guard or the scheme check rejects a url.
 URL_BLOCKED = "url_blocked"
 
@@ -159,7 +161,7 @@ async def search_chain(settings: Any, query: str, limit: int, forced: str = "") 
         if not hits:
             outcome.skipped.append(f"{pid}: no results")
             if pid == preferred:
-                outcome.reason = "it returned no results"
+                outcome.reason = EMPTY_REASON
             continue
         outcome.hits = list(hits)
         outcome.provider = pid
@@ -184,7 +186,10 @@ async def web_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     if outcome.provider:
         pid, hits, fallback_from = outcome.provider, outcome.hits, outcome.fallback_from
-        if fallback_from:
+        # A provider that simply found nothing for this query is not an outage:
+        # the answer came from the next one and the result header says so, so
+        # the session is not given a red "unavailable" line for it.
+        if fallback_from and reason != EMPTY_REASON:
             await _warn_once(
                 ctx,
                 f"web_search fell back from {fallback_from} to {pid}: "

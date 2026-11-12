@@ -180,6 +180,12 @@ class DdgsProvider(_Provider):
         try:
             rows = await asyncio.to_thread(_run)
         except Exception as exc:  # noqa: BLE001 - ddgs raises its own error types
+            # ddgs reports "nothing found" as an exception (``DDGSException:
+            # No results found.``), the way a very specific query comes back.
+            # That is an empty answer, not an outage: the chain then says the
+            # provider "returned no results" instead of calling it unavailable.
+            if "no results found" in str(exc).lower():
+                return []
             raise SearchProviderUnavailable(f"ddgs search failed: {exc}") from exc
         hits = [
             _hit(

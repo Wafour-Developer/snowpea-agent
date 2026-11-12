@@ -287,3 +287,61 @@ def test_tool_list_shows_keyless_exa_free_as_active() -> None:
     by_name = {info.name: info for info in infos}
     assert by_name["web_search"].provider == "exa_free"
     assert by_name["web_search"].state == "active"
+
+
+# ---------------------------------------------------------------------------
+# "nothing found" is an empty answer, not an outage
+# ---------------------------------------------------------------------------
+
+
+class _EmptyDDGS:
+    """``ddgs`` as it behaves for a very specific query: it raises, with this text."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def __enter__(self) -> _EmptyDDGS:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def text(self, query: str, max_results: int = 5) -> list[dict[str, str]]:
+        raise RuntimeError(self.message)
+
+
+async def test_ddgs_finding_nothing_is_an_empty_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ddgs
+
+    monkeypatch.setattr(ddgs, "DDGS", lambda: _EmptyDDGS("No results found."))
+    assert await search_providers.get("ddgs").search("very specific", limit=5) == []
+
+
+async def test_ddgs_failing_for_another_reason_is_still_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ddgs
+
+    monkeypatch.setattr(ddgs, "DDGS", lambda: _EmptyDDGS("429 Ratelimit"))
+    with pytest.raises(SearchProviderUnavailable, match="ddgs search failed"):
+        await search_providers.get("ddgs").search("anything", limit=5)
+
+
+async def test_an_empty_first_provider_falls_back_without_an_unavailable_event(
+    ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def nothing(query: str, *, limit: int) -> list[SearchHit]:
+        return []
+
+    async def answer(query: str, *, limit: int) -> list[SearchHit]:
+        return [SearchHit(title="From exa", url="https://example.com/exa", snippet="s")]
+
+    monkeypatch.setattr(search_providers.get("ddgs"), "search", nothing)
+    monkeypatch.setattr(search_providers.get("exa_free"), "search", answer)
+
+    result = await run_search(ctx, query="audio.cpp fish_drama3 GGUF 한국어")
+
+    assert result.ok, result.error
+    assert result.output.startswith("[search via exa_free — fallback from ddgs:")
+    assert "returned no results" in result.output.splitlines()[0]
+    assert ctx.core.hub.errors() == []  # type: ignore[attr-defined]
