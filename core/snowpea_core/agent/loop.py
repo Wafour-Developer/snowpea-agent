@@ -660,6 +660,7 @@ def _learn_overflow(
             window = int(match.group(3))
     if prompt:
         compaction.learn_from_overflow(session, prompt, estimate_messages(sent))
+        _note_prompt_refused(core, session, prompt)
     if window >= 1024:
         try:
             vendor = session.provider or core.providers.default_vendor()
@@ -667,6 +668,127 @@ def _learn_overflow(
             session.context_window = window
         except Exception:  # noqa: BLE001 - learning is a bonus
             log.debug("could not keep the window an overflow named", exc_info=True)
+
+
+def _note_prompt_accepted(core: Core, session: Session, tokens: int) -> None:
+    """A prompt this size went through: the model's window is at least that."""
+    try:
+        vendor = session.provider or core.providers.default_vendor()
+        core.providers.note_prompt_accepted(vendor, session.model, tokens)
+    except Exception:  # noqa: BLE001 - learning is a bonus
+        log.debug("could not keep an accepted prompt size", exc_info=True)
+
+
+def _note_prompt_refused(core: Core, session: Session, tokens: int) -> None:
+    """A prompt this size was refused for its length: the window is below that."""
+    try:
+        vendor = session.provider or core.providers.default_vendor()
+        core.providers.note_prompt_refused(vendor, session.model, tokens)
+    except Exception:  # noqa: BLE001 - learning is a bonus
+        log.debug("could not keep a refused prompt size", exc_info=True)
+
+
+#: A request this big (tokens) is worth testing for length after a bare 400.
+OPAQUE_LENGTH_MIN_TOKENS = 32_768
+#: Messages at the end of the request that are left whole in the trial copy.
+TRIAL_KEEP_TAIL = 4
+#: Shorter texts are not worth cutting in the trial copy.
+TRIAL_MIN_CHARS = 1_200
+TRIAL_CUT_NOTE = "\n…[cut to test whether the request was too long]…\n"
+
+
+def is_opaque_rejection(exc: BaseException) -> bool:
+    """True for a bare 400 that names no reason ("invalid request to model")."""
+    from snowpea_core.providers.openai_compat import _is_opaque_rejection
+
+    return (
+        isinstance(exc, ProviderError)
+        and getattr(exc, "code", None) != errors.IMAGE_REJECTED
+        and _is_opaque_rejection(str(exc))
+    )
+
+
+def _halved(text: str) -> str:
+    if len(text) < TRIAL_MIN_CHARS:
+        return text
+    quarter = len(text) // 4
+    return text[:quarter] + TRIAL_CUT_NOTE + text[-quarter:]
+
+
+def shrunk_for_trial(messages: list[ChatMessage]) -> list[ChatMessage]:
+    """A copy of the request with everything but its tail cut to about half.
+
+    Old tool results and old turns go first in spirit — they are the bulk — but
+    halving every older text keeps the copy simple and the size predictable.
+    The stored history is never touched.
+    """
+    cutoff = max(0, len(messages) - TRIAL_KEEP_TAIL)
+    out: list[ChatMessage] = []
+    for index, message in enumerate(messages):
+        if index >= cutoff or message.sensitive:
+            out.append(message)
+            continue
+        content = message.content
+        if isinstance(content, str):
+            content = _halved(content)
+        else:
+            content = [
+                {**part, "text": _halved(part["text"])}
+                if part.get("type") == "text" and isinstance(part.get("text"), str)
+                else part
+                for part in content
+            ]
+        out.append(replace(message, content=content))
+    return out
+
+
+async def _length_trial(
+    core: Core, session: Session, provider: Any, trial: list[ChatMessage], specs: list[Any]
+) -> bool:
+    """Send the shrunk copy once (one output token, nothing shown); True if it went through."""
+    from snowpea_core.providers.openai_compat import OPAQUE_REPLAY_PAUSE_SEC
+
+    # Gateways that allow one request a second answer the retry with a 429.
+    await asyncio.sleep(OPAQUE_REPLAY_PAUSE_SEC)
+    try:
+        async for _event in provider.stream(trial, specs, max_tokens=1):
+            if session.interrupt.is_set():
+                return False
+    except Exception:  # noqa: BLE001 - any failure means it was not (only) length
+        log.debug("the length trial failed for %s", session.id, exc_info=True)
+        return False
+    return True
+
+
+async def _opaque_was_length(
+    core: Core,
+    session: Session,
+    provider: Any,
+    messages: list[ChatMessage],
+    specs: list[Any],
+    exc: BaseException,
+) -> bool:
+    """After a bare 400: was the request too long? Tested once, on a shrunk copy.
+
+    Only a big request is worth the extra call (over 32K tokens or half the
+    window in force). A copy at about half the size that goes through means it
+    was length: the refused size becomes the model's upper bound. One that
+    fails too means it was not, and the original error stands.
+    """
+    estimate = int(estimate_messages(messages) * max(1.0, session.context_ratio))
+    window = compaction.window_for(core, session)
+    if estimate < OPAQUE_LENGTH_MIN_TOKENS and estimate < window // 2:
+        return False
+    if not await _length_trial(core, session, provider, shrunk_for_trial(messages), specs):
+        return False
+    log.info(
+        "a bare 400 on ~%d tokens was length for %s/%s; compacting",
+        estimate,
+        session.provider,
+        session.model,
+    )
+    _note_prompt_refused(core, session, estimate)
+    return True
 
 
 def transient_provider_error(exc: BaseException) -> bool:
@@ -978,6 +1100,7 @@ async def _stream_once_raw(
             if event.usage.timings:
                 attempt.timings = event.usage.timings
             compaction.record_provider_usage(session, event.usage.input_tokens, sent_estimate)
+            _note_prompt_accepted(core, session, event.usage.input_tokens)
             await hub.emit_event(
                 session.id,
                 events.usage(
@@ -1869,6 +1992,7 @@ async def _drive(
     stop_continuations = 0
     empty_retries = 0
     overflow_retried = False
+    opaque_retried = False
     image_retried = False
     session.lead_direct_calls = 0
     verify_gate.begin_turn(session, text)
@@ -2077,6 +2201,24 @@ async def _drive(
                     build_messages(session, specs, memory_block, core=core), current
                 )
                 attempt = await _model_turn(core, session, provider, messages, specs, config)
+            elif (
+                not context_overflow(exc)
+                and not opaque_retried
+                and is_opaque_rejection(exc)
+                and await _opaque_was_length(core, session, provider, messages, specs, exc)
+            ):
+                # A bare 400 on a long request: the shrunk copy went through, so
+                # it was length. Summarise for real and try the full request again.
+                opaque_retried = True
+                await hub.emit_event(session.id, events.hook_continue(OVERFLOW_NOTE, 1))
+                compacted = await compaction.compact_session(core, session, auto=True)
+                if not compacted.compacted:
+                    raise
+                specs = core.tools.specs(session)
+                messages = _round_messages(
+                    build_messages(session, specs, memory_block, core=core), current
+                )
+                attempt = await _model_turn(core, session, provider, messages, specs, config)
             # The server's own count beat our estimate: learn its numbers,
             # summarise and try once more (once per model call, not per turn).
             elif not context_overflow(exc) or overflow_retried:
@@ -2094,6 +2236,7 @@ async def _drive(
                 )
                 attempt = await _model_turn(core, session, provider, messages, specs, config)
         overflow_retried = False
+        opaque_retried = False
         progress.add_usage(attempt)
         calls = _repair_calls(core, session, attempt.calls)
 

@@ -151,7 +151,7 @@ snowpea session context --json
 snowpea session compact s-abc123 "API 설계 결정은 남겨줘"
 ```
 
-`session context` 는 살아 있는 세션마다 한 줄씩, 사용 중인 토큰과 모델의 컨텍스트 윈도우, 그 비율을 출력합니다. 알아낼 수 없는 윈도우는 추측하지 않고 `?` 로 표시합니다. 호스팅 벤더는 내장 표에서 찾고, 로컬 vLLM·Ollama 서버에는 한 번만 물어본 뒤 캐시하며, `settings.json` 의 `providers.<vendor>.context_window` 가 둘 다 덮어씁니다.
+`session context` 는 살아 있는 세션마다 한 줄씩, 사용 중인 토큰과 모델의 컨텍스트 윈도우, 그 비율을 출력합니다. 윈도우는 항상 값이 있습니다. 먼저 찾는 쪽이 이깁니다: `settings.json` 의 `providers.<vendor>.context_windows.<모델>`, `providers.<vendor>.context_window`, 서버가 알려 준 값(로컬 vLLM·Ollama 서버에는 한 번만 물어본 뒤 캐시), 거절 메시지가 알려 준 윈도우, 내장 표와 카탈로그, 마지막으로 가정값 131072. 요청에서 배운 값이 이를 보정합니다: 통과한 가장 큰 프롬프트가 아래한을 올리고, 길이 때문에 거절된 가장 작은 프롬프트가 위쪽 한을 낮춥니다(`cache/context-bounds.json`). 32K 토큰(또는 윈도우의 절반)이 넘는 요청에 사유 없는 `400 invalid request to model` 이 오면 절반으로 줄인 사본을 한 번 보내 보고, 통과하면 길이 문제로 보고 대화를 요약합니다.
 
 긴 세션을 그 윈도우 안에 유지하는 수단이 compaction 입니다. `/compact` 는 지금까지의 내용을 "Session summary" 시스템 메시지 하나로 요약하고, 마지막 몇 개 메시지는 그대로 남긴 뒤 이어서 진행합니다. `session compact` 는 셸에서 같은 일을 합니다. 한 턴이 윈도우의 `context.autoCompactPercent`(기본 85)를 넘길 것 같으면 자동으로도 실행되며, 툴 루프 중간이 아니라 항상 턴과 턴 사이에 일어납니다. `context.autoCompact` 를 `false` 로 두면 `/compact` 로만 하게 됩니다.
 

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.41.0"
+PROTOCOL_VERSION = "1.42.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -869,7 +869,14 @@ class SessionSummary(Payload):
         default=0, description="Tokens the session's current prompt occupies (CORE-context)."
     )
     contextWindow: int | None = Field(
-        default=None, description="Context window of the session's model; null when unknown."
+        default=None,
+        description=(
+            "Context window of the session's model; never null from 1.42.0 (null only "
+            "before the session has reported one)."
+        ),
+    )
+    contextWindowSource: WindowSource | None = Field(
+        default=None, description="Where contextWindow came from (1.42.0)."
     )
     lastPrompt: str | None = Field(default=None, description="Latest saved user input.")
     effort: EffortLevel | None = Field(
@@ -2313,6 +2320,14 @@ class ProviderModelsParams(Payload):
     vendor: str | None = Field(
         default=None, description="Vendor to query; defaults to the configured one."
     )
+    models: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Extra model ids (hand-typed, or no longer listed) to include in contextWindows "
+            "(1.42.0). The vendor's configured model and the models.default / "
+            "models.categories.* that point at this vendor are always included."
+        ),
+    )
 
 
 class ProviderVisionResetParams(Payload):
@@ -2365,6 +2380,16 @@ class ProviderModelsResult(Payload):
             "Which of the listed models can be sent images, when that is known. A model "
             "missing from this map is unknown rather than text-only, so a picker draws no "
             "badge for it instead of a negative one."
+        ),
+    )
+    contextWindows: dict[str, ModelWindow] = Field(
+        default_factory=dict,
+        description=(
+            "One record per listed model (1.42.0): its context window in tokens (never "
+            "unknown), where that came from, and any bounds requests taught us. Covers the "
+            "listed models, the configured one, models.default / models.categories.* that "
+            "point at this vendor, and any ids passed in params.models. A model whose "
+            "source is 'assumed' is worth a look."
         ),
     )
 
@@ -5125,6 +5150,38 @@ class UsageEvent(Payload):
     )
 
 
+WindowSource = Literal["settings", "server", "error", "catalog", "learned", "assumed"]
+"""Where a context window came from (1.42.0), in the order they are tried."""
+
+
+class WindowBounds(Payload):
+    """What requests taught us about a model's window (1.42.0)."""
+
+    lower: int | None = Field(
+        default=None, description="Largest prompt, in tokens, that went through."
+    )
+    upper: int | None = Field(
+        default=None, description="Smallest prompt, in tokens, refused for its length."
+    )
+
+
+class ModelWindow(Payload):
+    """A model's context window as ``provider.models`` reports it (1.42.0)."""
+
+    contextWindow: int = Field(description="Window in tokens; never unknown.")
+    contextWindowSource: WindowSource = Field(description="Where contextWindow came from.")
+    contextWindowBounds: WindowBounds | None = Field(
+        default=None, description="Learned bounds; absent until a request taught us any."
+    )
+    contextWindowScope: Literal["model", "vendor"] | None = Field(
+        default=None,
+        description=(
+            "Which setting won when the source is 'settings': 'model' is "
+            "providers.<v>.context_windows[<model>], 'vendor' is providers.<v>.context_window."
+        ),
+    )
+
+
 class ContextEvent(Payload):
     """How full the model's context window is (CORE-context).
 
@@ -5148,6 +5205,14 @@ class ContextEvent(Payload):
     )
     model: str | None = Field(default=None, description="Model the window belongs to.")
     provider: str | None = Field(default=None, description="Vendor serving that model.")
+    contextWindowSource: WindowSource | None = Field(
+        default=None,
+        description=(
+            "Where 'window' came from (1.42.0): settings, server, error (named by a "
+            "refusal), catalog, learned (moved by what requests taught us) or assumed "
+            "(131072, nothing named one). 'window' itself is never null from 1.42.0."
+        ),
+    )
 
 
 class CompactionEvent(Payload):
@@ -7617,6 +7682,7 @@ CAPABILITIES: list[str] = [
     "llmSampleHost",
     "approvalEvaluate",
     "visionNotice",
+    "contextWindowSource",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and

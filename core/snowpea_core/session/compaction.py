@@ -175,6 +175,9 @@ class ContextState:
     used: int = 0
     window: int | None = None
     estimated: bool = True
+    #: Where ``window`` came from (``settings``/``server``/``error``/``catalog``/
+    #: ``learned``/``assumed``); None only for a state built by hand.
+    source: str | None = None
 
     @property
     def percent(self) -> float | None:
@@ -223,14 +226,22 @@ def resolved_identity(core: Core, session: Session) -> tuple[str | None, str | N
     return vendor, model
 
 
-def window_for(core: Core, session: Session) -> int | None:
-    """Context window of the session's model, from cache and the static table."""
+def window_info_for(core: Core, session: Session):  # type: ignore[no-untyped-def]
+    """The session model's window and its source; never unknown (1.42.0)."""
+    from snowpea_core.providers import context_windows
+    from snowpea_core.providers.registry import WindowInfo
+
     vendor = session.provider or core.providers.default_vendor()
     try:
-        return core.providers.context_window(vendor, session.model)
-    except Exception:  # noqa: BLE001 - an unknown vendor is simply unknown
+        return core.providers.window_info(vendor, session.model)
+    except Exception:  # noqa: BLE001 - an unreadable config still gets a window
         log.debug("no context window for %s/%s", vendor, session.model, exc_info=True)
-        return None
+        return WindowInfo(context_windows.ASSUMED_WINDOW, "assumed")
+
+
+def window_for(core: Core, session: Session) -> int:
+    """Context window of the session's model, from cache and the static table."""
+    return window_info_for(core, session).window
 
 
 def window_is_cold(core: Core, session: Session) -> bool:
@@ -274,7 +285,8 @@ async def resolve_window(core: Core, session: Session) -> int | None:
 def measure(core: Core, session: Session) -> ContextState:
     """Estimate the current prompt size against the model's window."""
     used = estimate_messages(prompt_messages(core, session))
-    return ContextState(used=used, window=window_for(core, session), estimated=True)
+    info = window_info_for(core, session)
+    return ContextState(used=used, window=info.window, estimated=True, source=info.source)
 
 
 def record_provider_usage(session: Session, input_tokens: int, sent_estimate: int = 0) -> None:
@@ -303,7 +315,8 @@ def learn_from_overflow(session: Session, prompt_tokens: int, sent_estimate: int
 
 def state_for(core: Core, session: Session) -> ContextState:
     """Current accounting for ``session``, provider-reported where possible."""
-    window = window_for(core, session)
+    info = window_info_for(core, session)
+    window = info.window
     if session.context_used and not session.context_estimated:
         used = session.context_used
         sent = session.context_used_len
@@ -313,11 +326,11 @@ def state_for(core: Core, session: Session) -> ContextState:
             # in that count; add them at the rate our estimate has run low.
             added = estimate_messages(list(messages[sent:])) if sent < len(messages) else 0
             used += int(added * max(1.0, session.context_ratio))
-            return ContextState(used=used, window=window, estimated=False)
+            return ContextState(used=used, window=window, estimated=False, source=info.source)
         if sent < 0:
-            return ContextState(used=used, window=window, estimated=False)
+            return ContextState(used=used, window=window, estimated=False, source=info.source)
     used = estimate_messages(prompt_messages(core, session))
-    return ContextState(used=used, window=window, estimated=True)
+    return ContextState(used=used, window=window, estimated=True, source=info.source)
 
 
 async def emit_context(
@@ -341,11 +354,13 @@ async def emit_context(
         live = await resolve_window(core, session)
         if live is not None:
             resolved.window = live
+            resolved.source = window_info_for(core, session).source
     session.context_used = resolved.used
     session.context_estimated = resolved.estimated
     if not resolved.estimated and getattr(session, "history", None) is not None:
         session.context_used_len = len(session.history)
     session.context_window = resolved.window
+    session.context_window_source = resolved.source
     vendor, model = resolved_identity(core, session)
     await core.hub.emit_event(
         session.id,
@@ -355,6 +370,7 @@ async def emit_context(
             estimated=resolved.estimated,
             model=model,
             provider=vendor,
+            window_source=resolved.source,
         ),
     )
     return resolved
@@ -439,7 +455,41 @@ async def summarise(
     A provider failure is not fatal: the caller falls back to a mechanical
     summary rather than leaving the user with an over-full window.
     """
-    transcript = render_conversation(messages, budget=summary_budget(session))
+    budget = summary_budget(session)
+    for attempt in range(SUMMARY_LENGTH_RETRIES + 1):
+        try:
+            return await _summarise_once(core, session, messages, instructions, budget)
+        except ProviderError as exc:
+            # The summary request itself can be the one that is too long (the
+            # window was overestimated, or a bare 400 hides the reason): cut
+            # the transcript in half and ask again before the mechanical
+            # fallback throws the history away.
+            if attempt >= SUMMARY_LENGTH_RETRIES or not _looks_like_length(exc):
+                raise
+            budget = max(20_000, budget // 2)
+            log.info("the summary request was too long (%s); retrying with %d chars", exc, budget)
+    return ""
+
+
+#: Times a summary request that was refused for its length is retried, halved.
+SUMMARY_LENGTH_RETRIES = 1
+
+
+def _looks_like_length(exc: BaseException) -> bool:
+    """True for a refusal that is, or may be, about the request being too long."""
+    from snowpea_core.agent.loop import context_overflow, is_opaque_rejection
+
+    return context_overflow(exc) or is_opaque_rejection(exc)
+
+
+async def _summarise_once(
+    core: Core,
+    session: Session,
+    messages: list[ChatMessage],
+    instructions: str | None,
+    budget: int,
+) -> str:
+    transcript = render_conversation(messages, budget=budget)
     if not transcript:
         return ""
     in_use = skills_in_use(messages)

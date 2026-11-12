@@ -307,6 +307,8 @@ class Session:
     context_ratio: float = 1.0
     #: Context window of :attr:`model` in tokens; ``None`` when unknown.
     context_window: int | None = None
+    #: Where ``context_window`` came from (see ``ProviderRegistry.window_info``).
+    context_window_source: str | None = None
     #: Where this session's tools run
     #: (US-010).  Defaults to the local machine, rooted at :attr:`workdir`.
     backend: ExecutionBackend = None  # type: ignore[assignment]
@@ -351,6 +353,7 @@ class Session:
             seq=self.seq,
             contextUsed=self.context_used,
             contextWindow=self.context_window,
+            contextWindowSource=self.context_window_source,  # type: ignore[arg-type]
             effort=self.effort,  # type: ignore[arg-type]
             kind=self.kind,
             parentSessionId=self.parent_session_id,

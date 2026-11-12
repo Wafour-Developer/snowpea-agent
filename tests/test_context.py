@@ -118,8 +118,11 @@ def test_override_rejects_nonsense() -> None:
         assert registry.context_window("anthropic", "claude-sonnet-4-5") == 200_000
 
 
-def test_unknown_vendor_has_no_window() -> None:
-    assert ProviderRegistry(Settings()).context_window("not-a-vendor") is None
+def test_unknown_vendor_is_assumed_not_unknown() -> None:
+    registry = ProviderRegistry(Settings())
+    assert registry.context_window("not-a-vendor") == 131072
+    info = registry.window_info("not-a-vendor")
+    assert (info.window, info.source) == (131072, "assumed")
 
 
 # ---------------------------------------------------------------------------
@@ -305,12 +308,12 @@ def test_a_hosted_window_takes_the_smaller_of_table_and_catalog(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_unreachable_local_server_yields_none() -> None:
-    """A dead endpoint degrades the HUD to '?'; it must never raise."""
+async def test_unreachable_local_server_yields_an_assumed_window() -> None:
+    """A dead endpoint never raises and never leaves the window unknown (1.42.0)."""
     settings = Settings.model_validate(
         {"providers": {"local": {"base_url": "http://127.0.0.1:1/v1", "model": "whatever"}}}
     )
-    assert await ProviderRegistry(settings).resolve_context_window("local") is None
+    assert await ProviderRegistry(settings).resolve_context_window("local") == 131072
 
 
 @pytest.mark.asyncio
@@ -484,10 +487,10 @@ async def test_context_event_follows_every_turn(
 
 
 @pytest.mark.asyncio
-async def test_unknown_window_is_reported_as_null(
+async def test_unknown_window_is_reported_as_assumed(
     tmp_path: Path, http: aiohttp.ClientSession
 ) -> None:
-    """No window configured for the vendor: the event says null, not a guess."""
+    """No source names a window: the event says 131072 and that it is assumed (1.42.0)."""
     with env_vars(SNOWPEA_PROVIDER=f"fake:{FIXTURE}"):
         instance = await make_daemon(tmp_path / "home-nowindow")
         try:
@@ -496,8 +499,9 @@ async def test_unknown_window_is_reported_as_null(
                 session_id = await start_session(client, tmp_path)
                 await prompt(client, session_id, "hello there")
                 event = await client.wait(lambda e: e["kind"] == "context", TIMEOUT)
-                assert event["payload"]["window"] is None
-                assert event["payload"]["percent"] is None
+                assert event["payload"]["window"] == 131072
+                assert event["payload"]["contextWindowSource"] == "assumed"
+                assert event["payload"]["percent"] is not None
             finally:
                 await client.stop()
         finally:

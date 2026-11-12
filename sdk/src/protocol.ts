@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.41.0";
+export const PROTOCOL_VERSION = "1.42.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2176,12 +2176,30 @@ export interface ProviderLoginWebResult {
 
 /** `provider.models` params. Ask a vendor's endpoint which models it serves. */
 export interface ProviderModelsParams {
+  /** Extra model ids (hand-typed, or no longer listed) to include in contextWindows (1.42.0). The vendor's configured model and the models.default / models.categories.* that point at this vendor are always included. */
+  models?: string[];
   /** Vendor to query; defaults to the configured one. */
   vendor?: string | null;
 }
 
 /** `provider.models` result. */
 export interface ProviderModelsResult {
+  /** One record per listed model (1.42.0): its context window in tokens (never unknown), where that came from, and any bounds requests taught us. Covers the listed models, the configured one, models.default / models.categories.* that point at this vendor, and any ids passed in params.models. A model whose source is 'assumed' is worth a look. */
+  contextWindows?: Record<string, {
+    /** Window in tokens; never unknown. */
+    contextWindow: number;
+    /** Learned bounds; absent until a request taught us any. */
+    contextWindowBounds?: {
+      /** Largest prompt, in tokens, that went through. */
+      lower?: number | null;
+      /** Smallest prompt, in tokens, refused for its length. */
+      upper?: number | null;
+    } | null;
+    /** Which setting won when the source is 'settings': 'model' is providers.<v>.context_windows[<model>], 'vendor' is providers.<v>.context_window. */
+    contextWindowScope?: "model" | "vendor" | null;
+    /** Where contextWindow came from. */
+    contextWindowSource: "settings" | "server" | "error" | "catalog" | "learned" | "assumed";
+  }>;
   /** Model this vendor uses today. */
   current?: string;
   /** One line naming the source, for a picker to show. */
@@ -2613,8 +2631,10 @@ export interface SessionListResult {
     browserProvider?: "host" | "local" | null;
     /** Tokens the session's current prompt occupies (CORE-context). */
     contextUsed?: number;
-    /** Context window of the session's model; null when unknown. */
+    /** Context window of the session's model; never null from 1.42.0 (null only before the session has reported one). */
     contextWindow?: number | null;
+    /** Where contextWindow came from (1.42.0). */
+    contextWindowSource?: "settings" | "server" | "error" | "catalog" | "learned" | "assumed" | null;
     /** UTC ISO-8601 creation timestamp. */
     createdAt: string;
     /** The effort in force (1.29.0): the pin, or what the settings give, clamped to what the model offers; null when the model has no effort setting or the session is closed. 'effort' stays the session's own pin. */
@@ -6058,6 +6078,8 @@ export interface CompactionStartedEventPayload {
 
 /** Payload of `session.event` with kind `context`. */
 export interface ContextEventPayload {
+  /** Where 'window' came from (1.42.0): settings, server, error (named by a refusal), catalog, learned (moved by what requests taught us) or assumed (131072, nothing named one). 'window' itself is never null from 1.42.0. */
+  contextWindowSource?: "settings" | "server" | "error" | "catalog" | "learned" | "assumed" | null;
   /** True while 'used' is a local estimate; false once the provider reported it. */
   estimated?: boolean;
   kind?: "context";

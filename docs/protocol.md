@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.41.0` (semver)
+- **Protocol version:** `1.42.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.41.0"
+    "protocolVersion": "1.42.0"
   }
 }
 ```
@@ -46,6 +46,7 @@ Server capabilities advertised in the `system.hello` result:
 - `browserMemoryList`
 - `checkpoints`
 - `commands`
+- `contextWindowSource`
 - `ephemeralImages`
 - `fs`
 - `holdSec`
@@ -1875,12 +1876,14 @@ Ask a vendor's endpoint which models it serves.
 
 | field | type | required | description |
 |---|---|---|---|
+| `models` | `string[]` | no | Extra model ids (hand-typed, or no longer listed) to include in contextWindows (1.42.0). The vendor's configured model and the models.default / models.categories.* that point at this vendor are always included. |
 | `vendor` | `string \| null` | no | Vendor to query; defaults to the configured one. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
+| `contextWindows` | `Record<string, { contextWindow: number; contextWindowBounds?: { lower?: number \| null; upper?: number \| null; } \| null; contextWindowScope?: "model" \| "vendor" \| null; contextWindowSource: "settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed"; }>` | no | One record per listed model (1.42.0): its context window in tokens (never unknown), where that came from, and any bounds requests taught us. Covers the listed models, the configured one, models.default / models.categories.* that point at this vendor, and any ids passed in params.models. A model whose source is 'assumed' is worth a look. |
 | `current` | `string` | no | Model this vendor uses today. |
 | `detail` | `string` | no | One line naming the source, for a picker to show. |
 | `error` | `string \| null` | no | Why the live listing could not be used, when source is not 'live' (1.17.0); absent when the vendor answered or publishes no listing. |
@@ -2249,7 +2252,7 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `complete` | `boolean` | no | True when the list is all there is for what was asked (1.27.0): the daemon's boot has restored the sessions it reopens, and with includeClosed the saved ones were read. Without includeClosed it covers live sessions only, which after a restart is usually none; ask with includeClosed before forgetting a closed chat. False (or absent, from an older daemon) means an empty or short list proves nothing, so a client must not forget its own records by it. |
-| `sessions` | `({ agent?: string \| null; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; contextWindowSource?: "settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -3772,6 +3775,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `contextWindowSource` | `"settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null` | no | Where 'window' came from (1.42.0): settings, server, error (named by a refusal), catalog, learned (moved by what requests taught us) or assumed (131072, nothing named one). 'window' itself is never null from 1.42.0. |
 | `estimated` | `boolean` | no | True while 'used' is a local estimate; false once the provider reported it. |
 | `kind` | `"context"` | no |  |
 | `model` | `string \| null` | no | Model the window belongs to. |

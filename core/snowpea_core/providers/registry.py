@@ -19,7 +19,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from snowpea_core.config.paths import Paths, resolve_home
@@ -86,6 +86,22 @@ def _split_env(value: str) -> tuple[str, str | None]:
 
 #: Largest window assumed for a local-style server nobody has asked yet.
 UNVERIFIED_LOCAL_WINDOW = 131072
+
+
+@dataclass(frozen=True)
+class WindowInfo:
+    """A context window, where it came from, and what requests taught us about it."""
+
+    window: int
+    #: ``settings`` | ``server`` | ``error`` | ``catalog`` | ``learned`` | ``assumed``
+    source: str
+    #: Largest prompt that was accepted / smallest refused for its length.
+    lower: int | None = None
+    upper: int | None = None
+    #: For ``source == "settings"``: ``model`` (providers.<v>.context_windows[m])
+    #: or ``vendor`` (providers.<v>.context_window).  None for every other source.
+    scope: str | None = None
+
 
 
 class ProviderRegistry:
@@ -313,6 +329,23 @@ class ProviderRegistry:
         for key, value in config.items():
             if value is None:
                 merged.pop(key, None)
+            elif key == "context_windows" and isinstance(value, dict):
+                # Per-model windows merge entry by entry: a model set to null
+                # loses its override and the others stay (1.42.0).
+                kept = {
+                    str(model): int(window)
+                    for model, window in (merged.get("context_windows") or {}).items()
+                    if isinstance(window, int | float) and window > 0
+                }
+                for model, window in value.items():
+                    if window is None:
+                        kept.pop(str(model), None)
+                    elif _as_positive_int(window) is not None:
+                        kept[str(model)] = int(window)
+                if kept:
+                    merged[key] = kept
+                else:
+                    merged.pop(key, None)
             else:
                 merged[key] = value
         if vendor not in PRESETS:
@@ -404,36 +437,93 @@ class ProviderRegistry:
         )
 
     # -- context windows (CORE-context) --------------------------------
-    def context_window(self, vendor: str, model: str | None = None) -> int | None:
+    def window_info(self, vendor: str, model: str | None = None) -> WindowInfo:
+        """Context window of ``vendor``/``model`` and where it came from, no I/O.
+
+        A window is never unknown (1.42.0).  The first source that has one
+        wins: ``providers.<v>.context_windows[<model>]``, then
+        ``providers.<v>.context_window`` (both ``settings``), what the server
+        reported (``server``), what a refusal named (``error``), the static
+        table and catalog (``catalog``), else an assumed 131072 (``assumed``).
+        What requests taught us then moves a non-``settings`` window: up to the
+        largest prompt that went through, and below the smallest one refused
+        for its length (``learned``).
+        """
+        config = self.vendor_config(vendor)
+        resolved_model = self.model_for(vendor, model)
+        base_url = (self.base_url_for(vendor) or "").rstrip("/")
+        context_windows.bind_store(self.paths.home if self.paths is not None else None)
+        lower, upper = context_windows.bounds_get(vendor, base_url, resolved_model)
+        per_model = config.get("context_windows")
+        override = (
+            _as_positive_int(per_model.get(resolved_model))
+            if isinstance(per_model, dict)
+            else None
+        )
+        if override is not None:
+            return WindowInfo(override, "settings", lower, upper, scope="model")
+        override = _as_positive_int(config.get("context_window"))
+        if override is not None:
+            return WindowInfo(override, "settings", lower, upper, scope="vendor")
+        window: int | None = None
+        source = "assumed"
+        learned_error = context_windows.error_window(vendor, base_url, resolved_model)
+        if learned_error is not None:
+            window, source = learned_error, "error"
+        if window is None:
+            hit, cached = context_windows.cache_get(vendor, base_url, resolved_model)
+            if hit and cached is not None:
+                window, source = cached, "server"
+        if window is None:
+            # Expired, not unknown: what the server said still beats the family
+            # default until it can be asked again.
+            known = context_windows.last_known(vendor, base_url, resolved_model)
+            if known is not None:
+                window, source = known, "server"
+        if window is None:
+            table = self._table_window(vendor, resolved_model)
+            if table is not None:
+                window, source = table, "catalog"
+        if window is None:
+            window, source = context_windows.ASSUMED_WINDOW, "assumed"
+        moved, changed = context_windows.apply_bounds(window, lower, upper)
+        if changed:
+            window, source = moved, "learned"
+        return WindowInfo(window, source, lower, upper)
+
+    def context_window(self, vendor: str, model: str | None = None) -> int:
         """Context window of ``vendor``/``model`` in tokens, without any I/O.
 
-        ``settings.providers.<vendor>.context_window`` wins over the static
-        table, so a model the table has never heard of can still be given a
-        window by hand.  A ``local`` window already discovered from the server
-        is served from cache here; :meth:`resolve_context_window` is the one
-        that may go and ask.  ``None`` means unknown — surfaces render ``?``.
+        See :meth:`window_info` for the order of sources.  A ``local`` window
+        already discovered from the server is served from cache here;
+        :meth:`resolve_context_window` is the one that may go and ask.
         """
-        override = _as_positive_int(self.vendor_config(vendor).get("context_window"))
-        if override is not None:
-            return override
-        resolved_model = self.model_for(vendor, model)
-        base_url = self.base_url_for(vendor) or ""
-        key_url = base_url.rstrip("/")
-        hit, cached = context_windows.cache_get(vendor, key_url, resolved_model)
-        if hit:
-            return cached
-        # Expired, not unknown: what the server said still beats the family
-        # default until it can be asked again.
-        known = context_windows.last_known(vendor, key_url, resolved_model)
-        if known is not None:
-            return known
-        return self._table_window(vendor, resolved_model)
+        return self.window_info(vendor, model).window
+
+    def window_map(self, vendor: str, models: list[str]) -> dict[str, WindowInfo]:
+        """``window_info`` for each of ``models`` (no I/O), for ``provider.models``."""
+        return {model: self.window_info(vendor, model) for model in models}
 
     def learn_context_window(self, vendor: str, model: str | None, window: int) -> None:
         """Keep a window a server named in a refusal; it beats any table entry."""
         resolved = self.model_for(vendor, model)
         base = (self.base_url_for(vendor) or "").rstrip("/")
-        context_windows.remember_discovered(vendor, base, resolved, int(window))
+        context_windows.bind_store(self.paths.home if self.paths is not None else None)
+        context_windows.remember_error_window(vendor, base, resolved, int(window))
+
+    def note_prompt_accepted(self, vendor: str, model: str | None, tokens: int) -> None:
+        """A prompt of ``tokens`` went through: the window is at least that."""
+        resolved = self.model_for(vendor, model)
+        base = (self.base_url_for(vendor) or "").rstrip("/")
+        context_windows.bind_store(self.paths.home if self.paths is not None else None)
+        context_windows.note_accepted(vendor, base, resolved, int(tokens))
+
+    def note_prompt_refused(self, vendor: str, model: str | None, tokens: int) -> None:
+        """A prompt of ``tokens`` was refused for its length: the window is below that."""
+        resolved = self.model_for(vendor, model)
+        base = (self.base_url_for(vendor) or "").rstrip("/")
+        context_windows.bind_store(self.paths.home if self.paths is not None else None)
+        context_windows.note_refused(vendor, base, resolved, int(tokens))
 
     def _table_window(self, vendor: str, model: str) -> int | None:
         """The window no server was asked for: the table and the catalog.
@@ -624,7 +714,7 @@ class ProviderRegistry:
 
     async def resolve_context_window(
         self, vendor: str, model: str | None = None, *, refresh: bool = False
-    ) -> int | None:
+    ) -> int:
         """Like :meth:`context_window`, but asks a ``local`` server when it must.
 
         Only the ``local`` vendor is queried: every hosted vendor publishes a
@@ -632,32 +722,31 @@ class ProviderRegistry:
         per turn to learn a constant would be pure latency.  The answer (even
         a negative one) is cached, so at most one lookup per model per TTL.
         """
-        override = _as_positive_int(self.vendor_config(vendor).get("context_window"))
-        if override is not None:
-            return override
+        info = self.window_info(vendor, model)
+        if info.source == "settings":
+            return info.window
         resolved_model = self.model_for(vendor, model)
-        static = self._table_window(vendor, resolved_model)
         if not self.is_local_style(vendor):
-            return static
+            return info.window
         base_url = (self.base_url_for(vendor) or "").rstrip("/")
         if not base_url or model_discovery.is_placeholder(resolved_model):
-            return static
+            return info.window
         if not refresh:
-            hit, cached = context_windows.cache_get(vendor, base_url, resolved_model)
+            hit, _cached = context_windows.cache_get(vendor, base_url, resolved_model)
             if hit:
-                return cached
+                return info.window
         discovered = await context_windows.discover_window(
             base_url, resolved_model, api_key=self.api_key_for(vendor)
         )
         if discovered is not None:
             context_windows.remember_discovered(vendor, base_url, resolved_model, discovered)
-            return discovered
+            return self.window_info(vendor, model).window
         # The server could not be asked this time. Keep what it said before if
         # it ever answered; only a model never seen falls back to the table.
         known = context_windows.last_known(vendor, base_url, resolved_model)
-        window = known if known is not None else static
-        context_windows.remember_failure(vendor, base_url, resolved_model, window)
-        return window
+        fallback = known if known is not None else self._table_window(vendor, resolved_model)
+        context_windows.remember_failure(vendor, base_url, resolved_model, fallback)
+        return self.window_info(vendor, model).window
 
     async def resolve_model(self, vendor: str, model: str | None = None) -> str:
         """Like :meth:`model_for`, but never returns a placeholder.

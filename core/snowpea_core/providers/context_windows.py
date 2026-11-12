@@ -20,6 +20,7 @@ than guessing — a wrong window silently truncates or silently never compacts.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -195,6 +196,133 @@ def cache_get(vendor: str, base_url: str, model: str) -> tuple[bool, int | None]
 
 def cache_put(vendor: str, base_url: str, model: str, window: int | None) -> None:
     _CACHE[(vendor, base_url, model)] = (time.monotonic() + CACHE_TTL_SEC, window)
+
+
+# ---------------------------------------------------------------------------
+# what requests taught us (1.42.0)
+# ---------------------------------------------------------------------------
+
+#: Used when no source names a window: a model's window is never unknown.
+ASSUMED_WINDOW = 131072
+
+#: Smallest margin kept under a prompt size a server refused.
+UPPER_MARGIN_MIN = 1024
+
+#: ``(vendor, base_url, model)`` -> the window a refusal named ("exceeds the
+#: context (N)").  It is a measurement of the server, so it outranks what the
+#: server's model list says.
+_ERROR_WINDOWS: dict[tuple[str, str, str], int] = {}
+
+#: ``(vendor, base_url, model)`` -> ``[lower, upper]``: the largest prompt that
+#: was accepted and the smallest one refused for its length.  Either may be None.
+_BOUNDS: dict[tuple[str, str, str], list[int | None]] = {}
+
+_STORE: dict[str, Any] = {"path": None, "loaded": False}
+
+
+def bind_store(home: Path | str | None) -> None:
+    """Mirror what was learned to ``<home>/cache/context-bounds.json``."""
+    path = Path(home) / "cache" / "context-bounds.json" if home else None
+    if _STORE["path"] == path and _STORE["loaded"]:
+        return
+    _STORE["path"] = path
+    _STORE["loaded"] = True
+    # One daemon has one home; a different home (a test, a second daemon in the
+    # process) starts from what that home saved.
+    _ERROR_WINDOWS.clear()
+    _BOUNDS.clear()
+    if path is None:
+        return
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    for raw, row in (document.get("models") or {}).items():
+        try:
+            key = tuple(json.loads(raw))
+        except ValueError:
+            continue
+        if len(key) != 3 or not isinstance(row, dict):
+            continue
+        error = _as_window(row.get("error"))
+        if error is not None:
+            _ERROR_WINDOWS.setdefault(key, error)  # type: ignore[arg-type]
+        lower, upper = _as_window(row.get("lower")), _as_window(row.get("upper"))
+        if lower is not None or upper is not None:
+            _BOUNDS.setdefault(key, [lower, upper])  # type: ignore[arg-type]
+
+
+def _save_store() -> None:
+    path = _STORE["path"]
+    if path is None:
+        return
+    keys = set(_ERROR_WINDOWS) | set(_BOUNDS)
+    models = {}
+    for key in keys:
+        lower, upper = _BOUNDS.get(key, [None, None])
+        models[json.dumps(list(key))] = {
+            "error": _ERROR_WINDOWS.get(key),
+            "lower": lower,
+            "upper": upper,
+        }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"models": models}), encoding="utf-8")
+    except OSError:
+        log.debug("could not persist the learned context bounds", exc_info=True)
+
+
+def remember_error_window(vendor: str, base_url: str, model: str, window: int) -> None:
+    """Keep the window a refusal named."""
+    key = (vendor, base_url, model)
+    if _ERROR_WINDOWS.get(key) != window:
+        _ERROR_WINDOWS[key] = window
+        _save_store()
+
+
+def error_window(vendor: str, base_url: str, model: str) -> int | None:
+    return _ERROR_WINDOWS.get((vendor, base_url, model))
+
+
+def bounds_get(vendor: str, base_url: str, model: str) -> tuple[int | None, int | None]:
+    lower, upper = _BOUNDS.get((vendor, base_url, model), [None, None])
+    return lower, upper
+
+
+def note_accepted(vendor: str, base_url: str, model: str, tokens: int) -> None:
+    """A prompt of ``tokens`` went through: the window is at least that."""
+    if tokens <= 0:
+        return
+    key = (vendor, base_url, model)
+    row = _BOUNDS.setdefault(key, [None, None])
+    previous = row[0] or 0
+    if tokens <= previous:
+        return
+    row[0] = tokens
+    # A big jump is worth a write; a creeping one is not (every turn grows it).
+    if previous == 0 or tokens - previous >= max(1024, previous // 20):
+        _save_store()
+
+
+def note_refused(vendor: str, base_url: str, model: str, tokens: int) -> None:
+    """A prompt of ``tokens`` was refused for its length: the window is below that."""
+    if tokens <= 0:
+        return
+    key = (vendor, base_url, model)
+    row = _BOUNDS.setdefault(key, [None, None])
+    if row[1] is None or tokens < row[1]:
+        row[1] = tokens
+        _save_store()
+
+
+def apply_bounds(window: int, lower: int | None, upper: int | None) -> tuple[int, bool]:
+    """``window`` moved into ``[lower, upper - margin]``; the flag says if it moved."""
+    moved = window
+    if upper is not None and moved >= upper:
+        moved = upper - max(UPPER_MARGIN_MIN, upper // 20)
+    if lower is not None and moved < lower:
+        moved = lower
+    return max(moved, 1), moved != window
 
 
 # ---------------------------------------------------------------------------

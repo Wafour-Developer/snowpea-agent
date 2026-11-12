@@ -474,6 +474,10 @@ def register_permission_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
 # ---------------------------------------------------------------------------
 
 
+#: ``provider.configure`` keys that only tune a vendor that is already set up.
+_TUNING_KEYS = frozenset({"context_window", "context_windows"})
+
+
 async def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> None:
     """Merge ``config`` into the vendor's settings, write ``settings.json``, announce it.
 
@@ -484,7 +488,11 @@ async def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> 
         core.providers.configure(vendor, config)
     except ProviderError as exc:
         raise RpcError(exc.code, str(exc)) from exc
-    core.settings.providers.setdefault("default", vendor)
+    # A real provider setup (a key, a URL, a model) makes this the default
+    # vendor when none is; pinning a context window for some model, say the one
+    # a category slot points at on another vendor, must not.
+    if any(key not in _TUNING_KEYS for key in config):
+        core.settings.providers.setdefault("default", vendor)
     try:
         core.settings.save(core.paths)
     except OSError as exc:  # pragma: no cover - disk failure
@@ -513,6 +521,9 @@ async def provider_configure_handler(
             "preset",
             "label",
             "context_window",
+            # Per-model windows, ``{"<model>": tokens}``; they win over
+            # ``context_window`` and a model set to null drops its entry.
+            "context_windows",
             # Whether this server's model may be sent images, and the opt-in
             # for a reasoning-effort field (CORE-vision, CORE-effort).
             "vision",

@@ -344,6 +344,7 @@ def context(
     estimated: bool = True,
     model: str | None = None,
     provider: str | None = None,
+    window_source: str | None = None,
 ) -> Event:
     """How full the context window is; ``percent`` is derived here (CORE-context)."""
     percent = round(used * 100.0 / window, 1) if window else None
@@ -355,6 +356,7 @@ def context(
             estimated=estimated,
             model=model,
             provider=provider,
+            contextWindowSource=window_source,  # type: ignore[arg-type]
         )
     )
 

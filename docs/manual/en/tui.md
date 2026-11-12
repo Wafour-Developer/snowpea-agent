@@ -300,7 +300,7 @@ It is dim until 70%, amber from there, red from 85%, and past 80% a row appears 
 ───────────── compacted (68.0k → 12.1k tokens) ─────────────
 ```
 
-`ctx 12.3k used` with no percentage means the daemon does not know this model's window. See [Commands](commands.md) for `snowpea session context` and the `providers.<vendor>.context_window` override.
+The percentage is against the model's window, which is assumed to be 131072 when nothing names one. See [Commands](commands.md) for `snowpea session context` and the `providers.<vendor>.context_window` override.
 
 ## Typing
 

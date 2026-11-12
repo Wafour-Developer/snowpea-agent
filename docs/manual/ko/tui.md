@@ -300,7 +300,7 @@ ctx 34% (68k/200k)
 ───────────── compacted (68.0k → 12.1k tokens) ─────────────
 ```
 
-퍼센트 없이 `ctx 12.3k used`로 보인다면 데몬이 그 모델의 윈도 크기를 모른다는 뜻입니다. `snowpea session context`와 `providers.<vendor>.context_window` 설정은 [명령](commands.md)에 있습니다.
+퍼센트는 모델의 윈도 대비이고, 어디에도 윈도가 없으면 131072로 가정합니다. `snowpea session context`와 `providers.<vendor>.context_window` 설정은 [명령](commands.md)에 있습니다.
 
 ## 입력
 

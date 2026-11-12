@@ -1075,6 +1075,59 @@ async def provider_vision_reset_handler(
     return ProviderVisionResetResult(vendor=vendor, model=model, forgotten=forgotten)
 
 
+def _window_models(core: Core, vendor: str, listed: list[str], extra: list[str]) -> list[str]:
+    """Listed models, then the configured one, the ones settings point at, then ``extra``."""
+    from snowpea_core.config.model_routing import resolve_reference
+
+    ordered: list[str] = list(listed)
+    ordered.append(core.providers.model_for(vendor))
+    settings = core.settings
+    references = [settings.models.default, *settings.models.categories.values()]
+    for reference in references:
+        try:
+            route = resolve_reference(settings, reference)
+        except Exception:  # noqa: BLE001 - a bad reference is not this call's problem
+            continue
+        if route.provider == vendor and route.model:
+            ordered.append(route.model)
+    ordered.extend(extra)
+    seen: dict[str, None] = {}
+    for model in ordered:
+        text = str(model or "").strip()
+        if text:
+            seen.setdefault(text, None)
+    return list(seen)
+
+
+def _window_fields(core: Core, vendor: str, models: list[str]) -> dict[str, Any]:
+    """The per-model window records of ``provider.models`` (1.42.0)."""
+    records: dict[str, Any] = {}
+    if not hasattr(core.providers, "window_map"):
+        return {}
+    for model, info in core.providers.window_map(vendor, models).items():
+        record: dict[str, Any] = {
+            "contextWindow": info.window,
+            "contextWindowSource": info.source,
+        }
+        if info.lower is not None or info.upper is not None:
+            record["contextWindowBounds"] = {"lower": info.lower, "upper": info.upper}
+        if info.scope is not None:
+            record["contextWindowScope"] = info.scope
+        records[model] = record
+    return {"contextWindows": records}
+
+
+def _window_fields_safely(
+    core: Core, vendor: str, listed: list[str], extra: list[str]
+) -> dict[str, Any]:
+    """The window records, or none: a listing never fails for this decoration."""
+    try:
+        return _window_fields(core, vendor, _window_models(core, vendor, listed, extra))
+    except Exception:  # noqa: BLE001
+        log.debug("could not work out the context windows for %s", vendor, exc_info=True)
+        return {}
+
+
 async def provider_models_handler(
     _conn: RpcConnection, params: ProviderModelsParams, core: Core
 ) -> ProviderModelsResult:
@@ -1092,6 +1145,7 @@ async def provider_models_handler(
         detail=listing.detail,
         error=(listing.error or None) if listing.source != "live" else None,
         vision=core.providers.vision_map(vendor, listing.models),
+        **_window_fields_safely(core, vendor, listing.models, params.models),
     )
 
 

@@ -303,7 +303,7 @@ digits, `-` and `_`, and must not be one of the built-in vendor ids.
 `variant` is `vllm`, `ollama`, `lmstudio` or `generic`; it picks the URL the
 wizard suggests and enables Ollama's `/api/tags` listing for a server with no
 `/v1/models`. `api_key` is optional, `label` is what pickers show, and
-`context_window` pins a window the server does not report.
+`context_window` pins a window the server does not report; `context_windows` (`{"<model>": tokens}`) does the same for one model and wins over it.
 
 From the command line:
 
