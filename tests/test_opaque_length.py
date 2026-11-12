@@ -8,6 +8,7 @@ so it is assumed to be 131072 and compaction would not fire for a long time.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 from _support import Recorder, make_daemon
@@ -174,3 +175,13 @@ async def test_a_summary_request_refused_for_length_is_retried_smaller(tmp_path:
         assert len(asked) == 2 and asked[1] < asked[0] * 0.75
     finally:
         await daemon.stop()
+
+
+def test_the_summary_budget_follows_the_cost_this_conversation_really_has() -> None:
+    from snowpea_core.session.compaction import summary_budget
+
+    plain = SimpleNamespace(context_window=16_384, context_ratio=1.0)
+    dense = SimpleNamespace(context_window=16_384, context_ratio=2.0)
+    assert summary_budget(dense) < summary_budget(plain)
+    # Korean text at 2 tokens per estimated token: the request stays inside the window.
+    assert summary_budget(dense) / 1.25 <= 16_384 - 2_048

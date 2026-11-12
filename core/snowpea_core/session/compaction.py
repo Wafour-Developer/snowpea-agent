@@ -444,7 +444,13 @@ def summary_budget(session: Session) -> int:
     if not window:
         return SUMMARY_DEFAULT_CHARS
     room = int(window) - SUMMARY_MAX_TOKENS - 4_096
-    return max(20_000, int(room * SUMMARY_CHARS_PER_TOKEN))
+    # The provider counted more tokens than we estimated (Korean and code run
+    # denser than the 2.5 characters a token assumed here): fit the transcript
+    # at the rate this conversation actually costs, or a small window gets a
+    # summary request that is itself too long.
+    ratio = max(1.0, float(getattr(session, "context_ratio", 1.0) or 1.0))
+    floor = 8_000 if ratio > 1.0 else 20_000
+    return max(floor, int(room * SUMMARY_CHARS_PER_TOKEN / ratio))
 
 
 async def summarise(
@@ -466,7 +472,7 @@ async def summarise(
             # fallback throws the history away.
             if attempt >= SUMMARY_LENGTH_RETRIES or not _looks_like_length(exc):
                 raise
-            budget = max(20_000, budget // 2)
+            budget = max(4_000, budget // 2)
             log.info("the summary request was too long (%s); retrying with %d chars", exc, budget)
     return ""
 
