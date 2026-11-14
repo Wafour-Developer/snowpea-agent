@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.48.0` (semver)
+- **Protocol version:** `1.49.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.48.0"
+    "protocolVersion": "1.49.0"
   }
 }
 ```
@@ -48,6 +48,7 @@ Server capabilities advertised in the `system.hello` result:
 - `commands`
 - `contextWindowSource`
 - `ephemeralImages`
+- `extensions`
 - `fork`
 - `fs`
 - `goals`
@@ -141,6 +142,11 @@ Server capabilities advertised in the `system.hello` result:
 | [`checkpoint.restore`](#checkpointrestore) | client → server | Restore files to their before-turn state, optionally through later turns. |
 | [`command.list`](#commandlist) | client → server | List the slash commands available to a session. |
 | [`command.run`](#commandrun) | client → server | Run a slash command; the only execution path for them. |
+| [`extension.configure`](#extensionconfigure) | client → server | Save a plugin's config (validated by its configSchema) and reload it (1.49.0). |
+| [`extension.disable`](#extensiondisable) | client → server | Unload and disable; everything it registered goes (1.49.0). |
+| [`extension.enable`](#extensionenable) | client → server | Enable and load (1.49.0). |
+| [`extension.list`](#extensionlist) | client → server | Python plugins found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions'). |
+| [`extension.reload`](#extensionreload) | client → server | Unload and load again, picking up edits (1.49.0). |
 | [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
 | [`fs.glob`](#fsglob) | client → server | Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never followed; '**' does not enter .git or node_modules. |
 | [`fs.hash`](#fshash) | client → server | SHA-256 of a file, read in a stream (1.40.0). |
@@ -799,6 +805,95 @@ Run a slash command; the only execution path for them.
 | field | type | required | description |
 |---|---|---|---|
 | `turnId` | `string` | yes | Id of the started turn; turn.done carries it back. |
+
+### `extension.configure`
+
+*Direction:* client → server
+
+Save a plugin's config (validated by its configSchema) and reload it (1.49.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `config` | `Record<string, unknown>` | yes | New config; checked against configSchema, saved, then the plugin reloads. |
+| `name` | `string` | yes | Plugin name. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `extension` | `{ config?: Record<string, unknown>; configSchema?: Record<string, unknown> \| null; description?: string; effects?: number; enabled?: boolean; error?: string \| null; name: string; path: string; state: "loaded" \| "unloaded" \| "disabled" \| "error" \| "incompatible"; version?: string; }` | yes | The plugin now. |
+
+### `extension.disable`
+
+*Direction:* client → server
+
+Unload and disable; everything it registered goes (1.49.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Plugin name. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `extension` | `{ config?: Record<string, unknown>; configSchema?: Record<string, unknown> \| null; description?: string; effects?: number; enabled?: boolean; error?: string \| null; name: string; path: string; state: "loaded" \| "unloaded" \| "disabled" \| "error" \| "incompatible"; version?: string; }` | yes | The plugin now. |
+
+### `extension.enable`
+
+*Direction:* client → server
+
+Enable and load (1.49.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Plugin name. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `extension` | `{ config?: Record<string, unknown>; configSchema?: Record<string, unknown> \| null; description?: string; effects?: number; enabled?: boolean; error?: string \| null; name: string; path: string; state: "loaded" \| "unloaded" \| "disabled" \| "error" \| "incompatible"; version?: string; }` | yes | The plugin now. |
+
+### `extension.list`
+
+*Direction:* client → server
+
+Python plugins found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions').
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `extensions` | `({ config?: Record<string, unknown>; configSchema?: Record<string, unknown> \| null; description?: string; effects?: number; enabled?: boolean; error?: string \| null; name: string; path: string; state: "loaded" \| "unloaded" \| "disabled" \| "error" \| "incompatible"; version?: string; })[]` | no | Installed plugins. |
+
+### `extension.reload`
+
+*Direction:* client → server
+
+Unload and load again, picking up edits (1.49.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Plugin name. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `extension` | `{ config?: Record<string, unknown>; configSchema?: Record<string, unknown> \| null; description?: string; effects?: number; enabled?: boolean; error?: string \| null; name: string; path: string; state: "loaded" \| "unloaded" \| "disabled" \| "error" \| "incompatible"; version?: string; }` | yes | The plugin now. |
 
 ### `file.complete`
 

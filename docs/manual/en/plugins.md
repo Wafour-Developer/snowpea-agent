@@ -290,6 +290,47 @@ Loading happens at three moments, so a `/command` is never one restart away:
 
 Each of those broadcasts `commands.changed`, so the TUI palette and the desktop app update without a restart. `skill.list`, `command.list` and `tool.list` reflect the change as soon as it lands.
 
+## Python plugins
+
+Skills, agents, commands, hooks and MCP servers cover most needs without code. When a plugin has to change how the agent works — add a tool written in Python, a prompt section, a fact the model should always see, a check on every tool result, or a reason to keep a turn going — it can be a Python plugin.
+
+A Python plugin is a folder in `$SNOWPEA_HOME/extensions/<name>/` with a `plugin.py` that defines `apply(ctx)`, and optionally a `plugin.json` (`name`, `description`, `version`, `engines.snowpea`, `configSchema`):
+
+```python
+from snowpea_core.agent.runtime_context import ContextProvider
+from snowpea_core.prompts.sections import PromptSection
+from snowpea_core.tools.registry import Tool, ToolResult
+
+
+async def lookup(tool_ctx, args):
+    return ToolResult(ok=True, output=f"ticket {args.get('id')}: open")
+
+
+def apply(ctx):
+    ctx.tools.register(Tool(name="ticket_lookup", category="tickets", description="Look up a ticket.",
+                            input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+                            permission="read", run=lookup))
+    ctx.prompt.section(PromptSection("tickets:style", 650, lambda i: "Name the ticket id in every commit."))
+    ctx.prompt.context(ContextProvider("tickets:current", 500,
+                                       lambda core, session: "Current ticket: " + ctx.config.get("ticket", "none")))
+```
+
+| `ctx.` | Adds |
+|---|---|
+| `tools.register(tool)` | a tool the model can call |
+| `prompt.section(section)` | a system-prompt section; its `order` decides where it sits (see `prompts/sections.py`) |
+| `prompt.context(provider)` | a runtime fact, sent to the model only when it changes |
+| `hooks.post_execute(name, fn, order=)` | a look at every tool result: accept, rewrite, or block with feedback |
+| `hooks.turn_stopping(name, fn, order=)` | a check when a turn would end; return a decision to keep it going |
+| `commands.register(command)` | a slash command (a built-in one cannot be replaced) |
+| `mcp.register(name, entry)` | an MCP server that exists while the plugin is loaded |
+| `on_dispose(fn)` | anything else to undo |
+| `config` | `settings.extensions.<name>.config` |
+
+Everything registered through `ctx` is undone when the plugin is disabled, reloaded or removed — no restart. A plugin whose `apply` raises is reported with its error and leaves nothing behind. Plugins run inside the daemon with its permissions, so install only code you trust; only the home folder is scanned, never a project's, so opening a cloned repository never runs its code. Set `SNOWPEA_EXTENSIONS=0` to start the daemon without them.
+
+Clients manage them with `extension.list`, `extension.enable`, `extension.disable`, `extension.reload` and `extension.configure` (the config is checked against `configSchema`, so a settings screen can be generated from it). `scripts/gen_extension_index.py` writes a market index (`index.json`, format 1) from plugin folders for anyone to host.
+
 ## Next
 
 [Scheduler](scheduler.md) — running work while you are away.

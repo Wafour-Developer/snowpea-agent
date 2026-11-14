@@ -132,6 +132,8 @@ class Core:
     #: Plugins, skills, agent definitions and hooks (US-017); ``wire_core``
     #: builds it and ``Daemon.start`` does the first full reload.
     skills: Any = None
+    #: Python plugins (M16 Phase 3, ``extensions.manager.ExtensionManager``).
+    extensions: Any = None
     #: Language servers (M13); ``wire_core`` builds the manager, and
     #: ``Daemon.stop`` shuts every server down.
     lsp: Any = None
@@ -684,6 +686,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.lineage_handlers import register_lineage_handlers
 
     register_lineage_handlers(dispatcher)
+    from snowpea_core.server.extension_handlers import register_extension_handlers
+
+    register_extension_handlers(dispatcher)
     from snowpea_core.server.host_handlers import register_host_handlers
 
     register_host_handlers(dispatcher)

@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.48.0";
+export const PROTOCOL_VERSION = "1.49.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -719,6 +719,170 @@ export interface CommandRunParams {
 export interface CommandRunResult {
   /** Id of the started turn; turn.done carries it back. */
   turnId: string;
+}
+
+/** `extension.configure` params. Save a plugin's config (validated by its configSchema) and reload it (1.49.0). */
+export interface ExtensionConfigureParams {
+  /** New config; checked against configSchema, saved, then the plugin reloads. */
+  config: Record<string, unknown>;
+  /** Plugin name. */
+  name: string;
+}
+
+/** `extension.configure` result. */
+export interface ExtensionConfigureResult {
+  /** The plugin now. */
+  extension: {
+    /** Its current config. */
+    config?: Record<string, unknown>;
+    /** JSON Schema of its config, for a settings form. */
+    configSchema?: Record<string, unknown> | null;
+    /** From plugin.json. */
+    description?: string;
+    /** Registrations it holds (tools, sections, …). */
+    effects?: number;
+    /** settings.extensions.<name>.enabled. */
+    enabled?: boolean;
+    /** Why it is not loaded, when it failed. */
+    error?: string | null;
+    /** Plugin name. */
+    name: string;
+    /** Its folder. */
+    path: string;
+    /** What happened when it was last loaded. */
+    state: "loaded" | "unloaded" | "disabled" | "error" | "incompatible";
+    /** From plugin.json. */
+    version?: string;
+  };
+}
+
+/** `extension.disable` params. Unload and disable; everything it registered goes (1.49.0). */
+export interface ExtensionDisableParams {
+  /** Plugin name. */
+  name: string;
+}
+
+/** `extension.disable` result. */
+export interface ExtensionDisableResult {
+  /** The plugin now. */
+  extension: {
+    /** Its current config. */
+    config?: Record<string, unknown>;
+    /** JSON Schema of its config, for a settings form. */
+    configSchema?: Record<string, unknown> | null;
+    /** From plugin.json. */
+    description?: string;
+    /** Registrations it holds (tools, sections, …). */
+    effects?: number;
+    /** settings.extensions.<name>.enabled. */
+    enabled?: boolean;
+    /** Why it is not loaded, when it failed. */
+    error?: string | null;
+    /** Plugin name. */
+    name: string;
+    /** Its folder. */
+    path: string;
+    /** What happened when it was last loaded. */
+    state: "loaded" | "unloaded" | "disabled" | "error" | "incompatible";
+    /** From plugin.json. */
+    version?: string;
+  };
+}
+
+/** `extension.enable` params. Enable and load (1.49.0). */
+export interface ExtensionEnableParams {
+  /** Plugin name. */
+  name: string;
+}
+
+/** `extension.enable` result. */
+export interface ExtensionEnableResult {
+  /** The plugin now. */
+  extension: {
+    /** Its current config. */
+    config?: Record<string, unknown>;
+    /** JSON Schema of its config, for a settings form. */
+    configSchema?: Record<string, unknown> | null;
+    /** From plugin.json. */
+    description?: string;
+    /** Registrations it holds (tools, sections, …). */
+    effects?: number;
+    /** settings.extensions.<name>.enabled. */
+    enabled?: boolean;
+    /** Why it is not loaded, when it failed. */
+    error?: string | null;
+    /** Plugin name. */
+    name: string;
+    /** Its folder. */
+    path: string;
+    /** What happened when it was last loaded. */
+    state: "loaded" | "unloaded" | "disabled" | "error" | "incompatible";
+    /** From plugin.json. */
+    version?: string;
+  };
+}
+
+/** `extension.list` params. Python plugins found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions'). */
+export type ExtensionListParams = Record<string, unknown>;
+
+/** `extension.list` result. */
+export interface ExtensionListResult {
+  /** Installed plugins. */
+  extensions?: ({
+    /** Its current config. */
+    config?: Record<string, unknown>;
+    /** JSON Schema of its config, for a settings form. */
+    configSchema?: Record<string, unknown> | null;
+    /** From plugin.json. */
+    description?: string;
+    /** Registrations it holds (tools, sections, …). */
+    effects?: number;
+    /** settings.extensions.<name>.enabled. */
+    enabled?: boolean;
+    /** Why it is not loaded, when it failed. */
+    error?: string | null;
+    /** Plugin name. */
+    name: string;
+    /** Its folder. */
+    path: string;
+    /** What happened when it was last loaded. */
+    state: "loaded" | "unloaded" | "disabled" | "error" | "incompatible";
+    /** From plugin.json. */
+    version?: string;
+  })[];
+}
+
+/** `extension.reload` params. Unload and load again, picking up edits (1.49.0). */
+export interface ExtensionReloadParams {
+  /** Plugin name. */
+  name: string;
+}
+
+/** `extension.reload` result. */
+export interface ExtensionReloadResult {
+  /** The plugin now. */
+  extension: {
+    /** Its current config. */
+    config?: Record<string, unknown>;
+    /** JSON Schema of its config, for a settings form. */
+    configSchema?: Record<string, unknown> | null;
+    /** From plugin.json. */
+    description?: string;
+    /** Registrations it holds (tools, sections, …). */
+    effects?: number;
+    /** settings.extensions.<name>.enabled. */
+    enabled?: boolean;
+    /** Why it is not loaded, when it failed. */
+    error?: string | null;
+    /** Plugin name. */
+    name: string;
+    /** Its folder. */
+    path: string;
+    /** What happened when it was last loaded. */
+    state: "loaded" | "unloaded" | "disabled" | "error" | "incompatible";
+    /** From plugin.json. */
+    version?: string;
+  };
 }
 
 /** `file.complete` params. Complete file and directory paths under a session workdir. */
@@ -7441,6 +7605,11 @@ export interface MethodMap {
   "checkpoint.restore": { params: CheckpointRestoreParams; result: CheckpointRestoreResult };
   "command.list": { params: CommandListParams; result: CommandListResult };
   "command.run": { params: CommandRunParams; result: CommandRunResult };
+  "extension.configure": { params: ExtensionConfigureParams; result: ExtensionConfigureResult };
+  "extension.disable": { params: ExtensionDisableParams; result: ExtensionDisableResult };
+  "extension.enable": { params: ExtensionEnableParams; result: ExtensionEnableResult };
+  "extension.list": { params: ExtensionListParams; result: ExtensionListResult };
+  "extension.reload": { params: ExtensionReloadParams; result: ExtensionReloadResult };
   "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
   "fs.glob": { params: FsGlobParams; result: FsGlobResult };
   "fs.hash": { params: FsHashParams; result: FsHashResult };
@@ -7613,6 +7782,11 @@ export type ClientMethod =
   | "checkpoint.restore"
   | "command.list"
   | "command.run"
+  | "extension.configure"
+  | "extension.disable"
+  | "extension.enable"
+  | "extension.list"
+  | "extension.reload"
   | "file.complete"
   | "fs.glob"
   | "fs.hash"

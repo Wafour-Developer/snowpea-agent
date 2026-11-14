@@ -127,6 +127,10 @@ snowpea tools list --json
 
 所以同名时项目 skill 覆盖插件 skill，插件覆盖内置。加载器会记录每一项来自哪里，`skill list` 会显示出来。
 
+## Python 插件
+
+Python 插件是 `$SNOWPEA_HOME/extensions/<名称>/` 文件夹，其中 `plugin.py` 定义 `apply(ctx)`，可选 `plugin.json`（`name`、`description`、`version`、`engines.snowpea`、`configSchema`）。它可以添加工具、提示词段落、运行时上下文、对每个工具结果的钩子、回合结束时的检查、命令和 MCP 服务器；禁用、重新加载或删除时全部撤销，无需重启。插件在守护进程内以其权限运行，请只安装可信代码。只扫描主目录，从不扫描项目文件夹。详情与示例见[英文手册](../en/plugins.md#python-plugins)。
+
 ## 下一步
 
 [Scheduler](scheduler.md) —— 在你不在的时候把活干了。

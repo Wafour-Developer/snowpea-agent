@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.48.0"
+PROTOCOL_VERSION = "1.49.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2370,6 +2370,44 @@ class TrajectoryRow(Payload):
             "reason, outcome; compacted — before, after, summaryChars, auto, kept."
         ),
     )
+
+
+class ExtensionInfo(Payload):
+    """A Python plugin in $SNOWPEA_HOME/extensions (1.49.0, capability 'extensions')."""
+
+    name: str = Field(description="Plugin name.")
+    path: str = Field(description="Its folder.")
+    description: str = Field(default="", description="From plugin.json.")
+    version: str = Field(default="", description="From plugin.json.")
+    enabled: bool = Field(default=True, description="settings.extensions.<name>.enabled.")
+    state: Literal["loaded", "unloaded", "disabled", "error", "incompatible"] = Field(
+        description="What happened when it was last loaded."
+    )
+    error: str | None = Field(default=None, description="Why it is not loaded, when it failed.")
+    effects: int = Field(default=0, description="Registrations it holds (tools, sections, …).")
+    configSchema: dict[str, Any] | None = Field(
+        default=None, description="JSON Schema of its config, for a settings form."
+    )
+    config: dict[str, Any] = Field(default_factory=dict, description="Its current config.")
+
+
+class ExtensionListResult(Payload):
+    extensions: list[ExtensionInfo] = Field(default_factory=list, description="Installed plugins.")
+
+
+class ExtensionNameParams(Payload):
+    name: str = Field(description="Plugin name.")
+
+
+class ExtensionConfigureParams(Payload):
+    name: str = Field(description="Plugin name.")
+    config: dict[str, Any] = Field(
+        description="New config; checked against configSchema, saved, then the plugin reloads."
+    )
+
+
+class ExtensionResult(Payload):
+    extension: ExtensionInfo = Field(description="The plugin now.")
 
 
 class LineageNode(Payload):
@@ -7260,6 +7298,32 @@ METHODS: dict[str, RpcMethod] = {
             "List chat providers and whether they are configured.",
         ),
         _m(
+            "extension.list",
+            Empty,
+            ExtensionListResult,
+            "Python plugins found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, "
+            "capability 'extensions').",
+        ),
+        _m("extension.enable", ExtensionNameParams, ExtensionResult, "Enable and load (1.49.0)."),
+        _m(
+            "extension.disable",
+            ExtensionNameParams,
+            ExtensionResult,
+            "Unload and disable; everything it registered goes (1.49.0).",
+        ),
+        _m(
+            "extension.reload",
+            ExtensionNameParams,
+            ExtensionResult,
+            "Unload and load again, picking up edits (1.49.0).",
+        ),
+        _m(
+            "extension.configure",
+            ExtensionConfigureParams,
+            ExtensionResult,
+            "Save a plugin's config (validated by its configSchema) and reload it (1.49.0).",
+        ),
+        _m(
             "session.lineage",
             SessionLineageParams,
             SessionLineageResult,
@@ -8050,6 +8114,7 @@ CAPABILITIES: list[str] = [
     "fork",
     "workspaces",
     "lineage",
+    "extensions",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -8105,6 +8170,11 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.trajectory",
         "session.fork",
         "session.lineage",
+        "extension.list",
+        "extension.enable",
+        "extension.disable",
+        "extension.reload",
+        "extension.configure",
         "workspace.list",
         "workspace.add",
         "workspace.rename",

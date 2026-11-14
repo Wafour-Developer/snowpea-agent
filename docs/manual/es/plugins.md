@@ -125,6 +125,10 @@ Las raíces se recorren en este orden, y en caso de colisión de nombres gana la
 
 Así que una skill de proyecto sobrescribe una skill de plugin con el mismo nombre, y un plugin sobrescribe una incorporada. El loader registra de dónde vino cada una, y `skill list` lo muestra.
 
+## Plugins de Python
+
+Un plugin de Python es una carpeta `$SNOWPEA_HOME/extensions/<nombre>/` con un `plugin.py` que define `apply(ctx)` y, opcionalmente, un `plugin.json` (`name`, `description`, `version`, `engines.snowpea`, `configSchema`). Puede añadir herramientas, secciones del prompt, contexto de ejecución, ganchos sobre cada resultado de herramienta, comprobaciones al terminar un turno, comandos y servidores MCP; todo se deshace al desactivarlo, recargarlo o quitarlo, sin reiniciar. Se ejecuta dentro del daemon con sus permisos: instale solo código de confianza. Solo se busca en la carpeta personal, nunca en un proyecto. Detalles y ejemplo: [manual en inglés](../en/plugins.md#python-plugins).
+
 ## Siguiente
 
 [Planificador](scheduler.md) — ejecutar trabajo mientras no estás.

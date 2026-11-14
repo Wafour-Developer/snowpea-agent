@@ -127,6 +127,10 @@ snowpea tools list --json
 
 つまり、プロジェクトのスキルは同名のプラグインのスキルを上書きし、プラグインはビルトインを上書きします。ローダーはそれぞれの出どころを記録し、`skill list` がそれを表示します。
 
+## Python プラグイン
+
+Python プラグインは `$SNOWPEA_HOME/extensions/<名前>/` フォルダーで、`apply(ctx)` を定義した `plugin.py` と、任意で `plugin.json`（`name`、`description`、`version`、`engines.snowpea`、`configSchema`）を置きます。ツール、プロンプトのセクション、実行時コンテキスト、すべてのツール結果へのフック、ターン終了時のチェック、コマンド、MCP サーバーを追加でき、無効化・再読み込み・削除で再起動なしにすべて元に戻ります。デーモン内でその権限で動くため、信頼できるコードだけを入れてください。スキャンするのはホームフォルダーのみで、プロジェクトのフォルダーは対象外です。詳細と例は [英語版マニュアル](../en/plugins.md#python-plugins)。
+
 ## Next
 
 [Scheduler](scheduler.md) — 席を外しているあいだに作業を走らせる。

@@ -288,6 +288,28 @@ RPC(프로토콜 1.33.0)에서 `mcp.add`는 두 가지 답을 따로 받습니�
 
 각 시점마다 `commands.changed`를 방송하므로 TUI 팔레트와 데스크톱 앱이 재시작 없이 갱신됩니다. `skill.list`·`command.list`·`tool.list`가 즉시 반영합니다.
 
+## Python 플러그인
+
+스킬, 에이전트, 명령, 훅, MCP 서버로 대부분은 코드 없이 됩니다. 에이전트가 일하는 방식 자체를 바꿔야 할 때 — Python으로 쓴 도구, 프롬프트 섹션, 모델이 항상 알아야 할 사실, 모든 도구 결과에 대한 검사, 턴을 이어 가게 할 이유 — Python 플러그인을 씁니다.
+
+Python 플러그인은 `$SNOWPEA_HOME/extensions/<이름>/` 폴더에 `apply(ctx)`를 정의한 `plugin.py`와, 선택으로 `plugin.json`(`name`, `description`, `version`, `engines.snowpea`, `configSchema`)을 둔 것입니다. 예시 코드와 `ctx`가 제공하는 등록 함수 표는 [영문 매뉴얼](../en/plugins.md#python-plugins)과 같습니다:
+
+| `ctx.` | 추가하는 것 |
+|---|---|
+| `tools.register(tool)` | 모델이 호출할 도구 |
+| `prompt.section(section)` | 시스템 프롬프트 섹션. `order`로 위치가 정해짐(`prompts/sections.py`) |
+| `prompt.context(provider)` | 바뀔 때만 모델에 보내지는 런타임 사실 |
+| `hooks.post_execute(name, fn, order=)` | 모든 도구 결과 확인: 수용, 바꿔 쓰기, 피드백과 함께 차단 |
+| `hooks.turn_stopping(name, fn, order=)` | 턴이 끝나려 할 때의 검사. 결정을 반환하면 턴이 이어짐 |
+| `commands.register(command)` | 슬래시 명령(내장 명령은 대체 불가) |
+| `mcp.register(name, entry)` | 플러그인이 로드된 동안만 존재하는 MCP 서버 |
+| `on_dispose(fn)` | 그 밖에 되돌릴 것 |
+| `config` | `settings.extensions.<이름>.config` |
+
+`ctx`로 등록한 것은 플러그인을 끄거나 다시 로드하거나 지우면 재시작 없이 모두 되돌려집니다. `apply`가 예외를 내면 오류와 함께 표시되고 아무것도 남기지 않습니다. 플러그인은 데몬 안에서 데몬의 권한으로 실행되므로 믿을 수 있는 코드만 설치하세요. 홈 폴더만 스캔하고 프로젝트 폴더는 스캔하지 않으므로, 클론한 저장소를 연다고 그 코드가 실행되지는 않습니다. `SNOWPEA_EXTENSIONS=0`이면 플러그인 없이 데몬을 시작합니다.
+
+클라이언트는 `extension.list`, `extension.enable`, `extension.disable`, `extension.reload`, `extension.configure`로 관리합니다(설정은 `configSchema`로 검사하므로 설정 화면을 자동으로 만들 수 있습니다). `scripts/gen_extension_index.py`는 플러그인 폴더들로 누구나 호스팅할 수 있는 마켓 인덱스(`index.json`, format 1)를 만듭니다.
+
 ## 다음
 
 [스케줄러](scheduler.md) — 자리를 비운 동안 작업을 돌리기.
