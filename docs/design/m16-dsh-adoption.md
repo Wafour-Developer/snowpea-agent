@@ -1,6 +1,6 @@
 # M16 — Adopting the DeepSeek Harness design
 
-Status: approved by the owner 2026-11-14; Phase 1 in progress.
+Status: approved by the owner 2026-11-14; Phase 1 in progress (P1.1–P1.7 done).
 
 Source studied: `deepseek-ai/deepseek-harness` (dsh), commit `39163dd` (2026-11-13), MIT.
 Whatever code is ported keeps its MIT notice in `THIRD_PARTY_NOTICES.md`. Brand rules
@@ -81,7 +81,7 @@ named) does not regress, and §6 is done for it.
 | P1.4 | **Tool result contract**: `ToolResult` gains `contexts: list[ContextNote]`, `concludes_turn: bool`, and a `post_execute` hook that can accept, replace or block with feedback; `meta` stays UI-only. Spill is the single path for oversized output (head/tail + "read with offset/limit or grep <path>"). | `ToolResult`, `tools/output_spill.py`, `repeat_guard` notes |
 | P1.5 | **`turn.stopping` hook**: one ordered listener chain that may steer another step with a reason; verify-on-stop, open-todo nudge, plugin Stop hooks and the budget probe become listeners. | `verify_gate.nudge`, `skills/hooks.stop`, loop's inline checks |
 | P1.6 | **Goal driver**: `goal.set/update/clear` RPC and tools; `GoalSnapshot{id, revision, objective, phase, blocked_reason, max_rounds}`; rounds while active; evidence before complete; blocked after 3 identical rounds; no re-arm after resume. | `/ralph` keeps working; goal is the generic form |
-| P1.7 | **Two-stage compaction**: prune first and re-measure; summarise with the 8-section template (Primary Request, Key Concepts, Files and Code, Errors and Fixes, Pending Jobs, Current Work, Next Step, Critical Context), merging a prior summary; the snapshot from P1.2 is re-emitted after compaction. | `compaction.compact_session`, `workflows/compaction` prompt |
+| P1.7 | **Two-stage compaction** — already covered, no change. snowpea prunes old tool output in every outgoing request once the window is known (`build_messages` → `prune_old_tool_outputs`), and the auto-compaction check measures that pruned request, so pruning is always tried before a summary; a stored-history prune stage was built, found redundant, and reverted. The summary template (`workflows/compaction`) is richer than dsh's 8 sections and already merges a prior summary. The P1.2 snapshot is re-sent after every compaction. | `agent.build_messages`, `compaction.compact_session` |
 | P1.8 | **Benchmark**: run the agent benchmark (serially, never beside hermes) on the current main and on Phase 1; report rounds, success, tokens, cache hits. | `scripts/bench-snowpea-hermes` |
 
 Protocol: additive 1.43.x (`message.user` gains `source`; `goal.*` RPC and `goal.changed`
