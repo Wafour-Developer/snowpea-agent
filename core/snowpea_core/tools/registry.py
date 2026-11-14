@@ -82,7 +82,13 @@ class ToolResult:
     path: str | None = None
     #: Structured facts about the call that the text output only hints at —
     #: ``web_search`` puts ``provider`` / ``fallback_from`` / ``reason`` here.
+    #: For surfaces; the model reads ``output`` (or ``error``) only.
     meta: dict[str, Any] | None = None
+    #: Notes for the model beyond the result itself (M16 P1.4): sent as one
+    #: notice before the next model call, never between a batch's results.
+    contexts: list[str] = field(default_factory=list)
+    #: End the turn after this call's batch, with no further model call.
+    concludes_turn: bool = False
 
 
 ToolRun = Callable[[ToolContext, dict[str, Any]], Awaitable[ToolResult]]

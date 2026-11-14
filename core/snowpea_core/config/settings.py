@@ -426,6 +426,10 @@ class ToolsSettings(_Model):
     #: with a pointer.  An 80 KB ``get_project`` is ~25k tokens on every later
     #: request, and a few of them turn each model call into minutes of prefill.
     mcpResultMaxChars: int = 24000
+    #: Longest result of any other tool kept in the conversation (M16 P1.4);
+    #: past it the middle goes to a file with a read/grep pointer.  Scanning
+    #: tools are cut earlier, by lines (``maxResultLines``).
+    maxResultChars: int = 100000
     #: False disables the read-before-write guard (M15 §A3): ``patch`` and
     #: ``write_file`` stop refusing a write to a file this session has not read
     #: in full.  The prompt rule stays either way.

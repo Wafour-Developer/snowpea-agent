@@ -155,6 +155,16 @@ def mcp_result_max_chars(core: object) -> int:
     return max(2000, value)
 
 
+def max_result_chars(core: object) -> int:
+    """``tools.maxResultChars`` (default 100 000), never below 4 000."""
+    tools = getattr(getattr(core, "settings", None), "tools", None)
+    try:
+        value = int(getattr(tools, "maxResultChars", 100000))
+    except (TypeError, ValueError):
+        value = 100000
+    return max(4000, value)
+
+
 def snapshot_max_chars(core: object) -> int:
     """``tools.snapshotMaxChars`` (default 40 000), never below 2 000."""
     tools = getattr(getattr(core, "settings", None), "tools", None)

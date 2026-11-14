@@ -33,6 +33,7 @@ from snowpea_core.agent import (
     image_describe,
     plan_store,
     shell_writes,
+    turn_stopping,
     verify_gate,
 )
 from snowpea_core.agent.agent import AgentConfig, build_messages
@@ -66,7 +67,7 @@ from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools import deferred as deferred_tools
 from snowpea_core.tools import host_tools as host_tools_mod
-from snowpea_core.tools import mcp_client, output_spill, repeat_guard, view_image
+from snowpea_core.tools import mcp_client, output_spill, repeat_guard, result_hooks, view_image
 from snowpea_core.tools.call_paths import call_paths
 from snowpea_core.tools.host_tools import HOST_TOOLS, drop_owned_context
 from snowpea_core.tools.registry import (
@@ -1468,6 +1469,20 @@ async def _flush_notices(session: Session) -> int:
     return len(lines)
 
 
+def _steer_after_stop(session: Session, decision: Any) -> None:
+    """Put a ``turn.stopping`` decision where the model reads it next (M16 P1.5)."""
+    if decision.via == "notice":
+        session.pending_notices.append(decision.text)
+        return
+    session.history.append(
+        ChatMessage(
+            role="user",
+            content=decision.text,
+            source=history_mod.source(decision.producer, "notice"),
+        )
+    )
+
+
 def _flush_runtime_context(core: Core, session: Session) -> bool:
     """Send the runtime-context snapshot before the next call if it changed (M16 P1.2)."""
     from snowpea_core.agent import runtime_context
@@ -2014,6 +2029,7 @@ async def _drive(
     rounds_left = config.max_tool_rounds
     budget_continuations = 0
     session.rounds_used = 0
+    session.conclude_turn = False
     turn_started_at = monotonic()
     wall_minutes, token_limit, no_progress_limit = _guard_limits(core)
     progress = _TurnProgress(no_progress_limit=no_progress_limit)
@@ -2115,48 +2131,29 @@ async def _drive(
                         continuations=probe.continuations,
                     ),
                 )
-                unverified = (
-                    None
-                    if session.interrupt.is_set()
-                    else verify_gate.nudge(core, session, assistant_text)
+                decision = await turn_stopping.CHAIN.run(
+                    core,
+                    session,
+                    turn_stopping.StopContext(
+                        assistant_text, stop_continuations=stop_continuations, at_budget=True
+                    ),
                 )
-                if unverified:
+                if decision is not None:
                     window = _budget_probe_continue_window(core, budget_continuations)
                     if window is None:
                         await finish_turn(core, session, turn_id, "budget")
                         return "budget"
                     budget_continuations, rounds_left = window
-                    session.history.append(
-                    ChatMessage(
-                        role="user",
-                        content=unverified,
-                        source=history_mod.source("verify-gate", "notice"),
-                    )
-                )
+                    if decision.counts_as_stop_hook:
+                        stop_continuations += 1
+                    _steer_after_stop(session, decision)
                     await hub.emit_event(
-                        session.id, events.hook_continue(unverified, budget_continuations)
+                        session.id,
+                        events.hook_continue(
+                            decision.shown or decision.text, budget_continuations
+                        ),
                     )
                     continue
-                if stop_continuations < plugin_hooks.MAX_STOP_CONTINUATIONS:
-                    decision = await plugin_hooks.stop(
-                        core,
-                        session,
-                        last_message=assistant_text,
-                        active=stop_continuations > 0,
-                    )
-                    if decision.block and not session.interrupt.is_set():
-                        window = _budget_probe_continue_window(core, budget_continuations)
-                        if window is None:
-                            await finish_turn(core, session, turn_id, "budget")
-                            return "budget"
-                        budget_continuations, rounds_left = window
-                        stop_continuations += 1
-                        session.pending_notices.append(f"Stop hook: {decision.reason}")
-                        await hub.emit_event(
-                            session.id,
-                            events.hook_continue(decision.reason, budget_continuations),
-                        )
-                        continue
                 await speak_reply(core, session, assistant_text)
                 await finish_turn(core, session, turn_id, "complete")
                 nudged = await nudge_after_turn(core, session, text)
@@ -2311,39 +2308,25 @@ async def _drive(
                     continuations=attempt.continuations,
                 ),
             )
-            # Verify-on-stop (Hermes): edited code with no fresh passing check,
-            # or a UI never looked at, goes back for verification first.
-            unverified = (
-                None
-                if session.interrupt.is_set()
-                else verify_gate.nudge(core, session, assistant_text)
+            # turn.stopping (M16 P1.5): verify-on-stop, open to-dos, Stop hooks
+            # and plugin listeners may keep the turn going, first one wins.
+            decision = await turn_stopping.CHAIN.run(
+                core,
+                session,
+                turn_stopping.StopContext(assistant_text, stop_continuations=stop_continuations),
             )
-            if unverified:
-                session.history.append(
-                        ChatMessage(
-                            role="user",
-                            content=unverified,
-                            source=history_mod.source("verify-gate", "notice"),
-                        )
-                    )
-                await hub.emit_event(session.id, events.hook_continue(unverified, 0))
-                continue
-            # Claude Code's Stop hook: a hook may keep the agent going (ralph,
-            # "the boulder never stops"); its reason is the next instruction.
-            if stop_continuations < plugin_hooks.MAX_STOP_CONTINUATIONS:
-                decision = await plugin_hooks.stop(
-                    core,
-                    session,
-                    last_message=assistant_text,
-                    active=stop_continuations > 0,
-                )
-                if decision.block and not session.interrupt.is_set():
+            if decision is not None:
+                if decision.counts_as_stop_hook:
                     stop_continuations += 1
-                    session.pending_notices.append(f"Stop hook: {decision.reason}")
-                    await hub.emit_event(
-                        session.id, events.hook_continue(decision.reason, stop_continuations)
-                    )
-                    continue
+                _steer_after_stop(session, decision)
+                await hub.emit_event(
+                    session.id,
+                    events.hook_continue(
+                        decision.shown or decision.text,
+                        stop_continuations if decision.counts_as_stop_hook else 0,
+                    ),
+                )
+                continue
             await speak_reply(core, session, assistant_text)
             await finish_turn(core, session, turn_id, "complete")
             nudged = await nudge_after_turn(core, session, text)
@@ -2415,6 +2398,12 @@ async def _drive(
                         view_image.flush_tool_image_messages(core, session)
                     return outcome
         view_image.flush_tool_image_messages(core, session)
+        if session.conclude_turn:
+            # A tool said this batch finishes the turn (M16 P1.4).
+            session.conclude_turn = False
+            await _flush_notices(session)
+            await finish_turn(core, session, turn_id, "complete")
+            return "complete"
         progress.observe_round(session.history.snapshot())
         session.history.compact()
         if progress.stalled():
@@ -2925,6 +2914,8 @@ async def _run_one_call(
         except Exception:  # noqa: BLE001 - checkpoints must never break a tool
             log.warning("could not finish checkpoint observation for %s", call.name, exc_info=True)
     await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))
+    # Listeners see the whole result before it is trimmed (M16 P1.4).
+    result = await result_hooks.POST_EXECUTE.run(ctx, call.name, dict(call.arguments), result)
     result = _spill_long_result(
         core, call.name, result, host=str(getattr(tool, "source", "")).startswith("host:")
     )
@@ -2990,6 +2981,11 @@ async def _run_one_call(
             snapshot_tab=host_tools_mod.snapshot_tab(result.meta),
         )
     )
+    # Context a result carries goes out with the session notices, at the round
+    # boundary: never between the results of one batch (M16 P1.4).
+    session.pending_notices.extend(note for note in result.contexts if note and note.strip())
+    if result.concludes_turn:
+        session.conclude_turn = True
     if result.ok and result.meta and (result.meta.get("image") or result.meta.get("images")):
         session.pending_tool_images.append((call.name, result))
     if was_interrupted or session.interrupt.is_set():
@@ -3020,8 +3016,10 @@ def _spill_long_result(
         return result
     # A host tool's output is spilled too: a browser REPL can print a page.
     spilled_tool = name in output_spill.SPILLED_TOOLS or host
-    if not result.ok or not spilled_tool or not result.output:
+    if not result.ok or not result.output:
         return result
+    if not spilled_tool:
+        return _cap_chars(core, name, result)
     if host and host_tools_mod.snapshot_tab(result.meta):
         # A page snapshot is long lines, not many: cap it by size. Every later
         # request carries it unchanged, so this is the only trim it ever gets.
@@ -3033,7 +3031,7 @@ def _spill_long_result(
         return result
     budget = output_spill.max_result_lines(core)
     if result.output.count("\n") < budget:
-        return result
+        return _cap_chars(core, name, result)
     head = max(1, budget * 3 // 4)
     spilled = output_spill.spill(
         result.output, head_lines=head, tail_lines=budget - head, kind=name
@@ -3041,6 +3039,20 @@ def _spill_long_result(
     if not spilled.trimmed:
         return result
     result.output = spilled.text
+    return result
+
+
+def _cap_chars(core: Core, name: str, result: ToolResult) -> ToolResult:
+    """Any tool's result past ``tools.maxResultChars`` keeps a head and a tail (M16 P1.4).
+
+    The whole text is on disk and the pointer says how to read it back.
+    """
+    limit = output_spill.max_result_chars(core)
+    if len(result.output) <= limit:
+        return result
+    result.output = output_spill.spill_chars(
+        result.output, max_chars=limit, head_chars=limit * 3 // 4, kind=name
+    ).text
     return result
 
 
