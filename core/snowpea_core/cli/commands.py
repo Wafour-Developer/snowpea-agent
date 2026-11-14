@@ -59,6 +59,32 @@ def _print_json(payload: Any) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
 
+async def web_command(home: Path | str | None, *, open_browser: bool = True) -> int:
+    """``snowpea web``: make sure the daemon runs, then print and open its web address (M18 4.2).
+
+    The address carries the daemon token, like ``snowpea remote``'s; the page
+    keeps it for its tab and takes it out of the address bar.
+    """
+    from snowpea_core.cli.daemon_client import ensure_daemon
+    from snowpea_core.server.transport_http import WEB_PATH, web_root
+
+    info = await ensure_daemon(home)
+    url = f"http://127.0.0.1:{info.port}{WEB_PATH}?token={info.token}"
+    if web_root() is None:
+        print(
+            "snowpea web is not part of this build. Build it in snowpea-ide with "
+            "`npm run build:web`, then restart the daemon with SNOWPEA_WEB_DIST=<out/web>.",
+            file=sys.stderr,
+        )
+    print(f"snowpea web: {url}")
+    if open_browser:
+        import webbrowser
+
+        with contextlib.suppress(Exception):
+            webbrowser.open(url)
+    return 0
+
+
 def _fail(message: str, code: int) -> int:
     print(f"snowpea: {message}", file=sys.stderr)
     return code
@@ -2846,6 +2872,13 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     mcp_catalog = mcp_sub.add_parser("catalog", help="list the curated MCP server presets")
     mcp_catalog.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
+    web_parser = sub.add_parser(
+        "web", help="open snowpea web (the browser UI) served by the daemon"
+    )
+    web_parser.add_argument(
+        "--no-open", dest="no_open", action="store_true", help="print the address only"
+    )
+
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
     status_parser = daemon_sub.add_parser("status", help="show the running daemon")
@@ -3127,6 +3160,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         return setup_command(args, home)
     if subcommand == "service":
         return service_command(str(action or ""), home)
+    if subcommand == "web":
+        return await web_command(home, open_browser=not bool(getattr(args, "no_open", False)))
     if subcommand == "remote":
         # ``remote up`` is routed before parsing (cli/main.py); this is a bare ``snowpea remote``.
         return _fail("usage: snowpea remote up <[user@]host | --docker> --json", EXIT_USAGE)
