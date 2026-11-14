@@ -45,6 +45,7 @@ Estos los responde la propia interfaz de terminal, no el core, así que no apare
 
 | Comando | Qué hace |
 |---|---|
+| `/goal <objetivo> [--rounds N]` | trabaja hacia un objetivo por rondas hasta demostrar que está hecho; `/goal` lo muestra, `/goal pause`, `/goal resume [N]`, `/goal clear` |
 | `/ralph <task>` | bucle PRD: historias con criterios de aceptación, implementar, verificar, revisar hasta APPROVE |
 | `/ultrawork <task>` | divide en partes independientes, las ejecuta en subagentes concurrentes, fusiona los informes |
 | `/deepinit [path]` | recorre el repositorio y escribe archivos `AGENTS.md` jerárquicos |
@@ -56,6 +57,8 @@ Estos los responde la propia interfaz de terminal, no el core, así que no apare
 | `/ralplan <task>` | planificación por consenso: planner, architect y critic debaten antes de escribir ningún código |
 
 `/ralph` guarda su estado en `<project>/.snowpea/ralph/` como `prd.json` y `progress.md`, así que puedes leer lo que cree que está haciendo, y se detiene en `ralph.max_iterations` (10) si no logra converger. `/ultrawork` y `/deepinit` se distribuyen bajo `agents.max_concurrent` (3 por defecto). Los últimos tres son archivos `SKILL.md` bajo `core/snowpea_core/builtin_skills/`, cargados por el mismo loader que usan tus propias skills: léelos, cópialos, cámbialos.
+
+**Objetivos.** `/goal <objetivo>` mantiene al agente trabajando por rondas: cada vez que un turno termina con normalidad empieza la siguiente, hasta que el modelo informa el objetivo como completo *con pruebas* (comandos ejecutados y sus resultados, archivos revisados), bloqueado por la misma condición tres rondas seguidas, o se alcanza el límite de rondas (20 por defecto). Detener, una aprobación denegada o un error lo pausan; tras un reinicio o una reanudación espera a `/goal resume`.
 
 ### Generadores
 

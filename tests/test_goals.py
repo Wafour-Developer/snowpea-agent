@@ -225,3 +225,45 @@ async def test_stopping_a_round_disarms_the_goal(tmp_path: Any) -> None:
         assert session.goal_armed is False and session.goal.phase == "active"
     finally:
         await daemon.stop()
+
+
+# ---- /goal --------------------------------------------------------------------
+
+
+async def test_the_goal_command_sets_runs_and_controls_a_goal(tmp_path: Any) -> None:
+    from snowpea_core.commands.goal_cmd import describe
+
+    daemon = await make_daemon(tmp_path / "home")
+    try:
+        core = daemon.core
+        worker = _Worker()
+        core.providers.get = lambda _p, _m: worker
+        workdir = tmp_path / "w"
+        workdir.mkdir()
+        session = await core.sessions.create(workdir, mode="auto")
+        core.commands.start(core, session, "goal", "make it green --rounds 4", None)
+        await _until(lambda: session.goal is not None and session.goal.phase == "complete")
+        await _until(lambda: session.turn_task is None or session.turn_task.done())
+        assert session.goal.max_rounds == 4 and session.goal.objective == "make it green"
+        assert worker.rounds == 2
+        assert "Phase: complete" in describe(session)
+        core.commands.start(core, session, "goal", "clear", None)
+        await _until(lambda: session.goal is None)
+    finally:
+        await daemon.stop()
+
+
+async def test_pause_disarms_and_the_command_shows_it(tmp_path: Any) -> None:
+    from snowpea_core.commands.goal_cmd import describe
+
+    daemon = await make_daemon(tmp_path / "home")
+    try:
+        core = daemon.core
+        session = await core.sessions.create(tmp_path, mode="auto")
+        goals.start(session, "long job")
+        core.commands.start(core, session, "goal", "pause", None)
+        await _until(lambda: session.goal.phase == "paused")
+        assert session.goal_armed is False
+        assert "Phase: paused" in describe(session) and "(armed)" not in describe(session)
+    finally:
+        await daemon.stop()

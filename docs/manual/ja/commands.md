@@ -45,6 +45,7 @@ snowpea commands list --json
 
 | Command | What it does |
 |---|---|
+| `/goal <目標> [--rounds N]` | 完了が証明されるまでラウンド単位で作業を続ける。`/goal` で表示、`/goal pause`、`/goal resume [N]`、`/goal clear` |
 | `/ralph <task>` | PRD loop: stories with acceptance criteria, implement, verify, review until APPROVE |
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
@@ -56,6 +57,8 @@ snowpea commands list --json
 | `/ralplan <task>` | consensus planning — planner, architect and critic argue before any code is written |
 
 `/ralph` は自らの状態を `<project>/.snowpea/ralph/` に `prd.json` と `progress.md` として保持するため、自分が何をしていると考えているかを読むことができます。収束できない場合は `ralph.max_iterations`（10）で停止します。`/ultrawork` と `/deepinit` は、デフォルトで `agents.max_concurrent`（3）の範囲でファンアウトします。最後の3つは `core/snowpea_core/builtin_skills/` にある `SKILL.md` ファイルで、あなた自身のスキルが使うのと同じローダーで読み込まれます。読んで、コピーして、変更してください。
+
+**ゴール。** `/goal <目標>` を指定すると、エージェントはラウンド単位で作業を続けます。ターンが正常に終わるたびに次のラウンドが始まり、モデルが**証拠**（実行したコマンドと結果、確認したファイル）とともに完了を報告するか、同じ条件で3ラウンド連続ブロックされるか、ラウンド上限（既定 20）に達すると止まります。停止、承認の拒否、エラーで一時停止し、再起動や再開の後は `/goal resume` を待ちます。
 
 ### Generators
 

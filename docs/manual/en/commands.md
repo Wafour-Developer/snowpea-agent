@@ -50,6 +50,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 
 | Command | What it does |
 |---|---|
+| `/goal <objective> [--rounds N]` | work toward an objective in rounds until it is proven done; `/goal` shows it, `/goal pause`, `/goal resume [N]`, `/goal clear` |
 | `/ralph <task>` | PRD loop: stories with acceptance criteria, implement, verify, review until APPROVE |
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
 | `/review [what]` | review the uncommitted diff with a read-only `reviewer` agent and report the verdict |
@@ -71,6 +72,8 @@ These are answered by the terminal UI itself rather than by the core, so they do
 `/ralph` keeps its state in `<project>/.snowpea/ralph/` as `prd.json` and `progress.md`, so you can read (and edit) what it thinks it is doing. `/ralph` alone, or a bare "carry on" (`/ralph 실행해줘`, `/ralph continue`, `/ralph --resume`), resumes an unfinished `prd.json` instead of planning a new task — use that form in a schedule; a new task keeps the unfinished PRD as `prd-<time>.json`. It stops at `ralph.max_iterations` (10) if it cannot converge. If the model gives no usable PRD even after one stricter retry, `/ralph` says so and runs the task as a single story. Besides its text progress lines, `/ralph` (and `/ultrawork`) emits a `command.progress` session event with every story's `pass`/`fail`/`pending` status after planning and after each iteration, plus an `outcome` on the last one, so a client can draw the plan without parsing text. `/ultrawork` and `/deepinit` fan out under `agents.max_concurrent` (3 by default). The last three are `SKILL.md` files under `core/snowpea_core/builtin_skills/`, loaded by the same loader your own skills use — read them, copy them, change them.
 
 `/init` is `/deepinit`'s fast sibling: one main-agent turn, no subagents, at most a handful of tool calls, in the spirit of Claude Code's own `/init`. It also creates `<project>/.snowpea/settings.json` with `defaultMode: "accept"` when the project has no settings file yet — but never touches one that already exists. In plan mode it only reports what it would write.
+
+**Goals.** `/goal <objective>` keeps the agent working in rounds: each time a turn ends normally the next round starts, until the model reports the goal complete *with evidence* (commands run and their results, files checked), or blocked by the same condition three rounds in a row, or the round cap is reached (default 20). Pressing Stop, a denied approval or an error pauses it; after a restart or a resume it waits for `/goal resume`. The goal, its round and revision are shown to the model in its runtime context, and clients see every change as `goal.changed`.
 
 ### Plans
 

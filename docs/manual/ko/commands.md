@@ -50,6 +50,7 @@ snowpea commands list --json
 
 | 명령 | 하는 일 |
 |---|---|
+| `/goal <목표> [--rounds N]` | 목표가 증명될 때까지 라운드 단위로 계속 작업. `/goal`은 현재 목표 표시, `/goal pause`, `/goal resume [N]`, `/goal clear` |
 | `/ralph <task>` | PRD 루프: 수용 기준이 붙은 스토리를 쓰고, 구현하고, 검증하고, APPROVE가 나올 때까지 리뷰 |
 | `/ultrawork <task>` | 독립적인 조각으로 쪼개 동시 서브에이전트에 돌리고 보고서를 합침 |
 | `/review [what]` | 커밋되지 않은 변경을 읽기 전용 `reviewer` 에이전트로 리뷰하고 판정을 전달 |
@@ -71,6 +72,8 @@ snowpea commands list --json
 `/ralph`는 자신의 상태를 `<project>/.snowpea/ralph/`에 `prd.json`과 `progress.md`로 남기므로 지금 무엇을 하고 있다고 생각하는지 읽고 고칠 수 있습니다. `/ralph`만 쓰거나 "계속"만 말하면(`/ralph 실행해줘`, `/ralph 계속해줘`, `/ralph --resume`) 새 작업을 계획하지 않고 끝나지 않은 `prd.json`을 이어서 진행합니다 — 예약 잡에는 이 형태를 쓰세요. 새 작업을 주면 끝나지 않은 PRD는 `prd-<시각>.json`으로 남겨 둡니다. 그리고 수렴하지 못하면 `ralph.max_iterations`(10)에서 멈춥니다. `/ultrawork`와 `/deepinit`은 `agents.max_concurrent`(기본 3) 안에서 흩어집니다. 마지막 세 개는 `core/snowpea_core/builtin_skills/` 아래의 `SKILL.md` 파일이고, 여러분의 스킬을 읽는 것과 같은 로더로 읽힙니다 — 읽고, 복사하고, 고치세요.
 
 `/init`은 `/deepinit`의 빠른 버전입니다: 서브에이전트 없이 메인 에이전트 턴 하나, 도구 호출도 몇 번 정도로 — Claude Code 자체의 `/init`과 같은 정신입니다. 프로젝트에 설정 파일이 아직 없으면 `<project>/.snowpea/settings.json`을 `defaultMode: "accept"`로 만들지만, 이미 있으면 손대지 않습니다. plan 모드에서는 무엇을 쓸지 보고만 합니다.
+
+**목표(goal).** `/goal <목표>`를 주면 에이전트가 라운드 단위로 계속 일합니다. 턴이 정상적으로 끝날 때마다 다음 라운드가 시작되고, 모델이 **증거**(실행한 명령과 결과, 확인한 파일)와 함께 완료를 보고하거나, 같은 문제로 세 라운드 연속 막혔다고 보고하거나, 라운드 상한(기본 20)에 닿을 때 멈춥니다. 중지 버튼, 승인 거부, 오류가 나면 일시 정지하고, 재시작이나 재개 뒤에는 `/goal resume`을 기다립니다. 모델은 런타임 컨텍스트에서 목표와 라운드, 리비전을 보고, 클라이언트는 변경마다 `goal.changed` 이벤트를 받습니다.
 
 ### 계획
 

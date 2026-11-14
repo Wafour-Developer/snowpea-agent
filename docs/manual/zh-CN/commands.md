@@ -45,6 +45,7 @@ snowpea commands list --json
 
 | Command | What it does |
 |---|---|
+| `/goal <目标> [--rounds N]` | 按轮次持续工作，直到证明目标完成；`/goal` 显示当前目标，`/goal pause`、`/goal resume [N]`、`/goal clear` |
 | `/ralph <task>` | PRD loop: stories with acceptance criteria, implement, verify, review until APPROVE |
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
@@ -56,6 +57,8 @@ snowpea commands list --json
 | `/ralplan <task>` | consensus planning — planner, architect and critic argue before any code is written |
 
 `/ralph` 把状态保存在 `<project>/.snowpea/ralph/` 下的 `prd.json` 和 `progress.md` 中，因此你可以读到它自认为正在做什么，并且在无法收敛时会在 `ralph.max_iterations`（10）处停止。`/ultrawork` 和 `/deepinit` 会在 `agents.max_concurrent`（默认 3）的限制下并发展开。后三个是位于 `core/snowpea_core/builtin_skills/` 下的 `SKILL.md` 文件，使用的是与你自己的 skill 相同的加载器——你可以阅读它们、复制它们、修改它们。
+
+**目标。** `/goal <目标>` 让智能体按轮次持续工作：每当一轮正常结束就开始下一轮，直到模型带着**证据**（运行的命令及结果、检查过的文件）报告完成，或同一条件连续三轮阻塞，或达到轮数上限（默认 20）。按下停止、拒绝审批或出错时会暂停；重启或恢复会话后需要 `/goal resume` 才会继续。
 
 ### 生成器
 

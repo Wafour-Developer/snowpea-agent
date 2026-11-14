@@ -1,6 +1,6 @@
 # M16 — Adopting the DeepSeek Harness design
 
-Status: approved by the owner 2026-11-14; Phase 1 in progress (P1.1–P1.7 done).
+Status: approved by the owner 2026-11-14; Phase 1 done except the user-facing goal command and its manual pages.
 
 Source studied: `deepseek-ai/deepseek-harness` (dsh), commit `39163dd` (2026-11-13), MIT.
 Whatever code is ported keeps its MIT notice in `THIRD_PARTY_NOTICES.md`. Brand rules
@@ -82,7 +82,7 @@ named) does not regress, and §6 is done for it.
 | P1.5 | **`turn.stopping` hook**: one ordered listener chain that may steer another step with a reason; verify-on-stop, open-todo nudge, plugin Stop hooks and the budget probe become listeners. | `verify_gate.nudge`, `skills/hooks.stop`, loop's inline checks |
 | P1.6 | **Goal driver**: `goal.set/update/clear` RPC and tools; `GoalSnapshot{id, revision, objective, phase, blocked_reason, max_rounds}`; rounds while active; evidence before complete; blocked after 3 identical rounds; no re-arm after resume. | `/ralph` keeps working; goal is the generic form |
 | P1.7 | **Two-stage compaction** — already covered, no change. snowpea prunes old tool output in every outgoing request once the window is known (`build_messages` → `prune_old_tool_outputs`), and the auto-compaction check measures that pruned request, so pruning is always tried before a summary; a stored-history prune stage was built, found redundant, and reverted. The summary template (`workflows/compaction`) is richer than dsh's 8 sections and already merges a prior summary. The P1.2 snapshot is re-sent after every compaction. | `agent.build_messages`, `compaction.compact_session` |
-| P1.8 | **Benchmark**: run the agent benchmark (serially, never beside hermes) on the current main and on Phase 1; report rounds, success, tokens, cache hits. | `scripts/bench-snowpea-hermes` |
+| P1.8 | **Benchmark** — done 2026-11-14: the five harness missions, v0.2.86 vs Phase 1 HEAD, 2 runs each, interleaved one at a time on the same server (`local` → glm-5.3-flash), each version in its own throwaway home. Both passed 10/10. Totals per version (sum of per-mission means): rounds 33.5 → 33.0, tool calls 16 → 15, input tokens 333 043 → 328 401 (−1.4 %), output tokens 4 591 → 5 043, wall time 161.6 s → 153.5 s. No regression; the differences are within run-to-run noise for missions this short. The Phase 1 effects (snapshot only on change, goals, stop chain) show on long tasks; a long-task mission set is to be added before Phase 2 is measured. | `scripts/bench-snowpea-hermes` (local, not committed) |
 
 Protocol: additive 1.43.x (`message.user` gains `source`; `goal.*` RPC and `goal.changed`
 event; `tool.result` gains `concludesTurn`). No client breaks.
