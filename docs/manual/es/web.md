@@ -15,7 +15,7 @@ El diseño sigue el cliente web de DeepSeek Harness: tres columnas, con la conve
 
 | Columna | Qué contiene |
 |---|---|
-| Izquierda — barra lateral | **New Session** (nueva sesión), Plugins, Automation tasks (tareas de automatización), More (las demás pantallas: skills, programación, ajustes…), y luego **Workspaces** (espacios de trabajo): un grupo por carpeta de proyecto con sus conversaciones, las ancladas primero. Un punto en una fila indica que un turno se está ejecutando, que hay una aprobación esperando o que hay algo sin leer. El menú de la fila ancla, renombra, marca como leído, bifurca, copia el id o archiva. |
+| Izquierda — barra lateral | **New Session** (nueva sesión), Plugins, Automation tasks (tareas de automatización), More (las demás pantallas: skills, programación, ajustes…), y luego **Workspaces** (espacios de trabajo): un grupo por carpeta de proyecto con sus conversaciones, las ancladas primero. Un punto en una fila indica que un turno se está ejecutando, que hay una aprobación esperando o que hay algo sin leer. El menú de la fila ancla, renombra, bifurca, copia el id o archiva. |
 | Centro — conversación | Una cabecera con el título de la conversación, los padres de los que se delegó o bifurcó, y dos pestañas: **Chat** (los mensajes, las tarjetas de herramientas y el campo de entrada) y **Trajectory** (trayectoria; ver abajo). |
 | Derecha — dock | Pestañas que se abren junto a la conversación: archivos, el árbol de archivos del espacio de trabajo, el plan, el trabajo delegado, los cambios y, en el IDE, terminales. Los paneles se dividen y las pestañas se mueven entre ellos; el diseño se guarda por conversación en este navegador. |
 
