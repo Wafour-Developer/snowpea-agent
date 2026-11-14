@@ -65,6 +65,11 @@ The package is `snowpea_core`, rooted at `core/snowpea_core/`.
 | `server/auth.py`, `lifecycle.py` | token issue and check; idle timer, keepalive counters, shutdown reasons |
 | `session/` | `Session` entities, SQLite persistence, history and compaction, the event hub and its per-session `seq` |
 | `agent/loop.py` | the turn: prompt → provider stream → tool calls → results → repeat |
+| `prompts/sections.py` | the system prompt as named sections in one order table (`SECTION_ORDERS`); plugins add sections and get a disposer back |
+| `agent/runtime_context.py` | facts that change (goal, plan, plan-then-auto note, context pressure) sent as one `<system-reminder>` snapshot, only when it changed |
+| `agent/turn_stopping.py` | the one chain that may keep a stopping turn going: verify-on-stop, open to-dos, Stop hooks, plugins |
+| `agent/goals.py`, `goal_driver.py` | goals that run in rounds until `goal_update` proves them complete or blocked, or the round cap |
+| `tools/result_hooks.py` | post-execute listeners that accept, rewrite or block a tool result before the model reads it |
 | `agent/subagent.py`, `team.py`, `named.py`, `definition.py` | delegation under a concurrency limit; worktree-per-worker team mode; persistent named agents; `agents/*.md` parsing and generation |
 | `providers/` | eleven vendors behind `ChatProvider`; two native adapters, one OpenAI-compatible adapter, one preset table, one normalization point, a replay transport for tests |
 | `tools/` | the tool registry and every built-in tool, plus search and browser provider registries and the MCP client |
@@ -126,6 +131,23 @@ sequenceDiagram
 ```
 
 Every event carries a `seq` that increases monotonically within its session and is persisted before it is broadcast. A client that reconnects calls `session.resume(sessionId, afterSeq)` and is re-sent exactly what it missed. Turns stop at `agent.max_tool_rounds` (50); `session.interrupt` ends one with `turn.done{reason:"interrupted"}`.
+
+## What the model sees
+
+Everything the model reads in a request is in one of four places, and each has a cache rule (M16, `docs/design/m16-dsh-adoption.md`).
+
+| Where | What | Changes |
+|---|---|---|
+| System prompt | sections from `prompts/sections.py`, sorted by `SECTION_ORDERS`: identity and rules (`stable`, below 1000), environment, project files, skills and tools (`context`, 1000–1999) | stable: with mode, model, role or reply language; context: once per session and after a compaction |
+| The turn's own user message | the user's words, then memory recall and the browser host's note (`turn_context`) | every turn; stored, so later requests replay it byte for byte |
+| Runtime-context snapshot | one `<system-reminder>` user message (or part of the turn's message) holding the goal, the current plan, the plan-then-auto note and context pressure | only when the ordered `(name, text)` list differs from the last one sent, after a compaction, or once as "none" when everything went away |
+| Session notices | `[system]` lines before the next model call: subagent reports, host notices, Stop-hook reasons, a tool result's `contexts` | when something happened; never between the results of one tool batch |
+
+Every message the daemon writes on the user's behalf carries `source = {producer, form}` (`instructions`, `snapshot`, `notice`, `relay`, `recall`, `steer`, `summary`). Compaction's verbatim "user's own words" block reads it, so a nudge is never mistaken for something the user said.
+
+A tool result reaches the model as `output` (or `error`); `meta` is for surfaces only. Post-execute listeners may rewrite or block it, any result over `tools.maxResultChars` keeps a head and a tail with the whole text on disk, and `concludes_turn` ends the turn after its batch.
+
+When the model answers without a tool call, `turn_stopping.CHAIN` decides whether the turn really ends. When a goal is armed and the turn ended normally, the drain loop starts the next goal round.
 
 ## State on disk
 
