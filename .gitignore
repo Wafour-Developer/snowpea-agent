@@ -20,3 +20,6 @@ sdk/dist/
 # keep the built TUI bundle so `uv tool install git+…` can build the wheel
 !tui/dist/
 !tui/dist/snowpea-tui.js
+
+# snowpea web build, copied in from snowpea-ide out/web at release time (M18 4.2)
+core/snowpea_core/web_dist/
