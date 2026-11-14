@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.46.0` (semver)
+- **Protocol version:** `1.47.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.46.0"
+    "protocolVersion": "1.47.0"
   }
 }
 ```
@@ -110,6 +110,7 @@ Server capabilities advertised in the `system.hello` result:
 - `update`
 - `visionNotice`
 - `webSearch`
+- `workspaces`
 - `writeOutsideAsks`
 
 ## Method index
@@ -200,6 +201,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`question.list`](#questionlist) | client → server | List questions the agent is still waiting on. |
 | [`question.request`](#questionrequest) | server → client | Ask the client to put a question to the human. |
 | [`question.respond`](#questionrespond) | client → server | Answer a pending question and unblock the turn. |
+| [`session.archive`](#sessionarchive) | client → server | Archive or restore a conversation; refused while it runs unless stop (1.47.0). |
 | [`session.artifacts`](#sessionartifacts) | client → server | Files the session saved for the user under its workspace's artifacts/. |
 | [`session.attach`](#sessionattach) | client → server | Make this connection the origin of a session (approvals, host tools). |
 | [`session.attachments`](#sessionattachments) | client → server | Files the user attached in this session, with the path of the original bytes the agent may use (1.23.0). A delegated child reports its root's. |
@@ -213,6 +215,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.notice`](#sessionnotice) | client → server | Queue a [system] line for the model's next call. |
+| [`session.pin`](#sessionpin) | client → server | Pin or unpin a conversation (1.47.0). |
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. Events: turn.started {turnId, prompt, queued}, then message.user {text, attachments, refs, steered: false}, then the model's output. message.user.text is what the user typed; a page attachment is listed as {kind: page, name, url, title} and only the model sees the rendered page. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. |
 | [`session.rename`](#sessionrename) | client → server | Set a session's title. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
@@ -273,6 +276,11 @@ Server capabilities advertised in the `system.hello` result:
 | [`turn.outcome`](#turnoutcome) | client → server | Record whether a turn did what was asked (1.27.0): a browser client, for its own sessions. Stored as a turn.outcome session event. |
 | [`usage.summary`](#usagesummary) | client → server | Token totals from stored usage events, grouped by provider, model, session or day. |
 | [`web.search`](#websearch) | client → server | Web search for a browser host (1.11.0): the web_search tool's provider chain, settings, caps and timeouts, for the host's own fallback when its search page is blocked. Browser host clients (with a clientId) only; 'unavailable' with details.reason when no provider can answer. Results are untrusted web content. |
+| [`workspace.add`](#workspaceadd) | client → server | Add a project folder (1.47.0). |
+| [`workspace.list`](#workspacelist) | client → server | Project folders in sidebar order, each with its conversation count (1.47.0, capability 'workspaces'). |
+| [`workspace.remove`](#workspaceremove) | client → server | Remove a folder from the sidebar; its conversations stay (1.47.0). |
+| [`workspace.rename`](#workspacerename) | client → server | Rename one (1.47.0). |
+| [`workspace.reorder`](#workspacereorder) | client → server | Set the sidebar order (1.47.0). |
 
 ## Methods
 
@@ -2121,6 +2129,26 @@ Answer a pending question and unblock the turn.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `session.archive`
+
+*Direction:* client → server
+
+Archive or restore a conversation; refused while it runs unless stop (1.47.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Conversation to flag. |
+| `stop` | `boolean` | no | session.archive only: stop a running turn first instead of refusing. |
+| `value` | `boolean` | yes | True to pin (or archive), false to undo. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
 ### `session.artifacts`
 
 *Direction:* client → server
@@ -2381,7 +2409,7 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `complete` | `boolean` | no | True when the list is all there is for what was asked (1.27.0): the daemon's boot has restored the sessions it reopens, and with includeClosed the saved ones were read. Without includeClosed it covers live sessions only, which after a restart is usually none; ask with includeClosed before forgetting a closed chat. False (or absent, from an older daemon) means an empty or short list proves nothing, so a client must not forget its own records by it. |
-| `sessions` | `({ agent?: string \| null; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; contextWindowSource?: "settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; archived?: boolean; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; contextWindowSource?: "settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; pinned?: boolean; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; workspaceId?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -2395,6 +2423,26 @@ Queue a [system] line for the model's next call.
 |---|---|---|---|
 | `sessionId` | `string` | yes | Session to tell. |
 | `text` | `string` | yes | Something that happened outside a tool call (a popup opened, a download finished). Reaches the model as a [system] line before its next call; it starts no turn (1.7.0). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `session.pin`
+
+*Direction:* client → server
+
+Pin or unpin a conversation (1.47.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Conversation to flag. |
+| `stop` | `boolean` | no | session.archive only: stop a running turn first instead of refusing. |
+| `value` | `boolean` | yes | True to pin (or archive), false to undo. |
 
 **Result**
 
@@ -3680,6 +3728,96 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 |---|---|---|---|
 | `provider` | `string` | yes | The search provider that answered, e.g. 'ddgs'. |
 | `results` | `({ snippet?: string; title: string; url: string; })[]` | no |  |
+
+### `workspace.add`
+
+*Direction:* client → server
+
+Add a project folder (1.47.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `path` | `string` | yes | Folder to add; an existing workspace for it is returned. |
+| `title` | `string \| null` | no | Name; the folder's name when omitted. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `workspace` | `{ createdAt: string; id: string; path: string; position?: number; sessions?: number; title: string; } \| null` | no | The workspace now. |
+
+### `workspace.list`
+
+*Direction:* client → server
+
+Project folders in sidebar order, each with its conversation count (1.47.0, capability 'workspaces').
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `workspaces` | `({ createdAt: string; id: string; path: string; position?: number; sessions?: number; title: string; })[]` | no | In sidebar order. |
+
+### `workspace.remove`
+
+*Direction:* client → server
+
+Remove a folder from the sidebar; its conversations stay (1.47.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes | Workspace id. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `workspace.rename`
+
+*Direction:* client → server
+
+Rename one (1.47.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes | Workspace to rename. |
+| `title` | `string` | yes | New name. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `workspace` | `{ createdAt: string; id: string; path: string; position?: number; sessions?: number; title: string; } \| null` | no | The workspace now. |
+
+### `workspace.reorder`
+
+*Direction:* client → server
+
+Set the sidebar order (1.47.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ids` | `string[]` | yes | Workspace ids in the order wanted; the rest follow. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `workspaces` | `({ createdAt: string; id: string; path: string; position?: number; sessions?: number; title: string; })[]` | no | In sidebar order. |
 
 ## Notifications
 

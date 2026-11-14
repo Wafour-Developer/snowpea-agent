@@ -371,7 +371,9 @@ async def session_list_handler(
         origin = origin_of(live, conn) if live is not None else None
         out.append(row.model_copy(update={"origin": origin}))
     complete = core.sessions_loaded and (not params.includeClosed or core.store is not None)
-    return SessionListResult(sessions=out, complete=complete)
+    from snowpea_core.server.workspace_handlers import decorate
+
+    return SessionListResult(sessions=await decorate(core, out), complete=complete)
 
 
 async def collect_sessions(core: Core, params: SessionListParams) -> list[SessionSummary]:

@@ -678,6 +678,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.fork_handlers import register_fork_handlers
 
     register_fork_handlers(dispatcher)
+    from snowpea_core.server.workspace_handlers import register_workspace_handlers
+
+    register_workspace_handlers(dispatcher)
     from snowpea_core.server.host_handlers import register_host_handlers
 
     register_host_handlers(dispatcher)

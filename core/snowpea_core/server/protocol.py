@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.46.0"
+PROTOCOL_VERSION = "1.47.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -969,6 +969,11 @@ class SessionSummary(Payload):
             "(the user opted in to core's own browser); null for non-browser sessions."
         ),
     )
+    workspaceId: str | None = Field(
+        default=None, description="Workspace the conversation's folder belongs to (1.47.0)."
+    )
+    pinned: bool = Field(default=False, description="Pinned to the top of its workspace (1.47.0).")
+    archived: bool = Field(default=False, description="Archived; hidden by default (1.47.0).")
     origin: SessionOrigin | None = Field(
         default=None,
         description=(
@@ -2364,6 +2369,54 @@ class TrajectoryRow(Payload):
             "paths; subagent — agentId, childSessionId, reason, rounds; turn — initiator, "
             "reason, outcome; compacted — before, after, summaryChars, auto, kept."
         ),
+    )
+
+
+class WorkspaceInfo(Payload):
+    """A project folder the sidebar groups conversations by (1.47.0, capability 'workspaces')."""
+
+    id: str = Field(description="Workspace id.")
+    path: str = Field(
+        description="Canonical folder path; sessions whose workdir resolves here belong."
+    )
+    title: str = Field(description="Name shown in the sidebar.")
+    position: int = Field(default=0, description="Order in the sidebar, 0 first.")
+    createdAt: str = Field(description="UTC ISO-8601.")
+    sessions: int = Field(default=0, description="Conversations in it, archived ones not counted.")
+
+
+class WorkspaceListResult(Payload):
+    workspaces: list[WorkspaceInfo] = Field(default_factory=list, description="In sidebar order.")
+
+
+class WorkspaceAddParams(Payload):
+    path: str = Field(description="Folder to add; an existing workspace for it is returned.")
+    title: str | None = Field(default=None, description="Name; the folder's name when omitted.")
+
+
+class WorkspaceRenameParams(Payload):
+    id: str = Field(description="Workspace to rename.")
+    title: str = Field(description="New name.")
+
+
+class WorkspaceIdParams(Payload):
+    id: str = Field(description="Workspace id.")
+
+
+class WorkspaceReorderParams(Payload):
+    ids: list[str] = Field(description="Workspace ids in the order wanted; the rest follow.")
+
+
+class WorkspaceResult(Payload):
+    workspace: WorkspaceInfo | None = Field(default=None, description="The workspace now.")
+
+
+class SessionFlagParams(Payload):
+    sessionId: str = Field(description="Conversation to flag.")
+    value: bool = Field(description="True to pin (or archive), false to undo.")
+    stop: bool = Field(
+        default=False,
+        description="session.archive only: stop a running turn first instead of refusing.",
     )
 
 
@@ -7180,6 +7233,34 @@ METHODS: dict[str, RpcMethod] = {
             "List chat providers and whether they are configured.",
         ),
         _m(
+            "workspace.list",
+            Empty,
+            WorkspaceListResult,
+            "Project folders in sidebar order, each with its conversation count (1.47.0, "
+            "capability 'workspaces').",
+        ),
+        _m("workspace.add", WorkspaceAddParams, WorkspaceResult, "Add a project folder (1.47.0)."),
+        _m("workspace.rename", WorkspaceRenameParams, WorkspaceResult, "Rename one (1.47.0)."),
+        _m(
+            "workspace.remove",
+            WorkspaceIdParams,
+            Ok,
+            "Remove a folder from the sidebar; its conversations stay (1.47.0).",
+        ),
+        _m(
+            "workspace.reorder",
+            WorkspaceReorderParams,
+            WorkspaceListResult,
+            "Set the sidebar order (1.47.0).",
+        ),
+        _m("session.pin", SessionFlagParams, Ok, "Pin or unpin a conversation (1.47.0)."),
+        _m(
+            "session.archive",
+            SessionFlagParams,
+            Ok,
+            "Archive or restore a conversation; refused while it runs unless stop (1.47.0).",
+        ),
+        _m(
             "session.fork",
             SessionForkParams,
             SessionForkResult,
@@ -7933,6 +8014,7 @@ CAPABILITIES: list[str] = [
     "steps",
     "trajectory",
     "fork",
+    "workspaces",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -7987,6 +8069,13 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.visionReset",
         "session.trajectory",
         "session.fork",
+        "workspace.list",
+        "workspace.add",
+        "workspace.rename",
+        "workspace.remove",
+        "workspace.reorder",
+        "session.pin",
+        "session.archive",
         "goal.get",
         "goal.set",
         "goal.pause",

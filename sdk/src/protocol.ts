@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.46.0";
+export const PROTOCOL_VERSION = "1.47.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2587,6 +2587,22 @@ export interface QuestionRespondResult {
   ok?: boolean;
 }
 
+/** `session.archive` params. Archive or restore a conversation; refused while it runs unless stop (1.47.0). */
+export interface SessionArchiveParams {
+  /** Conversation to flag. */
+  sessionId: string;
+  /** session.archive only: stop a running turn first instead of refusing. */
+  stop?: boolean;
+  /** True to pin (or archive), false to undo. */
+  value: boolean;
+}
+
+/** `session.archive` result. */
+export interface SessionArchiveResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
 /** `session.artifacts` params. Files the session saved for the user under its workspace's artifacts/. */
 export interface SessionArtifactsParams {
   /** Target session. */
@@ -2861,6 +2877,8 @@ export interface SessionListResult {
   sessions?: ({
     /** Named agent the session belongs to, when it has one. */
     agent?: string | null;
+    /** Archived; hidden by default (1.47.0). */
+    archived?: boolean;
     /** PLAN mode with every approval answered yes, switching to auto once the plan is done (1.32.0); false outside plan mode. */
     autoAfterPlan?: boolean;
     /** A browser session's browser: 'host' (Snowpea browser only) or 'local' (the user opted in to core's own browser); null for non-browser sessions. */
@@ -2925,6 +2943,8 @@ export interface SessionListResult {
     pendingApprovals?: number;
     /** Questions waiting on a person. */
     pendingQuestions?: number;
+    /** Pinned to the top of its workspace (1.47.0). */
+    pinned?: boolean;
     /** Chat provider vendor in use. */
     provider?: string | null;
     /** True while the daemon has a turn in flight for this session. Always false for a stored row, which by definition has no live turn — a client should trust this rather than infer a running turn from a replay that ends on turn.started (CORE-dangling-turns). */
@@ -2943,6 +2963,8 @@ export interface SessionListResult {
     workdir: string;
     /** Session workspace with tmp/ and artifacts/ (1.7.0). */
     workspaceDir?: string | null;
+    /** Workspace the conversation's folder belongs to (1.47.0). */
+    workspaceId?: string | null;
   })[];
 }
 
@@ -2956,6 +2978,22 @@ export interface SessionNoticeParams {
 
 /** `session.notice` result. */
 export interface SessionNoticeResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `session.pin` params. Pin or unpin a conversation (1.47.0). */
+export interface SessionPinParams {
+  /** Conversation to flag. */
+  sessionId: string;
+  /** session.archive only: stop a running turn first instead of refusing. */
+  stop?: boolean;
+  /** True to pin (or archive), false to undo. */
+  value: boolean;
+}
+
+/** `session.pin` result. */
+export interface SessionPinResult {
   /** True when the call succeeded. */
   ok?: boolean;
 }
@@ -5911,6 +5949,119 @@ export interface WebSearchResult {
   })[];
 }
 
+/** `workspace.add` params. Add a project folder (1.47.0). */
+export interface WorkspaceAddParams {
+  /** Folder to add; an existing workspace for it is returned. */
+  path: string;
+  /** Name; the folder's name when omitted. */
+  title?: string | null;
+}
+
+/** `workspace.add` result. */
+export interface WorkspaceAddResult {
+  /** The workspace now. */
+  workspace?: {
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** Workspace id. */
+    id: string;
+    /** Canonical folder path; sessions whose workdir resolves here belong. */
+    path: string;
+    /** Order in the sidebar, 0 first. */
+    position?: number;
+    /** Conversations in it, archived ones not counted. */
+    sessions?: number;
+    /** Name shown in the sidebar. */
+    title: string;
+  } | null;
+}
+
+/** `workspace.list` params. Project folders in sidebar order, each with its conversation count (1.47.0, capability 'workspaces'). */
+export type WorkspaceListParams = Record<string, unknown>;
+
+/** `workspace.list` result. */
+export interface WorkspaceListResult {
+  /** In sidebar order. */
+  workspaces?: ({
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** Workspace id. */
+    id: string;
+    /** Canonical folder path; sessions whose workdir resolves here belong. */
+    path: string;
+    /** Order in the sidebar, 0 first. */
+    position?: number;
+    /** Conversations in it, archived ones not counted. */
+    sessions?: number;
+    /** Name shown in the sidebar. */
+    title: string;
+  })[];
+}
+
+/** `workspace.remove` params. Remove a folder from the sidebar; its conversations stay (1.47.0). */
+export interface WorkspaceRemoveParams {
+  /** Workspace id. */
+  id: string;
+}
+
+/** `workspace.remove` result. */
+export interface WorkspaceRemoveResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `workspace.rename` params. Rename one (1.47.0). */
+export interface WorkspaceRenameParams {
+  /** Workspace to rename. */
+  id: string;
+  /** New name. */
+  title: string;
+}
+
+/** `workspace.rename` result. */
+export interface WorkspaceRenameResult {
+  /** The workspace now. */
+  workspace?: {
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** Workspace id. */
+    id: string;
+    /** Canonical folder path; sessions whose workdir resolves here belong. */
+    path: string;
+    /** Order in the sidebar, 0 first. */
+    position?: number;
+    /** Conversations in it, archived ones not counted. */
+    sessions?: number;
+    /** Name shown in the sidebar. */
+    title: string;
+  } | null;
+}
+
+/** `workspace.reorder` params. Set the sidebar order (1.47.0). */
+export interface WorkspaceReorderParams {
+  /** Workspace ids in the order wanted; the rest follow. */
+  ids: string[];
+}
+
+/** `workspace.reorder` result. */
+export interface WorkspaceReorderResult {
+  /** In sidebar order. */
+  workspaces?: ({
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** Workspace id. */
+    id: string;
+    /** Canonical folder path; sessions whose workdir resolves here belong. */
+    path: string;
+    /** Order in the sidebar, 0 first. */
+    position?: number;
+    /** Conversations in it, archived ones not counted. */
+    sessions?: number;
+    /** Name shown in the sidebar. */
+    title: string;
+  })[];
+}
+
 // ---------------------------------------------------------------------------
 // Event payloads
 // ---------------------------------------------------------------------------
@@ -7157,6 +7308,7 @@ export interface MethodMap {
   "question.list": { params: QuestionListParams; result: QuestionListResult };
   "question.request": { params: QuestionRequestParams; result: QuestionRequestResult };
   "question.respond": { params: QuestionRespondParams; result: QuestionRespondResult };
+  "session.archive": { params: SessionArchiveParams; result: SessionArchiveResult };
   "session.artifacts": { params: SessionArtifactsParams; result: SessionArtifactsResult };
   "session.attach": { params: SessionAttachParams; result: SessionAttachResult };
   "session.attachments": { params: SessionAttachmentsParams; result: SessionAttachmentsResult };
@@ -7170,6 +7322,7 @@ export interface MethodMap {
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
   "session.notice": { params: SessionNoticeParams; result: SessionNoticeResult };
+  "session.pin": { params: SessionPinParams; result: SessionPinResult };
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.rename": { params: SessionRenameParams; result: SessionRenameResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
@@ -7230,6 +7383,11 @@ export interface MethodMap {
   "turn.outcome": { params: TurnOutcomeParams; result: TurnOutcomeResult };
   "usage.summary": { params: UsageSummaryParams; result: UsageSummaryResult };
   "web.search": { params: WebSearchParams; result: WebSearchResult };
+  "workspace.add": { params: WorkspaceAddParams; result: WorkspaceAddResult };
+  "workspace.list": { params: WorkspaceListParams; result: WorkspaceListResult };
+  "workspace.remove": { params: WorkspaceRemoveParams; result: WorkspaceRemoveResult };
+  "workspace.rename": { params: WorkspaceRenameParams; result: WorkspaceRenameResult };
+  "workspace.reorder": { params: WorkspaceReorderParams; result: WorkspaceReorderResult };
 }
 
 export type MethodName = keyof MethodMap;
@@ -7319,6 +7477,7 @@ export type ClientMethod =
   | "provider.visionReset"
   | "question.list"
   | "question.respond"
+  | "session.archive"
   | "session.artifacts"
   | "session.attach"
   | "session.attachments"
@@ -7332,6 +7491,7 @@ export type ClientMethod =
   | "session.interrupt"
   | "session.list"
   | "session.notice"
+  | "session.pin"
   | "session.prompt"
   | "session.rename"
   | "session.resume"
@@ -7390,7 +7550,12 @@ export type ClientMethod =
   | "tool.unregister"
   | "turn.outcome"
   | "usage.summary"
-  | "web.search";
+  | "web.search"
+  | "workspace.add"
+  | "workspace.list"
+  | "workspace.remove"
+  | "workspace.rename"
+  | "workspace.reorder";
 /** Methods the server calls on the client (bidirectional JSON-RPC). */
 export type ServerMethod =
   | "approval.request"
