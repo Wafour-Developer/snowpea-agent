@@ -317,6 +317,13 @@ export interface State {
   reasoningChars: number;
   /** Answer characters streamed since the last usage report; ≈ tokens until the daemon says. */
   streamedChars: number;
+  /**
+   * Answer characters `message.delta` brought in the current model call (since
+   * `step.started`). Zero at `step.done` means the deltas are not there — a
+   * replay of a log that keeps only the settled step — so the step's own text
+   * is the answer (M18 5.3).
+   */
+  stepStreamed: number;
   errors: string[];
 }
 
@@ -362,6 +369,7 @@ export const initialState: State = {
   compacting: null,
   reasoningChars: 0,
   streamedChars: 0,
+  stepStreamed: 0,
   errors: [],
 };
 
@@ -732,7 +740,24 @@ function applySessionEvent(
     case "message.delta": {
       const text = String(payload.text ?? "");
       const settled = { ...base, messages: settleFolds(base.messages) };
-      return { ...appendDelta(settled, text), streamedChars: base.streamedChars + text.length };
+      return {
+        ...appendDelta(settled, text),
+        streamedChars: base.streamedChars + text.length,
+        stepStreamed: base.stepStreamed + text.length,
+      };
+    }
+
+    // One model call. Live (and in a full replay) its text already arrived as
+    // deltas; when it did not, the settled text `step.done` carries stands in
+    // for them, at the same place in the stream — before the step's tool calls.
+    case "step.started":
+      return { ...base, stepStreamed: 0 };
+
+    case "step.done": {
+      const text = typeof payload.text === "string" ? payload.text : "";
+      if (base.stepStreamed > 0 || !text) return { ...base, stepStreamed: 0 };
+      const settled = { ...base, messages: settleFolds(base.messages) };
+      return { ...appendDelta(settled, text), stepStreamed: 0 };
     }
 
     // Thinking, not an answer: counted for the working line, never appended.
