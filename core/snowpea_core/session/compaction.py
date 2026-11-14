@@ -30,7 +30,7 @@ from snowpea_core.prompts.loader import load
 from snowpea_core.providers import content
 from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError
 from snowpea_core.session import events
-from snowpea_core.session.history import estimate_messages, message_text
+from snowpea_core.session.history import estimate_messages, is_synthetic, message_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -568,6 +568,12 @@ def _verbatim_entries(messages: list[ChatMessage]) -> list[str]:
         text = message_text(message).strip() if not message.sensitive else ""
         if not text:
             continue
+        if is_synthetic(message) and not (
+            message.role == "system" and VERBATIM_HEADING in text
+        ):
+            # Written by the daemon, not typed (M16 P1.3); a summary still
+            # carries the verbatim block of the words before it.
+            continue
         if message.role == "system" and VERBATIM_HEADING in text:
             block = text.split(VERBATIM_HEADING, 1)[1]
             # Stored newest first; this list is oldest first.
@@ -606,7 +612,11 @@ def verbatim_section(messages: list[ChatMessage], budget: int = VERBATIM_BUDGET)
 
 def summary_message(text: str) -> ChatMessage:
     """Wrap summary text in the system message that replaces the history."""
-    return ChatMessage(role="system", content=f"{SUMMARY_HEADING}\n\n{text}")
+    return ChatMessage(
+        role="system",
+        content=f"{SUMMARY_HEADING}\n\n{text}",
+        source={"producer": "compaction", "form": "summary"},
+    )
 
 
 async def _attach_host_note(

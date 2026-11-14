@@ -68,6 +68,13 @@ class ChatMessage:
     #: sends ``content + "\n\n" + turn_context`` (``agent.build_messages``),
     #: byte for byte what the turn first sent, so a server's prefix cache holds.
     turn_context: str | None = None
+    #: Who put a message the user did not type into the conversation, and what
+    #: kind it is (M16 P1.3): ``{"producer": "runtime-context", "form":
+    #: "snapshot"}``.  Forms: ``instructions``, ``snapshot``, ``notice``,
+    #: ``relay``, ``recall``, ``steer``, ``summary``.  ``None`` is the user's
+    #: own message (or one stored before sources existed).  Never sent on the
+    #: wire; stored, and read by compaction and surfaces.
+    source: dict[str, str] | None = None
 
 
 #: What a sensitive message's content becomes outside the running turn.

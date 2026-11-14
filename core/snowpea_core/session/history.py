@@ -149,6 +149,8 @@ def message_to_json(message: ChatMessage) -> dict[str, Any]:
         data["snapshot_tab"] = message.snapshot_tab
     if message.turn_context:
         data["turn_context"] = message.turn_context
+    if message.source:
+        data["source"] = dict(message.source)
     return data
 
 
@@ -200,7 +202,36 @@ def message_from_json(role: str, data: dict[str, Any]) -> ChatMessage:
         tool_calls=calls or None,
         snapshot_tab=str(data["snapshot_tab"]) if data.get("snapshot_tab") else None,
         turn_context=turn_context,
+        source=_source_from(data.get("source")),
     )
+
+
+#: Message forms a ``source`` may name (M16 P1.3).
+SOURCE_FORMS = frozenset(
+    {"instructions", "snapshot", "notice", "relay", "recall", "steer", "summary"}
+)
+
+
+def source(producer: str, form: str) -> dict[str, str]:
+    """A message ``source``; ``form`` must be one of :data:`SOURCE_FORMS`."""
+    if form not in SOURCE_FORMS:
+        raise ValueError(f"unknown message form: {form}")
+    return {"producer": producer, "form": form}
+
+
+def _source_from(raw: Any) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+    producer, form = raw.get("producer"), raw.get("form")
+    if isinstance(producer, str) and isinstance(form, str):
+        return {"producer": producer, "form": form}
+    return None
+
+
+def is_synthetic(message: ChatMessage) -> bool:
+    """True for a message the daemon wrote, not the user (a steer is the user's)."""
+    src = message.source
+    return bool(src) and src.get("form") != "steer"
 
 
 @dataclass

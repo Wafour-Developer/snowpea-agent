@@ -60,6 +60,7 @@ from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError, To
 from snowpea_core.providers.call_timing import CallTiming
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
+from snowpea_core.session import history as history_mod
 from snowpea_core.session.history import CHARS_PER_TOKEN, estimate_messages
 from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
@@ -1457,7 +1458,12 @@ async def _flush_notices(session: Session) -> int:
     lines = _bounded_notice_lines(session.pending_notices)
     session.pending_notices.clear()
     session.history.append(
-        ChatMessage(role="user", content="\n".join(lines), name=compaction.NOTICE_MESSAGE_NAME)
+        ChatMessage(
+            role="user",
+            content="\n".join(lines),
+            name=compaction.NOTICE_MESSAGE_NAME,
+            source=history_mod.source("session-notice", "notice"),
+        )
     )
     return len(lines)
 
@@ -1470,7 +1476,12 @@ def _flush_runtime_context(core: Core, session: Session) -> bool:
     if not text:
         return False
     session.history.append(
-        ChatMessage(role="user", content=text, name=runtime_context.MESSAGE_NAME)
+        ChatMessage(
+            role="user",
+            content=text,
+            name=runtime_context.MESSAGE_NAME,
+            source=history_mod.source("runtime-context", "snapshot"),
+        )
     )
     return True
 
@@ -1515,7 +1526,9 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
     await _flush_notices(session)
     while session.lead_messages:
         body = f"{LEAD_PREFIX}{session.lead_messages.pop(0)}"
-        session.history.append(ChatMessage(role="user", content=body))
+        session.history.append(
+            ChatMessage(role="user", content=body, source=history_mod.source("lead", "relay"))
+        )
         await core.hub.emit_event(session.id, events.message_user(body, steered=True))
     rpc_injected = 0
     while session.rpc_steers:
@@ -1562,6 +1575,7 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
                     if queued.attachments
                     else (queued.model_text or queued.text)
                 ),
+                source=history_mod.source(queued.origin or "user", "steer"),
             )
         )
         session.history.compact()
@@ -1589,7 +1603,9 @@ async def _inject_external_steer(
         return False
     session.propagated_steers.add(source_turn_id)
     body = f"{STEER_PREFIX}{text}"
-    session.history.append(ChatMessage(role="user", content=body))
+    session.history.append(
+        ChatMessage(role="user", content=body, source=history_mod.source("user", "steer"))
+    )
     session.history.compact()
     await core.hub.emit_event(session.id, events.message_user(body, steered=True))
     return True
@@ -2110,7 +2126,13 @@ async def _drive(
                         await finish_turn(core, session, turn_id, "budget")
                         return "budget"
                     budget_continuations, rounds_left = window
-                    session.history.append(ChatMessage(role="user", content=unverified))
+                    session.history.append(
+                    ChatMessage(
+                        role="user",
+                        content=unverified,
+                        source=history_mod.source("verify-gate", "notice"),
+                    )
+                )
                     await hub.emit_event(
                         session.id, events.hook_continue(unverified, budget_continuations)
                     )
@@ -2173,6 +2195,7 @@ async def _drive(
                 ChatMessage(
                     role="user",
                     content=BUDGET_CONTINUE_INSTRUCTION.format(n=config.max_tool_rounds),
+                    source=history_mod.source("budget", "notice"),
                 )
             )
             rounds_left = config.max_tool_rounds
@@ -2264,7 +2287,13 @@ async def _drive(
             # message is not kept; the nudge is appended after what was sent.
             if empty_retries < EMPTY_RETRIES:
                 empty_retries += 1
-                session.history.append(ChatMessage(role="user", content=EMPTY_NUDGE))
+                session.history.append(
+                    ChatMessage(
+                        role="user",
+                        content=EMPTY_NUDGE,
+                        source=history_mod.source("empty-nudge", "notice"),
+                    )
+                )
                 await hub.emit_event(session.id, events.hook_continue(EMPTY_NUDGE, empty_retries))
                 continue
             await hub.emit_event(
@@ -2290,7 +2319,13 @@ async def _drive(
                 else verify_gate.nudge(core, session, assistant_text)
             )
             if unverified:
-                session.history.append(ChatMessage(role="user", content=unverified))
+                session.history.append(
+                        ChatMessage(
+                            role="user",
+                            content=unverified,
+                            source=history_mod.source("verify-gate", "notice"),
+                        )
+                    )
                 await hub.emit_event(session.id, events.hook_continue(unverified, 0))
                 continue
             # Claude Code's Stop hook: a hook may keep the agent going (ralph,
@@ -2625,7 +2660,11 @@ async def _auto_inject_skills(
                 f"[skill {doc.name} applies here (matched “{hit}”). Read it with "
                 f'skill_view("{doc.name}") before you act.]'
             )
-        session.history.append(ChatMessage(role="user", content=note))
+        session.history.append(
+            ChatMessage(
+                role="user", content=note, source=history_mod.source("skills", "instructions")
+            )
+        )
         injected.append(doc.name)
     return injected
 
