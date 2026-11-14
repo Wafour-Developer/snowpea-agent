@@ -1,6 +1,6 @@
 # M17 — Session log v2 and Trajectory (M16 Phase 2)
 
-Status: in progress, 2026-11-14. Parent plan: [m16-dsh-adoption.md](m16-dsh-adoption.md).
+Status: 2a–2e done 2026-11-14 (protocol 1.44–1.48); 2f deferred to Phases 4–5. Parent plan: [m16-dsh-adoption.md](m16-dsh-adoption.md).
 
 ## Decision: additive, not 2.0
 
@@ -24,8 +24,8 @@ stored as messages; the event log stays the record of what happened).
 | 2b | **Trajectory projection.** `session.trajectory {sessionId, turnId?, afterSeq?, limit?}` folds the event log into rows `system \| user \| context \| compacted \| message \| tool \| subtool` grouped by turn and step, each row carrying `sourceSeq`/`resultSeq`, timing and usage. Cached per session with a high-water mark. | 1.45.0 |
 | 2c | **Fork.** `session.fork {sessionId, atTurnId?}` copies history and events up to the end of a finished turn into a new session (`forkedFrom`, `forkedAtSeq`), closes nothing in the source. Checkpoint restore stays as it is. | 1.46.0 |
 | 2d | **Workspaces.** `workspace.list/add/rename/remove/reorder` over a registry keyed by canonical path (`realpath`), built first from session workdirs; pinned and archived sessions; `session.list` rows gain `workspaceId`. | 1.47.0 |
-| 2e | **Subagent catalog.** The parent's `subagent.spawn/done` events already carry the child `sessionId`; `session.descendants {sessionId}` returns the tree for breadcrumbs. | 1.48.0 |
-| 2f | **Deltas are not history.** `message.delta`/`message.reasoning` keep streaming but are marked ephemeral and pruned from the stored log when the turn's `message.done` lands; replay uses `message.done`. Only after every client is checked against it. | 1.49.0 |
+| 2e | **Lineage.** The parent's `subagent.spawn/done` events already carry the child `sessionId`; `session.lineage {sessionId}` returns the ancestors (breadcrumbs) and the descendants as a tree, from the stored `parent_session_id` links. | 1.48.0 |
+| 2f | **Deltas are not history** — deferred. `step.done` (2a) already stores each call's settled text and reasoning once. Pruning the stored `message.delta`/`message.reasoning` rows waits until the TUI, the IDE and the browser rebuild a replayed turn from `step.done` instead of from deltas (Phases 4–5); until then nothing is dropped. | later |
 
 Each step: tests, `docs/protocol.md` regenerated, the browser session told before tagging,
 manual pages where users see something.

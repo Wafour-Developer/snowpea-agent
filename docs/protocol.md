@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.47.0` (semver)
+- **Protocol version:** `1.48.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.47.0"
+    "protocolVersion": "1.48.0"
   }
 }
 ```
@@ -58,6 +58,7 @@ Server capabilities advertised in the `system.hello` result:
 - `hostTurnContext`
 - `hostTurnContextCompaction`
 - `jobRuns`
+- `lineage`
 - `llmSample`
 - `llmSampleHost`
 - `llmTimings`
@@ -213,6 +214,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.events`](#sessionevents) | client → server | A session's saved events, read only (1.27.0): unlike session.resume it does not subscribe, attach, restore or take the session's approvals. |
 | [`session.fork`](#sessionfork) | client → server | Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
+| [`session.lineage`](#sessionlineage) | client → server | A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage'). |
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.notice`](#sessionnotice) | client → server | Queue a [system] line for the model's next call. |
 | [`session.pin`](#sessionpin) | client → server | Pin or unpin a conversation (1.47.0). |
@@ -2387,6 +2389,25 @@ Stop the running turn as soon as possible.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `session.lineage`
+
+*Direction:* client → server
+
+A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage').
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Session whose lineage is read. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ancestors` | `({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: unknown; children?: unknown[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: unknown; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]` | no | From the root down to the session's parent. |
+| `descendants` | `({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: unknown; children?: unknown[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: unknown; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]` | no | Sessions it delegated to, as a tree. |
 
 ### `session.list`
 

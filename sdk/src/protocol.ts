@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.47.0";
+export const PROTOCOL_VERSION = "1.48.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2853,6 +2853,200 @@ export interface SessionInterruptParams {
 export interface SessionInterruptResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `session.lineage` params. A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage'). */
+export interface SessionLineageParams {
+  /** Session whose lineage is read. */
+  sessionId: string;
+}
+
+/** `session.lineage` result. */
+export interface SessionLineageResult {
+  /** From the root down to the session's parent. */
+  ancestors?: ({
+    /** The agent it runs as. */
+    agent?: string | null;
+    /** Sessions it delegated to. */
+    children?: ({
+      /** The agent it runs as. */
+      agent?: string | null;
+      /** Sessions it delegated to. */
+      children?: ({
+        /** The agent it runs as. */
+        agent?: string | null;
+        /** Sessions it delegated to. */
+        children?: ({
+          /** The agent it runs as. */
+          agent?: string | null;
+          /** Sessions it delegated to. */
+          children?: ({
+            /** The agent it runs as. */
+            agent?: string | null;
+            /** Sessions it delegated to. */
+            children?: ({
+              /** The agent it runs as. */
+              agent?: unknown;
+              /** Sessions it delegated to. */
+              children?: unknown;
+              /** UTC ISO-8601. */
+              createdAt?: unknown;
+              /** chat, subagent, job, … */
+              kind?: unknown;
+              /** A turn is running in it now. */
+              running?: unknown;
+              /** The session. */
+              sessionId: unknown;
+              /** Its title, when it has one. */
+              title?: unknown;
+            })[];
+            /** UTC ISO-8601. */
+            createdAt?: string;
+            /** chat, subagent, job, … */
+            kind?: string;
+            /** A turn is running in it now. */
+            running?: boolean;
+            /** The session. */
+            sessionId: string;
+            /** Its title, when it has one. */
+            title?: string | null;
+          })[];
+          /** UTC ISO-8601. */
+          createdAt?: string;
+          /** chat, subagent, job, … */
+          kind?: string;
+          /** A turn is running in it now. */
+          running?: boolean;
+          /** The session. */
+          sessionId: string;
+          /** Its title, when it has one. */
+          title?: string | null;
+        })[];
+        /** UTC ISO-8601. */
+        createdAt?: string;
+        /** chat, subagent, job, … */
+        kind?: string;
+        /** A turn is running in it now. */
+        running?: boolean;
+        /** The session. */
+        sessionId: string;
+        /** Its title, when it has one. */
+        title?: string | null;
+      })[];
+      /** UTC ISO-8601. */
+      createdAt?: string;
+      /** chat, subagent, job, … */
+      kind?: string;
+      /** A turn is running in it now. */
+      running?: boolean;
+      /** The session. */
+      sessionId: string;
+      /** Its title, when it has one. */
+      title?: string | null;
+    })[];
+    /** UTC ISO-8601. */
+    createdAt?: string;
+    /** chat, subagent, job, … */
+    kind?: string;
+    /** A turn is running in it now. */
+    running?: boolean;
+    /** The session. */
+    sessionId: string;
+    /** Its title, when it has one. */
+    title?: string | null;
+  })[];
+  /** Sessions it delegated to, as a tree. */
+  descendants?: ({
+    /** The agent it runs as. */
+    agent?: string | null;
+    /** Sessions it delegated to. */
+    children?: ({
+      /** The agent it runs as. */
+      agent?: string | null;
+      /** Sessions it delegated to. */
+      children?: ({
+        /** The agent it runs as. */
+        agent?: string | null;
+        /** Sessions it delegated to. */
+        children?: ({
+          /** The agent it runs as. */
+          agent?: string | null;
+          /** Sessions it delegated to. */
+          children?: ({
+            /** The agent it runs as. */
+            agent?: string | null;
+            /** Sessions it delegated to. */
+            children?: ({
+              /** The agent it runs as. */
+              agent?: unknown;
+              /** Sessions it delegated to. */
+              children?: unknown;
+              /** UTC ISO-8601. */
+              createdAt?: unknown;
+              /** chat, subagent, job, … */
+              kind?: unknown;
+              /** A turn is running in it now. */
+              running?: unknown;
+              /** The session. */
+              sessionId: unknown;
+              /** Its title, when it has one. */
+              title?: unknown;
+            })[];
+            /** UTC ISO-8601. */
+            createdAt?: string;
+            /** chat, subagent, job, … */
+            kind?: string;
+            /** A turn is running in it now. */
+            running?: boolean;
+            /** The session. */
+            sessionId: string;
+            /** Its title, when it has one. */
+            title?: string | null;
+          })[];
+          /** UTC ISO-8601. */
+          createdAt?: string;
+          /** chat, subagent, job, … */
+          kind?: string;
+          /** A turn is running in it now. */
+          running?: boolean;
+          /** The session. */
+          sessionId: string;
+          /** Its title, when it has one. */
+          title?: string | null;
+        })[];
+        /** UTC ISO-8601. */
+        createdAt?: string;
+        /** chat, subagent, job, … */
+        kind?: string;
+        /** A turn is running in it now. */
+        running?: boolean;
+        /** The session. */
+        sessionId: string;
+        /** Its title, when it has one. */
+        title?: string | null;
+      })[];
+      /** UTC ISO-8601. */
+      createdAt?: string;
+      /** chat, subagent, job, … */
+      kind?: string;
+      /** A turn is running in it now. */
+      running?: boolean;
+      /** The session. */
+      sessionId: string;
+      /** Its title, when it has one. */
+      title?: string | null;
+    })[];
+    /** UTC ISO-8601. */
+    createdAt?: string;
+    /** chat, subagent, job, … */
+    kind?: string;
+    /** A turn is running in it now. */
+    running?: boolean;
+    /** The session. */
+    sessionId: string;
+    /** Its title, when it has one. */
+    title?: string | null;
+  })[];
 }
 
 /** `session.list` params. List live or saved sessions. */
@@ -7320,6 +7514,7 @@ export interface MethodMap {
   "session.events": { params: SessionEventsParams; result: SessionEventsResult };
   "session.fork": { params: SessionForkParams; result: SessionForkResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
+  "session.lineage": { params: SessionLineageParams; result: SessionLineageResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
   "session.notice": { params: SessionNoticeParams; result: SessionNoticeResult };
   "session.pin": { params: SessionPinParams; result: SessionPinResult };
@@ -7489,6 +7684,7 @@ export type ClientMethod =
   | "session.events"
   | "session.fork"
   | "session.interrupt"
+  | "session.lineage"
   | "session.list"
   | "session.notice"
   | "session.pin"

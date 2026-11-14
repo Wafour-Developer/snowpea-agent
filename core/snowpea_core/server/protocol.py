@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.47.0"
+PROTOCOL_VERSION = "1.48.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2369,6 +2369,33 @@ class TrajectoryRow(Payload):
             "paths; subagent — agentId, childSessionId, reason, rounds; turn — initiator, "
             "reason, outcome; compacted — before, after, summaryChars, auto, kept."
         ),
+    )
+
+
+class LineageNode(Payload):
+    """A session in a delegation tree (1.48.0, capability 'lineage')."""
+
+    sessionId: str = Field(description="The session.")
+    title: str | None = Field(default=None, description="Its title, when it has one.")
+    agent: str | None = Field(default=None, description="The agent it runs as.")
+    kind: str = Field(default="chat", description="chat, subagent, job, …")
+    createdAt: str = Field(default="", description="UTC ISO-8601.")
+    running: bool = Field(default=False, description="A turn is running in it now.")
+    children: list[LineageNode] = Field(
+        default_factory=list, description="Sessions it delegated to."
+    )
+
+
+class SessionLineageParams(Payload):
+    sessionId: str = Field(description="Session whose lineage is read.")
+
+
+class SessionLineageResult(Payload):
+    ancestors: list[LineageNode] = Field(
+        default_factory=list, description="From the root down to the session's parent."
+    )
+    descendants: list[LineageNode] = Field(
+        default_factory=list, description="Sessions it delegated to, as a tree."
     )
 
 
@@ -7233,6 +7260,13 @@ METHODS: dict[str, RpcMethod] = {
             "List chat providers and whether they are configured.",
         ),
         _m(
+            "session.lineage",
+            SessionLineageParams,
+            SessionLineageResult,
+            "A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, "
+            "capability 'lineage').",
+        ),
+        _m(
             "workspace.list",
             Empty,
             WorkspaceListResult,
@@ -8015,6 +8049,7 @@ CAPABILITIES: list[str] = [
     "trajectory",
     "fork",
     "workspaces",
+    "lineage",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -8069,6 +8104,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.visionReset",
         "session.trajectory",
         "session.fork",
+        "session.lineage",
         "workspace.list",
         "workspace.add",
         "workspace.rename",
