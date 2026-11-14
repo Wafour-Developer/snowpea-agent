@@ -476,14 +476,39 @@ def loop_suspected(tool: str, count: int) -> Event:
     return _pack(LoopSuspected(tool=tool, count=count))
 
 
-def turn_done(turn_id: str, reason: str = "complete", *, synthetic: bool = False) -> Event:
+def turn_done(
+    turn_id: str,
+    reason: str = "complete",
+    *,
+    synthetic: bool = False,
+    history_len: int | None = None,
+    compactions: int | None = None,
+) -> Event:
     """A turn ended.
 
     ``synthetic`` marks an event the daemon wrote on the turn's behalf to close
-    one a crash or a restart left open (CORE-dangling-turns).
+    one a crash or a restart left open (CORE-dangling-turns).  ``history_len``
+    and ``compactions`` say where the stored history stood, so a fork can cut
+    there (M17 2c).
     """
     return _pack(
-        TurnDone(turnId=turn_id, reason=reason, synthetic=synthetic)  # type: ignore[arg-type]
+        TurnDone(  # type: ignore[arg-type]
+            turnId=turn_id,
+            reason=reason,
+            synthetic=synthetic,
+            historyLen=history_len,
+            compactions=compactions,
+        )
+    )
+
+
+def session_forked(from_session_id: str, at_turn_id: str | None, history_len: int) -> Event:
+    from snowpea_core.server.protocol import SessionForked
+
+    return _pack(
+        SessionForked(
+            fromSessionId=from_session_id, atTurnId=at_turn_id, historyLen=history_len
+        )
     )
 
 

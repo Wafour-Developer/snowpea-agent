@@ -519,6 +519,25 @@ class Store:
             for row in rows
         ]
 
+    async def copy_events(self, source_id: str, target_id: str, up_to_seq: int) -> int:
+        """Copy ``source_id``'s events up to ``up_to_seq`` into ``target_id`` (M17 2c).
+
+        Same seq numbers: the target is new and empty.  Returns the highest seq copied.
+        """
+
+        await asyncio.to_thread(
+            self._execute,
+            "INSERT OR REPLACE INTO events "
+            "(session_id, seq, kind, payload_json, ts, turn_id, step) "
+            "SELECT ?, seq, kind, payload_json, ts, turn_id, step FROM events "
+            "WHERE session_id = ? AND seq <= ?",
+            (target_id, source_id, up_to_seq),
+        )
+        rows = await asyncio.to_thread(
+            self._query, "SELECT MAX(seq) AS top FROM events WHERE session_id = ?", (target_id,)
+        )
+        return int(rows[0]["top"] or 0) if rows else 0
+
     async def events_page(
         self, session_id: str, after_seq: int, limit: int, *, up_to: int
     ) -> tuple[list[dict[str, Any]], bool]:

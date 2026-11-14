@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.45.0` (semver)
+- **Protocol version:** `1.46.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.45.0"
+    "protocolVersion": "1.46.0"
   }
 }
 ```
@@ -48,6 +48,7 @@ Server capabilities advertised in the `system.hello` result:
 - `commands`
 - `contextWindowSource`
 - `ephemeralImages`
+- `fork`
 - `fs`
 - `goals`
 - `holdSec`
@@ -208,6 +209,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
 | [`session.deleteSaved`](#sessiondeletesaved) | client → server | Delete saved sessions. |
 | [`session.events`](#sessionevents) | client → server | A session's saved events, read only (1.27.0): unlike session.resume it does not subscribe, attach, restore or take the session's approvals. |
+| [`session.fork`](#sessionfork) | client → server | Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.notice`](#sessionnotice) | client → server | Queue a [system] line for the model's next call. |
@@ -2318,6 +2320,28 @@ A session's saved events, read only (1.27.0): unlike session.resume it does not 
 | `more` | `boolean` | no | True when events past the last one returned exist. |
 | `sessionId` | `string` | yes | The session. |
 
+### `session.fork`
+
+*Direction:* client → server
+
+Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork').
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `atTurnId` | `string \| null` | no | Last turn to keep; omitted keeps everything up to the latest finished turn. A turn before the session's last compaction cannot be cut at. |
+| `sessionId` | `string` | yes | Session to fork (open or closed). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `atTurnId` | `string \| null` | no | Last inherited turn. |
+| `fromSessionId` | `string` | yes | The session it was forked from. |
+| `historyLen` | `number` | no | Messages the new session starts with. |
+| `sessionId` | `string` | yes | The new session. |
+
 ### `session.interrupt`
 
 *Direction:* client → server
@@ -4086,6 +4110,15 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `phase` | `"first_token" \| "idle"` | yes | 'first_token' before the call's first event, 'idle' between events. |
 | `sinceSec` | `number` | yes | Seconds of silence so far. |
 
+### kind `session.forked`
+
+| field | type | required | description |
+|---|---|---|---|
+| `atTurnId` | `string \| null` | no | Last inherited turn. |
+| `fromSessionId` | `string` | yes | Session the history came from. |
+| `historyLen` | `number` | no | Messages inherited. |
+| `kind` | `"session.forked"` | no |  |
+
 ### kind `step.done`
 
 | field | type | required | description |
@@ -4228,6 +4261,8 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `compactions` | `number \| null` | no | Compactions so far when the turn ended (1.46.0); a later one moves the cut. |
+| `historyLen` | `number \| null` | no | Stored history length when the turn ended (1.46.0); where a fork cuts. |
 | `kind` | `"turn.done"` | no |  |
 | `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout" \| "budget" \| "stalled" \| "empty_response"` | no | Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. empty_response = the model ended with no text and no tool call, again after one nudge (1.23.0); an error event with code empty_response precedes it. |
 | `synthetic` | `boolean` | no | True when the daemon wrote this event itself to close a turn a crash left open, rather than the turn reporting its own end (CORE-dangling-turns). The turn produced no further output after the events already stored. |

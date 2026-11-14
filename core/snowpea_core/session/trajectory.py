@@ -48,6 +48,7 @@ KINDS: frozenset[str] = frozenset(
         "model.changed",
         "mode.changed",
         "goal.changed",
+        "session.forked",
     }
 )
 
@@ -346,6 +347,11 @@ class TrajectoryBuilder:
         goal = p.get("goal") or {}
         title = f"goal {goal.get('phase')}" if goal else "goal cleared"
         self._system(seq, ts, turn, step, title, goal.get("objective") or "")
+
+    def _session_forked(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
+        row = Row("context", seq, ts, title="history above is inherited")
+        row.data = {"fromSessionId": p.get("fromSessionId"), "atTurnId": p.get("atTurnId")}
+        self._add(row)
 
 
 def build(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

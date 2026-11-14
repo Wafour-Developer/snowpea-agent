@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.45.0";
+export const PROTOCOL_VERSION = "1.46.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2804,6 +2804,26 @@ export interface SessionEventsResult {
   /** True when events past the last one returned exist. */
   more?: boolean;
   /** The session. */
+  sessionId: string;
+}
+
+/** `session.fork` params. Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). */
+export interface SessionForkParams {
+  /** Last turn to keep; omitted keeps everything up to the latest finished turn. A turn before the session's last compaction cannot be cut at. */
+  atTurnId?: string | null;
+  /** Session to fork (open or closed). */
+  sessionId: string;
+}
+
+/** `session.fork` result. */
+export interface SessionForkResult {
+  /** Last inherited turn. */
+  atTurnId?: string | null;
+  /** The session it was forked from. */
+  fromSessionId: string;
+  /** Messages the new session starts with. */
+  historyLen?: number;
+  /** The new session. */
   sessionId: string;
 }
 
@@ -6619,6 +6639,17 @@ export interface ProviderWaitingEventPayload {
   sinceSec: number;
 }
 
+/** Payload of `session.event` with kind `session.forked`. */
+export interface SessionForkedEventPayload {
+  /** Last inherited turn. */
+  atTurnId?: string | null;
+  /** Session the history came from. */
+  fromSessionId: string;
+  /** Messages inherited. */
+  historyLen?: number;
+  kind?: "session.forked";
+}
+
 /** Payload of `session.event` with kind `step.done`. */
 export interface StepDoneEventPayload {
   /** Of those, served from cache. */
@@ -6850,6 +6881,10 @@ export interface TurnDequeuedEventPayload {
 
 /** Payload of `session.event` with kind `turn.done`. */
 export interface TurnDoneEventPayload {
+  /** Compactions so far when the turn ended (1.46.0); a later one moves the cut. */
+  compactions?: number | null;
+  /** Stored history length when the turn ended (1.46.0); where a fork cuts. */
+  historyLen?: number | null;
   kind?: "turn.done";
   /** Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. empty_response = the model ended with no text and no tool call, again after one nudge (1.23.0); an error event with code empty_response precedes it. */
   reason?: "complete" | "interrupted" | "error" | "denied" | "timeout" | "budget" | "stalled" | "empty_response";
@@ -6963,6 +6998,7 @@ export interface SessionEventKindMap {
   "plan.updated": PlanUpdatedEventPayload;
   "provider.retry": ProviderRetryEventPayload;
   "provider.waiting": ProviderWaitingEventPayload;
+  "session.forked": SessionForkedEventPayload;
   "step.done": StepDoneEventPayload;
   "step.started": StepStartedEventPayload;
   "subagent.done": SubagentDoneEventPayload;
@@ -7011,6 +7047,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "plan.updated",
   "provider.retry",
   "provider.waiting",
+  "session.forked",
   "step.done",
   "step.started",
   "subagent.done",
@@ -7129,6 +7166,7 @@ export interface MethodMap {
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
   "session.deleteSaved": { params: SessionDeleteSavedParams; result: SessionDeleteSavedResult };
   "session.events": { params: SessionEventsParams; result: SessionEventsResult };
+  "session.fork": { params: SessionForkParams; result: SessionForkResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
   "session.notice": { params: SessionNoticeParams; result: SessionNoticeResult };
@@ -7290,6 +7328,7 @@ export type ClientMethod =
   | "session.create"
   | "session.deleteSaved"
   | "session.events"
+  | "session.fork"
   | "session.interrupt"
   | "session.list"
   | "session.notice"

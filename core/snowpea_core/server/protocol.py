@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.45.0"
+PROTOCOL_VERSION = "1.46.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2365,6 +2365,24 @@ class TrajectoryRow(Payload):
             "reason, outcome; compacted — before, after, summaryChars, auto, kept."
         ),
     )
+
+
+class SessionForkParams(Payload):
+    sessionId: str = Field(description="Session to fork (open or closed).")
+    atTurnId: str | None = Field(
+        default=None,
+        description=(
+            "Last turn to keep; omitted keeps everything up to the latest finished turn. "
+            "A turn before the session's last compaction cannot be cut at."
+        ),
+    )
+
+
+class SessionForkResult(Payload):
+    sessionId: str = Field(description="The new session.")
+    fromSessionId: str = Field(description="The session it was forked from.")
+    atTurnId: str | None = Field(default=None, description="Last inherited turn.")
+    historyLen: int = Field(default=0, description="Messages the new session starts with.")
 
 
 class SessionTrajectoryParams(Payload):
@@ -5139,6 +5157,15 @@ class ProviderWaiting(Payload):
     )
 
 
+class SessionForked(Payload):
+    """This session was forked from another; everything before it is inherited (1.46.0)."""
+
+    kind: Literal["session.forked"] = "session.forked"
+    fromSessionId: str = Field(description="Session the history came from.")
+    atTurnId: str | None = Field(default=None, description="Last inherited turn.")
+    historyLen: int = Field(default=0, description="Messages inherited.")
+
+
 class StepStarted(Payload):
     """A model call of the turn begins (1.44.0, capability 'steps')."""
 
@@ -5560,6 +5587,14 @@ class TurnDone(Payload):
             "The turn produced no further output after the events already stored."
         ),
     )
+    historyLen: int | None = Field(
+        default=None,
+        description="Stored history length when the turn ended (1.46.0); where a fork cuts.",
+    )
+    compactions: int | None = Field(
+        default=None,
+        description="Compactions so far when the turn ended (1.46.0); a later one moves the cut.",
+    )
 
 
 TurnOutcomeValue = Literal["ok", "failed", "corrected", "abandoned"]
@@ -5687,6 +5722,7 @@ SessionEventPayload = Annotated[
     | VisionUnavailable
     | GoalChanged
     | StepStarted
+    | SessionForked
     | StepDone
     | ModelChanged
     | UsageEvent
@@ -5733,6 +5769,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "vision.unavailable": VisionUnavailable,
     "goal.changed": GoalChanged,
     "step.started": StepStarted,
+    "session.forked": SessionForked,
     "step.done": StepDone,
     "model.changed": ModelChanged,
     "usage": UsageEvent,
@@ -7143,6 +7180,13 @@ METHODS: dict[str, RpcMethod] = {
             "List chat providers and whether they are configured.",
         ),
         _m(
+            "session.fork",
+            SessionForkParams,
+            SessionForkResult,
+            "Branch a session into a new one at the end of a finished turn; the source is not "
+            "touched (1.46.0, capability 'fork').",
+        ),
+        _m(
             "session.trajectory",
             SessionTrajectoryParams,
             SessionTrajectoryResult,
@@ -7888,6 +7932,7 @@ CAPABILITIES: list[str] = [
     "goals",
     "steps",
     "trajectory",
+    "fork",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -7941,6 +7986,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.models",
         "provider.visionReset",
         "session.trajectory",
+        "session.fork",
         "goal.get",
         "goal.set",
         "goal.pause",
