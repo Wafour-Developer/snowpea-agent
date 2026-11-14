@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.43.0` (semver)
+- **Protocol version:** `1.44.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.43.0"
+    "protocolVersion": "1.44.0"
   }
 }
 ```
@@ -100,6 +100,7 @@ Server capabilities advertised in the `system.hello` result:
 - `skillToggle`
 - `snapshotSupersede`
 - `standingOrders`
+- `steps`
 - `tabReadAlways`
 - `toolInvokeGuard`
 - `tools`
@@ -2310,7 +2311,7 @@ A session's saved events, read only (1.27.0): unlike session.resume it does not 
 
 | field | type | required | description |
 |---|---|---|---|
-| `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | no | Saved events after afterSeq, in seq order. |
+| `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; step?: number \| null; ts: string; turnId?: string \| null; })[]` | no | Saved events after afterSeq, in seq order. |
 | `lastSeq` | `number` | no | The session's newest saved seq when the call was answered; with more false, the events returned reach it. |
 | `more` | `boolean` | no | True when events past the last one returned exist. |
 | `sessionId` | `string` | yes | The session. |
@@ -2439,7 +2440,7 @@ Replay the events a disconnected client missed.
 | `effort` | `string \| null` | no | Reasoning effort pinned on the session. |
 | `effortSource` | `"session" \| "model" \| "vendor" \| "default" \| null` | no | Rule that decided effectiveEffort (1.29.0). |
 | `efforts` | `("low" \| "medium" \| "high" \| "max")[] \| null` | no | Tiers the session's model offers; [] means none (1.29.0). |
-| `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | no | Missed events in seq order. |
+| `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; step?: number \| null; ts: string; turnId?: string \| null; })[]` | no | Missed events in seq order. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | The session's permission mode as restored, so a surface that resumes adopts it instead of keeping the mode it launched with. |
 | `model` | `string \| null` | no | Model id in use. |
 | `origin` | `{ clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null` | no | Who owns the session's approvals after this resume (1.26.0). |
@@ -4060,6 +4061,36 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"provider.waiting"` | no |  |
 | `phase` | `"first_token" \| "idle"` | yes | 'first_token' before the call's first event, 'idle' between events. |
 | `sinceSec` | `number` | yes | Seconds of silence so far. |
+
+### kind `step.done`
+
+| field | type | required | description |
+|---|---|---|---|
+| `cachedInputTokens` | `number \| null` | no | Of those, served from cache. |
+| `decodeMs` | `number` | no | Time from the first token to the end, ms. |
+| `error` | `string \| null` | no | Why the call failed, when it did. |
+| `inputTokens` | `number` | no | Prompt tokens the provider reported. |
+| `kind` | `"step.done"` | no |  |
+| `outcome` | `string` | yes | end_turn, tool_use, max_tokens, interrupted, error, … as the call ended. |
+| `outputTokens` | `number` | no | Completion tokens reported. |
+| `reasoning` | `string` | no | Everything the call thought, settled, as message.reasoning streamed. |
+| `reasoningTokens` | `number` | no | Thinking tokens (estimated when unsplit). |
+| `step` | `number` | yes | Model call number within the turn, from 1. |
+| `text` | `string` | no | Everything the call wrote, settled (1.44.0): the same text its message.delta events streamed, stored once. |
+| `toolCalls` | `number` | no | Tool calls the call asked for. |
+| `totalMs` | `number` | no | Whole call, ms. |
+| `ttftMs` | `number` | no | Time to the first streamed token, ms. |
+| `turnId` | `string \| null` | no | Turn the call belongs to. |
+
+### kind `step.started`
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"step.started"` | no |  |
+| `model` | `string \| null` | no | Model called. |
+| `provider` | `string \| null` | no | Vendor called. |
+| `step` | `number` | yes | Model call number within the turn, from 1. |
+| `turnId` | `string \| null` | no | Turn the call belongs to. |
 
 ### kind `subagent.done`
 

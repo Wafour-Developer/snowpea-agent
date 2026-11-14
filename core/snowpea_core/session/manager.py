@@ -772,9 +772,11 @@ class EventHub:
         seq = session.next_seq() if session is not None else 0
         body = event_builders.validate(kind, payload)
         ts = utc_now()
+        turn_id = getattr(session, "current_turn", None) if session is not None else None
+        step = int(getattr(session, "current_step", 0) or 0) if turn_id else None
         if self.store is not None:
             try:
-                await self.store.append_event(session_id, seq, kind, body, ts)
+                await self.store.append_event(session_id, seq, kind, body, ts, turn_id, step)
             except (StoreClosed, sqlite3.Error) as exc:
                 if isinstance(exc, StoreClosed):
                     # The daemon closed the session store out from under a turn
@@ -791,8 +793,14 @@ class EventHub:
                         session_id,
                         exc_info=True,
                     )
-        event = SessionEvent(sessionId=session_id, seq=seq, kind=kind, payload=body, ts=ts)
+        event = SessionEvent(
+            sessionId=session_id, seq=seq, kind=kind, payload=body, ts=ts, turnId=turn_id, step=step
+        )
         params = event.model_dump(mode="json")
+        # Outside a turn the envelope is what it was before 1.44 (M17 2a).
+        for key in ("turnId", "step"):
+            if params.get(key) is None:
+                params.pop(key, None)
         owner = self.sessions.get(session_id) if self.sessions is not None else None
         params["hostToolsFrom"] = getattr(owner, "host_tools_from", None)
         targets = self.subscribers_for(session_id)

@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS events (
     kind         TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     ts           TEXT NOT NULL,
+    turn_id      TEXT,
+    step         INTEGER,
     PRIMARY KEY (session_id, seq)
 );
 CREATE TABLE IF NOT EXISTS messages (
@@ -107,10 +109,24 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("goal", "TEXT"),
 )
 
+#: Columns added to ``events`` after 1.43 (M17 2a).
+EVENT_COLUMNS: tuple[tuple[str, str], ...] = (("turn_id", "TEXT"), ("step", "INTEGER"))
+
 SQLITE_RETRY_ATTEMPTS = 5
 SQLITE_RETRY_INITIAL_DELAY = 0.05
 SQLITE_RETRY_MAX_DELAY = 0.8
 SQLITE_BUSY_TIMEOUT_MS = 5000
+
+
+def _turn_fields(row: Any) -> dict[str, Any]:
+    """``turnId``/``step`` of a stored event row; nothing for a row from before 1.44."""
+    keys = row.keys()
+    out: dict[str, Any] = {}
+    if "turn_id" in keys and row["turn_id"] is not None:
+        out["turnId"] = row["turn_id"]
+    if "step" in keys and row["step"] is not None:
+        out["step"] = row["step"]
+    return out
 
 
 class StoreClosed(RuntimeError):
@@ -165,6 +181,13 @@ class Store:
             if name in existing:
                 continue
             self._conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} {decl}")
+        # Turn and step on every event (M17 2a).
+        event_columns = {
+            str(row["name"]) for row in self._conn.execute("PRAGMA table_info(events)")
+        }
+        for name, decl in EVENT_COLUMNS:
+            if name not in event_columns:
+                self._conn.execute(f"ALTER TABLE events ADD COLUMN {name} {decl}")
 
     @classmethod
     def open(cls, paths: Paths) -> Store:
@@ -420,14 +443,22 @@ class Store:
 
     # -- events --------------------------------------------------------
     async def append_event(
-        self, session_id: str, seq: int, kind: str, payload: dict[str, Any], ts: str
+        self,
+        session_id: str,
+        seq: int,
+        kind: str,
+        payload: dict[str, Any],
+        ts: str,
+        turn_id: str | None = None,
+        step: int | None = None,
     ) -> None:
         try:
             await asyncio.to_thread(
                 self._execute,
-                "INSERT OR REPLACE INTO events (session_id, seq, kind, payload_json, ts)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (session_id, seq, kind, json.dumps(payload), ts),
+                "INSERT OR REPLACE INTO events "
+                "(session_id, seq, kind, payload_json, ts, turn_id, step)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, seq, kind, json.dumps(payload), ts, turn_id, step),
             )
         except sqlite3.OperationalError:
             # Logged here, where the session id is known; the caller decides
@@ -454,6 +485,7 @@ class Store:
                 "kind": row["kind"],
                 "payload": json.loads(row["payload_json"]),
                 "ts": row["ts"],
+                **_turn_fields(row),
             }
             for row in rows
         ]
@@ -475,6 +507,7 @@ class Store:
                 "kind": row["kind"],
                 "payload": json.loads(row["payload_json"]),
                 "ts": row["ts"],
+                **_turn_fields(row),
             }
             for row in rows[:limit]
         ]

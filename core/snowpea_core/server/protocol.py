@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.43.0"
+PROTOCOL_VERSION = "1.44.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -763,6 +763,17 @@ class SessionEvent(Payload):
     kind: str = Field(description="Event kind; see sessionEventKinds in the schema dump.")
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
     ts: str = Field(description="UTC ISO-8601 timestamp.")
+    turnId: str | None = Field(
+        default=None,
+        description="Turn the event happened in (1.44.0); null outside a turn and before 1.44.",
+    )
+    step: int | None = Field(
+        default=None,
+        description=(
+            "Model call within the turn, from 1 (1.44.0); 0 before the turn's first call, "
+            "null outside a turn and before 1.44."
+        ),
+    )
 
 
 class SessionResumeParams(Payload):
@@ -2361,14 +2372,20 @@ class ProviderVisionResetParams(Payload):
         default=None, description="Vendor to reset; defaults to the configured one."
     )
     model: str | None = Field(
-        default=None, description="Model whose learned 'cannot see images' answer is forgotten; null: the vendor's current model."
+        default=None, description=(
+            "Model whose learned 'cannot see images' answer is "
+            "forgotten; null: the vendor's current model."
+        )
     )
 
 
 class ProviderVisionResetResult(Payload):
     vendor: str = Field(description="Vendor that was reset.")
     model: str = Field(description="Model that was reset.")
-    forgotten: bool = Field(description="True when something had been learned and is now forgotten.")
+    forgotten: bool = Field(description=(
+        "True when something had been learned and is now "
+        "forgotten."
+    ))
 
 
 class ProviderModelsResult(Payload):
@@ -5078,6 +5095,47 @@ class ProviderWaiting(Payload):
     )
 
 
+class StepStarted(Payload):
+    """A model call of the turn begins (1.44.0, capability 'steps')."""
+
+    kind: Literal["step.started"] = "step.started"
+    turnId: str | None = Field(default=None, description="Turn the call belongs to.")
+    step: int = Field(description="Model call number within the turn, from 1.")
+    provider: str | None = Field(default=None, description="Vendor called.")
+    model: str | None = Field(default=None, description="Model called.")
+
+
+class StepDone(Payload):
+    """A model call of the turn ended, with its timing and usage (1.44.0)."""
+
+    kind: Literal["step.done"] = "step.done"
+    turnId: str | None = Field(default=None, description="Turn the call belongs to.")
+    step: int = Field(description="Model call number within the turn, from 1.")
+    outcome: str = Field(
+        description="end_turn, tool_use, max_tokens, interrupted, error, … as the call ended."
+    )
+    ttftMs: int = Field(default=0, description="Time to the first streamed token, ms.")
+    decodeMs: int = Field(default=0, description="Time from the first token to the end, ms.")
+    totalMs: int = Field(default=0, description="Whole call, ms.")
+    inputTokens: int = Field(default=0, description="Prompt tokens the provider reported.")
+    cachedInputTokens: int | None = Field(default=None, description="Of those, served from cache.")
+    outputTokens: int = Field(default=0, description="Completion tokens reported.")
+    reasoningTokens: int = Field(default=0, description="Thinking tokens (estimated when unsplit).")
+    error: str | None = Field(default=None, description="Why the call failed, when it did.")
+    text: str = Field(
+        default="",
+        description=(
+            "Everything the call wrote, settled (1.44.0): the same text its message.delta "
+            "events streamed, stored once."
+        ),
+    )
+    reasoning: str = Field(
+        default="",
+        description="Everything the call thought, settled, as message.reasoning streamed.",
+    )
+    toolCalls: int = Field(default=0, description="Tool calls the call asked for.")
+
+
 class GoalBlockedReason(Payload):
     code: str = Field(description="Short condition code, e.g. 'round-limit' or 'no-credentials'.")
     message: str = Field(default="", description="What is needed to go on.")
@@ -5129,17 +5187,26 @@ class VisionUnavailable(Payload):
         )
     )
     source: Literal["attachment", "tool"] = Field(
-        description="'attachment': the user's message; 'tool': a tool result (view_image, a screenshot)."
+        description=(
+            "'attachment': the user's message; 'tool': a tool result "
+            "(view_image, a screenshot)."
+        )
     )
     provider: str | None = Field(default=None, description="The session's provider.")
     model: str | None = Field(default=None, description="The session's model that could not see.")
     visionModel: str | None = Field(
         default=None,
-        description="models.categories.vision as configured ('vendor:model' or a profile id); null if unset.",
+        description=(
+            "models.categories.vision as configured ('vendor:model' or a "
+            "profile id); null if unset."
+        ),
     )
     count: int = Field(default=1, description="How many images went unseen in this report.")
     error: str | None = Field(
-        default=None, description="Short text of why the vision slot failed ('describe_failed' only)."
+        default=None, description=(
+            "Short text of why the vision slot failed ('describe_failed' "
+            "only)."
+        )
     )
 
 
@@ -5575,6 +5642,8 @@ SessionEventPayload = Annotated[
     | ProviderRetry
     | VisionUnavailable
     | GoalChanged
+    | StepStarted
+    | StepDone
     | ModelChanged
     | UsageEvent
     | ContextEvent
@@ -5619,6 +5688,8 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "provider.retry": ProviderRetry,
     "vision.unavailable": VisionUnavailable,
     "goal.changed": GoalChanged,
+    "step.started": StepStarted,
+    "step.done": StepDone,
     "model.changed": ModelChanged,
     "usage": UsageEvent,
     "context": ContextEvent,
@@ -7049,7 +7120,8 @@ METHODS: dict[str, RpcMethod] = {
             ProviderVisionResetParams,
             ProviderVisionResetResult,
             "Forget the learned vision answer for a model so the next picture is tried again "
-            "(1.41.0, capability 'visionNotice'). A configured providers.<v>.vision wins as before.",
+            "(1.41.0, capability 'visionNotice'). A configured "
+            "providers.<v>.vision wins as before.",
         ),
         _m(
             "provider.models",
@@ -7762,6 +7834,7 @@ CAPABILITIES: list[str] = [
     "visionNotice",
     "contextWindowSource",
     "goals",
+    "steps",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and

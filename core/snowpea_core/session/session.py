@@ -270,6 +270,8 @@ class Session:
     context_snapshot_epoch: int = -1
     #: A tool result asked to end the turn after its batch (M16 P1.4; runtime).
     conclude_turn: bool = False
+    #: Model calls made in the current turn (M17 2a); stamped on every event.
+    current_step: int = 0
     #: The session's goal (M16 P1.6, ``agent.goals.Goal``); stored with the row.
     goal: Any = None
     #: Rounds start by themselves only while armed; runtime only, so a restart

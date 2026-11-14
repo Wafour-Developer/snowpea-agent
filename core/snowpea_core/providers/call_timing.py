@@ -43,7 +43,8 @@ class CallTiming:
         cached_input_tokens: int = 0,
         outcome: str = "ok",
         timings: dict[str, float] | None = None,
-    ) -> None:
+    ) -> dict[str, int]:
+        """Log the call and return ``{ttftMs, decodeMs, totalMs}``."""
         ended = time.monotonic()
         first = self.first_at if self.first_at is not None else ended
         log.info(
@@ -64,6 +65,11 @@ class CallTiming:
             "" if self.first_at is not None else " (no output)",
             server_timings(timings, first - self.started),
         )
+        return {
+            "ttftMs": int((first - self.started) * 1000),
+            "decodeMs": int((ended - first) * 1000),
+            "totalMs": int((ended - self.started) * 1000),
+        }
 
 
 def server_timings(timings: dict[str, float] | None, ttft: float) -> str:

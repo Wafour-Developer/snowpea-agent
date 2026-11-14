@@ -1131,6 +1131,15 @@ async def _stream_once_raw(
         str(getattr(provider, "vendor", None) or session.provider or ""),
         str(getattr(provider, "model", None) or session.model or ""),
     )
+    # One model call is one step of the turn (M17 2a).
+    session.current_step = int(getattr(session, "current_step", 0) or 0) + 1
+    step_no = session.current_step
+    turn_of_step = getattr(session, "current_turn", None)
+    await hub.emit_event(
+        session.id, events.step_started(turn_of_step, step_no, timing.vendor, timing.model)
+    )
+    step_error: str | None = None
+    step_numbers: dict[str, int] = {}
     stream = provider.stream(messages, specs, max_tokens=max_tokens, **extra)
     interrupt_watcher = asyncio.ensure_future(session.interrupt.wait())
     next_event: asyncio.Task[Any] | None = None
@@ -1194,6 +1203,9 @@ async def _stream_once_raw(
                 got_event = True
                 if await handle_event(event):
                     break
+    except Exception as exc:
+        step_error = str(exc) or type(exc).__name__
+        raise
     finally:
         if not interrupt_watcher.done():
             interrupt_watcher.cancel()
@@ -1206,7 +1218,7 @@ async def _stream_once_raw(
         with contextlib.suppress(RuntimeError):
             await stream.aclose()
         routed.__exit__(None, None, None)
-        timing.done(
+        step_numbers = timing.done(
             input_tokens=attempt.input_tokens,
             output_tokens=attempt.output_tokens,
             # vLLM does not split reasoning out of completion_tokens; estimate
@@ -1217,6 +1229,33 @@ async def _stream_once_raw(
             outcome="interrupted" if attempt.interrupted else attempt.stop_reason,
             timings=attempt.timings,
         )
+        if step_error is not None:
+            with contextlib.suppress(Exception):
+                await hub.emit_event(
+                    session.id,
+                    events.step_done(
+                        turn_of_step,
+                        step_no,
+                        "error",
+                        error=step_error[:500],
+                        **_step_usage(attempt),
+                        **step_numbers,
+                    ),
+                )
+    await flush_reasoning()
+    await hub.emit_event(
+        session.id,
+        events.step_done(
+            turn_of_step,
+            step_no,
+            "interrupted" if attempt.interrupted else (attempt.stop_reason or "end_turn"),
+            text="".join(chunks),
+            reasoning="".join(thought),
+            toolCalls=len(attempt.calls),
+            **_step_usage(attempt),
+            **step_numbers,
+        ),
+    )
     # Nothing thought is dropped, including by an interrupt: the last window is
     # always published, so the totals a surface shows match what was counted.
     await flush_reasoning()
@@ -1467,6 +1506,19 @@ async def _flush_notices(session: Session) -> int:
         )
     )
     return len(lines)
+
+
+def _step_usage(attempt: Any) -> dict[str, Any]:
+    """The usage numbers of one model call, for ``step.done``."""
+    reasoning = int(getattr(attempt, "reasoning_tokens", 0) or 0) or -(
+        -int(getattr(attempt, "reasoning_chars", 0) or 0) // CHARS_PER_TOKEN
+    )
+    return {
+        "inputTokens": int(getattr(attempt, "input_tokens", 0) or 0),
+        "cachedInputTokens": getattr(attempt, "cached_input_tokens", None),
+        "outputTokens": int(getattr(attempt, "output_tokens", 0) or 0),
+        "reasoningTokens": reasoning,
+    }
 
 
 def _steer_after_stop(session: Session, decision: Any) -> None:
@@ -2046,6 +2098,7 @@ async def _drive(
     budget_continuations = 0
     session.rounds_used = 0
     session.conclude_turn = False
+    session.current_step = 0
     turn_started_at = monotonic()
     wall_minutes, token_limit, no_progress_limit = _guard_limits(core)
     progress = _TurnProgress(no_progress_limit=no_progress_limit)

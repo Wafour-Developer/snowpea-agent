@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.43.0";
+export const PROTOCOL_VERSION = "1.44.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2792,8 +2792,12 @@ export interface SessionEventsResult {
     seq: number;
     /** Session the event belongs to. */
     sessionId: string;
+    /** Model call within the turn, from 1 (1.44.0); 0 before the turn's first call, null outside a turn and before 1.44. */
+    step?: number | null;
     /** UTC ISO-8601 timestamp. */
     ts: string;
+    /** Turn the event happened in (1.44.0); null outside a turn and before 1.44. */
+    turnId?: string | null;
   })[];
   /** The session's newest saved seq when the call was answered; with more false, the events returned reach it. */
   lastSeq?: number;
@@ -3025,8 +3029,12 @@ export interface SessionResumeResult {
     seq: number;
     /** Session the event belongs to. */
     sessionId: string;
+    /** Model call within the turn, from 1 (1.44.0); 0 before the turn's first call, null outside a turn and before 1.44. */
+    step?: number | null;
     /** UTC ISO-8601 timestamp. */
     ts: string;
+    /** Turn the event happened in (1.44.0); null outside a turn and before 1.44. */
+    turnId?: string | null;
   })[];
   /** The session's permission mode as restored, so a surface that resumes adopts it instead of keeping the mode it launched with. */
   mode?: "plan" | "accept" | "auto" | null;
@@ -6568,6 +6576,52 @@ export interface ProviderWaitingEventPayload {
   sinceSec: number;
 }
 
+/** Payload of `session.event` with kind `step.done`. */
+export interface StepDoneEventPayload {
+  /** Of those, served from cache. */
+  cachedInputTokens?: number | null;
+  /** Time from the first token to the end, ms. */
+  decodeMs?: number;
+  /** Why the call failed, when it did. */
+  error?: string | null;
+  /** Prompt tokens the provider reported. */
+  inputTokens?: number;
+  kind?: "step.done";
+  /** end_turn, tool_use, max_tokens, interrupted, error, … as the call ended. */
+  outcome: string;
+  /** Completion tokens reported. */
+  outputTokens?: number;
+  /** Everything the call thought, settled, as message.reasoning streamed. */
+  reasoning?: string;
+  /** Thinking tokens (estimated when unsplit). */
+  reasoningTokens?: number;
+  /** Model call number within the turn, from 1. */
+  step: number;
+  /** Everything the call wrote, settled (1.44.0): the same text its message.delta events streamed, stored once. */
+  text?: string;
+  /** Tool calls the call asked for. */
+  toolCalls?: number;
+  /** Whole call, ms. */
+  totalMs?: number;
+  /** Time to the first streamed token, ms. */
+  ttftMs?: number;
+  /** Turn the call belongs to. */
+  turnId?: string | null;
+}
+
+/** Payload of `session.event` with kind `step.started`. */
+export interface StepStartedEventPayload {
+  kind?: "step.started";
+  /** Model called. */
+  model?: string | null;
+  /** Vendor called. */
+  provider?: string | null;
+  /** Model call number within the turn, from 1. */
+  step: number;
+  /** Turn the call belongs to. */
+  turnId?: string | null;
+}
+
 /** Payload of `session.event` with kind `subagent.done`. */
 export interface SubagentDoneEventPayload {
   /** Subagent that finished. */
@@ -6866,6 +6920,8 @@ export interface SessionEventKindMap {
   "plan.updated": PlanUpdatedEventPayload;
   "provider.retry": ProviderRetryEventPayload;
   "provider.waiting": ProviderWaitingEventPayload;
+  "step.done": StepDoneEventPayload;
+  "step.started": StepStartedEventPayload;
   "subagent.done": SubagentDoneEventPayload;
   "subagent.spawn": SubagentSpawnEventPayload;
   "subagent.update": SubagentUpdateEventPayload;
@@ -6912,6 +6968,8 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "plan.updated",
   "provider.retry",
   "provider.waiting",
+  "step.done",
+  "step.started",
   "subagent.done",
   "subagent.spawn",
   "subagent.update",

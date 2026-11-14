@@ -258,6 +258,18 @@ def provider_retry(attempt: int, max_retries: int, delay_sec: float, error: str)
     )
 
 
+def step_started(turn_id: str | None, step: int, provider: str | None, model: str | None) -> Event:
+    from snowpea_core.server.protocol import StepStarted
+
+    return _pack(StepStarted(turnId=turn_id, step=step, provider=provider, model=model))
+
+
+def step_done(turn_id: str | None, step: int, outcome: str, **numbers: Any) -> Event:
+    from snowpea_core.server.protocol import StepDone
+
+    return _pack(StepDone(turnId=turn_id, step=step, outcome=outcome, **numbers))
+
+
 def goal_changed(view: dict[str, Any] | None) -> Event:
     """The session's goal changed (1.43.0)."""
     from snowpea_core.server.protocol import GoalChanged, GoalView
