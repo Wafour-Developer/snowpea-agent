@@ -14,7 +14,7 @@ and no TUI.
 
 stdout carries one JSON object per line and nothing else::
 
-    {"event":"ready","port":N,"token":"...","version":"...","protocol":"1.42.0",
+    {"event":"ready","port":N,"token":"...","version":"...","protocol":"1.43.0",
      "machine":{"id":...,"hostname":...,"os":...,"container":...},"cwd":"..."}
     {"event":"reconnecting"}                 the tunnel or the daemon went away
     {"event":"ready", ...}                   again, after the tunnel is back (port/token may differ)

@@ -35,6 +35,7 @@ MESSAGE_NAME = "runtime_context"
 
 #: Where each built-in provider sits in the snapshot.
 CONTEXT_ORDERS: dict[str, int] = {
+    "goal": 50,
     "plan": 100,
     "plan-auto": 110,
     "context-pressure": 900,
@@ -118,6 +119,12 @@ class ContextRegistry:
 # ---------------------------------------------------------------------------
 
 
+def _goal(core: Any, session: Any) -> str:
+    from snowpea_core.agent.goal_driver import runtime_text
+
+    return runtime_text(core, session)
+
+
 def _plan(core: Any, session: Any) -> str:
     # Only the main agent works a plan (CORE-plan-continuity).
     if getattr(session, "is_subagent", False):
@@ -148,6 +155,7 @@ def _context_pressure(core: Any, session: Any) -> str:
 
 
 BUILTIN_PROVIDERS: tuple[ContextProvider, ...] = (
+    ContextProvider("goal", CONTEXT_ORDERS["goal"], _goal),
     ContextProvider("plan", CONTEXT_ORDERS["plan"], _plan),
     ContextProvider("plan-auto", CONTEXT_ORDERS["plan-auto"], _plan_auto),
     ContextProvider("context-pressure", CONTEXT_ORDERS["context-pressure"], _context_pressure),

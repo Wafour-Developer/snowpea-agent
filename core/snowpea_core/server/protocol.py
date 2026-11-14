@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.42.0"
+PROTOCOL_VERSION = "1.43.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2328,6 +2328,32 @@ class ProviderModelsParams(Payload):
             "models.categories.* that point at this vendor are always included."
         ),
     )
+
+
+class GoalGetParams(Payload):
+    sessionId: str = Field(description="Session whose goal is read.")
+
+
+class GoalSetParams(Payload):
+    sessionId: str = Field(description="Session the goal belongs to; replaces any goal it had.")
+    objective: str = Field(description="What has to be true when the goal is complete.")
+    maxRounds: int | None = Field(
+        default=None, description="Round cap (default 20, at most 256)."
+    )
+    start: bool = Field(
+        default=True, description="Start the first round now when the session is idle."
+    )
+
+
+class GoalControlParams(Payload):
+    sessionId: str = Field(description="Session whose goal is paused, resumed or cleared.")
+    extraRounds: int = Field(
+        default=0, description="goal.resume only: rounds added to the cap."
+    )
+
+
+class GoalResult(Payload):
+    goal: GoalView | None = Field(default=None, description="The goal now; null when none.")
 
 
 class ProviderVisionResetParams(Payload):
@@ -5052,6 +5078,39 @@ class ProviderWaiting(Payload):
     )
 
 
+class GoalBlockedReason(Payload):
+    code: str = Field(description="Short condition code, e.g. 'round-limit' or 'no-credentials'.")
+    message: str = Field(default="", description="What is needed to go on.")
+
+
+class GoalView(Payload):
+    """A session's goal (1.43.0, capability 'goals')."""
+
+    id: str = Field(description="Goal id.")
+    revision: int = Field(description="Bumped on every change; goal_update must name it.")
+    objective: str = Field(description="What the goal is.")
+    phase: Literal["active", "paused", "blocked", "complete"] = Field(
+        description="active runs rounds while armed; paused, blocked and complete do not."
+    )
+    maxRounds: int = Field(description="Round cap; reaching it blocks with 'round-limit'.")
+    rounds: int = Field(default=0, description="Rounds started so far.")
+    armed: bool = Field(
+        default=False,
+        description="Rounds start by themselves only while armed; never after a restart or resume.",
+    )
+    blockedReason: GoalBlockedReason | None = Field(default=None, description="Set when blocked.")
+    evidence: str | None = Field(default=None, description="What showed it complete.")
+    createdAt: str = Field(description="UTC ISO-8601.")
+    updatedAt: str = Field(description="UTC ISO-8601.")
+
+
+class GoalChanged(Payload):
+    """The session's goal changed or was cleared (1.43.0)."""
+
+    kind: Literal["goal.changed"] = "goal.changed"
+    goal: GoalView | None = Field(default=None, description="The goal now; null once cleared.")
+
+
 class VisionUnavailable(Payload):
     """A picture reached a model that cannot see it and nothing described it (1.41.0).
 
@@ -5515,6 +5574,7 @@ SessionEventPayload = Annotated[
     | ProviderWaiting
     | ProviderRetry
     | VisionUnavailable
+    | GoalChanged
     | ModelChanged
     | UsageEvent
     | ContextEvent
@@ -5558,6 +5618,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "provider.waiting": ProviderWaiting,
     "provider.retry": ProviderRetry,
     "vision.unavailable": VisionUnavailable,
+    "goal.changed": GoalChanged,
     "model.changed": ModelChanged,
     "usage": UsageEvent,
     "context": ContextEvent,
@@ -6966,6 +7027,23 @@ METHODS: dict[str, RpcMethod] = {
             ProviderListResult,
             "List chat providers and whether they are configured.",
         ),
+        _m("goal.get", GoalGetParams, GoalResult, "Read the session's goal (1.43.0)."),
+        _m(
+            "goal.set",
+            GoalSetParams,
+            GoalResult,
+            "Give the session a goal and arm it; rounds run until goal_update completes or "
+            "blocks it, or the round cap (1.43.0, capability 'goals').",
+        ),
+        _m("goal.pause", GoalControlParams, GoalResult, "Pause and disarm the goal (1.43.0)."),
+        _m(
+            "goal.resume",
+            GoalControlParams,
+            GoalResult,
+            "Re-arm a paused or blocked goal, optionally with more rounds, and start a round "
+            "when idle (1.43.0).",
+        ),
+        _m("goal.clear", GoalControlParams, GoalResult, "Remove the goal (1.43.0)."),
         _m(
             "provider.visionReset",
             ProviderVisionResetParams,
@@ -7683,6 +7761,7 @@ CAPABILITIES: list[str] = [
     "approvalEvaluate",
     "visionNotice",
     "contextWindowSource",
+    "goals",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -7735,6 +7814,11 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.list",
         "provider.models",
         "provider.visionReset",
+        "goal.get",
+        "goal.set",
+        "goal.pause",
+        "goal.resume",
+        "goal.clear",
         "provider.configure",
         "provider.remove",
         "provider.loginWeb",

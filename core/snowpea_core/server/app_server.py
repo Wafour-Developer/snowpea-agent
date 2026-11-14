@@ -669,6 +669,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_mcp_handlers(dispatcher)
     register_update_handlers(dispatcher)
     register_checkpoint_handlers(dispatcher)
+    from snowpea_core.server.goal_handlers import register_goal_handlers
+
+    register_goal_handlers(dispatcher)
     from snowpea_core.server.host_handlers import register_host_handlers
 
     register_host_handlers(dispatcher)

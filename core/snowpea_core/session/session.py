@@ -270,6 +270,11 @@ class Session:
     context_snapshot_epoch: int = -1
     #: A tool result asked to end the turn after its batch (M16 P1.4; runtime).
     conclude_turn: bool = False
+    #: The session's goal (M16 P1.6, ``agent.goals.Goal``); stored with the row.
+    goal: Any = None
+    #: Rounds start by themselves only while armed; runtime only, so a restart
+    #: or a resume never starts one unasked.
+    goal_armed: bool = False
     #: Short label: the first prompt's opening words, or ``session.rename``.
     title: str | None = None
     #: UTC ISO times for the task list (1.7.0): last prompt/turn end, and the

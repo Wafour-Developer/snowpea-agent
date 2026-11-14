@@ -258,6 +258,13 @@ def provider_retry(attempt: int, max_retries: int, delay_sec: float, error: str)
     )
 
 
+def goal_changed(view: dict[str, Any] | None) -> Event:
+    """The session's goal changed (1.43.0)."""
+    from snowpea_core.server.protocol import GoalChanged, GoalView
+
+    return _pack(GoalChanged(goal=GoalView(**view) if view else None))
+
+
 def vision_unavailable(
     reason: str,
     source: str,

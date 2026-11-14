@@ -310,6 +310,11 @@ class SessionManager:
         session.host_tools_from = row.get("host_tools_from")
         session.browser_provider = row.get("browser_provider")
         session.auto_after_plan = session.mode == "plan" and bool(row.get("auto_after_plan"))
+        from snowpea_core.agent.goals import Goal
+
+        # Shown, not armed: a resumed goal waits for a person (M16 P1.6).
+        session.goal = Goal.from_json(row.get("goal"))
+        session.goal_armed = False
         for attr in ("memory_override", "site_memory_override"):
             value = row.get(attr)
             setattr(session, attr, None if value is None else bool(value))

@@ -1658,7 +1658,23 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
             # prompt that arrived after that is new user intent and must still
             # run, not be swallowed by the interrupt that preceded it.
             if not session.queued_turns:
-                break
+                # An armed goal goes on to its next round (M16 P1.6).
+                from snowpea_core.agent import goal_driver
+
+                round_text = await goal_driver.after_turn(core, session)
+                if not round_text:
+                    break
+                queued = QueuedTurn(
+                    turn_id=new_turn_id(),
+                    text=round_text,
+                    unattended=False,
+                    attachments=[],
+                    initiator="system",
+                    reason="goal",
+                    origin="system",
+                )
+                waited = True
+                continue
             queued = session.queued_turns.pop(0)
             waited = True
             await core.hub.emit_event(

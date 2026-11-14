@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.42.0";
+export const PROTOCOL_VERSION = "1.43.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -983,6 +983,218 @@ export interface GatewayUnbindParams {
 export interface GatewayUnbindResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `goal.clear` params. Remove the goal (1.43.0). */
+export interface GoalClearParams {
+  /** goal.resume only: rounds added to the cap. */
+  extraRounds?: number;
+  /** Session whose goal is paused, resumed or cleared. */
+  sessionId: string;
+}
+
+/** `goal.clear` result. */
+export interface GoalClearResult {
+  /** The goal now; null when none. */
+  goal?: {
+    /** Rounds start by themselves only while armed; never after a restart or resume. */
+    armed?: boolean;
+    /** Set when blocked. */
+    blockedReason?: {
+      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
+      code: string;
+      /** What is needed to go on. */
+      message?: string;
+    } | null;
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** What showed it complete. */
+    evidence?: string | null;
+    /** Goal id. */
+    id: string;
+    /** Round cap; reaching it blocks with 'round-limit'. */
+    maxRounds: number;
+    /** What the goal is. */
+    objective: string;
+    /** active runs rounds while armed; paused, blocked and complete do not. */
+    phase: "active" | "paused" | "blocked" | "complete";
+    /** Bumped on every change; goal_update must name it. */
+    revision: number;
+    /** Rounds started so far. */
+    rounds?: number;
+    /** UTC ISO-8601. */
+    updatedAt: string;
+  } | null;
+}
+
+/** `goal.get` params. Read the session's goal (1.43.0). */
+export interface GoalGetParams {
+  /** Session whose goal is read. */
+  sessionId: string;
+}
+
+/** `goal.get` result. */
+export interface GoalGetResult {
+  /** The goal now; null when none. */
+  goal?: {
+    /** Rounds start by themselves only while armed; never after a restart or resume. */
+    armed?: boolean;
+    /** Set when blocked. */
+    blockedReason?: {
+      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
+      code: string;
+      /** What is needed to go on. */
+      message?: string;
+    } | null;
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** What showed it complete. */
+    evidence?: string | null;
+    /** Goal id. */
+    id: string;
+    /** Round cap; reaching it blocks with 'round-limit'. */
+    maxRounds: number;
+    /** What the goal is. */
+    objective: string;
+    /** active runs rounds while armed; paused, blocked and complete do not. */
+    phase: "active" | "paused" | "blocked" | "complete";
+    /** Bumped on every change; goal_update must name it. */
+    revision: number;
+    /** Rounds started so far. */
+    rounds?: number;
+    /** UTC ISO-8601. */
+    updatedAt: string;
+  } | null;
+}
+
+/** `goal.pause` params. Pause and disarm the goal (1.43.0). */
+export interface GoalPauseParams {
+  /** goal.resume only: rounds added to the cap. */
+  extraRounds?: number;
+  /** Session whose goal is paused, resumed or cleared. */
+  sessionId: string;
+}
+
+/** `goal.pause` result. */
+export interface GoalPauseResult {
+  /** The goal now; null when none. */
+  goal?: {
+    /** Rounds start by themselves only while armed; never after a restart or resume. */
+    armed?: boolean;
+    /** Set when blocked. */
+    blockedReason?: {
+      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
+      code: string;
+      /** What is needed to go on. */
+      message?: string;
+    } | null;
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** What showed it complete. */
+    evidence?: string | null;
+    /** Goal id. */
+    id: string;
+    /** Round cap; reaching it blocks with 'round-limit'. */
+    maxRounds: number;
+    /** What the goal is. */
+    objective: string;
+    /** active runs rounds while armed; paused, blocked and complete do not. */
+    phase: "active" | "paused" | "blocked" | "complete";
+    /** Bumped on every change; goal_update must name it. */
+    revision: number;
+    /** Rounds started so far. */
+    rounds?: number;
+    /** UTC ISO-8601. */
+    updatedAt: string;
+  } | null;
+}
+
+/** `goal.resume` params. Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0). */
+export interface GoalResumeParams {
+  /** goal.resume only: rounds added to the cap. */
+  extraRounds?: number;
+  /** Session whose goal is paused, resumed or cleared. */
+  sessionId: string;
+}
+
+/** `goal.resume` result. */
+export interface GoalResumeResult {
+  /** The goal now; null when none. */
+  goal?: {
+    /** Rounds start by themselves only while armed; never after a restart or resume. */
+    armed?: boolean;
+    /** Set when blocked. */
+    blockedReason?: {
+      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
+      code: string;
+      /** What is needed to go on. */
+      message?: string;
+    } | null;
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** What showed it complete. */
+    evidence?: string | null;
+    /** Goal id. */
+    id: string;
+    /** Round cap; reaching it blocks with 'round-limit'. */
+    maxRounds: number;
+    /** What the goal is. */
+    objective: string;
+    /** active runs rounds while armed; paused, blocked and complete do not. */
+    phase: "active" | "paused" | "blocked" | "complete";
+    /** Bumped on every change; goal_update must name it. */
+    revision: number;
+    /** Rounds started so far. */
+    rounds?: number;
+    /** UTC ISO-8601. */
+    updatedAt: string;
+  } | null;
+}
+
+/** `goal.set` params. Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). */
+export interface GoalSetParams {
+  /** Round cap (default 20, at most 256). */
+  maxRounds?: number | null;
+  /** What has to be true when the goal is complete. */
+  objective: string;
+  /** Session the goal belongs to; replaces any goal it had. */
+  sessionId: string;
+  /** Start the first round now when the session is idle. */
+  start?: boolean;
+}
+
+/** `goal.set` result. */
+export interface GoalSetResult {
+  /** The goal now; null when none. */
+  goal?: {
+    /** Rounds start by themselves only while armed; never after a restart or resume. */
+    armed?: boolean;
+    /** Set when blocked. */
+    blockedReason?: {
+      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
+      code: string;
+      /** What is needed to go on. */
+      message?: string;
+    } | null;
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** What showed it complete. */
+    evidence?: string | null;
+    /** Goal id. */
+    id: string;
+    /** Round cap; reaching it blocks with 'round-limit'. */
+    maxRounds: number;
+    /** What the goal is. */
+    objective: string;
+    /** active runs rounds while armed; paused, blocked and complete do not. */
+    phase: "active" | "paused" | "blocked" | "complete";
+    /** Bumped on every change; goal_update must name it. */
+    revision: number;
+    /** Rounds started so far. */
+    rounds?: number;
+    /** UTC ISO-8601. */
+    updatedAt: string;
+  } | null;
 }
 
 /** `host.turnContext` params. At turn start, ask the session's host-tools connection for a note for the turn's first model call (1.31.0). Only on a browser connection that sent tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open. */
@@ -6124,6 +6336,41 @@ export interface ErrorEventPayload {
   message: string;
 }
 
+/** Payload of `session.event` with kind `goal.changed`. */
+export interface GoalChangedEventPayload {
+  /** The goal now; null once cleared. */
+  goal?: {
+    /** Rounds start by themselves only while armed; never after a restart or resume. */
+    armed?: boolean;
+    /** Set when blocked. */
+    blockedReason?: {
+      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
+      code: string;
+      /** What is needed to go on. */
+      message?: string;
+    } | null;
+    /** UTC ISO-8601. */
+    createdAt: string;
+    /** What showed it complete. */
+    evidence?: string | null;
+    /** Goal id. */
+    id: string;
+    /** Round cap; reaching it blocks with 'round-limit'. */
+    maxRounds: number;
+    /** What the goal is. */
+    objective: string;
+    /** active runs rounds while armed; paused, blocked and complete do not. */
+    phase: "active" | "paused" | "blocked" | "complete";
+    /** Bumped on every change; goal_update must name it. */
+    revision: number;
+    /** Rounds started so far. */
+    rounds?: number;
+    /** UTC ISO-8601. */
+    updatedAt: string;
+  } | null;
+  kind?: "goal.changed";
+}
+
 /** Payload of `session.event` with kind `hook.continue`. */
 export interface HookContinueEventPayload {
   /** How many times Stop hooks continued this turn so far. */
@@ -6603,6 +6850,7 @@ export interface SessionEventKindMap {
   "context.host": ContextHostEventPayload;
   "diff": DiffEventPayload;
   "error": ErrorEventPayload;
+  "goal.changed": GoalChangedEventPayload;
   "hook.continue": HookContinueEventPayload;
   "job.done": JobDoneEventPayload;
   "job.failed": JobFailedEventPayload;
@@ -6648,6 +6896,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "context.host",
   "diff",
   "error",
+  "goal.changed",
   "hook.continue",
   "job.done",
   "job.failed",
@@ -6720,6 +6969,11 @@ export interface MethodMap {
   "gateway.list": { params: GatewayListParams; result: GatewayListResult };
   "gateway.sync": { params: GatewaySyncParams; result: GatewaySyncResult };
   "gateway.unbind": { params: GatewayUnbindParams; result: GatewayUnbindResult };
+  "goal.clear": { params: GoalClearParams; result: GoalClearResult };
+  "goal.get": { params: GoalGetParams; result: GoalGetResult };
+  "goal.pause": { params: GoalPauseParams; result: GoalPauseResult };
+  "goal.resume": { params: GoalResumeParams; result: GoalResumeResult };
+  "goal.set": { params: GoalSetParams; result: GoalSetResult };
   "host.turnContext": { params: HostTurnContextParams; result: HostTurnContextResult };
   "job.cancel": { params: JobCancelParams; result: JobCancelResult };
   "job.delete": { params: JobDeleteParams; result: JobDeleteResult };
@@ -6877,6 +7131,11 @@ export type ClientMethod =
   | "gateway.list"
   | "gateway.sync"
   | "gateway.unbind"
+  | "goal.clear"
+  | "goal.get"
+  | "goal.pause"
+  | "goal.resume"
+  | "goal.set"
   | "job.cancel"
   | "job.delete"
   | "job.list"

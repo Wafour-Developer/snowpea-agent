@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.42.0` (semver)
+- **Protocol version:** `1.43.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.42.0"
+    "protocolVersion": "1.43.0"
   }
 }
 ```
@@ -49,6 +49,7 @@ Server capabilities advertised in the `system.hello` result:
 - `contextWindowSource`
 - `ephemeralImages`
 - `fs`
+- `goals`
 - `holdSec`
 - `hostToolParallel`
 - `hostTools`
@@ -146,6 +147,11 @@ Server capabilities advertised in the `system.hello` result:
 | [`gateway.list`](#gatewaylist) | client → server | List live gateway bindings. |
 | [`gateway.sync`](#gatewaysync) | client → server | Reconcile the messenger bindings with settings.gateway. |
 | [`gateway.unbind`](#gatewayunbind) | client → server | Detach a gateway binding. |
+| [`goal.clear`](#goalclear) | client → server | Remove the goal (1.43.0). |
+| [`goal.get`](#goalget) | client → server | Read the session's goal (1.43.0). |
+| [`goal.pause`](#goalpause) | client → server | Pause and disarm the goal (1.43.0). |
+| [`goal.resume`](#goalresume) | client → server | Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0). |
+| [`goal.set`](#goalset) | client → server | Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). |
 | [`host.turnContext`](#hostturncontext) | server → client | At turn start, ask the session's host-tools connection for a note for the turn's first model call (1.31.0). Only on a browser connection that sent tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open. |
 | [`job.cancel`](#jobcancel) | client → server | Cancel a scheduled job. |
 | [`job.delete`](#jobdelete) | client → server | Delete a job, its schedule and run history; optionally its run sessions. |
@@ -1016,6 +1022,102 @@ Detach a gateway binding.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `goal.clear`
+
+*Direction:* client → server
+
+Remove the goal (1.43.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `extraRounds` | `number` | no | goal.resume only: rounds added to the cap. |
+| `sessionId` | `string` | yes | Session whose goal is paused, resumed or cleared. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+
+### `goal.get`
+
+*Direction:* client → server
+
+Read the session's goal (1.43.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Session whose goal is read. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+
+### `goal.pause`
+
+*Direction:* client → server
+
+Pause and disarm the goal (1.43.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `extraRounds` | `number` | no | goal.resume only: rounds added to the cap. |
+| `sessionId` | `string` | yes | Session whose goal is paused, resumed or cleared. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+
+### `goal.resume`
+
+*Direction:* client → server
+
+Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `extraRounds` | `number` | no | goal.resume only: rounds added to the cap. |
+| `sessionId` | `string` | yes | Session whose goal is paused, resumed or cleared. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+
+### `goal.set`
+
+*Direction:* client → server
+
+Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals').
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `maxRounds` | `number \| null` | no | Round cap (default 20, at most 256). |
+| `objective` | `string` | yes | What has to be true when the goal is complete. |
+| `sessionId` | `string` | yes | Session the goal belongs to; replaces any goal it had. |
+| `start` | `boolean` | no | Start the first round now when the session is idle. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
 
 ### `host.turnContext`
 
@@ -3808,6 +3910,13 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `code` | `string` | yes | One of the protocol error codes. |
 | `kind` | `"error"` | no |  |
 | `message` | `string` | yes | Human-readable detail. |
+
+### kind `goal.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null once cleared. |
+| `kind` | `"goal.changed"` | no |  |
 
 ### kind `hook.continue`
 

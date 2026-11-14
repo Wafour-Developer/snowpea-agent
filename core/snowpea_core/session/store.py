@@ -104,6 +104,7 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("memory_override", "INTEGER"),
     ("site_memory_override", "INTEGER"),
     ("auto_after_plan", "INTEGER"),
+    ("goal", "TEXT"),
 )
 
 SQLITE_RETRY_ATTEMPTS = 5
@@ -322,6 +323,12 @@ class Store:
             self._execute,
             "UPDATE sessions SET mode = ?, auto_after_plan = ? WHERE id = ?",
             (mode, int(auto_after_plan), session_id),
+        )
+
+    async def update_goal(self, session_id: str, goal_json: str | None) -> None:
+        """Persist the session's goal (M16 P1.6); ``None`` clears it."""
+        await asyncio.to_thread(
+            self._execute, "UPDATE sessions SET goal = ? WHERE id = ?", (goal_json, session_id)
         )
 
     async def close_session(self, session_id: str, closed_at: str) -> None:

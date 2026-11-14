@@ -393,6 +393,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
     MCP tools are not here: they are discovered per workdir and registered by
     :func:`snowpea_core.tools.mcp_client.sync_tools`.
     """
+    from snowpea_core.agent import goal_driver
     from snowpea_core.lsp import tools as lsp_tools
     from snowpea_core.tools import (
         ask_user,
@@ -443,6 +444,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         *delegate.TOOLS,
         *lsp_tools.TOOLS,
         *tool_search.TOOLS,
+        *goal_driver.TOOLS,
     ):
         registry.register(tool)
     return registry
