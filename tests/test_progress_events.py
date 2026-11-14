@@ -293,3 +293,27 @@ async def test_compaction_that_does_nothing_announces_nothing(tmp_path: Path) ->
     assert not result.compacted
     assert recorder.of_kind("compaction.started") == []
     await asyncio.sleep(0)
+
+
+async def test_a_slow_listener_never_loses_the_last_chunk(tmp_path: Path) -> None:
+    """Cancelling the flusher while it is emitting must not drop that chunk."""
+    import asyncio
+
+    from snowpea_core.exec.local import LocalBackend
+
+    backend = LocalBackend(tmp_path)
+    seen: list[str] = []
+
+    async def slow(stream: str, chunk: str) -> None:
+        await asyncio.sleep(0.25)  # longer than the flush interval
+        seen.append(chunk)
+
+    for _ in range(3):
+        seen.clear()
+        result = await backend.run_stream(
+            "for i in 0 1 2 3 4 5; do echo line $i; sleep 0.05; done",
+            timeout=30,
+            on_chunk=slow,
+        )
+        assert result.exit_code == 0
+        assert "".join(seen) == "".join(f"line {i}\n" for i in range(6))

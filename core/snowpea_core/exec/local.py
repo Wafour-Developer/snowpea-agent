@@ -134,18 +134,26 @@ class LocalBackend:
                 if not data:
                     return
 
+        # One flush at a time, and the ticker's is shielded: cancelling the
+        # ticker when the command ends must not interrupt a chunk already taken
+        # off ``waiting`` (it was lost, so the streamed tail missed its last
+        # line). The final flush below waits for it on the lock.
+        flush_lock = asyncio.Lock()
+
         async def flush() -> None:
             if on_chunk is None:
                 return
-            for name in ("stdout", "stderr"):
-                while waiting[name]:
-                    chunk, waiting[name] = waiting[name][:CHUNK_LIMIT], waiting[name][CHUNK_LIMIT:]
-                    await on_chunk(name, chunk)
+            async with flush_lock:
+                for name in ("stdout", "stderr"):
+                    while waiting[name]:
+                        chunk = waiting[name][:CHUNK_LIMIT]
+                        waiting[name] = waiting[name][CHUNK_LIMIT:]
+                        await on_chunk(name, chunk)
 
         async def ticker() -> None:
             while True:
                 await asyncio.sleep(FLUSH_INTERVAL)
-                await flush()
+                await asyncio.shield(flush())
 
         async def drain() -> int:
             await asyncio.gather(pump(process.stdout, "stdout"), pump(process.stderr, "stderr"))
