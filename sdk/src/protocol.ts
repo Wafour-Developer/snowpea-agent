@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.44.0";
+export const PROTOCOL_VERSION = "1.45.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -3205,6 +3205,49 @@ export interface SessionToolContentResult {
     text?: string | null;
     /** Block kind. */
     type: "text" | "image";
+  })[];
+}
+
+/** `session.trajectory` params. The session's event log as turn-aware rows: turns, model calls with timing and usage, tool calls with results, delegations, compactions (1.45.0, capability 'trajectory'). */
+export interface SessionTrajectoryParams {
+  /** Only rows that started or finished after this seq; pass the last lastSeq to get what changed. Rows are keyed by seq: replace a row you have with a newer one. */
+  afterSeq?: number;
+  /** At most this many rows, the newest first kept. */
+  limit?: number;
+  /** Session to read (open or closed). */
+  sessionId: string;
+}
+
+/** `session.trajectory` result. */
+export interface SessionTrajectoryResult {
+  /** Highest event seq folded; the next afterSeq. */
+  lastSeq?: number;
+  /** True when older rows were left out by limit. */
+  more?: boolean;
+  /** Rows in seq order. */
+  rows?: ({
+    /** Kind-specific facts: message — outcome, ttftMs, decodeMs, totalMs, inputTokens, cachedInputTokens, outputTokens, reasoningChars, toolCalls; tool — name, callId, paths; subagent — agentId, childSessionId, reason, rounds; turn — initiator, reason, outcome; compacted — before, after, summaryChars, auto, kept. */
+    data?: Record<string, unknown> | null;
+    /** Event that finished it (result, done). */
+    endSeq?: number | null;
+    /** When it finished. */
+    endTs?: string | null;
+    /** What the row is. */
+    kind: "turn" | "user" | "message" | "tool" | "subagent" | "compacted" | "context" | "system";
+    /** Whether it succeeded, once finished. */
+    ok?: boolean | null;
+    /** Event the row comes from; the key to merge updates by. */
+    seq: number;
+    /** Model call within the turn. */
+    step?: number | null;
+    /** Text or result preview. */
+    text?: string | null;
+    /** One line for the row. */
+    title?: string;
+    /** When it started. */
+    ts: string;
+    /** Turn it belongs to. */
+    turnId?: string | null;
   })[];
 }
 
@@ -7100,6 +7143,7 @@ export interface MethodMap {
   "session.setModel": { params: SessionSetModelParams; result: SessionSetModelResult };
   "session.steer": { params: SessionSteerParams; result: SessionSteerResult };
   "session.toolContent": { params: SessionToolContentParams; result: SessionToolContentResult };
+  "session.trajectory": { params: SessionTrajectoryParams; result: SessionTrajectoryResult };
   "settings.get": { params: SettingsGetParams; result: SettingsGetResult };
   "settings.set": { params: SettingsSetParams; result: SettingsSetResult };
   "setup.applyDefaults": { params: SetupApplyDefaultsParams; result: SetupApplyDefaultsResult };
@@ -7260,6 +7304,7 @@ export type ClientMethod =
   | "session.setModel"
   | "session.steer"
   | "session.toolContent"
+  | "session.trajectory"
   | "settings.get"
   | "settings.set"
   | "setup.applyDefaults"

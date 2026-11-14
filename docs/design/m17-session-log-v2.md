@@ -40,3 +40,44 @@ manual pages where users see something.
 - `step.done` comes from the same numbers `call_timing` already logs (`ttft`, `decode`,
   `total`, `in`, `cached`, `out`, `reasoning`, `outcome`), plus the retry count of that call.
 - `session.resume` replays the two new fields; a row stored before 1.44 has them null.
+
+## 2b in detail
+
+- `session/trajectory.py` is a pure fold (`TrajectoryBuilder.apply`) over the stored events of
+  the kinds it reads (`KINDS`; never the deltas). `session.trajectory {sessionId, afterSeq,
+  limit}` keeps one builder per session (LRU of 32), folds only what was appended since its
+  `last_seq`, and returns the rows that started *or finished* after `afterSeq`, so a client
+  merges by `seq`.
+- A turn that reports steps (1.44+) gets one `message` row per model call, from
+  `step.started`/`step.done` (text, timing, usage); an older turn gets one per `message.done`.
+- Checked against the 25 largest sessions of a real log: 7 889 rows in 0.17 s, no errors.
+
+## 2c in detail — fork
+
+- `turn.done` gains `historyLen` and `compactions` (the stored history length and the
+  compaction count when the turn ended).
+- `session.fork {sessionId, atTurnId?}` creates a new session in the same workdir with the
+  same mode, model and agent, `forkedFrom`, `forkedAtTurnId`, and a title "<title> (fork)":
+  - its history is the source history cut at that turn's `historyLen`; refused when a
+    compaction happened after that turn (the cut point is inside the summary now), except
+    for the latest finished turn, which forks the whole current history;
+  - its event log is the source log up to that turn's `turn.done`, renumbered from 1, then a
+    `session.forked {fromSessionId, atTurnId}` event the chat draws as "history above is
+    inherited";
+  - refused while the source turn is still running (`atTurnId` omitted means the latest
+    finished turn).
+- Checkpoint restore stays as it is; fork never touches the source session.
+
+## 2d in detail — workspaces
+
+- A `workspaces` table: `id`, `path` (realpath, unique), `title`, `position`, `created_at`.
+  Filled on first open from the distinct session workdirs; a session whose workdir has no
+  row gets one when it is created.
+- `sessions` gains `pinned` and `archived`.
+- RPC: `workspace.list` → workspaces in order, each with its session count;
+  `workspace.add {path, title?}`, `workspace.rename {id, title}`, `workspace.remove {id}`
+  (the registry row only — sessions stay), `workspace.reorder {ids}`;
+  `session.pin {sessionId, pinned}`, `session.archive {sessionId, archived}` (refused while a
+  turn runs unless `stop: true`).
+- `session.list` rows gain `workspaceId`, `pinned`, `archived`, `lastUserAt` (the latest user
+  prompt time, dsh's "last updated" order).

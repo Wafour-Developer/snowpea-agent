@@ -672,6 +672,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.goal_handlers import register_goal_handlers
 
     register_goal_handlers(dispatcher)
+    from snowpea_core.server.trajectory_handlers import register_trajectory_handlers
+
+    register_trajectory_handlers(dispatcher)
     from snowpea_core.server.host_handlers import register_host_handlers
 
     register_host_handlers(dispatcher)

@@ -14,7 +14,7 @@ import logging
 import sqlite3
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -477,6 +477,35 @@ class Store:
             self._query,
             "SELECT * FROM events WHERE session_id = ? AND seq > ? ORDER BY seq",
             (session_id, after_seq),
+        )
+        return [
+            {
+                "sessionId": row["session_id"],
+                "seq": row["seq"],
+                "kind": row["kind"],
+                "payload": json.loads(row["payload_json"]),
+                "ts": row["ts"],
+                **_turn_fields(row),
+            }
+            for row in rows
+        ]
+
+    async def events_of_kinds(
+        self, session_id: str, kinds: Iterable[str], after_seq: int = 0
+    ) -> list[dict[str, Any]]:
+        """Stored events of the given kinds after ``after_seq`` (M17 2b).
+
+        The Trajectory reads a few thousand rows of a session whose log may hold
+        hundreds of thousands of streaming deltas; filtering here keeps them
+        out of Python entirely.
+        """
+        wanted = sorted(set(kinds))
+        marks = ",".join("?" for _ in wanted)
+        rows = await asyncio.to_thread(
+            self._query,
+            f"SELECT * FROM events WHERE session_id = ? AND seq > ? AND kind IN ({marks}) "
+            "ORDER BY seq",
+            (session_id, after_seq, *wanted),
         )
         return [
             {

@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.44.0` (semver)
+- **Protocol version:** `1.45.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.44.0"
+    "protocolVersion": "1.45.0"
   }
 }
 ```
@@ -104,6 +104,7 @@ Server capabilities advertised in the `system.hello` result:
 - `tabReadAlways`
 - `toolInvokeGuard`
 - `tools`
+- `trajectory`
 - `turnOutcome`
 - `update`
 - `visionNotice`
@@ -221,6 +222,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.setModel`](#sessionsetmodel) | client → server | Pin a session to a model profile, or clear the pin. |
 | [`session.steer`](#sessionsteer) | client → server | Inject a user message into a running turn at its next tool round. |
 | [`session.toolContent`](#sessiontoolcontent) | client → server | A host tool result's content blocks with image bytes; results with images are kept on disk. |
+| [`session.trajectory`](#sessiontrajectory) | client → server | The session's event log as turn-aware rows: turns, model calls with timing and usage, tool calls with results, delegations, compactions (1.45.0, capability 'trajectory'). |
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
 | [`settings.set`](#settingsset) | client → server | Deep-merge a patch into global or project settings and persist it. |
 | [`setup.applyDefaults`](#setupapplydefaults) | client → server | Apply the profile's defaults for everything optional; idempotent. |
@@ -2611,6 +2613,28 @@ A host tool result's content blocks with image bytes; results with images are ke
 |---|---|---|---|
 | `callId` | `string` | yes | The call. |
 | `content` | `({ contentRef?: string \| null; data?: string \| null; ephemeral?: boolean \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[]` | no | The content blocks, images with their bytes. |
+
+### `session.trajectory`
+
+*Direction:* client → server
+
+The session's event log as turn-aware rows: turns, model calls with timing and usage, tool calls with results, delegations, compactions (1.45.0, capability 'trajectory').
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `afterSeq` | `number` | no | Only rows that started or finished after this seq; pass the last lastSeq to get what changed. Rows are keyed by seq: replace a row you have with a newer one. |
+| `limit` | `number` | no | At most this many rows, the newest first kept. |
+| `sessionId` | `string` | yes | Session to read (open or closed). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `lastSeq` | `number` | no | Highest event seq folded; the next afterSeq. |
+| `more` | `boolean` | no | True when older rows were left out by limit. |
+| `rows` | `({ data?: Record<string, unknown> \| null; endSeq?: number \| null; endTs?: string \| null; kind: "turn" \| "user" \| "message" \| "tool" \| "subagent" \| "compacted" \| "context" \| "system"; ok?: boolean \| null; seq: number; step?: number \| null; text?: string \| null; title?: string; ts: string; turnId?: string \| null; })[]` | no | Rows in seq order. |
 
 ### `settings.get`
 

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.44.0"
+PROTOCOL_VERSION = "1.45.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2339,6 +2339,50 @@ class ProviderModelsParams(Payload):
             "models.categories.* that point at this vendor are always included."
         ),
     )
+
+
+class TrajectoryRow(Payload):
+    """One row of a session's Trajectory (1.45.0, capability 'trajectory')."""
+
+    kind: Literal[
+        "turn", "user", "message", "tool", "subagent", "compacted", "context", "system"
+    ] = Field(description="What the row is.")
+    seq: int = Field(description="Event the row comes from; the key to merge updates by.")
+    ts: str = Field(description="When it started.")
+    turnId: str | None = Field(default=None, description="Turn it belongs to.")
+    step: int | None = Field(default=None, description="Model call within the turn.")
+    title: str = Field(default="", description="One line for the row.")
+    text: str | None = Field(default=None, description="Text or result preview.")
+    endSeq: int | None = Field(default=None, description="Event that finished it (result, done).")
+    endTs: str | None = Field(default=None, description="When it finished.")
+    ok: bool | None = Field(default=None, description="Whether it succeeded, once finished.")
+    data: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Kind-specific facts: message — outcome, ttftMs, decodeMs, totalMs, inputTokens, "
+            "cachedInputTokens, outputTokens, reasoningChars, toolCalls; tool — name, callId, "
+            "paths; subagent — agentId, childSessionId, reason, rounds; turn — initiator, "
+            "reason, outcome; compacted — before, after, summaryChars, auto, kept."
+        ),
+    )
+
+
+class SessionTrajectoryParams(Payload):
+    sessionId: str = Field(description="Session to read (open or closed).")
+    afterSeq: int = Field(
+        default=0,
+        description=(
+            "Only rows that started or finished after this seq; pass the last lastSeq to "
+            "get what changed. Rows are keyed by seq: replace a row you have with a newer one."
+        ),
+    )
+    limit: int = Field(default=2000, description="At most this many rows, the newest first kept.")
+
+
+class SessionTrajectoryResult(Payload):
+    rows: list[TrajectoryRow] = Field(default_factory=list, description="Rows in seq order.")
+    lastSeq: int = Field(default=0, description="Highest event seq folded; the next afterSeq.")
+    more: bool = Field(default=False, description="True when older rows were left out by limit.")
 
 
 class GoalGetParams(Payload):
@@ -7098,6 +7142,14 @@ METHODS: dict[str, RpcMethod] = {
             ProviderListResult,
             "List chat providers and whether they are configured.",
         ),
+        _m(
+            "session.trajectory",
+            SessionTrajectoryParams,
+            SessionTrajectoryResult,
+            "The session's event log as turn-aware rows: turns, model calls with timing and "
+            "usage, tool calls with results, delegations, compactions (1.45.0, capability "
+            "'trajectory').",
+        ),
         _m("goal.get", GoalGetParams, GoalResult, "Read the session's goal (1.43.0)."),
         _m(
             "goal.set",
@@ -7835,6 +7887,7 @@ CAPABILITIES: list[str] = [
     "contextWindowSource",
     "goals",
     "steps",
+    "trajectory",
 ]
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
@@ -7887,6 +7940,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.list",
         "provider.models",
         "provider.visionReset",
+        "session.trajectory",
         "goal.get",
         "goal.set",
         "goal.pause",
