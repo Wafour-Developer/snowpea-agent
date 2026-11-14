@@ -20,7 +20,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.prompts.loader import load, render
+from snowpea_core.prompts.loader import load, render  # noqa: F401 - ``compose.load`` is used
+from snowpea_core.prompts.sections import REGISTRY, PromptInputs, SectionRegistry
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pathlib import Path
@@ -267,10 +268,6 @@ class PromptTiers:
         return self.text()
 
 
-def _join(parts: Sequence[str]) -> str:
-    return "\n\n".join(part.strip() for part in parts if part and part.strip())
-
-
 def build_tiers(
     *,
     mode: str = DEFAULT_MODE,
@@ -294,8 +291,12 @@ def build_tiers(
     own_identity: bool = False,
     persona: str = "",
     root: Path | None = None,
+    registry: SectionRegistry | None = None,
 ) -> PromptTiers:
     """Build the three tiers separately, so a caller can measure or cache them.
+
+    The text comes from the registered sections (:mod:`prompts.sections`, M16
+    P1.1), sorted by their order; the order band of each decides its tier.
 
     ``identity`` replaces ``base.md`` outright and is for a caller that wants a
     bare prompt.  ``persona`` — an ``AgentDefinition``'s own prompt — is added
@@ -305,57 +306,37 @@ def build_tiers(
     the core coding layer only ``fragments/essentials`` stays — honesty, reply
     length, trust, language.
     """
-    if own_identity:
-        stable: list[str] = [load("fragments/essentials", root)]
-        memory_guidance = False
-    else:
-        stable = [identity.strip() if identity and identity.strip() else load("base", root)]
-        # Right after the identity: the working discipline every family needs
-        # (M15 §A1).  The vendor layer below only adds family-specific enforcement.
-        stable.append(load("fragments/execution", root))
-        # How to treat the "Current plan:" line of the volatile tier. Only the
-        # main agent works a plan: a subagent or a role gets a brief, not the
-        # plan (CORE-plan-continuity).
-        if not (subagent or role):
-            stable.append(load("fragments/plan-continuity", root))
-
-    vendor = vendor_class if vendor_class in VENDOR_CLASSES else "anthropic"
-    stable.append(load(f"vendors/{vendor}", root))
-    stable.append(load("config_rule", root))
-    stable.append(load("search_honesty", root))
-    if memory_guidance:
-        stable.append(load("fragments/memory-guidance", root))
-    picked = mode if mode in ("plan", "accept", "auto") else DEFAULT_MODE
-    stable.append(load(f"modes/{picked}", root))
-    if subagent or role:
-        stable.append(load("roles/_preamble", root))
-    if role:
-        stable.append(load(f"roles/{role}", root))
-    stable.append(persona)
-    stable.append(reply_language_rule(reply_language))
-
-    context: list[str] = [environment, context_files]
-    # The skills index sits *before* the tool list and after the project
-    # context: both are rebuilt together, and the model should know what a
-    # skill covers before it starts picking tools (M15 §B1).
-    if skill_groups:
-        context.append(skills_index(skill_groups, skill_index_max, root, scoped=skills_scoped))
-    # ``tools_text`` is an already-rendered fragment, handed in by the agent
-    # layer's per-session cache so two identical rounds produce byte-identical
-    # prompts and the provider's prefix cache actually hits (CORE-round-cost).
-    if tools_text:
-        context.append(tools_text)
-    elif tools:
-        context.append(tools_block(tools, deferred_tools or (), root))
-
-    # The current plan's one-line summary: per turn, because a step can be
-    # marked between turns, and here rather than in the stable tier so a
-    # plan that changes never costs the cached prefix (CORE-plan-continuity).
-    volatile: list[str] = [memory_block, plan_line]
-    if context_fill is not None and context_fill >= CONTEXT_PRESSURE_THRESHOLD:
-        volatile.append(load("fragments/context-pressure", root))
-
-    return PromptTiers(stable=_join(stable), context=_join(context), volatile=_join(volatile))
+    inputs = PromptInputs(
+        mode=mode,
+        vendor_class=vendor_class,
+        role=role,
+        subagent=subagent,
+        tools=tools,
+        deferred_tools=deferred_tools,
+        tools_text=tools_text,
+        skill_groups=skill_groups,
+        skill_index_max=skill_index_max,
+        skills_scoped=skills_scoped,
+        memory_guidance=memory_guidance,
+        memory_block=memory_block,
+        plan_line=plan_line,
+        environment=environment,
+        context_files=context_files,
+        context_fill=context_fill,
+        reply_language=reply_language,
+        identity=identity,
+        own_identity=own_identity,
+        persona=persona,
+        root=root,
+    )
+    tiers: dict[str, list[str]] = {"stable": [], "context": [], "volatile": []}
+    for section, text in (registry or REGISTRY).render(inputs):
+        tiers[section.tier].append(text)
+    return PromptTiers(
+        stable="\n\n".join(tiers["stable"]),
+        context="\n\n".join(tiers["context"]),
+        volatile="\n\n".join(tiers["volatile"]),
+    )
 
 
 def build_system_prompt(**kwargs: Any) -> str:
