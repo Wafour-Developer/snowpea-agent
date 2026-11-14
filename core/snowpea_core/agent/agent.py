@@ -489,7 +489,7 @@ def turn_context(
     core: Core | None = None,
     host_block: str = "",
 ) -> str:
-    """What changes from turn to turn: recall, the plan line, context pressure.
+    """What this turn's message carries: recall, the host note, runtime context if changed.
 
     It rides on the turn's own user message (``agent.loop``), not in the
     system prompt: the conversation follows the system prompt, so anything
@@ -504,14 +504,11 @@ def turn_context(
     """
     if is_lean_child(session, core):
         return ""
-    parts = [memory_block, host_block]
-    if not getattr(session, "is_subagent", False):
-        parts.append(plan_prompt_line(session))
-        if session.mode == "plan" and getattr(session, "auto_after_plan", False):
-            parts.append(PLAN_AUTO_NOTE)
-    fill = context_fill(session)
-    if fill is not None and fill >= compose.CONTEXT_PRESSURE_THRESHOLD:
-        parts.append(compose.load("fragments/context-pressure", session.workdir))
+    from snowpea_core.agent import runtime_context
+
+    # The plan line, the plan-then-auto note and context pressure are runtime
+    # context (M16 P1.2): sent as one snapshot, and only when it changed.
+    parts = [memory_block, host_block, runtime_context.take_due(core, session)]
     return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
 

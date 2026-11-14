@@ -769,7 +769,15 @@ def test_the_volatile_tier_carries_the_plan_line(tmp_path: Path) -> None:
     assert "plan_update_step" not in compose.build_tiers(subagent=True).stable
     # The session's prompt stays cacheable: the line rides on the turn's message.
     assert line not in agent_mod.build_system_prompt(session, [])
-    assert agent_mod.turn_context(session).rstrip().endswith(line)
+    # It rides the runtime-context snapshot on the turn's message (M16 P1.2),
+    # and only when it changed: the next turn does not repeat it.
+    first = agent_mod.turn_context(session)
+    assert line in first and first.rstrip().endswith("</system-reminder>")
+    assert agent_mod.turn_context(session) == ""
+    # A marked step changes the line, so the snapshot goes out again.
+    plan_store.mark_step(tmp_path, "S1", "done")
+    again = agent_mod.turn_context(session)
+    assert "1/3 steps done" in again and "</system-reminder>" in again
 
     child = Session(id="s-2", workdir=tmp_path, is_subagent=True)
     assert line not in agent_mod.turn_context(child)

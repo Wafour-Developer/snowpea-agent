@@ -1462,6 +1462,19 @@ async def _flush_notices(session: Session) -> int:
     return len(lines)
 
 
+def _flush_runtime_context(core: Core, session: Session) -> bool:
+    """Send the runtime-context snapshot before the next call if it changed (M16 P1.2)."""
+    from snowpea_core.agent import runtime_context
+
+    text = runtime_context.take_due(core, session)
+    if not text:
+        return False
+    session.history.append(
+        ChatMessage(role="user", content=text, name=runtime_context.MESSAGE_NAME)
+    )
+    return True
+
+
 def _bounded_notice_lines(notices: list[str]) -> list[str]:
     """Newest notices that fit in one bounded model message."""
     selected: list[str] = []
@@ -2008,6 +2021,7 @@ async def _drive(
         # Persist each safe round boundary, including steering and child evidence.
         # No outstanding tool-call/result pair is split by these notices.
         await _flush_notices(session)
+        _flush_runtime_context(core, session)
         await persist_history(getattr(core, "store", None), session)
         if wall_minutes and monotonic() - turn_started_at >= wall_minutes * 60:
             await _guard_report(
@@ -3071,17 +3085,10 @@ def _with_plan_auto_note(session: Session, content: str) -> str:
     The next tool result carries it instead: appended to history, so it is
     sent byte for byte from then on and the cached prefix is untouched.
     """
-    if not getattr(session, "plan_auto_note_pending", False):
-        return content
-    if (
-        session.mode != "plan"
-        or not getattr(session, "auto_after_plan", False)
-        or getattr(session, "is_subagent", False)
-    ):
-        session.plan_auto_note_pending = False
-        return content
+    # The runtime-context snapshot carries the note now (M16 P1.2): it goes out
+    # before the next model call, so the tool result stays what the tool said.
     session.plan_auto_note_pending = False
-    return f"{content}\n\n{agent_mod.PLAN_AUTO_NOTE}"
+    return content
 
 
 def _append_turn_context(message: ChatMessage, extra: str) -> None:

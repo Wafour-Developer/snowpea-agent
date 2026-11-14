@@ -237,27 +237,30 @@ def test_the_turn_note_appears_only_for_a_flagged_plan(tmp_path: Path) -> None:
     assert "still asks" in note
 
 
-async def test_a_mid_turn_flag_rides_on_the_next_tool_result_once(
+async def test_a_mid_turn_flag_rides_on_the_next_runtime_context_once(
     daemon: Daemon, tmp_path: Path
 ) -> None:
-    from snowpea_core.agent.loop import _with_plan_auto_note
+    """The note set mid-turn reaches the model before its next call (M16 P1.2).
+
+    It used to be appended to the next tool result; the runtime-context snapshot
+    carries it now, so the tool result stays what the tool said.
+    """
+    from snowpea_core.agent.loop import _flush_runtime_context, _with_plan_auto_note
 
     core = daemon.core
     session = await core.sessions.create(tmp_path, mode="plan")
-    assert session.plan_auto_note_pending is False
+    agent_mod.turn_context(session, core=core)  # the turn's message went out without it
     await core.sessions.set_mode(session, "plan", True)
-    assert session.plan_auto_note_pending is True
-    first = _with_plan_auto_note(session, "ok")
-    assert first == f"ok\n\n{agent_mod.PLAN_AUTO_NOTE}"
     assert _with_plan_auto_note(session, "ok") == "ok"
-    # Setting it again while on is no news; turning it off cancels a pending note.
-    await core.sessions.set_mode(session, "plan", True)
-    assert session.plan_auto_note_pending is False
-    await core.sessions.set_mode(session, "plan", False)
-    await core.sessions.set_mode(session, "plan", True)
+    assert _flush_runtime_context(core, session) is True
+    sent = session.history.messages[-1]
+    assert sent.role == "user" and agent_mod.PLAN_AUTO_NOTE in sent.content
+    # Once: nothing changed, nothing more is sent.
+    assert _flush_runtime_context(core, session) is False
+    # Leaving plan clears it, and that change is sent too.
     await core.sessions.set_mode(session, "accept")
-    assert session.plan_auto_note_pending is False
-    assert _with_plan_auto_note(session, "ok") == "ok"
+    assert _flush_runtime_context(core, session) is True
+    assert agent_mod.PLAN_AUTO_NOTE not in session.history.messages[-1].content
 
 
 # -- leaving plan: the plan for review, auto first -------------------------

@@ -552,7 +552,12 @@ VERBATIM_NOTE = "These override any paraphrase of them above."
 VERBATIM_BUDGET = 24_000
 VERBATIM_ENTRY_MAX = 4_000
 _ENTRY = "\n» "
-_SYNTHETIC_PREFIXES = ("[system]", "[from the agent that delegated", SUMMARY_HEADING)
+_SYNTHETIC_PREFIXES = (
+    "[system]",
+    "[from the agent that delegated",
+    SUMMARY_HEADING,
+    "<system-reminder>",
+)
 _STEER_PREFIX = "[from the user, mid-task] "
 
 

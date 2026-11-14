@@ -263,6 +263,11 @@ class Session:
     #: The flag went on mid-turn: the next tool result carries the turn note
     #: the turn's own message went out without (runtime only).
     plan_auto_note_pending: bool = False
+    #: The runtime-context snapshot last sent, and the compaction count it was
+    #: sent under (M16 P1.2); ``None`` until one goes out.  Runtime only: a
+    #: resumed session sends it again.
+    context_snapshot: tuple[tuple[str, str], ...] | None = None
+    context_snapshot_epoch: int = -1
     #: Short label: the first prompt's opening words, or ``session.rename``.
     title: str | None = None
     #: UTC ISO times for the task list (1.7.0): last prompt/turn end, and the
