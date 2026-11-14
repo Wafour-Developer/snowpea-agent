@@ -11,6 +11,7 @@ flowchart TB
     subgraph clients[Clients]
         TUI["tui/ — Ink terminal UI"]
         IDE["snowpea-ide — Electron, v0.2"]
+        WEB["snowpea web — the IDE renderer in a browser"]
         APP[Your application]
     end
     SDK["sdk/ — @snowpea/sdk"]
@@ -19,6 +20,7 @@ flowchart TB
     APP --> SDK
     SDK -->|"ws://127.0.0.1:PORT/ws — JSON-RPC 2.0"| SRV
     SDK -.->|"GET /health /version /protocol.json"| SRV
+    WEB -->|"GET /web/ (static) + ws://…/ws"| SRV
 
     subgraph core["core/snowpea_core — the daemon"]
         SRV[server]
@@ -59,7 +61,7 @@ The package is `snowpea_core`, rooted at `core/snowpea_core/`.
 | `cli/main.py` | the `snowpea` console script: ensure a daemon, then spawn the TUI or run one headless turn |
 | `cli/commands.py` | non-TUI subcommands — `setup`, `skill`, `service`, `daemon`, `agents`, `team`, `job`, `gateway`, `tools`, `commands`, `provider` |
 | `server/app_server.py` | daemon bootstrap, the `Core` singleton, `daemon.json` |
-| `server/transport_ws.py`, `transport_http.py` | one aiohttp app serving the WebSocket and the three read-only HTTP endpoints on one port |
+| `server/transport_ws.py`, `transport_http.py` | one aiohttp app serving the WebSocket, the three read-only HTTP endpoints and the snowpea web build under `/web/` (from `web_dist/` or `SNOWPEA_WEB_DIST`) on one port |
 | `server/rpc.py` | JSON-RPC 2.0 dispatcher, request/response correlation, server-to-client calls |
 | `server/protocol.py` | **the single source of truth**: `PROTOCOL_VERSION`, every method and event schema |
 | `server/auth.py`, `lifecycle.py` | token issue and check; idle timer, keepalive counters, shutdown reasons |
