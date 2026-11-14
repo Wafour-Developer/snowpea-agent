@@ -14,6 +14,7 @@ snowpea 是一个跑在你自己机器上的开源多供应商编码 agent。一
 | [Setup](setup.md) | 选供应商、填 API 密钥、用浏览器登录、挑搜索和浏览器供应商时 |
 | [Modes](modes.md) | agent 问得太多，或者问得太少时 |
 | [Terminal UI](tui.md) | 按键、面板、附件、语音，以及屏幕在告诉你什么 |
+| [snowpea web](web.md) | 你想在浏览器中使用 IDE 界面，或想查看轨迹 |
 | [Commands](commands.md) | 想要斜杠命令和 CLI 子命令的完整列表时 |
 | [Attachments and voice](voice.md) | 在 prompt 里发图片和文件，用说的下指令并让它说回来 |
 | [Plugins](plugins.md) | 安装或编写 skill、agent、命令、hook 和 MCP server 时 |

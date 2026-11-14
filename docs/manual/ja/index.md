@@ -14,6 +14,7 @@ snowpea をインストールしたばかりなら、[Install](install.md)、続
 | [Setup](setup.md) | ベンダーを選ぶ、API キーを入れる、ブラウザでログインする、検索・ブラウザのプロバイダーを選ぶとき |
 | [Modes](modes.md) | エージェントが尋ねすぎるとき、または尋ねなさすぎるとき |
 | [Terminal UI](tui.md) | キー、パネル、添付、音声 — 画面が何を伝えているか |
+| [snowpea web](web.md) | IDE の画面をブラウザで使いたい、またはトラジェクトリを読みたい |
 | [Commands](commands.md) | スラッシュコマンドと CLI サブコマンドの全一覧がほしいとき |
 | [Attachments and voice](voice.md) | プロンプトで画像やファイルを送るとき、話しかけて話し返してもらうとき |
 | [Plugins](plugins.md) | スキル、エージェント、コマンド、フック、MCP サーバーをインストールまたは自作するとき |

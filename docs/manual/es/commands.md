@@ -156,6 +156,15 @@ snowpea daemon stop
 
 `status` imprime el puerto, el pid, el uptime, los cuatro contadores de keepalive —sesiones, jobs, vinculaciones de gateway, agentes nombrados— y si el daemon tiene intención de salir, con el motivo por el que no lo hace.
 
+### Web
+
+```bash
+snowpea web
+snowpea web --no-open
+```
+
+`web` se asegura de que el daemon esté en marcha, imprime la dirección de [snowpea web](web.md) — la pantalla del IDE en tu navegador, servida por el daemon — y la abre. La dirección lleva el token del daemon; no la compartas. `--no-open` solo la imprime.
+
 ### Proveedores
 
 ```bash

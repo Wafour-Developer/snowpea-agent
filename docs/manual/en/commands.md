@@ -206,6 +206,15 @@ snowpea daemon stop
 
 `status` prints the port, pid, uptime, the four keepalive counters — sessions, jobs, gateway bindings, named agents — and whether the daemon intends to exit, with the reason it will not.
 
+### Web
+
+```bash
+snowpea web
+snowpea web --no-open
+```
+
+`web` makes sure the daemon is running, prints the address of [snowpea web](web.md) — the IDE's screen in your browser, served by the daemon — and opens it. The address carries the daemon token; keep it to yourself. `--no-open` only prints it.
+
 ### Providers
 
 ```bash

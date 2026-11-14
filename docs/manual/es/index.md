@@ -14,6 +14,7 @@ Si acabas de instalar snowpea, lee [Instalar](install.md), luego [Setup](setup.m
 | [Setup](setup.md) | eliges un proveedor, añades una clave de API, inicias sesión por el navegador, escoges proveedores de búsqueda y de navegador |
 | [Modos](modes.md) | el agente pregunta demasiado, o demasiado poco |
 | [Terminal UI](tui.md) | las teclas, los paneles, los adjuntos, la voz, y qué te está diciendo la pantalla |
+| [snowpea web](web.md) | quieres la pantalla del IDE en un navegador, o leer una trayectoria |
 | [Comandos](commands.md) | quieres la lista completa de comandos slash y subcomandos de CLI |
 | [Adjuntos y voz](voice.md) | envías imágenes y ficheros en un prompt, le hablas al agente y haces que te responda hablando |
 | [Plugins](plugins.md) | instalas o escribes skills, agentes, comandos, hooks y servidores MCP |

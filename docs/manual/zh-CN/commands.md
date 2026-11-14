@@ -156,6 +156,15 @@ snowpea daemon stop
 
 `status` 会打印端口、pid、运行时长、四个保活计数器——会话数、任务数、gateway 绑定数、已命名的 agent 数——以及守护进程是否打算退出，并给出它不退出的原因。
 
+### Web
+
+```bash
+snowpea web
+snowpea web --no-open
+```
+
+`web` 会确保守护进程在运行，打印 [snowpea web](web.md)(由守护进程提供、在浏览器中显示的 IDE 界面)的地址，并将其打开。地址中带有守护进程的 token，请自己保管好。`--no-open` 只打印地址。
+
 ### 供应商
 
 ```bash

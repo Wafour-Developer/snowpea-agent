@@ -206,6 +206,15 @@ snowpea daemon stop
 
 `status`는 포트, pid, 가동 시간, 네 가지 keepalive 카운터(세션, 잡, 게이트웨이 바인딩, 이름 있는 에이전트), 그리고 데몬이 종료하려는지와 종료하지 않는다면 그 이유를 출력합니다.
 
+### 웹
+
+```bash
+snowpea web
+snowpea web --no-open
+```
+
+`web`은 데몬이 실행 중인지 확인하고, [snowpea web](web.md) — 데몬이 서비스하는, 브라우저에서 보는 IDE 화면 — 의 주소를 출력한 뒤 엽니다. 주소에는 데몬 토큰이 들어 있으니 남에게 보여 주지 마세요. `--no-open`은 주소만 출력합니다.
+
 ### 벤더
 
 ```bash

@@ -13,6 +13,7 @@ Start at [English](en/index.md) or [한국어](ko/index.md).
 | Setup | wizard screens, eleven vendors, browser login, search and browser providers, tool categories | [en](en/setup.md) | [ko](ko/setup.md) | [ja](ja/setup.md) | [zh-CN](zh-CN/setup.md) | [es](es/setup.md) |
 | Modes | plan/accept/auto, permission matrix, approvals, allowlist | [en](en/modes.md) | [ko](ko/modes.md) | [ja](ja/modes.md) | [zh-CN](zh-CN/modes.md) | [es](es/modes.md) |
 | Terminal UI | launch screen, layout, keys, approvals, diffs, context, attachments, voice | [en](en/tui.md) | [ko](ko/tui.md) | [ja](ja/tui.md) | [zh-CN](zh-CN/tui.md) | [es](es/tui.md) |
+| snowpea web | the browser screen, the dock, file links, trajectory, fork, what the browser cannot do | [en](en/web.md) | [ko](ko/web.md) | [ja](ja/web.md) | [zh-CN](zh-CN/web.md) | [es](es/web.md) |
 | Commands | every slash command and CLI subcommand | [en](en/commands.md) | [ko](ko/commands.md) | [ja](ja/commands.md) | [zh-CN](zh-CN/commands.md) | [es](es/commands.md) |
 | Attachments and voice | images and files in a prompt, speech to text, text to speech, the audio tools | [en](en/voice.md) | [ko](ko/voice.md) | [ja](ja/voice.md) | [zh-CN](zh-CN/voice.md) | [es](es/voice.md) |
 | Plugins | Claude Code plugin format, SKILL.md, hooks, MCP servers (`/mcp`, `snowpea mcp`), marketplaces | [en](en/plugins.md) | [ko](ko/plugins.md) | [ja](ja/plugins.md) | [zh-CN](zh-CN/plugins.md) | [es](es/plugins.md) |

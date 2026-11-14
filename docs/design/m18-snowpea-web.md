@@ -57,17 +57,30 @@ parser, the HTML sandbox recipe, layout numbers.
 
 ## Steps
 
-| Step | What |
-|---|---|
-| 4.1 | Web bridge + web build target (`vite.web.config.ts` → `out/web`) |
-| 4.2 | Daemon serves the web build (`snowpea web`, static route behind the token) |
-| 4.3 | Frame and left sidebar on the new RPCs |
-| 4.4 | Right dock: engine port, tab registry, document preview, files, plan, changes |
-| 4.5 | Conversation header, Chat / Trajectory tabs, file references into the dock |
-| 4.6 | HTML preview modes |
-| 5.1 | IDE switches to the new layout; inspector removed; settings move behind the sidebar |
-| 5.2 | Pop-out windows |
-| 5.3 | Clients replay turns from `step.done`; then M17 2f drops stored deltas |
+| Step | What | Status |
+|---|---|---|
+| 4.1 | Web bridge + web build target (`vite.web.config.ts` → `out/web`) | done (IDE b51e8ca) |
+| 4.2 | Daemon serves the web build (`snowpea web`, static route behind the token) | done (core 45c3eef, wheel c776123) |
+| 4.3 | Frame and left sidebar on the new RPCs | done |
+| 4.4 | Right dock: engine port, tab registry, document preview, files, plan, changes | done; file reads in the browser go through `fs.*` (`src/web/webFs.ts`) |
+| 4.5 | Conversation header, Chat / Trajectory tabs, file references into the dock | done (IDE e486d91) |
+| 4.6 | HTML preview modes | in progress |
+| 5.1 | IDE switches to the new layout; inspector removed; settings move behind the sidebar | layout switched (App.vue mounts the Workbench); terminal/changes tabs in progress |
+| 5.2 | Pop-out windows | open |
+| 5.3 | Clients replay turns from `step.done`; then M17 2f drops stored deltas | open |
+
+### Shipping the web build
+
+The web build lives in snowpea-ide. A core release copies it into the package:
+
+```bash
+(cd ../snowpea-ide && npm run build:web)
+rm -rf core/snowpea_core/web_dist && cp -r ../snowpea-ide/out/web core/snowpea_core/web_dist
+uv build    # web_dist is git-ignored and listed under the wheel's artifacts
+```
+
+The IDE pin of the protocol (`src/shared/protocolVersion.ts`) must match the core being released,
+the same rule as for the desktop bundle.
 
 Every step: unit tests (vitest), a scripted screenshot scene in Korean and English, compared
 side by side with the dsh reference where one exists.

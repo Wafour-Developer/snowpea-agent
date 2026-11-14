@@ -15,6 +15,7 @@ If you have just installed snowpea, read [Install](install.md), then [Setup](set
 | [Modes](modes.md) | the agent asks too much, or not enough |
 | [Tools and context budget](tools.md) | turns cost too many tokens, or you want to tune repeat guards and context caps |
 | [Terminal UI](tui.md) | the keys, the panels, attachments, voice, and what the screen is telling you |
+| [snowpea web](web.md) | you want the IDE's screen in a browser, or to read a trajectory |
 | [Commands](commands.md) | you want the full list of slash commands and CLI subcommands |
 | [Attachments and voice](voice.md) | sending images and files in a prompt, speaking to the agent and having it speak back |
 | [Plugins](plugins.md) | installing or writing skills, agents, commands, hooks and MCP servers |

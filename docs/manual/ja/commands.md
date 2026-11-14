@@ -156,6 +156,15 @@ snowpea daemon stop
 
 `status` はポート、pid、稼働時間、4つのキープアライブカウンター — sessions、jobs、gateway bindings、named agents — と、デーモンが終了しようとしているかどうか、終了しない場合はその理由を表示します。
 
+### Web
+
+```bash
+snowpea web
+snowpea web --no-open
+```
+
+`web` はデーモンが動いていることを確かめ、[snowpea web](web.md) — デーモンが配信する、ブラウザで見る IDE の画面 — のアドレスを表示して開きます。アドレスにはデーモンのトークンが含まれるので、他人に見せないでください。`--no-open` はアドレスを表示するだけです。
+
 ### Providers
 
 ```bash
