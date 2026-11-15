@@ -223,6 +223,22 @@ async def test_global_lockout(paths: Paths) -> None:
         await client.close()
 
 
+async def test_sweep_forgets_clients_whose_failures_aged_out(paths: Paths) -> None:
+    auth = RemoteAuth("owner", 12, paths)
+    clock = Clock()
+    auth.clock = clock
+    auth.record_failure("10.0.0.1")
+    await auth.sweep()
+    assert "10.0.0.1" in auth._ip_failures, "a recent failure is kept"
+    clock.now += web_remote.RATE_WINDOW_SEC + 1
+    auth.record_failure("10.0.0.2")
+    await auth.sweep()
+    assert list(auth._ip_failures) == ["10.0.0.2"]
+    clock.now += web_remote.RATE_WINDOW_SEC + 1
+    await auth.sweep()
+    assert auth._ip_failures == {}
+
+
 async def test_secure_cookie_only_behind_trusted_proxy(paths: Paths) -> None:
     client, _, _ = await _remote(paths)
     try:

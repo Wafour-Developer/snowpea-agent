@@ -227,6 +227,11 @@ class RemoteAuth:
             await self.drop(token)
         for token in list(self.sessions):
             self.session(token)
+        # A client that stopped failing leaves an empty queue; drop it.
+        for ip, queue in list(self._ip_failures.items()):
+            self._trim(queue)
+            if not queue:
+                del self._ip_failures[ip]
 
     def active(self) -> int:
         return sum(1 for token in list(self.sessions) if self.session(token) is not None)
