@@ -48,7 +48,7 @@ from snowpea_core.permissions.allowlist import (
 from snowpea_core.permissions.shell_remember import matchable, propose
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
-from snowpea_core.server.protocol import ApprovalRemember, ApprovalRequest
+from snowpea_core.server.protocol import ApprovalRemember, ApprovalRequest, ExternalRef
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.manager import EventHub
@@ -427,12 +427,15 @@ class ApprovalQueue:
         diff: str | None = None,
         reason_code: str | None = None,
         paths: list[str] | None = None,
+        external: ExternalRef | None = None,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied.
 
         ``note`` is the extra warning the surface shows with the prompt.
         ``cacheable`` is false for ``config`` calls, so answering "allow for the
         session" on one settings write does not silently cover the next one.
+        ``external`` (1.53.0) marks a prompt bridged from an external CLI
+        session (``session.id`` is then ``ext:<cli>:<id>``).
         """
         folder = (
             outside_folder(paths, workdir=getattr(session, "workdir", None), home=self._home())
@@ -471,6 +474,7 @@ class ApprovalQueue:
             remember=remember_for(
                 tool, args, cacheable=cacheable, guard=guard, reason_code=reason_code
             ),
+            external=external,
         )
         loop = asyncio.get_running_loop()
         entry = _Pending(

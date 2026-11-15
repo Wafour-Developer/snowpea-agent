@@ -9575,6 +9575,8 @@ CAPABILITIES: list[str] = [
     "lineage",
     "extensions",
     "messageOrigin",
+    # M19 WP5: external.* and ApprovalRequest.external.
+    "externalSessions",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -9588,9 +9590,6 @@ PENDING_CAPABILITIES: dict[str, str] = {
     # jarvis.ledger, jarvis.delegation.*, jarvis.decision/escalation/
     # delegation.changed, ApprovalRequest.route — M19 WP2 (delegation engine).
     "jarvisDelegation": "WP2",
-    # external.* (incl. setMode) and ApprovalRequest.external — M19 WP5 (common layer) with
-    # the per-CLI adapters of WP6a-d; per-CLI availability is external.clis.
-    "externalSessions": "WP5",
     # mcp.preset.list/apply — M19 WP8 (assistant presets).
     "mcpPresets": "WP8",
     # jarvis.briefing.get/set — M19 WP8 (assistant jobs).
@@ -9768,6 +9767,17 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "site.stats",
         "site.list",
         "site.delete",
+        # M19 WP5 (1.53.0): the external.* family, answered by the common layer
+        # (external_unavailable until an adapter for the CLI is registered).
+        "external.clis",
+        "external.list",
+        "external.open",
+        "external.read",
+        "external.send",
+        "external.setMode",
+        "external.interrupt",
+        "external.create",
+        "external.close",
     }
 )
 

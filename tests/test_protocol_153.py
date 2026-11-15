@@ -98,8 +98,11 @@ async def _row(core: Any, session_id: str, **params: Any) -> SessionSummary:
 def test_version_and_declared_contract() -> None:
     assert protocol.PROTOCOL_VERSION == "1.53.0"
     assert M19_METHODS <= set(protocol.METHODS)
-    # Declared only: the dispatcher's not_implemented stub answers them.
-    assert not (M19_METHODS & protocol.IMPLEMENTED_METHODS)
+    # Declared only: the dispatcher's not_implemented stub answers them, except
+    # the external.* family the common layer (WP5) implements.
+    external = {name for name in M19_METHODS if name.startswith("external.")}
+    assert not ((M19_METHODS - external) & protocol.IMPLEMENTED_METHODS)
+    assert external <= protocol.IMPLEMENTED_METHODS
     assert M19_EVENTS <= set(protocol.EVENTS)
     assert {"jarvis_disabled", "jarvis_person_only", "external_view_only"} <= set(ERROR_CODES)
     assert "external_unavailable" in ERROR_CODES
@@ -109,13 +112,13 @@ def test_pending_capabilities_are_not_advertised() -> None:
     assert set(protocol.PENDING_CAPABILITIES) == {
         "jarvis",
         "jarvisDelegation",
-        "externalSessions",
         "mcpPresets",
         "jarvisBriefing",
     }
     assert not (set(protocol.PENDING_CAPABILITIES) & set(protocol.CAPABILITIES))
     # Implemented in WP1, so advertised now.
     assert "messageOrigin" in protocol.CAPABILITIES
+    assert "externalSessions" in protocol.CAPABILITIES  # WP5
     assert protocol.dump_schema()["capabilities"] == list(protocol.CAPABILITIES)
 
 
