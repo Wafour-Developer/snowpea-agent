@@ -46,6 +46,8 @@ export interface Message {
    * core command answers with tool calls or text and never sends the event.
    */
   awaitingFold?: boolean;
+  /** A provider-retry line: the next retry rewrites it instead of stacking another. */
+  retryNotice?: boolean;
 }
 
 export type ToolCallState = "running" | "ok" | "error";
@@ -493,6 +495,66 @@ export function outputLimitNote(
   if (truncated) return "response hit the output limit and is incomplete";
   if (continuations > 0) return "response hit the output limit; continued";
   return null;
+}
+
+function int(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : null;
+}
+
+/** The one line for a `provider.retry` (1.51.0 `reason`); null from an older daemon. */
+export function providerRetryLine(payload: Record<string, unknown>): string | null {
+  const attempt = int(payload.attempt);
+  const max = int(payload.max);
+  const delay = int(payload.delaySec);
+  const left = int(payload.waitLeftSec);
+  const count = attempt !== null && max !== null ? `${attempt}/${max}` : attempt !== null ? String(attempt) : "";
+  const inDelay = delay !== null ? ` in ${delay}s` : "";
+  const retry = `retry${count ? ` ${count}` : ""}${inDelay}`;
+  switch (payload.reason) {
+    case "unreachable": {
+      const tries = attempt !== null ? `attempt ${attempt}` : "";
+      const minutes = left !== null ? `up to ${Math.max(1, Math.ceil(left / 60))} min left` : "";
+      const detail = [tries, minutes].filter(Boolean).join(", ");
+      return `Network or model server unreachable — retrying${detail ? ` (${detail})` : ""}`;
+    }
+    case "silent":
+      return `Model server is silent — ${retry}`;
+    case "transient": {
+      const error = typeof payload.error === "string" && payload.error ? payload.error : "";
+      return `Model server error${error ? ` (${error})` : ""} — ${retry}`;
+    }
+    default:
+      return null;
+  }
+}
+
+const CONTINUE_LABELS: Record<string, string> = {
+  unfinished_work: "unfinished work",
+  verify_gate: "checks",
+  stop_hook: "stop hook",
+  overflow: "context trimmed",
+  handback: "handback",
+  budget: "budget",
+  goal: "goal",
+  other: "",
+};
+
+/** The line for a `hook.continue`; null when a `provider.retry` line already says it. */
+export function hookContinueLine(payload: Record<string, unknown>): string | null {
+  const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+  const raw = payload.hookKind ?? payload.kind;
+  const kind = typeof raw === "string" && raw !== "hook.continue" ? raw : "";
+  if (kind === "provider_retry") return null;
+  if (!kind) return reason || null;
+  const label = CONTINUE_LABELS[kind] ?? "";
+  const count = int(payload.count);
+  const limit = int(payload.limit);
+  const counter = count !== null && count > 0 ? (limit !== null ? `${count}/${limit}` : String(count)) : "";
+  const tag = [label, counter].filter(Boolean).join(" ");
+  // "context trimmed" says it all (always 1/1); the English text adds nothing to it.
+  if (kind === "overflow") return `↻ continuing (${label})`;
+  const head = `↻ continuing${tag ? ` (${tag})` : ""}`;
+  return reason ? `${head}: ${reason}` : head;
 }
 
 function withLimitNote(state: State, payload: Record<string, unknown>): State {
@@ -1084,6 +1146,34 @@ function applySessionEvent(
           reason: compaction.reason ?? "auto",
           before: compaction.before ?? 0,
         },
+      };
+    }
+
+    case "provider.retry": {
+      const text = providerRetryLine(payload);
+      if (!text) return base;
+      const last = base.messages.at(-1);
+      if (last?.retryNotice) {
+        const messages = base.messages.slice();
+        messages[messages.length - 1] = { ...last, text };
+        return { ...base, messages };
+      }
+      const message: Message = { id: nextId("msg"), role: "system", text, streaming: false, retryNotice: true };
+      return {
+        ...base,
+        messages: [...base.messages, message],
+        timeline: pushTimeline(base, { kind: "message", id: message.id }),
+      };
+    }
+
+    case "hook.continue": {
+      const text = hookContinueLine(payload);
+      if (!text) return base;
+      const message: Message = { id: nextId("msg"), role: "system", text, streaming: false };
+      return {
+        ...base,
+        messages: [...base.messages, message],
+        timeline: pushTimeline(base, { kind: "message", id: message.id }),
       };
     }
 
