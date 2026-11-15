@@ -184,6 +184,9 @@ class Core:
     #: Signed read-only site-memory packs from the loaded plugins (C5);
     #: built on first use by :func:`snowpea_core.session.site_packs.packs_for`.
     site_packs: Any = None
+    #: External CLI sessions (M19 WP5, ``external.manager.ExternalManager``);
+    #: built by ``server.external_handlers.ensure_manager``.
+    external: Any = None
 
     # -- settings hot reload (CORE-settings-reload) ---------------------
 
@@ -725,6 +728,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.jarvis_handlers import register_jarvis_handlers
 
     register_jarvis_handlers(dispatcher)
+    from snowpea_core.server.external_handlers import register_external_handlers
+
+    register_external_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
@@ -813,6 +819,14 @@ class Daemon:
         core.gateway.bind_core(core)
         core.named_agents = NamedAgentRegistry(core)
         self.core = core
+        # Before anything can start an external CLI: stop the ones a daemon
+        # that died left running (pid files under $SNOWPEA_HOME/external/).
+        from snowpea_core.server.external_handlers import ensure_manager
+
+        try:
+            await ensure_manager(core).start()
+        except Exception:  # noqa: BLE001 - external sessions must not stop the daemon
+            log.warning("could not start the external CLI manager", exc_info=True)
 
         dispatcher = build_dispatcher(core)
         self.app = create_app(dispatcher, daemon=self, core=core)
@@ -1101,6 +1115,10 @@ class Daemon:
             # write on an already-closed store (CORE-session-race, the
             # session-store analogue of CORE-memory-race).
             await self.core.sessions.close_all()
+            if self.core.external is not None:
+                # External CLI children are ours: stop them as a tree.
+                with contextlib.suppress(Exception):
+                    await self.core.external.shutdown()
             # The update watcher polls rather than blocking a thread, so
             # cancelling it returns straight away (CORE-update).
             for attribute in ("update_task", "update_check_task"):

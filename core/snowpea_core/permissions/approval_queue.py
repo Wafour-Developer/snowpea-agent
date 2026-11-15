@@ -48,7 +48,7 @@ from snowpea_core.permissions.allowlist import (
 from snowpea_core.permissions.shell_remember import matchable, propose
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
-from snowpea_core.server.protocol import ApprovalRemember, ApprovalRequest
+from snowpea_core.server.protocol import ApprovalRemember, ApprovalRequest, ExternalRef
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.manager import EventHub
@@ -437,6 +437,7 @@ class ApprovalQueue:
         paths: list[str] | None = None,
         tags: tuple[str, ...] | None = None,
         person_only: bool = False,
+        external: ExternalRef | None = None,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied.
 
@@ -446,6 +447,8 @@ class ApprovalQueue:
         ``tags`` are the call's effective permission tags, for Jarvis mode's
         router.  ``person_only`` marks a request only a person may answer
         (``ApprovalRequest.personOnly``): never cached, never remembered.
+        ``external`` (1.53.0) marks a prompt bridged from an external CLI
+        session (``session.id`` is then ``ext:<cli>:<id>``).
         """
         if person_only:
             cacheable = False
@@ -487,6 +490,7 @@ class ApprovalQueue:
                 tool, args, cacheable=cacheable, guard=guard, reason_code=reason_code
             ),
             personOnly=True if person_only else None,
+            external=external,
         )
         if self.router is not None:
             try:

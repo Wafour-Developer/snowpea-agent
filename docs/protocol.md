@@ -49,6 +49,7 @@ Server capabilities advertised in the `system.hello` result:
 - `contextWindowSource`
 - `ephemeralImages`
 - `extensions`
+- `externalSessions`
 - `fork`
 - `fs`
 - `goals`

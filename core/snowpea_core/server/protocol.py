@@ -9719,6 +9719,8 @@ CAPABILITIES: list[str] = [
     # jarvis.escalations.*, jarvis.escalation.dismissed, jarvis.access,
     # SessionSummary.role/jarvis — M19 WP3/WP4 (Jarvis service and tools).
     "jarvis",
+    # M19 WP5: external.* and ApprovalRequest.external.
+    "externalSessions",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -9726,9 +9728,6 @@ CAPABILITIES: list[str] = [
 #: package moves its name into :data:`CAPABILITIES`.  Their methods answer
 #: ``not_implemented`` until then.
 PENDING_CAPABILITIES: dict[str, str] = {
-    # external.* (incl. setMode) and ApprovalRequest.external — M19 WP5 (common layer) with
-    # the per-CLI adapters of WP6a-d; per-CLI availability is external.clis.
-    "externalSessions": "WP5",
     # mcp.preset.list/apply — M19 WP8 (assistant presets).
     "mcpPresets": "WP8",
     # jarvis.briefing.get/set — M19 WP8 (assistant jobs).
@@ -9923,6 +9922,17 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "jarvis.project.alias",
         "jarvis.escalations.list",
         "jarvis.escalations.dismiss",
+        # M19 WP5 (1.53.0): the external.* family, answered by the common layer
+        # (external_unavailable until an adapter for the CLI is registered).
+        "external.clis",
+        "external.list",
+        "external.open",
+        "external.read",
+        "external.send",
+        "external.setMode",
+        "external.interrupt",
+        "external.create",
+        "external.close",
     }
 )
 
