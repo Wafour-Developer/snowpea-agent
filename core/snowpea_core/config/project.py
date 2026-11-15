@@ -148,6 +148,16 @@ class ProjectAgentsSettings(BaseModel):
     _normalise_teams = field_validator("teams", mode="before")(normalise_teams)
 
 
+class ProjectJarvisSettings(BaseModel):
+    """Jarvis mode, per project (M19, 1.53.0)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    #: False hides the project from Jarvis: it neither sees its sessions and
+    #: memory nor decides for them.
+    expose: bool = True
+
+
 class ProjectSettings(BaseModel):
     """Project overrides; every field is optional so absence means "inherit"."""
 
@@ -157,6 +167,7 @@ class ProjectSettings(BaseModel):
     allowlist: list[AllowlistEntry] = Field(default_factory=list)
     agents: ProjectAgentsSettings = Field(default_factory=ProjectAgentsSettings)
     models: ProjectModelsSettings = Field(default_factory=ProjectModelsSettings)
+    jarvis: ProjectJarvisSettings = Field(default_factory=ProjectJarvisSettings)
 
     _normalise_allowlist = field_validator("allowlist", mode="before")(_coerce_allowlist)
 
@@ -202,6 +213,7 @@ __all__ = [
     "Mode",
     "ModelProfile",
     "ProjectAgentsSettings",
+    "ProjectJarvisSettings",
     "ProjectModelsSettings",
     "ProjectSettings",
     "normalise_teams",

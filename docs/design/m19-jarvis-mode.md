@@ -11,6 +11,14 @@ This file has two parts: the plan as the owner approved it (Korean), and the tec
 - **Hand-back:** authority pauses when the person types into a managed session and returns automatically after `jarvis.quietMinutes` (default 10) without input, or at once on hand back.
 - **All four CLIs ship in the first release**, on IDE, web and TUI.
 - Grants are proposed by Jarvis and confirmed by the person with one press; nothing Jarvis reads can change them.
+- **External sessions are told apart by where their process lives** (`host`): `none` (no live process; snowpea can continue it), `terminal` (the person runs it in a plain terminal: view-only live tail, available once that process exits), `tmux` (in a tmux pane: view, and snowpea may type into the same process pending spike S5; its approvals are answered by the person, never by Jarvis), `snowpea` (the daemon runs it over the structured transport: unified approvals, Jarvis may decide). Rows also carry `canSend`, `approvals` and, for tmux, `tmux {session, pane}`. Part 2's `open_elsewhere` status is replaced by `host`.
+- **Sessions are loaded by working directory:** `external.list` takes `cwd` (default: the calling session's workdir) and returns that folder's sessions for the requested CLIs, newest first, paged; `allProjects` lists across exposed projects for the Jarvis overview. `external.open` of a `host: none` session continues it under snowpea (`host: snowpea`).
+- **Unrestricted ("yolo") mode for every external CLI** (overrides Part 2's "never pass dangerous flags"): a session's `mode` is `default | readonly | unrestricted`, chosen on `external.create`, on `external.open` when continuing, or with `external.setMode`. Only a human connection (IDE, web, TUI, the bound approver in a messenger) may choose `unrestricted`; Jarvis can only raise a person-only confirmation naming the CLI, the session, the project folder and "snowpea does not control what this session runs; Jarvis's guarded-class rules do not apply inside it". Per session, never remembered unless the person sets `jarvis.external.clis.<id>.defaultMode`. Every unrestricted open or switch is a ledger entry. `external/proc.py` emits a bypass flag only for a session whose mode is `unrestricted` and was set by a human connection; any other bypass-like argument is refused. The same three modes apply to a Claude session started in tmux.
+- **Spike outcomes S1–S5** (`docs/design/m19-spikes/`): claude — structured stream-json with bridged approvals (`control_request can_use_tool`), plus a tmux shared-terminal transport for Claude only (Linux/macOS, beta: `host: tmux`, `canSend` with restrictions, approvals `person`); codex — one shared `codex app-server`, bridged approvals (`item/commandExecution/requestApproval`), open elsewhere = a held flock on `~/.codex/thread-writer-locks/<id>.lock`, no tmux; agy — `agy acp` per open session, approvals follow agy's own settings (`approvalPolicy: asks | auto` in `external.clis`; bridged when it asks, none when it does not), no tmux; cursor — spawn per message, no permission mechanism at all, so `readonly` (`--mode ask`) by default and `unrestricted` only on the person's confirmation (the same switch gates edit work on agy with policy `auto`); rows carry `mode` and `controlled`.
+- **Transcript privacy:** Claude transcript records other than user/assistant (attachment, session-owner, …) hold the owner's email and org ids; adapters drop them before anything reaches a client or Jarvis.
+- **Projects have names** in the Jarvis store (`jarvis.project.list|rename|alias`; default name = workspace title, else folder name).
+- **Notifications:** `jarvis.escalation` / `jarvis.decision` carry `importance` and a short `summary`; settings `jarvis.notify.{inApp, os, messenger}` default true. MCP presets in v1: Google (Gmail, Calendar) and Microsoft 365 (Outlook mail, Calendar).
+- **No "open everything in tmux":** sessions Jarvis manages are opened over the structured transport. `external.create` takes `transport: "structured" | "tmux"` (default structured; tmux only once S5 confirms it and the host has tmux).
 
 ---
 
@@ -320,3 +328,102 @@ Checked in code: the browser-owner rule, the `_share_pending` active-session fil
 - /mnt/data/work/mediagen/snowpea/core/snowpea_core/server/protocol.py
 - /mnt/data/work/mediagen/snowpea/core/snowpea_core/agent/named.py
 - /mnt/data/work/mediagen/snowpea-ide/src/renderer/components/MessageStream.vue
+---
+
+# Part 3 — wire contract (1.53.0)
+
+Defined in WP1, additive only. The models live in `CORE/server/protocol.py`; `docs/protocol.md` and `sdk/src/protocol.ts` are generated from them and are the field-level reference. Every method below is declared and, until its WP lands, answers `not_implemented` (the dispatcher registers that stub for any declared method without a handler). Capabilities follow the existing camelCase list; the four pending ones sit in `PENDING_CAPABILITIES` (name → WP) and the WP that implements them moves the name into `CAPABILITIES`, so `system.hello` never advertises something that answers `not_implemented`.
+
+## Capabilities
+
+| Capability | Covers | Advertised from |
+|---|---|---|
+| `messageOrigin` | `message.user.origin`, trajectory `data.origin`, human-only `lastPrompt`/`lastUserAt` | WP1 (now) |
+| `jarvis` | `jarvis.status/enable/disable/overview/takeover/handback`, `jarvis.project.*`, `jarvis.state`, `SessionSummary.role/jarvis` | WP3 |
+| `jarvisDelegation` | `jarvis.ledger`, `jarvis.delegation.*`, `jarvis.decision/escalation/delegation.changed`, `ApprovalRequest.route` | WP2 |
+| `externalSessions` | `external.*`, `ApprovalRequest.external`; per-CLI availability is `external.clis`, not capability strings | WP5 (+ WP6a–d) |
+| `mcpPresets` | `mcp.preset.list/apply` | WP8 |
+| `jarvisBriefing` | `jarvis.briefing.get/set` | WP8 |
+
+## Methods
+
+| Method | Params → result | Semantics | WP |
+|---|---|---|---|
+| `jarvis.status` | – → `JarvisStatusResult` | enabled, running, sessionId, model, folder, delegationDefault, budget, paused sessions, hidden projects, problems | 3 |
+| `jarvis.enable` | `{model?, folder?}` → status | set `jarvis.enabled`, create/resume the Jarvis session; idempotent | 3 |
+| `jarvis.disable` | – → status | clear it, park the session; everything routes to the person; messenger targets restored | 3 |
+| `jarvis.overview` | `{project?, includeIdle, includeExternal, limit}` → `{rows, generatedAt}` | one row per supervised session: sessionId or `external`, project, title, status, host (external), pending approvals/questions, waitingOnPerson, level, pausedUntil, takenOver, lastActivityAt, digest | 3 |
+| `jarvis.ledger` | `{sessionId?, decidedBy?, before?, limit}` → `{entries, nextBefore}` | paged decisions: kind, decidedBy `jarvis`/`person`/`auto`, decision, classification, guardedClass, rule, grantId, reason | 2 |
+| `jarvis.delegation.list` | `{scope?, target?, includeExpired}` → `{grants, default}` | grants from `jarvis/delegation.db` | 2 |
+| `jarvis.delegation.set` | `{scope, target?, level, allow[], expiresAt?, note}` → `{grant, replaced}` | the calling connection is the person; applies at once. Jarvis's `delegation_set` tool never calls it — it raises a person-only approval. Guarded classes: local or re-authenticated connection; from a messenger only with `jarvis.messenger.allowGrants` (default true); no `allow` on a global grant in v1 | 2 |
+| `jarvis.delegation.revoke` | `{id}` → `{revoked}` | | 2 |
+| `jarvis.takeover` | `{sessionId \| external, minutes?}` → `{state}` | the person takes a session back until hand-back or `minutes` | 3 |
+| `jarvis.handback` | `{sessionId \| external}` → `{state}` | authority returns now (ends a takeover or a typing pause) | 3 |
+| `jarvis.project.list` | – → `{projects}` | root, name, aliases, exposed, named; names live in the Jarvis store, default workspace title or folder name | 3 |
+| `jarvis.project.rename` / `.alias` | `{root, name?}` / `{root, add[], remove[]}` → `{project}` | | 3 |
+| `jarvis.briefing.get` / `.set` | – / `{enabled?, schedule?, instructions?}` → `JarvisBriefing` | periodic briefing; off by default | 8 |
+| `external.clis` | – → `{clis}` | per CLI `claude`/`codex`/`agy`/`cursor`: installed, enabled, version, path, capabilities `{streaming, approvals: bridged\|degraded, liveView, tmux, modes[]}`, `approvalPolicy` (agy: `asks`\|`auto`), `defaultMode`, problems | 5 |
+| `external.list` | `{clis?, cwd?, sessionId?, allProjects, limit, before?}` → `{sessions, nextBefore}` | one working directory's sessions (default the workdir of `sessionId`), or every exposed project's; newest first | 5/6 |
+| `external.open` | `{ref, limit, mode?}` → `{session, events, hasMore, readOnly}` | subscribe to `external.event`, newest page; a `host: none` session is continued under snowpea in `mode` (default the CLI's `defaultMode`) | 5/6 |
+| `external.read` | `{ref, beforeSeq?, limit}` → `{events, hasMore}` | older timeline page | 5/6 |
+| `external.send` | `{ref, text}` → `{turnId}` | prompt; no attachments in v1; `external_view_only` while `canSend` is false | 6 |
+| `external.interrupt` / `external.close` | `{ref}` → `Ok` | stop the turn / stop snowpea's process and unsubscribe | 6 / 5 |
+| `external.create` | `{cli, project, model?, mode?, transport}` → `{session}` | new session in a registered root; `mode` default\|readonly\|unrestricted; `transport` `structured` (default) or `tmux` (Claude only) | 6 |
+| `external.setMode` | `{ref, mode}` → `{session}` | switch mode from the next turn; `unrestricted` only from a human connection (`jarvis_person_only` otherwise), ledger entry | 6 |
+| `mcp.preset.list` | – → `{presets}` | id, title, description, category, auth (`McpCatalogAuth`), transport, entry, inputs, readTools, sendTools, recipes, applied | 8 |
+| `mcp.preset.apply` | `{id, inputs, recipes, scope, workdir?, name?}` → `{server, add: McpAddResult, jobs, needsAuth}` | write the server entry, schedule chosen recipes as `jarvis-task` jobs | 8 |
+
+## Events
+
+| Event | Delivery | Payload | WP |
+|---|---|---|---|
+| `jarvis.state` | daemon-wide, like `sessions.changed` | `{reason, status: JarvisStatusResult}` | 3 |
+| `jarvis.decision` | daemon-wide (the "Decided by Jarvis" panel is not tied to a subscribed session) | `{entry: JarvisDecision}` — entry has `importance` and a short `summary` | 2 |
+| `jarvis.escalation` | daemon-wide; badge, OS notification and messenger per `jarvis.notify.*` | `{id, ts, sessionId \| external, project, title, reason, summary, importance, requestKind?, requestId?, guardedClass?}` | 2/3 |
+| `jarvis.delegation.changed` | daemon-wide | `{reason: set\|revoked\|expired, grant}` | 2 |
+| `external.event` | only connections that called `external.open` on the ref | `{ref, seq, kind, payload, ts, turnId?}` — kinds and payloads are the session-event ones (`message.delta`, `tool.call`, `turn.done`, …), own `seq` per ref | 5/6 |
+| `external.state` | daemon-wide | `{ref, status, previous?, host, previousHost?, canSend, approvals, tmux?, mode?, controlled, title?, error?}` | 5 |
+
+None of the Jarvis events is a session event on the Jarvis session: clients need them without subscribing to it, and the Jarvis transcript already shows its own tool calls.
+
+## Fields on existing models
+
+| Field | Semantics | WP |
+|---|---|---|
+| `message.user.origin {kind, surface?}` | `human` (the session's person on any surface, incl. the bound messenger user; `surface` = client kind or platform), `jarvis` (reserved), `schedule`, `gateway` (another member of a messenger chat), `subagent` (lead's brief/message in a child, a child's hand-back announce in the lead), `system` (goal rounds, queued commands, `session.continue`). Null on events stored before 1.53.0 = human | 1 (done) |
+| trajectory `user` rows `data.origin` | copied from the event | 1 (done) |
+| `SessionSummary.lastPrompt` / `lastUserAt` | only human-origin `message.user` (or pre-1.53 rows without origin); a session with only non-human prompts has none | 1 (done) |
+| `session.fork` title | the fork keeps the source's title unchanged (no " (fork)"); untitled stays null | 1 (done) |
+| `SessionSummary.role?: "jarvis"`, `SessionSummary.jarvis?: {exposed, level, pausedUntil, takenOver}` | | 3 |
+| `ApprovalRequest.external?`, `QuestionRequest.external?` `{cli, id}` | requests from a hosted external session (`sessionId` `ext:<cli>:<id>`) | 5 |
+| `ApprovalRequest.route?`, `QuestionRequest.route?` `person\|jarvis\|auto` | where the engine routed it; null with Jarvis mode off | 2 |
+| `approval.resolved.by` / `question.resolved.by` | new values `jarvis` and (approvals) `jarvis:auto` | 2 |
+| `ExternalSessionRow` | `ref, title, cwd, project, updatedAt, status idle\|running\|error, host none\|terminal\|tmux\|snowpea, canSend, approvals bridged\|person\|degraded\|none, tmux? {session, pane}, mode? default\|readonly\|unrestricted, controlled, preview, model` | 5 |
+| `JarvisDecision.kind: "unrestricted"`, `importance` (`low\|normal\|high\|urgent`) | ledger entry for every unrestricted open/switch (decidedBy person) | 2/6 |
+| Error codes | `jarvis_disabled`, `jarvis_person_only`, `external_view_only`, `external_unavailable` | – |
+
+Settings (no behaviour yet): `jarvis.{enabled=false, model=null, folder="~/Snowpea/Jarvis", delegation.{default="staged", projectTtlHours=24}, quietMinutes=10, proactive.{finished,error,needsYou,decided}=true, briefing.{enabled=false, schedule, instructions}, budget.{wakesPerHour=30, dailyTokens=2000000}, messenger.{route=true, allowGrants=true}, notify.{inApp, os, messenger}=true, external.{enabled=true, clis.<claude|codex|agy|cursor>.{enabled, path, defaultMode=null (= default; readonly for cursor; cursor may not be "default")}, maxProcesses=4, idleSec=900}}` in `config/settings.py`; per project `jarvis.expose=true` in `config/project.py`.
+
+## Spike outcomes the contract expresses
+
+| CLI | Transport | `approvals` (host snowpea) | `tmux` | Modes | Notes for the adapter |
+|---|---|---|---|---|---|
+| claude | `claude -p` stream-json both ways, kept alive; `--resume` | `bridged` (`control_request can_use_tool`) | yes, beta, Linux/macOS: `host: tmux`, `canSend` (single-line and bracketed paste), approvals `person` | default, readonly (`--permission-mode plan`), unrestricted (`--dangerously-skip-permissions`) | history from `~/.claude/projects/*.jsonl`; liveness `~/.claude/sessions/<pid>.json`; drop every transcript record that is not user/assistant (attachment, session-owner, … carry the owner's email and org ids) |
+| codex | one shared `codex app-server` (stdio JSON-RPC) | `bridged` (`item/commandExecution/requestApproval`, file-change approvals) | no | default, readonly (read-only sandbox), unrestricted (approvalPolicy never + danger-full-access; `--yolo` for exec) | `host: terminal` when `~/.codex/thread-writer-locks/<id>.lock` is flock-held by another process |
+| agy | `agy acp` per open session | `bridged` when `approvalPolicy: asks`; `none` (and `controlled: false`) when `auto` | no | default, readonly (`--mode plan`), unrestricted (`--dangerously-skip-permissions`); with policy `auto`, edit work needs unrestricted | the policy comes from agy's own settings and cannot be set per session |
+| cursor | spawn per message (`--resume`, `--workspace`, `--sandbox`, prompt as the last argv element) | `degraded` / none: no permission mechanism; print mode runs edits, shell and network unprompted | no | readonly (`--mode ask`, the default) and unrestricted (`--yolo`); no `default` | `controlled: false` outside readonly |
+
+MCP presets in v1: `google` (Gmail, Google Calendar) and `microsoft365` (Outlook mail, calendar).
+
+## Deviations from Part 2 and why
+
+- Capability names are camelCase (`jarvisDelegation`, `externalSessions`, `mcpPresets`, `messageOrigin`) to match the existing list; `jarvisBriefing` was added so briefing (WP8) is not gated by `jarvis` (WP3). No `external.<cli>` capabilities: `external.clis` reports them, since installation changes at runtime.
+- `jarvis.enable` / `jarvis.disable` instead of one setter, matching `extension.enable/disable`; `jarvis.briefing.get/set` added for the requested conversational briefing.
+- `origin.kind` adds `system` (Part 2 had none for core- or model-written text); a messenger message from the bound person is `human` with `surface` set to the platform, and `gateway` is reserved for other chat members, so the pause rule (`kind == "human"`) holds on every surface.
+- Takeover without a limit is `takenOver: true` with `pausedUntil: null` rather than a sentinel date.
+- `ExternalSessionRow.status` dropped `open_elsewhere`; `host` says where the process lives (owner clarification above). The matching error is `external_view_only`.
+- Preset `auth` reuses `McpCatalogAuth` (`oauth | token | none`), not `env`, so presets and catalog entries share one shape.
+- Part 2's "never pass `dangerously|yolo|bypass` flags" is replaced by the owner's unrestricted mode: those flags are emitted only for a session a human connection put in `unrestricted`.
+- External `mode` is its own literal (`default|readonly|unrestricted`), not the snowpea session `Mode`, since the CLIs' modes do not map onto plan/accept/auto.
+- `lastPrompt`'s pre-1.53 fallback skips every injected history entry by its `source` (skill notes, notices, runtime context, continuations, lead relays); a core-started turn's `[system]` note now carries `source {producer: system, form: notice}` so it is skipped too.
+- `lastUserAt` became human-only as well, the same rule as `lastPrompt`; before, a hand-back announce or queued command moved it.

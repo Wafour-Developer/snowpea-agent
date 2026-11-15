@@ -731,6 +731,18 @@ def render_md(schema: dict[str, Any]) -> str:
         "approval_timeout": "No approval arrived before `approvals.timeoutSec` elapsed.",
         "internal": "Unexpected server-side failure.",
         "invalid_params": "Params failed schema validation.",
+        "jarvis_disabled": "A jarvis.* call that needs Jarvis mode on while it is off (1.53.0).",
+        "jarvis_person_only": (
+            "A delegation change from a connection that may not make it: a messenger with "
+            "jarvis.messenger.allowGrants off, a remote login not re-authenticated (1.53.0)."
+        ),
+        "external_view_only": (
+            "external.send to a session snowpea can only view: its process runs in the "
+            "person's terminal (host terminal), or tmux before input is confirmed (1.53.0)."
+        ),
+        "external_unavailable": (
+            "The external CLI is missing, disabled or an unsupported version (1.53.0)."
+        ),
         "login_unsupported": "The vendor does not support the requested login method.",
         "mode_denied": "The session mode forbids this tool or action.",
         "not_found": "No such session, request, job, agent or content (`-32004`).",

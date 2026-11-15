@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.52.0"
+PROTOCOL_VERSION = "1.53.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -159,6 +159,129 @@ class Empty(Payload):
 
 class Ok(Payload):
     ok: bool = Field(default=True, description="True when the call succeeded.")
+
+
+# --------------------------------------------------------------------------
+# M19 Jarvis mode (1.53.0): types the older models below gain as fields
+# --------------------------------------------------------------------------
+
+#: Whose words a ``message.user`` is (1.53.0, capability ``messageOrigin``):
+#: ``human`` the session's own person on any surface (IDE, TUI, CLI, web,
+#: browser, or the bound person in a messenger); ``jarvis`` the Jarvis session
+#: (reserved, sent from M19 WP4); ``schedule`` a scheduled job; ``gateway``
+#: someone other than the bound person in a messenger group chat; ``subagent``
+#: delegation traffic (a lead's brief or message in a child, a child's
+#: hand-back announcement in its lead); ``system`` text core or a model wrote
+#: (a goal round, a queued command, ``session.continue``).
+OriginKind = Literal["human", "jarvis", "schedule", "gateway", "subagent", "system"]
+#: How much Jarvis may decide for a session (1.53.0): ``staged`` only safe
+#: approvals and how-to questions; ``full`` also risky approvals, stops,
+#: questions and incomplete endings. Guarded classes need their own grant.
+JarvisLevel = Literal["staged", "full"]
+#: Classes Jarvis never decides without an explicit grant naming them
+#: (1.53.0): ``deploy`` (push, release, publish, remote apply),
+#: ``outside_destructive`` (outside the project, recursive deletes, hard
+#: resets, force flags), ``secret_send`` (credentials, sending, mutating
+#: network calls, payments).
+GuardedClass = Literal["deploy", "outside_destructive", "secret_send"]
+#: How the delegation engine classified a request (1.53.0): ``guarded`` comes
+#: with a :data:`GuardedClass`; ``never`` is never delegable (snowpea's own
+#: config, delegation changes, browser-owned requests, Jarvis's own requests).
+JarvisClassification = Literal["safe", "risky", "guarded", "never"]
+#: Who an approval or question is routed to (1.53.0): ``person`` waits for a
+#: human as before; ``jarvis`` the Jarvis session decides; ``auto`` the
+#: engine allowed it without a model call (shown for the record).
+ApprovalRoute = Literal["person", "jarvis", "auto"]
+#: External agent CLIs snowpea can host (1.53.0): Claude Code, Codex,
+#: Antigravity (agy) and Cursor agent.
+ExternalCli = Literal["claude", "codex", "agy", "cursor"]
+#: What an external session is doing (1.53.0); where its process lives is
+#: :data:`ExternalHost`, a separate field.
+ExternalStatus = Literal["idle", "running", "error"]
+#: Where an external session's live process is (1.53.0): ``none`` no live
+#: process (snowpea can continue it); ``terminal`` the person runs it in a
+#: plain terminal (view only, a live tail; available once that process
+#: exits); ``tmux`` it runs in a tmux pane (view, and snowpea may type into
+#: the same process — pending spike S5; its approvals are the person's, never
+#: Jarvis's); ``snowpea`` the daemon runs it over the CLI's structured
+#: transport (full: unified approvals, Jarvis may decide).
+ExternalHost = Literal["none", "terminal", "tmux", "snowpea"]
+#: How an external session's permission prompts are answered (1.53.0):
+#: ``bridged`` they become snowpea approvals (person or Jarvis); ``person``
+#: only the person answers, in the CLI's own pane (tmux); ``degraded`` edits
+#: auto-allowed, the rest blocked (Cursor); ``none`` nothing runs here to ask
+#: (host none or terminal).
+ExternalApprovals = Literal["bridged", "person", "degraded", "none"]
+#: How an external session is run (1.53.0, owner decision): ``default``
+#: approvals bridged where the CLI has them (claude, codex; agy when its own
+#: policy asks) — not offered for cursor, which has no permission mechanism;
+#: ``readonly`` the CLI's plan/ask/read-only mode (claude ``--permission-mode
+#: plan``, codex read-only sandbox, agy ``--mode plan``, cursor ``--mode ask``);
+#: ``unrestricted`` the CLI's own bypass (claude/agy
+#: ``--dangerously-skip-permissions``, codex ``--yolo`` / app-server
+#: approvalPolicy never + danger-full-access, cursor ``--yolo``): snowpea no
+#: longer controls what it runs.  Only a human connection may choose
+#: ``unrestricted``; Jarvis can only ask the person to confirm it.
+ExternalSessionMode = Literal["default", "readonly", "unrestricted"]
+#: How urgent a Jarvis notice is (1.53.0): clients badge every one, raise an
+#: OS notification from ``normal`` up (jarvis.notify.os), and the messenger
+#: forwards ``high`` and ``urgent`` (jarvis.notify.messenger).
+JarvisImportance = Literal["low", "normal", "high", "urgent"]
+
+
+class MessageOrigin(Payload):
+    """Whose words a ``message.user`` carries (1.53.0, capability ``messageOrigin``)."""
+
+    kind: OriginKind = Field(
+        description=(
+            "human (the session's own person), jarvis (reserved for the Jarvis session), "
+            "schedule, gateway (another member of a messenger chat), subagent (delegation "
+            "traffic) or system (text core or a model wrote: goal rounds, queued commands)."
+        )
+    )
+    surface: str | None = Field(
+        default=None,
+        description=(
+            "Where it was typed, when known: the client kind from system.hello ('ide', "
+            "'tui', 'cli', 'web', 'browser', ...) or the messenger platform ('telegram', "
+            "'slack', ...) for human and gateway; null otherwise."
+        ),
+    )
+
+
+class ExternalRef(Payload):
+    """One session of an external agent CLI (1.53.0)."""
+
+    cli: ExternalCli = Field(description="claude, codex, agy or cursor.")
+    id: str = Field(description="The CLI's own session (thread, chat) id.")
+
+
+class SessionJarvisState(Payload):
+    """How Jarvis stands towards one session (1.53.0, capability ``jarvis``)."""
+
+    exposed: bool = Field(
+        description="False when the session's project has jarvis.expose off: Jarvis neither "
+        "sees nor decides for it."
+    )
+    level: JarvisLevel | None = Field(
+        default=None,
+        description=(
+            "Delegation in force (the most specific grant: session, then project, then "
+            "global, then jarvis.delegation.default); null while Jarvis mode is off."
+        ),
+    )
+    pausedUntil: str | None = Field(
+        default=None,
+        description=(
+            "UTC ISO time Jarvis's authority returns: set when the person types into the "
+            "session (now + jarvis.quietMinutes, extended by each input) or takes it over "
+            "with a limit. Null when Jarvis may decide now, or while takenOver holds it."
+        ),
+    )
+    takenOver: bool = Field(
+        default=False,
+        description="True after jarvis.takeover without a limit, until jarvis.handback.",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -899,7 +1022,15 @@ class SessionSummary(Payload):
     contextWindowSource: WindowSource | None = Field(
         default=None, description="Where contextWindow came from (1.42.0)."
     )
-    lastPrompt: str | None = Field(default=None, description="Latest saved user input.")
+    lastPrompt: str | None = Field(
+        default=None,
+        description=(
+            "Latest prompt a person typed (a message.user whose origin is human, or one from "
+            "before 1.53.0 without an origin); goal rounds, hand-backs, scheduled and "
+            "delegation prompts never replace it (1.53.0). Falls back to the newest typed "
+            "/command for a session that only ever ran commands."
+        ),
+    )
     effort: EffortLevel | None = Field(
         default=None,
         description=(
@@ -988,12 +1119,31 @@ class SessionSummary(Payload):
         default=None,
         description=(
             "UTC ISO time of the latest prompt a person sent (a message.user event); null "
-            "when there is none. Goal rounds and other system turns do not move it (1.50.0)."
+            "when there is none. Goal rounds and other system turns do not move it (1.50.0); "
+            "since 1.53.0 only a message.user whose origin is human (or has no origin) does."
         ),
     )
     forkedFrom: str | None = Field(
         default=None,
-        description="Session this one was forked from by session.fork; null otherwise (1.50.0).",
+        description=(
+            "Session this one was forked from by session.fork; null otherwise (1.50.0). "
+            "A fork keeps its source's title unchanged (1.53.0)."
+        ),
+    )
+    role: Literal["jarvis"] | None = Field(
+        default=None,
+        description=(
+            "'jarvis' for the daemon's Jarvis session (1.53.0), a kind='agent' session a "
+            "client without capability 'jarvis' shows as an ordinary named agent; null "
+            "for every other session."
+        ),
+    )
+    jarvis: SessionJarvisState | None = Field(
+        default=None,
+        description=(
+            "How Jarvis stands towards this session (1.53.0): exposed, delegation level "
+            "and pause; null while Jarvis mode is off and on the Jarvis session itself."
+        ),
     )
     forkedAtTurnId: str | None = Field(
         default=None,
@@ -1968,6 +2118,22 @@ class ApprovalRequest(Payload):
             "remember to 'once'. Stored shell rules only ever match one such plain command."
         ),
     )
+    external: ExternalRef | None = Field(
+        default=None,
+        description=(
+            "Set when the call comes from an external CLI session snowpea hosts (1.53.0); "
+            "sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI."
+        ),
+    )
+    route: ApprovalRoute | None = Field(
+        default=None,
+        description=(
+            "Who the delegation engine routed it to while Jarvis mode is on (1.53.0): "
+            "person (wait for a human, as before), jarvis (the Jarvis session decides; a "
+            "person may still answer first) or auto (allowed by the engine, shown for the "
+            "record). Null when Jarvis mode is off."
+        ),
+    )
 
 
 class ApprovalAskParams(Payload):
@@ -2149,6 +2315,17 @@ class QuestionRequest(Payload):
         description=(
             "Seconds before the batch gives up; 0 means no limit (1.35.0: a TUI or "
             "desktop session waits for its person)."
+        ),
+    )
+    external: ExternalRef | None = Field(
+        default=None,
+        description="Set when an external CLI session asks (1.53.0); see ApprovalRequest.",
+    )
+    route: ApprovalRoute | None = Field(
+        default=None,
+        description=(
+            "person or jarvis while Jarvis mode is on (1.53.0); null when it is off. A "
+            "question is never 'auto'."
         ),
     )
 
@@ -2393,7 +2570,8 @@ class TrajectoryRow(Payload):
             "Kind-specific facts: message — outcome, ttftMs, decodeMs, totalMs, inputTokens, "
             "cachedInputTokens, outputTokens, reasoningChars, toolCalls; tool — name, callId, "
             "paths; subagent — agentId, childSessionId, reason, rounds; turn — initiator, "
-            "reason, outcome; compacted — before, after, summaryChars, auto, kept. "
+            "reason, outcome; compacted — before, after, summaryChars, auto, kept; user — "
+            "steered, and origin {kind, surface} from message.user (1.53.0). "
             "Since 1.51.0 every context, system and compacted row has data.kind, a stable "
             "slug, plus that row's values: summary (chars); continued (hookKind, count, "
             "limit); host_note (chars); forked (fromSessionId, atTurnId); error (code); "
@@ -5019,6 +5197,14 @@ class MessageUser(Payload):
             "given instead. Surfaces show it folded, like a tool call, not inline."
         ),
     )
+    origin: MessageOrigin | None = Field(
+        default=None,
+        description=(
+            "Whose words these are (1.53.0, capability 'messageOrigin'). Only kind 'human' "
+            "moves lastPrompt/lastUserAt and pauses Jarvis in a managed session. Null on "
+            "events stored before 1.53.0; read those as human."
+        ),
+    )
 
 
 class MessageDelta(Payload):
@@ -6145,7 +6331,13 @@ class ApprovalResolvedNotification(Payload):
 
     requestId: str = Field(description="Request that was resolved.")
     decision: Decision = Field(description="The decision that was recorded.")
-    by: str = Field(description="Surface or user that answered.")
+    by: str = Field(
+        description=(
+            "Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session "
+            "decided within its delegation) and 'jarvis:auto' (the delegation engine "
+            "allowed a safe request without a model call)."
+        )
+    )
 
 
 class ApprovalPendingNotification(Payload):
@@ -6165,7 +6357,12 @@ class QuestionResolvedNotification(Payload):
     """A question was answered elsewhere; stop showing it."""
 
     requestId: str = Field(description="Question that was resolved.")
-    by: str = Field(description="Surface or user that answered.")
+    by: str = Field(
+        description=(
+            "Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session "
+            "answered within its delegation)."
+        )
+    )
 
 
 class QuestionPendingNotification(Payload):
@@ -7183,6 +7380,836 @@ class ApprovalEvaluateResult(Payload):
     by: Literal["mode", "allowlist", "none"] = Field(
         description="What decided: the mode matrix, a saved rule of this profile, or neither."
     )
+
+
+# --------------------------------------------------------------------------
+# M19 Jarvis mode (beta, 1.53.0): jarvis.*, external.*, mcp.preset.*
+#
+# Declared in 1.53.0 so every work package builds against one contract.  Until
+# a package lands its methods answer ``not_implemented`` and its capability
+# stays out of ``system.hello`` (see :data:`PENDING_CAPABILITIES`).  Design:
+# docs/design/m19-jarvis-mode.md, Part 3.
+# --------------------------------------------------------------------------
+
+
+class JarvisBudget(Payload):
+    """Jarvis's wake and token allowance (1.53.0); when exhausted everything goes to the person."""
+
+    wakesPerHour: int = Field(description="jarvis.budget.wakesPerHour.")
+    wakesThisHour: int = Field(default=0, description="Wakes in the current rolling hour.")
+    dailyTokens: int = Field(description="jarvis.budget.dailyTokens; 0 means no cap.")
+    tokensToday: int = Field(default=0, description="Tokens the Jarvis session used today (local).")
+    exhausted: bool = Field(
+        default=False,
+        description="True while either limit is reached: nothing is routed to Jarvis.",
+    )
+
+
+class JarvisPause(Payload):
+    """One session whose delegation is paused because the person stepped in (1.53.0)."""
+
+    sessionId: str | None = Field(default=None, description="snowpea session, or null.")
+    external: ExternalRef | None = Field(default=None, description="External session, or null.")
+    project: str | None = Field(default=None, description="Project root of the session.")
+    reason: Literal["typing", "takeover"] = Field(
+        description=(
+            "typing: the person sent input (returns after jarvis.quietMinutes without any); "
+            "takeover: jarvis.takeover (returns at its limit or on jarvis.handback)."
+        )
+    )
+    until: str | None = Field(
+        default=None,
+        description="UTC ISO time authority returns; null for a takeover without a limit.",
+    )
+
+
+class JarvisStatusResult(Payload):
+    """``jarvis.status`` (1.53.0, capability ``jarvis``)."""
+
+    enabled: bool = Field(description="settings jarvis.enabled.")
+    running: bool = Field(
+        default=False,
+        description=(
+            "True when the Jarvis service is up and watching sessions (enabled and started)."
+        ),
+    )
+    sessionId: str | None = Field(
+        default=None,
+        description=(
+            "The Jarvis session (SessionSummary.role 'jarvis'); null before it was first created."
+        ),
+    )
+    model: str | None = Field(
+        default=None,
+        description="Model profile Jarvis runs on (jarvis.model); null follows models.default.",
+    )
+    folder: str = Field(
+        description="Jarvis's working folder (jarvis.folder, expanded); its only write root."
+    )
+    delegationDefault: JarvisLevel = Field(
+        default="staged", description="jarvis.delegation.default: the level with no grant."
+    )
+    budget: JarvisBudget | None = Field(
+        default=None, description="Allowance; null while not running."
+    )
+    paused: list[JarvisPause] = Field(
+        default_factory=list, description="Sessions where the person has taken back authority."
+    )
+    hiddenProjects: list[str] = Field(
+        default_factory=list, description="Project roots with jarvis.expose off."
+    )
+    problems: list[str] = Field(
+        default_factory=list,
+        description="Why it is not running as configured, e.g. an unknown model profile.",
+    )
+
+
+class JarvisEnableParams(Payload):
+    model: str | None = Field(
+        default=None, description="Also set jarvis.model (a models.profiles id) before starting."
+    )
+    folder: str | None = Field(
+        default=None, description="Also set jarvis.folder before starting; created if missing."
+    )
+
+
+class JarvisOverviewParams(Payload):
+    project: str | None = Field(default=None, description="Only this project root.")
+    includeIdle: bool = Field(
+        default=True, description="False leaves out idle rows with nothing pending."
+    )
+    includeExternal: bool = Field(default=True, description="Include external CLI sessions.")
+    limit: int = Field(default=200, ge=1, le=1000, description="Most rows, newest activity first.")
+
+
+class JarvisOverviewRow(Payload):
+    """One supervised session (1.53.0), kept by the intake without any model call."""
+
+    sessionId: str | None = Field(
+        default=None, description="snowpea session; null for an external one."
+    )
+    external: ExternalRef | None = Field(
+        default=None, description="External session; null for snowpea."
+    )
+    project: str | None = Field(default=None, description="Project root it works in.")
+    title: str | None = Field(default=None, description="Session title.")
+    status: Literal["idle", "running", "awaiting_approval", "awaiting_question", "error"] = Field(
+        description="SessionSummary.status, or the external status."
+    )
+    host: ExternalHost | None = Field(
+        default=None, description="For an external session: where its process lives."
+    )
+    pendingApprovals: int = Field(default=0, description="Approvals waiting (any route).")
+    pendingQuestions: int = Field(default=0, description="Questions waiting (any route).")
+    waitingOnPerson: int = Field(
+        default=0, description="Of those, how many are routed to the person."
+    )
+    level: JarvisLevel | None = Field(
+        default=None, description="Delegation in force for it; null when not exposed."
+    )
+    pausedUntil: str | None = Field(default=None, description="As SessionJarvisState.pausedUntil.")
+    takenOver: bool = Field(default=False, description="As SessionJarvisState.takenOver.")
+    lastActivityAt: str | None = Field(
+        default=None, description="UTC ISO time of its last activity."
+    )
+    digest: str = Field(
+        default="",
+        description="One line: what it did last or is waiting for (at most 200 characters).",
+    )
+
+
+class JarvisOverviewResult(Payload):
+    rows: list[JarvisOverviewRow] = Field(
+        default_factory=list, description="Newest activity first."
+    )
+    generatedAt: str = Field(description="UTC ISO time the table was taken.")
+
+
+class JarvisDecision(Payload):
+    """One ledger entry (1.53.0): a decision on behalf of a supervised session."""
+
+    id: str = Field(description="Ledger id.")
+    ts: str = Field(description="UTC ISO time it was decided.")
+    sessionId: str | None = Field(default=None, description="snowpea session it was for.")
+    external: ExternalRef | None = Field(default=None, description="External session it was for.")
+    project: str | None = Field(default=None, description="Project root of that session.")
+    kind: Literal[
+        "approval", "question", "continue", "prompt", "interrupt", "escalate", "unrestricted"
+    ] = Field(
+        description=(
+            "approval or question answered; continue (a stopped or incomplete turn was "
+            "resumed); prompt or interrupt sent to the session; escalate (handed to the "
+            "person); unrestricted (an external session was created, opened or switched to "
+            "mode 'unrestricted' — always decidedBy 'person', with external and project)."
+        )
+    )
+    importance: JarvisImportance = Field(
+        default="low", description="How prominently clients show it (badge / OS / messenger)."
+    )
+    requestId: str | None = Field(default=None, description="Approval or question id, when one.")
+    tool: str | None = Field(default=None, description="Tool of an approval.")
+    summary: str = Field(
+        description="What was decided, one short line (fits an OS notification, ~120 chars)."
+    )
+    decision: str | None = Field(
+        default=None, description="'allow' or 'deny' for an approval; null for other kinds."
+    )
+    decidedBy: Literal["jarvis", "person", "auto"] = Field(
+        description=(
+            "jarvis (the model, within the engine's options), person, or auto (the engine alone)."
+        )
+    )
+    classification: JarvisClassification | None = Field(
+        default=None, description="Engine verdict for an approval."
+    )
+    guardedClass: GuardedClass | None = Field(
+        default=None, description="With classification 'guarded'."
+    )
+    rule: str | None = Field(
+        default=None,
+        description="The engine rule that matched, e.g. 'exec:git-push' or 'tag:read'.",
+    )
+    grantId: str | None = Field(default=None, description="Grant that allowed it, when one did.")
+    reason: str = Field(default="", description="Why, as Jarvis or the engine stated it.")
+
+
+class JarvisLedgerParams(Payload):
+    sessionId: str | None = Field(default=None, description="Only decisions for this session.")
+    decidedBy: Literal["jarvis", "person", "auto"] | None = Field(
+        default=None, description="Only decisions by this decider."
+    )
+    before: str | None = Field(
+        default=None,
+        description="Cursor from a previous page's nextBefore; omitted starts at the newest.",
+    )
+    limit: int = Field(default=50, ge=1, le=500, description="Entries per page.")
+
+
+class JarvisLedgerResult(Payload):
+    entries: list[JarvisDecision] = Field(default_factory=list, description="Newest first.")
+    nextBefore: str | None = Field(
+        default=None, description="Cursor for the next page; null at the end."
+    )
+
+
+JarvisScope = Literal["global", "project", "session"]
+
+
+class JarvisGrant(Payload):
+    """One delegation grant (1.53.0), kept in $SNOWPEA_HOME/jarvis/delegation.db, not settings."""
+
+    id: str = Field(description="Grant id.")
+    scope: JarvisScope = Field(description="global, project or session; the most specific wins.")
+    target: str | None = Field(
+        default=None,
+        description=(
+            "Project root for 'project'; session id (or 'ext:<cli>:<id>') for 'session'; null for "
+            "'global'."
+        ),
+    )
+    level: JarvisLevel = Field(description="staged or full.")
+    allow: list[GuardedClass] = Field(
+        default_factory=list,
+        description=(
+            "Guarded classes Jarvis may decide under this grant; never on a global grant in v1."
+        ),
+    )
+    grantedBy: str = Field(
+        description="Surface of the person who confirmed it ('ide', 'tui', 'web', 'telegram', ...)."
+    )
+    proposedBy: Literal["person", "jarvis"] = Field(
+        default="person", description="jarvis when it came from Jarvis's delegation_set proposal."
+    )
+    grantedAt: str = Field(description="UTC ISO time.")
+    expiresAt: str | None = Field(
+        default=None,
+        description=(
+            "UTC ISO expiry; null means until revoked (a session grant also ends with its "
+            "session)."
+        ),
+    )
+    note: str = Field(default="", description="Free text the person or proposal gave.")
+
+
+class JarvisDelegationListParams(Payload):
+    scope: JarvisScope | None = Field(default=None, description="Only this scope.")
+    target: str | None = Field(
+        default=None, description="Only grants for this project root or session."
+    )
+    includeExpired: bool = Field(default=False, description="Also list expired and revoked grants.")
+
+
+class JarvisDelegationListResult(Payload):
+    grants: list[JarvisGrant] = Field(default_factory=list, description="Newest first.")
+    default: JarvisLevel = Field(default="staged", description="jarvis.delegation.default.")
+
+
+class JarvisDelegationSetParams(Payload):
+    """Create or replace the grant for one scope and target.
+
+    A client connection calling this IS the person: the change applies at once.
+    The same change proposed by Jarvis (its ``delegation_set`` tool) never comes
+    through here; it raises a person-only approval showing the exact scope, and
+    nothing Jarvis reads can answer it.
+    """
+
+    scope: JarvisScope = Field(description="global, project or session.")
+    target: str | None = Field(
+        default=None,
+        description="Required for project (a root) and session (an id); omitted for global.",
+    )
+    level: JarvisLevel = Field(description="staged or full.")
+    allow: list[GuardedClass] = Field(
+        default_factory=list,
+        description="Guarded classes to hand over; refused (invalid_params) on a global grant.",
+    )
+    expiresAt: str | None = Field(
+        default=None,
+        description=(
+            "UTC ISO expiry. Omitted: a session grant lasts while the session does, a project "
+            "grant 24 h."
+        ),
+    )
+    note: str = Field(default="", description="Shown in the grants list and the ledger.")
+
+
+class JarvisDelegationSetResult(Payload):
+    grant: JarvisGrant = Field(description="The grant now in force.")
+    replaced: str | None = Field(default=None, description="Id of the grant it replaced, if any.")
+
+
+class JarvisDelegationRevokeParams(Payload):
+    id: str = Field(description="Grant to revoke.")
+
+
+class JarvisDelegationRevokeResult(Payload):
+    revoked: bool = Field(description="False when the grant was already gone or expired.")
+
+
+class JarvisSessionTarget(Payload):
+    """A supervised session: exactly one of sessionId and external."""
+
+    sessionId: str | None = Field(default=None, description="snowpea session.")
+    external: ExternalRef | None = Field(default=None, description="External session.")
+
+
+class JarvisTakeoverParams(JarvisSessionTarget):
+    minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=10080,
+        description="Hand back automatically after this long; omitted holds until jarvis.handback.",
+    )
+
+
+class JarvisPauseResult(Payload):
+    state: SessionJarvisState = Field(description="The session's Jarvis state after the call.")
+
+
+class JarvisBriefing(Payload):
+    """Jarvis's periodic briefing (1.53.0); off until the person asks for it."""
+
+    enabled: bool = Field(default=False, description="jarvis.briefing.enabled.")
+    schedule: str = Field(default="0 9 * * 1-5", description="Cron expression, daemon-local time.")
+    instructions: str = Field(
+        default="", description="What to cover, as the person said it (adjusted in conversation)."
+    )
+    jobId: str | None = Field(
+        default=None, description="Scheduler job that runs it, while enabled."
+    )
+    nextRunAt: str | None = Field(default=None, description="UTC ISO time of the next run.")
+
+
+class JarvisBriefingSetParams(Payload):
+    enabled: bool | None = Field(default=None, description="Omitted keeps the current value.")
+    schedule: str | None = Field(default=None, description="Cron expression; omitted keeps it.")
+    instructions: str | None = Field(default=None, description="Omitted keeps it.")
+
+
+class JarvisStateNotification(Payload):
+    """Daemon-wide (1.53.0): Jarvis mode changed; sent to every authenticated connection."""
+
+    reason: Literal[
+        "enabled", "disabled", "started", "stopped", "budget", "paused", "resumed", "settings"
+    ] = Field(description="What changed.")
+    status: JarvisStatusResult = Field(description="jarvis.status after the change.")
+
+
+class JarvisDecisionNotification(Payload):
+    """Daemon-wide (1.53.0): one new ledger entry, for 'Decided by Jarvis' panels."""
+
+    entry: JarvisDecision = Field(description="The decision.")
+
+
+class JarvisEscalationNotification(Payload):
+    """Daemon-wide (1.53.0): something needs the person; also posted to the messenger."""
+
+    id: str = Field(description="Escalation id (repeats of the same need keep it).")
+    ts: str = Field(description="UTC ISO time.")
+    sessionId: str | None = Field(default=None, description="snowpea session concerned.")
+    external: ExternalRef | None = Field(default=None, description="External session concerned.")
+    project: str | None = Field(default=None, description="Its project root.")
+    title: str | None = Field(default=None, description="Its title.")
+    reason: Literal[
+        "guarded", "risky", "never", "question", "finished", "error", "stalled", "budget", "jarvis"
+    ] = Field(
+        description=(
+            "guarded/risky/never: an approval the engine routed to the person; question: a "
+            "question routed to the person; finished/error/stalled: a turn ended that way in a "
+            "fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose "
+            "to ask the person."
+        )
+    )
+    summary: str = Field(
+        description="One short line for the person (fits an OS notification, ~120 chars)."
+    )
+    importance: JarvisImportance = Field(
+        default="high",
+        description=(
+            "How prominently to show it: in-app badge always, OS notification from normal "
+            "(jarvis.notify.os), messenger from high (jarvis.notify.messenger)."
+        ),
+    )
+    requestKind: Literal["approval", "question"] | None = Field(
+        default=None, description="Kind of the waiting request, when one."
+    )
+    requestId: str | None = Field(
+        default=None, description="Its id, to answer with approval.respond / question.respond."
+    )
+    guardedClass: GuardedClass | None = Field(default=None, description="With reason 'guarded'.")
+
+
+class JarvisDelegationChangedNotification(Payload):
+    """Daemon-wide (1.53.0): a grant was set, revoked or expired."""
+
+    reason: Literal["set", "revoked", "expired"] = Field(description="What happened.")
+    grant: JarvisGrant = Field(description="The grant as it is now.")
+
+
+class JarvisProject(Payload):
+    """What a project is called in conversation (1.53.0), kept in the Jarvis store."""
+
+    root: str = Field(description="Absolute project root.")
+    name: str = Field(
+        description="Display name: as renamed, else the workspace title, else the folder name."
+    )
+    aliases: list[str] = Field(
+        default_factory=list, description="Other names Jarvis and clients accept for it."
+    )
+    exposed: bool = Field(default=True, description="Project setting jarvis.expose.")
+    named: bool = Field(
+        default=False, description="True when the name was set with jarvis.project.rename."
+    )
+
+
+class JarvisProjectListResult(Payload):
+    projects: list[JarvisProject] = Field(
+        default_factory=list, description="Every project snowpea knows, by name."
+    )
+
+
+class JarvisProjectRenameParams(Payload):
+    root: str = Field(description="Project root.")
+    name: str | None = Field(
+        default=None, description="New display name; null or empty returns to the default."
+    )
+
+
+class JarvisProjectAliasParams(Payload):
+    root: str = Field(description="Project root.")
+    add: list[str] = Field(default_factory=list, description="Aliases to add.")
+    remove: list[str] = Field(default_factory=list, description="Aliases to remove.")
+
+
+class JarvisProjectResult(Payload):
+    project: JarvisProject = Field(description="The project after the change.")
+
+
+# -- external.* -------------------------------------------------------------
+
+
+class ExternalCliCapabilities(Payload):
+    streaming: bool = Field(description="Replies stream as message.delta while the CLI writes.")
+    approvals: Literal["bridged", "degraded"] = Field(
+        description=(
+            "bridged: the CLI's permission prompts become snowpea approvals; degraded: edits "
+            "are auto-allowed and everything else is blocked (Cursor)."
+        )
+    )
+    liveView: bool = Field(
+        description="A session open in another terminal can be followed live (else on refresh)."
+    )
+    tmux: bool = Field(
+        default=False,
+        description=(
+            "external.create {transport: 'tmux'} works: Claude Code only, on Linux/macOS with "
+            "tmux installed (beta)."
+        ),
+    )
+    modes: list[ExternalSessionMode] = Field(
+        default_factory=list,
+        description="Modes it offers: cursor has no 'default' (no permission mechanism).",
+    )
+
+
+class ExternalCliInfo(Payload):
+    """One external agent CLI on the daemon host (1.53.0)."""
+
+    id: ExternalCli = Field(description="claude, codex, agy or cursor.")
+    title: str = Field(description="Display name, e.g. 'Claude Code'.")
+    installed: bool = Field(
+        description="An executable was found (jarvis.external.clis.<id>.path or PATH)."
+    )
+    enabled: bool = Field(default=True, description="jarvis.external.clis.<id>.enabled.")
+    version: str | None = Field(default=None, description="Its --version, when it answered.")
+    path: str | None = Field(
+        default=None, description="Absolute executable path pinned at discovery."
+    )
+    capabilities: ExternalCliCapabilities | None = Field(
+        default=None, description="What works with this version; null when not installed."
+    )
+    approvalPolicy: Literal["asks", "auto"] | None = Field(
+        default=None,
+        description=(
+            "agy only: what the CLI's own settings say, which snowpea cannot change per "
+            "session — asks (prompts are bridged) or auto (it runs without asking; edit work "
+            "then needs mode 'unrestricted', confirmed by the person). Null for the others."
+        ),
+    )
+    defaultMode: ExternalSessionMode = Field(
+        default="default",
+        description=(
+            "jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets "
+            "unless one is chosen ('readonly' for cursor). Set only by the person."
+        ),
+    )
+    problems: list[str] = Field(
+        default_factory=list,
+        description="Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'.",
+    )
+
+
+class ExternalClisResult(Payload):
+    clis: list[ExternalCliInfo] = Field(
+        default_factory=list, description="All four, in a fixed order."
+    )
+
+
+class ExternalTmux(Payload):
+    """Where a ``host: tmux`` session runs, for 'tmux attach -t <session>' (1.53.0)."""
+
+    session: str = Field(description="tmux session name.")
+    pane: str = Field(description="tmux pane id, e.g. '%3'.")
+
+
+class ExternalSessionRow(Payload):
+    """One external session (1.53.0); never a row of session.list."""
+
+    ref: ExternalRef = Field(description="Which CLI and its session id.")
+    title: str | None = Field(default=None, description="Title the CLI keeps, or the first prompt.")
+    cwd: str = Field(description="Working directory the CLI recorded.")
+    project: str | None = Field(
+        default=None, description="Registered project root containing cwd; null when none."
+    )
+    updatedAt: str | None = Field(default=None, description="UTC ISO time of its last entry.")
+    status: ExternalStatus = Field(description="idle, running or error.")
+    host: ExternalHost = Field(
+        default="none",
+        description=(
+            "Where its live process is: none (snowpea can continue it), terminal (view only "
+            "until that process exits), tmux (view, input into the same pane) or snowpea."
+        ),
+    )
+    canSend: bool = Field(
+        default=True,
+        description="external.send is accepted now: host none, snowpea, or tmux once S5 holds.",
+    )
+    approvals: ExternalApprovals = Field(
+        default="none", description="How its permission prompts are answered right now."
+    )
+    tmux: ExternalTmux | None = Field(default=None, description="With host 'tmux': where.")
+    mode: ExternalSessionMode | None = Field(
+        default=None,
+        description="How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere.",
+    )
+    controlled: bool = Field(
+        default=True,
+        description=(
+            "False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside "
+            "'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class "
+            "rules do not apply inside it."
+        ),
+    )
+    preview: str = Field(default="", description="Last message, one line.")
+    model: str | None = Field(default=None, description="Model it last used, when recorded.")
+
+
+class ExternalListParams(Payload):
+    """Sessions are loaded by working directory: one folder's, or every exposed project's."""
+
+    clis: list[ExternalCli] | None = Field(
+        default=None, description="Only these CLIs; omitted lists all four."
+    )
+    cwd: str | None = Field(
+        default=None,
+        description=(
+            "Project root whose sessions to list (the CLI's recorded cwd at or under it). "
+            "Omitted: the workdir of sessionId; one of cwd, sessionId, allProjects is required."
+        ),
+    )
+    sessionId: str | None = Field(
+        default=None, description="snowpea session whose workdir stands in for cwd."
+    )
+    allProjects: bool = Field(
+        default=False,
+        description="List across every exposed project (the Jarvis overview); cwd is ignored.",
+    )
+    limit: int = Field(default=100, ge=1, le=1000, description="Most rows, newest first.")
+    before: str | None = Field(default=None, description="Cursor from nextBefore.")
+
+
+class ExternalListResult(Payload):
+    sessions: list[ExternalSessionRow] = Field(default_factory=list, description="Newest first.")
+    nextBefore: str | None = Field(default=None, description="Cursor for the next page.")
+
+
+class ExternalTimelineEvent(Payload):
+    """One timeline entry of an external session, shaped like a session event (1.53.0)."""
+
+    seq: int = Field(description="Monotonic per external session, assigned by snowpea.")
+    kind: str = Field(
+        description=(
+            "A session event kind (message.user, message.delta, tool.call, diff, turn.done, ...)."
+        )
+    )
+    payload: dict[str, Any] = Field(
+        default_factory=dict, description="The same payload that kind has in session.event."
+    )
+    ts: str = Field(description="UTC ISO time.")
+    turnId: str | None = Field(default=None, description="Turn it belongs to, when known.")
+
+
+class ExternalOpenParams(Payload):
+    """Open (subscribe to) a session; a host 'none' one is continued under snowpea."""
+
+    ref: ExternalRef = Field(description="Session to open.")
+    limit: int = Field(default=200, ge=1, le=2000, description="Newest timeline entries to return.")
+    mode: ExternalSessionMode | None = Field(
+        default=None,
+        description=(
+            "Mode when this continues a host 'none' session; omitted uses the CLI's "
+            "defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only)."
+        ),
+    )
+
+
+class ExternalOpenResult(Payload):
+    session: ExternalSessionRow = Field(description="The session as it is now.")
+    events: list[ExternalTimelineEvent] = Field(
+        default_factory=list, description="Newest page of the timeline, oldest first."
+    )
+    hasMore: bool = Field(default=False, description="Older entries exist (external.read).")
+    readOnly: bool = Field(
+        default=False,
+        description=(
+            "True while host is 'terminal' (or 'tmux' before spike S5 confirms input): view "
+            "only, external.send refused. Opening a host 'none' session continues it under "
+            "snowpea, so it comes back with host 'snowpea'."
+        ),
+    )
+
+
+class ExternalReadParams(Payload):
+    ref: ExternalRef = Field(description="Session to read.")
+    beforeSeq: int | None = Field(
+        default=None, description="Entries older than this; omitted is the newest."
+    )
+    limit: int = Field(default=200, ge=1, le=2000, description="Entries per page.")
+
+
+class ExternalReadResult(Payload):
+    events: list[ExternalTimelineEvent] = Field(default_factory=list, description="Oldest first.")
+    hasMore: bool = Field(default=False, description="Older entries exist.")
+
+
+class ExternalSendParams(Payload):
+    ref: ExternalRef = Field(description="Session to talk to.")
+    text: str = Field(min_length=1, description="Prompt text; attachments are not supported in v1.")
+
+
+class ExternalSendResult(Payload):
+    turnId: str = Field(description="Turn id its turn.started/turn.done events carry.")
+
+
+class ExternalRefParams(Payload):
+    ref: ExternalRef = Field(description="The external session.")
+
+
+class ExternalCreateParams(Payload):
+    cli: ExternalCli = Field(description="Which CLI.")
+    project: str = Field(description="A registered project root; anything else is refused.")
+    model: str | None = Field(
+        default=None, description="Model id for the CLI; validated, never a flag."
+    )
+    mode: ExternalSessionMode | None = Field(
+        default=None,
+        description=(
+            "default, readonly or unrestricted; omitted uses the CLI's defaultMode. "
+            "'unrestricted' only from a human connection (else jarvis_person_only); Jarvis "
+            "asks the person through a person-only confirmation instead."
+        ),
+    )
+    transport: Literal["structured", "tmux"] = Field(
+        default="structured",
+        description=(
+            "structured (default): the daemon runs it over the CLI's own protocol (host "
+            "'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux "
+            "pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else "
+            "external_unavailable."
+        ),
+    )
+
+
+class ExternalSetModeParams(Payload):
+    """Switch a session snowpea runs to another mode (1.53.0); takes effect from its next turn."""
+
+    ref: ExternalRef = Field(description="The external session (host 'snowpea' or 'tmux').")
+    mode: ExternalSessionMode = Field(
+        description=(
+            "default, readonly or unrestricted. 'unrestricted' only from a human connection "
+            "(IDE, web, TUI, or the bound approver in a messenger); every such switch is a "
+            "ledger entry."
+        )
+    )
+
+
+class ExternalCreateResult(Payload):
+    session: ExternalSessionRow = Field(description="The new session (already opened).")
+
+
+class ExternalEventNotification(Payload):
+    """One timeline entry of an opened external session (1.53.0).
+
+    Sent only to connections that called external.open on that ref, like
+    session.event to subscribers.
+    """
+
+    ref: ExternalRef = Field(description="Session it belongs to.")
+    seq: int = Field(description="Its own monotonic sequence.")
+    kind: str = Field(description="A session event kind.")
+    payload: dict[str, Any] = Field(
+        default_factory=dict, description="Same payload as in session.event."
+    )
+    ts: str = Field(description="UTC ISO time.")
+    turnId: str | None = Field(default=None, description="Turn it belongs to, when known.")
+
+
+class ExternalStateNotification(Payload):
+    """Daemon-wide (1.53.0): an external session's status or host changed.
+
+    E.g. host terminal -> none when the person's terminal exits (the session is
+    available again), none -> snowpea on external.open.
+    """
+
+    ref: ExternalRef = Field(description="Which session.")
+    status: ExternalStatus = Field(description="Status now.")
+    previous: ExternalStatus | None = Field(default=None, description="Status before.")
+    host: ExternalHost = Field(description="Where its live process is now.")
+    previousHost: ExternalHost | None = Field(default=None, description="Host before.")
+    canSend: bool = Field(description="As ExternalSessionRow.canSend, now.")
+    approvals: ExternalApprovals = Field(description="As ExternalSessionRow.approvals, now.")
+    tmux: ExternalTmux | None = Field(default=None, description="With host 'tmux': where.")
+    mode: ExternalSessionMode | None = Field(
+        default=None, description="As ExternalSessionRow.mode, now."
+    )
+    controlled: bool = Field(default=True, description="As ExternalSessionRow.controlled, now.")
+    title: str | None = Field(default=None, description="Title, when known.")
+    error: str | None = Field(default=None, description="With status 'error': why.")
+
+
+# -- mcp.preset.* -------------------------------------------------------------
+
+
+class McpPresetInput(Payload):
+    name: str = Field(
+        description="Variable the entry refers to as ${NAME} (as McpCatalogEntry.needs)."
+    )
+    label: str = Field(description="Human label.")
+    secret: bool = Field(default=False, description="Stored in credentials.json, never echoed.")
+    required: bool = Field(default=True, description="mcp.preset.apply fails without it.")
+    placeholder: str = Field(default="", description="Example value.")
+
+
+class McpPresetRecipe(Payload):
+    id: str = Field(description="Recipe id, unique within the preset.")
+    title: str = Field(description="e.g. 'Mail digest at 08:00'.")
+    schedule: str = Field(description="Cron expression, daemon-local time.")
+    prompt: str = Field(
+        description="Task the isolated jarvis-task worker runs; Jarvis receives only its digest."
+    )
+    defaultEnabled: bool = Field(default=False, description="Preselected in the apply dialog.")
+
+
+class McpPresetInfo(Payload):
+    """A one-step assistant setup on top of an MCP catalog entry (1.53.0)."""
+
+    id: str = Field(
+        description=(
+            "Preset id. v1 ships 'google' (Gmail and Google Calendar) and 'microsoft365' "
+            "(Outlook mail and calendar)."
+        )
+    )
+    title: str = Field(description="Human name.")
+    description: str = Field(default="", description="What it sets up.")
+    category: Literal["mail", "calendar", "todo", "other"] = Field(description="Grouping.")
+    auth: McpCatalogAuth = Field(
+        description=(
+            "As McpCatalogEntry.auth: oauth (mcp.authorize after apply), token (an input) or none."
+        )
+    )
+    transport: McpTransport = Field(description="stdio, http or sse.")
+    entry: dict[str, Any] = Field(
+        default_factory=dict, description="The .mcp.json entry it writes."
+    )
+    inputs: list[McpPresetInput] = Field(
+        default_factory=list, description="Values the person supplies."
+    )
+    readTools: list[str] = Field(default_factory=list, description="Tools that only read.")
+    sendTools: list[str] = Field(
+        default_factory=list,
+        description="Tools that send or change things; tagged 'send' (guarded secret_send).",
+    )
+    recipes: list[McpPresetRecipe] = Field(default_factory=list, description="Schedule templates.")
+    homepage: str = Field(default="", description="Where the server is documented.")
+    applied: bool = Field(default=False, description="A server from this preset is configured.")
+
+
+class McpPresetListResult(Payload):
+    presets: list[McpPresetInfo] = Field(default_factory=list, description="In display order.")
+
+
+class McpPresetApplyParams(Payload):
+    id: str = Field(description="Preset to apply.")
+    inputs: dict[str, str] = Field(
+        default_factory=dict, description="Values for its inputs, by name."
+    )
+    recipes: list[str] = Field(
+        default_factory=list, description="Recipe ids to schedule as jarvis-task jobs."
+    )
+    scope: McpWritableScope = Field(
+        default="global", description="Where the server entry is written."
+    )
+    workdir: str | None = Field(default=None, description="Project folder for scope 'project'.")
+    name: str | None = Field(default=None, description="Server name; default the preset id.")
+
+
+class McpPresetApplyResult(Payload):
+    server: str = Field(description="Name of the configured MCP server.")
+    add: McpAddResult = Field(description="What mcp.add reported for the entry.")
+    jobs: list[str] = Field(
+        default_factory=list, description="Scheduler job ids created for recipes."
+    )
+    needsAuth: bool = Field(default=False, description="Call mcp.authorize next (auth 'oauth').")
 
 
 # --------------------------------------------------------------------------
@@ -8227,6 +9254,217 @@ METHODS: dict[str, RpcMethod] = {
             ProviderTestResult,
             "Send one short completion to check a provider and model.",
         ),
+        # -- M19 Jarvis mode (beta, 1.53.0); not_implemented until each WP lands --
+        _m(
+            "jarvis.status",
+            Empty,
+            JarvisStatusResult,
+            (
+                "Jarvis mode (1.53.0, WP3): enabled, the Jarvis session, model, folder, budget, "
+                "pauses."
+            ),
+        ),
+        _m(
+            "jarvis.enable",
+            JarvisEnableParams,
+            JarvisStatusResult,
+            (
+                "Jarvis mode (1.53.0, WP3): set jarvis.enabled, create or resume the Jarvis "
+                "session and start supervising every exposed project. Idempotent."
+            ),
+        ),
+        _m(
+            "jarvis.disable",
+            Empty,
+            JarvisStatusResult,
+            (
+                "Jarvis mode (1.53.0, WP3): clear jarvis.enabled and park the Jarvis session; "
+                "everything routes to the person again, messenger bindings get their targets back."
+            ),
+        ),
+        _m(
+            "jarvis.overview",
+            JarvisOverviewParams,
+            JarvisOverviewResult,
+            "Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external.",
+        ),
+        _m(
+            "jarvis.ledger",
+            JarvisLedgerParams,
+            JarvisLedgerResult,
+            (
+                "Jarvis mode (1.53.0, WP2): decisions made for supervised sessions, newest "
+                "first, by Jarvis, the person or the engine alone, with classification, rule "
+                "and grant."
+            ),
+        ),
+        _m(
+            "jarvis.delegation.list",
+            JarvisDelegationListParams,
+            JarvisDelegationListResult,
+            "Jarvis mode (1.53.0, WP2): delegation grants in force.",
+        ),
+        _m(
+            "jarvis.delegation.set",
+            JarvisDelegationSetParams,
+            JarvisDelegationSetResult,
+            (
+                "Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection "
+                "is the person, so it applies at once; Jarvis's own proposals never use this "
+                "method but raise a person-only approval. A guarded class needs a local "
+                "connection or a re-authenticated remote one; from a messenger only when "
+                "jarvis.messenger.allowGrants."
+            ),
+        ),
+        _m(
+            "jarvis.delegation.revoke",
+            JarvisDelegationRevokeParams,
+            JarvisDelegationRevokeResult,
+            "Jarvis mode (1.53.0, WP2): revoke a grant at once.",
+        ),
+        _m(
+            "jarvis.takeover",
+            JarvisTakeoverParams,
+            JarvisPauseResult,
+            (
+                "Jarvis mode (1.53.0, WP3): the person takes one session back; Jarvis stops "
+                "deciding for it until jarvis.handback or the given minutes."
+            ),
+        ),
+        _m(
+            "jarvis.handback",
+            JarvisSessionTarget,
+            JarvisPauseResult,
+            (
+                "Jarvis mode (1.53.0, WP3): give one session back to Jarvis now, ending a "
+                "takeover or a typing pause."
+            ),
+        ),
+        _m(
+            "jarvis.project.list",
+            Empty,
+            JarvisProjectListResult,
+            (
+                "Jarvis mode (1.53.0, WP3): projects with the name, aliases and exposure Jarvis "
+                "and clients use in conversation."
+            ),
+        ),
+        _m(
+            "jarvis.project.rename",
+            JarvisProjectRenameParams,
+            JarvisProjectResult,
+            "Jarvis mode (1.53.0, WP3): set or clear a project's display name.",
+        ),
+        _m(
+            "jarvis.project.alias",
+            JarvisProjectAliasParams,
+            JarvisProjectResult,
+            "Jarvis mode (1.53.0, WP3): add or remove a project's aliases.",
+        ),
+        _m(
+            "jarvis.briefing.get",
+            Empty,
+            JarvisBriefing,
+            "Jarvis mode (1.53.0, WP8): the periodic briefing's settings and next run.",
+        ),
+        _m(
+            "jarvis.briefing.set",
+            JarvisBriefingSetParams,
+            JarvisBriefing,
+            "Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it.",
+        ),
+        _m(
+            "external.clis",
+            Empty,
+            ExternalClisResult,
+            (
+                "External sessions (1.53.0, WP5): Claude Code, Codex, agy and Cursor agent on "
+                "the daemon host: installed, version, path, what works, problems."
+            ),
+        ),
+        _m(
+            "external.list",
+            ExternalListParams,
+            ExternalListResult,
+            (
+                "External sessions (1.53.0, WP5/6): one working directory's sessions (or every "
+                "exposed project's) for the requested CLIs, newest first, paged."
+            ),
+        ),
+        _m(
+            "external.open",
+            ExternalOpenParams,
+            ExternalOpenResult,
+            (
+                "External sessions (1.53.0, WP5/6): subscribe this connection to a session's "
+                "external.event stream and return the newest page of its timeline; a host "
+                "'none' session is continued under snowpea (host 'snowpea')."
+            ),
+        ),
+        _m(
+            "external.read",
+            ExternalReadParams,
+            ExternalReadResult,
+            "External sessions (1.53.0, WP5/6): an older page of a session's timeline.",
+        ),
+        _m(
+            "external.send",
+            ExternalSendParams,
+            ExternalSendResult,
+            (
+                "External sessions (1.53.0, WP6): send a prompt; the reply streams as "
+                "external.event. Refused with external_view_only while canSend is false (host "
+                "'terminal', or 'tmux' before spike S5)."
+            ),
+        ),
+        _m(
+            "external.setMode",
+            ExternalSetModeParams,
+            ExternalCreateResult,
+            (
+                "External sessions (1.53.0, WP6): switch a session to default, readonly or "
+                "unrestricted; unrestricted only from a human connection."
+            ),
+        ),
+        _m(
+            "external.interrupt",
+            ExternalRefParams,
+            Ok,
+            "External sessions (1.53.0, WP6): stop the running turn.",
+        ),
+        _m(
+            "external.create",
+            ExternalCreateParams,
+            ExternalCreateResult,
+            (
+                "External sessions (1.53.0, WP6): start a new session of a CLI in a registered "
+                "project root and open it."
+            ),
+        ),
+        _m(
+            "external.close",
+            ExternalRefParams,
+            Ok,
+            (
+                "External sessions (1.53.0, WP5): stop the process snowpea runs for it and "
+                "unsubscribe; the CLI's own transcript stays."
+            ),
+        ),
+        _m(
+            "mcp.preset.list",
+            Empty,
+            McpPresetListResult,
+            "Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipes.",
+        ),
+        _m(
+            "mcp.preset.apply",
+            McpPresetApplyParams,
+            McpPresetApplyResult,
+            (
+                "Assistant presets (1.53.0, WP8): add the preset's MCP server with the given "
+                "inputs and schedule the chosen recipes."
+            ),
+        ),
     )
 }
 
@@ -8250,6 +9488,14 @@ EVENTS: dict[str, type[BaseModel]] = {
     "lsp.changed": LspChangedNotification,
     "tool.cancel": ToolCancelNotification,
     "sessions.changed": SessionsChangedNotification,
+    # M19 (1.53.0): every one daemon-wide, except external.event, which goes only
+    # to the connections that called external.open on its ref.
+    "jarvis.state": JarvisStateNotification,
+    "jarvis.decision": JarvisDecisionNotification,
+    "jarvis.escalation": JarvisEscalationNotification,
+    "jarvis.delegation.changed": JarvisDelegationChangedNotification,
+    "external.event": ExternalEventNotification,
+    "external.state": ExternalStateNotification,
 }
 
 CAPABILITIES: list[str] = [
@@ -8328,7 +9574,28 @@ CAPABILITIES: list[str] = [
     "workspaces",
     "lineage",
     "extensions",
+    "messageOrigin",
 ]
+
+#: M19 capabilities (1.53.0) declared with the contract but not advertised in
+#: ``system.hello`` until the work package that implements them lands; that
+#: package moves its name into :data:`CAPABILITIES`.  Their methods answer
+#: ``not_implemented`` until then.
+PENDING_CAPABILITIES: dict[str, str] = {
+    # jarvis.status/enable/disable/overview/takeover/handback, jarvis.project.*,
+    # jarvis.state, SessionSummary.role/jarvis — M19 WP3 (Jarvis service).
+    "jarvis": "WP3",
+    # jarvis.ledger, jarvis.delegation.*, jarvis.decision/escalation/
+    # delegation.changed, ApprovalRequest.route — M19 WP2 (delegation engine).
+    "jarvisDelegation": "WP2",
+    # external.* (incl. setMode) and ApprovalRequest.external — M19 WP5 (common layer) with
+    # the per-CLI adapters of WP6a-d; per-CLI availability is external.clis.
+    "externalSessions": "WP5",
+    # mcp.preset.list/apply — M19 WP8 (assistant presets).
+    "mcpPresets": "WP8",
+    # jarvis.briefing.get/set — M19 WP8 (assistant jobs).
+    "jarvisBriefing": "WP8",
+}
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
 #: ``standard`` since 1.7.0, ``deep`` and ``vision`` since 1.33.0.

@@ -67,9 +67,11 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 1.51.0부터는 클라이언트가 영어 문장을 읽어 내던 이벤트에 코드가 함께 실려, 클라이언트가 자기 언어로 문장을 만들 수 있습니다: `provider.retry`에는 `reason`(`unreachable`, `silent`, `transient`)과 `waitLeftSec`이 있고, 한도가 시간일 때 `max`는 null입니다. `hook.continue`에는 `kind`(누가 턴을 이어 갔는지), `count`, `limit`이, `step.done`에는 `errorCode`가 있습니다. 목표의 `blockedReason.code`는 `round-limit`, `needs-input`, `no-credentials`, `no-access`, `external`, `other` 중 하나이고, `session.trajectory`의 context·system·compacted 행에는 `data.kind`가 있습니다. 예전 클라이언트를 위해 영어 문장도 그대로 남으며, 데몬은 그것을 번역하지 않습니다.
 
+1.53.0부터 모든 `message.user` 이벤트에 `origin` — `{kind, surface}` — 이 실립니다. `kind`는 `human`, `jarvis`, `schedule`, `gateway`, `subagent`, `system` 중 하나이며(capability `messageOrigin`), `session.trajectory`의 user 행에도 `data.origin`으로 들어갑니다. 세션의 `lastPrompt`와 `lastUserAt`은 사람이 직접 보낸 입력(origin `human`)만 따르므로 목표 라운드, 복귀(handback), 예약 작업, 위임 메시지가 더는 그것을 바꾸지 않으며, `session.fork`는 원래 세션의 제목을 그대로 둡니다. 1.53.0은 자비스 모드(베타)의 계약도 선언합니다: `jarvis.*`, `external.*`, `mcp.preset.*` 메서드, `jarvis.*`·`external.*` 이벤트, 세션의 `role`·`jarvis` 필드, 승인의 `external`·`route` 필드. 기능이 나오기 전까지 이 메서드들은 `not_implemented`로 답하고, 해당 capability(`jarvis`, `jarvisDelegation`, `externalSessions`, `mcpPresets`, `jarvisBriefing`)는 `system.hello`에 나오지 않습니다.
+
 ## 오류
 
-오류는 `error.data.code`에 문자열 코드가 담긴 JSON-RPC 오류입니다: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `mcp_auth_failed`, `search_provider_unavailable`, `browser_provider_unavailable`, `fork_after_compaction`, `fork_turn_not_found`, `fork_no_finished_turn`, `fork_child_session`, `fork_running` (`session.fork`, 1.50.0), `steer_slash_command` (`session.steer`, 1.50.0), `goal_not_allowed` (`goal.set`/`goal.resume`, 1.50.0), `internal`.
+오류는 `error.data.code`에 문자열 코드가 담긴 JSON-RPC 오류입니다: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `mcp_auth_failed`, `search_provider_unavailable`, `browser_provider_unavailable`, `fork_after_compaction`, `fork_turn_not_found`, `fork_no_finished_turn`, `fork_child_session`, `fork_running` (`session.fork`, 1.50.0), `steer_slash_command` (`session.steer`, 1.50.0), `goal_not_allowed` (`goal.set`/`goal.resume`, 1.50.0), `jarvis_disabled`, `jarvis_person_only`, `external_view_only`, `external_unavailable` (자비스 모드, 1.53.0), `internal`.
 
 ## SDK 쓰기
 

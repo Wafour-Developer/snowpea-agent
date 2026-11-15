@@ -744,6 +744,139 @@ class SkillsSettings(_Model):
     importCodex: bool = True
 
 
+class JarvisDelegationSettings(_Model):
+    """Delegation defaults (M19, 1.53.0); grants themselves live in ``jarvis/delegation.db``."""
+
+    #: Level with no grant: ``staged`` lets Jarvis decide only safe approvals
+    #: and how-to questions; ``full`` also risky approvals, stops and questions.
+    default: Literal["staged", "full"] = "staged"
+    #: Lifetime of a project grant given without an expiry, in hours.
+    projectTtlHours: int = Field(default=24, ge=1, le=24 * 365)
+
+
+class JarvisProactiveSettings(_Model):
+    """What Jarvis tells the person without being asked (M19, 1.53.0)."""
+
+    finished: bool = True
+    error: bool = True
+    needsYou: bool = True
+    decided: bool = True
+
+
+class JarvisBriefingSettings(_Model):
+    """The periodic briefing (M19 WP8); off until the person asks for one."""
+
+    enabled: bool = False
+    #: Cron expression, daemon-local time.
+    schedule: str = "0 9 * * 1-5"
+    instructions: str = ""
+
+
+class JarvisBudgetSettings(_Model):
+    """Jarvis's allowance; once spent, everything goes to the person (M19, 1.53.0)."""
+
+    wakesPerHour: int = Field(default=30, ge=1, le=3600)
+    #: Tokens the Jarvis session may use per local day; 0 means no cap.
+    dailyTokens: int = Field(default=2_000_000, ge=0)
+
+
+class JarvisMessengerSettings(_Model):
+    """Messenger behaviour in Jarvis mode (M19, 1.53.0)."""
+
+    #: While Jarvis mode is on, every binding talks to the Jarvis session
+    #: (stored targets are kept, so turning the mode off restores them).
+    route: bool = True
+    #: A grant may be confirmed from a messenger, still with a one-press,
+    #: person-only confirmation (the owner's override of the design: true).
+    allowGrants: bool = True
+
+
+#: External CLIs Jarvis mode can host (``external.clis``).
+EXTERNAL_CLI_IDS = ("claude", "codex", "agy", "cursor")
+
+
+class JarvisExternalCliSettings(_Model):
+    enabled: bool = True
+    #: Absolute executable path; ``None`` searches ``PATH``.
+    path: str | None = None
+    #: Mode a new or continued session gets unless one is chosen; ``None``
+    #: means ``default`` (``readonly`` for cursor, which has no ``default``).
+    #: Only the person sets it; ``unrestricted`` lets the CLI bypass its own
+    #: permission prompts and snowpea's.
+    defaultMode: Literal["default", "readonly", "unrestricted"] | None = None
+
+
+class JarvisExternalSettings(_Model):
+    """External agent CLIs (M19 WP5-6)."""
+
+    enabled: bool = True
+    #: Per CLI id (``claude``, ``codex``, ``agy``, ``cursor``).
+    clis: dict[str, JarvisExternalCliSettings] = Field(default_factory=dict)
+    #: Most CLI processes snowpea runs at once.
+    maxProcesses: int = Field(default=4, ge=1, le=32)
+    #: Seconds an idle CLI process is kept before it is stopped.
+    idleSec: int = Field(default=900, ge=30)
+
+    @field_validator("clis")
+    @classmethod
+    def _known_clis(
+        cls, value: dict[str, JarvisExternalCliSettings]
+    ) -> dict[str, JarvisExternalCliSettings]:
+        unknown = sorted(set(value) - set(EXTERNAL_CLI_IDS))
+        if unknown:
+            raise ValueError(
+                f"unknown external CLI {', '.join(unknown)}; expected one of "
+                f"{', '.join(EXTERNAL_CLI_IDS)}"
+            )
+        cursor = value.get("cursor")
+        if cursor is not None and cursor.defaultMode == "default":
+            raise ValueError("cursor has no 'default' mode; use 'readonly' or 'unrestricted'")
+        return value
+
+
+class JarvisNotifySettings(_Model):
+    """Where Jarvis's escalations and decisions are shown (M19, 1.53.0)."""
+
+    #: Badge and list inside the IDE, web and TUI.
+    inApp: bool = True
+    #: An OS notification from importance ``normal`` up.
+    os: bool = True
+    #: Forwarded to the bound messenger from importance ``high`` up.
+    messenger: bool = True
+
+
+class JarvisSettings(_Model):
+    """Jarvis mode (M19, beta, 1.53.0): one supervising session per daemon.
+
+    Settings only; the service, delegation engine and external CLIs land in
+    later work packages (docs/design/m19-jarvis-mode.md).
+    """
+
+    enabled: bool = False
+    #: Model profile id (``models.profiles``) Jarvis runs on; ``None`` follows
+    #: ``models.default``.
+    model: str | None = None
+    #: Jarvis's working folder and its only write root.
+    folder: str = "~/Snowpea/Jarvis"
+    delegation: JarvisDelegationSettings = Field(default_factory=JarvisDelegationSettings)
+    #: Minutes without the person's input after which a paused session's
+    #: delegation returns by itself.
+    quietMinutes: int = Field(default=10, ge=1, le=24 * 60)
+    proactive: JarvisProactiveSettings = Field(default_factory=JarvisProactiveSettings)
+    briefing: JarvisBriefingSettings = Field(default_factory=JarvisBriefingSettings)
+    budget: JarvisBudgetSettings = Field(default_factory=JarvisBudgetSettings)
+    messenger: JarvisMessengerSettings = Field(default_factory=JarvisMessengerSettings)
+    notify: JarvisNotifySettings = Field(default_factory=JarvisNotifySettings)
+    external: JarvisExternalSettings = Field(default_factory=JarvisExternalSettings)
+
+    @field_validator("folder")
+    @classmethod
+    def _folder_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("jarvis.folder must not be empty")
+        return value
+
+
 class Settings(_Model):
     """Daemon-wide settings, persisted as JSON."""
 
@@ -770,6 +903,8 @@ class Settings(_Model):
     context: ContextSettings = Field(default_factory=ContextSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     updates: UpdatesSettings = Field(default_factory=UpdatesSettings)
+    #: Jarvis mode (M19, beta, 1.53.0); off by default.
+    jarvis: JarvisSettings = Field(default_factory=JarvisSettings)
     providers: dict[str, Any] = Field(default_factory=dict)
     #: Multi-model profiles and the default profile for new sessions.
     models: ModelsSettings = Field(default_factory=ModelsSettings)
@@ -888,6 +1023,8 @@ __all__ = [
     "BrowserSettings",
     "ContextSettings",
     "DaemonSettings",
+    "EXTERNAL_CLI_IDS",
+    "JarvisSettings",
     "LspSettings",
     "McpSettings",
     "MediaMcpSettings",

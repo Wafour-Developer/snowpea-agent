@@ -82,6 +82,16 @@ FORK_RUNNING = "fork_running"
 STEER_SLASH_COMMAND = "steer_slash_command"
 #: ``goal.set`` / ``goal.resume`` on a delegated child or a scheduled run (1.50.0).
 GOAL_NOT_ALLOWED = "goal_not_allowed"
+#: M19 Jarvis mode (1.53.0): a jarvis.* call that needs the mode on while it is
+#: off; a delegation change from a connection that may not make it (a messenger
+#: with jarvis.messenger.allowGrants off, a remote web login that has not
+#: re-authenticated, a browser host); external.send to a session snowpea can only
+#: view (host terminal, or tmux before spike S5); an external CLI that is
+#: missing, disabled or unsupported.
+JARVIS_DISABLED = "jarvis_disabled"
+JARVIS_PERSON_ONLY = "jarvis_person_only"
+EXTERNAL_VIEW_ONLY = "external_view_only"
+EXTERNAL_UNAVAILABLE = "external_unavailable"
 
 ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,
@@ -122,6 +132,10 @@ ERROR_CODES: tuple[str, ...] = (
     FORK_RUNNING,
     STEER_SLASH_COMMAND,
     GOAL_NOT_ALLOWED,
+    JARVIS_DISABLED,
+    JARVIS_PERSON_ONLY,
+    EXTERNAL_VIEW_ONLY,
+    EXTERNAL_UNAVAILABLE,
 )
 
 # JSON-RPC 2.0 reserved codes.
