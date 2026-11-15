@@ -836,7 +836,7 @@ export interface ExtensionEnableResult {
   };
 }
 
-/** `extension.list` params. Python plugins found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions'). */
+/** `extension.list` params. Extensions found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions'). */
 export type ExtensionListParams = Record<string, unknown>;
 
 /** `extension.list` result. */
