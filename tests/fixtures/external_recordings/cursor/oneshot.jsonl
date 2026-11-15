@@ -1,0 +1,11 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp/spike-cursor/proj","session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","model":"Composer 2.5","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Reply with exactly: OK"}]},"session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf"}
+{"type":"thinking","subtype":"delta","text":"The","session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","timestamp_ms":1794744568676}
+{"type":"thinking","subtype":"delta","text":" user","session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","timestamp_ms":1794744568806}
+{"type":"thinking","subtype":"delta","text":" wants","session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","timestamp_ms":1794744568806}
+{"type":"thinking","subtype":"delta","text":" me","session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","timestamp_ms":1794744568873}
+{"type":"thinking","subtype":"delta","text":" to reply with exactly \"OK\".","session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","timestamp_ms":1794744569593}
+{"type":"thinking","subtype":"completed","session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","timestamp_ms":1794744569593}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]},"session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","timestamp_ms":1794744569594}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]},"session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf"}
+{"type":"result","subtype":"success","duration_ms":4781,"duration_api_ms":4781,"is_error":false,"result":"OK","session_id":"9f11c5b5-8c7a-44b0-ba4b-54cb4411ddaf","request_id":"47e6ccf1-4bef-4fda-9508-9da70f396cf7","usage":{"inputTokens":15097,"outputTokens":69,"cacheReadTokens":4160,"cacheWriteTokens":0}}

@@ -1,0 +1,23 @@
+{
+  "conversation_id": "336920a3-1e6f-4884-8b77-3f383e9e76a6",
+  "title": "Create Note.txt File",
+  "preview": "Create Note.txt File",
+  "step_count": 4,
+  "last_modified_time": "2026-11-15 12:03:58.610161143+00:00",
+  "workspace_uris": "[\"file:///tmp/spike-agy/proj\"]",
+  "status": "CASCADE_RUN_STATUS_IDLE",
+  "source": "",
+  "project_id": "default-cli-project",
+  "agent_name": "",
+  "parent_conversation_id": "",
+  "nesting_depth": 0,
+  "battle_id": "",
+  "winning_conversation_id": "",
+  "not_fully_idle": 0,
+  "killed": 0,
+  "last_user_input_time": "2026-11-15 12:03:49.64125555+00:00",
+  "last_user_input_step_index": -1,
+  "app_data_dir": "antigravity-cli",
+  "group_id": "",
+  "raw_summary": "<omitted: 865 bytes protobuf>"
+}
