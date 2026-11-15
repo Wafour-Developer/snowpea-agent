@@ -17,6 +17,7 @@ Start at [English](en/index.md) or [한국어](ko/index.md).
 | Commands | every slash command and CLI subcommand | [en](en/commands.md) | [ko](ko/commands.md) | [ja](ja/commands.md) | [zh-CN](zh-CN/commands.md) | [es](es/commands.md) |
 | Attachments and voice | images and files in a prompt, speech to text, text to speech, the audio tools | [en](en/voice.md) | [ko](ko/voice.md) | [ja](ja/voice.md) | [zh-CN](zh-CN/voice.md) | [es](es/voice.md) |
 | Plugins | skills, plugins (Claude Code format), extensions (Python), hooks, MCP servers (`/mcp`, `snowpea mcp`), marketplaces | [en](en/plugins.md) | [ko](ko/plugins.md) | [ja](ja/plugins.md) | [zh-CN](zh-CN/plugins.md) | [es](es/plugins.md) |
+| Writing extensions | the developer guide for extensions (Python in the daemon): API, lifecycle, tools, prompt sections, runtime context, hooks, commands, MCP servers, config, testing, versioning, `snowpea extension` | [en](en/extensions.md) | [ko](ko/extensions.md) | [ja](ja/extensions.md) | [zh-CN](zh-CN/extensions.md) | [es](es/extensions.md) |
 | Agents and delegation | one task one agent, the built-in `explore` and `reviewer` agents, `/review`, team review | [en](en/agents.md) | [ko](ko/agents.md) | — | — | — |
 | Language servers | diagnostics after every edit, the seven `lsp_*` tools, per-server settings | [en](en/lsp.md) | [ko](ko/lsp.md) | — | — | — |
 | Scheduler | cron and natural-language jobs, delivery channels, unattended modes | [en](en/scheduler.md) | [ko](ko/scheduler.md) | [ja](ja/scheduler.md) | [zh-CN](zh-CN/scheduler.md) | [es](es/scheduler.md) |

@@ -162,7 +162,7 @@ snowpea tools list --json
 
 ## 拡張
 
-拡張（snowpea 拡張形式、Python）は `$SNOWPEA_HOME/extensions/<名前>/` フォルダーで、`apply(ctx)` を定義した `plugin.py` と、任意で `plugin.json`（`name`、`description`、`version`、`engines.snowpea`、`configSchema`）を置きます。ツール、プロンプトのセクション、実行時コンテキスト、すべてのツール結果へのフック、ターン終了時のチェック、コマンド、MCP サーバーを追加でき、無効化・再読み込み・削除で再起動なしにすべて元に戻ります。デーモン内でその権限で動くため、信頼できるコードだけを入れてください。スキャンするのはホームフォルダーのみで、プロジェクトのフォルダーは対象外です。詳細と例は [英語版マニュアル](../en/plugins.md#extensions)。
+拡張（snowpea 拡張形式、Python）は `$SNOWPEA_HOME/extensions/<名前>/` フォルダーで、`apply(ctx)` を定義した `plugin.py` と、任意で `plugin.json` を置きます。ツール、プロンプトのセクション、実行時コンテキスト、すべてのツール結果へのフック、ターン終了時のチェック、コマンド、MCP サーバーを追加でき、無効化・再読み込み・削除で再起動なしにすべて元に戻ります。読み込みに失敗した拡張はファイルと行番号付きのエラーを示し、何も残しません。デーモン内でその権限で動くため、信頼できるコードだけを入れてください。スキャンするのはホームフォルダーのみです。`snowpea extension new|list|info|enable|disable|reload` で管理します。書き方は開発者ガイド [拡張を書く](extensions.md) を参照してください。
 
 ## Next
 

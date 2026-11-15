@@ -160,7 +160,7 @@ Así que una skill de proyecto sobrescribe una skill de plugin con el mismo nomb
 
 ## Extensiones
 
-Una extensión (formato de extensión de snowpea, Python) es una carpeta `$SNOWPEA_HOME/extensions/<nombre>/` con un `plugin.py` que define `apply(ctx)` y, opcionalmente, un `plugin.json` (`name`, `description`, `version`, `engines.snowpea`, `configSchema`). Puede añadir herramientas, secciones del prompt, contexto de ejecución, ganchos sobre cada resultado de herramienta, comprobaciones al terminar un turno, comandos y servidores MCP; todo se deshace al desactivarlo, recargarlo o quitarlo, sin reiniciar. Se ejecuta dentro del daemon con sus permisos: instale solo código de confianza. Solo se busca en la carpeta personal, nunca en un proyecto. Detalles y ejemplo: [manual en inglés](../en/plugins.md#extensions).
+Una extensión (formato de extensión de snowpea, Python) es una carpeta `$SNOWPEA_HOME/extensions/<nombre>/` con un `plugin.py` que define `apply(ctx)` y, opcionalmente, un `plugin.json`. Puede añadir herramientas, secciones del prompt, contexto de ejecución, ganchos sobre cada resultado de herramienta, comprobaciones al terminar un turno, comandos y servidores MCP; todo se deshace al desactivarla, recargarla o quitarla, sin reiniciar. Una extensión que no se carga muestra el error con su archivo y línea y no deja nada detrás. Se ejecuta dentro del daemon con sus permisos: instale solo código de confianza. Solo se busca en la carpeta personal. Se gestiona con `snowpea extension new|list|info|enable|disable|reload`. Cómo escribir una: la guía para desarrolladores, [Escribir extensiones](extensions.md).
 
 ## Siguiente
 

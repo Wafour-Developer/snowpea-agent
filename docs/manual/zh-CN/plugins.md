@@ -162,7 +162,7 @@ snowpea tools list --json
 
 ## 扩展
 
-扩展（snowpea 扩展格式，Python）是 `$SNOWPEA_HOME/extensions/<名称>/` 文件夹，其中 `plugin.py` 定义 `apply(ctx)`，可选 `plugin.json`（`name`、`description`、`version`、`engines.snowpea`、`configSchema`）。它可以添加工具、提示词段落、运行时上下文、对每个工具结果的钩子、回合结束时的检查、命令和 MCP 服务器；禁用、重新加载或删除时全部撤销，无需重启。扩展在守护进程内以其权限运行，请只安装可信代码。只扫描主目录，从不扫描项目文件夹。详情与示例见[英文手册](../en/plugins.md#extensions)。
+扩展（snowpea 扩展格式，Python）是 `$SNOWPEA_HOME/extensions/<名称>/` 文件夹，其中 `plugin.py` 定义 `apply(ctx)`，可选 `plugin.json`。它可以添加工具、提示词段落、运行时上下文、对每个工具结果的钩子、回合结束时的检查、命令和 MCP 服务器；禁用、重新加载或删除时全部撤销，无需重启。加载失败的扩展会给出带文件和行号的错误，并且不留下任何东西。扩展在守护进程内以其权限运行，请只安装可信代码。只扫描主目录。用 `snowpea extension new|list|info|enable|disable|reload` 管理。编写方法见开发者指南[编写扩展](extensions.md)。
 
 ## 下一步
 

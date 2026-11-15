@@ -267,6 +267,19 @@ snowpea mcp catalog
 
 `--scope global`(줄여서 `--global`)은 프로젝트 파일 대신 `$SNOWPEA_HOME/.mcp.json`에 씁니다. 바로 그 `--` 뒤는 자식 프로세스의 argv 그대로이고 파싱되지 않으므로, 플래그는 `--` 앞뒤 어디에 와도 됩니다. 모든 서브커맨드가 `--json`을 받습니다. 파일 형식은 [플러그인](plugins.md#mcp-서버)을 보세요.
 
+### 확장
+
+```bash
+snowpea extension new hello
+snowpea extension list
+snowpea extension info hello --json
+snowpea extension reload hello
+snowpea extension disable hello
+snowpea extension enable hello
+```
+
+이름 없는 `reload`는 켜진 확장을 모두 다시 불러옵니다. `reload`, `enable`, `info`는 확장이 `error`나 `incompatible`이면 종료 코드 1로 끝납니다. [확장 만들기](extensions.md)를 보세요.
+
 ### 잡
 
 ```bash

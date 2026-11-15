@@ -206,3 +206,58 @@ async def test_ticket_workflow(tmp_path: Path) -> None:
     finally:
         await runner.cleanup()
 
+
+# ---- the guide's code blocks are the examples ------------------------------------
+
+GUIDES = sorted((EXAMPLES.parents[1] / "docs" / "manual").glob("*/extensions.md"))
+MARKER = "<!-- example: "
+
+
+def _blocks(text: str) -> list[tuple[str | None, str, str]]:
+    """``(example path or None, info string, body)`` of every fenced block."""
+    lines = text.splitlines()
+    found: list[tuple[str | None, str, str]] = []
+    marker: str | None = None
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if line.startswith(MARKER):
+            marker = line[len(MARKER) :].removesuffix("-->").strip()
+        elif line.startswith("```"):
+            info = line[3:].strip()
+            end = index + 1
+            while not lines[end].startswith("```"):
+                end += 1
+            found.append((marker, info, "\n".join(lines[index + 1 : end]) + "\n"))
+            marker = None
+            index = end
+        elif line.strip():
+            marker = None
+        index += 1
+    return found
+
+
+@pytest.mark.parametrize("guide", GUIDES, ids=lambda path: path.parent.name)
+def test_every_code_block_in_the_guide_is_tested(guide: Path) -> None:
+    repo = EXAMPLES.parents[1]
+    blocks = _blocks(guide.read_text(encoding="utf-8"))
+    assert blocks
+    for marker, info, body in blocks:
+        if marker is not None:
+            source = (repo / marker).read_text(encoding="utf-8")
+            assert body in source, f"{guide.name}: block marked {marker} is not in that file"
+            continue
+        # Otherwise only snowpea commands, which scripts/check_docs_cli.py checks.
+        assert info == "bash", f"{guide}: an unmarked {info or 'plain'} block:\n{body}"
+        for line in body.splitlines():
+            assert not line.strip() or line.startswith("snowpea "), (guide, line)
+
+
+def test_every_translation_shows_the_same_examples() -> None:
+    def markers(guide: Path) -> list[str | None]:
+        return [marker for marker, _info, _body in _blocks(guide.read_text("utf-8"))]
+
+    assert [guide.parent.name for guide in GUIDES] == ["en", "es", "ja", "ko", "zh-CN"]
+    english = markers(GUIDES[0])
+    for guide in GUIDES[1:]:
+        assert markers(guide) == english, guide

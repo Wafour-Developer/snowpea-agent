@@ -18,6 +18,7 @@ Si acabas de instalar snowpea, lee [Instalar](install.md), luego [Setup](setup.m
 | [Comandos](commands.md) | quieres la lista completa de comandos slash y subcomandos de CLI |
 | [Adjuntos y voz](voice.md) | envías imágenes y ficheros en un prompt, le hablas al agente y haces que te responda hablando |
 | [Plugins](plugins.md) | instalas o escribes skills, agentes, comandos, hooks y servidores MCP |
+| [Escribir extensiones](extensions.md) | quieres añadir al daemon una herramienta en Python, una sección del prompt, un hook, un comando o un servidor MCP |
 | [Planificador](scheduler.md) | quieres que el trabajo ocurra mientras no estás |
 | [Gateway](gateway.md) | quieres hablar con el agente desde Telegram, Discord o Slack |
 | [Headless](headless.md) | scripteas snowpea, o lo conectas a CI |

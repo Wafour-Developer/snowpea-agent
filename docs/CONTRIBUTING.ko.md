@@ -107,6 +107,8 @@ docs/design/deviations/US-0NN.md
 
 ## 툴 추가
 
+이 절은 snowpea 자체에 내장되는 툴을 위한 것입니다. 코어를 바꾸지 않고 툴, 프롬프트 섹션, 훅, 명령을 더하려면 확장을 만드세요: [확장 만들기](manual/ko/extensions.md)와 `examples/extensions/`의 실행 가능한 예제를 보세요.
+
 1. 해당하는 `core/snowpea_core/tools/*.py` 모듈에 `Tool`을 만듭니다. `name`, `category`, `description`, `input_schema`, 그리고 `read`·`write`·`exec`·`network`·`send` 중 하나인 `permission` 태그가 필요합니다. 모드 매트릭스가 작동하는 대상이 이 태그이므로 정직하게 고르세요. 머신 밖으로 나가는 것은 전부 `network`이고, 사람에게 메시지를 보내는 것은 `send`입니다.
 2. 파일시스템과 명령 실행은 전부 `ctx.backend`를 거칩니다. `open()`이나 `subprocess`를 직접 부르면 그 툴은 Docker·SSH 백엔드를 조용히 무시하게 됩니다.
 3. `tools/registry.py`에 등록합니다. 자격증명이 필요한 툴은 `state="inactive"`로 등록되고, 자격증명이 생기면 재시작 없이 active로 바뀝니다.

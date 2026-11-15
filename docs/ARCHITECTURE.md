@@ -59,7 +59,7 @@ The package is `snowpea_core`, rooted at `core/snowpea_core/`.
 | Module | Responsibility |
 |---|---|
 | `cli/main.py` | the `snowpea` console script: ensure a daemon, then spawn the TUI or run one headless turn |
-| `cli/commands.py` | non-TUI subcommands — `setup`, `skill`, `service`, `daemon`, `agents`, `team`, `job`, `gateway`, `tools`, `commands`, `provider` |
+| `cli/commands.py` | non-TUI subcommands — `setup`, `skill`, `service`, `daemon`, `agents`, `team`, `job`, `gateway`, `tools`, `commands`, `provider`; `cli/extension_cmd.py` is `snowpea extension` |
 | `server/app_server.py` | daemon bootstrap, the `Core` singleton, `daemon.json` |
 | `server/transport_ws.py`, `transport_http.py` | one aiohttp app serving the WebSocket, the three read-only HTTP endpoints and the snowpea web build under `/web/` (from `web_dist/` or `SNOWPEA_WEB_DIST`) on one port |
 | `server/rpc.py` | JSON-RPC 2.0 dispatcher, request/response correlation, server-to-client calls |
@@ -71,6 +71,7 @@ The package is `snowpea_core`, rooted at `core/snowpea_core/`.
 | `agent/runtime_context.py` | facts that change (goal, plan, plan-then-auto note, context pressure) sent as one `<system-reminder>` snapshot, only when it changed |
 | `agent/turn_stopping.py` | the one chain that may keep a stopping turn going: verify-on-stop, open to-dos, unfinished work an answer admits after a turn that used tools (`agent/unfinished_work.py`), Stop hooks, extensions |
 | `agent/goals.py`, `goal_driver.py` | goals that run in rounds until `goal_update` proves them complete or blocked, or the round cap |
+| `extensions/` | extensions: `$SNOWPEA_HOME/extensions/<name>/plugin.py` loaded into the daemon (`manager.py`: discover, validate `plugin.json` and the config, import as an isolated package, apply, dispose); `api.py` is the `ctx` an extension registers through, guarded and undone on unload; `__init__.py` re-exports the stable API; `testing.py` is the pytest harness. Guide: [Writing extensions](manual/en/extensions.md) |
 | `tools/result_hooks.py` | post-execute listeners that accept, rewrite or block a tool result before the model reads it |
 | `agent/subagent.py`, `team.py`, `named.py`, `definition.py` | delegation under a concurrency limit; worktree-per-worker team mode; persistent named agents; `agents/*.md` parsing and generation |
 | `providers/` | eleven vendors behind `ChatProvider`; two native adapters, one OpenAI-compatible adapter, one preset table, one normalization point, a replay transport for tests |

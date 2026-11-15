@@ -18,6 +18,7 @@ snowpea をインストールしたばかりなら、[Install](install.md)、続
 | [Commands](commands.md) | スラッシュコマンドと CLI サブコマンドの全一覧がほしいとき |
 | [Attachments and voice](voice.md) | プロンプトで画像やファイルを送るとき、話しかけて話し返してもらうとき |
 | [Plugins](plugins.md) | スキル、エージェント、コマンド、フック、MCP サーバーをインストールまたは自作するとき |
+| [拡張を書く](extensions.md) | デーモンに Python のツール、プロンプトのセクション、フック、コマンド、MCP サーバーを加えたいとき |
 | [Scheduler](scheduler.md) | 席を外しているあいだに作業を進めてほしいとき |
 | [Gateway](gateway.md) | Telegram、Discord、Slack からエージェントと話したいとき |
 | [Headless](headless.md) | snowpea をスクリプト化する、または CI に組み込むとき |

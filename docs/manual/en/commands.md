@@ -268,6 +268,19 @@ snowpea mcp catalog
 
 `--scope global` (or just `--global`) writes `$SNOWPEA_HOME/.mcp.json` instead of the project's file. Everything after a bare `--` is the child's argv and is never parsed, so flags may sit on either side of it. Every subcommand takes `--json`. See [plugins](plugins.md#mcp-servers) for the file format.
 
+### Extensions
+
+```bash
+snowpea extension new hello
+snowpea extension list
+snowpea extension info hello --json
+snowpea extension reload hello
+snowpea extension disable hello
+snowpea extension enable hello
+```
+
+`reload` without a name reloads every enabled extension; `reload`, `enable` and `info` exit with 1 when the extension is in `error` or `incompatible`. See [Writing extensions](extensions.md).
+
 ### Jobs
 
 ```bash

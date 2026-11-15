@@ -18,6 +18,7 @@ snowpea 是一个跑在你自己机器上的开源多供应商编码 agent。一
 | [Commands](commands.md) | 想要斜杠命令和 CLI 子命令的完整列表时 |
 | [Attachments and voice](voice.md) | 在 prompt 里发图片和文件，用说的下指令并让它说回来 |
 | [Plugins](plugins.md) | 安装或编写 skill、agent、命令、hook 和 MCP server 时 |
+| [编写扩展](extensions.md) | 想给守护进程添加 Python 工具、提示词段落、钩子、命令或 MCP 服务器时 |
 | [Scheduler](scheduler.md) | 希望工作在你不在的时候照常发生时 |
 | [Gateway](gateway.md) | 想从 Telegram、Discord 或 Slack 跟 agent 对话时 |
 | [Headless](headless.md) | 用脚本驱动 snowpea，或者把它接进 CI 时 |

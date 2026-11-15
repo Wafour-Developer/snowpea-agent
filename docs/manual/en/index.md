@@ -19,6 +19,7 @@ If you have just installed snowpea, read [Install](install.md), then [Setup](set
 | [Commands](commands.md) | you want the full list of slash commands and CLI subcommands |
 | [Attachments and voice](voice.md) | sending images and files in a prompt, speaking to the agent and having it speak back |
 | [Plugins](plugins.md) | installing or writing skills, agents, commands, hooks and MCP servers |
+| [Writing extensions](extensions.md) | you want to add a Python tool, prompt section, hook, command or MCP server to the daemon |
 | [Agents and delegation](agents.md) | delegating work, the built-in `explore` and `reviewer` agents, reviews |
 | [Language servers](lsp.md) | diagnostics after an edit, and the lsp_* tools |
 | [Scheduler](scheduler.md) | you want work to happen while you are away |

@@ -329,44 +329,11 @@ Each of those broadcasts `commands.changed`, so the TUI palette and the desktop 
 
 ## Extensions
 
-Skills, agents, commands, hooks and MCP servers cover most needs without code. When something has to change how the agent works — add a tool written in Python, a prompt section, a fact the model should always see, a check on every tool result, or a reason to keep a turn going — write an extension (snowpea extension format, Python).
+Skills, agents, commands, hooks and MCP servers cover most needs without code. When something has to change how the agent itself works — a tool written in Python, a system-prompt section, a fact re-sent to the model when it changes, a check on every tool result, a reason to keep a turn going, a slash command or an MCP server that lives with it — write an extension (snowpea extension format, Python): a folder in `$SNOWPEA_HOME/extensions/<name>/` with a `plugin.py` that defines `apply(ctx)` and an optional `plugin.json`.
 
-An extension is a folder in `$SNOWPEA_HOME/extensions/<name>/` with a `plugin.py` that defines `apply(ctx)`, and optionally a `plugin.json` (`name`, `description`, `version`, `engines.snowpea`, `configSchema`):
+Everything registered through `ctx` is undone when the extension is disabled, reloaded or removed, without a restart; one that fails to load reports the error with its file and line and leaves nothing behind. Extensions run inside the daemon with its permissions, so install only code you trust; only the home folder is scanned, never a project's. `snowpea extension new|list|info|enable|disable|reload` manages them, and `SNOWPEA_EXTENSIONS=0` starts the daemon without them.
 
-```python
-from snowpea_core.agent.runtime_context import ContextProvider
-from snowpea_core.prompts.sections import PromptSection
-from snowpea_core.tools.registry import Tool, ToolResult
-
-
-async def lookup(tool_ctx, args):
-    return ToolResult(ok=True, output=f"ticket {args.get('id')}: open")
-
-
-def apply(ctx):
-    ctx.tools.register(Tool(name="ticket_lookup", category="tickets", description="Look up a ticket.",
-                            input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
-                            permission="read", run=lookup))
-    ctx.prompt.section(PromptSection("tickets:style", 650, lambda i: "Name the ticket id in every commit."))
-    ctx.prompt.context(ContextProvider("tickets:current", 500,
-                                       lambda core, session: "Current ticket: " + ctx.config.get("ticket", "none")))
-```
-
-| `ctx.` | Adds |
-|---|---|
-| `tools.register(tool)` | a tool the model can call |
-| `prompt.section(section)` | a system-prompt section; its `order` decides where it sits (see `prompts/sections.py`) |
-| `prompt.context(provider)` | a runtime fact, sent to the model only when it changes |
-| `hooks.post_execute(name, fn, order=)` | a look at every tool result: accept, rewrite, or block with feedback |
-| `hooks.turn_stopping(name, fn, order=)` | a check when a turn would end; return a decision to keep it going |
-| `commands.register(command)` | a slash command (a built-in one cannot be replaced) |
-| `mcp.register(name, entry)` | an MCP server that exists while the extension is loaded |
-| `on_dispose(fn)` | anything else to undo |
-| `config` | `settings.extensions.<name>.config` |
-
-Everything registered through `ctx` is undone when the plugin is disabled, reloaded or removed — no restart. An extension whose `apply` raises is reported with its error and leaves nothing behind. Extensions run inside the daemon with its permissions, so install only code you trust; only the home folder is scanned, never a project's, so opening a cloned repository never runs its code. Set `SNOWPEA_EXTENSIONS=0` to start the daemon without them.
-
-Clients manage them with `extension.list`, `extension.enable`, `extension.disable`, `extension.reload` and `extension.configure` (the config is checked against `configSchema`, so a settings screen can be generated from it). `scripts/gen_extension_index.py` writes a market index (`index.json`, format 1) from extension folders for anyone to host.
+The developer guide, [Writing extensions](extensions.md), covers the API, the lifecycle, tools, prompt sections, runtime context, hooks, commands, MCP servers, configuration, testing and versioning, with runnable examples.
 
 ## Next
 

@@ -107,6 +107,8 @@ Browser providers work the same way, in `tools/browser_providers/`.
 
 ## Adding a tool
 
+This section is for tools built into snowpea itself. To add a tool, prompt section, hook or command without changing the core, write an extension instead: see [Writing extensions](manual/en/extensions.md) and the runnable examples in `examples/extensions/`.
+
 1. Build a `Tool` in the relevant `core/snowpea_core/tools/*.py` module: `name`, `category`, `description`, `input_schema`, and a `permission` tag of `read`, `write`, `exec`, `network` or `send`. The tag is what the mode matrix acts on, so choose it honestly — anything that leaves the machine is `network`, anything that messages a human is `send`.
 2. Every filesystem and command operation goes through `ctx.backend`. Never call `open()` or `subprocess` directly, or the tool will silently ignore the Docker and SSH backends.
 3. Register it in `tools/registry.py`. A tool that needs credentials registers as `state="inactive"` and flips to active when they appear, without a restart.
