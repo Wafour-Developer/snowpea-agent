@@ -1677,6 +1677,8 @@ export function App({
       elapsedMs: now - turn.startedAt,
       inputTokens: state.usage.inputTokens - turn.inputTokens,
       outputTokens: state.usage.outputTokens - turn.outputTokens,
+      reason: state.lastTurnReason,
+      error: state.lastTurnError,
     });
     staticBlocksRef.current = staticBlocksRef.current.concat({
       key: `turn-${turnCountRef.current}`,

@@ -291,7 +291,7 @@ describe("a replayed transcript keeps the prompts", () => {
           : event,
       );
     const state = reducer(initialState, { type: "session/replay", events });
-    expect(transcript(state).at(-1)).toBe("note: ✗ Stopped after 3s");
+    expect(transcript(state).at(-1)).toBe("note: ✗ Stopped after 3s\n  reason: interrupted");
   });
 
   it("does not show a live prompt twice", () => {

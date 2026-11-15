@@ -305,6 +305,8 @@ export interface State {
   turnWaited: boolean;
   /** Reason from the most recent turn.done event. */
   lastTurnReason: string | null;
+  /** The last `error` event of the running turn; reset when a turn starts. */
+  lastTurnError: string | null;
   /** Set while a compaction is running; cleared by the `compaction` event. */
   compacting: { reason: NonNullable<CompactionStarted["reason"]>; before: number } | null;
   /**
@@ -366,6 +368,7 @@ export const initialState: State = {
   turnStartedAt: null,
   turnWaited: false,
   lastTurnReason: null,
+  lastTurnError: null,
   compacting: null,
   reasoningChars: 0,
   streamedChars: 0,
@@ -998,6 +1001,7 @@ function applySessionEvent(
       return {
         ...base,
         errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`],
+        lastTurnError: `${payload.code ?? "error"}: ${payload.message ?? ""}`,
       };
 
     // A language server published for a file this session touched. Only the
@@ -1042,6 +1046,7 @@ function applySessionEvent(
         turnStartedAt: Number.isFinite(stamped) ? stamped : Date.now(),
         turnWaited: waited,
         lastTurnReason: null,
+        lastTurnError: null,
         promptTexts:
           text.length > 0 && turnId.length > 0
             ? { ...base.promptTexts, [turnId]: text }
@@ -1135,6 +1140,8 @@ function applySessionEvent(
         text: replayTurnSummaryLine(
           String(payload.reason ?? "complete") === "complete",
           elapsed,
+          String(payload.reason ?? "complete"),
+          base.lastTurnError,
         ),
         streaming: false,
       };

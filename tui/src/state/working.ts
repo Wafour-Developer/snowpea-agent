@@ -274,7 +274,27 @@ export function queuedLabel(count: number): string {
  * events, and an older log may not even have those — so the duration is
  * dropped rather than invented, and tokens are left to the HUD.
  */
-export function replayTurnSummaryLine(ok: boolean, elapsedMs: number | null): string {
+export function replayTurnSummaryLine(
+  ok: boolean,
+  elapsedMs: number | null,
+  reason?: string | null,
+  error?: string | null,
+): string {
+  return withStopReason(replayHead(ok, elapsedMs), reason, error);
+}
+
+/** Second line of a stopped turn's note: the error for "error", else the reason word. */
+export function withStopReason(head: string, reason?: string | null, error?: string | null): string {
+  if (!reason || reason === "complete") return head;
+  let why = reason;
+  if (reason === "error" && error) {
+    const flat = error.replace(/\s+/g, " ").trim();
+    why = flat.length > 200 ? `${flat.slice(0, 199)}…` : flat;
+  }
+  return `${head}\n  reason: ${why}`;
+}
+
+function replayHead(ok: boolean, elapsedMs: number | null): string {
   const head = ok ? "✓ Done" : "✗ Stopped";
   if (elapsedMs === null || !Number.isFinite(elapsedMs) || elapsedMs < 0) return head;
   const span = formatDuration(elapsedMs);
@@ -287,7 +307,11 @@ export function turnSummaryLine({
   elapsedMs,
   inputTokens = 0,
   outputTokens = 0,
+  reason = null,
+  error = null,
 }: {
+  reason?: string | null;
+  error?: string | null;
   ok: boolean;
   elapsedMs: number;
   inputTokens?: number;
@@ -297,5 +321,5 @@ export function turnSummaryLine({
   const parts = [head];
   if (inputTokens > 0) parts.push(`↑ ${formatTokens(inputTokens)}`);
   parts.push(`↓ ${formatTokens(outputTokens)} tokens`);
-  return parts.join(" · ");
+  return withStopReason(parts.join(" · "), reason, error);
 }
