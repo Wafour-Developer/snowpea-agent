@@ -52,6 +52,7 @@ CHAT_COMMANDS: tuple[tuple[str, str], ...] = (
     ("projects", "List known projects and start a session in one"),
     ("status", "What this chat is attached to, and what it is doing"),
     ("stop", "Interrupt the running turn"),
+    ("jarvis", "Jarvis mode: overview, on/off, takeover, handback"),
     ("help", "Show these commands"),
 )
 #: Registry commands worth offering beside them on a phone, with the wording
@@ -115,6 +116,10 @@ MESSAGE_CHARS = 3500
 #: Same wording as the approval path: short, and it names the reason.
 NOT_YOUR_CHAT = "not your session — only the bound user can change it"
 
+LOCKED_TEXT = (
+    "자비스 모드가 켜져 있어 이 채팅은 자비스와만 대화합니다 / Jarvis mode is on: this chat "
+    "talks to Jarvis only. /jarvis off turns it off."
+)
 #: Name of the file remembering which session each chat is in.
 CHATS_FILE = "gateway-chats.json"
 
@@ -300,6 +305,10 @@ class ChatCommands:
 
     # -- commands -------------------------------------------------------
     async def _cmd_sessions(self, binding: Binding, message: InboundMessage, _args: str) -> None:
+        if self.router.jarvis.routing:
+            # Jarvis mode: the sessions are Jarvis's overview, and there is nothing to pick.
+            await self._say(binding, message, self.router.jarvis.status_text())
+            return
         rows = await self._sessions(binding, message.channel_id)
         if not rows:
             await self._say(binding, message, "no sessions yet — send a message, or /new")
@@ -359,6 +368,9 @@ class ChatCommands:
         await self._open(binding, message, workdir)
 
     async def _cmd_projects(self, binding: Binding, message: InboundMessage, _args: str) -> None:
+        if self.router.jarvis.routing:
+            await self._say(binding, message, LOCKED_TEXT)
+            return
         projects = self._projects()
         if not projects:
             await self._say(binding, message, "no projects yet — /new <path> starts one")
@@ -375,6 +387,9 @@ class ChatCommands:
         await self._say(binding, message, "\n".join(lines), buttons=buttons)
 
     async def _cmd_status(self, binding: Binding, message: InboundMessage, _args: str) -> None:
+        if self.router.jarvis.routing:
+            await self._say(binding, message, self.router.jarvis.status_text())
+            return
         core = self.router.core
         session_id = self._current_session_id(binding, message.channel_id)
         session = core.sessions.get(session_id) if core is not None and session_id else None
@@ -401,7 +416,7 @@ class ChatCommands:
         await self._say(binding, message, "\n".join(lines))
 
     async def _cmd_stop(self, binding: Binding, message: InboundMessage, _args: str) -> None:
-        if await self._refuse(binding, message):
+        if await self._refuse(binding, message, changes_session=False):
             return
         from snowpea_core.server.session_handlers import interrupt_session
 
@@ -413,6 +428,9 @@ class ChatCommands:
             return
         stopped = await interrupt_session(core, session)
         await self._say(binding, message, "stopped" if stopped else "nothing running")
+
+    async def _cmd_jarvis(self, binding: Binding, message: InboundMessage, args: str) -> None:
+        await self._say(binding, message, await self.router.jarvis.command(binding, message, args))
 
     async def _cmd_help(self, binding: Binding, message: InboundMessage, _args: str) -> None:
         lines = [f"/{name} — {summary}" for name, summary in CHAT_COMMANDS]
@@ -544,8 +562,16 @@ class ChatCommands:
         return f"running for {elapsed_text(running_for)}"
 
     # -- plumbing -------------------------------------------------------
-    async def _refuse(self, binding: Binding, message: InboundMessage) -> bool:
-        """True (and says so) when this user may not change the chat's session."""
+    async def _refuse(
+        self, binding: Binding, message: InboundMessage, *, changes_session: bool = True
+    ) -> bool:
+        """True (and says so) when this user may not change the chat's session.
+
+        Under Jarvis mode nobody may: the chat is on Jarvis until it is turned off.
+        """
+        if changes_session and self.router.jarvis.routing:
+            await self.router.send(binding, message.channel_id, LOCKED_TEXT)
+            return True
         if not binding.user_id or message.user_id == binding.user_id:
             return False
         log.info(
@@ -585,6 +611,7 @@ __all__ = [
     "CHAT_KINDS",
     "short_id",
     "HELP_REGISTRY",
+    "LOCKED_TEXT",
     "MENU_COMMANDS",
     "MESSAGE_CHARS",
     "NOT_YOUR_CHAT",

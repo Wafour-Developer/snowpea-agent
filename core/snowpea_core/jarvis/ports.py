@@ -40,6 +40,11 @@ def build_engine(core: Core, *, now: Callable[[], datetime]) -> DelegationEngine
 NotifyHook = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
+#: Told whenever the service announces ``jarvis.state``: ``hook(reason, running)``.
+#: The messenger bridge (WP7) re-points the chats on it.
+StateHook = Callable[[str, bool], Awaitable[None]]
+
+
 @dataclass
 class Hooks:
     """Extension points later work packages attach to (see the service)."""
@@ -47,6 +52,8 @@ class Hooks:
     #: Messenger delivery (WP7); called for ``high``/``urgent`` notices only,
     #: and only while ``jarvis.notify.messenger`` is on.
     notify: list[NotifyHook] = field(default_factory=list)
+    #: Called on every ``jarvis.state`` (enabled, disabled, settings, …).
+    state: list[StateHook] = field(default_factory=list)
     #: Extra overview rows, e.g. external CLI sessions (WP5/6):
     #: ``source() -> list[JarvisOverviewRow]``; exposure is filtered after.
     overview_sources: list[Callable[[], list[Any]]] = field(default_factory=list)
@@ -56,4 +63,4 @@ class Hooks:
     tools: list[Callable[[Any], list[Any]]] = field(default_factory=list)
 
 
-__all__ = ["Hooks", "NotifyHook", "build_engine"]
+__all__ = ["Hooks", "NotifyHook", "StateHook", "build_engine"]
