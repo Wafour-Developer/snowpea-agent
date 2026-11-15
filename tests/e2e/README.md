@@ -41,17 +41,16 @@ One line per step:
 
 ```
 PASS 4 one file edited in accept mode
-FAIL 12 exit 1; /backend docker did not report a docker backend
+FAIL 12 GET /web/session answered 200 on loopback (wanted 404)
 SKIP 10 messenger delivery needs SNOWPEA_E2E_CREDENTIALED=1 and a channel
 ```
 
 The run exits 0 only when no step failed. A skipped step is never a failure,
-and there are only four reasons a step skips:
+and there are only three reasons a step skips:
 
 - **10 and 11** need real messenger credentials. Set `SNOWPEA_E2E_CREDENTIALED=1`
   and `SNOWPEA_E2E_CHANNEL=telegram:<chat id>` to run them; the release
   pipeline is where they belong.
-- **12** needs a working docker daemon.
 - **7 and 8** skip when `/ralph` or `/team` is not in the command registry yet.
   The script asks the daemon (`snowpea commands list --json`) rather than
   guessing, so a registered-but-broken command fails instead of skipping.
@@ -72,7 +71,7 @@ and there are only four reasons a step skips:
 | 9 | `snowpea skill install …/sample-plugin` | the MCP tool registers and the PreToolUse hook fires |
 | 10 | `snowpea job schedule --in 60s --channel …` | delivered to the channel inside 65s |
 | 11 | approval timeout | `denied_by_timeout` in `logs/approvals.jsonl` |
-| 12 | `snowpea -c "/backend docker" --json` | the session reports the docker backend |
+| 12 | `snowpea web --no-open`, then GET `/web/`, its script asset, `/web/session` | 200 with the app root, asset 200, `/web/session` 404 |
 | 13 | `snowpea --mode plan -c "write foo.txt"` | exit 4, no file created |
 | 14 | `python scripts/gen_protocol.py --check` | no drift |
 | 15 | `snowpea daemon stop` | pid gone, `daemon.json` removed |
@@ -80,6 +79,5 @@ and there are only four reasons a step skips:
 Steps 7 and 8 run in `--mode auto` on purpose (plan §7.9): both drive multi-step
 shell and git work, which would block on an approval prompt in a
 non-interactive script. Accept mode's approval rules are covered by AC-13,
-AC-14 and `tests/test_permission_matrix.py`, not here. Step 12 asserts the
-backend switch only; that the container really is a different host is asserted
-by `tests/test_backends.py`.
+AC-14 and `tests/test_permission_matrix.py`, not here. Step 12 needs neither Docker nor a network: it only talks to the
+loopback daemon, and never prints the address because it carries the daemon token.

@@ -358,22 +358,33 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 12 — docker / ssh execution backend
+# 12 — the installed package serves snowpea web
 # ---------------------------------------------------------------------------
 
-if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-  skip_step 12 "docker is not available on this machine"
+web_out="$(sn web --no-open 2>&1)"
+web_rc=$?
+web_port="$(printf '%s\n' "$web_out" | sed -n 's|.*http://127\.0\.0\.1:\([0-9][0-9]*\)/web/.*|\1|p' | head -1)"
+if [ "$web_rc" -ne 0 ] || [ -z "$web_port" ]; then
+  fail_step 12 "snowpea web --no-open exited $web_rc and printed no loopback address"
 else
-  # --json, because the backend confirmation arrives as a backend.changed event.
-  # That the container really is a different host is asserted by
-  # tests/test_backends.py; here the point is that the switch happens at all.
-  backend_out="$(sn -c "/backend docker" --json --mode auto --cwd "$FIXTURE_REPO" 2>&1)"
-  backend_rc=$?
-  if [ "$backend_rc" -eq 0 ] && printf '%s' "$backend_out" | grep -q '"backend": *"docker"'; then
-    pass_step 12 "the session switched to the docker backend"
+  # The address carries the daemon token, so web_out is never echoed.
+  web_base="http://127.0.0.1:$web_port/web"
+  web_page="$(curl -sS --max-time 20 -w '\n%{http_code}' "$web_base/" 2>&1)"
+  web_code="${web_page##*$'\n'}"
+  web_asset="$(printf '%s' "$web_page" | sed -n 's|.*src="\./\(assets/[^"]*\.js\)".*|\1|p' | head -1)"
+  web_asset_code=""
+  [ -n "$web_asset" ] && web_asset_code="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$web_base/$web_asset" 2>&1)"
+  web_session_code="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$web_base/session" 2>&1)"
+  if [ "$web_code" != "200" ]; then
+    fail_step 12 "GET /web/ answered $web_code (wanted 200)"
+  elif ! printf '%s' "$web_page" | grep -q '<div id="app"'; then
+    fail_step 12 "GET /web/ returned no <div id=\"app\"> root"
+  elif [ -z "$web_asset" ] || [ "$web_asset_code" != "200" ]; then
+    fail_step 12 "the page's script asset '${web_asset:-none}' answered '${web_asset_code:-n/a}' (wanted 200)"
+  elif [ "$web_session_code" != "404" ]; then
+    fail_step 12 "GET /web/session answered $web_session_code on loopback (wanted 404)"
   else
-    fail_step 12 "exit $backend_rc; /backend docker did not report a docker backend"
-    note "$(printf '%s' "$backend_out" | tail -20)"
+    pass_step 12 "snowpea web serves the bundled page"
   fi
 fi
 

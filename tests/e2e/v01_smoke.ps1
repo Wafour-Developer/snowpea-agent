@@ -358,24 +358,36 @@ try {
     }
 
     # -----------------------------------------------------------------------
-    # 12 — docker backend
+    # 12 — the installed package serves snowpea web
     # -----------------------------------------------------------------------
-    $dockerOk = $false
-    if (Get-Command docker -ErrorAction SilentlyContinue) {
-        docker info 2>&1 | Out-Null
-        $dockerOk = ($LASTEXITCODE -eq 0)
-    }
-    if (-not $dockerOk) {
-        Skip-Step 12 'docker is not available on this machine'
+    $webOut = Invoke-Snowpea 'web' '--no-open'
+    $webRc = $script:LastRc
+    $webPort = 0
+    if ($webOut -match 'http://127\.0\.0\.1:(\d+)/web/') { $webPort = [int]$Matches[1] }
+    if ($webRc -ne 0 -or $webPort -le 0) {
+        Fail-Step 12 "snowpea web --no-open exited $webRc and printed no loopback address"
     }
     else {
-        # The confirmation arrives as a backend.changed event, hence --json.
-        # tests/test_backends.py is what asserts the container is another host.
-        $backendOut = Invoke-Snowpea '-c' '/backend docker' '--json' '--mode' 'auto' '--cwd' $FixtureRepo
-        if ($script:LastRc -eq 0 -and $backendOut -match '"backend":\s*"docker"') {
-            Pass-Step 12 'the session switched to the docker backend'
+        # The address carries the daemon token, so $webOut is never echoed.
+        $webBase = "http://127.0.0.1:$webPort/web"
+        $webCode = 0; $webBody = ''; $assetCode = 0; $sessionCode = 0
+        $webAsset = ''
+        try {
+            $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 "$webBase/"
+            $webCode = [int]$r.StatusCode; $webBody = [string]$r.Content
+        } catch { if ($_.Exception.Response) { $webCode = [int]$_.Exception.Response.StatusCode } }
+        if ($webBody -match 'src="\./(assets/[^"]*\.js)"') {
+            $webAsset = $Matches[1]
+            try { $assetCode = [int](Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 "$webBase/$webAsset").StatusCode }
+            catch { if ($_.Exception.Response) { $assetCode = [int]$_.Exception.Response.StatusCode } }
         }
-        else { Fail-Step 12 "exit $($script:LastRc); /backend docker did not report a docker backend" }
+        try { $sessionCode = [int](Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 "$webBase/session").StatusCode }
+        catch { if ($_.Exception.Response) { $sessionCode = [int]$_.Exception.Response.StatusCode } }
+        if ($webCode -ne 200) { Fail-Step 12 "GET /web/ answered $webCode (wanted 200)" }
+        elseif ($webBody -notmatch '<div id="app"') { Fail-Step 12 'GET /web/ returned no <div id="app"> root' }
+        elseif ($assetCode -ne 200) { Fail-Step 12 "the page's script asset '$webAsset' answered $assetCode (wanted 200)" }
+        elseif ($sessionCode -ne 404) { Fail-Step 12 "GET /web/session answered $sessionCode on loopback (wanted 404)" }
+        else { Pass-Step 12 'snowpea web serves the bundled page' }
     }
 
     # -----------------------------------------------------------------------
