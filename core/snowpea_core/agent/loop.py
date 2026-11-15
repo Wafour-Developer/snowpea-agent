@@ -336,6 +336,7 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
         except Exception:  # noqa: BLE001 - checkpoints must never fail a turn
             log.warning("could not finalize checkpoint for %s", turn_id, exc_info=True)
     history = getattr(session, "history", None)
+    session.done_turn = turn_id
     await core.hub.emit_event(
         session.id,
         events.turn_done(

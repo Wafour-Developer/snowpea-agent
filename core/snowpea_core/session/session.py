@@ -190,6 +190,10 @@ class Session:
     propagated_steers: set[str] = field(default_factory=set)
     turn_task: asyncio.Task[Any] | None = None
     current_turn: str | None = None
+    #: The turn whose ``turn.done`` has gone out.  The turn task clears
+    #: ``current_turn`` a moment later; until then a ``session.list`` row read
+    #: by a client reacting to ``turn.done`` must not call the session running.
+    done_turn: str | None = None
     #: Prompts submitted while a turn is running.  They are drained FIFO by
     #: the same task so two turns never mutate one history concurrently.
     queued_turns: list[Any] = field(default_factory=list)
@@ -343,6 +347,11 @@ class Session:
         return project_of(self.project_namespace)
 
     @property
+    def turn_live(self) -> bool:
+        """A turn is running and has not yet announced ``turn.done``."""
+        return self.current_turn is not None and self.current_turn != self.done_turn
+
+    @property
     def max_tool_rounds(self) -> int | None:
         return self.tool_rounds
 
@@ -373,10 +382,10 @@ class Session:
             parentSessionId=self.parent_session_id,
             jobId=self.job_id,
             agent=self.agent,
-            running=self.current_turn is not None,
+            running=self.turn_live,
             workspaceDir=self.workspace_dir,
             title=self.title,
-            status="running" if self.current_turn is not None else (
+            status="running" if self.turn_live else (
                 "error" if self.last_turn_reason == "error" else "idle"
             ),
             lastActivityAt=self.last_activity_at,
