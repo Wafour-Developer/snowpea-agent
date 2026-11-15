@@ -796,13 +796,14 @@ def _person_answer(
 ) -> Any:
     """The person answering a ``personOnly`` request; refuses anyone else.
 
-    ``None`` for an ordinary request.  A person is a human client connection
+    ``None`` for an ordinary request or a decline.  A person is a human client connection
     (:func:`~snowpea_core.jarvis.delegation.require_person`), or the bound
     person of a messenger chat (the gateway answers as ``gateway:<platform>:<user>``
     only after checking the approver) while ``jarvis.messenger.allowGrants``
     is on.  Jarvis, the engine and in-process callers are refused.
     """
-    if not request.personOnly:
+    if not request.personOnly or decision != "allow":
+        # Declining changes nothing, so anyone who sees it may decline.
         return None
     from snowpea_core.jarvis.delegation import Caller, person_refusal
 
@@ -813,7 +814,7 @@ def _person_answer(
     else:
         caller = Caller(kind="jarvis" if str(by).startswith("jarvis") else "system")
     allow = (request.args or {}).get("allow") if isinstance(request.args, dict) else None
-    refusal = person_refusal(caller, settings, guarded=decision == "allow" and bool(allow))
+    refusal = person_refusal(caller, settings, guarded=bool(allow))
     if refusal is not None:
         raise RpcError(errors.JARVIS_PERSON_ONLY, f"only a person may answer this: {refusal}")
     return caller

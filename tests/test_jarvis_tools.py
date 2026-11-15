@@ -982,3 +982,42 @@ async def test_end_to_end_delegation_round(http: aiohttp.ClientSession, tmp_path
 
 #: Long enough for a wake batch (2 s) and Jarvis's turn to have run.
 ROUTE_SETTLE = 3.0
+
+
+async def test_a_messenger_person_may_confirm_while_allowed(tmp_path: Path) -> None:
+    """The bound person in a messenger chat confirms, unless jarvis.messenger.allowGrants is off."""
+    from snowpea_core.server.errors import RpcError
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    daemon = await _daemon(tmp_path)
+    try:
+        core = daemon.core
+        await core.sessions.create(project, mode="accept")
+
+        async def propose() -> tuple[asyncio.Future[Any], str]:
+            task = asyncio.ensure_future(
+                _call(
+                    core, "delegation_set",
+                    {"scope": "project", "target": str(project), "level": "full"},
+                    human=True,
+                )
+            )
+            await _wait(lambda: core.approvals.list(core.jarvis.session_id))
+            return task, core.approvals.list(core.jarvis.session_id)[0].requestId
+
+        core.settings.jarvis.messenger.allowGrants = False
+        task, request_id = await propose()
+        with pytest.raises(RpcError):
+            await core.approvals.respond(request_id, "allow", by="gateway:telegram:42")
+        await core.approvals.respond(request_id, "deny", by="gateway:telegram:42")
+        assert (await asyncio.wait_for(task, 5)).meta["granted"] is False
+
+        core.settings.jarvis.messenger.allowGrants = True
+        task, request_id = await propose()
+        await core.approvals.respond(request_id, "allow", by="gateway:telegram:42")
+        result = await asyncio.wait_for(task, 5)
+        assert result.meta["granted"] is True
+        assert core.jarvis.engine.list_grants()[0].grantedBy == "telegram"
+    finally:
+        await daemon.stop()
