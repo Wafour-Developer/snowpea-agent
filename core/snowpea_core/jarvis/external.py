@@ -25,6 +25,9 @@ snowpea's own, through the seams the service leaves for them
   delegated work, never into a session the person holds, every read and
   instruction a ``jarvis.access`` line.  Jarvis never chooses, keeps or sends
   into ``unrestricted`` mode: that exists only by a person's confirmation.
+  Nor does it send into, or create, any other session snowpea cannot gate
+  (``controlled: false``: agy with always-proceed, Cursor outside readonly);
+  it may read and summarise those.
 """
 
 from __future__ import annotations
@@ -378,12 +381,25 @@ async def external_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 
 def _not_unrestricted(row: dict[str, Any]) -> None:
+    """Jarvis never hands work to a session snowpea cannot gate.
+
+    ``unrestricted``, and every other ``controlled: false`` session (agy with
+    ``toolPermission: always-proceed``, Cursor outside readonly, a CLI whose
+    prompts nobody answers): what it runs is never asked, so nothing the
+    delegation engine decides would apply.  Jarvis may still read and
+    summarise it; the person works in it directly.
+    """
     from snowpea_core.jarvis.tools import Refused
 
     if row.get("mode") == "unrestricted":
         raise Refused(
             "that session runs unrestricted (snowpea does not gate what it runs); only the "
             "person works in it — tell them instead"
+        )
+    if row.get("controlled") is False:
+        raise Refused(
+            "snowpea cannot gate what that session runs (it does not ask before it acts), so "
+            "you never send it work; read or summarise it, and tell the person instead"
         )
 
 
@@ -525,6 +541,21 @@ async def create(
         except ExternalError as exc:
             raise Refused(_refusal(exc)) from exc
         confirmation = await _person_allows_unrestricted(service, ctx, cli, root, prompt)
+    else:
+        # A session snowpea could not gate (agy with always-proceed, Cursor
+        # outside readonly) is the person's to open, never Jarvis's.
+        try:
+            found = await manager.discover(cli)
+        except Exception:  # noqa: BLE001 - unknown is not controlled
+            found = None
+        if found is None or not adapter.controlled(chosen, found):
+            raise Refused(
+                f"{adapter.title} in mode {chosen} does not ask before it acts, so snowpea "
+                "could not gate it; you never start such a session — "
+                + ("try mode readonly, or " if "readonly" in adapter.capabilities.modes
+                   and chosen != "readonly" else "")
+                + "tell the person"
+            )
     try:
         proc.validate_model(model)
         created = (await manager.create(cli, root, model=model, mode=chosen,
@@ -593,8 +624,8 @@ def build_tools(service: JarvisService) -> list[Tool]:
             "external_send",
             "Send an external session a message (plain text). A free session is continued in "
             "its own mode; a running Codex turn takes it in. Only for the person's request or "
-            "delegated work; never into a session the person is working in or one running "
-            "unrestricted.",
+            "delegated work; never into a session the person is working in, one running "
+            "unrestricted, or any session marked UNCONTROLLED.",
             {"sessionId": key, "text": {"type": "string"}},
             ["sessionId", "text"],
             external_send,

@@ -149,7 +149,8 @@ session_create with cli starts one (mode default or readonly; unrestricted only 
 the person asks for it in the message you are answering from their messenger chat, and \
 they allow it there with one press). A session marked \
 UNCONTROLLED (unrestricted, or a CLI that does not ask before it acts) runs without \
-snowpea's approvals: do not hand it work, tell the person. A tmux pane's prompts are \
+snowpea's approvals: you can only read and summarise it; external_send and \
+session_create refuse it, so tell the person instead. A tmux pane's prompts are \
 answered by the person in the terminal.
 - Assist: briefing_set turns the periodic briefing on or off and sets its time, days, \
 timezone and contents (it is off until the person asks). schedule_list, schedule_create, \

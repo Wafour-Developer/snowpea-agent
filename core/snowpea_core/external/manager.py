@@ -52,7 +52,7 @@ from snowpea_core.external.proc import (
 )
 from snowpea_core.external.registry import CLI_ORDER, CLI_TITLES, AdapterRegistry
 from snowpea_core.external.timeline import TimelineBuilder, TimelineItem
-from snowpea_core.permissions.allowlist import command_of, first_token
+from snowpea_core.permissions.allowlist import command_of
 from snowpea_core.permissions.shell_remember import matchable
 from snowpea_core.server import errors
 from snowpea_core.server.protocol import ExternalRef
@@ -90,6 +90,18 @@ def _norm(text: Any) -> str:
 
 def _ref(cli: str, session_id: str) -> dict[str, str]:
     return {"cli": cli, "id": session_id}
+
+
+def _call_key(tool: str, args: dict[str, Any], command: str | None) -> tuple[str, str]:
+    """``(tool, the exact call)``: the whole command line, or every argument."""
+    if command:
+        return (tool, command.strip())
+    import json
+
+    try:
+        return (tool, json.dumps(args, sort_keys=True, default=str, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return (tool, repr(sorted(args.items(), key=lambda item: str(item[0]))))
 
 
 def _origin_for(conn: Any, origin: dict[str, Any] | None) -> dict[str, Any]:
@@ -1310,14 +1322,43 @@ class ExternalManager:
             ) from exc
 
     # -- approvals --------------------------------------------------------
+    def _cacheable(self, record: _Record, ask: ApprovalAsk) -> bool:
+        """The session's "allow for this session" may answer ``ask`` without anyone.
+
+        Never a guarded or ``never`` request (pushes, deletes outside, secrets,
+        sends, snowpea's own files), whatever was allowed before: those always
+        go through the queue, where the delegation engine routes them.
+        """
+        from snowpea_core.jarvis.classify import ClassifyRequest, classify
+
+        try:
+            verdict = classify(ClassifyRequest(
+                tool=ask.tool,
+                args=dict(ask.args or {}),
+                workdir=record.project or record.info.cwd,
+                session_id=f"ext:{record.cli}:{record.id}",
+                home=str(self.home),
+            ))
+        except Exception:  # noqa: BLE001 - unknown is not cacheable
+            return False
+        return verdict.classification in ("safe", "risky")
+
     async def _ask_approval(self, record: _Record, ask: ApprovalAsk) -> ApprovalAnswer:
-        """Bridge one CLI prompt into the shared approval queue (``ApprovalRequest.external``)."""
+        """Bridge one CLI prompt into the shared approval queue (``ApprovalRequest.external``).
+
+        "For this session" is remembered per exact call (the tool and its full
+        command line or arguments), never per program: allowing ``git status``
+        does not allow ``git push``, and allowing one ``Write`` does not allow
+        every later one.  A guarded or ``never`` request is never answered from
+        it (:meth:`_cacheable`).
+        """
         command = command_of(ask.args or {})
-        cache_key = (ask.tool, first_token(command) if command else "")
+        cache_key = _call_key(ask.tool, ask.args or {}, command)
         if (
             not ask.person_only
             and cache_key in record.approval_cache
             and (not command or matchable(command))
+            and self._cacheable(record, ask)
         ):
             return ApprovalAnswer(allow=True, scope="session", by="cache")
         if self.approvals is None:
@@ -1344,7 +1385,12 @@ class ExternalManager:
             # Allowed by anything but a person (a cache, a rule): not this one.
             return ApprovalAnswer(allow=False, reason="only a person may allow this", by="none")
         scope = decision.scope if decision.allowed else "once"
-        if decision.allowed and scope != "once" and (not command or matchable(command)):
+        if (
+            decision.allowed
+            and scope != "once"
+            and (not command or matchable(command))
+            and self._cacheable(record, ask)
+        ):
             record.approval_cache.add(cache_key)
         record.last_activity = time.monotonic()
         return ApprovalAnswer(
