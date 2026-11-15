@@ -7,8 +7,11 @@ root) to a :class:`Verdict`:
 
 ``never``
     Never decided by Jarvis: snowpea's own configuration (tag ``config``, any
-    path under ``$SNOWPEA_HOME``, the ``snowpea`` CLI), delegation changes,
-    browser-owned requests and the Jarvis session's own requests.
+    path under ``$SNOWPEA_HOME`` but its ``plans/`` and session workspaces,
+    read or written, by any tool, literal, globbed, ``~user``, behind a
+    variable, or inside a recursive read of one of its ancestors; the
+    ``snowpea`` CLI), delegation changes, browser-owned requests and the
+    Jarvis session's own requests.
 ``guarded``
     One or more of the classes the person must hand over one by one
     (:data:`GUARDED_CLASSES`): ``deploy`` (push, release, publish, remote
@@ -18,9 +21,16 @@ root) to a :class:`Verdict`:
     (credentials, secret files, mutating network calls, uploads, mail,
     MCP tools that may write, payment-like tools).
 ``safe``
-    Only reads: tag ``read`` with no secret path, or a shell line
-    :mod:`snowpea_core.permissions.safe_commands` knows to be an inspection or a
-    test run, with nothing above matching.
+    Allowed by the engine with nobody asked, so it must not be able to write,
+    run project- or worker-controlled code, read a secret or snowpea's own
+    files, or send anything out — by every parse path.  It is an explicit
+    allowlist of its own (:meth:`_Judge.safe_line`), deliberately not plan
+    mode's "read-only" helpers: a worker can write project files, so a test
+    run, a linter or a build is never ``safe``.  A tool tagged ``read`` whose
+    paths all lie in the project, or a shell line made only of the
+    inspections listed at :data:`SAFE_CONTENT_READERS` / :data:`SAFE_META`
+    and the read-only ``git`` forms (:data:`SAFE_GIT_SUBCOMMANDS`), on
+    literal paths inside the project.
 ``risky``
     Everything else.
 
@@ -28,7 +38,9 @@ A request in several classes reports all of them (:attr:`Verdict.guarded`).
 A shell line this module cannot see through — a command substitution, a pipe
 into a shell or interpreter, ``eval``, ``sh -c``, inline interpreter code, an
 encoded payload, an alias or function definition, a git alias, an unbalanced
-quote — **fails closed**: it is reported in every guarded class
+quote, brace expansion in the program's place, ``case``/``select``, a
+database client's shell escape, an awk or sed program read from a file —
+**fails closed**: it is reported in every guarded class
 (rule ``exec:opaque:<why>``), so only a grant naming all three would let
 Jarvis decide it.  Compound lines (``&&``, ``||``, ``;``, plain pipes) are
 split and each part judged; ``cd`` is followed so relative paths resolve where
@@ -165,8 +177,21 @@ WRITE_TOOL_NAMES: frozenset[str] = frozenset(
 READ_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "read_file", "read", "grep", "glob", "list_dir", "ls", "view_image", "notebookread",
-        "git_status", "git_diff", "git_log", "web_search", "web_extract", "webfetch",
-        "websearch", "todowrite", "todoread",
+        "git_status", "git_diff", "git_log", "todowrite", "todoread",
+    }
+)
+#: Read tools that walk a directory tree (a path naming an ancestor of a
+#: secret or of ``$SNOWPEA_HOME`` reads them too).
+RECURSIVE_READ_TOOL_NAMES: frozenset[str] = frozenset(
+    {"grep", "glob", "search", "codebase_search", "search_files", "find_files", "list_files"}
+)
+#: Tools that fetch a URL or run a web search: whatever they are handed leaves
+#: the machine (a query string, a path), so they are sends, never reads.
+WEB_SEND_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "webfetch", "web_fetch", "websearch", "web_search", "web_extract", "fetch",
+        "fetch_url", "url_fetch", "read_url", "browse", "web_browse", "google_web_search",
+        "web_search_preview", "http_request", "http_get",
     }
 )
 #: Tools that change Jarvis's own authority: never decided by Jarvis.
@@ -201,7 +226,8 @@ _DELETE_WORDS = re.compile(
 )
 #: Browser actions that act on a page rather than read it.
 _BROWSER_ACTION_WORDS = re.compile(
-    r"(click|type|fill|submit|press|select|upload|evaluate|script|send|fetch|download|drag)",
+    r"(click|type|fill|submit|press|select|upload|evaluate|script|send|fetch|download|drag|"
+    r"navigate|goto|open_url|open_tab)",
     re.IGNORECASE,
 )
 
@@ -239,8 +265,16 @@ _EXTRA_SECRET_DIRS: tuple[tuple[str, ...], ...] = (
 )
 
 
+#: ``/proc/<pid>/<name>`` files that show another process's environment,
+#: command line (tokens passed as arguments) or memory.
+_PROC_SECRET_NAMES: frozenset[str] = frozenset({"environ", "cmdline", "mem", "auxv"})
+
+
 def is_secret_path(path: Path) -> bool:
     """True when ``path`` (resolved) is a credential or key location."""
+    parts = path.parts
+    if len(parts) >= 3 and parts[1] == "proc" and path.name in _PROC_SECRET_NAMES:
+        return True
     try:
         from snowpea_core.agent.prompt_refs import is_secret_pattern
 
@@ -250,7 +284,6 @@ def is_secret_path(path: Path) -> bool:
         return True
     if path.name in _EXTRA_SECRET_NAMES or path.name.lower() in _EXTRA_SECRET_NAMES:
         return True
-    parts = path.parts
     for run in _EXTRA_SECRET_DIRS:
         width = len(run)
         for index in range(len(parts) - width + 1):
@@ -289,8 +322,32 @@ _CODE_VARIABLES: frozenset[str] = frozenset(
         "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
         "EDITOR", "VISUAL", "PAGER", "SSH_ASKPASS", "SUDO_ASKPASS", "JAVA_TOOL_OPTIONS",
         "_JAVA_OPTIONS", "MAVEN_OPTS", "npm_config_script_shell", "NPM_CONFIG_SCRIPT_SHELL",
+        # Where ``cd`` goes, and where every tool looks for its own configuration.
+        "CDPATH", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "ZDOTDIR", "GNUPGHOME",
+        "GLOBIGNORE", "HISTFILE", "LESSOPEN", "LESSCLOSE", "MANPAGER", "MANOPT", "BROWSER",
+        "GOFLAGS", "GOTOOLCHAIN", "RUSTC_WRAPPER", "RUSTC", "RUSTDOCFLAGS", "RUSTFLAGS", "CC",
+        "CXX", "LD", "MAKEFLAGS", "MAKEFILES", "PYTHONUSERBASE", "RIPGREP_CONFIG_PATH",
+        "TAR_OPTIONS", "SQLITE_HISTORY", "PSQLRC", "MYSQL_HISTFILE", "INPUTRC", "TERMINFO",
+        "TMPDIR", "SHELL",
     }
 )
+#: ``GIT_*`` variables that only change what git prints (every other one may
+#: point git at another repository, config, hook or program).
+_GIT_HARMLESS_VARIABLES = re.compile(
+    r"^GIT_(TRACE.*|TERMINAL_PROMPT|AUTHOR_(NAME|EMAIL|DATE)|COMMITTER_(NAME|EMAIL|DATE)|"
+    r"OPTIONAL_LOCKS|FLUSH|CURL_VERBOSE|MERGE_VERBOSITY|PROGRESS_DELAY|REDACT_COOKIES)$"
+)
+
+
+def _is_code_variable(name: str) -> bool:
+    """An environment variable that loads code or redirects configuration."""
+    upper = name.upper()
+    if name in _CODE_VARIABLES or upper in _CODE_VARIABLES:
+        return True
+    if upper.startswith(("NPM_CONFIG_", "YARN_", "PNPM_", "CARGO_", "PIP_", "UV_", "POETRY_",
+                         "BUNDLE_", "GEM_", "DYLD_", "LD_")):
+        return True
+    return upper.startswith("GIT_") and not _GIT_HARMLESS_VARIABLES.match(upper)
 
 # ---------------------------------------------------------------------------
 # the shell line
@@ -314,6 +371,81 @@ class _Cmd:
     piped_in: bool = False
     #: Reads a here-document or here-string.
     heredoc: bool = False
+    #: Per word: it came out of a brace expansion (``{a,b}``, ``{1..3}``).
+    braced: list[bool] = field(default_factory=list)
+
+
+#: Most words one brace expansion may produce before the line is opaque.
+BRACE_LIMIT = 64
+
+
+def _brace_expand(text: str, mask: list[bool], budget: list[int]) -> list[str]:
+    """Bash brace expansion of the unquoted braces (``mask`` marks quoted chars).
+
+    Raises :class:`_Opaque` past :data:`BRACE_LIMIT` words.  Words that come
+    out empty are dropped, as bash drops them.
+    """
+    index = 0
+    while index < len(text):
+        if text[index] != "{" or mask[index]:
+            index += 1
+            continue
+        depth = 0
+        commas: list[int] = []
+        close = -1
+        for j in range(index + 1, len(text)):
+            if mask[j]:
+                continue
+            char = text[j]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                if depth == 0:
+                    close = j
+                    break
+                depth -= 1
+            elif char == "," and depth == 0:
+                commas.append(j)
+        if close < 0:
+            return [text] if text else []
+        prefix, pmask = text[:index], mask[:index]
+        suffix, smask = text[close + 1 :], mask[close + 1 :]
+        alternatives: list[tuple[str, list[bool]]] = []
+        if commas:
+            bounds = [index, *commas, close]
+            for start, end in zip(bounds, bounds[1:], strict=False):
+                alternatives.append((text[start + 1 : end], mask[start + 1 : end]))
+        else:
+            inner = text[index + 1 : close]
+            numeric = re.fullmatch(r"(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?", inner)
+            alpha = re.fullmatch(r"([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?", inner)
+            values: list[str] = []
+            if numeric or alpha:
+                found = numeric or alpha
+                assert found is not None
+                first, last = found.group(1), found.group(2)
+                step = abs(int(found.group(3) or 1)) or 1
+                low, high = (int(first), int(last)) if numeric else (ord(first), ord(last))
+                count = abs(high - low) // step + 1
+                if count > BRACE_LIMIT:
+                    raise _Opaque("brace-expansion")
+                direction = 1 if high >= low else -1
+                values = [
+                    str(v) if numeric else chr(v)
+                    for v in range(low, high + direction, direction * step)
+                ]
+            if not values:
+                index += 1  # ``{x}`` / ``{}``: literal braces
+                continue
+            alternatives = [(v, [True] * len(v)) for v in values]
+        words: list[str] = []
+        for alt, amask in alternatives:
+            budget[0] -= 1
+            if budget[0] < 0:
+                raise _Opaque("brace-expansion")
+            words.extend(_brace_expand(prefix + alt + suffix, pmask + amask + smask, budget))
+        return words
+    return [text] if text else []
 
 
 @dataclass
@@ -339,6 +471,9 @@ class _Scanner:
         self.line = _Line(commands=[])
         self.cmd = _Cmd()
         self.word: list[str] = []
+        #: Per character of the word: it was quoted, escaped or part of an
+        #: expansion (so a ``{`` in it does not brace-expand).
+        self.mask: list[bool] = []
         self.in_word = False
         self.dynamic = False
         self.pending_redirect: str | None = None
@@ -348,26 +483,42 @@ class _Scanner:
         self.piped_in = False
 
     # -- words -----------------------------------------------------------
+    def _add(self, chunk: str, protected: bool) -> None:
+        self.word.append(chunk)
+        self.mask.extend([protected] * len(chunk))
+        self.in_word = True
+
     def _end_word(self) -> None:
         if not self.in_word:
             return
         text = "".join(self.word)
+        mask = self.mask
+        expanded = [text]
+        if any(c == "{" and not m for c, m in zip(text, mask, strict=False)):
+            expanded = _brace_expand(text, list(mask), [BRACE_LIMIT])
+        braced = expanded != [text]
         if self.pending_redirect is not None:
             operator = self.pending_redirect
             self.pending_redirect = None
+            if braced and len(expanded) != 1:
+                raise _Opaque("brace-redirect")
+            target = expanded[0] if expanded else ""
             if operator in ("<<", "<<-"):
                 self.pending_heredocs.append((text, operator == "<<-", self.quoted))
                 self.cmd.heredoc = True
             elif operator == "<<<":
                 self.cmd.heredoc = True
             else:
-                self.cmd.redirects.append((operator, text, self.dynamic))
-        elif text in ("{", "}") and not self.dynamic:
+                self.cmd.redirects.append((operator, target, self.dynamic))
+        elif text in ("{", "}") and not self.dynamic and not self.quoted:
             pass  # a brace group: its commands are judged like any others
         else:
-            self.cmd.words.append(text)
-            self.cmd.dynamic.append(self.dynamic)
+            for word in expanded:
+                self.cmd.words.append(word)
+                self.cmd.dynamic.append(self.dynamic)
+                self.cmd.braced.append(braced)
         self.word = []
+        self.mask = []
         self.in_word = False
         self.dynamic = False
         self.quoted = False
@@ -427,20 +578,17 @@ class _Scanner:
                 if nxt == "\n":
                     self.i += 2
                 elif nxt:
-                    self.word.append(nxt)
-                    self.in_word = True
+                    self._add(nxt, True)
                     self.i += 2
                 else:
-                    self.word.append(char)
-                    self.in_word = True
+                    self._add(char, True)
                     self.i += 1
             elif char == "'":
                 self.quoted = True
                 end = text.find("'", self.i + 1)
                 if end < 0:
                     raise _Opaque("unbalanced-quote")
-                self.word.append(text[self.i + 1 : end])
-                self.in_word = True
+                self._add(text[self.i + 1 : end], True)
                 self.i = end + 1
             elif char == '"':
                 self._double_quoted()
@@ -480,8 +628,7 @@ class _Scanner:
             elif char in "<>":
                 self._angle(char, nxt)
             else:
-                self.word.append(char)
-                self.in_word = True
+                self._add(char, False)
                 self.i += 1
         self._end_command(None)
         return self.line
@@ -500,7 +647,7 @@ class _Scanner:
                 return
             if char == "\\" and self.i + 1 < len(text) and text[self.i + 1] in '$`"\\\n':
                 if text[self.i + 1] != "\n":
-                    self.word.append(text[self.i + 1])
+                    self._add(text[self.i + 1], True)
                 self.i += 2
                 continue
             if char == "`" or (char == "$" and text[self.i + 1 : self.i + 2] == "("):
@@ -508,7 +655,7 @@ class _Scanner:
                 self.dynamic = True
             elif char == "$" and re.match(r"[A-Za-z0-9_{@*#?$!-]", text[self.i + 1 : self.i + 2]):
                 self.dynamic = True
-            self.word.append(char)
+            self._add(char, True)
             self.i += 1
 
     def _dollar(self, nxt: str) -> None:
@@ -518,18 +665,36 @@ class _Scanner:
             # so the commands inside are judged too.
             self.line.substitution = True
             self.dynamic = True
-            self.word.append("$")
-            self.in_word = True
+            self._add("$", True)
             self.i += 1
             self._end_word()
             return
         if nxt == "{":
-            end = text.find("}", self.i)
+            # ``${…}``, nested ones included: a command substitution or a
+            # backtick anywhere inside (``${X:-$(git push)}``) runs a command.
+            depth = 0
+            end = -1
+            j = self.i + 1
+            while j < len(text):
+                char = text[j]
+                if char == "\\":
+                    j += 2
+                    continue
+                if char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = j
+                        break
+                j += 1
             if end < 0:
                 raise _Opaque("unbalanced-brace")
-            self.word.append(text[self.i : end + 1])
+            body = text[self.i : end + 1]
+            if "$(" in body or "`" in body or "<(" in body or ">(" in body:
+                self.line.substitution = True
+            self._add(body, True)
             self.dynamic = True
-            self.in_word = True
             self.i = end + 1
             return
         if nxt == "'":
@@ -540,20 +705,20 @@ class _Scanner:
             body = text[self.i + 2 : end]
             if "\\" in body:
                 self.dynamic = True
-            self.word.append(body)
-            self.in_word = True
+            self.quoted = True
+            self._add(body, True)
             self.i = end + 1
             return
         if nxt and re.match(r"[A-Za-z0-9_@*#?$!-]", nxt):
             self.dynamic = True
-        self.word.append("$")
-        self.in_word = True
+        self._add("$", True)
         self.i += 1
 
     def _redirect(self, operator: str) -> None:
         # A word made only of digits right before the operator is its fd.
         if self.in_word and "".join(self.word).isdigit():
             self.word = []
+            self.mask = []
             self.in_word = False
         else:
             self._end_word()
@@ -901,6 +1066,11 @@ HTTP_CLIENTS: frozenset[str] = frozenset(
     {"curl", "wget", "wget2", "http", "https", "xh", "xhs", "curlie", "httpie", "aria2c",
      "fetch", "lwp-request"}
 )
+#: Programs that send a name or a host out (DNS lookups, pings): a send.
+DNS_SENDERS: frozenset[str] = frozenset(
+    {"dig", "nslookup", "host", "ping", "ping6", "traceroute", "traceroute6", "tracepath",
+     "mtr", "whois", "drill", "kdig", "delv", "arping", "nping", "hping3"}
+)
 #: Programs that reach the network even when they only read (never ``safe``).
 #: Programs that only sometimes do (git, npm, docker, ...) say so per subcommand.
 NETWORK_PROGRAMS: frozenset[str] = HTTP_CLIENTS | SENDERS | frozenset(
@@ -1008,6 +1178,20 @@ _SQL_DESTRUCTIVE = re.compile(
     r"deletemany\s*\(\s*\{\s*\}\s*\)|del\s+\S+|unlink\s+\S+|remove\s*\(\s*\{\s*\}\s*\))",
     re.IGNORECASE,
 )
+#: Database-client meta commands and statements that leave the database: a
+#: shell escape, a file written or read, an extension (code) loaded.
+_DB_SHELL_ESCAPE = re.compile(
+    r"(^|[\s;'\"])\.(shell|system|sh|output|once|import|read|load|backup|save|open|"
+    r"excel|log|cd|clone|archive)\b|"
+    r"\\(!|o|w|i|ir|include|include_relative|copy|g|gx|gexec|lo_export|lo_import|"
+    r"T|tee|P|pager|\.|source|setenv|cd|s|e|ef|ev)(\s|$|['\";])|"
+    r"(^|[\s;'\"])(system|tee|pager|source|edit|nopager)\s|"
+    r"\b(into\s+(out|dump)file|load_file\s*\(|load\s+data|from\s+program|to\s+program|"
+    r"pg_read_file|pg_read_binary_file|pg_ls_dir|lo_import|lo_export|copy\s+\S+\s+(to|from)\s+'|"
+    r"load_extension\s*\(|readfile\s*\(|writefile\s*\(|edit\s*\(|attach\s+database|"
+    r"read_csv|read_text|read_blob|copy\s+.*\s+to\s+)",
+    re.IGNORECASE,
+)
 #: Commands that reset or drop a database through a framework.
 _DB_RESET = re.compile(
     r"(db:(drop|reset|purge|schema:load|migrate:reset|migrate:fresh|wipe|seed:replant)|"
@@ -1032,6 +1216,332 @@ STDIN_ARGS_OK: frozenset[str] = frozenset(
 )
 #: Of :data:`WRITE_PROGRAMS`, those whose earlier operands are only read.
 DESTINATION_ONLY: frozenset[str] = frozenset({"cp", "rsync", "install", "ln"})
+#: Shell reserved words that may start a simple command of a compound one.
+RESERVED_WORDS: frozenset[str] = frozenset(
+    {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "for", "case",
+     "esac", "select", "in", "coproc", "function", "{", "}"}
+)
+#: Programs that print the content of the files they are given: one whose name
+#: only the shell knows may be any secret.
+CONTENT_READERS: frozenset[str] = frozenset(
+    {"cat", "tac", "head", "tail", "less", "more", "most", "bat", "batcat", "nl", "od", "xxd",
+     "hexdump", "strings", "grep", "egrep", "fgrep", "rg", "ag", "ack", "ugrep", "sed", "gsed",
+     "awk", "gawk", "mawk", "nawk", "cut", "sort", "uniq", "diff", "cmp", "base64", "base32",
+     "md5sum", "sha1sum", "sha256sum", "sha512sum", "shasum", "b2sum", "jq", "yq", "column",
+     "fold", "rev", "comm", "join", "paste", "expand", "unexpand", "fmt", "pr", "view", "vim",
+     "vi", "nvim", "nano", "emacs", "code", "open", "xdg-open", "iconv", "dos2unix", "zcat",
+     "bzcat", "xzcat", "zless", "zgrep", "look", "split"}
+)
+#: Content readers whose first operand is a pattern or a program, not a file
+#: (unless one of the options in :data:`_PATTERN_GIVEN` supplied it).
+_PATTERN_FIRST: frozenset[str] = frozenset(
+    {"grep", "egrep", "fgrep", "rg", "ag", "ack", "ugrep", "zgrep", "sed", "gsed", "awk",
+     "gawk", "mawk", "nawk", "jq", "yq", "look"}
+)
+_PATTERN_GIVEN: frozenset[str] = frozenset(
+    {"-e", "-f", "--regexp", "--file", "--expression", "--source", "--from-file"}
+)
+#: Options of content readers that take the next word as their value.
+_READER_VALUED: dict[str, frozenset[str]] = {
+    "head": frozenset({"-n", "-c", "--lines", "--bytes"}),
+    "tail": frozenset({"-n", "-c", "--lines", "--bytes", "-s", "--sleep-interval", "--pid"}),
+    "grep": frozenset({"-e", "-f", "-m", "-A", "-B", "-C", "-d", "-D", "--regexp", "--file",
+                       "--max-count", "--context", "--after-context", "--before-context",
+                       "--include", "--exclude", "--exclude-dir", "--exclude-from",
+                       "--label", "--binary-files", "--devices", "--directories"}),
+    "rg": frozenset({"-e", "-f", "-m", "-A", "-B", "-C", "-g", "--glob", "--iglob", "-t", "-T",
+                     "--type", "--type-not", "--type-add", "-M", "--max-columns", "-j",
+                     "--threads", "--max-depth", "-d", "--maxdepth", "-r", "--replace",
+                     "--pre", "--pre-glob", "--ignore-file", "-E", "--encoding", "--sort",
+                     "--sortr", "--colors", "--context-separator", "--max-filesize",
+                     "--engine", "--regexp", "--file", "--max-count", "--context",
+                     "--after-context", "--before-context", "--path-separator"}),
+    "cut": frozenset({"-d", "-f", "-c", "-b", "--delimiter", "--fields", "--characters",
+                      "--bytes", "--output-delimiter"}),
+    "sort": frozenset({"-k", "-t", "-S", "-o", "-T", "--key", "--field-separator",
+                       "--buffer-size", "--output", "--temporary-directory", "--parallel",
+                       "--batch-size", "--compress-program", "--files0-from"}),
+    "uniq": frozenset({"-f", "-s", "-w", "--skip-fields", "--skip-chars", "--check-chars"}),
+    "sed": frozenset({"-e", "-f", "--expression", "--file", "-l", "--line-length"}),
+    "awk": frozenset({"-f", "-v", "-F", "--file", "--assign", "--field-separator", "-e",
+                      "--source", "-i", "--include", "-l", "--load"}),
+    "jq": frozenset({"-f", "--from-file", "--indent", "-L", "--tab"}),
+    "diff": frozenset({"-U", "-C", "--unified", "--context", "-x", "-X", "--exclude",
+                       "--exclude-from", "-I", "--ignore-matching-lines", "--label", "-L",
+                       "-W", "--width", "-F", "--show-function-line"}),
+    "xxd": frozenset({"-s", "-l", "-c", "-g", "-o", "-n", "-C"}),
+    "od": frozenset({"-j", "-N", "-t", "-A", "-w", "-S"}),
+    "hexdump": frozenset({"-s", "-n", "-e", "-f"}),
+    "base64": frozenset({"-w", "--wrap"}),
+    "column": frozenset({"-s", "-t", "-c", "-o", "-N", "-R", "-H", "-E", "-W"}),
+    "fold": frozenset({"-w", "-b", "--width"}),
+    "nl": frozenset({"-b", "-i", "-n", "-s", "-v", "-w", "-l", "-d", "-h", "-f"}),
+    "strings": frozenset({"-n", "-t", "-e", "-T", "--bytes", "--radix", "--encoding"}),
+    "split": frozenset({"-l", "-b", "-C", "-n", "-a", "--additional-suffix"}),
+    "iconv": frozenset({"-f", "-t", "--from-code", "--to-code", "-o", "--output"}),
+}
+for _alias, _base in (("egrep", "grep"), ("fgrep", "grep"), ("zgrep", "grep"),
+                      ("ugrep", "grep"), ("ag", "grep"), ("ack", "grep"), ("gsed", "sed"),
+                      ("gawk", "awk"), ("mawk", "awk"), ("nawk", "awk"), ("yq", "jq")):
+    _READER_VALUED[_alias] = _READER_VALUED[_base]
+
+
+def _reader_operands(
+    program: str, rest: list[str], rest_dyn: list[bool]
+) -> list[tuple[str, bool]]:
+    """The file operands of a content reader (its pattern or program left out)."""
+    valued = _READER_VALUED.get(program, frozenset())
+    operands: list[tuple[str, bool]] = []
+    index = 0
+    only = False
+    while index < len(rest):
+        word = rest[index]
+        dyn = rest_dyn[index] if index < len(rest_dyn) else True
+        if only:
+            operands.append((word, dyn))
+        elif word == "--":
+            only = True
+        elif word in ("--arg", "--argjson", "--slurpfile", "--rawfile") and program in (
+            "jq", "yq"
+        ):
+            index += 3
+            continue
+        elif word in valued:
+            index += 2
+            continue
+        elif word.startswith("-") and len(word) > 1 and not dyn:
+            pass
+        else:
+            operands.append((word, dyn))
+        index += 1
+    if program in _PATTERN_FIRST and operands and not any(
+        w in _PATTERN_GIVEN or w.startswith(tuple(f"{f}=" for f in _PATTERN_GIVEN if
+                                                  f.startswith("--")))
+        for w in rest
+    ):
+        operands = operands[1:]
+    return [(w, d) for w, d in operands if w != "-"]
+#: Options whose value is a name pattern, not a path (``find -name '*.pem'``).
+_PATTERN_OPTIONS: frozenset[str] = frozenset(
+    {"-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-regex", "-iregex",
+     "-lname", "-ilname", "--include", "--exclude", "--exclude-dir", "-g", "--glob", "--iglob",
+     "-e", "--regexp", "--type-add"}
+)
+_PATTERN_PREFIXES: tuple[str, ...] = (
+    "--include=", "--exclude=", "--exclude-dir=", "--glob=", "--iglob=", "--regexp=",
+)
+#: Options that make a program write a file (or a directory) at their value.
+#: ``=`` forms and, for short ones, attached values (``-oout.txt``) count too.
+OUTPUT_FLAGS: dict[str, frozenset[str]] = {
+    "pytest": frozenset({"--basetemp", "--junitxml", "--junit-xml", "--resultlog",
+                         "--result-log", "--log-file", "--report-log", "--html",
+                         "--json-report-file", "--cov-report", "--debug", "-o",
+                         "--override-ini", "--confcutdir"}),
+    "tree": frozenset({"-o"}),
+    "sort": frozenset({"-o", "--output", "-T", "--temporary-directory"}),
+    "jest": frozenset({"--outputFile", "--coverageDirectory", "--cacheDirectory"}),
+    "vitest": frozenset({"--outputFile", "--outputFile.json", "--coverage.reportsDirectory"}),
+    "tsc": frozenset({"--outDir", "--outFile", "--out", "--declarationDir",
+                      "--tsBuildInfoFile"}),
+    "esbuild": frozenset({"--outfile", "--outdir"}),
+    "gcc": frozenset({"-o"}), "cc": frozenset({"-o"}), "clang": frozenset({"-o"}),
+    "g++": frozenset({"-o"}), "clang++": frozenset({"-o"}), "c++": frozenset({"-o"}),
+    "rustc": frozenset({"-o", "--out-dir"}),
+    "cargo": frozenset({"--target-dir", "--out-dir", "--artifact-dir"}),
+    "go": frozenset({"-o", "-coverprofile", "-cpuprofile", "-memprofile", "-blockprofile",
+                     "-mutexprofile", "-trace", "-outputdir"}),
+    "pandoc": frozenset({"-o", "--output"}),
+    "mypy": frozenset({"--cache-dir", "--html-report", "--txt-report", "--xml-report",
+                       "--junit-xml", "--linecount-report", "--any-exprs-report",
+                       "--cobertura-xml-report", "--lineprecision-report",
+                       "--xslt-html-report", "--xslt-txt-report", "--linecoverage-report"}),
+    "ruff": frozenset({"--cache-dir", "--output-file", "-o"}),
+    "eslint": frozenset({"-o", "--output-file", "--cache-location"}),
+    "prettier": frozenset({"--cache-location"}),
+    "coverage": frozenset({"-o", "--data-file", "-d", "--directory"}),
+    "openssl": frozenset({"-out", "-keyout"}),
+    "pip": frozenset({"-t", "--target", "--prefix", "--root", "-d", "--dest", "--log",
+                      "--src", "--cache-dir", "--report"}),
+    "uv": frozenset({"-o", "--output-file", "--target", "--prefix", "--cache-dir"}),
+    "pip-compile": frozenset({"-o", "--output-file"}),
+    "javac": frozenset({"-d", "-s", "-h"}),
+    "terraform": frozenset({"-out", "-state", "-state-out", "-backup"}),
+    "pyinstaller": frozenset({"--distpath", "--workpath", "--specpath"}),
+    "npm": frozenset({"--pack-destination", "--cache"}),
+    "ffmpeg": frozenset({"-passlogfile"}),
+    "ssh-keygen": frozenset({"-f"}),
+}
+#: Of :data:`OUTPUT_FLAGS`, those that take their value only as ``--flag=value``.
+_EQUALS_ONLY_FLAGS: frozenset[str] = frozenset({"--debug"})
+#: Long ``--flag=value`` options any program may use to name a file it writes.
+GENERIC_OUTPUT_FLAGS: frozenset[str] = frozenset(
+    {"--output", "--output-file", "--outfile", "--out-file", "--output-dir", "--outdir",
+     "--out-dir", "--output-directory", "--log-file", "--logfile", "--basetemp", "--junitxml",
+     "--target-dir", "--cache-dir", "--report-file", "--save", "--dump", "--export"}
+)
+#: Options that point a program at another directory to run in.
+DIR_FLAGS: dict[str, frozenset[str]] = {
+    "make": frozenset({"-C", "--directory", "-f", "--file", "--makefile", "-I",
+                       "--include-dir"}),
+    "gmake": frozenset({"-C", "--directory", "-f", "--file", "--makefile"}),
+    "npm": frozenset({"--prefix", "-C", "--cwd"}),
+    "pnpm": frozenset({"-C", "--dir", "--prefix"}),
+    "yarn": frozenset({"--cwd"}),
+    "bun": frozenset({"--cwd"}),
+    "npx": frozenset({"--prefix"}),
+    "cargo": frozenset({"--manifest-path", "-C"}),
+    "just": frozenset({"-d", "--working-directory", "-f", "--justfile"}),
+    "task": frozenset({"-d", "--dir", "-t", "--taskfile"}),
+    "ninja": frozenset({"-C", "-f"}),
+    "go": frozenset({"-C", "-modfile"}),
+    "uv": frozenset({"--directory", "--project"}),
+    "poetry": frozenset({"-C", "--directory", "-P", "--project"}),
+    "mvn": frozenset({"-f", "--file"}),
+    "gradle": frozenset({"-p", "--project-dir", "-b", "--build-file", "-c",
+                         "--settings-file"}),
+    "tox": frozenset({"-c", "--conf", "--workdir"}),
+    "pytest": frozenset({"--rootdir", "-c", "--config-file", "--confcutdir"}),
+    "docker": frozenset({"-f", "--file"}),
+    "terraform": frozenset({"-chdir"}),
+    "bazel": frozenset({"--output_base", "--output_user_root"}),
+}
+
+
+# -- safe: the allowlist (C1) ---------------------------------------------------
+#
+# ``safe`` routes to ``auto``: nobody is asked.  So a command is here only if,
+# with the argument checks in :meth:`_Judge._safe_command`, it cannot write a
+# file, run code a worker could have written (no test runner, linter, build,
+# package script, interpreter, pager, editor), read a secret or snowpea's own
+# files, or reach the network.
+
+#: Programs that take no path at all (or only print what they are given).
+SAFE_NO_PATHS: frozenset[str] = frozenset(
+    {"pwd", "true", "false", "test", "[", "[[", "echo", "printf", "sleep", "whoami", "id",
+     "uname", "nproc", "uptime", "arch", "date", "hostname", "which", "type", "basename",
+     "dirname", "seq", "expr", "yes", "groups", "tty", "locale", "getconf"}
+)
+#: Programs that show only metadata (names, sizes, kinds): their paths may lie
+#: anywhere outside snowpea's home; recursive ones (``ls -R``, ``du``,
+#: ``tree``) only in the project.
+SAFE_META: frozenset[str] = frozenset(
+    {"ls", "stat", "realpath", "readlink", "file", "df", "du", "tree"}
+)
+#: Programs that print file contents: their files must lie in the project.
+SAFE_CONTENT_READERS: frozenset[str] = frozenset(
+    {"cat", "tac", "head", "tail", "wc", "nl", "md5sum", "sha1sum", "sha256sum", "sha512sum",
+     "shasum", "b2sum", "cksum", "cmp", "diff", "cut", "column", "fold", "rev", "comm", "join",
+     "paste", "expand", "unexpand", "od", "hexdump", "strings", "grep", "egrep", "fgrep",
+     "rg", "sort", "uniq", "xxd", "jq", "sed", "tr"}
+)
+#: ``find`` primaries that only test or print (the next word is their value).
+FIND_SAFE_VALUED: frozenset[str] = frozenset(
+    {"-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-regex", "-iregex",
+     "-lname", "-ilname", "-type", "-xtype", "-maxdepth", "-mindepth", "-size", "-perm",
+     "-user", "-group", "-uid", "-gid", "-mtime", "-mmin", "-atime", "-amin", "-ctime",
+     "-cmin", "-newer", "-anewer", "-cnewer", "-inum", "-links", "-samefile", "-used",
+     "-printf", "-regextype", "-fstype", "-context"}
+)
+FIND_SAFE_FLAGS: frozenset[str] = frozenset(
+    {"-print", "-print0", "-ls", "-prune", "-quit", "-empty", "-true", "-false", "-not", "-a",
+     "-and", "-o", "-or", "-depth", "-d", "-mount", "-xdev", "-noleaf", "-readable",
+     "-writable", "-executable", "-nouser", "-nogroup", "-daystart", "-follow",
+     "-ignore_readdir_race", "-noignore_readdir_race"}
+)
+#: Read-only git subcommands (further limited per subcommand).
+SAFE_GIT_SUBCOMMANDS: frozenset[str] = frozenset(
+    {"status", "diff", "log", "show", "blame", "annotate", "ls-files", "ls-tree", "rev-parse",
+     "rev-list", "describe", "shortlog", "merge-base", "show-ref", "count-objects",
+     "check-ignore", "name-rev", "cherry", "whatchanged", "version", "branch", "tag", "stash",
+     "reflog", "grep", "worktree", "diff-tree", "diff-index", "diff-files", "range-diff",
+     "show-branch", "cat-file", "for-each-ref", "remote"}
+)
+#: Long options of the diff/log family that only shape what is printed.  Git
+#: accepts abbreviations of long options, so nothing but an exact name counts.
+SAFE_GIT_DIFF_LONG: frozenset[str] = frozenset(
+    {"--oneline", "--stat", "--shortstat", "--numstat", "--name-only", "--name-status",
+     "--format", "--pretty", "--graph", "--decorate", "--decorate-refs", "--no-decorate",
+     "--all", "--branches", "--tags", "--remotes", "--no-color", "--color", "--abbrev-commit",
+     "--no-abbrev-commit", "--abbrev", "--no-abbrev", "--patch", "--no-patch", "--cached",
+     "--staged", "--since", "--until", "--after", "--before", "--author", "--committer",
+     "--grep", "--max-count", "--skip", "--reverse", "--first-parent", "--no-merges",
+     "--merges", "--follow", "--date", "--summary", "--word-diff", "--word-diff-regex",
+     "--color-words", "--check", "--diff-filter", "--relative", "--no-relative",
+     "--ignore-all-space", "--ignore-space-change", "--ignore-blank-lines",
+     "--ignore-space-at-eol", "--ignore-cr-at-eol", "--unified", "--minimal", "--patience",
+     "--histogram", "--diff-algorithm", "--raw", "--full-index", "--binary", "--no-ext-diff",
+     "--no-textconv", "--dirstat", "--left-right", "--cherry-pick", "--cherry-mark",
+     "--cherry", "--source", "--compact-summary", "--exit-code", "--quiet", "--no-renames",
+     "--find-renames", "--find-copies", "--find-copies-harder", "--topo-order",
+     "--date-order", "--author-date-order", "--boundary", "--simplify-by-decoration",
+     "--all-match", "--invert-grep", "--regexp-ignore-case", "--basic-regexp",
+     "--extended-regexp", "--fixed-strings", "--perl-regexp", "--pickaxe-all",
+     "--pickaxe-regex", "--full-history", "--ancestry-path", "--no-walk", "--walk-reflogs",
+     "--parents", "--children", "--no-prefix", "--src-prefix", "--dst-prefix",
+     "--line-prefix", "--submodule", "--ignore-submodules", "--stat-width",
+     "--stat-name-width", "--stat-count", "--stat-graph-width", "--mailmap", "--no-mailmap",
+     "--use-mailmap", "--encoding", "--notes", "--no-notes", "--show-notes", "--expand-tabs",
+     "--no-expand-tabs", "--count", "--remerge-diff", "--diff-merges", "--cc", "--no-index",
+     "--merge-base", "--irreversible-delete", "--break-rewrites", "--inter-hunk-context",
+     "--function-context", "--anchored", "--indent-heuristic", "--no-indent-heuristic",
+     "--color-moved", "--no-color-moved", "--porcelain", "--line-porcelain", "--incremental",
+     "--show-name", "--show-number", "--show-email", "--root", "--numbered", "--email",
+     "--group", "--nul", "--null"}
+)
+SAFE_GIT_STATUS_LONG: frozenset[str] = frozenset(
+    {"--short", "--branch", "--porcelain", "--long", "--verbose", "--untracked-files",
+     "--ignored", "--ignore-submodules", "--column", "--no-column", "--ahead-behind",
+     "--no-ahead-behind", "--renames", "--no-renames", "--find-renames", "--show-stash",
+     "--null"}
+)
+SAFE_GIT_BRANCH_OPTIONS: frozenset[str] = frozenset(
+    {"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--list", "-l",
+     "--show-current", "--contains", "--no-contains", "--merged", "--no-merged", "--sort",
+     "--format", "--points-at", "--no-color", "--color", "--column", "--no-column", "-i",
+     "--ignore-case", "--omit-empty", "--abbrev", "--no-abbrev"}
+)
+SAFE_GIT_TAG_OPTIONS: frozenset[str] = frozenset(
+    {"-l", "--list", "-n", "--contains", "--no-contains", "--merged", "--no-merged",
+     "--points-at", "--sort", "--format", "--column", "--no-column", "-i", "--ignore-case",
+     "--color"}
+)
+
+
+def _chdir_of(judge: Any, rest: list[str], rest_dyn: list[bool], cwd: Path | None) -> Path | None:
+    """``sudo -D dir`` / ``--chdir=dir`` / ``run0 -D dir``: where the command runs."""
+    for index, word in enumerate(rest):
+        if word in ("-D", "--chdir") and index + 1 < len(rest):
+            if rest_dyn[index + 1]:
+                return None
+            return _resolve(rest[index + 1], cwd, judge.ctx)
+        if word.startswith("--chdir="):
+            return None if rest_dyn[index] else _resolve(word.split("=", 1)[1], cwd, judge.ctx)
+    return cwd
+
+
+def _ps_shows_environment(rest: list[str]) -> bool:
+    """``ps e``, ``ps auxe``, ``ps eww``, ``ps -E``: every process's environment."""
+    skip = False
+    for word in rest:
+        if skip:
+            skip = False
+            continue
+        if word.startswith("--"):
+            if word in ("--format", "--sort", "--pid", "--ppid", "--user", "--group"):
+                skip = True
+            continue
+        if word.startswith("-"):
+            if "E" in word[1:]:
+                return True
+            if word[-1:] in ("o", "O", "p", "t", "u", "U", "g", "G", "C", "q"):
+                skip = True
+            continue
+        if re.fullmatch(r"[A-Za-z]+", word):
+            if "e" in word:
+                return True
+            if word[-1:] in ("o", "O", "p", "t", "U", "q"):
+                skip = True
+    return False
 #: Programs that only read the files they name, safe to read anywhere.
 #: Decoding programs whose output is a payload nobody has seen.
 _DECODERS: dict[str, frozenset[str]] = {
@@ -1070,6 +1580,15 @@ GIT_SUBCOMMANDS: frozenset[str] = frozenset(
         "write-tree", "lfs", "filter-repo", "var", "bugreport", "diagnose", "sparse",
         "range", "backfill", "replay", "last-modified", "refs", "repo",
     }
+)
+#: Git subcommands that only read the repository (``git -C <elsewhere> <one>``
+#: is not a change outside the project).
+GIT_READ_SUBCOMMANDS: frozenset[str] = frozenset(
+    {"status", "diff", "log", "show", "blame", "annotate", "ls-files", "ls-tree", "rev-parse",
+     "rev-list", "describe", "shortlog", "merge-base", "show-ref", "show-branch", "cat-file",
+     "count-objects", "check-ignore", "check-attr", "check-mailmap", "name-rev", "cherry",
+     "whatchanged", "version", "help", "grep", "for-each-ref", "diff-files", "diff-index",
+     "diff-tree", "range-diff", "var", "verify-commit", "verify-tag", "fsck", "ls-remote"}
 )
 #: ``git -c key=value`` keys that change nothing about what runs.
 _GIT_HARMLESS_CONFIG = re.compile(
@@ -1185,12 +1704,99 @@ def _under(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
 
+_GLOB_CHARS = re.compile(r"[*?\[]")
+#: An expansion inside a word: ``${…}``, ``$NAME``, ``$1``, ``$(``, a backtick.
+_EXPANSION = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|\$\(|`")
+#: Names that make a globbed path a credential (or snowpea's home) when a
+#: wildcard may stand for them.
+_GLOB_SAMPLES: tuple[str, ...] = (
+    ".ssh", ".gnupg", ".aws", ".docker", ".kube", ".azure", ".config", "gh", "gcloud", "hub",
+    ".password-store", ".terraform.d", ".1password", "op", ".snowpea", ".netrc", ".npmrc",
+    ".pypirc", ".git-credentials", ".pgpass", ".my.cnf", ".vault-token", ".boto", ".s3cfg",
+    ".env", ".env.local", ".env.production", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+    "credentials", "credentials.json", "credentials.toml", "token", "key.pem", "server.key",
+    "secrets.json", "secrets.yaml", "service-account.json", "hosts.yml", "config.json",
+    "settings.json", "delegation.db", "ledger.jsonl", "jarvis", "mcp-oauth.json", "environ",
+    "cmdline", "mem", "proc", "self", "shadow", "master.key", "access_tokens.db",
+)
+#: Most concrete paths one glob is expanded into before it counts as unknown.
+GLOB_LIMIT = 512
+
+
+def _has_glob(word: str) -> bool:
+    return bool(_GLOB_CHARS.search(word))
+
+
+def _strip_expansions(word: str) -> str:
+    """``~/.snow${X}pea`` -> ``~/.snowpea``: the literal text a dynamic word keeps."""
+    return _EXPANSION.sub("", word)
+
+
+def _glob_variants(word: str, samples: Iterable[str], dotglob: bool) -> list[str] | None:
+    """Concrete paths a glob may stand for, as far as secrets go; ``None`` past the limit.
+
+    Each wildcard component is replaced by every sample name it matches (a
+    leading dot only by a pattern that starts with one, unless ``dotglob``)
+    and by its own literal remainder (the "anything else" case).  A last
+    component made only of wildcards (``*``) matches no file name of its own,
+    so ``rm -rf dist/*`` is not read as touching a key; as a directory
+    (``/home/*/.snowpea``) it matches every sample.
+    """
+    import fnmatch
+    import itertools
+
+    sample_list = tuple(dict.fromkeys(samples))
+    options: list[list[str]] = []
+    parts = word.split("/")
+    for position, part in enumerate(parts):
+        if not _has_glob(part):
+            options.append([part])
+            continue
+        literal = re.sub(r"\[[^\]]*\]|[*?]", "", part)
+        found = [literal]
+        pure = not literal
+        last = position == len(parts) - 1
+        explicit_dot = part.startswith((".", "[."))
+        for sample in sample_list:
+            if sample.startswith(".") and not (explicit_dot or dotglob):
+                continue
+            if pure and last and not sample.startswith("."):
+                continue  # ``dist/*``: no file name of its own
+            if fnmatch.fnmatchcase(sample, part):
+                found.append(sample)
+        options.append(list(dict.fromkeys(found)))
+    total = 1
+    for choice in options:
+        total *= len(choice)
+        if total > GLOB_LIMIT:
+            return None
+    return ["/".join(combo) for combo in itertools.product(*options)]
+
+
 #: Device files a redirection may target without writing anything of anyone's.
 _DEVICES = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "/dev/zero"})
 
 
 def _harmless_target(path: Path) -> bool:
     return str(path) in _DEVICES or str(path).startswith("/dev/fd/")
+
+
+def _git_plumbing(path: Path) -> bool:
+    """``<repo>/.git`` itself, its ``config*`` or anything under a ``hooks/`` in it.
+
+    Writing them makes later git commands (``git status``: ``core.fsmonitor``,
+    ``git diff``: ``diff.external``, any commit: a hook) run what was written.
+    """
+    parts = path.parts
+    for index, part in enumerate(parts):
+        if part != ".git":
+            continue
+        rest = parts[index + 1 :]
+        if not rest:
+            return True
+        if any(name == "hooks" or name.startswith("config") for name in rest):
+            return True
+    return False
 
 
 def _looks_like_path(word: str) -> bool:
@@ -1230,8 +1836,129 @@ class _Judge:
         except (OSError, RuntimeError):
             user_home = Path("/nonexistent-home")
         self.ctx = _Ctx(workdir=workdir, home=home, user_home=user_home)
+        #: A tool or path read outside the project (so a read is not ``safe``).
+        self.outside_read = False
+        #: ``shopt -s dotglob`` / ``GLOBIGNORE=`` ran earlier on the line.
+        self.dotglob = False
+        #: The arguments ``xargs`` / ``find -exec`` pass come from a listing of
+        #: known roots (judged recursively already), not from anywhere.
+        self.stdin_from_roots = False
+        #: The command just judged listed names under known, judged roots
+        #: (``find src``, ``git ls-files``): a following ``| xargs`` reads those.
+        self.lister_ok = False
+        self.fed_by_lister = False
+        #: The simple command being judged reads a file on its stdin (``< f``).
+        self.stdin_redirect = False
+        samples = list(_GLOB_SAMPLES)
+        for base in (home, user_home):
+            if base is not None:
+                samples.extend(part for part in base.parts if part not in ("/", ""))
+        self.samples = tuple(dict.fromkeys(samples))
+        secret_roots = [
+            user_home / name
+            for name in (".ssh", ".gnupg", ".aws", ".docker", ".kube", ".azure", ".config/gh",
+                         ".config/gcloud", ".config/hub", ".config/op", ".password-store",
+                         ".terraform.d", ".1password", ".netrc", ".npmrc", ".pypirc",
+                         ".git-credentials", ".pgpass", ".my.cnf", ".vault-token", ".boto",
+                         ".s3cfg", ".local/share/keyrings", "Library/Keychains")
+        ]
+        self.secret_roots = (*secret_roots, Path("/proc"), Path("/root"), Path("/etc/ssh"))
 
     # -- paths -----------------------------------------------------------
+    def _home_reachable(self) -> bool:
+        """``$SNOWPEA_HOME`` lies in the user's home: a path nobody can read may be it."""
+        home = self.ctx.home
+        return home is None or _under(home, self.ctx.user_home)
+
+    def _tilde_variants(self, word: str, cwd: Path | None) -> list[str] | None:
+        """``~user/x`` may be the user's own home or a sibling's; ``~-`` is unknown."""
+        if not word.startswith("~"):
+            return [word]
+        head, sep, rest = word[1:].partition("/")
+        if not head:
+            return [word]
+        if head == "+":
+            if cwd is None:
+                return None
+            return [str(cwd / rest) if sep else str(cwd)]
+        if head == "-" or not re.fullmatch(r"[A-Za-z0-9._-]+", head):
+            return None
+        user_home = self.ctx.user_home
+        options = [str(user_home.parent / head / rest) if sep else str(user_home.parent / head)]
+        options.append(f"~/{rest}" if sep else "~")
+        return list(dict.fromkeys(options))
+
+    def _candidates(self, raw: str, cwd: Path | None) -> list[Path] | None:
+        """Every place a path argument may land (globs, ``~user``); ``None`` when unknown."""
+        text = raw.strip()
+        if not text:
+            return []
+        words = [text]
+        if _has_glob(text):
+            variants = _glob_variants(text, self.samples, self.dotglob)
+            if variants is None:
+                return None
+            words = [*variants, _glob_base(text)]
+        found: list[Path] = []
+        for word in words:
+            variants_ = self._tilde_variants(word, cwd)
+            if variants_ is None:
+                return None
+            for variant in variants_:
+                path = _resolve(variant, cwd, self.ctx)
+                if path is None:
+                    # A relative path with no working directory: somewhere
+                    # outside any project, but nothing a variable could hide.
+                    self.outside_read = True
+                    continue
+                if path not in found:
+                    found.append(path)
+        return found
+
+    def _recursive_read(self, path: Path, rule: str) -> None:
+        """``path`` is read with everything below it."""
+        home = self.ctx.home
+        if home is not None and _under(home, path):
+            self.hits.never_(f"{rule}:snowpea-home-ancestor")
+            self.hits.guard(SECRET, f"{rule}:secret-ancestor")
+            return
+        if any(_under(root, path) for root in self.secret_roots) or _under(
+            self.ctx.user_home, path
+        ):
+            self.hits.guard(SECRET, f"{rule}:secret-ancestor")
+
+    def _judge_read(self, path: Path, rule: str, recursive: bool) -> None:
+        if self._is_config(path):
+            self.hits.never_(f"{rule}:snowpea-config")
+            if path.name in ("credentials.json", "token", "mcp-oauth.json"):
+                self.hits.guard(SECRET, f"{rule}:snowpea-secret")
+            return
+        if self._outside(path):
+            self.outside_read = True
+        if self._in_snowpea_home(path):
+            return  # plans/ and session workspaces: snowpea's working areas
+        if is_secret_path(path):
+            self.hits.guard(SECRET, f"{rule}:secret-path")
+        if recursive:
+            self._recursive_read(path, rule)
+
+    def dynamic_read(self, raw: str, cwd: Path | None, rule: str) -> None:
+        """A file is read whose name only the shell knows (``cat $F``, ``xargs cat``).
+
+        It may be any secret (``secret_send``), and — when ``$SNOWPEA_HOME``
+        is within reach — snowpea's own token (``never``).
+        """
+        self.unknown_args = True
+        lowered = raw.lower()
+        if ".snow" in lowered or "snowpea" in lowered:
+            self.hits.never_(f"{rule}:dynamic-snowpea")
+        literal = _strip_expansions(raw)
+        if literal.strip() and literal != raw:
+            for path in self._candidates(literal, cwd) or []:
+                self._judge_read(path, rule, False)
+        self.hits.guard(SECRET, f"{rule}:dynamic-read")
+        if self._home_reachable():
+            self.hits.never_(f"{rule}:dynamic-read")
     def _in_snowpea_home(self, path: Path | None) -> bool:
         home = self.ctx.home
         return path is not None and home is not None and _under(path, home)
@@ -1255,44 +1982,65 @@ class _Judge:
         # not outside, exactly as for the ``outside`` tag (config_guard.outside_paths).
         return not (self._in_snowpea_home(path) and not self._is_config(path))
 
-    def check_read_path(self, raw: str, cwd: Path | None, rule: str, shell: bool = False) -> None:
+    def check_read_path(
+        self,
+        raw: str,
+        cwd: Path | None,
+        rule: str,
+        shell: bool = False,
+        *,
+        recursive: bool = False,
+        dynamic: bool = False,
+    ) -> None:
         """A path that is read: credentials are ``secret_send``.
 
-        On a shell line (``shell``) a word naming snowpea's own config is
-        ``never``: what the program does with it is not visible
-        (``sqlite3 …/jarvis/delegation.db 'insert …'``).
+        Anything of snowpea's own (``$SNOWPEA_HOME`` but its working areas, a
+        project's ``.snowpea/settings.json``) is ``never``, for every tool,
+        whether named, globbed (``~/.snowpe?/token``), ``~user``-relative, or
+        inside a ``recursive`` read of an ancestor (``grep -r x ~``).  A path
+        only the shell knows (``dynamic``) is :meth:`dynamic_read`.
         """
-        path = _resolve(_glob_base(raw), cwd, self.ctx)
-        if path is None:
+        del shell  # every reader is judged alike now
+        if dynamic or "$" in raw or "`" in raw:
+            self.dynamic_read(raw, cwd, rule)
             return
-        if shell and self._is_config(path):
-            self.hits.never_(f"{rule}:snowpea-config")
-        if self._in_snowpea_home(path):
-            home = self.ctx.home
-            assert home is not None
-            secret_files = {home / "credentials.json", home / "token", home / "mcp-oauth.json"}
-            if path in secret_files:
-                self.hits.guard(SECRET, f"{rule}:snowpea-secret")
+        paths = self._candidates(raw, cwd)
+        if paths is None:
+            self.dynamic_read(raw, cwd, rule)
             return
-        if is_secret_path(path):
-            self.hits.guard(SECRET, f"{rule}:secret-path")
+        for path in paths:
+            self._judge_read(path, rule, recursive)
 
     def check_write_path(self, raw: str, cwd: Path | None, rule: str, dynamic: bool) -> None:
-        """A path that is written or deleted."""
-        if dynamic:
+        """A path that is written or deleted.
+
+        One only the shell knows is outside, and ``never`` when it may be
+        snowpea's own (it names ``.snow…``/``snowpea``, or ``$SNOWPEA_HOME``
+        lies in the user's home).  ``.git/config``, ``.git/hooks/`` and a
+        ``.git`` file turn later git commands into code: every guarded class.
+        """
+        if dynamic or "$" in raw or "`" in raw:
+            lowered = raw.lower()
+            if ".snow" in lowered or "snowpea" in lowered or self._home_reachable():
+                self.hits.never_(f"{rule}:dynamic-path")
             self.hits.guard(OUTSIDE, f"{rule}:unknown-path")
             return
-        path = _resolve(_glob_base(raw), cwd, self.ctx)
-        if path is None:
+        paths = self._candidates(raw, cwd)
+        if not paths:
+            if paths is None and self._home_reachable():
+                self.hits.never_(f"{rule}:unknown-path")
             self.hits.guard(OUTSIDE, f"{rule}:unknown-path")
             return
-        if self._is_config(path):
-            self.hits.never_("path:snowpea-config")
-            return
-        if is_secret_path(path):
-            self.hits.guard(SECRET, f"{rule}:secret-path")
-        if self._outside(path):
-            self.hits.guard(OUTSIDE, f"{rule}:outside-project")
+        for path in paths:
+            if self._is_config(path):
+                self.hits.never_("path:snowpea-config")
+                continue
+            if _git_plumbing(path):
+                self.hits.guard_all(f"{rule}:git-plumbing")
+            if is_secret_path(path):
+                self.hits.guard(SECRET, f"{rule}:secret-path")
+            if self._outside(path):
+                self.hits.guard(OUTSIDE, f"{rule}:outside-project")
 
     # -- the request -----------------------------------------------------
     def run(self) -> Verdict:
@@ -1362,6 +2110,11 @@ class _Judge:
                 # The person tagged this one tool ``read`` (``mcp.permissions``
                 # ``"<server>/<tool>"``): its name (``read-mail-text``) is not a send.
                 return
+        if lower in WEB_SEND_TOOL_NAMES or name in WEB_SEND_TOOL_NAMES:
+            # A URL or a query leaves the machine with whatever was put in it.
+            self.hits.guard(SECRET, "tool:web-send")
+            self.hits.network = True
+            return
         if lower.startswith(("repl.", "browser_")):
             action = lower.split(".", 1)[-1] if lower.startswith("repl.") else lower
             if _BROWSER_ACTION_WORDS.search(action):
@@ -1394,11 +2147,15 @@ class _Judge:
             or bool(re.search(r"(^|[_.\-])(write|edit|create|move|rename|copy|save|put|"
                               r"mkdir|append|patch|upload)([_.\-]|$)", base))
         )
-        for raw in _call_paths(args):
+        recursive = base in RECURSIVE_READ_TOOL_NAMES
+        paths = _call_paths(args)
+        if recursive and not writes and not paths and self.ctx.workdir is not None:
+            paths = [str(self.ctx.workdir)]  # the tool's default: the project itself
+        for raw in paths:
             if writes:
                 self.check_write_path(raw, self.ctx.workdir, "path", False)
             else:
-                self.check_read_path(raw, self.ctx.workdir, "path")
+                self.check_read_path(raw, self.ctx.workdir, "path", recursive=recursive)
 
     def _verdict(self, tags: set[str], lower: str, safe_rule: str | None, shell: bool) -> Verdict:
         hits = self.hits
@@ -1417,6 +2174,9 @@ class _Judge:
                 return Verdict("safe", (), (safe_rule,))
             return Verdict("risky", (), tuple(hits.risky) or ("exec:command",))
         if tags == {"read"} and not hits.network:
+            if self.outside_read:
+                # Outside the project only a denylist would tell a secret apart.
+                return Verdict("risky", (), ("path:outside-project-read",))
             return Verdict("safe", (), ("tag:read",))
         first = sorted(tags)[0] if tags else "unknown"
         return Verdict("risky", (), tuple(hits.risky) or (f"tag:{first}",))
@@ -1432,20 +2192,21 @@ class _Judge:
                 self.hits.never_("exec:snowpea-home")
         self._raw_scan(command)
         self.line(command, cwd, depth=0)
-        if self.hits.any() or args.get("background") or self.writes or self.unknown_args:
+        if (
+            self.hits.any()
+            or self.hits.network
+            or args.get("background")
+            or self.writes
+            or self.unknown_args
+            or self.ctx.workdir is None
+            or cwd is None
+            or not _under(cwd, self.ctx.workdir)
+        ):
             return None
-        from snowpea_core.permissions.safe_commands import is_mutating, is_read_only
-
         try:
-            if is_read_only(command):
-                return "exec:read-only"
-            if self.ctx.workdir is not None and not is_mutating(
-                command, workdir=self.ctx.workdir, home=self.ctx.home
-            ):
-                return "exec:inspection"
-        except Exception:  # noqa: BLE001 - a helper failure only costs the safe verdict
+            return self.safe_line(command, cwd)
+        except Exception:  # noqa: BLE001 - a failure here only costs the safe verdict
             return None
-        return None
 
     def _raw_scan(self, command: str) -> None:
         """Checks on the raw text, whatever the parse makes of it."""
@@ -1471,19 +2232,37 @@ class _Judge:
         if parsed.function:
             self.hits.guard_all("exec:opaque:function")
         for cmd in parsed.commands:
+            self.fed_by_lister = self.lister_ok and cmd.piped_in
+            self.lister_ok = False
             cwd = self.simple(cmd, cwd, depth)
 
     def simple(self, cmd: _Cmd, cwd: Path | None, depth: int) -> Path | None:
         """One simple command; returns the working directory after it."""
         for operator, target, unknown in cmd.redirects:
             if operator in ("<", "<&"):
-                self.check_read_path(target, cwd, "redirect")
+                self.check_read_path(target, cwd, "redirect", dynamic=unknown)
             else:
                 if target not in _DEVICES:
                     self.writes = True
                 self.check_write_path(target, cwd, "redirect", unknown)
-        return self.words(list(cmd.words), list(cmd.dynamic), cwd, depth, piped_in=cmd.piped_in,
-                          heredoc=cmd.heredoc, stdin_args=False)
+        words, dynamic = list(cmd.words), list(cmd.dynamic)
+        braced = list(cmd.braced) or [False] * len(words)
+        # The program's own word came out of a brace expansion (``{git,push}``):
+        # what runs is spelled by the expansion, not by a word anyone wrote.
+        start = 0
+        while start < len(words) and (
+            words[start] in RESERVED_WORDS or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[start])
+        ):
+            start += 1
+        if start < len(words) and start < len(braced) and braced[start]:
+            self.hits.guard_all("exec:opaque:brace-program")
+            return cwd
+        self.stdin_redirect = any(op in ("<", "<&", "<>") for op, _, _ in cmd.redirects)
+        try:
+            return self.words(words, dynamic, cwd, depth, piped_in=cmd.piped_in,
+                              heredoc=cmd.heredoc, stdin_args=False)
+        finally:
+            self.stdin_redirect = False
 
     def words(  # noqa: C901 - one dispatch table, kept in one place on purpose
         self,
@@ -1497,13 +2276,32 @@ class _Judge:
         stdin_args: bool,
     ) -> Path | None:
         hits = self.hits
+        # Reserved words before the command (``then git push``, ``! rm -rf x``).
+        while words and not dynamic[0] and words[0] in RESERVED_WORDS:
+            if words[0] in ("case", "select", "coproc", "function"):
+                hits.guard_all(f"exec:opaque:{words[0]}")
+                return cwd
+            if words[0] == "for":
+                return cwd  # ``for name in words``: the loop's body is judged on its own
+            words, dynamic = words[1:], dynamic[1:]
         # Leading NAME=value assignments.
         while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
-            name = words[0].split("=", 1)[0]
-            if name in _CODE_VARIABLES or name.upper() in _CODE_VARIABLES:
+            name, _, value = words[0].partition("=")
+            if _is_code_variable(name):
                 hits.guard_all("exec:opaque:env-code")
             elif _SECRET_NAME.search(name):
                 hits.guard(SECRET, "exec:env-secret")
+            if name == "GLOBIGNORE":
+                self.dotglob = True
+            if not dynamic[0]:
+                # ``F=~/.ssh/id_rsa; cat $F``: the value is the path that is read.
+                for candidate in _path_candidates(value):
+                    if _looks_like_path(candidate):
+                        self.check_read_path(candidate, cwd, "exec")
+            else:
+                lowered = value.lower()
+                if ".snow" in lowered or "snowpea" in lowered:
+                    hits.never_("exec:dynamic-snowpea")
             words, dynamic = words[1:], dynamic[1:]
         if not words:
             return cwd
@@ -1523,14 +2321,25 @@ class _Judge:
             # it does are not in the line.
             hits.guard_all("exec:opaque:stdin-args")
             return cwd
+        if program in CONTENT_READERS:
+            # A file whose name only the shell (or another program) knows.
+            for word, dyn in _reader_operands(program, rest, rest_dyn):
+                if dyn:
+                    self.dynamic_read(word, cwd, "exec")
+            if stdin_args and not self.stdin_from_roots:
+                self.dynamic_read("", cwd, "exec:stdin-args")
         if "/" in head:
             # ``./deploy.sh``, ``scripts/release.py``: a script of the project's.
             self.check_read_path(head, cwd, "exec", shell=True)
             if _DEPLOY_NAME.search(program):
                 hits.guard(DEPLOY, "exec:deploy-script")
-        # Every argument that names a credential, wherever it sits.
+        # Every argument that names a credential, wherever it sits (but not the
+        # name patterns of ``find -name`` / ``--include``).
+        previous = ""
         for word, dyn in zip(rest, rest_dyn, strict=False):
-            if dyn:
+            pattern_value = previous in _PATTERN_OPTIONS or word.startswith(_PATTERN_PREFIXES)
+            previous = word
+            if dyn or pattern_value:
                 continue
             for candidate in _path_candidates(word):
                 if _looks_like_path(candidate):
@@ -1538,6 +2347,34 @@ class _Judge:
         if any(word in ("--force", "--force-with-lease", "--force-if-includes")
                or word.startswith("--force=") for word in rest):
             hits.guard(OUTSIDE, "exec:force-flag")
+        self._output_flags(program, family, rest, rest_dyn, cwd)
+        self._dir_flags(program, family, rest, rest_dyn, cwd)
+        if program == "shopt" and any("dotglob" in w or "globstar" in w for w in rest):
+            self.dotglob = True
+        if program == "ps" and _ps_shows_environment(rest):
+            hits.guard(SECRET, "exec:ps-environment")
+        if program in ("vim", "vi", "nvim", "ex", "view", "gvim", "vimdiff") and any(
+            w.startswith(("-c", "+", "--cmd", "-S", "-u", "-s", "-W", "-w", "--remote"))
+            for w in rest
+        ):
+            hits.guard_all("exec:opaque:editor-commands")  # ``vim -c '!id'``
+        if program in ("emacs", "emacsclient") and any(
+            w.startswith(("--eval", "-l", "--load", "-f", "--funcall", "--script", "-batch",
+                          "--batch", "-x"))
+            for w in rest
+        ):
+            hits.guard_all("exec:opaque:editor-commands")
+        if program in ("less", "more", "most", "man") and any(
+            w.startswith(("+", "-P", "--prompt")) or w in ("-k",) for w in rest
+        ):
+            hits.guard_all("exec:opaque:pager-commands")  # ``less +'!id'``
+        if program in ("jq", "yq", "gojq", "jaq") and any(
+            re.search(r"(^|[^A-Za-z_])\$?(ENV|env)\b|\$__prog_args|input_filename", w)
+            for w in rest
+        ):
+            hits.guard(SECRET, "exec:env-dump")
+        if program == "sort" and any(w.startswith("--compress-program") for w in rest):
+            hits.guard_all("exec:opaque:runs-commands")
 
         # -- wrappers and runners -------------------------------------
         if program in ("cd", "pushd", "chdir"):
@@ -1590,7 +2427,8 @@ class _Judge:
                 return cwd
             if program == "chroot" and inner:
                 inner = inner[1:]
-            self._recurse_words(rest, rest_dyn, inner, cwd, depth, piped_in, heredoc, stdin_args)
+            self._recurse_words(rest, rest_dyn, inner, _chdir_of(self, rest, rest_dyn, cwd),
+                                depth, piped_in, heredoc, stdin_args)
             return cwd
         if program == "env":
             return self._env(rest, rest_dyn, cwd, depth, piped_in, heredoc, stdin_args)
@@ -1601,8 +2439,12 @@ class _Judge:
             if inner and program in ("timeout",):
                 inner = inner[1:]
             if inner:
-                self._recurse_words(rest, rest_dyn, inner, cwd, depth, piped_in, heredoc,
-                                    stdin_args)
+                moved = self._recurse_words(rest, rest_dyn, inner, cwd, depth, piped_in,
+                                            heredoc, stdin_args)
+                if program in ("builtin", "command") and _program(inner[0]) in (
+                    "cd", "pushd", "popd", "chdir"
+                ):
+                    return moved  # ``builtin cd /tmp`` moves the shell like ``cd`` does
             return cwd
         if program == "timeout":
             inner = _skip_options(rest, frozenset({"-s", "--signal", "-k", "--kill-after"}))
@@ -1631,7 +2473,14 @@ class _Judge:
             )
             if not inner:
                 inner = ["echo"]
-            self._recurse_words(rest, rest_dyn, inner, cwd, depth, False, False, True)
+            from_file = any(w in ("-a", "--arg-file") or w.startswith("--arg-file=")
+                            for w in rest[: len(rest) - len(inner)])
+            previous = self.stdin_from_roots
+            self.stdin_from_roots = self.fed_by_lister and piped_in and not from_file
+            try:
+                self._recurse_words(rest, rest_dyn, inner, cwd, depth, False, False, True)
+            finally:
+                self.stdin_from_roots = previous
             return cwd
         if program in SHELL_STRING_RUNNERS:
             hits.guard_all("exec:opaque:shell-string")
@@ -1680,25 +2529,25 @@ class _Judge:
                     hits.guard(SECRET, "exec:decrypt")
                 return cwd
         if program in ("awk", "gawk", "mawk", "nawk"):
-            script = " ".join(w for w in rest if not w.startswith("-"))
-            if re.search(r"system\s*\(|\|\s*getline|\|\s*\"|print\s*>|printf[^;]*>|"
-                         r"close\s*\(|@load", script):
-                hits.guard_all("exec:opaque:awk-program")
+            self._awk(program, rest, rest_dyn, cwd)
             return cwd
         if program in ("sed", "gsed"):
             if any(w == "-i" or w.startswith("-i") or w.startswith("--in-place") for w in rest):
-                operands = _operands(rest, rest_dyn, frozenset({"-e", "-f", "--expression",
-                                                                "--file"}))
-                if not any(w in ("-e", "-f", "--expression", "--file")
-                           or w.startswith(("--expression=", "--file=")) for w in rest):
-                    operands = operands[1:]
-                for word, dyn in operands:
+                self.writes = True
+                for word, dyn in _reader_operands(program, rest, rest_dyn):
                     self.check_write_path(word, cwd, "exec", dyn or stdin_args)
                 if stdin_args:
                     hits.guard(OUTSIDE, "exec:unknown-path")
+            if any(w in ("-f", "--file") or w.startswith("--file=")
+                   or (w.startswith("-f") and not w.startswith("--")) for w in rest):
+                hits.guard_all("exec:opaque:sed-program-file")
             script = " ".join(rest)
-            if re.search(r"(^|[;}\s/])e(\s|$|;)|/e\b|(^|[;\s])w\s|/w\s", script):
+            if re.search(r"(^|[;}\s/])e(\s|$|;)|/e\b|(^|[;\s])w\s|/w\s|"
+                         r"(^|[;{}\n\s0-9$/])[rRwW]\s+\S", script):
                 hits.guard_all("exec:opaque:sed-program")
+            return cwd
+        if program in ("grep", "egrep", "fgrep", "zgrep", "rg", "ag", "ack", "ugrep"):
+            self._search(program, rest, rest_dyn, cwd)
             return cwd
 
         if program == "snowpea":
@@ -1719,6 +2568,11 @@ class _Judge:
             return cwd
         if program in HTTP_CLIENTS:
             self._http(program, rest, rest_dyn, cwd)
+            return cwd
+        if program in DNS_SENDERS:
+            # A name looked up or a host pinged carries whatever was spelled into it.
+            hits.guard(SECRET, "exec:dns-send")
+            hits.network = True
             return cwd
         if program in SENDERS:
             hits.guard(SECRET, "exec:send")
@@ -1742,6 +2596,19 @@ class _Judge:
                                                "typeorm", "drizzle-kit", "diesel", "alembic"):
             self._database(program, words, cwd)
             if program in DB_CLIENTS:
+                if piped_in or heredoc or self.stdin_redirect or any(
+                    w in ("-f", "--file", "-i", "--init-command", "--queries-file", "-init",
+                          "--init")
+                    or w.startswith(("--file=", "--init-command=", "--queries-file="))
+                    for w in rest
+                ):
+                    # Statements nobody can see: they may hold a shell escape.
+                    hits.guard_all("exec:opaque:db-script")
+                if program in ("mongo", "mongosh") and (
+                    any(w in ("--eval", "--file", "-f") for w in rest)
+                    or any(w.endswith(".js") for w in rest)
+                ):
+                    hits.guard_all("exec:opaque:inline-code")
                 return cwd
         if program in ("dropdb", "dropuser"):
             hits.guard(OUTSIDE, "exec:database-destructive")
@@ -1793,7 +2660,7 @@ class _Judge:
             self._tar(rest, rest_dyn, cwd)
             return cwd
         if program in ("unzip", "7z", "7za", "unrar", "zip", "gzip", "gunzip", "bzip2",
-                       "xz", "zstd"):
+                       "bunzip2", "xz", "unxz", "zstd", "lz4", "brotli"):
             self._archive(program, rest, rest_dyn, cwd)
             return cwd
         if family in ("npm", "pnpm", "yarn", "bun"):
@@ -1892,15 +2759,15 @@ class _Judge:
         piped_in: bool,
         heredoc: bool,
         stdin_args: bool,
-    ) -> None:
+    ) -> Path | None:
         """Judge ``inner`` (a tail of ``words``) as a command of its own."""
         offset = len(words) - len(inner)
         inner_dyn = dynamic[offset:] if 0 <= offset <= len(dynamic) else [False] * len(inner)
         if depth >= 6:
             self.hits.guard_all("exec:opaque:nesting")
-            return
-        self.words(list(inner), list(inner_dyn), cwd, depth + 1, piped_in=piped_in,
-                   heredoc=heredoc, stdin_args=stdin_args)
+            return None
+        return self.words(list(inner), list(inner_dyn), cwd, depth + 1, piped_in=piped_in,
+                          heredoc=heredoc, stdin_args=stdin_args)
 
     def _env(
         self,
@@ -1913,12 +2780,25 @@ class _Judge:
         stdin_args: bool,
     ) -> Path | None:
         index = 0
+        inner_cwd = cwd
         while index < len(rest):
             word = rest[index]
             if word in ("-S", "--split-string") or word.startswith(("-S", "--split-string=")):
                 self.hits.guard_all("exec:opaque:shell-string")
                 return cwd
-            if word in ("-u", "--unset", "-C", "--chdir"):
+            if word in ("-C", "--chdir") or word.startswith(("--chdir=", "-C")):
+                # ``env -C dir cmd``: the command runs (and its paths resolve) there.
+                if word in ("-C", "--chdir"):
+                    target = rest[index + 1] if index + 1 < len(rest) else ""
+                    dyn = rest_dyn[index + 1] if index + 1 < len(rest_dyn) else True
+                    index += 2
+                else:
+                    target = word.split("=", 1)[1] if word.startswith("--") else word[2:]
+                    dyn = rest_dyn[index]
+                    index += 1
+                inner_cwd = None if dyn else _resolve(target, inner_cwd, self.ctx)
+                continue
+            if word in ("-u", "--unset"):
                 index += 2
                 continue
             if word.startswith("-") and word != "-":
@@ -1926,7 +2806,7 @@ class _Judge:
                 continue
             if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", word) or word == "-":
                 name = word.split("=", 1)[0]
-                if name in _CODE_VARIABLES:
+                if _is_code_variable(name):
                     self.hits.guard_all("exec:opaque:env-code")
                 elif _SECRET_NAME.search(name):
                     self.hits.guard(SECRET, "exec:env-secret")
@@ -1937,7 +2817,8 @@ class _Judge:
         if not inner:
             self.hits.guard(SECRET, "exec:env-dump")
             return cwd
-        self._recurse_words(rest, rest_dyn, inner, cwd, depth, piped_in, heredoc, stdin_args)
+        self._recurse_words(rest, rest_dyn, inner, inner_cwd, depth, piped_in, heredoc,
+                            stdin_args)
         return cwd
 
     def _shell_program(
@@ -2065,6 +2946,8 @@ class _Judge:
         hits = self.hits
         index = 0
         sub: str | None = None
+        git_cwd = cwd
+        elsewhere: list[tuple[str, bool]] = []  # --git-dir / --work-tree values
         while index < len(rest):
             word = rest[index]
             if word in ("-c", "--config-env"):
@@ -2078,9 +2961,27 @@ class _Judge:
                     hits.guard_all("exec:opaque:git-config")
                 index += 1
                 continue
-            if word.startswith(("--exec-path", "--upload-pack", "--receive-pack")):
+            if word.startswith(("--exec-path", "--upload-pack", "--receive-pack",
+                                "--config-env=")):
                 hits.guard_all("exec:opaque:git-exec")
                 index += 1
+                continue
+            if word == "-C":
+                target = rest[index + 1] if index + 1 < len(rest) else ""
+                dyn = rest_dyn[index + 1] if index + 1 < len(rest_dyn) else True
+                git_cwd = None if dyn else _resolve(target, git_cwd, self.ctx)
+                index += 2
+                continue
+            if word in ("--git-dir", "--work-tree") or word.startswith(("--git-dir=",
+                                                                         "--work-tree=")):
+                if "=" in word:
+                    elsewhere.append((word.split("=", 1)[1], rest_dyn[index]))
+                    index += 1
+                else:
+                    elsewhere.append((rest[index + 1] if index + 1 < len(rest) else "",
+                                      rest_dyn[index + 1] if index + 1 < len(rest_dyn)
+                                      else True))
+                    index += 2
                 continue
             if word in _GIT_VALUED:
                 index += 2
@@ -2096,9 +2997,18 @@ class _Judge:
             hits.guard_all("exec:opaque:git-alias")
             return
         args = rest[index + 1 :]
+        args_dyn = rest_dyn[index + 1 :]
         if sub not in GIT_SUBCOMMANDS:
             hits.guard_all("exec:opaque:git-alias")
             return
+        cwd = git_cwd
+        if sub not in GIT_READ_SUBCOMMANDS:
+            # A repository outside the project (``git -C ~/x commit``, ``--work-tree``).
+            if cwd is None or self._outside(cwd):
+                hits.guard(OUTSIDE, "exec:git-outside-project")
+            for value, dyn in elsewhere:
+                self.check_write_path(value, cwd, "exec", dyn)
+        self._git_files(sub, args, args_dyn, cwd)
         if sub in ("push", "send-pack"):
             hits.guard(DEPLOY, "exec:git-push")
             hits.network = True
@@ -2184,6 +3094,581 @@ class _Judge:
             flags = frozenset({"--upload-pack", "--receive-pack", "--exec", "-x", "-O"})
         if any(_flag_hit(word, flag) for word in args for flag in flags):
             hits.guard_all("exec:opaque:runs-commands")
+        if sub in ("submodule", "send-email", "imap-send", "request-pull", "credential",
+                   "fetch-pack", "http-fetch", "http-push", "daemon", "instaweb"):
+            hits.network = True
+        if cwd is not None and (
+            sub in ("ls-files", "ls-tree")
+            or (sub in ("diff", "log", "show") and "--name-only" in args)
+            or (sub == "grep" and any(w in ("-l", "--files-with-matches") for w in args))
+        ):
+            # ``git ls-files | xargs …``: the names are the project's own files.
+            self.lister_ok = self._roots_listable([(str(cwd), False)], cwd)
+
+    def _git_files(
+        self, sub: str, args: list[str], args_dyn: list[bool], cwd: Path | None
+    ) -> None:
+        """Files a git subcommand writes, and options that make it run something."""
+        hits = self.hits
+
+        def value_at(index: int) -> tuple[str, bool]:
+            if index < len(args):
+                return args[index], args_dyn[index] if index < len(args_dyn) else True
+            return "", True
+
+        index = 0
+        while index < len(args):
+            word = args[index]
+            dyn = args_dyn[index] if index < len(args_dyn) else True
+            name, eq, value = word.partition("=")
+            if word == "--":
+                break
+            output = (
+                (name.startswith("--ou") and "--output".startswith(name))
+                or name == "--output"
+                or (name.startswith("--output-d") and "--output-directory".startswith(name))
+                or name in ("--separate-git-dir", "--checkout-index-prefix")
+                or (sub == "checkout-index" and name == "--prefix")
+                or (sub == "apply" and name == "--directory")
+            )
+            if output:
+                target, tdyn = (value, dyn) if eq else value_at(index + 1)
+                self.writes = True
+                self.check_write_path(target, cwd, "exec", tdyn)
+                index += 1 if eq else 2
+                continue
+            if word == "-o" and sub in ("format-patch", "archive", "bundle"):
+                target, tdyn = value_at(index + 1)
+                self.writes = True
+                self.check_write_path(target, cwd, "exec", tdyn)
+                index += 2
+                continue
+            if word.startswith("-o") and len(word) > 2 and sub in ("format-patch", "archive"):
+                self.writes = True
+                self.check_write_path(word[2:], cwd, "exec", dyn)
+            if name in ("--template", "--upload-pack", "-u") and sub in ("init", "clone"):
+                hits.guard_all("exec:opaque:git-template")  # hooks copied from anywhere
+            if sub in ("clone", "submodule") and name in ("-c", "--config"):
+                setting = value if eq else value_at(index + 1)[0]
+                if not _GIT_HARMLESS_CONFIG.match(setting):
+                    hits.guard_all("exec:opaque:git-config")
+            if sub == "apply" and word == "--unsafe-paths":
+                hits.guard(OUTSIDE, "exec:git-unsafe-paths")
+            index += 1
+        positional = [(w, d) for w, d in zip(args, args_dyn, strict=False)
+                      if not w.startswith("-")]
+        if sub == "worktree" and positional[:1] and positional[0][0] == "add":
+            valued = frozenset({"-b", "-B", "--reason", "--orphan"})
+            operands = _operands(args[1:], args_dyn[1:], valued)
+            if operands:
+                self.writes = True
+                self.check_write_path(operands[0][0], cwd, "exec", operands[0][1])
+        elif sub == "init":
+            operands = _operands(args, args_dyn, frozenset({"-b", "--initial-branch",
+                                                             "--object-format", "--shared"}))
+            target, tdyn = operands[0] if operands else (".", False)
+            self.writes = True
+            self.check_write_path(target, cwd, "exec", tdyn)
+        elif sub == "bundle" and positional[:1] and positional[0][0] == "create":
+            if len(positional) > 1:
+                self.writes = True
+                self.check_write_path(positional[1][0], cwd, "exec", positional[1][1])
+        elif sub in ("mv", "rm"):
+            for target, tdyn in _operands(args, args_dyn, frozenset()):
+                self.check_write_path(target, cwd, "exec", tdyn)
+        elif sub == "config":
+            reading = args[:1] in (["get"], ["list"], ["get-color"]) or any(
+                w.startswith("--get") or w in ("-l", "--list", "--show-origin", "--show-scope",
+                                               "--name-only", "--get-colorbool")
+                for w in args
+            )
+            if any(w in ("-e", "--edit") or w == "edit" for w in args):
+                hits.guard_all("exec:opaque:git-config-edit")
+            elif not reading:
+                keys = [w for w in args if not w.startswith("-")]
+                if keys[:1] in (["set"], ["unset"], ["rename-section"], ["remove-section"]):
+                    keys = keys[1:]
+                if keys and not _GIT_HARMLESS_CONFIG.match(keys[0] + "="):
+                    hits.guard_all("exec:opaque:git-config")
+            for flag_index, word in enumerate(args):
+                if word in ("-f", "--file", "--blob"):
+                    target, tdyn = value_at(flag_index + 1)
+                    self.check_write_path(target, cwd, "exec", tdyn)
+                elif word.startswith("--file="):
+                    self.check_write_path(word.split("=", 1)[1], cwd, "exec",
+                                          args_dyn[flag_index])
+
+    def _awk(self, program: str, rest: list[str], rest_dyn: list[bool], cwd: Path | None) -> None:
+        """An awk program: what it runs, writes (``print > "f"``) and reads (``getline <``)."""
+        hits = self.hits
+        if any(
+            w in ("-f", "--file", "-i", "--include", "-l", "--load", "-E", "--exec")
+            or w.startswith(("--file=", "--include=", "--load=", "--exec="))
+            or (w.startswith(("-f", "-i", "-l", "-E")) and not w.startswith("--"))
+            for w in rest
+        ):
+            hits.guard_all("exec:opaque:awk-program-file")
+            return
+        scripts: list[tuple[str, bool]] = []
+        index = 0
+        while index < len(rest):
+            word = rest[index]
+            if word in ("-e", "--source"):
+                if index + 1 < len(rest):
+                    scripts.append((rest[index + 1], rest_dyn[index + 1]))
+                index += 2
+                continue
+            if word.startswith("--source="):
+                scripts.append((word.split("=", 1)[1], rest_dyn[index]))
+            index += 1
+        if not scripts:
+            operands = _operands(rest, rest_dyn, frozenset({"-v", "-F", "--assign",
+                                                            "--field-separator"}))
+            if operands:
+                scripts.append(operands[0])
+        for script, dyn in scripts:
+            if dyn:
+                hits.guard_all("exec:opaque:awk-program")
+                continue
+            if re.search(r"system\s*\(|\|\s*getline|\|&|@load|@include|"
+                         r"\b(print|printf)\b[^;{}]*\|", script):
+                hits.guard_all("exec:opaque:awk-program")
+            if re.search(r"\bENVIRON\b|\bPROCINFO\b", script):
+                hits.guard(SECRET, "exec:env-dump")
+            for match in re.finditer(
+                r"\b(?:print|printf)\b[^;{}]*?>>?\s*(\"((?:[^\"\\]|\\.)*)\"|[^\s;{}]+)", script
+            ):
+                self.writes = True
+                if match.group(2) is not None:
+                    self.check_write_path(match.group(2), cwd, "exec", False)
+                else:
+                    hits.guard_all("exec:opaque:awk-redirect")  # a file named by a variable
+            for match in re.finditer(r"\bgetline\b[^;{}]*?<\s*(\"((?:[^\"\\]|\\.)*)\"|[^\s;{}]+)",
+                                     script):
+                if match.group(2) is not None:
+                    self.check_read_path(match.group(2), cwd, "exec")
+                else:
+                    self.dynamic_read(match.group(1), cwd, "exec:awk-getline")
+
+    def _search(
+        self, program: str, rest: list[str], rest_dyn: list[bool], cwd: Path | None
+    ) -> None:
+        """grep / rg and friends: a recursive search reads every file under its roots."""
+        hits = self.hits
+        if any(w in ("--pre", "--hostname-bin") or w.startswith(("--pre=", "--hostname-bin="))
+               for w in rest):
+            hits.guard_all("exec:opaque:runs-commands")
+        if program in ("rg", "ag", "ack", "ugrep"):
+            recursive = True
+        else:
+            recursive = any(
+                w in ("-r", "-R", "--recursive", "--dereference-recursive", "--directories=recurse")
+                or (w.startswith("-") and not w.startswith("--") and ("r" in w[1:] or "R" in w[1:]))
+                for w in rest
+            ) or ("-d" in rest and "recurse" in rest)
+        operands = _reader_operands(program, rest, rest_dyn)
+        if not operands and recursive:
+            operands = [(".", False)]
+        for word, dyn in operands:
+            self.check_read_path(word, cwd, "exec", recursive=recursive, dynamic=dyn)
+        names_only = any(w in ("-l", "-L", "--files", "--files-with-matches",
+                               "--files-without-match") for w in rest)
+        if names_only and not any(d for _, d in operands):
+            self.lister_ok = self._roots_listable(operands, cwd)
+
+    def _roots_listable(self, roots: list[tuple[str, bool]], cwd: Path | None) -> bool:
+        """Names listed under ``roots`` stay in the project and away from secrets."""
+        workdir = self.ctx.workdir
+        if workdir is None or not roots:
+            return False
+        for raw, dyn in roots:
+            if dyn:
+                return False
+            paths = self._candidates(raw, cwd)
+            if not paths:
+                return False
+            for path in paths:
+                if not _under(path, workdir) or self._in_snowpea_home(path):
+                    return False
+                if any(_under(root, path) for root in self.secret_roots):
+                    return False
+        return True
+
+    def _output_flags(
+        self, program: str, family: str, rest: list[str], rest_dyn: list[bool], cwd: Path | None
+    ) -> None:
+        """``--flag=FILE`` / ``-o FILE`` options that write a file (C1)."""
+        spec = OUTPUT_FLAGS.get(program) or OUTPUT_FLAGS.get(family) or frozenset()
+        if program in ("py.test",):
+            spec = OUTPUT_FLAGS["pytest"]
+        targets: list[tuple[str, bool]] = []
+        index = 0
+        while index < len(rest):
+            word = rest[index]
+            dyn = rest_dyn[index] if index < len(rest_dyn) else True
+            name, eq, value = word.partition("=")
+            if word == "--":
+                break
+            if spec and word in spec and word not in _EQUALS_ONLY_FLAGS:
+                if index + 1 < len(rest):
+                    targets.append((rest[index + 1], rest_dyn[index + 1]))
+                index += 2
+                continue
+            if spec and eq and name in spec:
+                targets.append((value, dyn))
+            elif spec and not word.startswith("--") and len(word) > 2:
+                for flag in spec:
+                    if len(flag) == 2 and word.startswith(flag) and not eq:
+                        targets.append((word[2:], dyn))
+            elif eq and name in GENERIC_OUTPUT_FLAGS and not dyn and _looks_like_path(value):
+                targets.append((value, dyn))
+            index += 1
+        for target, dyn in targets:
+            if "=" in target and not dyn:
+                target = target.split("=", 1)[1]  # pytest -o cache_dir=…
+            if re.match(r"^[a-z-]+:", target) and "://" not in target:
+                target = target.split(":", 1)[1]  # --cov-report=html:dir
+            if not target:
+                continue
+            self.writes = True
+            self.check_write_path(target, cwd, "exec", dyn)
+        if program in ("uniq", "xxd", "iconv") and not any(w in ("-r", "-revert") for w in rest):
+            operands = _reader_operands(program, rest, rest_dyn)
+            if program != "iconv" and len(operands) > 1:
+                self.writes = True
+                self.check_write_path(operands[1][0], cwd, "exec", operands[1][1])
+        if program == "ffmpeg":
+            outputs = [(w, d) for w, d in zip(rest, rest_dyn, strict=False)
+                       if not w.startswith("-")]
+            if outputs:
+                self.writes = True
+                self.check_write_path(outputs[-1][0], cwd, "exec", outputs[-1][1])
+
+    def _dir_flags(
+        self, program: str, family: str, rest: list[str], rest_dyn: list[bool], cwd: Path | None
+    ) -> None:
+        """``make -C ~/other``, ``npm --prefix /x``: it runs and writes over there."""
+        spec = DIR_FLAGS.get(program) or DIR_FLAGS.get(family)
+        if not spec:
+            return
+        index = 0
+        while index < len(rest):
+            word = rest[index]
+            name, eq, value = word.partition("=")
+            target: tuple[str, bool] | None = None
+            if word in spec and index + 1 < len(rest):
+                target = (rest[index + 1], rest_dyn[index + 1])
+                index += 1
+            elif eq and name in spec:
+                target = (value, rest_dyn[index])
+            elif not word.startswith("--") and len(word) > 2 and word[:2] in spec:
+                target = (word[2:], rest_dyn[index])
+            if target is not None:
+                raw, dyn = target
+                paths = None if dyn else self._candidates(raw, cwd)
+                if not paths or any(self._outside(p) for p in paths):
+                    self.hits.guard(OUTSIDE, "exec:runs-outside-project")
+                for path in paths or []:
+                    if self._is_config(path):
+                        self.hits.never_("exec:snowpea-config")
+            index += 1
+
+    # -- safe: Jarvis's own allowlist ---------------------------------------
+    def safe_line(self, command: str, cwd: Path) -> str | None:
+        """``exec:inspection`` when every command of the line is on the allowlist.
+
+        Called only once the line raised nothing at all.  Every part must be
+        an inspection from :data:`SAFE_NO_PATHS`, :data:`SAFE_META`,
+        :data:`SAFE_CONTENT_READERS`, ``find`` with listing primaries only, or a
+        read-only ``git`` form, on literal paths inside the project (metadata
+        anywhere); no assignment, no expansion but in ``echo``/``printf``, no
+        redirection but into ``/dev/null``, no here-document, no wrapper.
+        """
+        workdir = self.ctx.workdir
+        if workdir is None:
+            return None
+        parsed = parse_line(command)
+        if parsed.substitution or parsed.function or not parsed.commands:
+            return None
+        here = cwd
+        for cmd in parsed.commands:
+            # Brace-expanded arguments are fine: each expanded word is checked
+            # below like any other (a braced program never got this far).
+            if cmd.heredoc or not cmd.words or (cmd.braced and cmd.braced[0]):
+                return None
+            for operator, target, unknown in cmd.redirects:
+                if unknown:
+                    return None
+                if operator == "<":
+                    if not self._safe_path(target, here, content=True):
+                        return None
+                elif target not in _DEVICES:
+                    return None
+            words, dynamic = cmd.words, cmd.dynamic
+            head = words[0]
+            if dynamic[0] or "/" in head or head in RESERVED_WORDS or re.match(
+                r"^[A-Za-z_][A-Za-z0-9_]*=", head
+            ):
+                return None
+            program = head
+            rest, rest_dyn = words[1:], dynamic[1:]
+            if program == "cd":
+                if len(rest) != 1 or rest_dyn[0] or rest[0].startswith("-"):
+                    return None
+                moved = _resolve(rest[0], here, self.ctx)
+                if moved is None or not _under(moved, workdir):
+                    return None
+                here = moved
+                continue
+            if any(rest_dyn) and program not in ("echo", "printf"):
+                return None
+            if not self._safe_command(program, rest, here):
+                return None
+        return "exec:inspection"
+
+    def _safe_path(self, raw: str, cwd: Path, *, content: bool) -> bool:
+        """A literal path that is neither snowpea's nor a secret (and in the project)."""
+        if "$" in raw or "`" in raw or not raw.strip():
+            return False
+        paths = self._candidates(raw, cwd)
+        if not paths:
+            return False
+        workdir = self.ctx.workdir
+        for path in paths:
+            if self._in_snowpea_home(path) or self._is_config(path) or is_secret_path(path):
+                return False
+            if content and (workdir is None or not _under(path, workdir)):
+                return False
+        return True
+
+    def _safe_command(self, program: str, rest: list[str], cwd: Path) -> bool:  # noqa: C901
+        if program in SAFE_NO_PATHS:
+            if program == "date":
+                return not any(w.startswith(("-s", "--set", "-f", "--file", "-r",
+                                             "--reference")) for w in rest)
+            if program == "hostname":
+                return all(w in ("-f", "-s", "-i", "-I", "-d", "-A", "--fqdn", "--short")
+                           for w in rest)
+            if program in ("printf",):
+                return not any(w == "-v" for w in rest)
+            return True
+        if program in SAFE_META:
+            recursive = program in ("du", "tree") or (
+                program == "ls"
+                and any(w in ("-R", "--recursive")
+                        or (w.startswith("-") and not w.startswith("--") and "R" in w)
+                        for w in rest)
+            )
+            if program == "tree" and any(
+                w.startswith(("-o", "-R", "--fromfile", "-H")) for w in rest
+            ):
+                return False
+            if program == "file" and any(
+                w.startswith(("-C", "-m", "-f", "--compile", "--magic-file", "--files-from"))
+                for w in rest
+            ):
+                return False
+            operands = [w for w in rest if not w.startswith("-")]
+            if recursive and not operands:
+                operands = ["."]
+            return all(self._safe_path(w, cwd, content=recursive) for w in operands)
+        if program in SAFE_CONTENT_READERS:
+            return self._safe_reader(program, rest, cwd)
+        if program == "find":
+            return self._safe_find(rest, cwd)
+        if program == "git":
+            return self._safe_git(rest, cwd)
+        return False
+
+    def _safe_reader(self, program: str, rest: list[str], cwd: Path) -> bool:
+        if program == "tr":
+            return True  # character sets, never files
+        lowered = [w.lower() for w in rest]
+        deny: tuple[str, ...] = ()
+        if program == "sort":
+            deny = ("-o", "--output", "-T", "--temporary-directory", "--compress-program",
+                    "--files0-from")
+        elif program in ("grep", "egrep", "fgrep"):
+            deny = ("-R", "--dereference-recursive")
+        elif program == "rg":
+            deny = ("--pre", "--pre-glob", "-L", "--follow", "-z", "--search-zip",
+                    "--hostname-bin")
+        elif program == "jq":
+            deny = ("-f", "--from-file", "--rawfile", "--slurpfile", "-L")
+            if any("env" in w or "input_filename" in w or "$__loc__" in w or "$__prog" in w
+                   for w in lowered):
+                return False
+        elif program == "xxd":
+            deny = ("-r", "-revert")
+        elif program == "sed":
+            return self._safe_sed(rest, cwd)
+        for word in rest:
+            name = word.split("=", 1)[0]
+            if name in deny:
+                return False
+            if (not word.startswith("--") and word.startswith("-") and len(word) > 1
+                    and any(len(d) == 2 and d[1] in word[1:] for d in deny)):
+                return False
+        operands = _reader_operands(program, rest, [False] * len(rest))
+        if program in ("uniq", "xxd") and len(operands) > 1:
+            return False
+        recursive = program == "rg" or (
+            program in ("grep", "egrep", "fgrep")
+            and any(w in ("-r", "--recursive") or (w.startswith("-") and not w.startswith("--")
+                                                   and "r" in w[1:]) for w in rest)
+        ) or (program == "diff" and any(w in ("-r", "--recursive") for w in rest))
+        files = [w for w, _ in operands]
+        if not files and recursive:
+            files = ["."]
+        # Pattern and ignore files named by options are read too.
+        for index, word in enumerate(rest):
+            if word in ("-f", "--file", "--exclude-from", "--ignore-file", "-X") and (
+                program not in ("cut", "uniq")
+            ) and index + 1 < len(rest):
+                files.append(rest[index + 1])
+            elif word.startswith(("--file=", "--exclude-from=", "--ignore-file=")):
+                files.append(word.split("=", 1)[1])
+        return all(self._safe_path(w, cwd, content=True) for w in files)
+
+    def _safe_sed(self, rest: list[str], cwd: Path) -> bool:
+        """``sed -n '1,20p' file``: printing lines, nothing else."""
+        scripts: list[str] = []
+        index = 0
+        files: list[str] = []
+        quiet = False
+        while index < len(rest):
+            word = rest[index]
+            if word in ("-n", "--quiet", "--silent"):
+                quiet = True
+            elif word in ("-E", "-r", "--regexp-extended"):
+                pass
+            elif word in ("-e", "--expression") and index + 1 < len(rest):
+                scripts.append(rest[index + 1])
+                index += 1
+            elif word.startswith("-"):
+                return False
+            elif not scripts:
+                scripts.append(word)
+            else:
+                files.append(word)
+            index += 1
+        if not quiet or not scripts:
+            return False
+        line = r"(\d+|\$)"
+        if not all(re.fullmatch(rf"{line}(,{line})?p", s.strip()) for s in scripts):
+            return False
+        return all(self._safe_path(w, cwd, content=True) for w in files)
+
+    def _safe_find(self, rest: list[str], cwd: Path) -> bool:
+        index = 0
+        while index < len(rest) and rest[index] in ("-L", "-H", "-P"):
+            index += 1
+        roots: list[str] = []
+        while index < len(rest) and not rest[index].startswith(("-", "(", "!", ")")):
+            roots.append(rest[index])
+            index += 1
+        if not all(self._safe_path(r, cwd, content=True) for r in roots or ["."]):
+            return False
+        while index < len(rest):
+            word = rest[index]
+            if word in ("(", ")", "!", ","):
+                index += 1
+                continue
+            if word in FIND_SAFE_VALUED or word.startswith(("-newer",)):
+                if word in ("-newer", "-anewer", "-cnewer", "-samefile") and (
+                    index + 1 >= len(rest) or not self._safe_path(rest[index + 1], cwd,
+                                                                  content=True)
+                ):
+                    return False
+                index += 2
+                continue
+            if word in FIND_SAFE_FLAGS:
+                index += 1
+                continue
+            return False
+        return True
+
+    def _safe_git(self, rest: list[str], cwd: Path) -> bool:  # noqa: C901
+        workdir = self.ctx.workdir
+        assert workdir is not None
+        index = 0
+        here = cwd
+        while index < len(rest):
+            word = rest[index]
+            if word in ("--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs",
+                        "--no-replace-objects", "--glob-pathspecs", "--noglob-pathspecs",
+                        "--icase-pathspecs"):
+                index += 1
+                continue
+            if word == "-C" and index + 1 < len(rest):
+                moved = _resolve(rest[index + 1], here, self.ctx)
+                if moved is None or not _under(moved, workdir):
+                    return False
+                here = moved
+                index += 2
+                continue
+            if word.startswith("-"):
+                return False
+            break
+        if index >= len(rest):
+            return False
+        sub = rest[index]
+        args = rest[index + 1 :]
+        if sub not in SAFE_GIT_SUBCOMMANDS:
+            return False
+        for word in args:
+            name = word.split("=", 1)[0]
+            if name in ("--output", "--ext-diff", "--textconv", "--filters",
+                        "--open-files-in-pager", "--contents", "--ignore-revs-file", "--exec",
+                        "--upload-pack", "--show-signature", "--paginate") or name.startswith(
+                "--ou"
+            ):
+                return False
+        if sub in ("diff", "log", "show", "whatchanged", "shortlog", "blame", "annotate",
+                   "rev-list", "range-diff", "diff-tree", "diff-index", "diff-files", "reflog",
+                   "status", "grep"):
+            allowed = SAFE_GIT_STATUS_LONG if sub == "status" else SAFE_GIT_DIFF_LONG
+            for word in args:
+                if word == "--":
+                    break
+                if word.startswith("--"):
+                    if sub != "grep" and word.split("=", 1)[0] not in allowed:
+                        return False
+                elif word.startswith("-") and len(word) > 1 and word[1] in "oO":
+                    return False
+            if sub == "reflog" and args[:1] not in ([], ["show"]) and not args[0].startswith("-"):
+                return False
+            if "--no-index" in args and not all(
+                self._safe_path(w, here, content=True) for w in args if not w.startswith("-")
+            ):
+                return False
+            return True
+        if sub == "branch":
+            listing = any(w in ("--list", "-l", "--contains", "--no-contains", "--merged",
+                                "--no-merged", "--points-at") for w in args)
+            for word in args:
+                if word.startswith("-"):
+                    if word.split("=", 1)[0] not in SAFE_GIT_BRANCH_OPTIONS:
+                        return False
+                elif not listing:
+                    return False
+            return True
+        if sub == "tag":
+            listing = any(w in ("-l", "--list") for w in args)
+            for word in args:
+                if word.startswith("-"):
+                    if word.split("=", 1)[0] not in SAFE_GIT_TAG_OPTIONS:
+                        return False
+                elif not listing and word not in ("--contains", "--points-at"):
+                    return False
+            return True
+        if sub == "stash":
+            return args[:1] in (["list"], ["show"])
+        if sub == "worktree":
+            return args[:1] == ["list"]
+        if sub == "remote":
+            return all(w in ("-v", "--verbose") for w in args)
+        return True  # ls-files, ls-tree, rev-parse, describe, … (read-only, no file options)
 
     def _forge(self, program: str, rest: list[str]) -> None:
         hits = self.hits
@@ -2314,10 +3799,15 @@ class _Judge:
                                       for w in rest):
             hits.guard(OUTSIDE, "exec:sync-delete")
         local = [(w, d) for w, d in operands if w not in remote]
+        recursive = any(
+            w in ("-r", "-R", "-a", "--recursive", "--archive")
+            or (w.startswith("-") and not w.startswith("--") and any(c in w for c in "rRa"))
+            for w in rest
+        )
         if local and not remote:
             *sources, dest = local
-            for word, _ in sources:
-                self.check_read_path(word, cwd, "exec")
+            for word, dyn in sources:
+                self.check_read_path(word, cwd, "exec", recursive=recursive, dynamic=dyn)
             self.check_write_path(dest[0], cwd, "exec", dest[1] or stdin_args)
         elif local:
             # Local operands of a transfer: the ones read are sent; one written is checked.
@@ -2326,11 +3816,14 @@ class _Judge:
                 if last_is_local and position == len(local) - 1:
                     self.check_write_path(word, cwd, "exec", dyn or stdin_args)
                 else:
-                    self.check_read_path(word, cwd, "exec")
+                    self.check_read_path(word, cwd, "exec", recursive=recursive, dynamic=dyn)
 
     def _http(self, program: str, rest: list[str], rest_dyn: list[bool], cwd: Path | None) -> None:
         hits = self.hits
         hits.network = True
+        # Any request, a GET too, sends its URL (path, query, headers) out: a send,
+        # exactly as a web-fetch tool is.
+        hits.guard(SECRET, "exec:http-request")
         send = False
         index = 0
         while index < len(rest):
@@ -2434,6 +3927,10 @@ class _Judge:
 
     def _database(self, program: str, words: list[str], cwd: Path | None) -> None:
         text = " ".join(words)
+        if program in DB_CLIENTS and _DB_SHELL_ESCAPE.search(text):
+            # ``.shell`` / ``\!`` / ``system`` run a command; ``.output`` /
+            # ``\o`` / ``INTO OUTFILE`` / ``COPY … PROGRAM`` write or run anywhere.
+            self.hits.guard_all("exec:opaque:db-shell")
         if program in DB_CLIENTS and _SQL_DESTRUCTIVE.search(text):
             self.hits.guard(OUTSIDE, "exec:database-destructive")
         if _DB_RESET.search(text):
@@ -2488,25 +3985,53 @@ class _Judge:
                             self.check_write_path(rest[idx + 1], cwd, "exec", rest_dyn[idx + 1])
         else:
             operands = _operands(rest, rest_dyn, valued)
-        for flag in ("-t", "--target-directory"):
-            if flag in rest:
-                idx = rest.index(flag)
-                if idx + 1 < len(rest):
-                    self.check_write_path(rest[idx + 1], cwd, "exec",
-                                          rest_dyn[idx + 1] or stdin_args)
+        # ``-t DIR``, ``-tDIR``, ``-vt DIR``, ``--target-directory=DIR`` and its
+        # unambiguous abbreviations (``--target=DIR``): every operand is a source.
+        target_dir = False
+        if program in ("cp", "mv", "ln", "install"):
+            for idx, word in enumerate(rest):
+                value: tuple[str, bool] | None = None
+                if word == "--":
+                    break
+                name, eq, val = word.partition("=")
+                if name.startswith("--t") and "--target-directory".startswith(name):
+                    value = (val, rest_dyn[idx]) if eq else (
+                        (rest[idx + 1], rest_dyn[idx + 1]) if idx + 1 < len(rest) else ("", True)
+                    )
+                elif re.fullmatch(r"-[A-Za-z]*t", word):
+                    value = (rest[idx + 1], rest_dyn[idx + 1]) if idx + 1 < len(rest) else (
+                        "", True
+                    )
+                elif re.match(r"^-[A-Za-z]*t.", word) and not word.startswith("--"):
+                    value = (word[word.index("t") + 1 :], rest_dyn[idx])
+                if value is not None:
+                    target_dir = True
+                    self.check_write_path(value[0], cwd, "exec", value[1] or stdin_args)
+            if target_dir:
+                operands = [
+                    (w, d) for w, d in _operands(rest, rest_dyn, valued)
+                    if not re.match(r"^-[A-Za-z]*t", w)
+                ]
         if stdin_args:
             hits.guard(OUTSIDE, "exec:unknown-path")
+            if program in DESTINATION_ONLY and not self.stdin_from_roots:
+                self.dynamic_read("", cwd, "exec:stdin-args")
         if not operands:
             return
-        if program in DESTINATION_ONLY and len(operands) > 1:
-            *sources, dest = operands
+        recursive = any(
+            w in ("-r", "-R", "-a", "--recursive", "--archive")
+            or (w.startswith("-") and not w.startswith("--") and any(c in w for c in "rRa"))
+            for w in rest
+        )
+        if program in DESTINATION_ONLY and (len(operands) > 1 or target_dir):
+            sources, dest = (operands, None) if target_dir else (operands[:-1], operands[-1])
             for word, dynamic_source in sources:
-                if not dynamic_source:
-                    self.check_read_path(word, cwd, "exec")
-            if program == "ln":
-                # The link is created at the destination; the target is only named.
-                self.check_write_path(dest[0], cwd, "exec", dest[1])
-            else:
+                if program == "ln":
+                    continue  # the link's target is only named, never read
+                # What is copied is read (and may land somewhere a send can reach).
+                self.check_read_path(word, cwd, "exec", recursive=recursive,
+                                     dynamic=dynamic_source)
+            if dest is not None:
                 self.check_write_path(dest[0], cwd, "exec", dest[1])
             return
         for word, dyn in operands:
@@ -2515,16 +4040,32 @@ class _Judge:
     def _find(self, rest: list[str], rest_dyn: list[bool], cwd: Path | None, depth: int) -> None:
         hits = self.hits
         roots: list[tuple[str, bool]] = []
-        for word, dyn in zip(rest, rest_dyn, strict=False):
+        options = 0
+        while options < len(rest):
+            leading = rest[options]
+            if leading in ("-L", "-H", "-P") or re.fullmatch(r"-O\d", leading):
+                options += 1
+            elif leading == "-D":
+                options += 2
+            elif leading.startswith("-D"):
+                options += 1
+            else:
+                break
+        for word, dyn in zip(rest[options:], rest_dyn[options:], strict=False):
             if word.startswith(("-", "(", "!", ")")):
                 break
             roots.append((word, dyn))
+        roots = roots or [(".", False)]
+        if any(w in ("-exec", "-execdir", "-ok", "-okdir") for w in rest):
+            # What -exec runs is handed every file under the roots.
+            for root, dyn in roots:
+                self.check_read_path(root, cwd, "exec", recursive=True, dynamic=dyn)
         index = 0
         while index < len(rest):
             word = rest[index]
             if word in ("-delete",):
                 hits.guard(OUTSIDE, "exec:find-delete")
-                for root, dyn in roots or [(".", False)]:
+                for root, dyn in roots:
                     self.check_write_path(root, cwd, "exec", dyn)
             elif word in ("-exec", "-execdir", "-ok", "-okdir"):
                 end = index + 1
@@ -2533,18 +4074,49 @@ class _Judge:
                 inner = rest[index + 1 : end]
                 inner_dyn = rest_dyn[index + 1 : end]
                 if inner:
-                    self.words(list(inner), list(inner_dyn), cwd, depth + 1, piped_in=False,
-                               heredoc=False, stdin_args=True)
+                    previous = self.stdin_from_roots
+                    self.stdin_from_roots = not any(dyn for _, dyn in roots)
+                    try:
+                        self.words(list(inner), list(inner_dyn), cwd, depth + 1,
+                                   piped_in=False, heredoc=False, stdin_args=True)
+                    finally:
+                        self.stdin_from_roots = previous
                 index = end
             elif word in ("-fprint", "-fprint0", "-fprintf", "-fls"):
+                self.writes = True
                 if index + 1 < len(rest):
                     self.check_write_path(rest[index + 1], cwd, "exec", rest_dyn[index + 1])
             index += 1
+        self.lister_ok = self._roots_listable(roots, cwd)
 
     def _tar(self, rest: list[str], rest_dyn: list[bool], cwd: Path | None) -> None:
+        rest = list(rest)
+        if rest and re.fullmatch(r"[A-Za-z]+", rest[0]) and re.search(r"[cxtru]", rest[0]):
+            rest[0] = "-" + rest[0]  # ``tar czf out.tgz src``: old-style bundled options
         joined = " ".join(rest)
-        if self._runs_commands(["tar", *rest]):
+        if self._runs_commands(["tar", *rest]) or any(
+            w.startswith(("--to-command", "--use-compress-program", "--checkpoint-action",
+                          "--info-script", "--new-volume-script", "--rsh-command", "-I"))
+            or w in ("-F", "--rmt-command")
+            for w in rest
+        ):
             self.hits.guard_all("exec:opaque:runs-commands")
+        if re.search(r"(^|\s)(-[A-Za-z]*[cru]|--create|--append|--update)", joined):
+            valued = {"-f", "--file", "-C", "--directory", "-T", "--files-from", "-X",
+                      "--exclude-from", "-b", "-H", "--format", "--exclude", "-g",
+                      "--listed-incremental", "-K", "-N", "--newer", "-V", "--label",
+                      "--owner", "--group", "--mode", "--transform", "-L", "--tape-length"}
+            skip: set[int] = set()
+            for idx, word in enumerate(rest):
+                if word in valued or re.match(r"^-[A-Za-z]*f$", word):
+                    skip.add(idx + 1)
+                if word in ("-T", "--files-from") or word.startswith("--files-from="):
+                    self.dynamic_read("", cwd, "exec:files-from")
+            for idx, (word, dyn) in enumerate(zip(rest, rest_dyn, strict=False)):
+                if idx in skip or word.startswith("-"):
+                    continue
+                # Everything below a source goes into the archive.
+                self.check_read_path(word, cwd, "exec", recursive=True, dynamic=dyn)
         extract = bool(re.search(r"(^|\s)(-[A-Za-z]*x|x[A-Za-z]*\s|--extract|--get)", joined))
         create = bool(re.search(r"(^|\s)(-[A-Za-z]*[cru]|[cru][A-Za-z]*\s|--create|--append|"
                                 r"--update)", joined))
@@ -2575,6 +4147,34 @@ class _Judge:
             for word in rest:
                 if word.startswith("-o") and len(word) > 2:
                     self.check_write_path(word[2:], cwd, "exec", False)
+        if program == "zip":
+            # ``zip [-r] out.zip sources…``: the archive is written, the sources read.
+            operands = _operands(rest, rest_dyn, frozenset({"-b", "-n", "-t", "-tt", "-x",
+                                                            "-i", "-P", "--password", "-O",
+                                                            "--output-file", "-s", "-Z"}))
+            recursive = any(w in ("-r", "-R", "--recurse-paths") or (
+                w.startswith("-") and not w.startswith("--") and "r" in w) for w in rest)
+            if operands:
+                self.writes = True
+                self.check_write_path(operands[0][0], cwd, "exec", operands[0][1])
+                for word, dyn in operands[1:]:
+                    self.check_read_path(word, cwd, "exec", recursive=recursive, dynamic=dyn)
+            for flag in ("-O", "--output-file"):
+                if flag in rest:
+                    idx = rest.index(flag)
+                    if idx + 1 < len(rest):
+                        self.check_write_path(rest[idx + 1], cwd, "exec", rest_dyn[idx + 1])
+        if program in ("gzip", "gunzip", "bzip2", "bunzip2", "xz", "unxz", "zstd", "lz4",
+                       "brotli") and not any(
+            w in ("-c", "--stdout", "--to-stdout", "-t", "--test", "-l", "--list")
+            or (w.startswith("-") and not w.startswith("--") and any(c in w for c in "ctl"))
+            for w in rest
+        ):
+            # The file is replaced in place by its (de)compressed version.
+            for word, dyn in _operands(rest, rest_dyn, frozenset({"-S", "--suffix", "-o",
+                                                                  "-T", "--threads"})):
+                self.writes = True
+                self.check_write_path(word, cwd, "exec", dyn)
         if self._runs_commands([program, *rest]):
             self.hits.guard_all("exec:opaque:runs-commands")
 
