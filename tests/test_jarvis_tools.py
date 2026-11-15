@@ -173,12 +173,14 @@ async def test_tools_exist_only_on_the_jarvis_session(tmp_path: Path) -> None:
         ):
             assert forbidden not in active
         # No tool takes a mode, model or agent: instructions run in the target's own mode.
-        # session_create's mode/model are for a new external CLI session, and never
-        # 'unrestricted'.
+        # session_create's mode/model are for a new external CLI session; 'unrestricted'
+        # only opens with the person's own one-press confirmation (test_jarvis_glue.py).
         for tool in jarvis.session_tools.values():
             props = set(tool.input_schema.get("properties", {}))
             if tool.name == "session_create":
-                assert tool.input_schema["properties"]["mode"]["enum"] == ["default", "readonly"]
+                mode = tool.input_schema["properties"]["mode"]
+                assert mode["enum"] == ["default", "readonly", "unrestricted"]
+                assert "one-press" in mode["description"]
                 props -= {"mode", "model"}
             assert not props & {"mode", "model", "agent", "provider", "permission"}
         assert jarvis.system_prompt == jarvis_tools.JARVIS_PROMPT

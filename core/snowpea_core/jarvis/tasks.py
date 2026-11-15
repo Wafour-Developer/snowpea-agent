@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.jarvis import tools as jarvis_tools
+from snowpea_core.jarvis.ports import TASK_WORKER_SURFACE
 from snowpea_core.jarvis.service import service_of
 from snowpea_core.scheduler.jobs import Job, JobStatus
 from snowpea_core.scheduler.scheduler import _Collector
@@ -121,7 +122,7 @@ async def run_worker(
     session = await core.sessions.create(
         workdir=workdir,
         mode="accept",
-        origin_surface="scheduler",
+        origin_surface=TASK_WORKER_SURFACE,
         origin_conn=None,
         kind="scheduled",
         job_id=job_id,

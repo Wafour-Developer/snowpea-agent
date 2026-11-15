@@ -140,7 +140,16 @@ async def test_named_agents_survive_a_restart_with_isolated_memory(
         build_adapter = FakeAdapter.instances["tg_builder"]
         assert "기억해" in await say(ops_adapter, OPS_FACT, "111")
         assert "기억해" in await say(build_adapter, BUILD_FACT, "222")
-        await asyncio.sleep(0.05)
+        # The chat hears the reply when the turn's message is done; the
+        # remember nudge writes right after, in the same turn task.  Stopping
+        # the daemon before it lands loses the fact, so wait for both.
+        for fact, namespace in (("alpaca", "agent:ops"), ("bravo", "agent:builder")):
+            for _ in range(int(TIMEOUT / 0.02)):
+                if await search(client, fact, namespace):
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError(f"{fact} was never remembered in {namespace}")
 
         # The keepalive counts them (plan §2.6).
         info = await client.ok("system.info", {})

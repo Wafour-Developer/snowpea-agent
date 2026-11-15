@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from snowpea_core.jarvis.delegation import DecisionRefused, RouteResult
+from snowpea_core.jarvis.ports import is_task_worker
 from snowpea_core.server.protocol import JarvisBudget
 from snowpea_core.session.workspaces import canonical
 
@@ -301,6 +302,7 @@ class Intake:
             if str(row["id"]) not in self.digests
             and not (row.get("parent_session_id") and (row.get("kind") or "chat") == "subagent")
             and str(row["id"]) != self.service.session_id
+            and not is_task_worker(row)
         ]
         rows = sorted(rows, key=lambda row: str(row["created_at"]), reverse=True)[:200]
         try:
@@ -336,6 +338,8 @@ class Intake:
         if digest is None:
             if session is None:
                 return None
+            if is_task_worker(session):
+                return None  # a jarvis-task worker runs only its schedule
             if getattr(session, "parent_session_id", None) and session.kind == "subagent":
                 return None
             if getattr(session, "is_subagent", False):

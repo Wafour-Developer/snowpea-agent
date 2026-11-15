@@ -70,9 +70,13 @@ NOTICE_LINE_CHARS = 160
 NOTICE_CHARS = 1500
 #: Notices kept while waiting for the window; older ones are only counted.
 NOTICE_KEPT = 50
+#: The longest briefing message, whatever the platform takes (one message, never a flood).
+BRIEFING_CHARS = 3500
 #: Rows in ``/jarvis`` and the longest one-press confirmation wait.
 OVERVIEW_ROWS = 8
 CONFIRM_TIMEOUT_SEC = 600.0
+#: Jarvis turns remembered as the bound person's (for the unrestricted ask).
+TURNS_KEPT = 64
 #: Importance levels that reach a messenger (as in the service).
 IMPORTANT = frozenset({"high", "urgent"})
 
@@ -156,6 +160,13 @@ class MessengerBridge:
         self._confirms: dict[
             str, tuple[str, str, asyncio.Future[MessengerConfirmation | None]]
         ] = {}
+        #: Jarvis turn id -> (binding id, channel id, user id) of the bound
+        #: person's message that started it; one unrestricted ask each.
+        self._turns: OrderedDict[str, tuple[str, str, str]] = OrderedDict()
+        self.confirm_timeout_sec = CONFIRM_TIMEOUT_SEC
+        #: ``(binding id, channel id, request id)`` of approvals a chat already
+        #: shows with buttons, from before it was routed: not posted again.
+        self._posted: set[tuple[str, str, str]] = set()
 
     # -- wiring ----------------------------------------------------------
     def attach(self, service: JarvisService) -> None:
@@ -165,6 +176,7 @@ class MessengerBridge:
         self.service = service
         service.hooks.notify.append(self.notify)
         service.hooks.state.append(self.on_state)
+        service.hooks.unrestricted.append(self.unrestricted_for_turn)
 
     def _service(self) -> JarvisService:
         if self.service is None:
@@ -241,6 +253,9 @@ class MessengerBridge:
         if not conn.routed:
             conn.own_session_id = conn.session_id
             conn.routed = True
+        # Its buttons still answer them; a request routed later is not posted twice.
+        for request_id in conn.asked:
+            self._posted.add((conn.binding.id, conn.channel_id, request_id))
         await self._detach(conn)
         conn.session_id = jarvis_id
         assert self.router.core is not None
@@ -302,6 +317,13 @@ class MessengerBridge:
         return origin in ("human", "member")
 
     # -- requests shared with the chat --------------------------------------
+    def already_posted(self, binding_id: str, channel_id: str, request_id: str) -> bool:
+        """The chat already shows this request (asked there before Jarvis mode came on)."""
+        return (binding_id, channel_id, request_id) in self._posted
+
+    def resolved(self, request_id: str) -> None:
+        self._posted = {key for key in self._posted if key[2] != request_id}
+
     def label(self, request: dict[str, Any]) -> str:
         """``[title · project · s-1a2b3c]``: which session asks, as the person names it."""
         session_id = str(request.get("sessionId") or "")
@@ -377,10 +399,18 @@ class MessengerBridge:
 
     # -- proactive notices ------------------------------------------------------
     async def notify(self, kind: str, params: dict[str, Any]) -> None:
-        """``hooks.notify``: queue an important escalation or decision for the chat."""
+        """``hooks.notify``: queue an important escalation or decision for the chat.
+
+        ``briefing`` (``{"text", "report"}``) is not a notice: the briefing
+        itself goes out at once, one message per bound person, trimmed to the
+        platform's limit with a pointer to the saved report.
+        """
         service = self._service()
         settings = service.core.settings.jarvis
         if not settings.notify.messenger:
+            return
+        if kind == "briefing":
+            await self._briefing(str(params.get("text") or ""), str(params.get("report") or ""))
             return
         if kind == "escalation":
             if params.get("requestId"):
@@ -403,6 +433,26 @@ class MessengerBridge:
                 return
             summary = str(entry.get("summary") or "").strip()
             self._queue(str(entry.get("id") or uuid.uuid4().hex), f"{_ICONS['decision']} {summary}")
+
+    async def _briefing(self, text: str, report: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        head = "\U0001f5de️ Jarvis · briefing / 브리핑"
+        where = f"{report} (Jarvis folder / 자비스 폴더)" if report else "the Jarvis folder"
+        for binding in self.router.list():
+            if binding.state != "active" or not binding.user_id:
+                continue
+            channel = self.router.owner_chat(binding)
+            if channel is None:
+                continue
+            limit = min(self.router.message_limit(binding), BRIEFING_CHARS)
+            pointer = f"\n\n(저장 / saved: {where})"
+            body = f"{head}\n{text}"
+            if len(body) + len(pointer) > limit:
+                pointer = f"\n…\n(전체 / full briefing: {where})"
+                body = body[: max(0, limit - len(pointer))].rstrip()
+            await self.router.send(binding, channel, body + pointer)
 
     def _queue(self, notice_id: str, line: str) -> None:
         line = clip(line, NOTICE_LINE_CHARS)
@@ -449,6 +499,52 @@ class MessengerBridge:
                 await self.router.send(binding, channel, text)
 
     # -- one-press confirmations (unrestricted mode seam) ------------------------
+    def note_turn(self, turn_id: str, binding: Binding, message: InboundMessage) -> None:
+        """A Jarvis turn the bound person started with ``message`` in this chat."""
+        self._turns[turn_id] = (binding.id, message.channel_id, str(message.user_id))
+        while len(self._turns) > TURNS_KEPT:
+            self._turns.popitem(last=False)
+
+    async def unrestricted_for_turn(self, turn_id: str, ask: dict[str, Any]) -> Any:
+        """``hooks.unrestricted``: the bound person allows unrestricted mode with one press.
+
+        Only for a Jarvis turn started by the bound person's own message in a
+        chat, once per message, and only while ``jarvis.messenger.allowGrants``
+        is on.  Returns the external layer's ``PersonConfirmation``, a refusal
+        reason, or ``None`` when the turn did not come from a chat.
+        """
+        from snowpea_core.external.proc import ExternalError, person_confirmation_from_gateway
+
+        found = self._turns.pop(turn_id, None)
+        if found is None:
+            return None
+        binding_id, _channel, user_id = found
+        binding = self.router.get(binding_id)
+        if binding is None or not binding.user_id or str(binding.user_id) != user_id:
+            return "only the person bound to that chat may choose unrestricted mode"
+        settings = self._service().core.settings
+        try:
+            # Refused here already (allowGrants off) before anything is posted.
+            person_confirmation_from_gateway(binding.platform, bound_person=True, settings=settings)
+        except ExternalError as exc:
+            return exc.message
+        proof = await self.confirm_unrestricted(
+            binding_id,
+            cli=str(ask.get("cli") or "?"),
+            session="new / 새 세션",
+            project=str(ask.get("project") or "?"),
+            prompt=str(ask.get("prompt") or ""),
+            timeout_sec=self.confirm_timeout_sec,
+        )
+        if proof is None or proof.user_id != str(binding.user_id):
+            return "the person did not allow unrestricted mode (declined, or no answer in time)"
+        try:
+            return person_confirmation_from_gateway(
+                binding.platform, bound_person=True, settings=settings
+            )
+        except ExternalError as exc:
+            return exc.message
+
     async def confirm_unrestricted(
         self,
         binding_id: str,
@@ -456,6 +552,7 @@ class MessengerBridge:
         cli: str,
         session: str,
         project: str,
+        prompt: str = "",
         timeout_sec: float = CONFIRM_TIMEOUT_SEC,
     ) -> MessengerConfirmation | None:
         """Ask the bound person of ``binding_id`` to allow unrestricted mode; one press.
@@ -472,8 +569,10 @@ class MessengerBridge:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[MessengerConfirmation | None] = loop.create_future()
         self._confirms[token] = (binding.id, channel, future)
-        text = (
-            f"⚠️ unrestricted · {cli}\nsession: {session}\nproject: {project}\n"
+        text = f"⚠️ unrestricted · {cli}\nsession: {session}\nproject: {project}\n"
+        if prompt.strip():
+            text += f"first message / 첫 메시지: {clip(prompt.strip(), 300)}\n"
+        text += (
             "snowpea does not control what this session runs; Jarvis's guarded-class rules "
             "do not apply inside it. / snowpea는 이 세션이 실행하는 것을 통제하지 않습니다."
         )

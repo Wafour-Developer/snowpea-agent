@@ -127,6 +127,21 @@ def _digest(service: JarvisService, key: str, project: str | None, title: str | 
     return digest
 
 
+def proxy_for_request(service: JarvisService, request: Any) -> Any:
+    """The session an already pending external approval was asked from (re-routing)."""
+    ref = getattr(request, "external", None)
+    manager = _manager(service, create=False)
+    if ref is None or manager is None:
+        return None
+    record = manager._records.get((ref.cli, ref.id))
+    if record is None:
+        return None
+    from snowpea_core.external.manager import _ProxySession
+
+    return _ProxySession(ref.cli, ref.id, record.info.cwd, record.project,
+                         getattr(record.info, "title", None))
+
+
 def note_request(service: JarvisService, session: Any) -> None:
     """An external session asks for approval: make sure the intake knows the session."""
     ref = getattr(session, "external", None)
@@ -445,20 +460,52 @@ async def external_interrupt(ctx: ToolContext, args: dict[str, Any]) -> ToolResu
     return _result(f"asked {found.session_id} to stop its running turn")
 
 
+async def _person_allows_unrestricted(
+    service: JarvisService, ctx: ToolContext | None, cli: str, root: str, prompt: str
+) -> Any:
+    """The person's confirmation of ``unrestricted``, asked where their message came from.
+
+    Jarvis can never choose it alone: the current turn must be the person's
+    own message (origin ``human``), and a surface hook
+    (:attr:`~snowpea_core.jarvis.ports.Hooks.unrestricted`, the messenger
+    bridge) must recognise that turn and get the bound person's one press.
+    """
+    from snowpea_core.jarvis.tools import Refused, human_turn
+
+    refusal = Refused(
+        "unrestricted mode exists only by the person's own choice: they choose it in the app, "
+        "or ask you for it from their messenger chat and allow it there with one press"
+    )
+    session = getattr(ctx, "session", None)
+    turn = getattr(session, "current_turn", None)
+    if ctx is None or not turn or not human_turn(session):
+        raise refusal
+    ask = {"cli": cli, "project": service.projects.name_of(root), "prompt": prompt}
+    for hook in list(service.hooks.unrestricted):
+        answer = await hook(str(turn), ask)
+        if answer is None:
+            continue
+        if isinstance(answer, proc.PersonConfirmation):
+            return answer
+        raise Refused(f"not opened unrestricted: {answer}")
+    raise refusal
+
+
 async def create(
     service: JarvisService, root: str, cli: str, *, model: str | None, mode: str | None,
-    prompt: str, title: str | None,
+    prompt: str, title: str | None, ctx: ToolContext | None = None,
 ) -> ToolResult:
-    """``session_create {cli}``: a new external session (never ``unrestricted``)."""
+    """``session_create {cli}``: a new external session.
+
+    Never ``unrestricted`` by Jarvis's choice: that needs the person's own
+    confirmation for the message being answered (:func:`_person_allows_unrestricted`).
+    """
     from snowpea_core.jarvis.tools import PROMPT_PREFIX, Refused, Target, _result
 
     if cli not in CLI_ORDER:
         raise Refused(f"cli must be one of {', '.join(CLI_ORDER)}")
-    if mode not in (None, *JARVIS_MODES):
-        raise Refused(
-            "mode is 'default' or 'readonly'; unrestricted mode exists only by the person's "
-            "own choice"
-        )
+    if mode not in (None, *JARVIS_MODES, "unrestricted"):
+        raise Refused("mode is 'default', 'readonly' or, by the person's own choice, unrestricted")
     manager = _manager(service)
     if manager is None:
         raise Refused("external sessions are not available in this snowpea")
@@ -469,9 +516,17 @@ async def create(
     if chosen not in adapter.capabilities.modes:
         offered = [m for m in adapter.capabilities.modes if m != "unrestricted"]
         raise Refused(f"{adapter.title} offers {', '.join(offered)}, not {chosen}")
+    confirmation = None
+    if chosen == "unrestricted":
+        try:
+            proc.validate_model(model)
+        except ExternalError as exc:
+            raise Refused(_refusal(exc)) from exc
+        confirmation = await _person_allows_unrestricted(service, ctx, cli, root, prompt)
     try:
         proc.validate_model(model)
-        created = (await manager.create(cli, root, model=model, mode=chosen))["session"]
+        created = (await manager.create(cli, root, model=model, mode=chosen,
+                                        confirmation=confirmation))["session"]
     except ExternalError as exc:
         raise Refused(_refusal(exc)) from exc
     ref = created["ref"]
@@ -594,5 +649,6 @@ __all__ = [
     "overview_rows",
     "parse_key",
     "proxy_for",
+    "proxy_for_request",
     "target",
 ]

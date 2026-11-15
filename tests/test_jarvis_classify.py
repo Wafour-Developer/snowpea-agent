@@ -413,8 +413,12 @@ TOOL_TABLE: list[tuple[str, ClassifyRequest, str, set[str]]] = [
     ("mcp send", _tool("mcp__gmail__send_email", {"to": "a"}, ("network",)), "guarded", {S}),
     ("mcp read-only hint", _tool("mcp__gmail__list_messages", {}, ("network",),
                                  read_only_hint=True), "risky", set()),
+    # Tagged read by the person (an assistant preset's read tools, ``mcp.permissions``
+    # per-tool key): read, whatever its name says (M19 core integration).
     ("mcp tagged read by the person", _tool("mcp__docs__search", {"q": "x"}, ("read",)),
-     "risky", set()),
+     "safe", set()),
+    ("mcp read tool named like mail", _tool("mcp__ms__read-mail-text", {"id": "1"}, ("read",)),
+     "safe", set()),
     ("mcp payment", _tool("mcp__stripe__create_payment", {}, ("network",),
                           read_only_hint=False), "guarded", {S}),
     ("mcp merge", _tool("mcp__github__merge_pull_request", {}, ("network",)),

@@ -243,6 +243,23 @@ async def set_briefing(
 # ---------------------------------------------------------------------------
 
 
+#: How long a firing waits for Jarvis to write the briefing before it sends the facts.
+REPLY_WAIT_SEC = 300.0
+
+
+def _plain_facts(blocks: list[tuple[str, str]]) -> str:
+    """The gathered facts without fences: what the person gets when Jarvis wrote nothing."""
+    return "\n\n".join(f"{label}:\n{tasks._clip(text, 2000)}" for label, text in blocks)
+
+
+async def _to_messenger(core: Core, service: Any, text: str, report: str) -> bool:
+    """The briefing's text to the messenger hooks (``jarvis.notify.messenger``); True when sent."""
+    if not core.settings.jarvis.notify.messenger or not service.hooks.notify or not text.strip():
+        return False
+    await service._run_hooks("briefing", {"text": text.strip(), "report": report})
+    return True
+
+
 def _sessions_text(service: Any) -> str:
     rows = service.overview_rows(include_idle=False, include_external=True)
     if not rows:
@@ -329,9 +346,20 @@ async def run(
     head = BRIEFING_HEAD.format(when=service.now_iso(), report=report)
     if instructions:
         head += f"\nThe person's words for this briefing: {instructions!r}"
-    delivered = await service.deliver_wake(f"{head}\n\n{facts}")
+    delivered, reply = await service.wake_for_reply(f"{head}\n\n{facts}", timeout=REPLY_WAIT_SEC)
+    if reply:
+        # Jarvis's own words are what the person reads; kept beside the facts.
+        with contextlib.suppress(OSError):
+            path = jarvis_tools.jail(service.folder(), report)
+            jarvis_tools._write_text(path, f"\n\n## briefing\n{reply}\n", append=True)
+    sent = await _to_messenger(core, service, reply or _plain_facts(blocks), report)
     with contextlib.suppress(Exception):
-        await service.escalate(reason="jarvis", summary="Your briefing is ready", importance="high")
+        await service.escalate(
+            reason="jarvis",
+            summary="Your briefing is ready",
+            # Already in the person's chat in full: the notice stays in the app.
+            importance="normal" if sent else "high",
+        )
     note = "handed to Jarvis" if delivered is not None else "saved; Jarvis is not running"
     return ("ok", f"briefing: {', '.join(label for label, _ in blocks)} - {note} ({report})", None)
 

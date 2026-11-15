@@ -843,6 +843,12 @@ class GatewayRouter:
             )
 
     # -- outbound ------------------------------------------------------
+    def message_limit(self, binding: Binding) -> int:
+        """The longest single message ``binding``'s platform takes."""
+        adapter = self._adapters.get(binding.id)
+        limit = int(getattr(adapter, "max_message_chars", DEFAULT_MAX_MESSAGE_CHARS) or 0)
+        return limit if limit > 0 else DEFAULT_MAX_MESSAGE_CHARS
+
     async def send(
         self,
         binding: Binding,
@@ -1198,6 +1204,11 @@ class GatewayRouter:
             # by its connection; only an interactive approval never reaches it.
             if own is not None and own.session_id == session_id and not params.get("interactive"):
                 continue
+            # Told again when Jarvis mode came on (re-routed): one post per chat.
+            if (binding.id, channel, request_id) in self._shared or self.jarvis.already_posted(
+                binding.id, channel, request_id
+            ):
+                continue
             shared = GatewayConnection(self, binding, channel)
             shared.session_id = session_id
             shared.label = label
@@ -1214,6 +1225,7 @@ class GatewayRouter:
         """Close a shared request in its chat once anyone answered it."""
         request_id = str(params.get("requestId") or "")
         by = str(params.get("by") or "")
+        self.jarvis.resolved(request_id)
         for key in [key for key in self._shared if key[2] == request_id]:
             shared = self._shared.pop(key)
             binding = shared.binding
@@ -1280,7 +1292,7 @@ class GatewayRouter:
         prepared = prepare_prompt(
             self.core, session, text, None, accept_wire=_accept_attachments, scope="workdir"
         )
-        agent_loop.start_turn(
+        turn_id = agent_loop.start_turn(
             self.core,
             session,
             prepared.text,
@@ -1290,6 +1302,9 @@ class GatewayRouter:
             origin=_origin(binding, message),
             surface=binding.platform,
         )
+        if _origin(binding, message) == "human" and session is self.jarvis.jarvis_session():
+            # The bound person's own words to Jarvis: what one-press asks tie to.
+            self.jarvis.note_turn(turn_id, binding, message)
 
     async def _session_for(
         self,

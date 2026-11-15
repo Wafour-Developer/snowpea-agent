@@ -50,7 +50,7 @@ from snowpea_core.jarvis.delegation import (
 )
 from snowpea_core.jarvis.escalations import EscalationBook
 from snowpea_core.jarvis.intake import Digest, Intake
-from snowpea_core.jarvis.ports import Hooks, build_engine
+from snowpea_core.jarvis.ports import Hooks, build_engine, is_task_worker
 from snowpea_core.jarvis.projects import ProjectBook
 from snowpea_core.server.protocol import (
     ApprovalRequest,
@@ -184,6 +184,7 @@ class JarvisService:
             async with self._lock:
                 await self._activate()
             await self.emit_state("started")
+            await self.route_pending()
 
     async def stop(self) -> None:
         """At daemon shutdown: stop watching; the session closes with the others."""
@@ -213,6 +214,7 @@ class JarvisService:
             self._make_folder()
             if changed:
                 await self._save_settings()
+            started = not self.running
             if self.running:
                 await self._apply_session_settings()
             else:
@@ -220,6 +222,8 @@ class JarvisService:
         if changed:
             await self._announce_settings()
         await self.emit_state("enabled")
+        if started:
+            await self.route_pending()
 
     async def disable(self) -> None:
         """``jarvis.disable``: clear the switch and park the session (kept)."""
@@ -250,6 +254,8 @@ class JarvisService:
                 return
             await self._sync_briefing()
         await self.emit_state(reason)  # type: ignore[arg-type]
+        if reason == "started":
+            await self.route_pending()
 
     async def _sync_briefing(self) -> None:
         """Keep the briefing's scheduler job in step with ``jarvis.briefing`` (WP8)."""
@@ -340,6 +346,7 @@ class JarvisService:
         self._classified.clear()
         if not close_session:
             return
+        self._clear_routes()
         self._registry().detach(JARVIS_NAME)
         if self._session_id is not None:
             with contextlib.suppress(Exception):
@@ -462,6 +469,34 @@ class JarvisService:
             reason=WAKE_REASON,
         )
         return True
+
+    async def wake_for_reply(self, text: str, *, timeout: float) -> tuple[bool | None, str]:
+        """:meth:`deliver_wake`, then wait for what Jarvis answers in that turn.
+
+        ``(delivered, reply)``: ``reply`` is the turn's last assistant message,
+        ``""`` when Jarvis was busy (the text became a notice), not running,
+        or did not answer within ``timeout`` seconds.
+        """
+        session = self.session()
+        if session is None:
+            return None, ""
+        task = getattr(session, "turn_task", None)
+        if task is not None and not task.done():
+            session.pending_notices.append(text)
+            return False, ""
+        from snowpea_core.agent import loop as agent_loop
+
+        listener = _TurnReply()
+        self.core.hub.subscribe(listener, session.id)
+        try:
+            listener.turn_id = agent_loop.start_turn(
+                self.core, session, text, unattended=True, initiator="system", reason=WAKE_REASON
+            )
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(listener.done.wait(), timeout)
+        finally:
+            self.core.hub.unsubscribe(listener)
+        return True, listener.reply
 
     # -- the person steps in -----------------------------------------------
     async def person_typed(
@@ -586,6 +621,8 @@ class JarvisService:
         """``ApprovalRequest.route``: the engine's verdict, remembered for the re-check."""
         if not self.running:
             return None
+        if is_task_worker(session):
+            return "person"  # a jarvis-task worker runs only its schedule
         result = self._route_approval(request, session, tags)
         if request.external is not None:
             from snowpea_core.jarvis import external as external_sessions
@@ -621,6 +658,62 @@ class JarvisService:
             self._classified.pop(next(iter(self._classified)))
         return result
 
+    async def route_pending(self) -> None:
+        """Route the requests that were already waiting when Jarvis mode came on.
+
+        Each goes through the engine as if it had just been asked: ``route``
+        is set on the pending request, and the intake and the gateway are told
+        again (``approval.pending`` / ``question.pending`` to the in-process
+        observers), so an ``auto`` one is answered, a ``jarvis`` one wakes
+        Jarvis, and a ``person`` one reaches the person's chat once.
+        """
+        if not self.running or self.intake is None:
+            return
+        approvals = self.core.approvals
+        for entry in list(getattr(approvals, "_pending", {}).values()):
+            request = entry.request
+            if request.route is not None:
+                continue
+            session = self.core.sessions.get(request.sessionId)
+            if session is None and request.external is not None:
+                from snowpea_core.jarvis import external as external_sessions
+
+                session = external_sessions.proxy_for_request(self, request)
+            interactive = entry.origin_conn is not None
+            route = self.route_approval(request, session, (), interactive)
+            if route is None:
+                continue
+            entry.request = request.model_copy(update={"route": route})
+            await approvals._tell_observers(
+                "approval.pending",
+                {"request": entry.request.model_dump(mode="json"), "interactive": interactive},
+            )
+        questions = self.core.questions
+        for item in list(getattr(questions, "_pending", {}).values()):
+            asked = item.request
+            if asked.route is not None:
+                continue
+            session = self.core.sessions.get(asked.sessionId)
+            interactive = item.origin_conn is not None
+            route = self.route_question(asked, session, interactive)
+            if route is None:
+                continue
+            item.request = asked.model_copy(update={"route": route})
+            tell = getattr(questions.hub, "tell_observers", None)
+            if tell is not None:
+                await tell(
+                    "question.pending",
+                    {"request": item.request.model_dump(mode="json"), "interactive": interactive},
+                )
+
+    def _clear_routes(self) -> None:
+        """Jarvis mode went off: what still waits is the person's again, unrouted."""
+        for queue in (self.core.approvals, self.core.questions):
+            for entry in list(getattr(queue, "_pending", {}).values()):
+                if entry.request.route is not None:
+                    entry.request = entry.request.model_copy(update={"route": None})
+                    self.engine.forget(entry.request.requestId)
+
     def routed_approval(self, request: dict[str, Any], session: Any) -> RouteResult:
         """The engine's route for a pending approval (routing it now if it was not)."""
         request_id = str(request.get("requestId") or "")
@@ -638,6 +731,8 @@ class JarvisService:
         """``QuestionRequest.route``: Jarvis answers how-to questions unless paused."""
         if not self.running:
             return None
+        if is_task_worker(session):
+            return "person"
         project = canonical(session.workdir) if session is not None else None
         return self.engine.route_question(
             getattr(session, "id", None),
@@ -867,6 +962,41 @@ class JarvisService:
             include_external=include_external,
             limit=limit,
         )
+
+
+class _TurnReply:
+    """A hub subscriber that keeps one turn's last assistant message."""
+
+    closed = False
+
+    def __init__(self) -> None:
+        self.turn_id: str | None = None
+        self.reply = ""
+        self.done = asyncio.Event()
+        self._early: list[dict[str, Any]] = []
+
+    async def notify(self, method: str, params: dict[str, Any]) -> None:
+        if method != "session.event":
+            return
+        if self.turn_id is None:
+            self._early.append(params)  # before start_turn returned its id
+            return
+        for event in [*self._early, params]:
+            self._take(event)
+        self._early.clear()
+
+    def _take(self, params: dict[str, Any]) -> None:
+        if params.get("turnId") != self.turn_id:
+            return
+        payload = params.get("payload") or {}
+        if params.get("kind") == "message.done" and (payload.get("role") or "assistant") == (
+            "assistant"
+        ):
+            text = str(payload.get("text") or "").strip()
+            if text:
+                self.reply = text
+        elif params.get("kind") == "turn.done":
+            self.done.set()
 
 
 def _assistant_tools(service: JarvisService) -> list[Any]:

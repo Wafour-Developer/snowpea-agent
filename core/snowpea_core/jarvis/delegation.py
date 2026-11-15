@@ -167,12 +167,17 @@ JARVIS = Caller(kind="jarvis", surface="jarvis")
 SYSTEM = Caller(kind="system", surface="core")
 
 
-def person_refusal(caller: Caller, settings: Any, *, guarded: bool) -> str | None:
+def person_refusal(
+    caller: Caller, settings: Any, *, guarded: bool, grant: bool = True
+) -> str | None:
     """Why ``caller`` may not change delegation, or ``None`` when it may.
 
     ``guarded`` is true when the change hands over a guarded class (or, for a
     revoke, widens what Jarvis may decide): a remote web login may change
-    levels but not that, since it has not re-authenticated.
+    levels but not that, since it has not re-authenticated.  ``grant`` is
+    false for a change that gives Jarvis nothing new (a handback only restores
+    the delegation already in force): ``jarvis.messenger.allowGrants`` is about
+    grants, so the bound person of a chat may do that with it off.
     """
     if caller.kind == "jarvis":
         return "Jarvis cannot change its own authority; it can only ask the person"
@@ -180,7 +185,7 @@ def person_refusal(caller: Caller, settings: Any, *, guarded: bool) -> str | Non
         return "only a person may change Jarvis's authority"
     if caller.kind == "messenger":
         allow = bool(_setting(settings, ("jarvis", "messenger", "allowGrants"), True))
-        if not allow:
+        if grant and not allow:
             return "grants from a messenger are off (jarvis.messenger.allowGrants)"
         if not caller.bound_person:
             return "only the person bound to this chat may change Jarvis's authority"
@@ -195,9 +200,11 @@ def person_refusal(caller: Caller, settings: Any, *, guarded: bool) -> str | Non
     return None
 
 
-def require_person(caller: Caller, settings: Any, *, guarded: bool) -> None:
+def require_person(
+    caller: Caller, settings: Any, *, guarded: bool, grant: bool = True
+) -> None:
     """Raise :class:`PersonOnly` unless ``caller`` is the person (see :func:`person_refusal`)."""
-    reason = person_refusal(caller, settings, guarded=guarded)
+    reason = person_refusal(caller, settings, guarded=guarded, grant=grant)
     if reason is not None:
         raise PersonOnly(reason)
 
@@ -876,8 +883,12 @@ class DelegationEngine:
         external: ExternalRef | dict[str, Any] | None = None,
         caller: Caller,
     ) -> PauseState:
-        """Authority returns to Jarvis now (ends a takeover or a typing pause); the person only."""
-        require_person(caller, self.settings, guarded=False)
+        """Authority returns to Jarvis now (ends a takeover or a typing pause); the person only.
+
+        Not a grant: it restores the delegation already in force, so a
+        messenger's bound person may do it whatever ``jarvis.messenger.allowGrants`` says.
+        """
+        require_person(caller, self.settings, guarded=False, grant=False)
         key = target_key(session_id, external)
         row = self._pause_row(key)
         with self._lock:

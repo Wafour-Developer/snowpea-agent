@@ -1331,7 +1331,10 @@ class _Judge:
             else:
                 safe_rule = self.shell(command, args)
         self._paths(args, tags, lower)
-        if tags & {"network"} or lower.startswith(MCP_PREFIX):
+        # An MCP tool talks to its server, except one the person tagged ``read``
+        # (``mcp.permissions`` per-tool key, as an assistant preset sets for its
+        # read tools): that one only reads, like any other read tool.
+        if tags & {"network"} or (lower.startswith(MCP_PREFIX) and tags != {"read"}):
             self.hits.network = True
         return self._verdict(tags, lower, safe_rule, is_shell)
 
@@ -1355,6 +1358,10 @@ class _Judge:
             name = lower[len(MCP_PREFIX) :].split("__", 1)[-1]
             if self.request.read_only_hint is not True and "read" not in tags:
                 self.hits.guard(SECRET, "mcp:not-read-only")
+            if tags == {"read"}:
+                # The person tagged this one tool ``read`` (``mcp.permissions``
+                # ``"<server>/<tool>"``): its name (``read-mail-text``) is not a send.
+                return
         if lower.startswith(("repl.", "browser_")):
             action = lower.split(".", 1)[-1] if lower.startswith("repl.") else lower
             if _BROWSER_ACTION_WORDS.search(action):

@@ -57,6 +57,7 @@ from snowpea_core.jarvis.delegation import (
     canonical_root,
     parse_time,
 )
+from snowpea_core.jarvis.ports import is_task_worker
 from snowpea_core.session.workspaces import canonical
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
@@ -144,7 +145,9 @@ todo_done keep the person's to-do list there (a to-do may repeat daily, weekly o
 monthly). save_memory keeps notes in your own memory.
 - External CLI sessions (Claude Code, Codex, agy, Cursor) are named ext:<cli>:<id>. \
 external_list, external_read, external_send and external_interrupt work with them; \
-session_create with cli starts one (mode default or readonly). A session marked \
+session_create with cli starts one (mode default or readonly; unrestricted only when \
+the person asks for it in the message you are answering from their messenger chat, and \
+they allow it there with one press). A session marked \
 UNCONTROLLED (unrestricted, or a CLI that does not ask before it acts) runs without \
 snowpea's approvals: do not hand it work, tell the person. A tmux pane's prompts are \
 answered by the person in the terminal.
@@ -237,6 +240,13 @@ def _int(args: dict[str, Any], key: str, default: int, low: int, high: int) -> i
     return max(low, min(high, value))
 
 
+#: Why a ``jarvis-task`` worker is not Jarvis's to read or instruct.
+TASK_WORKER_REFUSAL = (
+    "that is a scheduled-task worker; it runs only its schedule (see schedule_list) and "
+    "its result reaches you as a report"
+)
+
+
 def human_turn(session: Any) -> bool:
     """The Jarvis turn running now was started by the person's own message."""
     turn = getattr(session, "current_turn", None)
@@ -264,6 +274,8 @@ async def _target(service: JarvisService, session_id: str, *, read: bool) -> Tar
         title = session.title
         if service.in_jarvis_family(session):
             raise Refused("that session belongs to Jarvis itself")
+        if is_task_worker(session):
+            raise Refused(TASK_WORKER_REFUSAL)
         if getattr(session, "kind", "chat") == "subagent" or getattr(session, "is_subagent", False):
             raise Refused("that is a sub-agent; work with the session that started it")
     else:
@@ -273,6 +285,8 @@ async def _target(service: JarvisService, session_id: str, *, read: bool) -> Tar
             raise unknown
         if (row.get("kind") or "chat") == "subagent":
             raise Refused("that is a sub-agent; work with the session that started it")
+        if is_task_worker(row):
+            raise Refused(TASK_WORKER_REFUSAL)
         workdir, host = str(row["workdir"]), row.get("host_tools_from")
         browser = bool(host)
         title = row.get("title")
@@ -705,7 +719,7 @@ async def session_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             service, root, cli,
             model=_text(args, "model", required=False, limit=128) or None,
             mode=str(args.get("mode") or "").strip() or None,
-            prompt=prompt, title=title,
+            prompt=prompt, title=title, ctx=ctx,
         )
     if args.get("model") or args.get("mode"):
         raise Refused("model and mode are for an external CLI session (cli); a snowpea "
@@ -1252,8 +1266,13 @@ def build_tools(service: JarvisService) -> list[Tool]:
                 "model": {"type": "string", "description": "With cli: the CLI's model id."},
                 "mode": {
                     "type": "string",
-                    "enum": ["default", "readonly"],
-                    "description": "With cli: its default mode, or readonly where it has one.",
+                    "enum": ["default", "readonly", "unrestricted"],
+                    "description": (
+                        "With cli: its default mode, or readonly where it has one. "
+                        "unrestricted only when the person asked for it in the message you "
+                        "are answering, from their messenger chat: they get a one-press "
+                        "warning there, and nothing opens unless they allow it."
+                    ),
                 },
             },
             ["project"],
