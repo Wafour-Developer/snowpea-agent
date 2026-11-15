@@ -196,6 +196,9 @@ class ToolRegistry:
             host = _host_tools(session).get(name)
             if host is not None:
                 return host
+            own = getattr(session, "session_tools", None)
+            if own and name in own:
+                return own[name]  # type: ignore[no-any-return]
         return self._tools.get(name)
 
     def _view(self, session: Any | None) -> dict[str, Tool]:
@@ -210,6 +213,8 @@ class ToolRegistry:
         from snowpea_core.tools import browser_providers
 
         host = _host_tools(session)
+        # Tools only this session has (Jarvis's own, M19 WP4).
+        own: dict[str, Tool] = dict(getattr(session, "session_tools", None) or {})
         merged = dict(self._tools)
         if browser_providers.browser_locked(session) and not any(
             name.startswith("browser_") for name in host
@@ -217,8 +222,9 @@ class ToolRegistry:
             merged = {
                 name: tool for name, tool in merged.items() if tool.category != "browser"
             }
-        if not host and len(merged) == len(self._tools):
+        if not host and not own and len(merged) == len(self._tools):
             return self._tools
+        merged.update(own)
         merged.update(host)
         return merged
 

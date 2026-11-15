@@ -132,6 +132,16 @@ class Session:
     #: Tool names this agent is narrowed to (``delegate_task(tools=...)`` or an
     #: agent definition); ``None`` means every tool.
     allowed_tools: set[str] | None = None
+    #: ``allowed_tools`` is the whole list: the always-allowed reading tools
+    #: (``read_file``, ``grep``...) and ``tool_search`` are not added to it.  Set on
+    #: the isolated worker of a Jarvis mail task (M19 WP8).
+    exclusive_tools: bool = False
+    #: ``"jarvis"`` on the daemon's Jarvis session (M19, set by its service);
+    #: ``None`` everywhere else.  Jarvis's own tools exist only on it.
+    role: str | None = None
+    #: Tools only this session sees, laid over the daemon's registry
+    #: (Jarvis's tools, M19 WP4); ``name -> Tool``.
+    session_tools: dict[str, Any] = field(default_factory=dict)
     #: The agent definition's prompt shape (``identity``, ``deferredTools``,
     #: ``skillsIndex``) and the plugin it came from; see
     #: :func:`snowpea_core.agent.session_agent.apply_prompt_shape`.
@@ -213,7 +223,7 @@ class Session:
     steered_prompts: list[tuple[str, str]] = field(default_factory=list)
     #: ``session.steer`` texts waiting for the running turn's next tool round;
     #: injected whatever ``agent.busy`` says (1.6.0).
-    rpc_steers: list[str] = field(default_factory=list)
+    rpc_steers: list[str | tuple[str, str]] = field(default_factory=list)
     #: Recall also searches pages a browser host ingested (1.7.0).
     browser_memory: bool = False
     #: ``session.create {memory, siteMemory}`` (addendum 27, C1): ``None``

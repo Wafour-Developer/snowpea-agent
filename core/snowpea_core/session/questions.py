@@ -80,6 +80,10 @@ class QuestionQueue:
         self.settings = settings or Settings()
         self.hub = hub
         self._pending: dict[str, _Pending] = {}
+        #: Jarvis mode's router (1.53.0): ``router(request, session,
+        #: interactive)`` returns ``QuestionRequest.route`` before the question
+        #: goes on the wire, or ``None`` (Jarvis mode off).  Must not block.
+        self.router: Any = None
 
     def bind(self, settings: Settings, hub: EventHub) -> None:
         """Late wiring from ``app_server`` once ``Core`` exists."""
@@ -165,6 +169,14 @@ class QuestionQueue:
             questions=list(questions),
             timeoutSec=timeout,
         )
+        if self.router is not None:
+            try:
+                route = self.router(request, session, origin is not None)
+            except Exception:  # noqa: BLE001 - a broken router leaves it to the person
+                log.warning("question router failed for %s", request.requestId, exc_info=True)
+                route = "person"
+            if route is not None:
+                request = request.model_copy(update={"route": route})
         loop = asyncio.get_running_loop()
         entry = _Pending(
             request=request, future=loop.create_future(), origin_conn=origin, no_limit=no_limit

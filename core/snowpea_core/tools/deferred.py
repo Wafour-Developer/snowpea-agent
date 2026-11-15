@@ -67,6 +67,8 @@ def narrowed(allowed: Iterable[str] | None, session: Any = None) -> set[str] | N
     """
     if allowed is None:
         return None
+    if session is not None and getattr(session, "exclusive_tools", False):
+        return {str(name) for name in allowed}
     names = {str(name) for name in allowed} | ALWAYS_ALLOWED
     if session is not None and getattr(session, "is_subagent", False):
         names.update(inherited_host_tools(session))
@@ -173,10 +175,11 @@ def eager_names(session: Any = None, extra: Iterable[str] = ()) -> frozenset[str
     if is_readonly_child(session):
         base = set(READONLY_EAGER_TOOLS)
     elif allowed:
-        base = narrowed(allowed) or set()
+        base = narrowed(allowed, session) or set()
     else:
         base = set(EAGER_TOOLS)
-    base.add(TOOL_SEARCH)
+    if not getattr(session, "exclusive_tools", False):
+        base.add(TOOL_SEARCH)
     base.update(str(name) for name in extra)
     if not getattr(session, "fixed_tool_list", False):
         base.update(loaded(session))

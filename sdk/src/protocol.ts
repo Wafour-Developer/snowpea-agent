@@ -304,6 +304,8 @@ export interface ApprovalListResult {
     note?: string;
     /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
     paths?: string[] | null;
+    /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
+    personOnly?: boolean | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
     /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -357,6 +359,8 @@ export interface ApprovalRequestParams {
   note?: string;
   /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
   paths?: string[] | null;
+  /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
+  personOnly?: boolean | null;
   /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
   reasonCode?: string | null;
   /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -944,8 +948,10 @@ export interface ExternalClisResult {
       approvals: "bridged" | "degraded";
       /** A session open in another terminal can be followed live (else on refresh). */
       liveView: boolean;
-      /** Modes it offers: cursor has no 'default' (no permission mechanism). */
+      /** Modes it offers. agy has no 'readonly' (its plan mode still writes files); cursor offers readonly (its default), default (edits and sandboxed shell with no prompt: approvals 'degraded') and unrestricted. */
       modes?: ("default" | "readonly" | "unrestricted")[];
+      /** external.send during a running turn adds the text to that turn (Codex turn/steer) instead of answering session_busy; the same turnId comes back. */
+      steer?: boolean;
       /** Replies stream as message.delta while the CLI writes. */
       streaming: boolean;
       /** external.create {transport: 'tmux'} works: Claude Code only, on Linux/macOS with tmux installed (beta). */
@@ -959,6 +965,12 @@ export interface ExternalClisResult {
     id: "claude" | "codex" | "agy" | "cursor";
     /** An executable was found (jarvis.external.clis.<id>.path or PATH). */
     installed: boolean;
+    /** Model ids external.create {model} accepts, as the CLI lists them without spending tokens. Filled in the background: empty until the CLI answered (then external.clis.changed goes out); empty when it cannot list them. */
+    models?: string[];
+    /** True once the CLI answered the model listing (models may still be empty: it lists none); false while it has not answered yet, or the CLI is not usable. */
+    modelsLoaded?: boolean;
+    /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
+    modes?: ("default" | "readonly" | "unrestricted")[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
     /** Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'. */
@@ -970,7 +982,7 @@ export interface ExternalClisResult {
   })[];
 }
 
-/** `external.close` params. External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays. */
+/** `external.close` params. External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays. A screen that only goes away calls external.unwatch instead. */
 export interface ExternalCloseParams {
   /** The external session. */
   ref: {
@@ -987,7 +999,7 @@ export interface ExternalCloseResult {
   ok?: boolean;
 }
 
-/** `external.create` params. External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it. */
+/** `external.create` params. External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it; the calling connection is subscribed to its external.event stream as with external.open. */
 export interface ExternalCreateParams {
   /** Which CLI. */
   cli: "claude" | "codex" | "agy" | "cursor";
@@ -1007,7 +1019,7 @@ export interface ExternalCreateResult {
   session: {
     /** How its permission prompts are answered right now. */
     approvals?: "bridged" | "person" | "degraded" | "none";
-    /** external.send is accepted now: host none, snowpea, or tmux once S5 holds. */
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
@@ -1046,7 +1058,63 @@ export interface ExternalCreateResult {
   };
 }
 
-/** `external.interrupt` params. External sessions (1.53.0, WP6): stop the running turn. */
+/** `external.get` params. External sessions (1.53.0): one session's row without opening or reading it (deep links, pop-outs, restored tabs). not_found when the CLI has no such session; outside_root when it is not in a registered project. */
+export interface ExternalGetParams {
+  /** The external session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+}
+
+/** `external.get` result. */
+export interface ExternalGetResult {
+  /** The session as it is now. */
+  session: {
+    /** How its permission prompts are answered right now. */
+    approvals?: "bridged" | "person" | "degraded" | "none";
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
+    canSend?: boolean;
+    /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
+    controlled?: boolean;
+    /** Working directory the CLI recorded. */
+    cwd: string;
+    /** Where its live process is: none (snowpea can continue it), terminal (view only until that process exits), tmux (view, input into the same pane) or snowpea. */
+    host?: "none" | "terminal" | "tmux" | "snowpea";
+    /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
+    mode?: "default" | "readonly" | "unrestricted" | null;
+    /** Model it last used, when recorded. */
+    model?: string | null;
+    /** Last message, one line. */
+    preview?: string;
+    /** Registered project root containing cwd; null when none. */
+    project?: string | null;
+    /** Which CLI and its session id. */
+    ref: {
+      /** claude, codex, agy or cursor. */
+      cli: "claude" | "codex" | "agy" | "cursor";
+      /** The CLI's own session (thread, chat) id. */
+      id: string;
+    };
+    /** idle, running or error. */
+    status: "idle" | "running" | "error";
+    /** Title the CLI keeps, or the first prompt. */
+    title?: string | null;
+    /** With host 'tmux': where. */
+    tmux?: {
+      /** tmux pane id, e.g. '%3'. */
+      pane: string;
+      /** tmux session name. */
+      session: string;
+    } | null;
+    /** UTC ISO time of its last entry. */
+    updatedAt?: string | null;
+  };
+}
+
+/** `external.interrupt` params. External sessions (1.53.0, WP6): stop the running turn. host 'tmux': Escape to the pane while Claude is busy (whoever started the turn; never C-c); host 'terminal': external_view_only; nothing running: ok, no-op. */
 export interface ExternalInterruptParams {
   /** The external session. */
   ref: {
@@ -1087,7 +1155,7 @@ export interface ExternalListResult {
   sessions?: ({
     /** How its permission prompts are answered right now. */
     approvals?: "bridged" | "person" | "degraded" | "none";
-    /** external.send is accepted now: host none, snowpea, or tmux once S5 holds. */
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
@@ -1139,6 +1207,8 @@ export interface ExternalOpenParams {
     /** The CLI's own session (thread, chat) id. */
     id: string;
   };
+  /** 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. */
+  transport?: "structured" | "tmux" | null;
 }
 
 /** `external.open` result. */
@@ -1164,7 +1234,7 @@ export interface ExternalOpenResult {
   session: {
     /** How its permission prompts are answered right now. */
     approvals?: "bridged" | "person" | "degraded" | "none";
-    /** external.send is accepted now: host none, snowpea, or tmux once S5 holds. */
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
@@ -1237,7 +1307,7 @@ export interface ExternalReadResult {
   hasMore?: boolean;
 }
 
-/** `external.send` params. External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. Refused with external_view_only while canSend is false (host 'terminal', or 'tmux' before spike S5). */
+/** `external.send` params. External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes). */
 export interface ExternalSendParams {
   /** Session to talk to. */
   ref: {
@@ -1275,7 +1345,7 @@ export interface ExternalSetModeResult {
   session: {
     /** How its permission prompts are answered right now. */
     approvals?: "bridged" | "person" | "degraded" | "none";
-    /** external.send is accepted now: host none, snowpea, or tmux once S5 holds. */
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
@@ -1312,6 +1382,23 @@ export interface ExternalSetModeResult {
     /** UTC ISO time of its last entry. */
     updatedAt?: string | null;
   };
+}
+
+/** `external.unwatch` params. External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok. */
+export interface ExternalUnwatchParams {
+  /** The external session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+}
+
+/** `external.unwatch` result. */
+export interface ExternalUnwatchResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
 }
 
 /** `file.complete` params. Complete file and directory paths under a session workdir. */
@@ -1829,6 +1916,10 @@ export interface JarvisBriefingGetResult {
   nextRunAt?: string | null;
   /** Cron expression, daemon-local time. */
   schedule?: string;
+  /** What it covers; mail and calendar only count while a mail or calendar preset is connected. */
+  sections?: ("sessions" | "waiting" | "todos" | "mail" | "calendar")[];
+  /** IANA zone the schedule is read in; null = the daemon's. */
+  timezone?: string | null;
 }
 
 /** `jarvis.briefing.set` params. Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. */
@@ -1839,6 +1930,10 @@ export interface JarvisBriefingSetParams {
   instructions?: string | null;
   /** Cron expression; omitted keeps it. */
   schedule?: string | null;
+  /** Omitted keeps them. */
+  sections?: ("sessions" | "waiting" | "todos" | "mail" | "calendar")[] | null;
+  /** IANA zone; '' clears it (daemon-local); omitted keeps it. */
+  timezone?: string | null;
 }
 
 /** `jarvis.briefing.set` result. */
@@ -1853,6 +1948,10 @@ export interface JarvisBriefingSetResult {
   nextRunAt?: string | null;
   /** Cron expression, daemon-local time. */
   schedule?: string;
+  /** What it covers; mail and calendar only count while a mail or calendar preset is connected. */
+  sections?: ("sessions" | "waiting" | "todos" | "mail" | "calendar")[];
+  /** IANA zone the schedule is read in; null = the daemon's. */
+  timezone?: string | null;
 }
 
 /** `jarvis.delegation.list` params. Jarvis mode (1.53.0, WP2): delegation grants in force. */
@@ -2064,7 +2163,67 @@ export interface JarvisEnableResult {
   sessionId?: string | null;
 }
 
-/** `jarvis.handback` params. Jarvis mode (1.53.0, WP3): give one session back to Jarvis now, ending a takeover or a typing pause. */
+/** `jarvis.escalations.dismiss` params. Jarvis mode (1.53.0): dismiss escalations by id (or all); every client is told with jarvis.escalation.dismissed. */
+export interface JarvisEscalationsDismissParams {
+  /** Dismiss every open escalation. */
+  all?: boolean;
+  /** Escalation ids to dismiss. */
+  ids?: string[];
+}
+
+/** `jarvis.escalations.dismiss` result. */
+export interface JarvisEscalationsDismissResult {
+  /** Ids that were open and are now dismissed. */
+  dismissed?: string[];
+}
+
+/** `jarvis.escalations.list` params. Jarvis mode (1.53.0): the open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), newest first, paged. They persist until dismissed, across client reloads and daemon restarts. */
+export interface JarvisEscalationsListParams {
+  /** Cursor from a previous page's nextBefore; omitted starts at the newest. */
+  before?: string | null;
+  /** Escalations per page. */
+  limit?: number;
+}
+
+/** `jarvis.escalations.list` result. */
+export interface JarvisEscalationsListResult {
+  /** Open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), as they were sent; kept in $SNOWPEA_HOME/jarvis/ so they survive a client reload and a daemon restart until dismissed. */
+  escalations?: ({
+    /** External session concerned. */
+    external?: {
+      /** claude, codex, agy or cursor. */
+      cli: "claude" | "codex" | "agy" | "cursor";
+      /** The CLI's own session (thread, chat) id. */
+      id: string;
+    } | null;
+    /** With reason 'guarded'. */
+    guardedClass?: "deploy" | "outside_destructive" | "secret_send" | null;
+    /** Escalation id (repeats of the same need keep it). */
+    id: string;
+    /** How prominently to show it: in-app badge always, OS notification from normal (jarvis.notify.os), messenger from high (jarvis.notify.messenger). */
+    importance?: "low" | "normal" | "high" | "urgent";
+    /** Its project root. */
+    project?: string | null;
+    /** guarded/risky/never: an approval the engine routed to the person; question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. */
+    reason: "guarded" | "risky" | "never" | "question" | "finished" | "error" | "stalled" | "budget" | "jarvis";
+    /** Its id, to answer with approval.respond / question.respond. */
+    requestId?: string | null;
+    /** Kind of the waiting request, when one. */
+    requestKind?: "approval" | "question" | null;
+    /** snowpea session concerned. */
+    sessionId?: string | null;
+    /** One short line for the person (fits an OS notification, ~120 chars). */
+    summary: string;
+    /** Its title. */
+    title?: string | null;
+    /** UTC ISO time. */
+    ts: string;
+  })[];
+  /** Cursor for the next page; null at the end. */
+  nextBefore?: string | null;
+}
+
+/** `jarvis.handback` params. Jarvis mode (1.53.0, WP2): give one session back to Jarvis now, ending a takeover or a typing pause. Human connections only (else jarvis_person_only). */
 export interface JarvisHandbackParams {
   /** External session. */
   external?: {
@@ -2083,8 +2242,12 @@ export interface JarvisHandbackResult {
   state: {
     /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
     exposed: boolean;
+    /** The grant in force (jarvis.delegation.list id); null for the default. */
+    grantId?: string | null;
     /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
     level?: "staged" | "full" | null;
+    /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
     /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
     pausedUntil?: string | null;
     /** True after jarvis.takeover without a limit, until jarvis.handback. */
@@ -2170,8 +2333,14 @@ export interface JarvisOverviewResult {
   generatedAt: string;
   /** Newest activity first. */
   rows?: ({
+    /** For an external session: as ExternalSessionRow.approvals ('person' for a tmux pane: its prompts are answered in the terminal, never by Jarvis). */
+    approvals?: "bridged" | "person" | "degraded" | "none" | null;
+    /** For an external session: as ExternalSessionRow.controlled. False (unrestricted, agy with approvalPolicy auto, cursor outside readonly): snowpea cannot gate what it runs and Jarvis's guarded-class rules do not apply inside it. */
+    controlled?: boolean | null;
     /** One line: what it did last or is waiting for (at most 200 characters). */
     digest?: string;
+    /** False for a browser-host session while jarvis.exposeBrowser is off: listed with its status only; Jarvis cannot read its transcript or instruct it. */
+    exposed?: boolean;
     /** External session; null for snowpea. */
     external?: {
       /** claude, codex, agy or cursor. */
@@ -2179,12 +2348,18 @@ export interface JarvisOverviewResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     } | null;
+    /** As SessionJarvisState.grantId. */
+    grantId?: string | null;
     /** For an external session: where its process lives. */
     host?: "none" | "terminal" | "tmux" | "snowpea" | null;
     /** UTC ISO time of its last activity. */
     lastActivityAt?: string | null;
     /** Delegation in force for it; null when not exposed. */
     level?: "staged" | "full" | null;
+    /** As SessionJarvisState.levelScope. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
+    /** For an external session snowpea runs (host snowpea or tmux): its mode. */
+    mode?: "default" | "readonly" | "unrestricted" | null;
     /** As SessionJarvisState.pausedUntil. */
     pausedUntil?: string | null;
     /** Approvals waiting (any route). */
@@ -2332,7 +2507,7 @@ export interface JarvisStatusResult {
   sessionId?: string | null;
 }
 
-/** `jarvis.takeover` params. Jarvis mode (1.53.0, WP3): the person takes one session back; Jarvis stops deciding for it until jarvis.handback or the given minutes. */
+/** `jarvis.takeover` params. Jarvis mode (1.53.0, WP2): the person takes one session back; Jarvis stops deciding for it until jarvis.handback or the given minutes. */
 export interface JarvisTakeoverParams {
   /** External session. */
   external?: {
@@ -2353,8 +2528,12 @@ export interface JarvisTakeoverResult {
   state: {
     /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
     exposed: boolean;
+    /** The grant in force (jarvis.delegation.list id); null for the default. */
+    grantId?: string | null;
     /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
     level?: "staged" | "full" | null;
+    /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
     /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
     pausedUntil?: string | null;
     /** True after jarvis.takeover without a limit, until jarvis.handback. */
@@ -2438,8 +2617,12 @@ export interface JobListResult {
     spec: string;
     /** Current job state. */
     state?: "scheduled" | "running" | "cancelled";
+    /** What runs it when not an ordinary scheduled session: 'jarvis-task' is a Jarvis mode assistant task (1.53.0, WP8): its own worker session, result handed to Jarvis. */
+    target?: string | null;
     /** Prompt run on each firing. */
     task: string;
+    /** IANA zone its cron clock times are read in; null is the daemon's (1.53.0). */
+    timezone?: string | null;
     /** The job's short name, when it has one (1.33.0). */
     title?: string | null;
   })[];
@@ -2623,8 +2806,12 @@ export interface JobUpdateResult {
   spec: string;
   /** Current job state. */
   state?: "scheduled" | "running" | "cancelled";
+  /** What runs it when not an ordinary scheduled session: 'jarvis-task' is a Jarvis mode assistant task (1.53.0, WP8): its own worker session, result handed to Jarvis. */
+  target?: string | null;
   /** Prompt run on each firing. */
   task: string;
+  /** IANA zone its cron clock times are read in; null is the daemon's (1.53.0). */
+  timezone?: string | null;
   /** The job's short name, when it has one (1.33.0). */
   title?: string | null;
 }
@@ -3031,7 +3218,7 @@ export interface McpPresetApplyParams {
 
 /** `mcp.preset.apply` result. */
 export interface McpPresetApplyResult {
-  /** What mcp.add reported for the entry. */
+  /** What mcp.add reported for the first entry. */
   add: {
     /** OAuth standing (1.34.0). A probe that met 401 still writes the entry, with state needs_auth, so the client can go on to mcp.authorize. */
     auth?: {
@@ -3060,23 +3247,100 @@ export interface McpPresetApplyResult {
     /** Security findings that --force accepted. */
     warnings?: string[];
   };
+  /** mcp.add's report for each, in the same order. */
+  adds?: ({
+    /** OAuth standing (1.34.0). A probe that met 401 still writes the entry, with state needs_auth, so the client can go on to mcp.authorize. */
+    auth?: {
+      /** The entry's configured oauth.clientId, when it has one. */
+      clientId?: string | null;
+      /** True when the server asked for authorization (answered 401) or a sign-in is stored for it. */
+      required?: boolean;
+      /** ok (tokens stored for this URL), needs_auth (the server answered 401 and a refresh did not help: call mcp.authorize) or none. */
+      state?: "ok" | "needs_auth" | "none";
+    };
+    /** Why the server did not start. */
+    error?: string | null;
+    /** True when the entry was written. */
+    ok?: boolean;
+    /** File the entry was written to. */
+    path: string;
+    /** State of the server after the write. */
+    state?: "stopped" | "starting" | "ready" | "error";
+    /** Tools the probe found, so a client can offer a picker. */
+    tools?: ({
+      /** One-line description from the server. */
+      description?: string;
+      /** Tool name as the server reports it, without the mcp__ prefix. */
+      name: string;
+    })[];
+    /** Security findings that --force accepted. */
+    warnings?: string[];
+  })[];
+  /** Nothing changed: the preset was already applied the same way. */
+  already?: boolean;
   /** Scheduler job ids created for recipes. */
   jobs?: string[];
   /** Call mcp.authorize next (auth 'oauth'). */
   needsAuth?: boolean;
-  /** Name of the configured MCP server. */
+  /** Name of the first configured MCP server. */
   server: string;
+  /** Every server it configured (WP8), in order. */
+  servers?: string[];
+  /** What still needs a sign-in, per server. */
+  signIn?: ({
+    /** With deviceCode: run this once. */
+    command?: string | null;
+    /** How to sign in. */
+    method: "oauth" | "deviceCode" | "none";
+    /** What the person still has to do. */
+    note?: string;
+    /** Configured server name. */
+    server: string;
+  })[];
+}
+
+/** `mcp.preset.check` params. Assistant presets (1.53.0): whether each server of an applied preset is connected and still signed in (masked account; no tokens). */
+export interface McpPresetCheckParams {
+  /** An applied preset. */
+  id: string;
+}
+
+/** `mcp.preset.check` result. */
+export interface McpPresetCheckResult {
+  /** False when the preset is not applied (servers empty). */
+  applied: boolean;
+  /** The preset. */
+  id: string;
+  servers?: ({
+    /** The signed-in account, masked (e.g. 'j***@example.com'); never a token or a full account id. */
+    account?: string | null;
+    /** Whether the sign-in holds: OAuth servers by the stored sign-in, a device-code server (Microsoft 365) by asking its read-only verify tool; null when the server offers no way to tell (or is not connected to ask). */
+    authenticated?: boolean | null;
+    /** Its MCP connection is up. */
+    connected: boolean;
+    /** One line for the person. */
+    detail?: string;
+    /** Configured server name. */
+    server: string;
+  })[];
 }
 
 /** `mcp.preset.list` params. Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipes. */
-export type McpPresetListParams = Record<string, unknown>;
+export interface McpPresetListParams {
+  /** Language of the human texts (title, description, input labels, server and recipe titles): 'en' (default) or 'ko'; any other value answers in English. Ids, tool names, entries and recipe prompts are never translated. */
+  locale?: string | null;
+}
 
 /** `mcp.preset.list` result. */
 export interface McpPresetListResult {
+  /** The language the texts are in. */
+  locale?: string;
   /** In display order. */
   presets?: ({
     /** A server from this preset is configured. */
     applied?: boolean;
+    /** Names of the servers it configured, once applied. */
+    appliedServers?: string[];
     /** As McpCatalogEntry.auth: oauth (mcp.authorize after apply), token (an input) or none. */
     auth: "oauth" | "token" | "none";
     /** Grouping. */
@@ -3119,11 +3383,50 @@ export interface McpPresetListResult {
     })[];
     /** Tools that send or change things; tagged 'send' (guarded secret_send). */
     sendTools?: string[];
+    /** The servers it writes (1.53.0, WP8). entry, transport, auth, readTools and sendTools above describe the first one / the union. */
+    servers?: ({
+      /** As McpPresetInfo.auth, for this server. */
+      auth: "oauth" | "token" | "none";
+      /** The .mcp.json entry template. */
+      entry?: Record<string, unknown>;
+      /** 'mail', 'calendar' or 'mail+calendar'. */
+      kind: string;
+      /** With deviceCode: the command. */
+      loginCommand?: string | null;
+      /** Tagged 'read'. */
+      readTools?: string[];
+      /** Known send/modify tools. */
+      sendTools?: string[];
+      /** How the person signs in: oauth (mcp.authorize), deviceCode (a command run once on the daemon's machine, see loginCommand) or none. */
+      signIn?: "oauth" | "deviceCode" | "none";
+      /** Appended to the preset's server name ('' = the name alone). */
+      suffix: string;
+      /** Human name. */
+      title: string;
+      /** stdio, http or sse. */
+      transport: "stdio" | "http" | "sse";
+    })[];
     /** Human name. */
     title: string;
     /** stdio, http or sse. */
     transport: "stdio" | "http" | "sse";
   })[];
+}
+
+/** `mcp.preset.remove` params. Assistant presets (1.53.0, WP8): undo an applied preset: its servers, permission tags, stored client secret and recipe jobs go back to what they were before. */
+export interface McpPresetRemoveParams {
+  /** Preset to remove. */
+  id: string;
+}
+
+/** `mcp.preset.remove` result. */
+export interface McpPresetRemoveResult {
+  /** Recipe jobs deleted. */
+  jobs?: string[];
+  /** False when the preset was not applied. */
+  removed: boolean;
+  /** Servers put back or removed. */
+  servers?: string[];
 }
 
 /** `mcp.reload` params. Restart one MCP server, or every configured one. */
@@ -4035,6 +4338,23 @@ export interface SessionCreateParams {
 export interface SessionCreateResult {
   /** Whether the session starts in delegation mode (the lead hands the work to its team): the session pin, else agents.delegateByDefault. */
   delegation?: boolean;
+  /** As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. */
+  jarvis?: {
+    /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
+    exposed: boolean;
+    /** The grant in force (jarvis.delegation.list id); null for the default. */
+    grantId?: string | null;
+    /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
+    level?: "staged" | "full" | null;
+    /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
+    /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
+    pausedUntil?: string | null;
+    /** True after jarvis.takeover without a limit, until jarvis.handback. */
+    takenOver?: boolean;
+  } | null;
+  /** As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. */
+  role?: "jarvis" | null;
   /** Id of the new session. */
   sessionId: string;
   /** Session workspace with tmp/ and artifacts/ (1.7.0). */
@@ -4388,8 +4708,12 @@ export interface SessionListResult {
     jarvis?: {
       /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
       exposed: boolean;
+      /** The grant in force (jarvis.delegation.list id); null for the default. */
+      grantId?: string | null;
       /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
       level?: "staged" | "full" | null;
+      /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+      levelScope?: "session" | "project" | "global" | "default" | null;
       /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
       pausedUntil?: string | null;
       /** True after jarvis.takeover without a limit, until jarvis.handback. */
@@ -7603,6 +7927,8 @@ export interface ApprovalPendingPayload {
     note?: string;
     /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
     paths?: string[] | null;
+    /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
+    personOnly?: boolean | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
     /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -7645,6 +7971,20 @@ export interface ApprovalResolvedPayload {
   requestId: string;
 }
 
+/** `approval.route.changed` notification payload. */
+export interface ApprovalRouteChangedPayload {
+  /** As ApprovalPendingNotification.hostToolsFrom. */
+  hostToolsFrom?: string | null;
+  /** jarvis_enabled (it was waiting when Jarvis mode came on and has just been routed), jarvis_disabled (routing ended), paused (the person took the session back or typed in it: Jarvis's requests there are the person's), resumed (handed back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran out), declined (Jarvis's turn ended without deciding it), refused (the engine refused Jarvis's or its own decision, e.g. on a re-check). */
+  reason: "jarvis_enabled" | "jarvis_disabled" | "paused" | "resumed" | "budget" | "declined" | "refused";
+  /** The waiting request. */
+  requestId: string;
+  /** The new route; null when Jarvis mode went off (no routing). */
+  route: "person" | "jarvis" | "auto" | null;
+  /** Its session; 'ext:<cli>:<id>' for an external session's approval. */
+  sessionId: string;
+}
+
 /** `audio.install.progress` notification payload. */
 export interface AudioInstallProgressPayload {
   /** Bytes transferred so far. */
@@ -7684,6 +8024,52 @@ export interface CommandsChangedPayload {
   })[];
   /** Why the table changed. */
   reason?: string;
+}
+
+/** `external.clis.changed` notification payload. */
+export interface ExternalClisChangedPayload {
+  /** All four, as external.clis would answer now. */
+  clis?: ({
+    /** agy only: what the CLI's own settings say, which snowpea cannot change per session — asks (prompts are bridged) or auto (it runs without asking; edit work then needs mode 'unrestricted', confirmed by the person). Null for the others. */
+    approvalPolicy?: "asks" | "auto" | null;
+    /** What works with this version; null when not installed. */
+    capabilities?: {
+      /** bridged: the CLI's permission prompts become snowpea approvals; degraded: edits are auto-allowed and everything else is blocked (Cursor). */
+      approvals: "bridged" | "degraded";
+      /** A session open in another terminal can be followed live (else on refresh). */
+      liveView: boolean;
+      /** Modes it offers. agy has no 'readonly' (its plan mode still writes files); cursor offers readonly (its default), default (edits and sandboxed shell with no prompt: approvals 'degraded') and unrestricted. */
+      modes?: ("default" | "readonly" | "unrestricted")[];
+      /** external.send during a running turn adds the text to that turn (Codex turn/steer) instead of answering session_busy; the same turnId comes back. */
+      steer?: boolean;
+      /** Replies stream as message.delta while the CLI writes. */
+      streaming: boolean;
+      /** external.create {transport: 'tmux'} works: Claude Code only, on Linux/macOS with tmux installed (beta). */
+      tmux?: boolean;
+    } | null;
+    /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person. */
+    defaultMode?: "default" | "readonly" | "unrestricted";
+    /** jarvis.external.clis.<id>.enabled. */
+    enabled?: boolean;
+    /** claude, codex, agy or cursor. */
+    id: "claude" | "codex" | "agy" | "cursor";
+    /** An executable was found (jarvis.external.clis.<id>.path or PATH). */
+    installed: boolean;
+    /** Model ids external.create {model} accepts, as the CLI lists them without spending tokens. Filled in the background: empty until the CLI answered (then external.clis.changed goes out); empty when it cannot list them. */
+    models?: string[];
+    /** True once the CLI answered the model listing (models may still be empty: it lists none); false while it has not answered yet, or the CLI is not usable. */
+    modelsLoaded?: boolean;
+    /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
+    modes?: ("default" | "readonly" | "unrestricted")[];
+    /** Absolute executable path pinned at discovery. */
+    path?: string | null;
+    /** Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'. */
+    problems?: string[];
+    /** Display name, e.g. 'Claude Code'. */
+    title: string;
+    /** Its --version, when it answered. */
+    version?: string | null;
+  })[];
 }
 
 /** `external.event` notification payload. */
@@ -7753,6 +8139,31 @@ export interface GatewayEventPayload {
   kind: string;
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
+}
+
+/** `jarvis.access` notification payload. */
+export interface JarvisAccessPayload {
+  /** read (transcript or digest), prompt, steer, interrupt, create (a new session), approval or question (answered one). */
+  action: "read" | "prompt" | "steer" | "interrupt" | "create" | "approval" | "question";
+  /** The external session, when it was one. */
+  external?: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  } | null;
+  /** The session's owning client (browser host), when it has one. */
+  hostToolsFrom?: string | null;
+  /** Ledger record id. */
+  id: string;
+  /** Its project root. */
+  project?: string | null;
+  /** Session Jarvis read or instructed; 'ext:<cli>:<id>' for an external session (see external). */
+  sessionId: string;
+  /** One short line: what was read or sent. */
+  summary?: string;
+  /** UTC ISO time. */
+  ts: string;
 }
 
 /** `jarvis.decision` notification payload. */
@@ -7861,6 +8272,12 @@ export interface JarvisEscalationPayload {
   title?: string | null;
   /** UTC ISO time. */
   ts: string;
+}
+
+/** `jarvis.escalation.dismissed` notification payload. */
+export interface JarvisEscalationDismissedPayload {
+  /** Dismissed escalation ids. */
+  ids: string[];
 }
 
 /** `jarvis.state` notification payload. */
@@ -8068,6 +8485,18 @@ export interface QuestionResolvedPayload {
   requestId: string;
 }
 
+/** `question.route.changed` notification payload. */
+export interface QuestionRouteChangedPayload {
+  /** jarvis_enabled (it was waiting when Jarvis mode came on and has just been routed), jarvis_disabled (routing ended), paused (the person took the session back or typed in it: Jarvis's requests there are the person's), resumed (handed back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran out), declined (Jarvis's turn ended without deciding it), refused (the engine refused Jarvis's or its own decision, e.g. on a re-check). */
+  reason: "jarvis_enabled" | "jarvis_disabled" | "paused" | "resumed" | "budget" | "declined" | "refused";
+  /** The waiting request. */
+  requestId: string;
+  /** The new route; null when Jarvis mode went off (no routing). */
+  route: "person" | "jarvis" | "auto" | null;
+  /** Its session; 'ext:<cli>:<id>' for an external session's approval. */
+  sessionId: string;
+}
+
 /** `session.event` notification payload. */
 export interface SessionEventPayload {
   /** The session's owning client (addendum 8); null for unhosted sessions. */
@@ -8090,8 +8519,25 @@ export interface SessionsChangedPayload {
   browserProvider?: "host" | "local" | null;
   /** The session's owning client (addendum 8); null for unhosted sessions. */
   hostToolsFrom?: string | null;
+  /** As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. */
+  jarvis?: {
+    /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
+    exposed: boolean;
+    /** The grant in force (jarvis.delegation.list id); null for the default. */
+    grantId?: string | null;
+    /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
+    level?: "staged" | "full" | null;
+    /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
+    /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
+    pausedUntil?: string | null;
+    /** True after jarvis.takeover without a limit, until jarvis.handback. */
+    takenOver?: boolean;
+  } | null;
   /** create, prompt, turn, renamed, close, ... */
   reason: string;
+  /** As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. */
+  role?: "jarvis" | null;
   /** Session that changed. */
   sessionId: string;
   /** Its status now, when known. */
@@ -9031,12 +9477,14 @@ export interface MethodMap {
   "external.clis": { params: ExternalClisParams; result: ExternalClisResult };
   "external.close": { params: ExternalCloseParams; result: ExternalCloseResult };
   "external.create": { params: ExternalCreateParams; result: ExternalCreateResult };
+  "external.get": { params: ExternalGetParams; result: ExternalGetResult };
   "external.interrupt": { params: ExternalInterruptParams; result: ExternalInterruptResult };
   "external.list": { params: ExternalListParams; result: ExternalListResult };
   "external.open": { params: ExternalOpenParams; result: ExternalOpenResult };
   "external.read": { params: ExternalReadParams; result: ExternalReadResult };
   "external.send": { params: ExternalSendParams; result: ExternalSendResult };
   "external.setMode": { params: ExternalSetModeParams; result: ExternalSetModeResult };
+  "external.unwatch": { params: ExternalUnwatchParams; result: ExternalUnwatchResult };
   "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
   "fs.glob": { params: FsGlobParams; result: FsGlobResult };
   "fs.hash": { params: FsHashParams; result: FsHashResult };
@@ -9061,6 +9509,8 @@ export interface MethodMap {
   "jarvis.delegation.set": { params: JarvisDelegationSetParams; result: JarvisDelegationSetResult };
   "jarvis.disable": { params: JarvisDisableParams; result: JarvisDisableResult };
   "jarvis.enable": { params: JarvisEnableParams; result: JarvisEnableResult };
+  "jarvis.escalations.dismiss": { params: JarvisEscalationsDismissParams; result: JarvisEscalationsDismissResult };
+  "jarvis.escalations.list": { params: JarvisEscalationsListParams; result: JarvisEscalationsListResult };
   "jarvis.handback": { params: JarvisHandbackParams; result: JarvisHandbackResult };
   "jarvis.ledger": { params: JarvisLedgerParams; result: JarvisLedgerResult };
   "jarvis.overview": { params: JarvisOverviewParams; result: JarvisOverviewResult };
@@ -9090,7 +9540,9 @@ export interface MethodMap {
   "mcp.deauthorize": { params: McpDeauthorizeParams; result: McpDeauthorizeResult };
   "mcp.list": { params: McpListParams; result: McpListResult };
   "mcp.preset.apply": { params: McpPresetApplyParams; result: McpPresetApplyResult };
+  "mcp.preset.check": { params: McpPresetCheckParams; result: McpPresetCheckResult };
   "mcp.preset.list": { params: McpPresetListParams; result: McpPresetListResult };
+  "mcp.preset.remove": { params: McpPresetRemoveParams; result: McpPresetRemoveResult };
   "mcp.reload": { params: McpReloadParams; result: McpReloadResult };
   "mcp.remove": { params: McpRemoveParams; result: McpRemoveResult };
   "mcp.test": { params: McpTestParams; result: McpTestResult };
@@ -9234,12 +9686,14 @@ export type ClientMethod =
   | "external.clis"
   | "external.close"
   | "external.create"
+  | "external.get"
   | "external.interrupt"
   | "external.list"
   | "external.open"
   | "external.read"
   | "external.send"
   | "external.setMode"
+  | "external.unwatch"
   | "file.complete"
   | "fs.glob"
   | "fs.hash"
@@ -9263,6 +9717,8 @@ export type ClientMethod =
   | "jarvis.delegation.set"
   | "jarvis.disable"
   | "jarvis.enable"
+  | "jarvis.escalations.dismiss"
+  | "jarvis.escalations.list"
   | "jarvis.handback"
   | "jarvis.ledger"
   | "jarvis.overview"
@@ -9292,7 +9748,9 @@ export type ClientMethod =
   | "mcp.deauthorize"
   | "mcp.list"
   | "mcp.preset.apply"
+  | "mcp.preset.check"
   | "mcp.preset.list"
+  | "mcp.preset.remove"
   | "mcp.reload"
   | "mcp.remove"
   | "mcp.test"
@@ -9407,14 +9865,18 @@ export type ServerMethod =
 export interface EventMap {
   "approval.pending": ApprovalPendingPayload;
   "approval.resolved": ApprovalResolvedPayload;
+  "approval.route.changed": ApprovalRouteChangedPayload;
   "audio.install.progress": AudioInstallProgressPayload;
   "commands.changed": CommandsChangedPayload;
+  "external.clis.changed": ExternalClisChangedPayload;
   "external.event": ExternalEventPayload;
   "external.state": ExternalStatePayload;
   "gateway.event": GatewayEventPayload;
+  "jarvis.access": JarvisAccessPayload;
   "jarvis.decision": JarvisDecisionPayload;
   "jarvis.delegation.changed": JarvisDelegationChangedPayload;
   "jarvis.escalation": JarvisEscalationPayload;
+  "jarvis.escalation.dismissed": JarvisEscalationDismissedPayload;
   "jarvis.state": JarvisStatePayload;
   "job.event": JobEventPayload;
   "lsp.changed": LspChangedPayload;
@@ -9424,6 +9886,7 @@ export interface EventMap {
   "provider.loginProgress": ProviderLoginProgressPayload;
   "question.pending": QuestionPendingPayload;
   "question.resolved": QuestionResolvedPayload;
+  "question.route.changed": QuestionRouteChangedPayload;
   "session.event": SessionEventPayload;
   "sessions.changed": SessionsChangedPayload;
   "settings.changed": SettingsChangedPayload;
@@ -9436,14 +9899,18 @@ export type EventName = keyof EventMap;
 export const EVENT_NAMES: readonly EventName[] = [
   "approval.pending",
   "approval.resolved",
+  "approval.route.changed",
   "audio.install.progress",
   "commands.changed",
+  "external.clis.changed",
   "external.event",
   "external.state",
   "gateway.event",
+  "jarvis.access",
   "jarvis.decision",
   "jarvis.delegation.changed",
   "jarvis.escalation",
+  "jarvis.escalation.dismissed",
   "jarvis.state",
   "job.event",
   "lsp.changed",
@@ -9453,6 +9920,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "provider.loginProgress",
   "question.pending",
   "question.resolved",
+  "question.route.changed",
   "session.event",
   "sessions.changed",
   "settings.changed",

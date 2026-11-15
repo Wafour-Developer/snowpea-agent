@@ -376,6 +376,36 @@ async def test_unchanged_hash_keeps_session(paths: Paths) -> None:
 # -- loopback listener --------------------------------------------------------
 
 
+async def test_oauth_return_route_serves_the_app_on_both_listeners(
+    paths: Paths, dist: Path
+) -> None:
+    """The IDE's host-caught OAuth redirect URI ``<origin>/web/mcp-oauth`` (M19).
+
+    The provider sends the browser there with ``code`` and ``state``; both the
+    remote listener and the loopback one answer with the app (a client-side
+    route), never cached, so the page can finish with ``mcp.authorize.complete``.
+    """
+    remote, _, _ = await _remote(paths)
+    core = SimpleNamespace(token="daemon-token", hub=None)
+    loopback = TestClient(TestServer(create_app(RpcDispatcher(core), None, core),
+                                     host="127.0.0.1"))
+    await loopback.start_server()
+    try:
+        for client in (remote, loopback):
+            for path in ("/web/mcp-oauth", "/web/mcp-oauth?code=abc&state=xyz",
+                         "/web/some/deep/route"):
+                page = await client.get(path)
+                assert page.status == 200, (client, path)
+                assert "id=app" in await page.text()
+                assert page.headers["Cache-Control"] == "no-cache"
+        page = await remote.get("/web/mcp-oauth?code=abc&state=xyz")
+        assert page.headers["X-Frame-Options"] == "DENY"
+        assert page.headers["Referrer-Policy"] == "no-referrer"
+    finally:
+        await remote.close()
+        await loopback.close()
+
+
 async def test_loopback_has_no_login_routes(dist: Path) -> None:
     core = SimpleNamespace(token="daemon-token", hub=None)
     app = create_app(RpcDispatcher(core), None, core)

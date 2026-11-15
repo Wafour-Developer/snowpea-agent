@@ -95,6 +95,12 @@ class NamedAgentError(ValueError):
     """A named agent could not be created, bound or deleted."""
 
 
+#: Names held for daemon features: a person cannot create or delete a named
+#: agent under them.  ``jarvis`` is Jarvis mode's session (M19), which its
+#: service creates, restores and parks itself (``jarvis/service.py``).
+RESERVED_NAMES: frozenset[str] = frozenset({"jarvis"})
+
+
 def namespace_for(name: str) -> str:
     """The memory namespace of a named agent (M5 contract §1)."""
     return f"agent:{name}"
@@ -260,16 +266,20 @@ class NamedAgentRegistry:
         *,
         workdir: Path | str | None = None,
         parent: Session | None = None,
+        reserved: bool = False,
     ) -> NamedAgent:
         """Register ``name`` as a persistent instance and open its session.
 
         ``parent`` is the session it was created from: a browser session's
         named agent runs with that browser's host tools (addendum 14).
+        ``reserved`` is for the owner of a :data:`RESERVED_NAMES` entry only.
         """
         try:
             slug = validate_name(name)
         except DefinitionError as exc:
             raise NamedAgentError(str(exc)) from exc
+        if slug in RESERVED_NAMES and not reserved:
+            raise NamedAgentError(f"the agent name {slug!r} is reserved for Jarvis mode")
         if slug in self._agents:
             raise NamedAgentError(f"a named agent called {slug!r} already exists")
         session = await self._open_session(slug, definition, workdir=workdir, parent=parent)
@@ -452,6 +462,8 @@ class NamedAgentRegistry:
         store = self._require_store()
         restored = 0
         for agent in store.all():
+            if agent.name in RESERVED_NAMES:
+                continue  # its owner restores it, when it is switched on
             definition = self._definition_of(agent)
             agent.description = definition.description if definition else ""
             try:
@@ -471,12 +483,16 @@ class NamedAgentRegistry:
             log.info("restored %s named agent(s)", restored)
         return restored
 
-    async def delete(self, name: str) -> bool:
+    async def delete(self, name: str, *, reserved: bool = False) -> bool:
         """Unbind the channels, cancel the jobs, close the session, drop the row.
 
         ``NamedAgentError`` while a browser-owned job runs as this agent: only
-        that browser may cancel it (1.23.0).
+        that browser may cancel it (1.23.0), and for a reserved name.
         """
+        if name in RESERVED_NAMES and not reserved:
+            raise NamedAgentError(
+                f"{name!r} is Jarvis mode's session; turn Jarvis mode off instead"
+            )
         if name not in self._agents:
             return False
         core = self.core
@@ -506,6 +522,26 @@ class NamedAgentRegistry:
         self._count()
         log.info("named agent %s deleted", name)
         return True
+
+    # -- reserved agents (owned by a daemon feature) ----------------------
+    def stored(self, name: str) -> NamedAgent | None:
+        """The persisted row of ``name``, live or not."""
+        for agent in self._require_store().all():
+            if agent.name == name:
+                return agent
+        return None
+
+    def attach(self, agent: NamedAgent) -> None:
+        """List ``agent`` as live and persist it (its session is already open)."""
+        self._agents[agent.name] = agent
+        self._require_store().upsert(agent)
+        self._count()
+
+    def detach(self, name: str) -> NamedAgent | None:
+        """Stop listing ``name`` as live; its row and session history are kept."""
+        agent = self._agents.pop(name, None)
+        self._count()
+        return agent
 
     # -- bookkeeping ---------------------------------------------------
     def _count(self) -> None:
@@ -630,6 +666,7 @@ __all__ = [
     "JobIds",
     "NamedAgents",
     "NAMED_KIND",
+    "RESERVED_NAMES",
     "SCHEMA",
     "agent_bind_channel_handler",
     "agent_delete_handler",

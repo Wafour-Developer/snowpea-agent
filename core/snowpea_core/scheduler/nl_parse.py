@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
@@ -137,6 +138,9 @@ class Spec:
     interval_sec: int | None = None
     #: Firing time of a ``once`` spec, timezone-aware UTC.
     at: datetime | None = None
+    #: IANA zone a ``cron`` spec's clock times are read in; ``None`` is the
+    #: daemon's local zone (M19 WP8: a briefing at 9 in the person's own zone).
+    tz: str | None = None
 
     def describe(self) -> str:
         if self.kind == "cron":
@@ -379,6 +383,8 @@ def next_run(spec: Spec, after: datetime | None = None) -> datetime | None:
     """The first firing strictly after ``after``, or ``None`` when there is none."""
     moment = _local(after or _now())
     if spec.kind == "cron" and spec.cron:
+        if spec.tz:
+            moment = moment.astimezone(ZoneInfo(spec.tz))
         return _utc(croniter(spec.cron, moment).get_next(datetime))
     if spec.kind == "interval" and spec.interval_sec:
         return _utc(moment + timedelta(seconds=spec.interval_sec))

@@ -333,6 +333,7 @@ async def approval_ask_handler(
         # A payment / onceOnly answer is never remembered: no cache, no entry.
         cacheable=not unremembered,
         site=site,
+        tags=(params.permission,) if params.permission else None,
     )
     scope = decision.scope if decision.scope in _SCOPES else "once"
     if payment or guarded:

@@ -1550,7 +1550,8 @@ async def _model_turn(
 #: (``queue_command``, a delegation's announce turn, a queued ``/ralplan``).
 #: ``member``: someone else in a gateway group chat.  ``schedule``: a job.
 #: ``system``: a core-started ``[system]`` turn.
-ORIGINS = frozenset({"human", "agent", "member", "schedule", "system"})
+#: ``jarvis``: the Jarvis session's ``session_prompt`` / ``session_steer`` (M19).
+ORIGINS = frozenset({"human", "agent", "member", "schedule", "system", "jarvis"})
 
 
 def note_origin(session: Session, turn_id: str, origin: str) -> None:
@@ -1563,8 +1564,9 @@ def note_origin(session: Session, turn_id: str, origin: str) -> None:
 
 #: :data:`ORIGINS` -> ``message.user`` ``origin.kind`` (1.53.0).  ``agent``
 #: text (a queued command, ``/ralplan``) is ``system``: no person typed it.
-#: ``jarvis`` is reserved for the Jarvis session (M19 WP4).
+#: ``jarvis`` is the Jarvis session's instructions to a worker (M19 WP4).
 _MESSAGE_ORIGIN_KINDS = {
+    "jarvis": "jarvis",
     "human": "human",
     "member": "gateway",
     "schedule": "schedule",
@@ -1811,8 +1813,12 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
     rpc_injected = 0
     while session.rpc_steers:
         # ``session.steer`` is an explicit request, so it ignores agent.busy.
-        text = session.rpc_steers.pop(0)
-        if await _inject_external_steer(core, session, f"steer:{uuid.uuid4().hex}", text):
+        # Jarvis's ``session_steer`` queues ``(origin, text)`` (M19 WP4).
+        item = session.rpc_steers.pop(0)
+        steer_origin, text = item if isinstance(item, tuple) else ("human", item)
+        if await _inject_external_steer(
+            core, session, f"steer:{uuid.uuid4().hex}", text, origin=steer_origin
+        ):
             rpc_injected += 1
     policy = _busy_policy(core)
     injected = rpc_injected
@@ -1876,21 +1882,29 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
 
 
 async def _inject_external_steer(
-    core: Core, session: Session, source_turn_id: str, text: str
+    core: Core, session: Session, source_turn_id: str, text: str, origin: str = "human"
 ) -> bool:
     """Inject a steer prompt propagated from an ancestor session."""
     if source_turn_id in session.propagated_steers:
         return False
     session.propagated_steers.add(source_turn_id)
     body = f"{STEER_PREFIX}{text}"
+    jarvis = origin == "jarvis"
     session.history.append(
-        ChatMessage(role="user", content=body, source=history_mod.source("user", "steer"))
+        ChatMessage(
+            role="user",
+            content=f"{STEER_PREFIX}[From Jarvis, the supervising assistant] {text}"
+            if jarvis
+            else body,
+            source=history_mod.source("jarvis" if jarvis else "user", "steer"),
+        )
     )
     session.history.compact()
     # session.steer from a surface, or the person's steer relayed down from an
-    # ancestor session: the person's words either way.
+    # ancestor session: the person's words either way — unless Jarvis sent it.
     await core.hub.emit_event(
-        session.id, events.message_user(body, steered=True, origin=message_origin(session, "human"))
+        session.id,
+        events.message_user(body, steered=True, origin=message_origin(session, origin)),
     )
     return True
 
@@ -3000,6 +3014,17 @@ def _repair_calls(core: Core, session: Session, calls: list[ToolCall]) -> list[T
     return calls
 
 
+def _jarvis_refusal(
+    core: Core, session: Session, name: str, tag: str, args: dict[str, Any]
+) -> str | None:
+    """The Jarvis session's (and its sub-agents') server-side tool limits (M19 WP4)."""
+    if getattr(core, "jarvis", None) is None:
+        return None
+    from snowpea_core.jarvis.tools import guard_call
+
+    return guard_call(core, session, name, tag, dict(args or {}))
+
+
 def skill_refuses(session: Session, name: str) -> bool:
     """True when the session's narrowed tool list excludes the tool ``name``.
 
@@ -3065,6 +3090,10 @@ async def _run_one_call(
     # A write that lands on snowpea's own settings is judged as ``config``,
     # not ``write`` (CORE-search-fix): the tag, not the tool, decides.
     tag = effective_permission(tool, call.arguments, session, core)
+    refusal = _jarvis_refusal(core, session, tool.name, tag, call.arguments)
+    if refusal:
+        await _deny_call(core, session, call, refusal)
+        return None
     refusal = _lead_direct_refusal(core, session, tool.name, tag)
     if refusal:
         await _deny_call(core, session, call, refusal)
@@ -3123,6 +3152,7 @@ async def _run_one_call(
             note=_source_note(tool, GUARD_NOTE if guarded else policy.note(tag)),
             cacheable=tag not in UNPROMOTABLE and not guarded,
             guard=AGENT_SWITCH_GUARD if guarded else None,
+            tags=(tag,),
         )
         if session.interrupt.is_set():
             view_image.flush_tool_image_messages(core, session, append=False)

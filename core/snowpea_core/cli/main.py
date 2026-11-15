@@ -57,6 +57,8 @@ from snowpea_core.cli.render import (
 MODES = ("plan", "accept", "auto")
 TUI_BUNDLE = "snowpea-tui.js"
 
+#: Subcommands that open the TUI on one of its screens (``--start``, M19).
+TUI_SCREENS = ("jarvis", "external")
 #: The TUI exits with this after an in-place update, meaning "start me again".
 #: 75 is EX_TEMPFAIL, which no other snowpea exit path uses.
 TUI_RESTART_EXIT = 75
@@ -392,6 +394,9 @@ def launch_tui(args: argparse.Namespace, home: str | None) -> int:
         command += ["--mode", args.mode]
     if getattr(args, "inline", False):
         command.append("--inline")
+    start = getattr(args, "start_screen", None)
+    if start:
+        command += ["--start", start]
     try:
         code = subprocess.call(command)  # noqa: S603 - argv built above
     except FileNotFoundError:
@@ -739,6 +744,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             # subcommand is just `/init [--force]` typed for you.
             args.prompt = "/init" + (" --force" if getattr(args, "force", False) else "")
             return asyncio.run(run_headless(args, home))
+        if args.subcommand in TUI_SCREENS:
+            # `snowpea jarvis` / `snowpea external`: the TUI, opened on that screen.
+            args.start_screen = args.subcommand
+            return launch_tui(args, home)
         if args.subcommand:
             return asyncio.run(cli_commands.dispatch(args, home))
         if args.prompt is not None:

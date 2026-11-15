@@ -232,7 +232,16 @@ async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     raw_tags = args.get("tags") or []
     tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else []
 
-    namespace, reason = await resolve_namespace(ctx, raw_scope)
+    from snowpea_core.memory import access
+
+    forced, denied = access.write_namespace(ctx.core, ctx.session, raw_scope)
+    if denied:
+        return ToolResult(ok=False, error=denied, meta={"written": False})
+    if forced is not None:
+        # Jarvis writes only to its own memory (M19 WP4).
+        namespace, reason = forced, ""
+    else:
+        namespace, reason = await resolve_namespace(ctx, raw_scope)
     if namespace is None:
         return ToolResult(ok=True, output=reason, meta={"written": False})
 
@@ -314,7 +323,16 @@ async def search_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ok=False, error=f"unknown namespace {wanted!r}; use 'browser' or leave it out"
         )
     memory = _services(ctx)
-    namespaces = [wanted] if wanted else namespaces_for(ctx.session)
+    from snowpea_core.memory import access
+
+    jarvis_reads = await access.read_namespaces(ctx.core, ctx.session)
+    if jarvis_reads is not None:
+        # Jarvis: global, its own, and every exposed project's (M19 WP4).
+        if wanted:
+            return ToolResult(ok=False, error="Jarvis does not search browser memory")
+        namespaces = jarvis_reads
+    else:
+        namespaces = [wanted] if wanted else namespaces_for(ctx.session)
     limit = limit or memory.settings.top_k
     found = await memory.store.search_many(
         query, namespaces=namespaces, limit=limit * SEARCH_OVERFETCH

@@ -115,6 +115,9 @@ async def cmd_mode(ctx: CommandContext, args: str) -> None:
             "or 'save' / 'show')"
         )
         return
+    if getattr(ctx.session, "role", None) == "jarvis":
+        await ctx.say("Jarvis's session keeps its mode; it cannot be switched or saved.")
+        return
     if target == "save":
         project = ProjectSettings.load(ctx.session.workdir)
         project.defaultMode = ctx.session.mode  # type: ignore[assignment]

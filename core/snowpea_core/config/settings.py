@@ -770,6 +770,12 @@ class JarvisBriefingSettings(_Model):
     #: Cron expression, daemon-local time.
     schedule: str = "0 9 * * 1-5"
     instructions: str = ""
+    #: IANA zone the schedule is read in; ``None`` is the daemon's.
+    timezone: str | None = None
+    #: What it covers: ``sessions``, ``waiting``, ``todos``, ``mail``, ``calendar``.
+    sections: list[str] = Field(
+        default_factory=lambda: ["sessions", "waiting", "todos", "mail", "calendar"]
+    )
 
 
 class JarvisBudgetSettings(_Model):
@@ -800,7 +806,8 @@ class JarvisExternalCliSettings(_Model):
     #: Absolute executable path; ``None`` searches ``PATH``.
     path: str | None = None
     #: Mode a new or continued session gets unless one is chosen; ``None``
-    #: means ``default`` (``readonly`` for cursor, which has no ``default``).
+    #: means the CLI's own default (``readonly`` for cursor).  A mode the CLI
+    #: does not offer (agy has no ``readonly``) falls back to that default.
     #: Only the person sets it; ``unrestricted`` lets the CLI bypass its own
     #: permission prompts and snowpea's.
     defaultMode: Literal["default", "readonly", "unrestricted"] | None = None
@@ -828,9 +835,12 @@ class JarvisExternalSettings(_Model):
                 f"unknown external CLI {', '.join(unknown)}; expected one of "
                 f"{', '.join(EXTERNAL_CLI_IDS)}"
             )
-        cursor = value.get("cursor")
-        if cursor is not None and cursor.defaultMode == "default":
-            raise ValueError("cursor has no 'default' mode; use 'readonly' or 'unrestricted'")
+        agy = value.get("agy")
+        if agy is not None and agy.defaultMode == "readonly":
+            raise ValueError(
+                "agy has no 'readonly' mode (its plan mode still writes files); use 'default' "
+                "or 'unrestricted'"
+            )
         return value
 
 
@@ -848,8 +858,7 @@ class JarvisNotifySettings(_Model):
 class JarvisSettings(_Model):
     """Jarvis mode (M19, beta, 1.53.0): one supervising session per daemon.
 
-    Settings only; the service, delegation engine and external CLIs land in
-    later work packages (docs/design/m19-jarvis-mode.md).
+    Design: docs/design/m19-jarvis-mode.md.
     """
 
     enabled: bool = False
@@ -862,6 +871,15 @@ class JarvisSettings(_Model):
     #: Minutes without the person's input after which a paused session's
     #: delegation returns by itself.
     quietMinutes: int = Field(default=10, ge=1, le=24 * 60)
+    #: Minutes a fully delegated session may sit still before Jarvis is woken:
+    #: a running turn with no event at all, or an idle session whose last
+    #: answer said work remains (the unfinished-work gate's wording).
+    stallMinutes: int = Field(default=15, ge=1, le=24 * 60)
+    #: Browser-host sessions (owned by a browser connection) are read and
+    #: instructed like any other exposed session.  Off: they are listed with
+    #: their status only — no transcript, no prompts.  Their approvals are
+    #: never Jarvis's either way.
+    exposeBrowser: bool = True
     proactive: JarvisProactiveSettings = Field(default_factory=JarvisProactiveSettings)
     briefing: JarvisBriefingSettings = Field(default_factory=JarvisBriefingSettings)
     budget: JarvisBudgetSettings = Field(default_factory=JarvisBudgetSettings)

@@ -32,6 +32,17 @@ DEFAULT_MODE: Mode = "accept"
 
 
 
+
+def _reserved_agent(kind: str, agent: str) -> bool:
+    """A daemon feature's own named agent (Jarvis): no agent definition file shapes it."""
+    from snowpea_core.agent.named import RESERVED_NAMES
+
+    return kind == "agent" and agent in RESERVED_NAMES
+
+
+class ModePinned(ValueError):
+    """A session whose mode cannot be switched (the Jarvis session, M19)."""
+
 class SessionManager:
     """Creates, tracks and closes sessions; resolves per-project defaults."""
 
@@ -64,6 +75,9 @@ class SessionManager:
         #: approvals with the owner's chat (``gateway.<platform>.shareActive``).
         self.active_id: str | None = None
         self.active_at: str | None = None
+        #: ``session id -> extra sessions.changed fields`` (``role``,
+        #: ``jarvis``; 1.53.0), installed by the Jarvis service.
+        self.summary_extras: Any = None
 
     def mark_active(self, session: Session) -> bool:
         """Make ``session`` the active one; False for a subagent or job run.
@@ -92,6 +106,10 @@ class SessionManager:
         try:
             session = self._sessions.get(session_id)
             payload: dict[str, Any] = {"reason": reason, "sessionId": session_id}
+            extras = self.summary_extras
+            if extras is not None:
+                # SessionSummary.role / .jarvis (1.53.0), from the Jarvis service.
+                payload.update(extras(session_id))
             if status is not None:
                 payload["status"] = status
             if session is not None and session.title:
@@ -162,7 +180,7 @@ class SessionManager:
         """
         resolved_dir = Path(workdir).expanduser()
         selected_team = active_team(self.settings, resolved_dir)
-        if definition_model is None and agent:
+        if definition_model is None and agent and not _reserved_agent(kind, agent):
             definition_model = self._definition_model(agent, resolved_dir)
         route = route_for(
             self.settings,
@@ -349,6 +367,15 @@ class SessionManager:
     async def set_mode(
         self, session: Session, mode: Mode, auto_after_plan: bool | None = None
     ) -> Mode:
+        if getattr(session, "role", None) == "jarvis" and mode != session.mode:
+            # Jarvis's own session is pinned (M19): its limits are server-side,
+            # but nothing — Jarvis, a prompt, a client — switches its mode.
+            raise ModePinned("Jarvis's session keeps its mode; it cannot be switched")
+        return await self._set_mode(session, mode, auto_after_plan)
+
+    async def _set_mode(
+        self, session: Session, mode: Mode, auto_after_plan: bool | None = None
+    ) -> Mode:
         """Switch ``session`` to ``mode`` and persist it.
 
         ``auto_after_plan`` (1.32.0) only means something in PLAN mode: ``True``
@@ -411,7 +438,7 @@ class SessionManager:
                 agent=session.agent,
                 definition_model=(
                     self._definition_model(session.agent, Path(session.workdir))
-                    if session.agent
+                    if session.agent and not _reserved_agent(session.kind, session.agent)
                     else None
                 ),
                 workdir=session.workdir,

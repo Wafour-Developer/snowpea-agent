@@ -307,10 +307,13 @@ async def session_create_handler(
     await _load_project_skills(core, session.workdir)
     await mcp_client.sync_tools_bounded(core, session.workdir)
     await announce_model(core, session)
+    jarvis = getattr(core, "jarvis", None)
     return SessionCreateResult(
         sessionId=session.id,
         delegation=effective_delegation(core, session)[0],
         workspaceDir=session.workspace_dir,
+        # SessionSummary.role / .jarvis (1.53.0)
+        **(jarvis.summary_fields(session.id) if jarvis is not None else {}),
     )
 
 
@@ -445,6 +448,9 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
     machine = machine_of(core)
     rows = [_with_effort(core, _with_waits(core, row)).model_copy(update={"machine": machine})
             for row in rows]
+    jarvis = getattr(core, "jarvis", None)
+    if jarvis is not None:  # SessionSummary.role / .jarvis (1.53.0)
+        rows = [jarvis.decorate(row) for row in rows]
     return sorted(rows, key=lambda row: row.createdAt, reverse=True)
 
 
@@ -911,9 +917,13 @@ async def session_set_mode_handler(
     _conn: RpcConnection, params: SessionSetModeParams, core: Core
 ) -> SessionSetModeResult:
     from snowpea_core.session import events
+    from snowpea_core.session.manager import ModePinned
 
     session = _session(core, params.sessionId)
-    mode = await core.sessions.set_mode(session, params.mode, params.autoAfterPlan)
+    try:
+        mode = await core.sessions.set_mode(session, params.mode, params.autoAfterPlan)
+    except ModePinned as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     flag = bool(session.auto_after_plan)
     await core.hub.emit_event(session.id, events.mode_changed(mode, auto_after_plan=flag))
     return SessionSetModeResult(mode=mode, autoAfterPlan=flag)

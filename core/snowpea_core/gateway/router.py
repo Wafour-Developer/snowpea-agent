@@ -44,8 +44,6 @@ from snowpea_core.gateway.base import (
     GatewayError,
     InboundMessage,
     PlatformAdapter,
-    approval_buttons,
-    approval_text,
     parse_approval_callback,
     parse_question_callback,
     question_buttons,
@@ -55,10 +53,14 @@ from snowpea_core.gateway.base import (
 from snowpea_core.gateway.chat import (
     CHAT_KINDS,
     CHATS_FILE,
+    LOCKED_TEXT,
     ChatCommands,
     ChatSessionMemory,
     short_id,
 )
+from snowpea_core.jarvis.messenger import MessengerBridge
+from snowpea_core.server import errors
+from snowpea_core.server.errors import RpcError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -89,6 +91,9 @@ SHARE_ACTIVE_KEY = "shareActive"
 SHARED_QUESTION_HINT = (
     "(버튼으로 답해 주세요 / answer with the buttons; \u270f\ufe0f Other to type)"
 )
+
+#: ``route`` values of a request Jarvis or the engine handles: never sent to a chat.
+ROUTED_AWAY = ("jarvis", "auto")
 
 #: Channel string that means "just write it to the daemon log" (contract §2).
 LOG_CHANNEL = "log"
@@ -279,6 +284,12 @@ class GatewayConnection:
         #: parent subscription to a single global subscription and this class
         #: filters back down to parent+known-child events.
         self.global_subscription = False
+        #: Jarvis mode (M19): while ``routed`` this chat is on the Jarvis session
+        #: and ``own_session_id`` is where it goes back to when Jarvis is off.
+        self.routed = False
+        self.own_session_id: str | None = None
+        #: Routed chats relay only the turns the chat itself started.
+        self.reply_wanted = False
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if self.closed:
@@ -308,6 +319,11 @@ class GatewayConnection:
             return
         kind = params.get("kind")
         payload = params.get("payload") or {}
+        if self.routed:
+            if kind == "turn.started":
+                self.reply_wanted = self.router.jarvis.reply_wanted(self, dict(payload))
+            if not self.reply_wanted:
+                return  # a turn Jarvis started on its own: the chat hears the notices instead
         if child_agent:
             if kind == "tool.call":
                 await self.activity.subagent_tool_call(
@@ -350,6 +366,7 @@ class GatewayConnection:
             await self.activity.turn_done(str(payload.get("reason") or "complete"))
             self.child_sessions.clear()
             self._restore_parent_subscription()
+            self.reply_wanted = False
             return
         if kind != "message.done":
             return
@@ -432,22 +449,14 @@ class GatewayConnection:
         if request.get("sessionId") != self.session_id:
             return
         request_id = str(request.get("requestId", ""))
-        if not request_id:
+        if not request_id or request.get("route") in ROUTED_AWAY:
             return
         self.asked.add(request_id)
         # Nothing is being worked on while the person decides, so the typing
         # hint would be claiming otherwise.
         self.activity.pause()
-        await self.router.send(
-            self.binding,
-            self.channel_id,
-            approval_text(
-                str(request.get("tool", "?")),
-                dict(request.get("args") or {}),
-                str(request.get("sessionId", "")),
-            ),
-            buttons=approval_buttons(request_id),
-        )
+        text, buttons = self.router.jarvis.approval_message(dict(request))
+        await self.router.send(self.binding, self.channel_id, text, buttons=buttons)
 
     async def _approval_resolved(self, params: dict[str, Any]) -> None:
         request_id = str(params.get("requestId", ""))
@@ -469,6 +478,8 @@ class GatewayConnection:
             return
         request_id = str(request.get("requestId", ""))
         if not request_id or not (request.get("questions") or []):
+            return
+        if request.get("route") in ROUTED_AWAY:
             return
         self.question = dict(request)
         self.question_at = 0
@@ -540,6 +551,8 @@ class GatewayRouter:
         self.chats = ChatSessionMemory(Path(CHATS_FILE))
         #: ``/sessions``, ``/resume``, ``/new``, … (see ``gateway/chat.py``).
         self.chat = ChatCommands(self)
+        #: Jarvis mode in the messengers (M19 WP7, ``jarvis/messenger.py``).
+        self.jarvis = MessengerBridge(self)
 
     # -- wiring --------------------------------------------------------
     def bind_core(self, core: Core) -> None:
@@ -551,6 +564,9 @@ class GatewayRouter:
         # Every question and approval, the interactive ones included, so the
         # active session's asks can follow the owner to their chat.
         core.hub.add_observer(self)
+        service = getattr(core, "jarvis", None)
+        if service is not None:
+            self.jarvis.attach(service)
 
     def _build_adapter(self, platform: str, credentials_ref: str) -> PlatformAdapter:
         """Resolve the credential and construct the adapter for ``platform``."""
@@ -802,6 +818,7 @@ class GatewayRouter:
 
     async def stop(self) -> None:
         """Stop every adapter; the rows stay so the next start restores them."""
+        await self.jarvis.close()
         for binding_id in list(self._adapters):
             adapter = self._adapters.pop(binding_id)
             with contextlib.suppress(Exception):
@@ -826,6 +843,12 @@ class GatewayRouter:
             )
 
     # -- outbound ------------------------------------------------------
+    def message_limit(self, binding: Binding) -> int:
+        """The longest single message ``binding``'s platform takes."""
+        adapter = self._adapters.get(binding.id)
+        limit = int(getattr(adapter, "max_message_chars", DEFAULT_MAX_MESSAGE_CHARS) or 0)
+        return limit if limit > 0 else DEFAULT_MAX_MESSAGE_CHARS
+
     async def send(
         self,
         binding: Binding,
@@ -850,6 +873,13 @@ class GatewayRouter:
         except Exception as exc:  # noqa: BLE001 - a dead platform must not end a turn
             log.warning("gateway send on %s failed: %s", binding.id, exc)
             return ""
+
+    async def acknowledge(self, binding: Binding, message: InboundMessage, text: str) -> None:
+        """Answer a button press where the platform has a spinner to clear."""
+        adapter = self._adapters.get(binding.id)
+        if adapter is not None and message.callback_id:
+            with contextlib.suppress(AttributeError, Exception):
+                await adapter.acknowledge(message.callback_id, text)  # type: ignore[attr-defined]
 
     async def deliver(self, channel: str, text: str) -> bool:
         """Send ``text`` to ``"<platform>:<channel_id>"`` or the log (contract §2)."""
@@ -924,9 +954,13 @@ class GatewayRouter:
     ) -> None:
         """Answer a pending approval from a button press (risk 4: check the user)."""
         adapter = self._adapters.get(binding.id)
+        if await self.jarvis.answer_confirmation(binding, message, request_id, decision):
+            return
+        # Anyone who sees a person-only proposal may decline it; declining changes nothing.
+        decline = decision == "deny" and self._person_only(request_id)
         # Fail closed (plan risk 4): a binding without an approver user id can never
         # approve, otherwise any member of the chat could authorise a remote shell command.
-        if not binding.user_id or message.user_id != binding.user_id:
+        if not decline and (not binding.user_id or message.user_id != binding.user_id):
             reason = (
                 "binding has no approver user id; re-bind with --user <id> to allow approvals"
                 if not binding.user_id
@@ -972,8 +1006,21 @@ class GatewayRouter:
         by = f"gateway:{binding.platform}:{message.user_id}"
         try:
             await self.core.approvals.respond(request_id, decision, "once", by=by)
+        except RpcError as exc:
+            log.info("approval %s from %s was not applied: %s", request_id, by, exc)
+            if exc.code == errors.JARVIS_PERSON_ONLY:
+                await self.send(
+                    binding,
+                    message.channel_id,
+                    f"{exc.message}\n앱에서 확인하세요 / confirm it in the app.",
+                )
         except Exception as exc:  # noqa: BLE001 - already answered or gone
             log.info("approval %s from %s was not applied: %s", request_id, by, exc)
+
+    def _person_only(self, request_id: str) -> bool:
+        """The pending approval is a person-only proposal (Jarvis's ``delegation_set``)."""
+        request = self.core.approvals.get(request_id) if self.core is not None else None
+        return bool(request is not None and request.personOnly)
 
     def _open_question(self, binding: Binding, channel_id: str) -> GatewayConnection | None:
         """The conversation's open ``ask_user`` batch, if there is one."""
@@ -1123,6 +1170,14 @@ class GatewayRouter:
             await self._share_pending(method, params)
         elif method in ("approval.resolved", "question.resolved"):
             await self._share_resolved(method, params)
+        elif method in ("approval.route.changed", "question.route.changed"):
+            # Became the person's (budget, pause, Jarvis left it): to their chat, once.
+            if params.get("route") == "person" and params.get("request"):
+                pending = method.replace(".route.changed", ".pending")
+                await self._share_pending(
+                    pending,
+                    {"request": params["request"], "interactive": params.get("interactive")},
+                )
 
     async def _share_pending(self, method: str, params: dict[str, Any]) -> None:
         """Post the active session's new request to each owner chat that wants it."""
@@ -1131,15 +1186,23 @@ class GatewayRouter:
         session_id = str(request.get("sessionId") or "")
         if self.core is None or not request_id or not session_id:
             return
-        if session_id != getattr(self.core.sessions, "active_id", None):
+        if request.get("route") not in (None, "person"):
+            return  # Jarvis or the engine handles it
+        routed = self.jarvis.routing
+        if routed:
+            # Jarvis mode: every request waiting for the person, whatever session raised it,
+            # except those their own surface is asking right now.
+            if params.get("interactive"):
+                return
+        elif session_id != getattr(self.core.sessions, "active_id", None):
             return
         if method == "question.pending" and not (request.get("questions") or []):
             return
-        label = self._session_label(session_id)
+        label = self.jarvis.label(request) if routed else self._session_label(session_id)
         for binding in list(self._bindings.values()):
             if binding.state != "active" or binding.id not in self._adapters:
                 continue
-            if not self.share_active(binding):
+            if not (bool(binding.user_id) if routed else self.share_active(binding)):
                 continue
             channel = self.owner_chat(binding)
             if channel is None:
@@ -1149,18 +1212,19 @@ class GatewayRouter:
             # by its connection; only an interactive approval never reaches it.
             if own is not None and own.session_id == session_id and not params.get("interactive"):
                 continue
+            # Told again when Jarvis mode came on (re-routed): one post per chat.
+            if (binding.id, channel, request_id) in self._shared or self.jarvis.already_posted(
+                binding.id, channel, request_id
+            ):
+                continue
             shared = GatewayConnection(self, binding, channel)
             shared.session_id = session_id
             shared.label = label
             self._shared[(binding.id, channel, request_id)] = shared
             if method == "approval.pending":
                 shared.asked.add(request_id)
-                body = approval_text(
-                    str(request.get("tool", "?")), dict(request.get("args") or {}), session_id
-                )
-                await self.send(
-                    binding, channel, f"{label}\n{body}", buttons=approval_buttons(request_id)
-                )
+                body, buttons = self.jarvis.approval_message(request)
+                await self.send(binding, channel, f"{label}\n{body}", buttons=buttons)
             else:
                 shared.question = request
                 await shared.post_question()
@@ -1169,6 +1233,7 @@ class GatewayRouter:
         """Close a shared request in its chat once anyone answered it."""
         request_id = str(params.get("requestId") or "")
         by = str(params.get("by") or "")
+        self.jarvis.resolved(request_id)
         for key in [key for key in self._shared if key[2] == request_id]:
             shared = self._shared.pop(key)
             binding = shared.binding
@@ -1210,6 +1275,10 @@ class GatewayRouter:
                 # not a snowpea command: answer it instead of failing it.
                 await self.send(binding, message.channel_id, WELCOME_TEXT)
                 return
+            if self.jarvis.routing:
+                # A registry command would act on Jarvis's own session.
+                await self.send(binding, message.channel_id, LOCKED_TEXT)
+                return
             if self.core.commands.get(name) is None:
                 # A failed command only produces an ``error`` event, which
                 # never reaches the chat; say so where the person can see it.
@@ -1231,7 +1300,7 @@ class GatewayRouter:
         prepared = prepare_prompt(
             self.core, session, text, None, accept_wire=_accept_attachments, scope="workdir"
         )
-        agent_loop.start_turn(
+        turn_id = agent_loop.start_turn(
             self.core,
             session,
             prepared.text,
@@ -1241,6 +1310,9 @@ class GatewayRouter:
             origin=_origin(binding, message),
             surface=binding.platform,
         )
+        if _origin(binding, message) == "human" and session is self.jarvis.jarvis_session():
+            # The bound person's own words to Jarvis: what one-press asks tie to.
+            self.jarvis.note_turn(turn_id, binding, message)
 
     async def _session_for(
         self,
@@ -1251,9 +1323,12 @@ class GatewayRouter:
     ) -> tuple[Any, GatewayConnection]:
         """The session for this conversation, created on first message."""
         assert self.core is not None
+        chat_type = str((metadata or {}).get("chat_type") or "")
+        if self.jarvis.routing:
+            # Jarvis mode: the stored target and the remembered session stay as they are.
+            return await self.jarvis.resolve(binding, channel_id, chat_type)
         key = (binding.id, channel_id)
         conn = self._conns.get(key)
-        chat_type = str((metadata or {}).get("chat_type") or "")
         if conn is not None and chat_type:
             conn.chat_type = chat_type
         if conn is not None and conn.session_id is not None:

@@ -142,6 +142,8 @@ class Core:
     #: Named persistent agents (US-021); ``Daemon.start`` builds it and
     #: restores its sessions before the gateway re-attaches its bindings.
     named_agents: Any = None
+    #: Jarvis mode (M19, ``jarvis.service.JarvisService``); ``Daemon.start`` builds it.
+    jarvis: Any = None
     sessions: SessionManager = field(default_factory=SessionManager)
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     commands: CommandRegistry = field(default_factory=CommandRegistry)
@@ -182,6 +184,9 @@ class Core:
     #: Signed read-only site-memory packs from the loaded plugins (C5);
     #: built on first use by :func:`snowpea_core.session.site_packs.packs_for`.
     site_packs: Any = None
+    #: External CLI sessions (M19 WP5, ``external.manager.ExternalManager``);
+    #: built by ``server.external_handlers.ensure_manager``.
+    external: Any = None
 
     # -- settings hot reload (CORE-settings-reload) ---------------------
 
@@ -254,6 +259,12 @@ class Core:
                     await apply_enabled()
                 except Exception:  # noqa: BLE001 - a broken loader must not stop the event
                     log.warning("could not apply the skills settings", exc_info=True)
+        if self.jarvis is not None and any(k == "jarvis" or k.startswith("jarvis.") for k in keys):
+            # jarvis.enabled / model / folder edited outside jarvis.enable (M19).
+            try:
+                await self.jarvis.apply_settings()
+            except Exception:  # noqa: BLE001 - Jarvis must not stop the event
+                log.warning("could not apply the Jarvis settings", exc_info=True)
         if "extensions" in keys and self.extensions is not None:
             # settings.extensions.<name>.{enabled,config} edited: follow it.
             try:
@@ -711,6 +722,19 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.llm_handlers import register_llm_handlers
 
     register_llm_handlers(dispatcher)
+    from snowpea_core.server.jarvis_delegation_handlers import register_jarvis_delegation_handlers
+
+    register_jarvis_delegation_handlers(dispatcher)
+    from snowpea_core.server.jarvis_handlers import register_jarvis_handlers
+
+    register_jarvis_handlers(dispatcher)
+    from snowpea_core.server.external_handlers import register_external_handlers
+
+    register_external_handlers(dispatcher)
+
+    from snowpea_core.server.jarvis_assist_handlers import register_jarvis_assist_handlers
+
+    register_jarvis_assist_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
@@ -799,6 +823,14 @@ class Daemon:
         core.gateway.bind_core(core)
         core.named_agents = NamedAgentRegistry(core)
         self.core = core
+        # Before anything can start an external CLI: stop the ones a daemon
+        # that died left running (pid files under $SNOWPEA_HOME/external/).
+        from snowpea_core.server.external_handlers import ensure_manager
+
+        try:
+            await ensure_manager(core).start()
+        except Exception:  # noqa: BLE001 - external sessions must not stop the daemon
+            log.warning("could not start the external CLI manager", exc_info=True)
 
         dispatcher = build_dispatcher(core)
         self.app = create_app(dispatcher, daemon=self, core=core)
@@ -842,6 +874,11 @@ class Daemon:
         # Before the gateway: a binding that targets a named agent's session
         # needs that session to exist again (M7 contract §6).
         await core.named_agents.restore()
+        # Jarvis mode's reserved agent is not in that restore: its service
+        # brings it back only while jarvis.enabled is on (M19).
+        from snowpea_core.jarvis.service import start_jarvis
+
+        await start_jarvis(core)
         await core.gateway.restore()
         core.sessions_loaded = True
         # A messenger the setup wizard enabled goes live here, without anyone
@@ -1065,6 +1102,10 @@ class Daemon:
             # before we start tearing down the services it depends on
             # (CORE-memory-race).
             self.core.stopping = True
+            if self.core.jarvis is not None:
+                # Stop watching before the sessions close under the intake.
+                with contextlib.suppress(Exception):
+                    await self.core.jarvis.stop()
             # Close every turn still in flight while the hub and the store are
             # both still up.  ``close_all`` below cancels the turn tasks, and a
             # turn cancelled during shutdown skips its own final write
@@ -1078,6 +1119,10 @@ class Daemon:
             # write on an already-closed store (CORE-session-race, the
             # session-store analogue of CORE-memory-race).
             await self.core.sessions.close_all()
+            if self.core.external is not None:
+                # External CLI children are ours: stop them as a tree.
+                with contextlib.suppress(Exception):
+                    await self.core.external.shutdown()
             # The update watcher polls rather than blocking a thread, so
             # cancelling it returns straight away (CORE-update).
             for attribute in ("update_task", "update_check_task"):
