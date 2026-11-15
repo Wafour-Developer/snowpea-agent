@@ -1,0 +1,6 @@
+{
+  "name": "glossary-mcp",
+  "description": "Runs a small MCP server with a define tool for the team glossary.",
+  "version": "1.0.0",
+  "engines": {"snowpea": "^1"}
+}

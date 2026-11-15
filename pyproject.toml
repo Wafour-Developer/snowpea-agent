@@ -83,7 +83,7 @@ artifacts = [
 ]
 
 [tool.hatch.build.targets.sdist]
-include = ["core", "tests", "installer", "hatch_build.py", "README.md", "LICENSE", "NOTICE"]
+include = ["core", "tests", "examples", "installer", "hatch_build.py", "README.md", "LICENSE", "NOTICE"]
 # `uv build` builds the wheel out of the sdist, so the sdist has to carry the
 # bundle too — otherwise the hook would have nothing to copy in that second pass.
 artifacts = [

@@ -1,0 +1,6 @@
+{
+  "name": "finish-the-job",
+  "description": "Sends the model back when its answer still holds a TODO or placeholder.",
+  "version": "1.0.0",
+  "engines": {"snowpea": "^1"}
+}

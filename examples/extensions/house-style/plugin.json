@@ -1,0 +1,6 @@
+{
+  "name": "house-style",
+  "description": "Adds the team's house rules to the system prompt.",
+  "version": "1.0.0",
+  "engines": {"snowpea": "^1"}
+}

@@ -1,0 +1,6 @@
+{
+  "name": "git-branch",
+  "description": "Keeps the model told which git branch the project is on.",
+  "version": "1.0.0",
+  "engines": {"snowpea": "^1"}
+}

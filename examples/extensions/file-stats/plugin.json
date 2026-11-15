@@ -1,0 +1,6 @@
+{
+  "name": "file-stats",
+  "description": "A file_stats tool: files, lines and bytes under a path.",
+  "version": "1.0.0",
+  "engines": {"snowpea": "^1"}
+}

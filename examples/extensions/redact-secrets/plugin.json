@@ -1,0 +1,23 @@
+{
+  "name": "redact-secrets",
+  "description": "Replaces credentials in tool output before the model reads it.",
+  "version": "1.0.0",
+  "engines": {"snowpea": "^1"},
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "patterns": {
+        "type": "array",
+        "items": {"type": "string", "minLength": 1},
+        "default": [],
+        "description": "More regular expressions to redact."
+      },
+      "replacement": {
+        "type": "string",
+        "default": "[redacted]",
+        "description": "What a match is replaced with."
+      }
+    },
+    "additionalProperties": false
+  }
+}

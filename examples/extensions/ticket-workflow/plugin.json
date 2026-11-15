@@ -1,0 +1,28 @@
+{
+  "name": "ticket-workflow",
+  "description": "Ticket lookups, the commit rule and the branch's ticket for one tracker project.",
+  "version": "1.0.0",
+  "engines": {"snowpea": "^1"},
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "project": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{1,9}$",
+        "description": "The tracker's project key, such as SP."
+      },
+      "baseUrl": {
+        "type": "string",
+        "pattern": "^https?://",
+        "description": "The tracker's address, such as https://tracker.example.com."
+      },
+      "token": {
+        "type": "string",
+        "default": "",
+        "description": "An API token, if the tracker needs one."
+      }
+    },
+    "required": ["project", "baseUrl"],
+    "additionalProperties": false
+  }
+}

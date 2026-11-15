@@ -1,0 +1,6 @@
+{
+  "name": "scratchpad",
+  "description": "The /scratch command: notes that last across sessions.",
+  "version": "1.0.0",
+  "engines": {"snowpea": "^1"}
+}
