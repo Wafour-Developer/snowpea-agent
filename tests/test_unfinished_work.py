@@ -41,8 +41,8 @@ DONE_KO = "모두 끝났습니다. 라우팅을 고치고 빌드했고, 스크�
     [
         CHECKPOINT_KO,
         "이번 턴에서는 스크린샷까지 못 했습니다.",
-        "## 다음 단계\n1. 설정 파일 고치기\n2. 다시 실행",
-        "Checkpoint.\n\n## Next steps\n1. Fix the router\n2. Rebuild\n3. Take screenshots",
+        "## 남은 작업\n1. 설정 파일 고치기\n2. 다시 실행",
+        "Checkpoint.\n\n## Remaining steps\n1. Fix the router\n2. Rebuild\n3. Take screenshots",
         "Remaining work:\n- update the parser\n- rerun the suite",
         "I ran out of time before the migration; I'll pick it up in the next turn.",
         "I couldn't get to the docs update.",
@@ -51,7 +51,7 @@ DONE_KO = "모두 끝났습니다. 라우팅을 고치고 빌드했고, 스크�
         "続きは次のターンで行います。",
         "检查点。\n## 剩余工作\n1. 修复路由\n2. 重新构建",
         "下一轮继续处理截图。",
-        "Punto de control.\n## Próximos pasos\n1. Corregir el enrutador\n2. Recompilar",
+        "Punto de control.\n## Tareas pendientes\n1. Corregir el enrutador\n2. Recompilar",
         "Lo termino en el próximo turno.",
     ],
 )
@@ -82,6 +82,25 @@ def test_answers_that_defer_work_they_could_do_now_continue(text: str) -> None:
     ],
 )
 def test_finished_or_waiting_answers_do_not(text: str) -> None:
+    assert not uw.detect(text), text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Done: the migration script is written and tested.\n\n## Next steps\n"
+        "1. Run the migration in production\n2. Rotate the key",
+        "마이그레이션 스크립트를 작성하고 테스트했습니다.\n\n## 다음 단계\n"
+        "1. 운영 환경에서 마이그레이션 실행\n2. 키 교체",
+        "移行スクリプトを作成し、テストしました。\n\n## 次のステップ\n"
+        "1. 本番環境で移行を実行\n2. キーをローテーション",
+        "迁移脚本已编写并测试。\n\n## 下一步\n1. 在生产环境运行迁移\n2. 轮换密钥",
+        "Listo: el script de migración está escrito y probado.\n\n## Próximos pasos\n"
+        "1. Ejecutar la migración en producción\n2. Rotar la clave",
+        "Hecho.\n\nSiguientes pasos:\n1. Ejecutar la migración\n2. Rotar la clave",
+    ],
+)
+def test_next_steps_for_the_person_after_a_finished_answer_do_not(text: str) -> None:
     assert not uw.detect(text), text
 
 
@@ -117,6 +136,7 @@ async def _stop(core: Any, session: Session, text: str = CHECKPOINT_KO, **kw: An
 
 async def test_continues_up_to_the_setting_with_tool_calls_between(tmp_path: Path) -> None:
     session = _session(tmp_path)
+    _tool(session)
     first = await _stop(_core(), session)
     assert first is not None and first.producer == "unfinished-work"
     assert first.text == uw.INSTRUCTION
@@ -130,6 +150,7 @@ async def test_continues_up_to_the_setting_with_tool_calls_between(tmp_path: Pat
 
 async def test_a_continuation_with_no_tool_call_lets_the_turn_end(tmp_path: Path) -> None:
     session = _session(tmp_path)
+    _tool(session)
     assert await _stop(_core(), session) is not None
     assert await _stop(_core(), session) is None
 
@@ -145,7 +166,16 @@ async def test_it_stays_out_of_the_way(tmp_path: Path, case: str) -> None:
         session.goal_armed = True
     if case == "question-timed-out":
         session.verify_turn.question_unanswered = True
+    _tool(session)
     assert await _stop(core, session, at_budget=case == "budget") is None
+
+
+async def test_a_turn_with_no_tool_call_never_continues(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    text = "## 남은 일\n1. 라우팅 수정\n2. 다시 빌드"
+    assert uw.detect(text)
+    assert await _stop(_core(), session, text) is None
+    assert session.verify_turn.unfinished_continues == 0
 
 
 async def test_verify_gate_wins_over_unfinished_work(tmp_path: Path) -> None:
@@ -203,16 +233,18 @@ async def _run_turn(tmp_path: Path, answers: list[str | ToolCall]) -> tuple[_Scr
 
 async def test_the_korean_checkpoint_continues_then_completes(tmp_path: Path) -> None:
     read = ToolCall(id="c1", name="read_file", arguments={"path": "a.txt"})
-    provider, recorder = await _run_turn(tmp_path, [CHECKPOINT_KO, read, DONE_KO])
-    assert len(provider.requests) == 3
-    assert uw.INSTRUCTION in message_text(provider.requests[1][-1])
+    first = ToolCall(id="c0", name="read_file", arguments={"path": "a.txt"})
+    provider, recorder = await _run_turn(tmp_path, [first, CHECKPOINT_KO, read, DONE_KO])
+    assert len(provider.requests) == 4
+    assert uw.INSTRUCTION in message_text(provider.requests[2][-1])
     shown = [e["payload"] for e in recorder.of_kind("hook.continue")]
     assert len(shown) == 1 and "continuing (1/2)" in str(shown[0])
     assert recorder.of_kind("turn.done")[-1]["payload"]["reason"] == "complete"
 
 
 async def test_a_restated_checkpoint_ends_the_turn(tmp_path: Path) -> None:
-    provider, recorder = await _run_turn(tmp_path, [CHECKPOINT_KO, CHECKPOINT_KO])
-    assert len(provider.requests) == 2
+    read = ToolCall(id="c0", name="read_file", arguments={"path": "a.txt"})
+    provider, recorder = await _run_turn(tmp_path, [read, CHECKPOINT_KO, CHECKPOINT_KO])
+    assert len(provider.requests) == 3
     assert len(recorder.of_kind("hook.continue")) == 1
     assert recorder.of_kind("turn.done")[-1]["payload"]["reason"] == "complete"

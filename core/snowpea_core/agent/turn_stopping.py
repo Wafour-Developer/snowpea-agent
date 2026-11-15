@@ -145,6 +145,8 @@ def _unfinished_work(core: Any, session: Any, ctx: StopContext) -> StopDecision 
         or getattr(session, "mode", None) == "plan"
         or getattr(session, "goal_armed", False)
         or turn.question_unanswered
+        # No tool call this turn: it did no work (a question answered with a list).
+        or turn.step == 0
         or turn.unfinished_continues >= limit
         # Told to continue, the model answered again without a tool call.
         or (turn.unfinished_continues and turn.step == turn.unfinished_step)

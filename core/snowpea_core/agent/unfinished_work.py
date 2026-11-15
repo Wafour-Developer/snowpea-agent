@@ -11,11 +11,15 @@ answer, in its own words, defers work it could do now, and says nothing that
 waits on the person.  The phrase table is :data:`MARKERS` (work remains) and
 :data:`WAITING` (it waits on the person, or only offers optional extras); a
 match in ``WAITING`` always wins, and code blocks and inline code are ignored.
+Advice-shaped headings ("Next steps", "다음 단계") are not markers: a finished
+answer often ends with recommendations for the person.
 Precision over recall: a missed checkpoint costs one "계속", a wrong
 continuation costs a turn that will not stop.
 
 The ``unfinished-work`` listener on the ``turn.stopping`` chain
-(:mod:`agent.turn_stopping`) applies it, bounded by ``agent.unfinished_continue``.
+(:mod:`agent.turn_stopping`) applies it, bounded by ``agent.unfinished_continue``,
+and only to a turn that made at least one tool call: a turn that did no work
+(a question answered with a list) never continues.
 """
 
 from __future__ import annotations
@@ -26,10 +30,12 @@ from typing import Literal
 
 #: The instruction the model gets when its answer listed work that remains.
 INSTRUCTION = (
-    "[system] You stopped, but your own message lists work that remains. If you need "
-    "something only the user can give (a decision, a credential, access), say exactly "
-    "what and stop. Otherwise continue now and finish the listed steps yourself with "
-    "your tools; do not hand them to a later turn."
+    "[system] You stopped, but your message says work from this request is still "
+    "unfinished. If the remaining items are part of what the user asked for and you can "
+    "do them now with your tools, continue and finish them; do not leave them for a "
+    "later turn. If they need something only the user can give (a decision, a "
+    "credential, access), or they are suggestions beyond what was asked, do not do "
+    "them: end with one line saying what is left and why."
 )
 
 
@@ -50,35 +56,38 @@ def _m(lang: str, kind: Literal["deferral", "heading"], *patterns: str) -> list[
 
 #: Phrases that say work remains, per language.  ``heading`` entries are the
 #: words a status report puts above a list; they need list items after them.
+#: Only wording that admits the agent's own unfinished work counts: advice-shaped
+#: headings ("Next steps", "다음 단계", "次のステップ", "下一步", "próximos pasos")
+#: usually open recommendations for the person, and a finished answer must not
+#: send the model off to act on them.
 MARKERS: tuple[Marker, ...] = (
     # Korean
     *_m("ko", "deferral",
         r"다음\s*턴", r"다음\s*세션", r"이어서\s*(?:진행)?하겠",
         r"이번\s*턴(?:에서는|에는|엔)[^\n]{0,80}?못"),
     *_m("ko", "heading",
-        r"남은\s*(?:일|작업|단계|과제)", r"다음\s*단계", r"아직\s*못", r"미완료"),
+        r"남은\s*(?:일|작업|단계|과제)", r"아직\s*못", r"미완료"),
     # English
     *_m("en", "deferral",
         r"\bnext\s+(?:turn|session)\b", r"\bran\s+out\s+of\s+(?:time|rounds|budget|turns?)\b",
         r"\bcould(?:n'?t|\s+not)\s+get\s+to\b",
         r"\b(?:in|for)\s+a\s+(?:later|follow-up|future)\s+turn\b"),
     *_m("en", "heading",
-        r"\bremaining\s+(?:work|steps|tasks|items)\b", r"\bnext\s+steps?\b",
+        r"\bremaining\s+(?:work|steps|tasks|items)\b",
         r"\bstill\s+to\s+do\b", r"\bleft\s+to\s+do\b", r"\bnot\s+yet\s+done\b",
         r"\bnot\s+done\s+yet\b", r"^[ \t#*]*(?-i:TODO)\b"),
     # Japanese
     *_m("ja", "deferral", r"次の?ターン", r"時間切れ"),
     *_m("ja", "heading",
-        r"残りの?(?:作業|タスク|手順)", r"残タスク", r"未完了", r"次の?ステップ"),
+        r"残りの?(?:作業|タスク|手順)", r"残タスク", r"未完了"),
     # Chinese
     *_m("zh", "deferral", r"下一轮", r"下一个?回合", r"下次(?:再)?继续"),
     *_m("zh", "heading",
-        r"剩[余下]的?(?:工作|任务|步骤)", r"待完成", r"下一步", r"尚未完成"),
+        r"剩[余下]的?(?:工作|任务|步骤)", r"待完成", r"尚未完成"),
     # Spanish
     *_m("es", "deferral",
         r"\b(?:pr[oó]ximo|siguiente)\s+turno\b", r"\bme\s+qued[eé]\s+sin\s+(?:tiempo|rondas)\b"),
     *_m("es", "heading",
-        r"\bpr[oó]ximos\s+pasos\b", r"\bsiguientes\s+pasos\b",
         r"\b(?:trabajo|tareas?)\s+pendientes?\b", r"\bquedan?\s+por\s+hacer\b"),
 )
 
