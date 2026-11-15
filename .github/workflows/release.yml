@@ -67,6 +67,13 @@ jobs:
           unzip -l "$wheel" | grep -q 'snowpea_core/tui/dist/snowpea-tui.js'
           echo "ok: $wheel bundles the TUI"
 
+      - name: the wheel really carries snowpea web
+        run: |
+          set -euo pipefail
+          wheel="$(ls dist/*.whl)"
+          unzip -l "$wheel" | grep -q 'snowpea_core/web_dist/index.html'
+          echo "ok: $wheel bundles snowpea web"
+
       - name: read the version
         id: version
         run: |

@@ -21,5 +21,5 @@ sdk/dist/
 !tui/dist/
 !tui/dist/snowpea-tui.js
 
-# snowpea web build, copied in from snowpea-ide out/web at release time (M18 4.2)
-core/snowpea_core/web_dist/
+# core/snowpea_core/web_dist (the snowpea web build from snowpea-ide out/web) is tracked,
+# like the TUI bundle: the release workflow builds the wheel from the tag in CI.

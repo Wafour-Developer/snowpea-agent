@@ -1392,7 +1392,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useInsertionEffect(create2, deps);
         }
-        function useLayoutEffect2(create2, deps) {
+        function useLayoutEffect3(create2, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useLayoutEffect(create2, deps);
         }
@@ -2171,7 +2171,7 @@ var require_react_development = __commonJS({
         exports.useId = useId;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
-        exports.useLayoutEffect = useLayoutEffect2;
+        exports.useLayoutEffect = useLayoutEffect3;
         exports.useMemo = useMemo6;
         exports.useReducer = useReducer2;
         exports.useRef = useRef5;
@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react45 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.41.0";
+var PROTOCOL_VERSION = "1.52.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -35625,7 +35625,20 @@ function workingLine(input) {
 function queuedLabel(count2) {
   return `\u23F3 ${count2} queued`;
 }
-function replayTurnSummaryLine(ok, elapsedMs) {
+function replayTurnSummaryLine(ok, elapsedMs, reason, error) {
+  return withStopReason(replayHead(ok, elapsedMs), reason, error);
+}
+function withStopReason(head, reason, error) {
+  if (!reason || reason === "complete") return head;
+  let why = reason;
+  if (reason === "error" && error) {
+    const flat = error.replace(/\s+/g, " ").trim();
+    why = flat.length > 200 ? `${flat.slice(0, 199)}\u2026` : flat;
+  }
+  return `${head}
+  reason: ${why}`;
+}
+function replayHead(ok, elapsedMs) {
   const head = ok ? "\u2713 Done" : "\u2717 Stopped";
   if (elapsedMs === null || !Number.isFinite(elapsedMs) || elapsedMs < 0) return head;
   const span = formatDuration(elapsedMs);
@@ -35635,13 +35648,15 @@ function turnSummaryLine({
   ok,
   elapsedMs,
   inputTokens = 0,
-  outputTokens = 0
+  outputTokens = 0,
+  reason = null,
+  error = null
 }) {
   const head = ok ? `\u2713 Done in ${formatDuration(elapsedMs)}` : `\u2717 Stopped after ${formatDuration(elapsedMs)}`;
   const parts = [head];
   if (inputTokens > 0) parts.push(`\u2191 ${formatTokens(inputTokens)}`);
   parts.push(`\u2193 ${formatTokens(outputTokens)} tokens`);
-  return parts.join(" \xB7 ");
+  return withStopReason(parts.join(" \xB7 "), reason, error);
 }
 
 // src/state/store.ts
@@ -35685,9 +35700,11 @@ var initialState = {
   turnStartedAt: null,
   turnWaited: false,
   lastTurnReason: null,
+  lastTurnError: null,
   compacting: null,
   reasoningChars: 0,
   streamedChars: 0,
+  stepStreamed: 0,
   errors: []
 };
 var counter = 0;
@@ -35723,6 +35740,59 @@ function outputLimitNote(truncated, continuations) {
   if (truncated) return "response hit the output limit and is incomplete";
   if (continuations > 0) return "response hit the output limit; continued";
   return null;
+}
+function int(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : null;
+}
+function providerRetryLine(payload) {
+  const attempt = int(payload.attempt);
+  const max = int(payload.max);
+  const delay = int(payload.delaySec);
+  const left2 = int(payload.waitLeftSec);
+  const count2 = attempt !== null && max !== null ? `${attempt}/${max}` : attempt !== null ? String(attempt) : "";
+  const inDelay = delay !== null ? ` in ${delay}s` : "";
+  const retry = `retry${count2 ? ` ${count2}` : ""}${inDelay}`;
+  switch (payload.reason) {
+    case "unreachable": {
+      const tries = attempt !== null ? `attempt ${attempt}` : "";
+      const minutes = left2 !== null ? `up to ${Math.max(1, Math.ceil(left2 / 60))} min left` : "";
+      const detail = [tries, minutes].filter(Boolean).join(", ");
+      return `Network or model server unreachable \u2014 retrying${detail ? ` (${detail})` : ""}`;
+    }
+    case "silent":
+      return `Model server is silent \u2014 ${retry}`;
+    case "transient": {
+      const error = typeof payload.error === "string" && payload.error ? payload.error : "";
+      return `Model server error${error ? ` (${error})` : ""} \u2014 ${retry}`;
+    }
+    default:
+      return null;
+  }
+}
+var CONTINUE_LABELS = {
+  unfinished_work: "unfinished work",
+  verify_gate: "checks",
+  stop_hook: "stop hook",
+  overflow: "context trimmed",
+  handback: "handback",
+  budget: "budget",
+  goal: "goal",
+  other: ""
+};
+function hookContinueLine(payload) {
+  const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+  const raw = payload.hookKind ?? payload.kind;
+  const kind = typeof raw === "string" && raw !== "hook.continue" ? raw : "";
+  if (kind === "provider_retry") return null;
+  if (!kind) return reason || null;
+  const label = CONTINUE_LABELS[kind] ?? "";
+  const count2 = int(payload.count);
+  const limit = int(payload.limit);
+  const counter3 = count2 !== null && count2 > 0 ? limit !== null ? `${count2}/${limit}` : String(count2) : "";
+  const tag = [label, counter3].filter(Boolean).join(" ");
+  if (kind === "overflow") return `\u21BB continuing (${label})`;
+  const head = `\u21BB continuing${tag ? ` (${tag})` : ""}`;
+  return reason ? `${head}: ${reason}` : head;
 }
 function withLimitNote(state, payload) {
   const note = outputLimitNote(
@@ -35797,6 +35867,25 @@ function flushDeferred(state) {
     };
   }
   return next;
+}
+function waitingPrompts(state) {
+  if (state.deferredPrompts.length === 0) return state.queued;
+  const rows = state.queued.slice();
+  const extra = [];
+  for (const message of state.deferredPrompts) {
+    let at = rows.findIndex((entry) => entry.text === message.text);
+    if (at === -1) at = rows.findIndex((entry) => entry.text === "");
+    if (at !== -1) {
+      rows.splice(at, 1);
+      continue;
+    }
+    extra.push({
+      turnId: message.id,
+      text: message.text,
+      position: state.queued.length + extra.length + 1
+    });
+  }
+  return extra.length > 0 ? [...state.queued, ...extra] : state.queued;
 }
 function patchSubagent(state, agentId, patch) {
   const index = state.subagents.findIndex((entry) => entry.agentId === agentId);
@@ -35886,7 +35975,22 @@ function applySessionEvent(state, event, options = {}) {
     case "message.delta": {
       const text2 = String(payload.text ?? "");
       const settled = { ...base, messages: settleFolds(base.messages) };
-      return { ...appendDelta(settled, text2), streamedChars: base.streamedChars + text2.length };
+      return {
+        ...appendDelta(settled, text2),
+        streamedChars: base.streamedChars + text2.length,
+        stepStreamed: base.stepStreamed + text2.length
+      };
+    }
+    // One model call. Live (and in a full replay) its text already arrived as
+    // deltas; when it did not, the settled text `step.done` carries stands in
+    // for them, at the same place in the stream — before the step's tool calls.
+    case "step.started":
+      return { ...base, stepStreamed: 0 };
+    case "step.done": {
+      const text2 = typeof payload.text === "string" ? payload.text : "";
+      if (base.stepStreamed > 0 || !text2) return { ...base, stepStreamed: 0 };
+      const settled = { ...base, messages: settleFolds(base.messages) };
+      return { ...appendDelta(settled, text2), stepStreamed: 0 };
     }
     // Thinking, not an answer: counted for the working line, never appended.
     case "message.reasoning":
@@ -36073,7 +36177,8 @@ function applySessionEvent(state, event, options = {}) {
     case "error":
       return {
         ...base,
-        errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`]
+        errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`],
+        lastTurnError: `${payload.code ?? "error"}: ${payload.message ?? ""}`
       };
     // A language server published for a file this session touched. Only the
     // counts arrive: the text of every diagnostic is already in the tool result
@@ -36109,6 +36214,7 @@ function applySessionEvent(state, event, options = {}) {
         turnStartedAt: Number.isFinite(stamped) ? stamped : Date.now(),
         turnWaited: waited,
         lastTurnReason: null,
+        lastTurnError: null,
         promptTexts: text2.length > 0 && turnId.length > 0 ? { ...base.promptTexts, [turnId]: text2 } : base.promptTexts,
         queued: base.queued.filter((entry) => entry.turnId !== turnId)
       };
@@ -36141,6 +36247,32 @@ function applySessionEvent(state, event, options = {}) {
           reason: compaction.reason ?? "auto",
           before: compaction.before ?? 0
         }
+      };
+    }
+    case "provider.retry": {
+      const text2 = providerRetryLine(payload);
+      if (!text2) return base;
+      const last = base.messages.at(-1);
+      if (last?.retryNotice) {
+        const messages = base.messages.slice();
+        messages[messages.length - 1] = { ...last, text: text2 };
+        return { ...base, messages };
+      }
+      const message = { id: nextId("msg"), role: "system", text: text2, streaming: false, retryNotice: true };
+      return {
+        ...base,
+        messages: [...base.messages, message],
+        timeline: pushTimeline(base, { kind: "message", id: message.id })
+      };
+    }
+    case "hook.continue": {
+      const text2 = hookContinueLine(payload);
+      if (!text2) return base;
+      const message = { id: nextId("msg"), role: "system", text: text2, streaming: false };
+      return {
+        ...base,
+        messages: [...base.messages, message],
+        timeline: pushTimeline(base, { kind: "message", id: message.id })
       };
     }
     case "turn.queued": {
@@ -36185,7 +36317,9 @@ function applySessionEvent(state, event, options = {}) {
         role: "note",
         text: replayTurnSummaryLine(
           String(payload.reason ?? "complete") === "complete",
-          elapsed
+          elapsed,
+          String(payload.reason ?? "complete"),
+          base.lastTurnError
         ),
         streaming: false
       };
@@ -37639,7 +37773,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.86";
+var TUI_VERSION = "0.2.87";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -37983,7 +38117,8 @@ function wrapLine(line, width, indent = "") {
     const segments = sliceSegments(line.segments, parts[start].index, parts[end2]?.index ?? text2.length);
     out.push({
       key: `${line.key}-w${out.length}`,
-      segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments
+      segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments,
+      ...line.source !== void 0 ? { source: line.source } : {}
     });
     start = end2;
     while (parts[start]?.text === " ") start += 1;
@@ -38098,11 +38233,13 @@ function tableAt(source, start, width, id) {
   border("\u2514", "\u2534", "\u2518");
   return { lines, end: end2 };
 }
+function messageSource(message) {
+  const text2 = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
+  return (message.streaming ? `${text2}\u2026` : text2).split("\n");
+}
 function messageLines(message, width = 80) {
   const out = [];
-  const text2 = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
-  const body = message.streaming ? `${text2}\u2026` : text2;
-  const source = body.split("\n");
+  const source = messageSource(message);
   let inFence = false;
   for (let index = 0; index < source.length; index += 1) {
     const raw = source[index];
@@ -38111,6 +38248,7 @@ function messageLines(message, width = 80) {
       if (table) {
         table.lines.forEach((line, row) => out.push({
           ...line,
+          source: index,
           segments: [index === 0 && row === 0 ? roleMark(message.role) : { text: "  " }, ...line.segments]
         }));
         index = table.end - 1;
@@ -38133,7 +38271,7 @@ function messageLines(message, width = 80) {
       else segments = inlineSegments(raw);
     }
     const mark = index === 0 ? roleMark(message.role) : { text: "  " };
-    out.push({ key, segments: [mark, ...segments] });
+    out.push({ key, segments: [mark, ...segments], source: index });
   }
   return out;
 }
@@ -38518,10 +38656,28 @@ function settledCount(state, cursor = 0, liveRows = Number.POSITIVE_INFINITY) {
 function wrappedMessageLines(message, width) {
   return messageLines(message, width).flatMap((line) => wrapLine(line, width, "  "));
 }
-function streamingCommitTarget(lineCount, tailRows, streaming) {
-  const tail = Math.max(1, Math.floor(tailRows));
-  if (!streaming) return lineCount;
-  return Math.max(0, lineCount - tail);
+function finalSourceLines(message, source) {
+  if (!message.streaming) return source.length;
+  let count2 = source.length - 1;
+  while (count2 > 0 && source[count2 - 1].includes("|")) count2 -= 1;
+  return count2;
+}
+function committedSourceLines(source, entry) {
+  if (!entry || entry.lines <= 0) return 0;
+  if (source.slice(0, entry.lines).join("\n") === entry.text) return entry.lines;
+  const frozen = entry.text.split("\n");
+  const window2 = Math.min(3, frozen.length);
+  const tail = frozen.slice(-window2).join("\n");
+  let best = -1;
+  for (let end2 = window2; end2 <= source.length; end2 += 1) {
+    if (source.slice(end2 - window2, end2).join("\n") !== tail) continue;
+    if (best === -1 || Math.abs(end2 - entry.lines) < Math.abs(best - entry.lines)) best = end2;
+  }
+  return best !== -1 ? best : Math.min(entry.lines, source.length);
+}
+function rowOf(lines, line) {
+  const at = lines.findIndex((row) => (row.source ?? 0) >= line);
+  return at === -1 ? lines.length : at;
 }
 function commitStreamingPrefixes(state, fromTimelineIndex, width, tailRows, committed) {
   const chunks = [];
@@ -38532,23 +38688,33 @@ function commitStreamingPrefixes(state, fromTimelineIndex, width, tailRows, comm
     const message = state.messages.find((entry) => entry.id === item.id);
     if (!message) continue;
     if (message.awaitingFold) continue;
+    const source = messageSource(message);
     const lines = wrappedMessageLines(message, width);
-    const previous = next.get(message.id) ?? 0;
-    const target = streamingCommitTarget(lines.length, tailRows, message.streaming);
-    if (target <= previous) continue;
+    const start = committedSourceLines(source, next.get(message.id));
+    let target = finalSourceLines(message, source);
+    const keep = Math.max(1, Math.floor(tailRows));
+    while (message.streaming && target > start && lines.length - rowOf(lines, target) < keep) target -= 1;
+    if (target <= start) {
+      if (start > 0) next.set(message.id, { lines: start, text: source.slice(0, start).join("\n") });
+      continue;
+    }
     chunks.push({
-      key: `stream-${message.id}-${previous}`,
+      key: `stream-${message.id}-${start}-${target}`,
       kind: "stream-chunk",
-      lines: lines.slice(previous, target)
+      lines: lines.slice(rowOf(lines, start), rowOf(lines, target))
     });
-    next.set(message.id, target);
+    next.set(message.id, { lines: target, text: source.slice(0, target).join("\n") });
   }
   return { chunks, committed: next };
 }
-function messageFullyCommitted(message, width, committed) {
+function messageStartRow(message, width, committed) {
+  const start = committedSourceLines(messageSource(message), committed.get(message.id));
+  return start > 0 ? rowOf(wrappedMessageLines(message, width), start) : 0;
+}
+function messageFullyCommitted(message, _width, committed) {
   if (message.awaitingFold) return false;
-  const total = wrappedMessageLines(message, width).length;
-  return total > 0 && (committed.get(message.id) ?? 0) >= total;
+  const source = messageSource(message);
+  return committedSourceLines(source, committed.get(message.id)) >= source.length;
 }
 
 // src/components/RenderedLines.tsx
@@ -39668,6 +39834,7 @@ function Chat({
   completions,
   agents = [],
   draftWidth,
+  maxRows,
   disabled = false,
   placeholder = "ask anything, or /command",
   onChange,
@@ -39997,6 +40164,9 @@ function Chat({
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { inverse: true, children: " " }),
       band ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(placeholder) - 1)) }) : null
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
+      const shown = Math.max(1, maxRows ?? draft.lines.length);
+      const first = Math.max(0, Math.min(draft.cursorRow - shown + 1, draft.lines.length - shown));
+      if (row < first || row >= first + shown) return null;
       const prefix = row === 0 ? "> " : "  ";
       if (row !== draft.cursorRow) {
         const text2 = value.slice(line.start, line.end);
@@ -41742,7 +41912,7 @@ function releaseEntries(state, items, width, streamCommitted) {
       if (message && messageFullyCommitted(message, width, streamCommitted)) {
         continue;
       }
-      const startLine = streamCommitted.get(item.id) ?? 0;
+      const startLine = message ? messageStartRow(message, width, streamCommitted) : 0;
       out.push({
         key: `${item.kind}-${item.id}`,
         kind: "entry",
@@ -42454,9 +42624,13 @@ function App2({
     () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
     [draft, knownAgents]
   );
+  const maxDraftRows = Math.max(3, Math.floor(usableRows(terminal.rows) / 3));
   const draftRows = (0, import_react45.useMemo)(
-    () => layout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length,
-    [draft, contentWidth]
+    () => Math.min(
+      maxDraftRows,
+      layout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length
+    ),
+    [draft, contentWidth, maxDraftRows]
   );
   const panelHint = mouseOn ? `\u2191\u2193 select \xB7 click or Enter opens${fullscreen ? " \xB7 wheel scrolls \xB7 Shift+drag selects text" : ""}` : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking";
   const hintRows = hintShares(agentRows) ? 0 : 1;
@@ -42481,7 +42655,7 @@ function App2({
       errorVisible: state.errors.length > 0,
       workingVisible: workingText !== null,
       delegationVisible: delegation !== null,
-      queuedRows: Math.min(state.queued.length, 4),
+      queuedRows: Math.min(waitingPrompts(state).length, 4),
       noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX)
     })
   });
@@ -42514,6 +42688,12 @@ function App2({
     }),
     [fullscreen, layout2.rows, hintRows, terminal.rows, agentRows.length]
   );
+  const liveRegionRef = (0, import_react45.useRef)(null);
+  const liveMaxRows = usableRows(terminal.rows);
+  liveRegionRef.current?.yogaNode?.setMaxHeight(liveMaxRows);
+  (0, import_react45.useLayoutEffect)(() => {
+    liveRegionRef.current?.yogaNode?.setMaxHeight(liveMaxRows);
+  });
   const holdRows = state.messages.some((message) => message.streaming) ? Math.max(1, holdRegionRows - MIN_LIVE_MESSAGE_ROWS) : holdRegionRows;
   const released = settledCount(state, staticCursorRef.current, holdRows);
   if (released > staticCursorRef.current) {
@@ -42550,7 +42730,9 @@ function App2({
       ok,
       elapsedMs: now - turn2.startedAt,
       inputTokens: state.usage.inputTokens - turn2.inputTokens,
-      outputTokens: state.usage.outputTokens - turn2.outputTokens
+      outputTokens: state.usage.outputTokens - turn2.outputTokens,
+      reason: state.lastTurnReason,
+      error: state.lastTurnError
     });
     staticBlocksRef.current = staticBlocksRef.current.concat({
       key: `turn-${turnCountRef.current}`,
@@ -42928,6 +43110,7 @@ function App2({
   const submit = (0, import_react45.useCallback)(
     (text2) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
+      setScrollOffset(0);
       setSkillChip(null);
       setSkillHint(false);
       if (/^\/delegate(\s|$)/.test(text2.trim())) {
@@ -43467,7 +43650,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     delegation ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
     skillChip ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: currentAccent(), wrap: "truncate-end", children: `[run /${skillChip}]` }) : null,
     skillHint ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${SKILL_HINT_TEXT} \xB7 Esc dismisses` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QueuedPrompts, { queued: state.queued, width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QueuedPrompts, { queued: waitingPrompts(state), width: contentWidth }),
     /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(AttachmentChips, { attachments, width: contentWidth }),
     modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
     skillForm ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
@@ -43633,6 +43816,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         agents: completableAgents,
         onFileComplete: handleFileComplete,
         draftWidth: Math.max(1, contentWidth - 2),
+        maxRows: maxDraftRows,
         onChange: (next) => {
           setDraft(next);
           if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
@@ -43765,6 +43949,11 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
   }
   streamCommittedRef.current = streamCommit.committed;
   const staticItems = staticBlocksRef.current;
+  const liveStartRow = (item) => {
+    if (item.kind !== "message") return 0;
+    const message = state.messages.find((entry) => entry.id === item.id);
+    return message ? messageStartRow(message, contentWidth, streamCommittedRef.current) : 0;
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { flexDirection: "column", children: [
     /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       Box_default,
@@ -43800,8 +43989,8 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       },
       entry.key
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-      showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { ref: liveRegionRef, flexDirection: "column", paddingX: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, { flexDirection: "column", flexShrink: 1, overflowY: "hidden", justifyContent: "flex-end", children: showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
         AgentTranscript,
         {
           name: openAgent.name,
@@ -43813,7 +44002,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           scrollIndicator: scrollIndicator(agentViewport),
           empty: agentLines.length === 0
         }
-      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
         TimelineEntry,
         {
           state,
@@ -43821,14 +44010,15 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           expandedId,
           width: contentWidth,
           maxMessageRows: liveMessageRows,
-          messageStartLine: item.kind === "message" ? streamCommittedRef.current.get(item.id) ?? 0 : 0
-        },
-        `${item.kind}-${item.id}`
-      )),
-      /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(UpdateBanner, { update }),
-      helpNode,
-      bottomNode,
-      statusNode
+          messageStartLine: liveStartRow(item)
+        }
+      ) }, `${item.kind}-${item.id}`)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(UpdateBanner, { update }),
+        helpNode,
+        bottomNode,
+        statusNode
+      ] })
     ] })
   ] });
 }
