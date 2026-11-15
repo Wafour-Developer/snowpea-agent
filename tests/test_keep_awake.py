@@ -238,3 +238,54 @@ def test_running_turns_skips_only_the_waiting_session() -> None:
     core.approvals, core.questions = _Waits(), _Waits()
     core.questions.pending.add("s1")
     assert running_turns(core) == 1
+
+
+def _tree(**parents: str | None) -> Any:
+    sessions = [
+        types.SimpleNamespace(id=sid, current_turn="t", parent_session_id=parent)
+        for sid, parent in parents.items()
+    ]
+    core = types.SimpleNamespace(sessions=types.SimpleNamespace(all=lambda: sessions))
+    core.approvals, core.questions = _Waits(), _Waits()
+    return core
+
+
+async def test_a_parent_blocked_on_a_waiting_child_releases_and_answering_reacquires() -> None:
+    spawner, clock = Spawner(), Clock()
+    awake = make(spawner, clock, linger_sec=30)
+    core = _tree(p=None, c="p")
+    awake.start(lambda: running_turns(core), tick=0.01)
+    try:
+        await asyncio.sleep(0.05)
+        assert awake.held
+        core.approvals.pending.add("c")
+        assert running_turns(core) == 0
+        clock.now += 31
+        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.05)
+        clock.now += 31
+        await asyncio.sleep(0.05)
+        assert not awake.held
+        core.approvals.pending.clear()
+        await asyncio.sleep(0.05)
+        assert awake.held and running_turns(core) == 2
+    finally:
+        await awake.stop()
+
+
+def test_a_parent_with_one_working_child_still_counts() -> None:
+    core = _tree(p=None, a="p", b="p")
+    core.questions.pending.add("a")
+    assert running_turns(core) == 2  # parent + the working child
+
+
+def test_a_waiting_grandchild_chain_releases_every_ancestor() -> None:
+    core = _tree(r=None, m="r", g="m")
+    core.approvals.pending.add("g")
+    assert running_turns(core) == 0
+
+
+def test_parent_cycles_do_not_hang() -> None:
+    core = _tree(a="b", b="a")
+    core.approvals.pending.add("a")
+    assert running_turns(core) == 0

@@ -286,17 +286,28 @@ def running_turns(core: Any) -> int:
 
     A turn blocked on an approval or a question waits for the person, maybe
     for hours, and does not keep the machine awake; it counts again once the
-    person answers.
+    person answers.  So does a parent whose running delegated children all
+    wait on the person (recursively): it is blocked inside its delegate tool.
+    Trade-off: a parent doing other work in parallel with only-waiting
+    children cannot be told apart cheaply, and is treated as waiting too.
     """
     approvals = getattr(core, "approvals", None)
     questions = getattr(core, "questions", None)
-    return sum(
-        1
-        for session in core.sessions.all()
-        if session.current_turn is not None
-        and not _waiting(approvals, session.id)
-        and not _waiting(questions, session.id)
-    )
+    running = {s.id: s for s in core.sessions.all() if s.current_turn is not None}
+    children: dict[str, list[str]] = {}
+    for sid, session in running.items():
+        parent = getattr(session, "parent_session_id", None)
+        if parent in running and parent != sid:
+            children.setdefault(parent, []).append(sid)
+    waiting = {sid for sid in running if _waiting(approvals, sid) or _waiting(questions, sid)}
+    changed = True
+    while changed:  # each pass only adds ids, so cycles cannot loop forever
+        changed = False
+        for sid, kids in children.items():
+            if sid not in waiting and all(kid in waiting for kid in kids):
+                waiting.add(sid)
+                changed = True
+    return len(running) - len(waiting)
 
 
 __all__ = ["LINGER_SEC", "KeepAwake", "command_for", "running_turns"]
