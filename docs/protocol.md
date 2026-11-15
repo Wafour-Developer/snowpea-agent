@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.49.0` (semver)
+- **Protocol version:** `1.50.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.49.0"
+    "protocolVersion": "1.50.0"
   }
 }
 ```
@@ -161,8 +161,8 @@ Server capabilities advertised in the `system.hello` result:
 | [`goal.clear`](#goalclear) | client → server | Remove the goal (1.43.0). |
 | [`goal.get`](#goalget) | client → server | Read the session's goal (1.43.0). |
 | [`goal.pause`](#goalpause) | client → server | Pause and disarm the goal (1.43.0). |
-| [`goal.resume`](#goalresume) | client → server | Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0). |
-| [`goal.set`](#goalset) | client → server | Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). |
+| [`goal.resume`](#goalresume) | client → server | Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0); goal_not_allowed on a delegated child or a scheduled run (1.50.0). |
+| [`goal.set`](#goalset) | client → server | Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). A delegated child or a scheduled run is refused with goal_not_allowed (1.50.0). |
 | [`host.turnContext`](#hostturncontext) | server → client | At turn start, ask the session's host-tools connection for a note for the turn's first model call (1.31.0). Only on a browser connection that sent tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open. |
 | [`job.cancel`](#jobcancel) | client → server | Cancel a scheduled job. |
 | [`job.delete`](#jobdelete) | client → server | Delete a job, its schedule and run history; optionally its run sessions. |
@@ -218,9 +218,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
 | [`session.deleteSaved`](#sessiondeletesaved) | client → server | Delete saved sessions. |
 | [`session.events`](#sessionevents) | client → server | A session's saved events, read only (1.27.0): unlike session.resume it does not subscribe, attach, restore or take the session's approvals. |
-| [`session.fork`](#sessionfork) | client → server | Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). |
+| [`session.fork`](#sessionfork) | client → server | Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). Refusals carry error.data.code fork_after_compaction, fork_turn_not_found, fork_no_finished_turn, fork_child_session or fork_running (1.50.0). |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
-| [`session.lineage`](#sessionlineage) | client → server | A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage'). |
+| [`session.lineage`](#sessionlineage) | client → server | A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage'); 1.50.0 follows forks up the chain and lists direct forks. |
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.notice`](#sessionnotice) | client → server | Queue a [system] line for the model's next call. |
 | [`session.pin`](#sessionpin) | client → server | Pin or unpin a conversation (1.47.0). |
@@ -233,7 +233,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
 | [`session.setModel`](#sessionsetmodel) | client → server | Pin a session to a model profile, or clear the pin. |
-| [`session.steer`](#sessionsteer) | client → server | Inject a user message into a running turn at its next tool round. |
+| [`session.steer`](#sessionsteer) | client → server | Inject a user message into a running turn at its next tool round; never a slash command (steer_slash_command, 1.50.0). |
 | [`session.toolContent`](#sessiontoolcontent) | client → server | A host tool result's content blocks with image bytes; results with images are kept on disk. |
 | [`session.trajectory`](#sessiontrajectory) | client → server | The session's event log as turn-aware rows: turns, model calls with timing and usage, tool calls with results, delegations, compactions (1.45.0, capability 'trajectory'). |
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
@@ -1193,7 +1193,7 @@ Pause and disarm the goal (1.43.0).
 
 *Direction:* client → server
 
-Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0).
+Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0); goal_not_allowed on a delegated child or a scheduled run (1.50.0).
 
 **Params**
 
@@ -1212,7 +1212,7 @@ Re-arm a paused or blocked goal, optionally with more rounds, and start a round 
 
 *Direction:* client → server
 
-Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals').
+Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). A delegated child or a scheduled run is refused with goal_not_allowed (1.50.0).
 
 **Params**
 
@@ -2449,7 +2449,7 @@ A session's saved events, read only (1.27.0): unlike session.resume it does not 
 
 *Direction:* client → server
 
-Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork').
+Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). Refusals carry error.data.code fork_after_compaction, fork_turn_not_found, fork_no_finished_turn, fork_child_session or fork_running (1.50.0).
 
 **Params**
 
@@ -2489,7 +2489,7 @@ Stop the running turn as soon as possible.
 
 *Direction:* client → server
 
-A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage').
+A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage'); 1.50.0 follows forks up the chain and lists direct forks.
 
 **Params**
 
@@ -2501,8 +2501,9 @@ A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0,
 
 | field | type | required | description |
 |---|---|---|---|
-| `ancestors` | `({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: unknown; children?: unknown[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: unknown; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]` | no | From the root down to the session's parent. |
+| `ancestors` | `({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: unknown; children?: unknown[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: unknown; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: "fork" \| "delegation"; running?: boolean; sessionId: string; sessionKind?: string; title?: string \| null; })[]` | no | From the root down to the session's parent, following both delegation (parentSessionId) and fork (forkedFrom) links (1.50.0). |
 | `descendants` | `({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: string \| null; children?: ({ agent?: unknown; children?: unknown[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: unknown; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]; createdAt?: string; kind?: string; running?: boolean; sessionId: string; title?: string \| null; })[]` | no | Sessions it delegated to, as a tree. |
+| `forks` | `({ atTurnId?: string \| null; createdAt?: string; sessionId: string; title?: string \| null; })[]` | no | Direct forks of this session, oldest first (1.50.0). |
 
 ### `session.list`
 
@@ -2525,7 +2526,7 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `complete` | `boolean` | no | True when the list is all there is for what was asked (1.27.0): the daemon's boot has restored the sessions it reopens, and with includeClosed the saved ones were read. Without includeClosed it covers live sessions only, which after a restart is usually none; ask with includeClosed before forgetting a closed chat. False (or absent, from an older daemon) means an empty or short list proves nothing, so a client must not forget its own records by it. |
-| `sessions` | `({ agent?: string \| null; archived?: boolean; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; contextWindowSource?: "settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; pinned?: boolean; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; workspaceId?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; archived?: boolean; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; contextWindowSource?: "settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; forkedAtTurnId?: string \| null; forkedFrom?: string \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; lastUserAt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; pinned?: boolean; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; workspaceId?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -2766,14 +2767,14 @@ Pin a session to a model profile, or clear the pin.
 
 *Direction:* client → server
 
-Inject a user message into a running turn at its next tool round.
+Inject a user message into a running turn at its next tool round; never a slash command (steer_slash_command, 1.50.0).
 
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
 | `sessionId` | `string` | yes | Session with a running turn. |
-| `text` | `string` | yes | User message injected at the running turn's next tool-round boundary; with no turn running it starts one like session.prompt (1.6.0). |
+| `text` | `string` | yes | User message injected at the running turn's next tool-round boundary; with no turn running it starts one like session.prompt (1.6.0). Text that starts with '/' once trimmed is refused with steer_slash_command (1.50.0). |
 
 **Result**
 
@@ -4384,10 +4385,10 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"step.done"` | no |  |
 | `outcome` | `string` | yes | end_turn, tool_use, max_tokens, interrupted, error, … as the call ended. |
 | `outputTokens` | `number` | no | Completion tokens reported. |
-| `reasoning` | `string` | no | Everything the call thought, settled, as message.reasoning streamed. |
+| `reasoning` | `string` | no | Everything the call thought, settled, as message.reasoning streamed; partial for an errored or interrupted call (1.50.0). |
 | `reasoningTokens` | `number` | no | Thinking tokens (estimated when unsplit). |
 | `step` | `number` | yes | Model call number within the turn, from 1. |
-| `text` | `string` | no | Everything the call wrote, settled (1.44.0): the same text its message.delta events streamed, stored once. |
+| `text` | `string` | no | Everything the call wrote, settled (1.44.0): the same text its message.delta events streamed, stored once. An errored or interrupted call carries what streamed before it stopped (1.50.0). |
 | `toolCalls` | `number` | no | Tool calls the call asked for. |
 | `totalMs` | `number` | no | Whole call, ms. |
 | `ttftMs` | `number` | no | Time to the first streamed token, ms. |
@@ -4545,6 +4546,8 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `goalId` | `string \| null` | no | The goal the round works on (1.50.0); absent otherwise. |
+| `goalRound` | `number \| null` | no | A goal round's number, from 1 (reason 'goal', 1.50.0); absent on every other turn. |
 | `initiator` | `"user" \| "system"` | no | Who started the turn (1.8.0). 'system' = session.continue: the input is a [system] note, no message.user is emitted, and surfaces show a status line instead of a user bubble. |
 | `kind` | `"turn.started"` | no |  |
 | `prompt` | `string \| null` | no | The prompt that opened it; null when there is none. |
@@ -4590,6 +4593,12 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `auth_expired` |  |
 | `empty_response` |  |
 | `exists` |  |
+| `fork_after_compaction` |  |
+| `fork_child_session` |  |
+| `fork_no_finished_turn` |  |
+| `fork_running` |  |
+| `fork_turn_not_found` |  |
+| `goal_not_allowed` |  |
 | `image_rejected` |  |
 | `internal` | Unexpected server-side failure. |
 | `invalid_output` |  |
@@ -4612,6 +4621,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `protocol_incompatible` | Client and server protocol majors differ. |
 | `session_busy` |  |
 | `skill_exists` |  |
+| `steer_slash_command` |  |
 | `too_large` |  |
 | `tool_inactive` | The tool exists but is disabled for this session. |
 | `unauthorized` | Missing or invalid token, or a call before `system.hello`. |

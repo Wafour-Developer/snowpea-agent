@@ -210,6 +210,15 @@ class SessionManager:
             )
             if session.effort:
                 await self.store.update_effort(session.id, session.effort)
+            if not session.parent_session_id:
+                # A conversation's folder gets its workspace row (once again after
+                # a workspace.remove); listing never adds rows (1.50.0).
+                from snowpea_core.session import workspaces
+
+                try:
+                    await workspaces.add(self.store, str(session.workdir))
+                except Exception:  # noqa: BLE001 - the sidebar row is not worth a failed create
+                    log.debug("could not add the workspace of %s", session.id, exc_info=True)
         log.info("session %s created (%s, mode=%s)", session.id, session.workdir, session.mode)
         await self.announce_sessions_changed("created", session.id)
         return session
@@ -310,6 +319,8 @@ class SessionManager:
         session.host_tools_from = row.get("host_tools_from")
         session.browser_provider = row.get("browser_provider")
         session.auto_after_plan = session.mode == "plan" and bool(row.get("auto_after_plan"))
+        session.forked_from = row.get("forked_from")
+        session.forked_at_turn_id = row.get("forked_at_turn_id")
         from snowpea_core.agent.goals import Goal
 
         # Shown, not armed: a resumed goal waits for a person (M16 P1.6).
@@ -772,6 +783,8 @@ class EventHub:
         seq = session.next_seq() if session is not None else 0
         body = event_builders.validate(kind, payload)
         ts = utc_now()
+        if session is not None and kind == "message.user":
+            session.last_user_at = ts  # session.list lastUserAt (1.50.0)
         turn_id = getattr(session, "current_turn", None) if session is not None else None
         step = int(getattr(session, "current_step", 0) or 0) if turn_id else None
         if self.store is not None:

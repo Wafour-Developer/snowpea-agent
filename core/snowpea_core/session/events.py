@@ -437,6 +437,8 @@ def turn_started(
     queued: bool = False,
     initiator: str = "user",
     reason: str | None = None,
+    goal_round: int | None = None,
+    goal_id: str | None = None,
 ) -> Event:
     """A turn began running, after any wait in the prompt queue."""
     return _pack(
@@ -446,6 +448,8 @@ def turn_started(
             queued=queued,
             initiator=initiator,  # type: ignore[arg-type]
             reason=reason,
+            goalRound=goal_round,
+            goalId=goal_id,
         )
     )
 
@@ -535,6 +539,11 @@ def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     data = model.model_validate(data_in).model_dump(mode="json")
     data.pop("kind", None)
     data.pop("messageKind", None)
+    if kind == "turn.started":
+        # Only a goal round carries these (1.50.0); other turns omit them.
+        for key in ("goalRound", "goalId"):
+            if data.get(key) is None:
+                data.pop(key, None)
     if message_kind:
         data["kind"] = message_kind
     return data

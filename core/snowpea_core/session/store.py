@@ -107,6 +107,8 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("site_memory_override", "INTEGER"),
     ("auto_after_plan", "INTEGER"),
     ("goal", "TEXT"),
+    ("forked_from", "TEXT"),
+    ("forked_at_turn_id", "TEXT"),
 )
 
 #: Columns added to ``events`` after 1.43 (M17 2a).
@@ -347,6 +349,29 @@ class Store:
             "UPDATE sessions SET mode = ?, auto_after_plan = ? WHERE id = ?",
             (mode, int(auto_after_plan), session_id),
         )
+
+    async def update_fork(
+        self, session_id: str, forked_from: str | None, at_turn_id: str | None
+    ) -> None:
+        """The session this one was forked from, and at which turn (1.50.0)."""
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET forked_from = ?, forked_at_turn_id = ? WHERE id = ?",
+            (forked_from, at_turn_id, session_id),
+        )
+
+    async def last_user_times(self, session_ids: list[str]) -> dict[str, str]:
+        """``{sessionId: ts}`` of each session's latest ``message.user`` event (1.50.0)."""
+        if not session_ids:
+            return {}
+        marks = ",".join("?" for _ in session_ids)
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT session_id, MAX(ts) AS last FROM events WHERE kind = 'message.user' "
+            f"AND session_id IN ({marks}) GROUP BY session_id",
+            tuple(session_ids),
+        )
+        return {str(row["session_id"]): str(row["last"]) for row in rows if row["last"]}
 
     async def update_goal(self, session_id: str, goal_json: str | None) -> None:
         """Persist the session's goal (M16 P1.6); ``None`` clears it."""

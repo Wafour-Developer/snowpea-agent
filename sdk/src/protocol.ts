@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.49.0";
+export const PROTOCOL_VERSION = "1.50.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -17,6 +17,12 @@ export type ErrorCode =
   | "auth_expired"
   | "empty_response"
   | "exists"
+  | "fork_after_compaction"
+  | "fork_child_session"
+  | "fork_no_finished_turn"
+  | "fork_running"
+  | "fork_turn_not_found"
+  | "goal_not_allowed"
   | "image_rejected"
   | "internal"
   | "invalid_output"
@@ -39,6 +45,7 @@ export type ErrorCode =
   | "protocol_incompatible"
   | "session_busy"
   | "skill_exists"
+  | "steer_slash_command"
   | "too_large"
   | "tool_inactive"
   | "unauthorized"
@@ -49,6 +56,12 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "auth_expired",
   "empty_response",
   "exists",
+  "fork_after_compaction",
+  "fork_child_session",
+  "fork_no_finished_turn",
+  "fork_running",
+  "fork_turn_not_found",
+  "goal_not_allowed",
   "image_rejected",
   "internal",
   "invalid_output",
@@ -71,6 +84,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "protocol_incompatible",
   "session_busy",
   "skill_exists",
+  "steer_slash_command",
   "too_large",
   "tool_inactive",
   "unauthorized",
@@ -1273,7 +1287,7 @@ export interface GoalPauseResult {
   } | null;
 }
 
-/** `goal.resume` params. Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0). */
+/** `goal.resume` params. Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0); goal_not_allowed on a delegated child or a scheduled run (1.50.0). */
 export interface GoalResumeParams {
   /** goal.resume only: rounds added to the cap. */
   extraRounds?: number;
@@ -1315,7 +1329,7 @@ export interface GoalResumeResult {
   } | null;
 }
 
-/** `goal.set` params. Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). */
+/** `goal.set` params. Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). A delegated child or a scheduled run is refused with goal_not_allowed (1.50.0). */
 export interface GoalSetParams {
   /** Round cap (default 20, at most 256). */
   maxRounds?: number | null;
@@ -2987,7 +3001,7 @@ export interface SessionEventsResult {
   sessionId: string;
 }
 
-/** `session.fork` params. Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). */
+/** `session.fork` params. Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). Refusals carry error.data.code fork_after_compaction, fork_turn_not_found, fork_no_finished_turn, fork_child_session or fork_running (1.50.0). */
 export interface SessionForkParams {
   /** Last turn to keep; omitted keeps everything up to the latest finished turn. A turn before the session's last compaction cannot be cut at. */
   atTurnId?: string | null;
@@ -3019,7 +3033,7 @@ export interface SessionInterruptResult {
   ok?: boolean;
 }
 
-/** `session.lineage` params. A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage'). */
+/** `session.lineage` params. A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage'); 1.50.0 follows forks up the chain and lists direct forks. */
 export interface SessionLineageParams {
   /** Session whose lineage is read. */
   sessionId: string;
@@ -3027,7 +3041,7 @@ export interface SessionLineageParams {
 
 /** `session.lineage` result. */
 export interface SessionLineageResult {
-  /** From the root down to the session's parent. */
+  /** From the root down to the session's parent, following both delegation (parentSessionId) and fork (forkedFrom) links (1.50.0). */
   ancestors?: ({
     /** The agent it runs as. */
     agent?: string | null;
@@ -3110,12 +3124,14 @@ export interface SessionLineageResult {
     })[];
     /** UTC ISO-8601. */
     createdAt?: string;
-    /** chat, subagent, job, … */
-    kind?: string;
+    /** How the session below this one in the chain came from it: forked from it (session.fork) or delegated by it (1.50.0; before, the session kind). */
+    kind?: "fork" | "delegation";
     /** A turn is running in it now. */
     running?: boolean;
     /** The session. */
     sessionId: string;
+    /** The ancestor's own session kind: chat, subagent, job, … */
+    sessionKind?: string;
     /** Its title, when it has one. */
     title?: string | null;
   })[];
@@ -3211,6 +3227,17 @@ export interface SessionLineageResult {
     /** Its title, when it has one. */
     title?: string | null;
   })[];
+  /** Direct forks of this session, oldest first (1.50.0). */
+  forks?: ({
+    /** Turn of this session it was forked at. */
+    atTurnId?: string | null;
+    /** UTC ISO-8601. */
+    createdAt?: string;
+    /** The fork. */
+    sessionId: string;
+    /** Its title; null when untitled. */
+    title?: string | null;
+  })[];
 }
 
 /** `session.list` params. List live or saved sessions. */
@@ -3257,6 +3284,10 @@ export interface SessionListResult {
     effortSource?: "session" | "model" | "vendor" | "default" | null;
     /** Tiers the session's model offers; [] means none (1.29.0). */
     efforts?: ("low" | "medium" | "high" | "max")[] | null;
+    /** Turn of forkedFrom the fork was taken at; null for a non-fork (1.50.0). */
+    forkedAtTurnId?: string | null;
+    /** Session this one was forked from by session.fork; null otherwise (1.50.0). */
+    forkedFrom?: string | null;
     /** Client whose host tools the session uses (a browser profile's clientId); null for IDE, TUI and CLI sessions (addendum 8). */
     hostToolsFrom?: string | null;
     /** Scheduled job this run belongs to; null for other kinds. */
@@ -3267,6 +3298,8 @@ export interface SessionListResult {
     lastActivityAt?: string | null;
     /** Latest saved user input. */
     lastPrompt?: string | null;
+    /** UTC ISO time of the latest prompt a person sent (a message.user event); null when there is none. Goal rounds and other system turns do not move it (1.50.0). */
+    lastUserAt?: string | null;
     /** The machine whose daemon listed the row (1.40.0): a client that caches rows from several daemons matches them by machine.id. */
     machine?: {
       /** True when the daemon runs inside Docker (or another Linux container). */
@@ -3579,11 +3612,11 @@ export interface SessionSetModelResult {
   provider?: string | null;
 }
 
-/** `session.steer` params. Inject a user message into a running turn at its next tool round. */
+/** `session.steer` params. Inject a user message into a running turn at its next tool round; never a slash command (steer_slash_command, 1.50.0). */
 export interface SessionSteerParams {
   /** Session with a running turn. */
   sessionId: string;
-  /** User message injected at the running turn's next tool-round boundary; with no turn running it starts one like session.prompt (1.6.0). */
+  /** User message injected at the running turn's next tool-round boundary; with no turn running it starts one like session.prompt (1.6.0). Text that starts with '/' once trimmed is refused with steer_slash_command (1.50.0). */
   text: string;
 }
 
@@ -7174,13 +7207,13 @@ export interface StepDoneEventPayload {
   outcome: string;
   /** Completion tokens reported. */
   outputTokens?: number;
-  /** Everything the call thought, settled, as message.reasoning streamed. */
+  /** Everything the call thought, settled, as message.reasoning streamed; partial for an errored or interrupted call (1.50.0). */
   reasoning?: string;
   /** Thinking tokens (estimated when unsplit). */
   reasoningTokens?: number;
   /** Model call number within the turn, from 1. */
   step: number;
-  /** Everything the call wrote, settled (1.44.0): the same text its message.delta events streamed, stored once. */
+  /** Everything the call wrote, settled (1.44.0): the same text its message.delta events streamed, stored once. An errored or interrupted call carries what streamed before it stopped (1.50.0). */
   text?: string;
   /** Tool calls the call asked for. */
   toolCalls?: number;
@@ -7429,6 +7462,10 @@ export interface TurnQueuedEventPayload {
 
 /** Payload of `session.event` with kind `turn.started`. */
 export interface TurnStartedEventPayload {
+  /** The goal the round works on (1.50.0); absent otherwise. */
+  goalId?: string | null;
+  /** A goal round's number, from 1 (reason 'goal', 1.50.0); absent on every other turn. */
+  goalRound?: number | null;
   /** Who started the turn (1.8.0). 'system' = session.continue: the input is a [system] note, no message.user is emitted, and surfaces show a status line instead of a user bubble. */
   initiator?: "user" | "system";
   kind?: "turn.started";

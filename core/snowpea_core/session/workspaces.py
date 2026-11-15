@@ -3,9 +3,11 @@
 A workspace is a registry row keyed by the folder's canonical path (``realpath``),
 with a title and a position.  The rows live in the session store but outside the
 event log, like dsh's workspace registry: membership is a session's workdir
-resolving to the same path.  On first use the registry is filled from the
-distinct workdirs of the stored sessions; later, a session in a folder with no row
-adds one.
+resolving to the same path.  Once per store (a flag in ``workspace_meta``
+remembers it) the registry is filled from the distinct workdirs of the stored
+sessions; after that only a new top-level session adds the row for its folder
+when there is none (1.50.0).  Listing never adds rows, so a removed workspace
+stays removed until a conversation is started in that folder again.
 
 Sessions also carry ``pinned`` and ``archived`` flags (columns on the session row).
 """
@@ -29,8 +31,15 @@ CREATE TABLE IF NOT EXISTS workspaces (
     title       TEXT NOT NULL,
     position    INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workspace_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 )
 """
+
+#: ``workspace_meta`` key set once the registry was filled from the stored sessions.
+ADOPTED_KEY = "adopted"
 
 #: Columns added to ``sessions`` for the sidebar.
 SESSION_FLAGS: tuple[tuple[str, str], ...] = (("pinned", "INTEGER"), ("archived", "INTEGER"))
@@ -55,18 +64,24 @@ def _title_for(path: str) -> str:
 
 
 def _ensure_sync(store: Store) -> None:
-    store._execute(SCHEMA)
+    for statement in SCHEMA.split(";"):
+        if statement.strip():
+            store._execute(statement)
     existing = {str(row["name"]) for row in store._query("PRAGMA table_info(sessions)")}
     for name, decl in SESSION_FLAGS:
         if name not in existing:
             store._execute(f"ALTER TABLE sessions ADD COLUMN {name} {decl}")
-    count = store._query("SELECT COUNT(*) AS n FROM workspaces")[0]["n"]
-    if count:
+    if store._query("SELECT 1 FROM workspace_meta WHERE key = ?", (ADOPTED_KEY,)):
         return
-    # First use: one workspace per distinct session folder, most recent first.
+    if store._query("SELECT COUNT(*) AS n FROM workspaces")[0]["n"]:
+        # A registry from 1.47-1.49 already adopted every folder as it was listed.
+        _mark_adopted(store)
+        return
+    # First open: one workspace per distinct session folder, most recent first.
     rows = store._query(
-        "SELECT workdir, MAX(created_at) AS last FROM sessions "
-        "WHERE workdir IS NOT NULL AND workdir != '' GROUP BY workdir ORDER BY last DESC"
+        "SELECT workdir, MAX(created_at) AS last FROM sessions WHERE workdir IS NOT NULL "
+        "AND workdir != '' AND (parent_session_id IS NULL OR parent_session_id = '') "
+        "GROUP BY workdir ORDER BY last DESC"
     )
     seen: set[str] = set()
     position = 0
@@ -81,10 +96,17 @@ def _ensure_sync(store: Store) -> None:
             (f"w-{uuid.uuid4().hex[:10]}", path, _title_for(path), position, _now()),
         )
         position += 1
+    _mark_adopted(store)
+
+
+def _mark_adopted(store: Store) -> None:
+    store._execute(
+        "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES (?, ?)", (ADOPTED_KEY, _now())
+    )
 
 
 async def ensure(store: Store) -> None:
-    """Create the table and the session flags once per store; fill it on first use."""
+    """Create the tables and the session flags once per store; fill them on first open."""
     key = id(store)
     if _READY.get(key):
         return
@@ -102,28 +124,9 @@ def _row(row: Any) -> dict[str, Any]:
     }
 
 
-async def _adopt_new_folders(store: Store) -> None:
-    """A folder a session was opened in since the registry was filled joins it, on top."""
-    known = {
-        row["path"] for row in await asyncio.to_thread(store._query, "SELECT path FROM workspaces")
-    }
-    rows = await asyncio.to_thread(
-        store._query,
-        "SELECT workdir, MAX(created_at) AS last FROM sessions WHERE workdir IS NOT NULL "
-        "AND workdir != '' AND (parent_session_id IS NULL OR parent_session_id = '') "
-        "GROUP BY workdir ORDER BY last",
-    )
-    for row in rows:
-        path = canonical(row["workdir"])
-        if path not in known:
-            known.add(path)
-            await add(store, path)
-
-
 async def list_all(store: Store) -> list[dict[str, Any]]:
     """Workspaces in order, each with the count of its non-archived sessions."""
     await ensure(store)
-    await _adopt_new_folders(store)
     rows = await asyncio.to_thread(
         store._query, "SELECT * FROM workspaces ORDER BY position, created_at"
     )

@@ -1,6 +1,6 @@
 # M17 — Session log v2 and Trajectory (M16 Phase 2)
 
-Status: 2a–2e done 2026-11-14 (protocol 1.44–1.48); 2f deferred to Phases 4–5. Parent plan: [m16-dsh-adoption.md](m16-dsh-adoption.md).
+Status: 2a–2e done 2026-11-14 (protocol 1.44–1.48), completed by the 1.50.0 batch (see the end); 2f deferred to Phases 4–5. Parent plan: [m16-dsh-adoption.md](m16-dsh-adoption.md).
 
 ## Decision: additive, not 2.0
 
@@ -81,3 +81,46 @@ manual pages where users see something.
   turn runs unless `stop: true`).
 - `session.list` rows gain `workspaceId`, `pinned`, `archived`, `lastUserAt` (the latest user
   prompt time, dsh's "last updated" order).
+
+## 1.50.0 — what the browser client's security review asked for
+
+Additive; everything below landed in protocol 1.50.0.
+
+- **Archive disarms a goal.** `session.archive` on a session with an armed goal disarms it the
+  way a stop does (the phase stays, `armed` goes false) and publishes `goal.changed`. Archive
+  is still refused while a turn runs unless `stop: true`.
+- **Partial text on a failed call.** An `error` (and, as before, an `interrupted`)
+  `step.done` carries the `text` and `reasoning` that streamed before it stopped.
+- **`lastUserAt`** on `session.list` rows: the time of the latest `message.user` event, null
+  when there is none. A live session tracks it as the event is emitted; a closed or freshly
+  restored row reads `MAX(ts)` of its `message.user` events in one query for the whole list.
+  Goal rounds and other system turns do not move it.
+- **Adoption no longer undoes `workspace.remove`.** The registry is filled from the session
+  workdirs once per database (a `workspace_meta` row marks it; a registry from 1.47–1.49 is
+  marked as already filled), and afterwards only creating a session adds the row for its folder
+  (top-level sessions only). `workspace.list` and `session.list` never add rows, so a removed
+  folder stays gone until a new conversation is started in it.
+- **Forks in rows and lineage.** The fork's row stores `forked_from` and `forked_at_turn_id`;
+  `session.list` rows gain `forkedFrom` and `forkedAtTurnId` (`forkedAtSeq` above was never
+  shipped). `session.lineage` gains `forks: [{sessionId, title, atTurnId, createdAt}]` (direct
+  forks, oldest first), and its ancestor chain follows `forkedFrom` as well as
+  `parentSessionId`: each ancestor has `kind: "fork" | "delegation"` (how the session below it
+  came from it) and `sessionKind` (its own session kind, which `kind` held before).
+- **Goal round numbers.** A goal round's `turn.started` carries `goalRound` (from 1) and
+  `goalId`; other turns omit both. `goal.set` and `goal.resume` publish `goal.changed`
+  before they schedule the round.
+- **Fork refusal codes** in `error.data.code`: `fork_after_compaction`,
+  `fork_turn_not_found` (JSON-RPC -32004, as before), `fork_no_finished_turn`,
+  `fork_child_session`, `fork_running` (-32602, as before). `fork_running` is the latest turn
+  of a source whose turn is running when that turn has no recorded `historyLen` (a turn from
+  before 1.46): the live history is the only copy and the running turn is adding to it. A
+  turn with a recorded `historyLen` forks while another turn runs.
+- **Untitled fork.** A source without a title gives a fork with `title: null`; a titled
+  source still gives "<title> (fork)".
+- **A steer is never a slash command.** `session.steer` trims its text (Unicode whitespace,
+  so an ideographic space or a control character such as `\x1c` goes too) and refuses it when
+  it then starts with `/`, running or idle, with `steer_slash_command` (-32602): an idle steer
+  becomes a prompt, and that prompt would otherwise run as a command. Commands go through
+  `session.prompt` or `command.run`.
+- **Goals only in a conversation of its own.** `goal.set` and `goal.resume` refuse a delegated
+  child (as `/goal` does) and a scheduled run with `goal_not_allowed` (-32602).

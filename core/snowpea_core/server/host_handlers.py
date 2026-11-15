@@ -731,6 +731,14 @@ async def session_steer_handler(
     text = params.text.strip()
     if not text:
         raise RpcError(errors.INVALID_PARAMS, "text is empty")
+    if text.startswith("/"):
+        # Refused whatever whitespace or control characters came first: an idle
+        # steer becomes a prompt, and a trimmed "/..." would run as a command
+        # (1.50.0, browser security review).
+        raise RpcError(
+            errors.STEER_SLASH_COMMAND,
+            "a steer is plain text; send a slash command with session.prompt or command.run",
+        )
     task = getattr(session, "turn_task", None)
     running = session.current_turn is not None or (task is not None and not task.done())
     if running:

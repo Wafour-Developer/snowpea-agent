@@ -117,7 +117,8 @@ async def test_an_ide_prompt_marks_its_session_active_and_a_chat_prompt_does_not
         assert core.sessions.active_id == first
         assert core.sessions.active_at
 
-        await client.ok("session.steer", {"sessionId": second, "text": "/mode"})
+        # A steer is plain text; a slash command is refused there (1.50.0).
+        await client.ok("session.steer", {"sessionId": second, "text": "hello"})
         assert core.sessions.active_id == second
 
         await client.ok("session.setActive", {"sessionId": first})

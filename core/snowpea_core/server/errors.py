@@ -68,6 +68,21 @@ EXISTS = "exists"
 IS_DIR = "is_dir"
 PROTECTED = "protected"
 
+#: ``session.fork`` refusals (1.50.0): the turn is before the last compaction (or
+#: from before forks were recorded); no finished turn has that id; the session has
+#: no finished turn; the source is a delegated child; the latest turn cannot be
+#: taken while a turn is still running.
+FORK_AFTER_COMPACTION = "fork_after_compaction"
+FORK_TURN_NOT_FOUND = "fork_turn_not_found"
+FORK_NO_FINISHED_TURN = "fork_no_finished_turn"
+FORK_CHILD_SESSION = "fork_child_session"
+FORK_RUNNING = "fork_running"
+#: ``session.steer`` text that is a slash command once trimmed (1.50.0): a
+#: command goes through ``session.prompt`` or ``command.run``, never a steer.
+STEER_SLASH_COMMAND = "steer_slash_command"
+#: ``goal.set`` / ``goal.resume`` on a delegated child or a scheduled run (1.50.0).
+GOAL_NOT_ALLOWED = "goal_not_allowed"
+
 ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,
     PROTOCOL_INCOMPATIBLE,
@@ -100,6 +115,13 @@ ERROR_CODES: tuple[str, ...] = (
     EXISTS,
     IS_DIR,
     PROTECTED,
+    FORK_AFTER_COMPACTION,
+    FORK_TURN_NOT_FOUND,
+    FORK_NO_FINISHED_TURN,
+    FORK_CHILD_SESSION,
+    FORK_RUNNING,
+    STEER_SLASH_COMMAND,
+    GOAL_NOT_ALLOWED,
 )
 
 # JSON-RPC 2.0 reserved codes.
@@ -120,6 +142,14 @@ _JSONRPC_CODE: dict[str, int] = {
     MCP_INVALID: INVALID_PARAMS_JSONRPC,
     MCP_NOT_FOUND: ENTITY_NOT_FOUND,
     INTERNAL: INTERNAL_ERROR,
+    # The numbers these refusals had before they got their own codes (1.50.0).
+    FORK_AFTER_COMPACTION: INVALID_PARAMS_JSONRPC,
+    FORK_TURN_NOT_FOUND: ENTITY_NOT_FOUND,
+    FORK_NO_FINISHED_TURN: INVALID_PARAMS_JSONRPC,
+    FORK_CHILD_SESSION: INVALID_PARAMS_JSONRPC,
+    FORK_RUNNING: INVALID_PARAMS_JSONRPC,
+    STEER_SLASH_COMMAND: INVALID_PARAMS_JSONRPC,
+    GOAL_NOT_ALLOWED: INVALID_PARAMS_JSONRPC,
 }
 
 

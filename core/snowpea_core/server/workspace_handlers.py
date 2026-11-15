@@ -1,4 +1,8 @@
-"""``workspace.*``, ``session.pin`` and ``session.archive`` (1.47.0; M17 2d)."""
+"""``workspace.*``, ``session.pin`` and ``session.archive`` (1.47.0; M17 2d).
+
+1.50.0: archiving a conversation disarms its armed goal; ``session.list`` rows
+gain ``lastUserAt``.
+"""
 
 from __future__ import annotations
 
@@ -116,6 +120,13 @@ async def _flag(core: Core, params: SessionFlagParams, flag: str) -> Ok:
                     "the conversation is running; pass stop to stop it and archive",
                 )
             live.interrupt.set()
+        if getattr(live, "goal_armed", False):
+            # Archiving disarms an armed goal the way a stop does (1.50.0): no
+            # round starts by itself in a conversation nobody is looking at.
+            from snowpea_core.agent import goal_driver
+
+            live.goal_armed = False
+            await goal_driver.publish(core, live)
     await ws.set_flag(store, params.sessionId, flag, params.value)
     await _announce(core, flag, params.sessionId)
     return Ok(ok=True)
@@ -134,13 +145,21 @@ async def session_archive_handler(
 
 
 async def decorate(core: Core, rows: list) -> list:  # type: ignore[type-arg]
-    """``session.list`` rows with ``workspaceId``, ``pinned`` and ``archived`` (1.47.0)."""
+    """``session.list`` rows with ``workspaceId``, ``pinned`` and ``archived`` (1.47.0).
+
+    ``lastUserAt`` (1.50.0) comes from the live session; a row without one (a
+    closed session, or one restored since the daemon started) reads the time of
+    its latest ``message.user`` event in one query for all of them.
+    """
     store = getattr(core, "store", None)
     if store is None or not rows:
         return rows
     try:
         by_path = {item["path"]: item["id"] for item in await ws.list_all(store)}
         flags = await ws.session_flags(store)
+        last_user = await store.last_user_times(
+            [row.sessionId for row in rows if not row.lastUserAt]
+        )
     except Exception:  # noqa: BLE001 - the list must not fail for decoration
         return rows
     out = []
@@ -152,6 +171,7 @@ async def decorate(core: Core, rows: list) -> list:  # type: ignore[type-arg]
                     "workspaceId": by_path.get(ws.canonical(row.workdir)),
                     "pinned": bool(flag.get("pinned")),
                     "archived": bool(flag.get("archived")),
+                    "lastUserAt": row.lastUserAt or last_user.get(row.sessionId),
                 }
             )
         )

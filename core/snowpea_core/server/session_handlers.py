@@ -416,6 +416,8 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
                 jobId=stored.get("job_id"),
                 hostToolsFrom=stored.get("host_tools_from"),
                 agent=stored.get("agent"),
+                forkedFrom=stored.get("forked_from"),
+                forkedAtTurnId=stored.get("forked_at_turn_id"),
                 browserProvider=(
                     ("local" if stored.get("browser_provider") == "local" else "host")
                     if stored.get("origin_surface") == "browser" or stored.get("host_tools_from")

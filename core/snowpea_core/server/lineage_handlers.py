@@ -4,6 +4,10 @@ The ancestors of a session (for breadcrumbs: lead → agent → its agent) and i
 descendants as a tree (for the "N delegated" menu), read from the
 ``parent_session_id`` links on the stored session rows.  A delegated child is its
 own session already; this only walks the links.
+
+1.50.0: the ancestor chain also follows ``forked_from`` (each breadcrumb says
+whether the step below it was a ``fork`` or a ``delegation``), and ``forks``
+lists the direct forks of the session.
 """
 
 from __future__ import annotations
@@ -12,7 +16,13 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
-from snowpea_core.server.protocol import LineageNode, SessionLineageParams, SessionLineageResult
+from snowpea_core.server.protocol import (
+    LineageAncestor,
+    LineageFork,
+    LineageNode,
+    SessionLineageParams,
+    SessionLineageResult,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -54,13 +64,22 @@ async def session_lineage_handler(
         if parent:
             children.setdefault(str(parent), []).append(session_id)
 
-    ancestors: list[LineageNode] = []
+    def up(row: dict[str, Any]) -> tuple[str | None, str]:
+        parent = row.get("parent_session_id")
+        if parent:
+            return str(parent), "delegation"
+        forked = row.get("forked_from")
+        return (str(forked) if forked else None), "fork"
+
+    ancestors: list[LineageAncestor] = []
     seen = {params.sessionId}
-    parent = rows[params.sessionId].get("parent_session_id")
+    parent, link = up(rows[params.sessionId])
     while parent and parent in rows and parent not in seen:
         seen.add(parent)
-        ancestors.insert(0, LineageNode(**_node(rows[parent], core.sessions.get(parent))))
-        parent = rows[parent].get("parent_session_id")
+        node = _node(rows[parent], core.sessions.get(parent))
+        node["sessionKind"], node["kind"] = node["kind"], link
+        ancestors.insert(0, LineageAncestor(**node))
+        parent, link = up(rows[parent])
 
     def tree(session_id: str, depth: int) -> list[LineageNode]:
         if depth >= MAX_DEPTH:
@@ -72,7 +91,19 @@ async def session_lineage_handler(
             out.append(node)
         return out
 
-    return SessionLineageResult(ancestors=ancestors, descendants=tree(params.sessionId, 0))
+    forks = [
+        LineageFork(
+            sessionId=session_id,
+            title=row.get("title"),
+            atTurnId=row.get("forked_at_turn_id"),
+            createdAt=str(row.get("created_at") or ""),
+        )
+        for session_id, row in sorted(rows.items(), key=lambda item: item[1]["created_at"])
+        if row.get("forked_from") == params.sessionId
+    ]
+    return SessionLineageResult(
+        ancestors=ancestors, descendants=tree(params.sessionId, 0), forks=forks
+    )
 
 
 def register_lineage_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:

@@ -5,6 +5,10 @@ workdir, mode, model and agent, the history as it stood when that turn ended,
 and the event log up to that turn, so the new session's transcript shows what
 it inherited.  The source is never touched; checkpoint restore stays the way
 to go back *inside* a session.
+
+1.50.0: the fork records ``forked_from``/``forked_at_turn_id`` on its row, an
+untitled source gives an untitled fork, and each refusal has its own
+``error.data.code`` (``fork_*`` in :mod:`server.errors`).
 """
 
 from __future__ import annotations
@@ -39,18 +43,20 @@ async def session_fork_handler(
     if source is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     if getattr(source, "is_subagent", False):
-        raise RpcError(errors.INVALID_PARAMS, "a delegated child is not forked")
+        raise RpcError(errors.FORK_CHILD_SESSION, "a delegated child is not forked")
     dones = [
         event
         for event in await store.events_of_kinds(source.id, ("turn.done",))
         if not (event["payload"] or {}).get("synthetic")
     ]
     if not dones:
-        raise RpcError(errors.INVALID_PARAMS, "the session has no finished turn to fork at")
+        raise RpcError(
+            errors.FORK_NO_FINISHED_TURN, "the session has no finished turn to fork at"
+        )
     if params.atTurnId:
         matches = [e for e in dones if (e["payload"] or {}).get("turnId") == params.atTurnId]
         if not matches:
-            raise RpcError(errors.NOT_FOUND, f"no finished turn {params.atTurnId}")
+            raise RpcError(errors.FORK_TURN_NOT_FOUND, f"no finished turn {params.atTurnId}")
         target = matches[-1]
     else:
         target = dones[-1]
@@ -67,9 +73,16 @@ async def session_fork_handler(
         kept = messages[:history_len]
     elif latest and _idle(source):
         kept = messages
+    elif latest:
+        # Without a recorded history length the live history is the only copy,
+        # and a running turn is adding to it.
+        raise RpcError(
+            errors.FORK_RUNNING,
+            "a turn is running; fork once it has ended, or at an earlier turn",
+        )
     else:
         raise RpcError(
-            errors.INVALID_PARAMS,
+            errors.FORK_AFTER_COMPACTION,
             "that turn is before the session's last compaction (or from before forks were "
             "recorded); fork at a later turn",
         )
@@ -82,16 +95,20 @@ async def session_fork_handler(
         origin_surface=getattr(source, "origin_surface", None),
         origin_conn=conn,
     )
-    fork.title = f"{source.title or 'session'} (fork)"
-    try:
-        await store.update_title(fork.id, fork.title)
-    except Exception:  # noqa: BLE001 - a title is cosmetic
-        pass
+    at_turn = payload.get("turnId")
+    # An untitled source gives an untitled fork; a client names it (1.50.0).
+    fork.title = f"{source.title} (fork)" if source.title else None
+    if fork.title:
+        try:
+            await store.update_title(fork.id, fork.title)
+        except Exception:  # noqa: BLE001 - a title is cosmetic
+            pass
+    fork.forked_from, fork.forked_at_turn_id = source.id, at_turn
+    await store.update_fork(fork.id, source.id, at_turn)
     fork.history.extend(list(kept))
     await persist_history(store, fork)
     top = await store.copy_events(source.id, fork.id, int(target["seq"]))
     fork.seq = max(fork.seq, top)
-    at_turn = payload.get("turnId")
     await core.hub.emit_event(fork.id, events.session_forked(source.id, at_turn, len(kept)))
     sessions = getattr(core, "sessions", None)
     if sessions is not None and hasattr(sessions, "announce_sessions_changed"):

@@ -1250,6 +1250,9 @@ async def _stream_once_raw(
                         step_no,
                         "error",
                         error=step_error[:500],
+                        # What streamed before the failure (1.50.0).
+                        text="".join(chunks),
+                        reasoning="".join(thought),
                         **_step_usage(attempt),
                         **step_numbers,
                     ),
@@ -1787,6 +1790,7 @@ async def run_turn(
 
     ensure_applied(core, session)
     system = initiator == "system"
+    goal = getattr(session, "goal", None) if reason == "goal" else None
     await _mark_turn_started(core, session, None if system else text)
     # The turn is running *now* — after whatever wait it did in the FIFO, and
     # before anything it produces.  Without this a surface has to start its
@@ -1799,6 +1803,8 @@ async def run_turn(
             queued=queued,
             initiator="system" if system else "user",
             reason=reason,
+            goal_round=goal.rounds if goal is not None else None,
+            goal_id=goal.id if goal is not None else None,
         ),
     )
     try:

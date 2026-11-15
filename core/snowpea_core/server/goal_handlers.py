@@ -29,13 +29,31 @@ HANDLED_METHODS: tuple[str, ...] = (
 )
 
 
-def _session(core: Core, session_id: str) -> Session:
+def _live(core: Core, session_id: str) -> Session:
     session = core.sessions.get(session_id)
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {session_id}")
+    return session
+
+
+def _session(core: Core, session_id: str) -> Session:
+    session = _live(core, session_id)
     if getattr(session, "is_subagent", False):
         raise RpcError(errors.INVALID_PARAMS, "a delegated child does not take a goal")
     return session
+
+
+def _may_drive(session: Session) -> None:
+    """Only a conversation of its own drives a goal (1.50.0): not a delegated child
+    (as ``/goal`` refuses) and not a scheduled run."""
+    if (
+        getattr(session, "is_subagent", False)
+        or getattr(session, "kind", "chat") in ("subagent", "scheduled")
+    ):
+        raise RpcError(
+            errors.GOAL_NOT_ALLOWED,
+            "a delegated child or a scheduled run does not take a goal",
+        )
 
 
 def _result(session: Session) -> GoalResult:
@@ -57,14 +75,16 @@ async def goal_get_handler(
 async def goal_set_handler(
     _conn: RpcConnection | None, params: GoalSetParams, core: Core
 ) -> GoalResult:
-    session = _session(core, params.sessionId)
+    session = _live(core, params.sessionId)
+    _may_drive(session)
     try:
         goals.start(session, params.objective, params.maxRounds)
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    if params.start and _idle(session):
-        goal_driver.start_round(core, session)
+    # goal.changed goes out before the round's turn.started (1.50.0).
     await goal_driver.publish(core, session)
+    if params.start and _idle(session) and not goal_driver.start_round(core, session):
+        await goal_driver.publish(core, session)
     return _result(session)
 
 
@@ -80,13 +100,19 @@ async def goal_pause_handler(
 async def goal_resume_handler(
     _conn: RpcConnection | None, params: GoalControlParams, core: Core
 ) -> GoalResult:
-    session = _session(core, params.sessionId)
+    session = _live(core, params.sessionId)
+    _may_drive(session)
     if getattr(session, "goal", None) is None:
         raise RpcError(errors.NOT_FOUND, "this session has no goal")
     goal = goals.resume(session, max(0, int(params.extraRounds or 0)))
-    if goal is not None and goal.phase == "active" and _idle(session):
-        goal_driver.start_round(core, session)
     await goal_driver.publish(core, session)
+    if (
+        goal is not None
+        and goal.phase == "active"
+        and _idle(session)
+        and not goal_driver.start_round(core, session)
+    ):
+        await goal_driver.publish(core, session)
     return _result(session)
 
 

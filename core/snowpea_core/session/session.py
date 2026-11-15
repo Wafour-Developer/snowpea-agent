@@ -287,6 +287,13 @@ class Session:
     #: start of the running turn.
     last_activity_at: str | None = None
     turn_started_at: str | None = None
+    #: UTC ISO time of the latest prompt a person sent (1.50.0); a goal round or
+    #: another system turn does not move it.
+    last_user_at: str | None = None
+    #: The session this one was forked from and the turn it was forked at
+    #: (``session.fork``, 1.50.0); stored on the row.
+    forked_from: str | None = None
+    forked_at_turn_id: str | None = None
     #: ``turn.done`` reason of the last finished turn (``error`` shows as such).
     last_turn_reason: str | None = None
     #: ``$SNOWPEA_HOME/sessions/<date>_<id>`` with ``tmp/`` and ``artifacts/``.
@@ -389,6 +396,9 @@ class Session:
                 "error" if self.last_turn_reason == "error" else "idle"
             ),
             lastActivityAt=self.last_activity_at,
+            lastUserAt=self.last_user_at,
+            forkedFrom=self.forked_from,
+            forkedAtTurnId=self.forked_at_turn_id,
             turnStartedAt=self.turn_started_at,
             hostToolsFrom=self.host_tools_from,
             browserProvider=browser_provider_of(self),  # type: ignore[arg-type]

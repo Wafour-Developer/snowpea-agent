@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.49.0"
+PROTOCOL_VERSION = "1.50.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -705,7 +705,8 @@ class SessionSteerParams(Payload):
     text: str = Field(
         description=(
             "User message injected at the running turn's next tool-round boundary; "
-            "with no turn running it starts one like session.prompt (1.6.0)."
+            "with no turn running it starts one like session.prompt (1.6.0). Text that "
+            "starts with '/' once trimmed is refused with steer_slash_command (1.50.0)."
         )
     )
 
@@ -974,6 +975,21 @@ class SessionSummary(Payload):
     )
     pinned: bool = Field(default=False, description="Pinned to the top of its workspace (1.47.0).")
     archived: bool = Field(default=False, description="Archived; hidden by default (1.47.0).")
+    lastUserAt: str | None = Field(
+        default=None,
+        description=(
+            "UTC ISO time of the latest prompt a person sent (a message.user event); null "
+            "when there is none. Goal rounds and other system turns do not move it (1.50.0)."
+        ),
+    )
+    forkedFrom: str | None = Field(
+        default=None,
+        description="Session this one was forked from by session.fork; null otherwise (1.50.0).",
+    )
+    forkedAtTurnId: str | None = Field(
+        default=None,
+        description="Turn of forkedFrom the fork was taken at; null for a non-fork (1.50.0).",
+    )
     origin: SessionOrigin | None = Field(
         default=None,
         description=(
@@ -2424,16 +2440,47 @@ class LineageNode(Payload):
     )
 
 
+class LineageAncestor(LineageNode):
+    """A breadcrumb of ``session.lineage`` (1.50.0: forks are followed too)."""
+
+    kind: Literal["fork", "delegation"] = Field(  # type: ignore[assignment]
+        default="delegation",
+        description=(
+            "How the session below this one in the chain came from it: forked from it "
+            "(session.fork) or delegated by it (1.50.0; before, the session kind)."
+        ),
+    )
+    sessionKind: str = Field(
+        default="chat", description="The ancestor's own session kind: chat, subagent, job, …"
+    )
+
+
+class LineageFork(Payload):
+    """A direct fork of the session (1.50.0)."""
+
+    sessionId: str = Field(description="The fork.")
+    title: str | None = Field(default=None, description="Its title; null when untitled.")
+    atTurnId: str | None = Field(default=None, description="Turn of this session it was forked at.")
+    createdAt: str = Field(default="", description="UTC ISO-8601.")
+
+
 class SessionLineageParams(Payload):
     sessionId: str = Field(description="Session whose lineage is read.")
 
 
 class SessionLineageResult(Payload):
-    ancestors: list[LineageNode] = Field(
-        default_factory=list, description="From the root down to the session's parent."
+    ancestors: list[LineageAncestor] = Field(
+        default_factory=list,
+        description=(
+            "From the root down to the session's parent, following both delegation "
+            "(parentSessionId) and fork (forkedFrom) links (1.50.0)."
+        ),
     )
     descendants: list[LineageNode] = Field(
         default_factory=list, description="Sessions it delegated to, as a tree."
+    )
+    forks: list[LineageFork] = Field(
+        default_factory=list, description="Direct forks of this session, oldest first (1.50.0)."
     )
 
 
@@ -5315,12 +5362,16 @@ class StepDone(Payload):
         default="",
         description=(
             "Everything the call wrote, settled (1.44.0): the same text its message.delta "
-            "events streamed, stored once."
+            "events streamed, stored once. An errored or interrupted call carries what "
+            "streamed before it stopped (1.50.0)."
         ),
     )
     reasoning: str = Field(
         default="",
-        description="Everything the call thought, settled, as message.reasoning streamed.",
+        description=(
+            "Everything the call thought, settled, as message.reasoning streamed; partial "
+            "for an errored or interrupted call (1.50.0)."
+        ),
     )
     toolCalls: int = Field(default=0, description="Tool calls the call asked for.")
 
@@ -5645,6 +5696,16 @@ class TurnStarted(Payload):
     )
     reason: str | None = Field(
         default=None, description="Why a system turn started, e.g. 'handback' (1.8.0)."
+    )
+    goalRound: int | None = Field(
+        default=None,
+        description=(
+            "A goal round's number, from 1 (reason 'goal', 1.50.0); absent on every other "
+            "turn."
+        ),
+    )
+    goalId: str | None = Field(
+        default=None, description="The goal the round works on (1.50.0); absent otherwise."
     )
 
 
@@ -7328,7 +7389,7 @@ METHODS: dict[str, RpcMethod] = {
             SessionLineageParams,
             SessionLineageResult,
             "A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, "
-            "capability 'lineage').",
+            "capability 'lineage'); 1.50.0 follows forks up the chain and lists direct forks.",
         ),
         _m(
             "workspace.list",
@@ -7363,7 +7424,9 @@ METHODS: dict[str, RpcMethod] = {
             SessionForkParams,
             SessionForkResult,
             "Branch a session into a new one at the end of a finished turn; the source is not "
-            "touched (1.46.0, capability 'fork').",
+            "touched (1.46.0, capability 'fork'). Refusals carry error.data.code "
+            "fork_after_compaction, fork_turn_not_found, fork_no_finished_turn, "
+            "fork_child_session or fork_running (1.50.0).",
         ),
         _m(
             "session.trajectory",
@@ -7379,7 +7442,8 @@ METHODS: dict[str, RpcMethod] = {
             GoalSetParams,
             GoalResult,
             "Give the session a goal and arm it; rounds run until goal_update completes or "
-            "blocks it, or the round cap (1.43.0, capability 'goals').",
+            "blocks it, or the round cap (1.43.0, capability 'goals'). A delegated child or "
+            "a scheduled run is refused with goal_not_allowed (1.50.0).",
         ),
         _m("goal.pause", GoalControlParams, GoalResult, "Pause and disarm the goal (1.43.0)."),
         _m(
@@ -7387,7 +7451,8 @@ METHODS: dict[str, RpcMethod] = {
             GoalControlParams,
             GoalResult,
             "Re-arm a paused or blocked goal, optionally with more rounds, and start a round "
-            "when idle (1.43.0).",
+            "when idle (1.43.0); goal_not_allowed on a delegated child or a scheduled run "
+            "(1.50.0).",
         ),
         _m("goal.clear", GoalControlParams, GoalResult, "Remove the goal (1.43.0)."),
         _m(
@@ -7837,7 +7902,8 @@ METHODS: dict[str, RpcMethod] = {
             "session.steer",
             SessionSteerParams,
             SessionSteerResult,
-            "Inject a user message into a running turn at its next tool round.",
+            "Inject a user message into a running turn at its next tool round; never a "
+            "slash command (steer_slash_command, 1.50.0).",
         ),
         _m(
             "session.continue",
