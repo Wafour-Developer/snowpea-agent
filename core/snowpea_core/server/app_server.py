@@ -737,6 +737,11 @@ class Daemon:
         self._home = home
         self._preissued_token = token
         self._runner: web.AppRunner | None = None
+        self._remote_runner: web.AppRunner | None = None
+        #: The remote web listener's sessions, when it runs.
+        self.remote_auth: Any = None
+        #: What ``snowpea web status`` reports about the remote listener.
+        self.remote_status: dict[str, Any] = {"enabled": False}
         self._advert_task: asyncio.Future[None] | None = None
         self._closed = asyncio.Event()
         self.core: Core | None = None
@@ -806,6 +811,7 @@ class Daemon:
         await site.start()
         self._runner = runner
         core.port = _resolve_port(runner, self._requested_port)
+        await self._start_remote_web(dispatcher, settings, paths)
         # Published at once so a client finds the port, but marked not ready:
         # skills and MCP servers below can take seconds, and a client must be
         # able to tell a booting daemon from a hung one (addendum 26).
@@ -957,6 +963,62 @@ class Daemon:
     async def _on_idle(self) -> None:
         self.request_shutdown("idle")
 
+    async def _start_remote_web(
+        self, dispatcher: RpcDispatcher, settings: Settings, paths: Paths
+    ) -> None:
+        """Bind ``web.remote.host:port`` when remote web access is enabled.
+
+        A misconfiguration or a busy port is logged and leaves the daemon up on
+        loopback only; ``snowpea web status`` shows why.
+        """
+        from snowpea_core.server import web_remote
+
+        remote = settings.web.remote
+        status: dict[str, Any] = {
+            "enabled": bool(remote.enabled),
+            "host": remote.host,
+            "port": remote.port,
+            "username": remote.username,
+        }
+        self.remote_status = status
+        if not remote.enabled:
+            return
+        problem = web_remote.config_problem(remote, paths)
+        if problem is not None:
+            status["error"] = problem
+            log.error("remote web access is enabled but not started: %s", problem)
+            return
+        auth = web_remote.RemoteAuth(remote.username, remote.sessionHours, paths)
+        assert self.app is not None
+        app = web_remote.create_remote_app(
+            dispatcher,
+            auth,
+            connections=self.app[CONNECTIONS_KEY],
+            sockets=self.app[SOCKETS_KEY],
+            trust_proxy=remote.trustProxy,
+            allowed_origins=remote.allowedOrigins,
+        )
+        runner = web.AppRunner(app)
+        await runner.setup()
+        try:
+            await web.TCPSite(runner, remote.host, remote.port).start()
+        except OSError as exc:
+            await runner.cleanup()
+            status["error"] = f"could not listen on {remote.host}:{remote.port}: {exc}"
+            log.error("remote web access not started: %s", status["error"])
+            return
+        self._remote_runner = runner
+        self.remote_auth = auth
+        status["port"] = _resolve_port(runner, remote.port)
+        status["listening"] = True
+        log.warning(
+            "remote web access listening on %s:%s (user %s); plain HTTP — put it behind "
+            "TLS or a VPN when it is reachable beyond a trusted network",
+            remote.host,
+            status["port"],
+            remote.username,
+        )
+
     def request_shutdown(self, reason: str = "requested") -> None:
         """Ask the daemon to stop; safe to call from a handler."""
         if self.shutdown_reason is None:
@@ -1030,6 +1092,9 @@ class Daemon:
                     await ws.close()
             for conn in list(connections):
                 await conn.close()
+        if self._remote_runner is not None:
+            await self._remote_runner.cleanup()
+            self._remote_runner = None
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None

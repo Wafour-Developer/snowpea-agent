@@ -14,6 +14,7 @@ from typing import Any
 
 from aiohttp import web
 
+from snowpea_core.server.auth import token_matches
 from snowpea_core.server.protocol import PROTOCOL_VERSION, SERVER_VERSION, dump_schema
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.server.transport_ws import (
@@ -98,6 +99,32 @@ async def web_redirect(request: web.Request) -> web.Response:
     raise web.HTTPFound(WEB_PATH + (f"?{query}" if query else ""))
 
 
+async def web_not_here(_request: web.Request) -> web.Response:
+    """The remote listener's login routes do not exist on loopback.
+
+    Without this the client-route fallback would answer ``/web/session`` with
+    the page, and a new path that hands out the token must never exist here.
+    """
+    raise web.HTTPNotFound()
+
+
+async def web_remote_status(request: web.Request) -> web.Response:
+    """``GET /web/remote/status`` (loopback, ``Authorization: Bearer <token>``).
+
+    What ``snowpea web status`` shows: the remote listener's state as this
+    daemon started it, and how many login sessions are open.
+    """
+    core = request.app[CORE_KEY]
+    presented = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if core is None or not token_matches(core.token, presented):
+        raise web.HTTPUnauthorized()
+    daemon = request.app[DAEMON_KEY]
+    status = dict(getattr(daemon, "remote_status", None) or {"enabled": False})
+    auth = getattr(daemon, "remote_auth", None)
+    status["sessions"] = auth.active() if auth is not None else 0
+    return web.json_response(status, headers={"Cache-Control": "no-store"})
+
+
 def create_app(
     dispatcher: RpcDispatcher, daemon: Any | None = None, core: Any | None = None
 ) -> web.Application:
@@ -113,6 +140,9 @@ def create_app(
     app.router.add_get("/protocol.json", protocol_json)
     app.router.add_get(WS_PATH, websocket_handler)
     app.router.add_get("/web", web_redirect)
+    app.router.add_get(WEB_PATH + "remote/status", web_remote_status)
+    for name in ("session", "login", "logout"):
+        app.router.add_route("*", WEB_PATH + name, web_not_here)
     app.router.add_get(WEB_PATH + "{tail:.*}", web_static)
     return app
 

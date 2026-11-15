@@ -7,7 +7,55 @@ snowpea web            # start the daemon if needed, print the address, open it
 snowpea web --no-open  # print the address only
 ```
 
-The address looks like `http://127.0.0.1:<port>/web/?token=…`. The token is the daemon's own (the one in `$SNOWPEA_HOME/daemon.json`); the page keeps it for that browser tab and takes it out of the address bar. Anyone who has the token can drive the agent, so do not paste the address into chats or tickets. The daemon listens on the loopback address only; to use snowpea web from another machine, tunnel the port over ssh (`ssh -L <port>:127.0.0.1:<port> host`).
+The address looks like `http://127.0.0.1:<port>/web/?token=…`. The token is the daemon's own (the one in `$SNOWPEA_HOME/daemon.json`); the page keeps it for that browser tab and takes it out of the address bar. Anyone who has the token can drive the agent, so do not paste the address into chats or tickets. This address only works on the machine the daemon runs on.
+
+## From another machine
+
+The simplest way is still an ssh tunnel: nothing else listens, and the connection is encrypted.
+
+```bash
+ssh -L <port>:127.0.0.1:<port> host   # then open the printed address locally
+```
+
+To open snowpea web from other machines directly — a laptop on the same network, a phone — turn on remote access. It is a second listener with a username and password, separate from the loopback one, which keeps working as before.
+
+1. Set the username (and, if you like, the address) in `settings.json`:
+
+   ```json
+   { "web": { "remote": { "enabled": true, "username": "me" } } }
+   ```
+
+2. Set the password. It is asked twice and stored only as a salted scrypt hash in `credentials.json` (mode 0600), never in `settings.json`:
+
+   ```bash
+   snowpea web password             # prompts twice
+   snowpea web password --stdin     # reads one line, for scripts
+   snowpea web password --clear     # remove it
+   ```
+
+3. Restart the daemon (`snowpea daemon stop`, then `snowpea web`). Settings are read when the daemon starts; a running daemon does not rebind.
+
+`snowpea web` then also prints the address for other machines, `http://<this machine's LAN address>:8787/web/`, which shows a sign-in form. `snowpea web status` shows whether remote access is on, the address it listens on, the username, whether a password is set and how many people are signed in.
+
+| Setting (`web.remote.…`) | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Start the second listener. |
+| `host` | `0.0.0.0` | Address to listen on (`0.0.0.0` is every interface). |
+| `port` | `8787` | Port to listen on. |
+| `username` | `""` | The one account that may sign in. |
+| `sessionHours` | `12` | How long a sign-in lasts. |
+| `allowedOrigins` | `[]` | Extra page origins the WebSocket accepts, e.g. `https://snowpea.example.com` behind a proxy. |
+| `trustProxy` | `false` | Believe `X-Forwarded-Proto` / `X-Forwarded-For` from a reverse proxy you run. |
+
+If remote access is enabled without a username or without a password, the daemon starts on loopback only, writes why to its log, and `snowpea web` says so.
+
+Security notes:
+
+- **It is plain HTTP.** The password and everything you do travel unencrypted. On anything beyond a network you trust, put it behind TLS (a reverse proxy such as Caddy or nginx, with `trustProxy: true`) or reach it over a VPN or the ssh tunnel above.
+- Whoever signs in can drive the agent, and with it this machine's shell and files. Pick a long password.
+- Five failed sign-ins from one address in five minutes, or twenty from anywhere, lock sign-in for the rest of those five minutes. Sign-ins and failures are logged with the client address, never the password.
+- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. A new password applies to the next sign-in; sessions already open last until they expire, you sign out, or the daemon restarts.
+- The remote listener serves only the page, sign-in and the WebSocket — no `/health`, `/version` or schema — and the WebSocket refuses a page from another origin.
 
 ## The screen
 

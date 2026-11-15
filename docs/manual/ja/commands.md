@@ -161,9 +161,13 @@ snowpea daemon stop
 ```bash
 snowpea web
 snowpea web --no-open
+snowpea web status
+snowpea web password
+snowpea web password --stdin
+snowpea web password --clear
 ```
 
-`web` はデーモンが動いていることを確かめ、[snowpea web](web.md) — デーモンが配信する、ブラウザで見る IDE の画面 — のアドレスを表示して開きます。アドレスにはデーモンのトークンが含まれるので、他人に見せないでください。`--no-open` はアドレスを表示するだけです。
+`web` はデーモンが動いていることを確かめ、[snowpea web](web.md) — デーモンが配信する、ブラウザで見る IDE の画面 — のアドレスを表示して開きます。アドレスにはデーモンのトークンが含まれるので、他人に見せないでください。`--no-open` はアドレスを表示するだけです。 [リモートアクセス](web.md)が有効なら、別のマシン用のアドレスも表示します。`web status` はリモートアクセスの状態(待ち受けアドレス、ユーザー名、パスワードの有無、開いているサインイン数)を表示します。`web password` はリモートのサインイン用パスワードを設定し(二回たずね、`--stdin` は一行を読む)、`--clear` は削除します。`credentials.json` には scrypt ハッシュだけが保存されます。
 
 ### Providers
 

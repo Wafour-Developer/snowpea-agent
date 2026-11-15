@@ -7,7 +7,55 @@ snowpea web            # start the daemon if needed, print the address, open it
 snowpea web --no-open  # print the address only
 ```
 
-地址形如 `http://127.0.0.1:<port>/web/?token=…`。token 是守护进程自己的(即 `$SNOWPEA_HOME/daemon.json` 中的那个)；页面会把它保存在该浏览器标签页中，并从地址栏里移除。任何拿到 token 的人都能操控智能体，所以不要把这个地址贴到聊天或工单里。守护进程只监听回环地址；要从另一台机器使用 snowpea web，请通过 ssh 转发端口(`ssh -L <port>:127.0.0.1:<port> host`)。
+地址形如 `http://127.0.0.1:<port>/web/?token=…`。token 是守护进程自己的(即 `$SNOWPEA_HOME/daemon.json` 中的那个)；页面会把它保存在该浏览器标签页中，并从地址栏里移除。任何拿到 token 的人都能操控智能体，所以不要把这个地址贴到聊天或工单里。这个地址只能在运行守护进程的机器上打开。
+
+## 从另一台机器访问
+
+最简单的办法仍然是 ssh 隧道：不会多监听任何端口，连接也是加密的。
+
+```bash
+ssh -L <port>:127.0.0.1:<port> host
+```
+
+要让同一网络里的笔记本或手机直接打开，请开启远程访问。它是另一个用用户名和密码保护的监听器，回环监听器照旧工作。
+
+1. 在 `settings.json` 里设置用户名(需要的话也设置地址)：
+
+   ```json
+   { "web": { "remote": { "enabled": true, "username": "me" } } }
+   ```
+
+2. 设置密码。会询问两次，只以加盐的 scrypt 哈希保存在 `credentials.json`(权限 0600)中，绝不写入 `settings.json`。`--stdin` 供脚本使用，读取一行；`--clear` 删除密码。
+
+   ```bash
+   snowpea web password
+   snowpea web password --stdin
+   snowpea web password --clear
+   ```
+
+3. 重启守护进程(`snowpea daemon stop`，然后 `snowpea web`)。设置在守护进程启动时读取，运行中的守护进程不会重新绑定。
+
+之后 `snowpea web` 还会打印给其他机器用的地址 `http://<本机局域网地址>:8787/web/`，打开后是登录页面。`snowpea web status` 显示远程访问是否开启、监听地址、用户名、是否已设置密码以及已登录的会话数。
+
+| 设置 (`web.remote.…`) | 默认值 | 含义 |
+|---|---|---|
+| `enabled` | `false` | 启动第二个监听器。 |
+| `host` | `0.0.0.0` | 监听地址(`0.0.0.0` 表示所有网卡)。 |
+| `port` | `8787` | 监听端口。 |
+| `username` | `""` | 唯一可以登录的账号。 |
+| `sessionHours` | `12` | 一次登录的有效时长。 |
+| `allowedOrigins` | `[]` | WebSocket 额外接受的页面来源，例如代理后面的 `https://snowpea.example.com`。 |
+| `trustProxy` | `false` | 信任你自己运行的反向代理发来的 `X-Forwarded-Proto` / `X-Forwarded-For`。 |
+
+如果开启了远程访问却没有用户名或密码，守护进程只在回环地址上启动，把原因写进日志，`snowpea web` 也会说明原因。
+
+安全提示：
+
+- **这是明文 HTTP。** 密码和所有操作都不加密传输。在可信网络之外，请把它放在 TLS 后面(Caddy、nginx 等反向代理，并设置 `trustProxy: true`)，或通过 VPN 或上面的 ssh 隧道访问。
+- 登录的人可以操控智能体，也就能操作这台机器的 shell 和文件。请使用足够长的密码。
+- 同一地址 5 分钟内登录失败 5 次，或全局失败 20 次，就会锁定登录直到这 5 分钟结束。登录成功和失败都会连同客户端地址写入日志，但绝不记录密码。
+- 登录凭据是一个 cookie(`HttpOnly`、`SameSite=Strict`，HTTPS 下带 `Secure`)。会话只保存在守护进程内存中，重启守护进程会让所有人退出登录。新密码从下一次登录起生效；已打开的会话会持续到过期、退出登录或守护进程重启。
+- 远程监听器只提供页面、登录和 WebSocket(没有 `/health`、`/version` 或协议架构)，WebSocket 会拒绝来自其他来源的页面。
 
 ## 界面
 

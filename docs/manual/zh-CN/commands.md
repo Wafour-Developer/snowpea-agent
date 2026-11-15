@@ -161,9 +161,13 @@ snowpea daemon stop
 ```bash
 snowpea web
 snowpea web --no-open
+snowpea web status
+snowpea web password
+snowpea web password --stdin
+snowpea web password --clear
 ```
 
-`web` 会确保守护进程在运行，打印 [snowpea web](web.md)(由守护进程提供、在浏览器中显示的 IDE 界面)的地址，并将其打开。地址中带有守护进程的 token，请自己保管好。`--no-open` 只打印地址。
+`web` 会确保守护进程在运行，打印 [snowpea web](web.md)(由守护进程提供、在浏览器中显示的 IDE 界面)的地址，并将其打开。地址中带有守护进程的 token，请自己保管好。`--no-open` 只打印地址。 开启[远程访问](web.md)后，还会打印给其他机器用的地址。`web status` 显示远程访问的状态：监听地址、用户名、是否设置了密码以及打开的登录数。`web password` 设置远程登录密码(询问两次；`--stdin` 读取一行)，`--clear` 删除它；`credentials.json` 中只保存 scrypt 哈希。
 
 ### 供应商
 

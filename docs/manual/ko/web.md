@@ -7,7 +7,55 @@ snowpea web            # start the daemon if needed, print the address, open it
 snowpea web --no-open  # print the address only
 ```
 
-주소는 `http://127.0.0.1:<port>/web/?token=…` 형태입니다. 토큰은 데몬의 것(`$SNOWPEA_HOME/daemon.json`에 있는 그 토큰)이며, 페이지는 이를 해당 브라우저 탭에 보관하고 주소창에서는 지웁니다. 토큰을 가진 사람은 누구나 에이전트를 조종할 수 있으므로 주소를 채팅이나 티켓에 붙여 넣지 마세요. 데몬은 루프백 주소로만 listen합니다. 다른 컴퓨터에서 snowpea web을 쓰려면 ssh로 포트를 터널링하세요(`ssh -L <port>:127.0.0.1:<port> host`).
+주소는 `http://127.0.0.1:<port>/web/?token=…` 형태입니다. 토큰은 데몬의 것(`$SNOWPEA_HOME/daemon.json`에 있는 그 토큰)이며, 페이지는 이를 해당 브라우저 탭에 보관하고 주소창에서는 지웁니다. 토큰을 가진 사람은 누구나 에이전트를 조종할 수 있으므로 주소를 채팅이나 티켓에 붙여 넣지 마세요. 이 주소는 데몬이 도는 컴퓨터에서만 열립니다.
+
+## 다른 컴퓨터에서
+
+가장 간단한 방법은 여전히 ssh 터널입니다. 따로 열리는 포트가 없고 연결도 암호화됩니다.
+
+```bash
+ssh -L <port>:127.0.0.1:<port> host
+```
+
+같은 네트워크의 노트북이나 휴대폰에서 바로 열려면 원격 접속을 켭니다. 사용자 이름과 비밀번호로 보호되는 두 번째 listener이며, 루프백 listener는 지금처럼 그대로 동작합니다.
+
+1. `settings.json`에 사용자 이름(원하면 주소도)을 넣습니다.
+
+   ```json
+   { "web": { "remote": { "enabled": true, "username": "me" } } }
+   ```
+
+2. 비밀번호를 정합니다. 두 번 묻고, `settings.json`이 아니라 `credentials.json`(권한 0600)에 salt를 넣은 scrypt 해시로만 저장합니다. `--stdin`은 스크립트용으로 한 줄을 읽고, `--clear`는 비밀번호를 지웁니다.
+
+   ```bash
+   snowpea web password
+   snowpea web password --stdin
+   snowpea web password --clear
+   ```
+
+3. 데몬을 다시 시작합니다(`snowpea daemon stop` 후 `snowpea web`). 설정은 데몬이 시작할 때 읽으며, 실행 중인 데몬은 다시 bind하지 않습니다.
+
+그러면 `snowpea web`이 다른 컴퓨터용 주소 `http://<이 컴퓨터의 LAN 주소>:8787/web/`도 출력하고, 그 주소는 로그인 화면을 보여 줍니다. `snowpea web status`는 원격 접속이 켜졌는지, listen 주소, 사용자 이름, 비밀번호 설정 여부, 로그인한 세션 수를 보여 줍니다.
+
+| 설정 (`web.remote.…`) | 기본값 | 의미 |
+|---|---|---|
+| `enabled` | `false` | 두 번째 listener를 시작합니다. |
+| `host` | `0.0.0.0` | listen할 주소(`0.0.0.0`은 모든 인터페이스). |
+| `port` | `8787` | listen할 포트. |
+| `username` | `""` | 로그인할 수 있는 단 하나의 계정. |
+| `sessionHours` | `12` | 로그인이 유지되는 시간. |
+| `allowedOrigins` | `[]` | WebSocket이 추가로 받아 줄 페이지 origin(예: 프록시 뒤의 `https://snowpea.example.com`). |
+| `trustProxy` | `false` | 직접 운영하는 리버스 프록시의 `X-Forwarded-Proto` / `X-Forwarded-For`를 믿습니다. |
+
+원격 접속을 켰는데 사용자 이름이나 비밀번호가 없으면 데몬은 루프백으로만 시작하고, 이유를 로그에 남기며, `snowpea web`도 그 이유를 알려 줍니다.
+
+보안 참고:
+
+- **평문 HTTP입니다.** 비밀번호와 모든 작업이 암호화되지 않은 채 오갑니다. 믿을 수 있는 네트워크 밖이라면 TLS(Caddy, nginx 같은 리버스 프록시와 `trustProxy: true`) 뒤에 두거나 VPN 또는 위의 ssh 터널로 접속하세요.
+- 로그인한 사람은 에이전트를, 그리고 그것을 통해 이 컴퓨터의 셸과 파일을 다룰 수 있습니다. 긴 비밀번호를 쓰세요.
+- 한 주소에서 5분 안에 5번, 또는 전체에서 20번 로그인에 실패하면 그 5분이 끝날 때까지 로그인이 잠깁니다. 로그인 성공과 실패는 클라이언트 주소와 함께 로그에 남고, 비밀번호는 남지 않습니다.
+- 로그인은 쿠키(`HttpOnly`, `SameSite=Strict`, HTTPS에서는 `Secure`)입니다. 세션은 데몬 메모리에만 있어서 데몬을 다시 시작하면 모두 로그아웃됩니다. 새 비밀번호는 다음 로그인부터 적용되고, 이미 열린 세션은 만료되거나 로그아웃하거나 데몬이 다시 시작할 때까지 유지됩니다.
+- 원격 listener는 페이지, 로그인, WebSocket만 제공합니다(`/health`, `/version`, 스키마 없음). WebSocket은 다른 origin의 페이지를 거부합니다.
 
 ## 화면 구성
 

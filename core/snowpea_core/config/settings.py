@@ -391,6 +391,29 @@ class DaemonSettings(_Model):
     keepAwake: bool = True
 
 
+class WebRemoteSettings(_Model):
+    """snowpea web from another machine (``docs/manual/en/web.md``).
+
+    Read at daemon start; a change applies on the next restart.  The password
+    is never here: ``snowpea web password`` keeps a scrypt hash in
+    ``credentials.json``.
+    """
+
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = Field(default=8787, ge=0, le=65535)
+    username: str = ""
+    sessionHours: int = Field(default=12, ge=1)
+    #: Origins besides the request's own scheme+host the WebSocket accepts.
+    allowedOrigins: list[str] = Field(default_factory=list)
+    #: Believe ``X-Forwarded-Proto``/``X-Forwarded-For`` (only behind your own proxy).
+    trustProxy: bool = False
+
+
+class WebSettings(_Model):
+    remote: WebRemoteSettings = Field(default_factory=WebRemoteSettings)
+
+
 class SearchSettings(_Model):
     """Which web-search provider ``web_search`` prefers (M2 contract §3)."""
 
@@ -724,6 +747,7 @@ class Settings(_Model):
     questions: QuestionsSettings = Field(default_factory=QuestionsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     daemon: DaemonSettings = Field(default_factory=DaemonSettings)
+    web: WebSettings = Field(default_factory=WebSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
