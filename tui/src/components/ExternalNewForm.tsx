@@ -19,6 +19,9 @@ import {
   cliLabel,
   modeLabel,
   modesFor,
+  modelsNote,
+  pendingPathLine,
+  pendingPathLines,
   unavailableReason,
   unrestrictedPrompt,
   usable,
@@ -50,12 +53,15 @@ function CliStep({
   onCancel,
   isActive,
   notice,
+  pending,
 }: {
   infos: ExternalCliInfo[];
   onChoose: (info: ExternalCliInfo) => void;
   onCancel: () => void;
   isActive: boolean;
   notice: string | null;
+  /** Wrapped lines for the CLIs whose path is not confirmed. */
+  pending: string[];
 }): React.ReactElement {
   const [index, setIndex] = useState(() => Math.max(0, infos.findIndex(usable)));
   useChoiceKeys({
@@ -81,6 +87,9 @@ function CliStep({
         hint={choiceHint({ enter: "pick" })}
       />
       {notice ? <Text color="red" wrap="truncate-end">{notice}</Text> : null}
+      {pending.map((line, at) => (
+        <Text key={`pending-${at}`} color="yellow" wrap="truncate-end">{line}</Text>
+      ))}
     </>
   );
 }
@@ -134,12 +143,14 @@ const MODEL_WINDOW = 7;
  */
 function ModelStep({
   models,
+  note,
   onSubmit,
   onBack,
   isActive,
   width,
 }: {
   models: string[];
+  note: string | null;
   onSubmit: (model: string | null) => void;
   onBack: () => void;
   isActive: boolean;
@@ -165,7 +176,15 @@ function ModelStep({
       />
     );
   }
-  return <ModelText onSubmit={onSubmit} onBack={models.length > 0 ? () => setTyping(false) : onBack} isActive={isActive} width={width} />;
+  return (
+    <ModelText
+      onSubmit={onSubmit}
+      onBack={models.length > 0 ? () => setTyping(false) : onBack}
+      isActive={isActive}
+      width={width}
+      note={note}
+    />
+  );
 }
 
 function ModelText({
@@ -173,7 +192,10 @@ function ModelText({
   onBack,
   isActive,
   width,
+  note,
 }: {
+  /** "loading models…" while the CLI has not listed any, "no model list" once it said it lists none. */
+  note: string | null;
   onSubmit: (model: string | null) => void;
   onBack: () => void;
   isActive: boolean;
@@ -197,6 +219,7 @@ function ModelText({
         <Text>{fit(text, Math.max(1, width - 16))}</Text>
         <Text inverse> </Text>
       </Box>
+      {note ? <Text dimColor wrap="truncate-end">{note}</Text> : null}
       <Text dimColor wrap="truncate-end">Enter create (empty = the CLI's default) · Esc back</Text>
     </>
   );
@@ -241,11 +264,16 @@ export function ExternalNewForm({
           <CliStep
             infos={ordered}
             notice={notice}
+            pending={pendingPathLines(ordered, width - 4)}
             isActive={isActive}
             onCancel={onCancel}
             onChoose={(choice) => {
               if (!usable(choice)) {
-                setNotice(`${cliLabel(choice.id)} is ${unavailableReason(choice) || "unavailable"}`);
+                setNotice(
+                  choice.pendingPath
+                    ? (pendingPathLine(choice) ?? "")
+                    : `${cliLabel(choice.id)} is ${unavailableReason(choice) || "unavailable"}`,
+                );
                 return;
               }
               setNotice(null);
@@ -269,6 +297,7 @@ export function ExternalNewForm({
       {step === "model" && info ? (
         <ModelStep
           models={liveInfo?.models ?? []}
+          note={modelsNote(liveInfo)}
           width={width}
           isActive={isActive}
           onBack={() => setStep("mode")}

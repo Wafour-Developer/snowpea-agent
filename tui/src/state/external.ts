@@ -10,7 +10,7 @@
  * Pure, so `test/external.test.ts` covers it without a terminal or a daemon.
  */
 
-import { fit, spread } from "../layout/fit.js";
+import { fit, spread, wrapWords } from "../layout/fit.js";
 import type {
   ExternalCli,
   ExternalCliInfo,
@@ -165,8 +165,54 @@ export function usable(info: ExternalCliInfo): boolean {
   return info.installed && info.enabled !== false;
 }
 
+/**
+ * The sentence for a CLI whose configured executable path the person has not
+ * confirmed (`ExternalCliInfo.pendingPath`): it is not run, not even for
+ * `--version`, until `external.clis.confirmPath`. Null when nothing is pending.
+ */
+export function pendingPathLine(info: Pick<ExternalCliInfo, "id" | "pendingPath">): string | null {
+  if (!info.pendingPath) return null;
+  return `${cliLabel(info.id)}: path not confirmed — confirm in Settings or with /external confirm-path ${info.id}`;
+}
+
+/**
+ * The lines for the CLIs with a path waiting for confirmation, at most
+ * {@link PENDING_PATH_ROWS} of them, each at most `width` cells: one CLI gets
+ * the whole sentence over two rows, several get a row each.
+ */
+export function pendingPathLines(infos: readonly ExternalCliInfo[], width: number): string[] {
+  const lines = infos.map(pendingPathLine).filter((line): line is string => line !== null);
+  if (lines.length === 0) return [];
+  if (lines.length === 1) return wrapWords(lines[0], width, PENDING_PATH_ROWS);
+  return lines.slice(0, PENDING_PATH_ROWS).map((line) => fit(line, width));
+}
+
+/** Rows the pickers reserve for {@link pendingPathLines}. */
+export const PENDING_PATH_ROWS = 2;
+
+/** What the model step says while the list is empty: still loading, or the CLI lists none. */
+export function modelsNote(info: Pick<ExternalCliInfo, "models" | "modelsLoaded"> | null | undefined): string | null {
+  if (!info || (info.models ?? []).length > 0) return null;
+  // An older core does not say (`modelsLoaded` absent): then there is nothing to claim.
+  if (info.modelsLoaded === undefined) return null;
+  return info.modelsLoaded ? "no model list" : "loading models…";
+}
+
+/** The confirmation `/external confirm-path` asks: the exact resolved path. */
+export function confirmPathPrompt(info: Pick<ExternalCliInfo, "id" | "pendingPath">): string[] {
+  // The path is split, never cut: the person confirms every character of it.
+  const path = Array.from(String(info.pendingPath ?? ""));
+  const chunks: string[] = [];
+  for (let at = 0; at < path.length; at += CONFIRM_PATH_CHUNK) chunks.push(path.slice(at, at + CONFIRM_PATH_CHUNK).join(""));
+  return [`Allow snowpea to run this ${cliLabel(info.id)} executable?`, ...chunks];
+}
+
+/** Characters of a path per row of the confirmation (fits a 60-column screen). */
+const CONFIRM_PATH_CHUNK = 50;
+
 /** Why a CLI cannot be started, in a few words. */
 export function unavailableReason(info: ExternalCliInfo): string {
+  if (info.pendingPath) return "path not confirmed — /external confirm-path " + info.id;
   if (!info.installed) return "not installed";
   if (info.enabled === false) return "turned off in settings";
   return (info.problems ?? [])[0] ?? "";
@@ -428,13 +474,83 @@ export function externalReducer(view: ExternalView, action: ExternalAction): Ext
 /** What the person was doing when a call failed, for the codes that mean different things. */
 export type ExternalCallKind = "send" | "interrupt" | "adopt" | "open";
 
+/** The fields of an RPC error that the screens act on (`error.data.code`, `error.data.details`). */
+export interface RpcErrorFacts {
+  code?: string;
+  /** `data.details.reason`: why an `external_unavailable`, `session_busy` or `jarvis_person_only` was raised. */
+  reason?: string;
+  /** `data.details.project`: the folder of an `untrusted_project`. */
+  project?: string;
+  /** `data.details.kind`: who the refused connection was (`remote_login`, `browser`, `connector`, `none`). */
+  kind?: string;
+}
+
+export function rpcErrorFacts(error: unknown): RpcErrorFacts {
+  const raw = error as { data?: { code?: unknown; details?: Record<string, unknown> | null }; code?: unknown } | null;
+  const text = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
+  const details = raw?.data?.details ?? {};
+  return {
+    code: text(raw?.data?.code) ?? text(raw?.code),
+    reason: text(details["reason"]),
+    project: text(details["project"]),
+    kind: text(details["kind"]),
+  };
+}
+
+/** The error is `external_unavailable` for a project no person has trusted yet. */
+export function isUntrustedProject(error: unknown): boolean {
+  const facts = rpcErrorFacts(error);
+  return facts.code === "external_unavailable" && facts.reason === "untrusted_project";
+}
+
+/** One clear line for `jarvis_person_only`, by who was refused. */
+export function personOnlyLine(error: unknown): string {
+  switch (rpcErrorFacts(error).kind) {
+    case "remote_login":
+      return "Only a local snowpea can do that — a remote login cannot. Use the TUI, the IDE or the local web page.";
+    case "browser":
+    case "connector":
+      return "A browser host or connector cannot do that — only a person at this machine can.";
+    default:
+      return "Only a person can do that — Jarvis and scripts cannot.";
+  }
+}
+
+/** The confirmation for trusting a project (`external.open` / `external.create` `trust: true`). */
+export function trustPrompt(project: string): string[] {
+  return [
+    "This CLI will load this project's own settings and hooks.",
+    `Open external sessions in ${tailPath(project, 40)}?`,
+  ];
+}
+
+/** `path` cut from the front, so the folder's own name survives. */
+export function tailPath(path: string, max: number): string {
+  const chars = Array.from(path);
+  return chars.length <= max ? path : `…${chars.slice(chars.length - (max - 1)).join("")}`;
+}
+
+/** Why a busy `tmux` pane refuses a send, by `error.data.details.reason`. */
+const BUSY_REASONS: Record<string, string> = {
+  terminal_prompt: "A permission prompt is open in the terminal — answer it there, then send again.",
+  terminal_busy: "Claude Code is busy in that terminal — send again when it is idle.",
+  terminal_typing: "Someone is typing in that tmux pane — send again in a few seconds.",
+};
+
 /** The line to show for a failed `external.*` call. */
 export function describeExternalError(error: unknown, cli?: string, kind: ExternalCallKind = "send"): string {
   const raw = error as { message?: string; data?: { code?: string }; code?: string | number } | null;
-  const code = raw?.data?.code ?? (typeof raw?.code === "string" ? raw.code : undefined);
+  const facts = rpcErrorFacts(error);
+  const code = facts.code;
   const message = raw?.message ?? String(error);
   switch (code) {
     case "external_unavailable":
+      if (facts.reason === "untrusted_project_person_only") {
+        return "This project is not trusted for external CLIs yet, and only you can allow it — open an external session there from the TUI or the IDE first.";
+      }
+      if (facts.reason === "untrusted_project") {
+        return "This project is not trusted for external CLIs yet — confirm it to continue.";
+      }
       return `${cli ? cliLabel(cli) : "That CLI"} is not available: ${message}`;
     case "external_view_only":
       if (kind === "interrupt") {
@@ -443,11 +559,12 @@ export function describeExternalError(error: unknown, cli?: string, kind: Extern
       if (kind === "adopt") return "Typing into that tmux pane was not allowed — the session stays view only.";
       return "This session is open in another terminal — view only until it exits.";
     case "session_busy":
-      // The daemon says why: a turn is running, a prompt is open in the pane,
-      // or someone is typing there. Its words are the reason.
+      // The daemon says why: a prompt is open in the pane, it is busy, or
+      // someone is typing there (`details.reason`); else a turn is running.
+      if (facts.reason && BUSY_REASONS[facts.reason]) return BUSY_REASONS[facts.reason];
       return message && message !== "session_busy" ? message : "The session is busy — wait for the turn to end.";
     case "jarvis_person_only":
-      return "Only a person can do that here (not Jarvis).";
+      return personOnlyLine(error);
     case "jarvis_disabled":
       return "Jarvis mode is off — /jarvis on";
     case "not_found":

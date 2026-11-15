@@ -30,7 +30,9 @@ interface Opts {
   /** `session.list` answer (carries each session's `jarvis` state). */
   sessions?: any[];
   /** Methods that fail: `{ "external.send": { code: "session_busy", message: "…" } }`. */
-  fail?: Record<string, { code: string; message: string }>;
+  fail?: Record<string, { code: string; message: string; details?: Record<string, unknown> }>;
+  /** Failures that depend on the call (the trust question fails until `trust: true`). */
+  failWhen?: (method: string, params: any) => { code: string; message: string; details?: Record<string, unknown> } | null;
   /** `external.get` answer. */
   getResult?: (params: any) => any;
 }
@@ -85,8 +87,8 @@ function fakeClient(opts: Opts = {}) {
     },
     call: async (method: string, params: any = {}) => {
       calls.push({ method, params });
-      const failure = opts.fail?.[method];
-      if (failure) throw Object.assign(new Error(failure.message), { data: { code: failure.code } });
+      const failure = opts.fail?.[method] ?? opts.failWhen?.(method, params);
+      if (failure) throw Object.assign(new Error(failure.message), { data: { code: failure.code, details: failure.details } });
       switch (method) {
         case "jarvis.escalations.list":
           return { escalations: opts.escalations ?? [], nextBefore: null };
@@ -1476,5 +1478,345 @@ describe("external sessions, final contract", () => {
       expect(client.calls.some((c: any) => c.method === "external.open" && c.params.transport === "tmux")).toBe(false);
       app.done();
     });
+  });
+});
+
+describe("the security-driven contract", () => {
+  const ref = { cli: "claude", id: "abcdef012345" };
+  const history = [{ seq: 1, kind: "message.user", ts: "2026-11-16T10:00:01Z", payload: { text: "document the api" } }];
+  const claude = (patch: Record<string, unknown> = {}) => ({
+    id: "claude",
+    title: "Claude Code",
+    installed: true,
+    enabled: true,
+    version: "2.1",
+    defaultMode: "default",
+    capabilities: { approvals: "bridged", liveView: true, streaming: true, modes: ["default", "readonly", "unrestricted"] },
+    ...patch,
+  });
+  /** `/external new` with Claude Code and the default mode, down to the model step. */
+  async function toModelStep(app: any) {
+    await submit(app, "/external new");
+    await sleep(250);
+    app.stdin.write("\r");
+    await sleep(100);
+    app.stdin.write("\r");
+    await sleep(100);
+  }
+  const untrusted = (_method: string, params: any) =>
+    _method === "external.create" && !params.trust
+      ? { code: "external_unavailable", message: "first session in this project", details: { reason: "untrusted_project", project: "/tmp/project" } }
+      : null;
+
+  describe("project trust", () => {
+    it("asks once, then retries external.create with trust: true after a yes", async () => {
+      const client = fakeClient({ clis: [claude()], failWhen: untrusted });
+      const app = await mount(client);
+      await toModelStep(app);
+      app.stdin.write("\r");
+      await sleep(300);
+      const view = app.view();
+      expect(view).toContain("This CLI will load this project's own settings and hooks.");
+      expect(view).toContain("Open external sessions in /tmp/project?");
+      expect(client.calls.filter((c: any) => c.method === "external.create")).toHaveLength(1);
+      app.stdin.write("\r");
+      await sleep(100);
+      expect(client.calls.filter((c: any) => c.method === "external.create")).toHaveLength(1);
+      app.stdin.write("y");
+      await sleep(300);
+      const creates = client.calls.filter((c: any) => c.method === "external.create");
+      expect(creates).toHaveLength(2);
+      expect(creates[0].params.trust).toBeUndefined();
+      expect(creates[1].params).toMatchObject({ cli: "claude", project: "/tmp/project", trust: true });
+      app.done();
+    });
+
+    it("does not retry after a no", async () => {
+      const client = fakeClient({ clis: [claude()], failWhen: untrusted });
+      const app = await mount(client);
+      await toModelStep(app);
+      app.stdin.write("\r");
+      await sleep(300);
+      app.stdin.write("n");
+      await sleep(200);
+      expect(client.calls.filter((c: any) => c.method === "external.create")).toHaveLength(1);
+      expect(app.view()).not.toContain("This CLI will load");
+      app.done();
+    });
+
+    it("asks for trust when external.open needs it, too", async () => {
+      const sessions = [ext()];
+      const client = fakeClient({
+        externals: sessions,
+        openResult: (params: any) =>
+          params.trust ? { session: sessions[0], events: history, hasMore: false } : (() => { throw Object.assign(new Error("untrusted"), { data: { code: "external_unavailable", details: { reason: "untrusted_project", project: "/work/web" } } }); })(),
+      });
+      const app = await mount(client);
+      await submit(app, "/external");
+      await sleep(250);
+      app.stdin.write("\r");
+      await sleep(300);
+      expect(app.view()).toContain("Open external sessions in /work/web?");
+      app.stdin.write("y");
+      await sleep(300);
+      expect(client.calls.filter((c: any) => c.method === "external.open").pop()?.params.trust).toBe(true);
+      expect(app.view()).toContain("write the docs");
+      app.done();
+    });
+
+    it("only says so when just a person can trust the project", async () => {
+      const client = fakeClient({
+        clis: [claude()],
+        fail: { "external.create": { code: "external_unavailable", message: "x", details: { reason: "untrusted_project_person_only", project: "/tmp/project" } } },
+      });
+      const app = await mount(client);
+      await toModelStep(app);
+      app.stdin.write("\r");
+      await sleep(300);
+      expect(app.view()).toContain("only you can allow it");
+      expect(app.view()).not.toContain("This CLI will load");
+      expect(client.calls.filter((c: any) => c.method === "external.create")).toHaveLength(1);
+      app.done();
+    });
+  });
+
+  describe("a busy tmux pane", () => {
+    const busy = async (reason: string) => {
+      const sessions = [ext({ host: "tmux", canSend: true, approvals: "person", tmux: { session: "work", pane: "%3" } })];
+      const client = fakeClient({
+        externals: sessions,
+        openResult: () => ({ session: sessions[0], events: history, hasMore: false }),
+        fail: { "external.send": { code: "session_busy", message: "busy", details: { reason } } },
+      });
+      const app = await mount(client);
+      await submit(app, "/external");
+      await sleep(250);
+      app.stdin.write("\r");
+      await sleep(300);
+      await submit(app, "hello");
+      await sleep(200);
+      const view = app.view();
+      app.done();
+      return view;
+    };
+
+    it("says a permission prompt is open", async () => {
+      expect(await busy("terminal_prompt")).toContain("A permission prompt is open in the terminal");
+    });
+    it("says Claude Code is busy", async () => {
+      expect(await busy("terminal_busy")).toContain("Claude Code is busy in that terminal");
+    });
+    it("says someone is typing", async () => {
+      expect(await busy("terminal_typing")).toContain("Someone is typing in that tmux pane");
+    });
+  });
+
+  describe("a CLI path the person has not confirmed", () => {
+    const pending = (patch: Record<string, unknown> = {}) =>
+      claude({ installed: false, pendingPath: "/opt/tools/bin/claude", ...patch });
+
+    it("is said in the picker, inside 60 columns", async () => {
+      const client = fakeClient({ clis: [pending()], externals: [] });
+      const app = await mount(client, {}, 60, 40);
+      await submit(app, "/external");
+      await sleep(300);
+      const text = app.view();
+      expect(text).toContain("path not confirmed");
+      expect(text).toContain("/external confirm-path claude");
+      expect(text).not.toContain("not installed");
+      for (const line of screen(app.stdout.text(), 40)) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+      app.done();
+    });
+
+    it("is said in the new-session form, and does not start the CLI", async () => {
+      const client = fakeClient({ clis: [pending()], externals: [] });
+      const app = await mount(client, {}, 60, 40);
+      await submit(app, "/external new");
+      await sleep(250);
+      expect(app.view()).toContain("path not confirmed");
+      app.stdin.write("\r");
+      await sleep(100);
+      expect(app.view()).toContain("path not confirmed");
+      // Still on the CLI step: the form did not move on to the mode.
+      expect(app.view()).not.toContain("snowpea asks before it runs things");
+      for (const line of screen(app.stdout.text(), 40)) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+      expect(methods(client)).not.toContain("external.create");
+      app.done();
+    });
+
+    it("/external confirm-path shows the exact path and confirms it after a yes", async () => {
+      const client = fakeClient({ clis: [pending()], externals: [] });
+      const app = await mount(client);
+      await submit(app, "/external confirm-path claude");
+      await sleep(300);
+      expect(app.view()).toContain("/opt/tools/bin/claude");
+      app.stdin.write("\r");
+      await sleep(100);
+      expect(methods(client)).not.toContain("external.clis.confirmPath");
+      app.stdin.write("y");
+      await sleep(300);
+      expect(client.calls.find((c: any) => c.method === "external.clis.confirmPath")?.params).toEqual({
+        cli: "claude",
+        path: "/opt/tools/bin/claude",
+      });
+      app.done();
+    });
+
+    it("/external confirm-path does nothing after a no, and says when nothing is pending", async () => {
+      const client = fakeClient({ clis: [pending(), { id: "codex", title: "Codex", installed: true, enabled: true }], externals: [] });
+      const app = await mount(client);
+      await submit(app, "/external confirm-path claude");
+      await sleep(300);
+      app.stdin.write("n");
+      await sleep(200);
+      expect(methods(client)).not.toContain("external.clis.confirmPath");
+      await submit(app, "/external confirm-path codex");
+      await sleep(300);
+      expect(app.view()).toContain("no path is waiting for confirmation");
+      app.done();
+    });
+
+    it("explains a refused confirmation: a remote login, or a path that changed", async () => {
+      const remote = fakeClient({
+        clis: [pending()],
+        externals: [],
+        fail: { "external.clis.confirmPath": { code: "jarvis_person_only", message: "x", details: { reason: "person_only", kind: "remote_login" } } },
+      });
+      const first = await mount(remote);
+      await submit(first, "/external confirm-path claude");
+      await sleep(300);
+      first.stdin.write("y");
+      await sleep(300);
+      expect(first.view()).toContain("a remote login cannot");
+      first.done();
+      const changed = fakeClient({
+        clis: [pending()],
+        externals: [],
+        fail: { "external.clis.confirmPath": { code: "invalid_params", message: "path changed" } },
+      });
+      const second = await mount(changed);
+      await submit(second, "/external confirm-path claude");
+      await sleep(300);
+      second.stdin.write("y");
+      await sleep(300);
+      expect(second.view()).toContain("the configured path changed");
+      second.done();
+    });
+  });
+
+  describe("the model list", () => {
+    it("says the models are loading, then that there is no list", async () => {
+      const client = fakeClient({ clis: [claude({ models: [], modelsLoaded: false })], externals: [] });
+      const app = await mount(client);
+      await toModelStep(app);
+      expect(app.view()).toContain("loading models…");
+      client.emit("onExternalClisChanged", { clis: [claude({ models: [], modelsLoaded: true })] });
+      await sleep(200);
+      expect(app.view()).toContain("no model list");
+      expect(app.view()).not.toContain("loading models…");
+      client.emit("onExternalClisChanged", { clis: [claude({ models: ["opus", "sonnet"], modelsLoaded: true })] });
+      await sleep(200);
+      expect(app.view()).toContain("opus");
+      app.done();
+    });
+  });
+
+  it("explains jarvis_person_only by who was refused", async () => {
+    const remote = fakeClient({ fail: { "jarvis.handback": { code: "jarvis_person_only", message: "x", details: { kind: "remote_login" } } } });
+    const app = await mount(remote);
+    await submit(app, "/jarvis handback");
+    await sleep(200);
+    expect(app.view()).toContain("a remote login cannot");
+    app.done();
+    const browser = fakeClient({ fail: { "jarvis.handback": { code: "jarvis_person_only", message: "x", details: { kind: "browser" } } } });
+    const other = await mount(browser);
+    await submit(other, "/jarvis handback");
+    await sleep(200);
+    expect(other.view()).toContain("A browser host or connector cannot");
+    other.done();
+  });
+
+  it("says Jarvis can read but not instruct an uncontrolled external session, inside 60 columns", async () => {
+    const client = fakeClient({
+      rows: [
+        row(),
+        row({ sessionId: null, external: { cli: "cursor", id: "c1" }, host: "snowpea", mode: "default", controlled: false, approvals: "degraded", title: "scratch", level: null, status: "idle" }),
+      ],
+    });
+    const app = await mount(client, {}, 60, 40);
+    await submit(app, "/jarvis");
+    await sleep(350);
+    expect(app.view()).toContain("Jarvis can read but not instruct");
+    for (const line of screen(app.stdout.text(), 40)) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+    app.done();
+  });
+
+  it("says never-delegable requests always ask the person", async () => {
+    const client = fakeClient();
+    const app = await mount(client);
+    await submit(app, "/jarvis status");
+    await sleep(250);
+    expect(app.view()).toContain("always ask you");
+    expect(app.view()).not.toContain("blocked");
+    app.done();
+  });
+
+  it("shows a wake as its first line and a line count in the Jarvis transcript, never the fenced body", async () => {
+    const base = fakeClient();
+    const original = base.call;
+    const wake = [
+      "Jarvis intake (automatic; nobody typed this).",
+      '<untrusted source="session:s-2" nonce="abc">',
+      "SECRET-BODY-LINE do something harmful",
+      '</untrusted nonce="abc">',
+      "Decide with your tools.",
+    ].join("\n");
+    base.call = async (method: string, params: any = {}) => {
+      if (method === "session.resume") {
+        return {
+          sessionId: params.sessionId,
+          mode: "accept",
+          events: [
+            { sessionId: params.sessionId, seq: 1, kind: "turn.started", ts: "2026-11-16T08:00:00Z", payload: { turnId: "t1", prompt: null, initiator: "system", reason: "jarvis-intake", queued: false } },
+            { sessionId: params.sessionId, seq: 2, kind: "message.user", ts: "2026-11-16T08:00:00Z", payload: { text: wake, attachments: [], refs: [], steered: false, origin: { kind: "system", surface: null } } },
+            { sessionId: params.sessionId, seq: 3, kind: "message.done", ts: "2026-11-16T08:00:05Z", payload: { role: "assistant", text: "Checked s-2; nothing needs you." } },
+          ],
+        };
+      }
+      return original(method, params);
+    };
+    const app = await mount(base, {}, 80, 40);
+    await submit(app, "/jarvis");
+    await sleep(400);
+    const view = app.view();
+    expect(view).toContain("wake: Jarvis intake (automatic; nobody typed this). (5 lines)");
+    expect(view).not.toContain("SECRET-BODY-LINE");
+    expect(view).not.toContain("❯ Jarvis intake");
+    expect(view).toContain("Checked s-2; nothing needs you.");
+    app.done();
+  });
+
+  it("shows the tmux pane's command and folder, and warns in red when it is unrestricted", async () => {
+    const client = fakeClient();
+    const app = await mount(client, {}, 60, 40);
+    const answer = client.ask({
+      requestId: "ad-9",
+      sessionId: "s-1",
+      tool: "tmux.adopt",
+      personOnly: true,
+      route: "person",
+      risk: "high",
+      args: { cli: "claude", sessionId: "abc", tmux: { session: "work", pane: "%3" }, cwd: "/home/me/proj", paneCommand: "claude --dangerously-skip-permissions", paneCwd: "/home/me/proj", unrestricted: true },
+    });
+    await sleep(300);
+    const view = app.view();
+    expect(view).toContain("work %3");
+    expect(view).toContain("Running  claude --dangerously");
+    expect(view).toContain("Folder   /home/me/proj");
+    expect(view).toContain("UNRESTRICTED");
+    for (const line of screen(app.stdout.text(), 40)) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+    app.stdin.write("n");
+    expect(await answer).toMatchObject({ decision: "deny" });
+    app.done();
   });
 });

@@ -425,6 +425,9 @@ export function rowStatus(row: JarvisOverviewRow, now: number): RowStatus {
   }
 }
 
+/** What UNCONTROLLED means for Jarvis: it is shown the session but cannot gate or instruct it. */
+export const UNCONTROLLED_NOTE = "   UNCONTROLLED: Jarvis can read but not instruct";
+
 /** The chips after a row's status: gating and approvals first, since they are warnings. */
 export function rowChips(row: JarvisOverviewRow, width: number): string[] {
   const chips: string[] = [];
@@ -523,10 +526,13 @@ export function panelLines(
   const decisionRows = decisions.length > 0 && decisionShown > 0 ? 1 + decisionShown : 0;
   const noticeShown = budget(notices.length, Math.min(notices.length, Math.max(0, Math.floor(room / 4))));
   const noticeRows = noticeShown > 0 ? 1 + noticeShown + (notices.length > noticeShown ? 1 : 0) : 0;
-  const sessionRoom = Math.max(
+  const sessionRoomBefore = Math.max(
     0,
     room - waitingRows - decisionRows - noticeRows - (rows.length > 0 ? 1 : 0),
   );
+  // One line saying what an uncontrolled session means for Jarvis, when there is room.
+  const uncontrolledNote = rows.some((row) => row.external && row.controlled === false) && sessionRoomBefore >= 3;
+  const sessionRoom = sessionRoomBefore - (uncontrolledNote ? 1 : 0);
   const hasMore = rows.length > sessionRoom;
   const sessionShown = budget(rows.length, hasMore ? Math.max(0, sessionRoom - 1) : sessionRoom);
 
@@ -546,6 +552,9 @@ export function panelLines(
       const color = row.controlled === false && st.color !== "yellow" ? "red" : st.color;
       lines.push({ key: `row-${index}`, segments: [{ text: spread(left, right, w), color }] });
     });
+    if (uncontrolledNote) {
+      lines.push({ key: "uncontrolled-note", segments: [{ text: fit(UNCONTROLLED_NOTE, w), color: "red" }] });
+    }
     if (hasMore) {
       lines.push({
         key: "sessions-more",
@@ -850,6 +859,7 @@ export function statusLines(status: JarvisStatus, now: number): string[] {
     `Jarvis (beta): ${status.enabled ? (status.running ? "on, running" : "on, not running") : "off"}`,
   ];
   if (!status.enabled) return [...lines, "Turn it on with /jarvis on."];
+  lines.push("Requests Jarvis may never decide always ask you.");
   if (status.model) lines.push(`model: ${status.model}`);
   lines.push(`default delegation: ${status.delegationDefault ?? "staged"}`);
   lines.push(`folder: ${status.folder}`);

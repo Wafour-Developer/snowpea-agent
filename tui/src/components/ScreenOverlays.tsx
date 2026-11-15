@@ -38,6 +38,8 @@ export function screenOverlayRows(screens: JarvisScreens, width: number): number
       const view = personOnlyView(ui.request, 0);
       return view ? delegationConfirmRows(view) : 0;
     }
+    case "confirm":
+      return delegationConfirmRows(ui.view);
     case "answer": {
       const item = screens.waitingItem;
       if (!item) return 0;
@@ -74,6 +76,7 @@ export function ScreenOverlays({
         hasMore={ui.nextBefore !== null}
         error={ui.error}
         unavailable={ui.unavailable}
+        pending={ui.pending}
         width={width}
         onOpen={(row) => screens.openExternalRef(row.ref)}
         onNew={screens.openNewForm}
@@ -124,6 +127,17 @@ export function ScreenOverlays({
         width={width}
         onConfirm={screens.confirmUnrestricted}
         onCancel={() => screens.setUi(null)}
+      />
+    );
+  }
+
+  if (ui.kind === "confirm") {
+    return (
+      <DelegationConfirm
+        view={ui.view}
+        label={ui.label}
+        width={width}
+        onAnswer={(confirmed) => (confirmed ? ui.onYes() : ui.onNo())}
       />
     );
   }

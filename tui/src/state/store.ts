@@ -767,6 +767,25 @@ function parseSkillExpansion(payload: Record<string, unknown>): Message["expansi
   };
 }
 
+/**
+ * The one quiet line for a message the system sent Jarvis (a wake, a briefing).
+ *
+ * Core's text starts with a plain first line ("Jarvis intake (automatic;
+ * nobody typed this).") followed by the session-derived part inside an
+ * `<untrusted …>` fence and a closing instruction. Only that first line is
+ * shown, with how many lines there are; nothing from inside the fence ever
+ * reaches the transcript, and a text whose first line already is the fence
+ * shows no line at all.
+ */
+export function wakeLine(text: string, label: string): string {
+  const lines = text.replace(/\n+$/, "").split("\n");
+  const first = (lines.find((line) => line.trim() !== "") ?? "").trim();
+  const headline = first === "" || /^<\/?untrusted/.test(first) ? "" : first;
+  const shown = Array.from(headline).length > 100 ? `${Array.from(headline).slice(0, 99).join("")}…` : headline;
+  const count = lines.length > 1 ? ` (${lines.length} lines)` : "";
+  return `${shown ? `${label}: ${shown}` : `${label} message`}${count}`;
+}
+
 function applySessionEvent(
   state: State,
   event: SessionEvent,
@@ -795,12 +814,10 @@ function applySessionEvent(
       // fenced dump. The reply they cause is an ordinary assistant message.
       const originKind = (payload.origin as { kind?: string } | null | undefined)?.kind;
       if (originKind === "system" || originKind === "jarvis") {
-        const first = text.split("\n").find((line) => line.trim() !== "" && !/^<\/?untrusted/.test(line.trim())) ?? "";
-        const shown = first.trim().length > 100 ? `${first.trim().slice(0, 99)}…` : first.trim();
         const message: Message = {
           id: nextId("msg"),
           role: "system",
-          text: shown ? `${originKind === "jarvis" ? "Jarvis" : "wake"}: ${shown}` : `${originKind === "jarvis" ? "Jarvis" : "wake"} message`,
+          text: wakeLine(text, originKind === "jarvis" ? "Jarvis" : "wake"),
           streaming: false,
         };
         return {

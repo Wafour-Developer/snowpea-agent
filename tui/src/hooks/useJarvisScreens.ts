@@ -28,8 +28,13 @@ import type {
 } from "../rpc/sdk.js";
 import {
   externalReducer,
+  confirmPathPrompt,
   describeExternalError,
   extSessionId,
+  isUntrustedProject,
+  personOnlyLine,
+  rpcErrorFacts,
+  trustPrompt,
   interruptRefusal,
   modeLabel,
   modesFor,
@@ -55,6 +60,7 @@ import {
   supportOf,
   type JarvisState,
   type PanelLine,
+  type PersonOnlyView,
   type Support,
   type WaitingItem,
 } from "../state/jarvis.js";
@@ -64,6 +70,19 @@ import { cliLabel } from "../state/external.js";
 /** True when the CLI adds a message to a running turn instead of refusing it. */
 export function steerOf(infos: readonly ExternalCliInfo[] | null, cli: string): boolean {
   return infos?.find((info) => info.id === cli)?.capabilities?.steer === true;
+}
+
+/**
+ * What the picker says about the CLIs it cannot start. A CLI whose path awaits
+ * confirmation shows as not installed; it gets its own line instead.
+ */
+export function unavailableOf(infos: readonly ExternalCliInfo[]): { unavailable: string[]; pending: ExternalCliInfo[] } {
+  return {
+    unavailable: infos
+      .filter((info) => !usable(info) && !info.pendingPath)
+      .map((info) => `${cliLabel(info.id)} (${info.installed ? "off" : "not installed"})`),
+    pending: infos.filter((info) => info.pendingPath),
+  };
 }
 
 /** Which overlay replaces the input line, if any. */
@@ -76,13 +95,17 @@ export type ScreenUi =
       loading: boolean;
       error: string | null;
       unavailable: string[];
+      /** CLIs whose configured path awaits the person's confirmation. */
+      pending: ExternalCliInfo[];
     }
   | { kind: "new"; infos: ExternalCliInfo[] }
   | { kind: "sessions" }
   | { kind: "answer"; requestId: string }
   | { kind: "unrestricted"; ref: ExternalRef; lines: string[] }
   /** The person-only confirmation for adopting a tmux pane (`tmux.adopt`). */
-  | { kind: "adopt"; ref: ExternalRef; request: ApprovalRequestParams };
+  | { kind: "adopt"; ref: ExternalRef; request: ApprovalRequestParams }
+  /** A one-key yes/no this screen asks itself: trusting a project, confirming a CLI path. */
+  | { kind: "confirm"; view: PersonOnlyView; label: string; onYes: () => void; onNo: () => void };
 
 type ViewAction = ExternalAction | { type: "close" };
 
@@ -282,7 +305,13 @@ export function useJarvisScreens(deps: ScreensDeps) {
         const next = (payload?.clis ?? []) as ExternalCliInfo[];
         clisRef.current = next;
         setClis(next);
-        setUi((current) => (current?.kind === "new" ? { ...current, infos: next } : current));
+        setUi((current) =>
+          current?.kind === "new"
+            ? { ...current, infos: next }
+            : current?.kind === "picker"
+              ? { ...current, ...unavailableOf(next) }
+              : current,
+        );
       },
       onExternalEvent: (payload) => viewDispatch({ type: "event", event: payload }),
       onExternalState: (payload) => {
@@ -407,14 +436,62 @@ export function useJarvisScreens(deps: ScreensDeps) {
     [unwatch],
   );
 
+  /**
+   * `external.open` / `external.create` with the one-time trust question: a
+   * project no person has trusted yet answers `external_unavailable`
+   * (`untrusted_project`); after a "y" the same call is made with `trust: true`.
+   * `untrusted_project_person_only` is a message, never a question.
+   */
+  const callTrusted = useCallback(
+    (
+      method: "external.open" | "external.create",
+      params: Record<string, unknown>,
+      options: { cli: string; project: string; onResult: (result: any) => void; onError: (error: unknown) => void },
+    ) => {
+      const run = (trust: boolean): void => {
+        void client
+          .call(method, trust ? { ...params, trust: true } : params)
+          .then(options.onResult)
+          .catch((error: unknown) => {
+            if (!trust && isUntrustedProject(error)) {
+              const project = rpcErrorFacts(error).project ?? options.project;
+              setUi({
+                kind: "confirm",
+                view: { title: "Trust this project for external CLIs?", from: cliLabel(options.cli), lines: trustPrompt(project) },
+                label: cliLabel(options.cli),
+                onYes: () => {
+                  setUi(null);
+                  run(true);
+                },
+                onNo: () => {
+                  setUi(null);
+                  showToast("project not trusted — no external session was opened");
+                },
+              });
+              return;
+            }
+            options.onError(error);
+          });
+      };
+      run(false);
+    },
+    [client, showToast],
+  );
+
   const openExternalRef = useCallback(
     (ref: ExternalRef, mode?: string) => {
-      void client
-        .call("external.open", { ref, limit: 200, ...(mode ? { mode } : {}) })
-        .then((result) => showOpened(result.session, result.events ?? [], result.hasMore === true))
-        .catch((error: unknown) => showToast(describeExternalError(error, ref.cli, "open")));
+      callTrusted(
+        "external.open",
+        { ref, limit: 200, ...(mode ? { mode } : {}) },
+        {
+          cli: ref.cli,
+          project: workdir,
+          onResult: (result) => showOpened(result.session, result.events ?? [], result.hasMore === true),
+          onError: (error) => showToast(describeExternalError(error, ref.cli, "open")),
+        },
+      );
     },
-    [client, showOpened, showToast],
+    [callTrusted, showOpened, showToast, workdir],
   );
 
   /** `/external open <cli>:<id>`: look the row up first so a stale handle says why. */
@@ -476,12 +553,12 @@ export function useJarvisScreens(deps: ScreensDeps) {
           void refresh();
         })
         .catch((error: unknown) => {
-          const code = (error as { data?: { code?: string } } | null)?.data?.code;
+          const code = rpcErrorFacts(error).code;
           note(
             code === "jarvis_disabled"
               ? "Jarvis is off — /jarvis on"
               : code === "jarvis_person_only"
-                ? "Only a person can do that — it is refused from a connection Jarvis or a script drives."
+                ? personOnlyLine(error)
                 : `${method} failed: ${errorText(error)}`,
           );
         });
@@ -676,11 +753,10 @@ export function useJarvisScreens(deps: ScreensDeps) {
 
   const openPicker = useCallback(() => {
     if (!gate("external")) return;
-    setUi({ kind: "picker", rows: [], nextBefore: null, allProjects: false, loading: true, error: null, unavailable: [] });
+    setUi({ kind: "picker", rows: [], nextBefore: null, allProjects: false, loading: true, error: null, unavailable: [], pending: [] });
     void loadClis()
       .then((infos) => {
-        const unavailable = infos.filter((info) => !usable(info)).map((info) => `${cliLabel(info.id)} (${info.installed ? "off" : "not installed"})`);
-        setUi((current) => (current?.kind === "picker" ? { ...current, unavailable } : current));
+        setUi((current) => (current?.kind === "picker" ? { ...current, ...unavailableOf(infos) } : current));
       })
       .catch(() => undefined);
     void loadPicker(false, null, []);
@@ -709,21 +785,27 @@ export function useJarvisScreens(deps: ScreensDeps) {
 
   const createExternal = useCallback(
     (choice: { cli: ExternalRef["cli"]; mode: string; model: string | null }) => {
-      void client
-        .call("external.create", {
+      callTrusted(
+        "external.create",
+        {
           cli: choice.cli,
           project: workdir,
           mode: choice.mode,
           transport: "structured",
           ...(choice.model ? { model: choice.model } : {}),
-        })
-        .then((result) => showOpened(result.session, [], false))
-        .catch((error: unknown) => {
-          setUi(null);
-          note(`external: ${describeExternalError(error, choice.cli)}`);
-        });
+        },
+        {
+          cli: choice.cli,
+          project: workdir,
+          onResult: (result) => showOpened(result.session, [], false),
+          onError: (error) => {
+            setUi(null);
+            note(`external: ${describeExternalError(error, choice.cli)}`);
+          },
+        },
+      );
     },
-    [client, note, showOpened, workdir],
+    [callTrusted, note, showOpened, workdir],
   );
 
   const loadOlder = useCallback(() => {
@@ -878,6 +960,60 @@ export function useJarvisScreens(deps: ScreensDeps) {
     [client, note],
   );
 
+  /**
+   * `/external confirm-path <cli>`: the person confirms the resolved path of a
+   * configured executable, shown exactly, before snowpea may run it.
+   */
+  const confirmCliPath = useCallback(
+    (cli: string) => {
+      void client
+        .call("external.clis", {})
+        .then((result) => {
+          const infos = (result?.clis ?? []) as ExternalCliInfo[];
+          clisRef.current = infos;
+          setClis(infos);
+          const info = infos.find((entry) => entry.id === cli);
+          if (!info?.pendingPath) {
+            showToast(`${cliLabel(cli)}: no path is waiting for confirmation`);
+            return;
+          }
+          const path = info.pendingPath;
+          setUi({
+            kind: "confirm",
+            view: { title: `Run this ${cliLabel(cli)} executable?`, from: "Settings", lines: confirmPathPrompt(info) },
+            label: cliLabel(cli),
+            onYes: () => {
+              setUi(null);
+              void client
+                .call("external.clis.confirmPath", { cli, path })
+                .then((confirmed) => {
+                  const next = (confirmed?.clis ?? clisRef.current ?? []) as ExternalCliInfo[];
+                  clisRef.current = next;
+                  setClis(next);
+                  showToast(`${cliLabel(cli)}: path confirmed`);
+                })
+                .catch((error: unknown) => {
+                  const facts = rpcErrorFacts(error);
+                  showToast(
+                    facts.code === "jarvis_person_only"
+                      ? personOnlyLine(error)
+                      : facts.code === "invalid_params"
+                        ? `${cliLabel(cli)}: the configured path changed — run /external confirm-path ${cli} again`
+                        : describeExternalError(error, cli),
+                  );
+                });
+            },
+            onNo: () => {
+              setUi(null);
+              showToast(`${cliLabel(cli)}: path not confirmed`);
+            },
+          });
+        })
+        .catch((error: unknown) => showToast(describeExternalError(error)));
+    },
+    [client, showToast],
+  );
+
   const changeMode = useCallback(
     (mode: "default" | "readonly" | "unrestricted") => {
       const view = externalRef.current;
@@ -957,13 +1093,16 @@ export function useJarvisScreens(deps: ScreensDeps) {
         case "mode":
           changeMode(command.mode);
           break;
+        case "confirmPath":
+          confirmCliPath(command.cli);
+          break;
         case "more":
           loadOlder();
           break;
       }
       return true;
     },
-    [adoptExternal, changeMode, gate, leaveExternal, loadOlder, note, openByRef, openNewForm, openPicker, showToast, stopExternal],
+    [adoptExternal, changeMode, confirmCliPath, gate, leaveExternal, loadOlder, note, openByRef, openNewForm, openPicker, showToast, stopExternal],
   );
 
   /** `/jarvis …` and `/external …`; false for any other line. */

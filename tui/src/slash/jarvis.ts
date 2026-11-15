@@ -100,10 +100,12 @@ export type ExternalCommand =
   | { kind: "mode"; mode: "default" | "readonly" | "unrestricted" }
   /** Load an older page of the open session. */
   | { kind: "more" }
+  /** Confirm a CLI's configured executable path (`external.clis.confirmPath`). */
+  | { kind: "confirmPath"; cli: string }
   | { kind: "invalid"; usage: string };
 
 export const EXTERNAL_USAGE =
-  "/external [new|open <cli>:<id>|close|stop|adopt|mode default|readonly|unrestricted|more]";
+  "/external [new|open <cli>:<id>|close|stop|adopt|mode default|readonly|unrestricted|more|confirm-path <cli>]";
 
 export const EXTERNAL_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
   { action: "new", summary: "Start a new Claude Code, Codex, agy or Cursor session." },
@@ -113,6 +115,7 @@ export const EXTERNAL_ACTIONS: ReadonlyArray<{ action: string; summary: string }
   { action: "adopt", summary: "Let snowpea type into the tmux pane this Claude Code session runs in." },
   { action: "mode", summary: "/external mode default|readonly|unrestricted — switch the open session." },
   { action: "more", summary: "Load earlier messages of the open session." },
+  { action: "confirm-path", summary: "/external confirm-path <cli> — allow snowpea to run a CLI path you configured." },
 ];
 
 export function parseExternalCommand(line: string): ExternalCommand | null {
@@ -132,6 +135,10 @@ export function parseExternalCommand(line: string): ExternalCommand | null {
       const ref = rest.length === 1 ? /^(claude|codex|agy|cursor):(\S+)$/.exec(rest[0]) : null;
       return ref ? { kind: "open", ref: { cli: ref[1], id: ref[2] } } : { kind: "invalid", usage: EXTERNAL_USAGE };
     }
+    case "confirm-path":
+      return rest.length === 1 && /^(claude|codex|agy|cursor)$/.test(rest[0])
+        ? { kind: "confirmPath", cli: rest[0] }
+        : { kind: "invalid", usage: EXTERNAL_USAGE };
     case "mode":
       return rest.length === 1 && ["default", "readonly", "unrestricted"].includes(rest[0])
         ? { kind: "mode", mode: rest[0] as "default" | "readonly" | "unrestricted" }

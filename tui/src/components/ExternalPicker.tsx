@@ -13,15 +13,15 @@ import { Box, Text } from "ink";
 import { currentAccent } from "../layout/palette.js";
 import { fit } from "../layout/fit.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
-import type { ExternalSessionRow } from "../rpc/sdk.js";
-import { pickerLabel, searchRows } from "../state/external.js";
+import type { ExternalCliInfo, ExternalSessionRow } from "../rpc/sdk.js";
+import { PENDING_PATH_ROWS, pendingPathLines, pickerLabel, searchRows } from "../state/external.js";
 import { ChoiceList } from "./ChoiceList.js";
 
 /** Rows shown at once. */
 export const EXTERNAL_PICKER_ROWS = 8;
 
 /** Rows the picker occupies at most, so the full-screen layout can reserve them. */
-export const EXTERNAL_PICKER_TOTAL_ROWS = 2 + 1 + 1 + EXTERNAL_PICKER_ROWS + 2 + 1 + 1;
+export const EXTERNAL_PICKER_TOTAL_ROWS = 2 + 1 + 1 + EXTERNAL_PICKER_ROWS + 2 + 1 + 1 + PENDING_PATH_ROWS;
 
 export interface ExternalPickerProps {
   rows: ExternalSessionRow[];
@@ -35,6 +35,8 @@ export interface ExternalPickerProps {
   error?: string | null;
   /** CLIs that cannot be started, e.g. `Codex (not installed)`. */
   unavailable?: string[];
+  /** CLIs whose configured path is not confirmed yet (`pendingPath`). */
+  pending?: ExternalCliInfo[];
   width: number;
   onOpen: (row: ExternalSessionRow) => void;
   onNew: () => void;
@@ -52,6 +54,7 @@ export function ExternalPicker({
   hasMore,
   error = null,
   unavailable = [],
+  pending = [],
   width,
   onOpen,
   onNew,
@@ -148,6 +151,9 @@ export function ExternalPicker({
       {unavailable.length > 0 ? (
         <Text dimColor wrap="truncate-end">{fit(`unavailable: ${unavailable.join(", ")}`, width - 4)}</Text>
       ) : null}
+      {pendingPathLines(pending, width - 4).map((line, at) => (
+        <Text key={`pending-${at}`} color="yellow" wrap="truncate-end">{line}</Text>
+      ))}
       <Text dimColor wrap="truncate-end">
         {fit(
           `${choiceHint({ enter: "open", digits: false, cancel: query ? "clear search" : "close", extra: ["Tab all projects", "Ctrl+N new", hasMore ? "Ctrl+L older" : ""] })}`,
