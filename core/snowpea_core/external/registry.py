@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from snowpea_core.external.base import ExternalAdapter
+from snowpea_core.external.codex import CodexAdapter
 
 #: ``external.clis`` order.
 CLI_ORDER: tuple[str, ...] = ("claude", "codex", "agy", "cursor")
@@ -23,6 +24,7 @@ CLI_TITLES: dict[str, str] = {
 
 #: Factories for the adapters shipped with core, filled in by WP6a-d.
 BUILTIN_ADAPTERS: list[Callable[[], ExternalAdapter]] = []
+BUILTIN_ADAPTERS.append(CodexAdapter)
 
 
 class AdapterRegistry:

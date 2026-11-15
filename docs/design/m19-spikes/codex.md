@@ -202,3 +202,25 @@ names and config warnings are scrubbed.
 | `appserver_noauth_error.jsonl` | no login: 401 error notification |
 | `thread_list.json`, `thread_read.json`, `thread_turns_list.json`, `thread_items_list.json` | list/read responses |
 | `exec_oneshot.jsonl`, `exec_resume.jsonl` | `codex exec --json` stdout |
+
+## WP6b findings with the adapter (2026-11-15, codex-cli 0.167.1)
+
+Checked with `core/snowpea_core/external/codex.py` against the real CLI in an empty scratch folder (two short turns).
+
+- `thread/unsubscribe` does **not** release the writer lock at once: the thread stays loaded (`thread/loaded/list`) and
+  its lock held for about 60 s, then the server sends `thread/status/changed {notLoaded}` and `thread/closed`. The
+  adapter stops its idle app-server after 60 s with nothing loaded (`server_idle_sec`), and treats `thread/closed` on a
+  thread it runs as "resume on the next prompt".
+- The interactive TUI (0.167.1) does take the same lock, but here it goes through the owner's managed app-server daemon
+  (`codex app-server --listen unix:// --managed-daemon`, 0.169.0): `/proc/locks` names the daemon's pid, not the TUI's.
+  Liveness only asks "held by a process that is not ours", so it reads as open elsewhere either way. After the TUI exits
+  the daemon also keeps the lock for about 60 s.
+- `thread/list` scans and repairs rollouts on every call (1.2-1.5 s here). `useStateDbOnly: true` answers in about 10 ms;
+  the adapter uses it for the sub-folder scan and keeps the repairing call for the exact-folder query.
+- `thread/turns/list {itemsView: "full", sortDirection: "asc"}` returns the full items oldest first; `model/list`
+  returns 8 visible models with `isDefault`.
+- `thread/start {approvalPolicy: "never", sandbox: "read-only"}` (readonly mode) and the per-turn override
+  `turn/start {approvalPolicy: "untrusted", sandboxPolicy: {type: "workspaceWrite", ...}}` (a mode switch) are accepted.
+- Command approvals wrap the command in `/bin/bash -lc '<script>'`; snowpea's approval card shows the script.
+- An app-server started with a `CODEX_HOME` that does not exist exits with status 1 before `initialize` (seen in the
+  RPC tests); discovery reports it as "app-server did not start".

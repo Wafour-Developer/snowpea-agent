@@ -7,7 +7,7 @@
 Client methods: ``initialize`` (+ ``initialized`` notification), ``account/read``,
 ``thread/start``, ``thread/resume``, ``thread/list``, ``thread/read``,
 ``thread/turns/list``, ``thread/items/list``, ``thread/loaded/list``,
-``thread/unsubscribe``, ``turn/start``, ``turn/steer``, ``turn/interrupt``.
+``thread/unsubscribe``, ``turn/start``, ``turn/steer``, ``turn/interrupt``, ``model/list``.
 Server notifications: ``thread/started``, ``thread/status/changed``,
 ``turn/started``, ``item/started``, ``item/agentMessage/delta``,
 ``item/completed``, ``turn/completed``, ``serverRequest/resolved``, ``error``.
@@ -68,7 +68,9 @@ class Codex:
     # -- plumbing ---------------------------------------------------------
     def save(self) -> None:
         if self.state_path:
-            c.write_json(self.state_path, self.threads)
+            # Turns on several threads finish concurrently: one writer at a time.
+            with self.lock:
+                c.write_json(self.state_path, self.threads)
 
     def reply(self, rid: object, result: dict) -> None:
         c.write({"id": rid, "result": result})
@@ -158,6 +160,16 @@ class Codex:
         else:
             self.reply(rid, {"account": {"type": "chatgpt", "planType": "fake"},
                              "requiresOpenaiAuth": True})
+
+    def m_model_list(self, rid: object, params: dict) -> None:
+        models = [
+            {"id": "gpt-fake-mini", "model": "gpt-fake-mini", "hidden": False,
+             "isDefault": False},
+            {"id": "gpt-fake", "model": "gpt-fake", "hidden": False, "isDefault": True},
+            {"id": "gpt-fake-internal", "model": "gpt-fake-internal", "hidden": True,
+             "isDefault": False},
+        ]
+        self.reply(rid, {"data": models, "nextCursor": None})
 
     def _check_policy(self, params: dict) -> None:
         if self.cfg["scenario"] == "bypass_refused":
