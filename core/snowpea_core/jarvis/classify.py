@@ -6,12 +6,13 @@ function from one approval request (tool, arguments, permission tags, project
 root) to a :class:`Verdict`:
 
 ``never``
-    Never decided by Jarvis: snowpea's own configuration (tag ``config``, any
-    path under ``$SNOWPEA_HOME`` but its ``plans/`` and session workspaces,
-    read or written, by any tool, literal, globbed, ``~user``, behind a
-    variable, or inside a recursive read of one of its ancestors; the
-    ``snowpea`` CLI), delegation changes, browser-owned requests and the
-    Jarvis session's own requests.
+    Never delegable — always the person's to answer (they may still allow
+    it): snowpea's authority and secret files under ``$SNOWPEA_HOME`` (the
+    area table at :data:`HOME_SECRET_TOP`; writes to its logs and unknown
+    areas too), read or written, by any tool, literal, globbed, ``~user``,
+    behind a variable, or inside a recursive read of one of its ancestors;
+    a project's snowpea settings; the ``snowpea`` CLI; delegation changes,
+    browser-owned requests and the Jarvis session's own requests.
 ``guarded``
     One or more of the classes the person must hand over one by one
     (:data:`GUARDED_CLASSES`): ``deploy`` (push, release, publish, remote
@@ -53,6 +54,7 @@ and never raises on malformed input.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import posixpath
 import re
@@ -292,13 +294,88 @@ def is_secret_path(path: Path) -> bool:
     return False
 
 
-#: A shell line that names snowpea's own home or its config files.
+#: ``$SNOWPEA_HOME`` areas (owner's rule, 2026-11-16).  Reading under the home
+#: works and writing is possible with the person's permission; only authority
+#: and secret files are ``never`` (never delegable: always the person's call).
+#:
+#: ===========  ==========================================  =======================
+#: area         what                                        read / write
+#: ===========  ==========================================  =======================
+#: secret       :data:`HOME_SECRET_TOP`, any                ``never`` / ``never``
+#:              :data:`HOME_SECRET_PATTERNS` name anywhere
+#:              under the home, ``classify.is_secret_path``
+#: own          ``plans/`` and session workspaces           as in the project /
+#:                                                          as in the project
+#: content      :data:`HOME_CONTENT_DIRS`                   as in the project
+#:                                                          (literal read ``safe``) /
+#:                                                          ``guarded[outside_destructive]``
+#: logs         ``logs/``                                   ``risky`` / ``never``
+#: other        anything else under the home, and the       ``risky`` / ``never``
+#:              home folder itself
+#: ===========  ==========================================  =======================
+#:
+#: A glob, ``~user`` or dynamic path takes the strictest area it could match; a
+#: recursive read of an ancestor of the home (``grep -r x ~``), of the home
+#: itself, or of an ``other`` folder below it is ``never`` (it could reach a
+#: secret file); one of a ``content``/``own``/``logs`` folder is ``risky``.
+HOME_SECRET_TOP: frozenset[str] = frozenset({
+    "token", "settings.json", "mcp-oauth.json", "daemon.json", "escalations.json",
+    "budget.json", "jarvis", "external", "attachments", ".claude", ".codex",
+})
+HOME_SECRET_PATTERNS: tuple[str, ...] = (
+    "credentials*.json", "gateway*", "*.db", "*.db-*", "*.sqlite", "*.sqlite3",
+    "*.sqlite-*", "delegation.db*", "ledger.jsonl*", "presets.json",
+)
+HOME_OWN_DIRS: frozenset[str] = frozenset({"plans"})
+HOME_CONTENT_DIRS: frozenset[str] = frozenset({
+    "skills", "agents", "extensions", "plugins", "docs", "memory", "reports", "commands",
+    "prompts", "templates",
+})
+HOME_LOG_DIRS: frozenset[str] = frozenset({"logs"})
+
+#: A shell line that names snowpea's secret files (whatever the parse makes of it).
 _SNOWPEA_HOME_TEXT = re.compile(
-    r"((~|\$HOME|\$\{HOME\})/\.snowpea(/|\b)|\$\{?SNOWPEA_HOME|"
+    r"(\$\{?SNOWPEA_HOME|"
     r"\.snowpea/(settings|credentials)\.json|\bdelegation\.db\b|jarvis/ledger|"
     r"\bmcp-oauth\.json\b)",
     re.IGNORECASE,
 )
+#: A literal ``~/.snowpea…`` (or ``$HOME/.snowpea…``) path token in a shell line.
+_SNOWPEA_HOME_TOKEN = re.compile(r"(~|\$HOME|\$\{HOME\})/\.snowpea[^\s'\"`;|&()<>]*")
+
+
+def _home_secret_name(name: str) -> bool:
+    import fnmatch
+
+    return any(fnmatch.fnmatchcase(name, pattern) for pattern in HOME_SECRET_PATTERNS)
+
+
+def home_area(path: Path, roots: Iterable[Path]) -> str | None:
+    """Which :data:`HOME_SECRET_TOP` table area ``path`` is in (``None``: not in a home).
+
+    ``root`` is a home folder itself.  ``roots`` are the snowpea homes in reach
+    (the daemon's and the user's default ``~/.snowpea``).
+    """
+    for root in roots:
+        if not _under(path, root):
+            continue
+        rel = path.relative_to(root).parts
+        if not rel:
+            return "root"
+        if rel[0] in HOME_SECRET_TOP or any(_home_secret_name(part) for part in rel):
+            return "secret"
+        if is_secret_path(path):
+            return "secret"
+        if rel[0] in HOME_OWN_DIRS:
+            return "own"
+        if rel[0] == "sessions" and len(rel) >= 2 and re.match(r"^\d{4}.*_.", rel[1]):
+            return "own"
+        if rel[0] in HOME_LOG_DIRS:
+            return "logs"
+        if rel[0] in HOME_CONTENT_DIRS:
+            return "content"
+        return "other"
+    return None
 #: ``$NAME`` / ``${NAME}`` references to credential-looking variables.
 _SECRET_VARIABLE = re.compile(
     r"\$\{?[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|API_?KEY|APIKEY|"
@@ -1849,7 +1926,27 @@ class _Judge:
         self.fed_by_lister = False
         #: The simple command being judged reads a file on its stdin (``< f``).
         self.stdin_redirect = False
+        #: A read in the snowpea home that is never ``safe`` (logs, other areas).
+        self.risky_read = False
+        #: ``~/.snowpea/…`` paths the raw line names, and every path the parse
+        #: judged as a read or a write: one it did not judge may be written.
+        self.home_tokens: set[Path] = set()
+        self.judged: set[Path] = set()
+        #: The literal folders of globs (``~/.snowpea/*`` stands for every entry).
+        self.glob_bases: set[Path] = set()
+        roots: list[Path] = []
+        for root in (home, user_home / ".snowpea"):
+            if root is None:
+                continue
+            with contextlib.suppress(OSError, RuntimeError, ValueError):
+                resolved = Path(root).expanduser().resolve()
+                if resolved not in roots:
+                    roots.append(resolved)
+        self.home_roots = tuple(roots)
         samples = list(_GLOB_SAMPLES)
+        # Every secret name of the snowpea home, so a glob there finds it.
+        samples.extend(sorted(HOME_SECRET_TOP))
+        samples.extend(("state.db", "gateway-chats.json", "presets.json", "credentials-x.json"))
         for base in (home, user_home):
             if base is not None:
                 samples.extend(part for part in base.parts if part not in ("/", ""))
@@ -1894,11 +1991,13 @@ class _Judge:
         if not text:
             return []
         words = [text]
+        base_word: str | None = None
         if _has_glob(text):
             variants = _glob_variants(text, self.samples, self.dotglob)
             if variants is None:
                 return None
-            words = [*variants, _glob_base(text)]
+            base_word = _glob_base(text)
+            words = [*variants, base_word]
         found: list[Path] = []
         for word in words:
             variants_ = self._tilde_variants(word, cwd)
@@ -1911,14 +2010,45 @@ class _Judge:
                     # outside any project, but nothing a variable could hide.
                     self.outside_read = True
                     continue
+                if word == base_word:
+                    self.glob_bases.add(path)
                 if path not in found:
                     found.append(path)
         return found
 
+    def _home_content_only(self, args: Mapping[str, Any]) -> bool:
+        """Every path of the call is a literal one in a home ``content``/``own`` folder."""
+        try:
+            from snowpea_core.tools.call_paths import call_paths
+
+            raws = call_paths(dict(args or {}))
+        except Exception:  # noqa: BLE001 - unknown is not content
+            return False
+        if not raws:
+            return False
+        for raw in raws:
+            if not isinstance(raw, str) or "$" in raw or "`" in raw:
+                return False
+            paths = self._candidates(raw, self.ctx.workdir)
+            if not paths:
+                return False
+            if any(self._area(path) not in ("content", "own") for path in paths):
+                return False
+        return True
+
+    def _area(self, path: Path) -> str | None:
+        """The snowpea-home area of ``path`` (``home_area``), the strictest for a glob folder."""
+        area = home_area(path, self.home_roots)
+        if path in self.glob_bases and area is not None:
+            # ``~/.snowpea/*`` stands for every entry: the home's include secrets,
+            # an unknown folder's may; a content or own folder's are its own.
+            if area in ("root", "other"):
+                return "secret"
+        return area
+
     def _recursive_read(self, path: Path, rule: str) -> None:
         """``path`` is read with everything below it."""
-        home = self.ctx.home
-        if home is not None and _under(home, path):
+        if any(_under(root, path) for root in self.home_roots):
             self.hits.never_(f"{rule}:snowpea-home-ancestor")
             self.hits.guard(SECRET, f"{rule}:secret-ancestor")
             return
@@ -1928,6 +2058,11 @@ class _Judge:
             self.hits.guard(SECRET, f"{rule}:secret-ancestor")
 
     def _judge_read(self, path: Path, rule: str, recursive: bool) -> None:
+        self.judged.add(path)
+        area = self._area(path)
+        if area is not None:
+            self._judge_home_read(path, area, rule, recursive)
+            return
         if self._is_config(path):
             self.hits.never_(f"{rule}:snowpea-config")
             if path.name in ("credentials.json", "token", "mcp-oauth.json"):
@@ -1935,12 +2070,29 @@ class _Judge:
             return
         if self._outside(path):
             self.outside_read = True
-        if self._in_snowpea_home(path):
-            return  # plans/ and session workspaces: snowpea's working areas
         if is_secret_path(path):
             self.hits.guard(SECRET, f"{rule}:secret-path")
         if recursive:
             self._recursive_read(path, rule)
+
+    def _judge_home_read(self, path: Path, area: str, rule: str, recursive: bool) -> None:
+        """A read in the snowpea home, by the area table (owner's rule 2026-11-16)."""
+        if area == "secret":
+            self.hits.never_(f"{rule}:snowpea-secret")
+            if _home_secret_name(path.name) or path.name in ("token", "mcp-oauth.json"):
+                self.hits.guard(SECRET, f"{rule}:snowpea-secret")
+            return
+        if recursive and area in ("root", "other"):
+            self.hits.never_(f"{rule}:snowpea-home-recursive")
+            return
+        if area in ("own", "content"):
+            if recursive:
+                self.risky_read = True  # whatever lies below is not known here
+                self.hits.risky.append(f"{rule}:snowpea-home-recursive")
+            return  # read like a file in the project
+        # logs (command lines), the home folder itself, anything unknown
+        self.risky_read = True
+        self.hits.risky.append(f"{rule}:snowpea-home-{area}")
 
     def dynamic_read(self, raw: str, cwd: Path | None, rule: str) -> None:
         """A file is read whose name only the shell knows (``cat $F``, ``xargs cat``).
@@ -1978,9 +2130,9 @@ class _Judge:
             return True
         if _under(path, root) or _harmless_target(path):
             return False
-        # Core's own working areas (a session workspace, $SNOWPEA_HOME/plans) are
-        # not outside, exactly as for the ``outside`` tag (config_guard.outside_paths).
-        return not (self._in_snowpea_home(path) and not self._is_config(path))
+        # Core's own working areas (a session workspace, $SNOWPEA_HOME/plans) and,
+        # for reads, its content folders are not outside (see home_area).
+        return home_area(path, self.home_roots) not in ("own", "content")
 
     def check_read_path(
         self,
@@ -2032,6 +2184,18 @@ class _Judge:
             self.hits.guard(OUTSIDE, f"{rule}:unknown-path")
             return
         for path in paths:
+            self.judged.add(path)
+            area = self._area(path)
+            if area in ("secret", "logs", "other", "root"):
+                # Authority, secrets, logs and anything unknown in the home:
+                # never delegable (the person can still approve it).
+                self.hits.never_(f"{rule}:snowpea-home-{area}")
+                continue
+            if area == "content":
+                self.hits.guard(OUTSIDE, f"{rule}:snowpea-home-content")
+                continue
+            if area == "own":
+                continue  # plans/ and session workspaces: not outside
             if self._is_config(path):
                 self.hits.never_("path:snowpea-config")
                 continue
@@ -2056,7 +2220,11 @@ class _Judge:
             self.hits.never_("never:browser-owned")
         if lower in NEVER_TOOL_NAMES or lower.startswith("jarvis."):
             self.hits.never_("never:delegation")
-        if "config" in tags or request.reason_code == "config":
+        if ("config" in tags or request.reason_code == "config") and not self._home_content_only(
+            request.args
+        ):
+            # A write into the snowpea home's content folders (skills, agents, …)
+            # is tagged config too; its paths are judged by the area table below.
             self.hits.never_("tag:config")
         if "outside" in tags or request.reason_code == "outside_project":
             self.hits.guard(OUTSIDE, "tag:outside")
@@ -2170,10 +2338,12 @@ class _Judge:
         if guarded:
             return Verdict("guarded", guarded, tuple(guarded_rules))
         if shell:
-            if safe_rule and not hits.network:
+            if safe_rule and not hits.network and not self.risky_read:
                 return Verdict("safe", (), (safe_rule,))
             return Verdict("risky", (), tuple(hits.risky) or ("exec:command",))
         if tags == {"read"} and not hits.network:
+            if self.risky_read:
+                return Verdict("risky", (), tuple(hits.risky) or ("path:snowpea-home-read",))
             if self.outside_read:
                 # Outside the project only a denylist would tell a secret apart.
                 return Verdict("risky", (), ("path:outside-project-read",))
@@ -2188,13 +2358,18 @@ class _Judge:
         raw_cwd = args.get("cwd") or args.get("workdir") or args.get("dir")
         if isinstance(raw_cwd, str) and raw_cwd.strip():
             cwd = _resolve(raw_cwd, cwd, self.ctx)
-            if cwd is not None and self._in_snowpea_home(cwd):
+            if cwd is not None and home_area(cwd, self.home_roots) in ("secret", "root"):
                 self.hits.never_("exec:snowpea-home")
         self._raw_scan(command)
         self.line(command, cwd, depth=0)
+        if self.home_tokens - self.judged and not self.hits.never:
+            # A ~/.snowpea path the parse did not judge as a read or a write (an
+            # interpreter's code, an unknown tool's argument): it may be written.
+            self.hits.guard(OUTSIDE, "exec:snowpea-home-path")
         if (
             self.hits.any()
             or self.hits.network
+            or self.risky_read
             or args.get("background")
             or self.writes
             or self.unknown_args
@@ -2202,17 +2377,42 @@ class _Judge:
             or cwd is None
             or not _under(cwd, self.ctx.workdir)
         ):
+            self._home_content_written()
             return None
         try:
-            return self.safe_line(command, cwd)
+            safe = self.safe_line(command, cwd)
         except Exception:  # noqa: BLE001 - a failure here only costs the safe verdict
-            return None
+            safe = None
+        if safe is None:
+            self._home_content_written()
+        return safe
+
+    def _home_content_written(self) -> None:
+        """A line that is not a plain inspection may write a home content path it names."""
+        if self.hits.never:
+            return
+        if any(self._area(path) == "content" for path in self.home_tokens):
+            self.hits.guard(OUTSIDE, "exec:snowpea-home-content")
 
     def _raw_scan(self, command: str) -> None:
         """Checks on the raw text, whatever the parse makes of it."""
         lowered = command.lower()
         if _SNOWPEA_HOME_TEXT.search(command):
             self.hits.never_("exec:snowpea-home")
+        tokens = [re.sub(r"^(\$HOME|\$\{HOME\})", "~", m.group(0))
+                  for m in _SNOWPEA_HOME_TOKEN.finditer(command)]
+        for root in self.home_roots:
+            pattern = re.escape(str(root)) + r"(?:/[^\s'\"`;|&()<>]*)?(?![^\s'\"`;|&()<>/])"
+            tokens.extend(m.group(0) for m in re.finditer(pattern, command))
+        for token in tokens:
+            paths = None if "$" in token[1:] else self._candidates(token, self.ctx.workdir)
+            if not paths:
+                self.hits.never_("exec:snowpea-home")
+                continue
+            for path in paths:
+                if self._area(path) in ("secret", "root"):
+                    self.hits.never_("exec:snowpea-home")
+                self.home_tokens.add(path)
         if "delegation.db" in lowered or "ledger.jsonl" in lowered:
             self.hits.never_("exec:jarvis-store")
         if _SECRET_VARIABLE.search(command):
@@ -3435,7 +3635,13 @@ class _Judge:
             return False
         workdir = self.ctx.workdir
         for path in paths:
-            if self._in_snowpea_home(path) or self._is_config(path) or is_secret_path(path):
+            area = self._area(path)
+            if area is not None:
+                # The snowpea home's content and own folders read like the project.
+                if area not in ("own", "content") or is_secret_path(path):
+                    return False
+                continue
+            if self._is_config(path) or is_secret_path(path):
                 return False
             if content and (workdir is None or not _under(path, workdir)):
                 return False
