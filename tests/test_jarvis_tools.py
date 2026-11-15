@@ -136,10 +136,22 @@ async def test_tools_exist_only_on_the_jarvis_session(tmp_path: Path) -> None:
             "todo_add",
             "todo_list",
             "todo_done",
+            "briefing_set",
+            "schedule_list",
+            "schedule_create",
+            "schedule_update",
+            "schedule_remove",
+            "schedule_run",
         } == own
-        assert all(core.tools.get(name) is None for name in own)
-        assert all(core.tools.get(name, worker) is None for name in own)
-        assert {t.name for t in core.tools.active(worker)} & own == set()
+        # schedule_list / schedule_create are also the daemon's own tools of those names
+        # (the plain scheduler ones); Jarvis's replace them on its session only.
+        shared = {"schedule_list", "schedule_create"}
+        assert all(core.tools.get(name) is None for name in own - shared)
+        assert all(core.tools.get(name, worker) is None for name in own - shared)
+        for name in shared:
+            assert core.tools.get(name, worker) is core.tools.get(name)
+            assert core.tools.get(name, jarvis) is jarvis.session_tools[name]
+        assert {t.name for t in core.tools.active(worker)} & (own - shared) == set()
         active = {t.name for t in core.tools.active(jarvis)}
         assert own <= active
         assert active - own <= jarvis_tools.BUILTIN_TOOLS

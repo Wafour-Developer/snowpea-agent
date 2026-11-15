@@ -846,9 +846,19 @@ def tool_name(server: str, tool: str) -> str:
     return f"{TOOL_PREFIX}{server}__{tool}"
 
 
-def permission_for(core: Core, server: str) -> PermissionTag:
+def permission_for(core: Core, server: str, tool: str | None = None) -> PermissionTag:
+    """The tag of ``server``'s tools; ``"<server>/<tool>"`` overrides it for one tool.
+
+    A server name never holds ``/`` (``mcp_config.NAME_RE``), so the per-tool key
+    cannot collide with a server's own (M19 WP8: a mail server's read tools are
+    ``read`` while the rest of it stays ``send``).
+    """
     table = getattr(getattr(core.settings, "mcp", None), "permissions", None) or {}
-    value = table.get(server) if isinstance(table, dict) else None
+    value = None
+    if isinstance(table, dict):
+        value = table.get(f"{server}/{tool}") if tool else None
+        if value is None:
+            value = table.get(server)
     allowed: tuple[PermissionTag, ...] = ("read", "write", "exec", "network", "send")
     if isinstance(value, str) and value in allowed:
         return value  # type: ignore[return-value]
@@ -1097,6 +1107,7 @@ async def register_config(core: Core, config: McpServerConfig) -> list[str]:
     registered: list[str] = []
     for spec in server.visible_tools():
         name = tool_name(config.name, str(spec["name"]))
+        tool_permission = permission_for(core, config.name, str(spec["name"]))
         description = str(spec.get("description") or f"{config.name}: {spec['name']}")
         warn_on_injection(config.name, str(spec["name"]), description)
         core.tools.register(
@@ -1105,7 +1116,7 @@ async def register_config(core: Core, config: McpServerConfig) -> list[str]:
                 category="mcp",
                 description=description,
                 input_schema=dict(spec.get("input_schema") or {"type": "object"}),
-                permission=permission,
+                permission=tool_permission,
                 run=_make_runner(config.name, str(spec["name"])),
                 source=f"mcp:{config.name}",
             )

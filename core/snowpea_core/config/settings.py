@@ -770,6 +770,12 @@ class JarvisBriefingSettings(_Model):
     #: Cron expression, daemon-local time.
     schedule: str = "0 9 * * 1-5"
     instructions: str = ""
+    #: IANA zone the schedule is read in; ``None`` is the daemon's.
+    timezone: str | None = None
+    #: What it covers: ``sessions``, ``waiting``, ``todos``, ``mail``, ``calendar``.
+    sections: list[str] = Field(
+        default_factory=lambda: ["sessions", "waiting", "todos", "mail", "calendar"]
+    )
 
 
 class JarvisBudgetSettings(_Model):

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import uuid
 from datetime import datetime, timedelta
@@ -73,6 +74,17 @@ MISSED = "missed"
 NOTIFY = "notify"
 
 Trigger = Literal["schedule", "runNow"]
+
+
+def _zone(name: str) -> str:
+    """``name`` as an IANA zone, or ``ValueError``."""
+    from zoneinfo import ZoneInfo
+
+    try:
+        ZoneInfo(name.strip())
+    except Exception as exc:  # noqa: BLE001 - ZoneInfo raises several kinds
+        raise ValueError(f"unknown timezone {name!r}; use an IANA name such as Asia/Seoul") from exc
+    return name.strip()
 
 
 def run_context(job: Job, scheduled_ts: datetime, trigger: Trigger) -> dict[str, Any]:
@@ -224,11 +236,16 @@ class Scheduler:
         meta: dict[str, Any] | None = None,
         owner_client_id: str | None = None,
         title: str | None = None,
+        target: str | None = None,
+        target_data: dict[str, Any] | None = None,
+        timezone: str | None = None,
     ) -> Job:
         """Parse ``spec``, store the job and return it. ``ValueError`` if unparseable."""
         if not task.strip():
             raise ValueError("a scheduled job needs a task to run")
         parsed: Spec = parse_spec(spec)
+        if timezone:
+            parsed = dataclasses.replace(parsed, tz=_zone(timezone))
         job = Job.from_spec(
             parsed,
             task.strip(),
@@ -243,6 +260,8 @@ class Scheduler:
             raise ValueError(f"the schedule {spec!r} has no future firing time")
         job.created_via = created_via
         job.title = (title or "").strip() or None
+        job.target, job.target_data = target, target_data
+        job.timezone = parsed.tz
         if meta is not None:
             job.meta, job.owner_client_id = dict(meta), owner_client_id
         if host_tools_from:
@@ -405,6 +424,8 @@ class Scheduler:
         schedule: str | None = None,
         task: str | None = None,
         title: str | None = None,
+        timezone: str | None = None,
+        target_data: dict[str, Any] | None = None,
     ) -> Job | None:
         """Patch a job; ``None`` for an unknown one, ``ValueError`` for a bad spec.
 
@@ -420,8 +441,16 @@ class Scheduler:
             job.task = task.strip()
         if title is not None:
             job.title = title.strip() or None
+        if target_data is not None:
+            job.target_data = target_data
+        if timezone is not None:
+            job.timezone = _zone(timezone) if timezone.strip() else None
+            if schedule is None and job.kind == "cron":
+                schedule = job.cron
         if schedule is not None:
             parsed: Spec = parse_spec(schedule)
+            if job.timezone:
+                parsed = dataclasses.replace(parsed, tz=job.timezone)
             upcoming = first_run(parsed)
             if upcoming is None:
                 raise ValueError(f"the schedule {schedule!r} has no future firing time")
@@ -533,6 +562,10 @@ class Scheduler:
         from snowpea_core.agent.named import session_for_job
 
         core = self.core
+        if job.target == "jarvis-task":
+            from snowpea_core.jarvis import tasks as jarvis_tasks
+
+            return await jarvis_tasks.run_job(core, job, context)
         if job.host_tools_from and not await self._wait_for_host(job):
             return (
                 "error",

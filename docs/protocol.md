@@ -59,6 +59,7 @@ Server capabilities advertised in the `system.hello` result:
 - `hostTurnContext`
 - `hostTurnContextCompaction`
 - `jarvis`
+- `jarvisBriefing`
 - `jarvisDelegation`
 - `jobRuns`
 - `lineage`
@@ -72,6 +73,7 @@ Server capabilities advertised in the `system.hello` result:
 - `machineIdentity`
 - `mcp`
 - `mcpOAuth`
+- `mcpPresets`
 - `mcpVarExpansion`
 - `memoryCandidates`
 - `memorySafe`
@@ -215,6 +217,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`mcp.list`](#mcplist) | client → server | List every configured MCP server with its scope, state and tools. |
 | [`mcp.preset.apply`](#mcppresetapply) | client → server | Assistant presets (1.53.0, WP8): add the preset's MCP server with the given inputs and schedule the chosen recipes. |
 | [`mcp.preset.list`](#mcppresetlist) | client → server | Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipes. |
+| [`mcp.preset.remove`](#mcppresetremove) | client → server | Assistant presets (1.53.0, WP8): undo an applied preset: its servers, permission tags, stored client secret and recipe jobs go back to what they were before. |
 | [`mcp.reload`](#mcpreload) | client → server | Restart one MCP server, or every configured one. |
 | [`mcp.remove`](#mcpremove) | client → server | Delete an MCP server entry and stop the server. |
 | [`mcp.test`](#mcptest) | client → server | Probe a saved MCP server or an unsaved draft and report its tools. |
@@ -1486,6 +1489,8 @@ _No params (send `{}`)._
 | `jobId` | `string \| null` | no | Scheduler job that runs it, while enabled. |
 | `nextRunAt` | `string \| null` | no | UTC ISO time of the next run. |
 | `schedule` | `string` | no | Cron expression, daemon-local time. |
+| `sections` | `("sessions" \| "waiting" \| "todos" \| "mail" \| "calendar")[]` | no | What it covers; mail and calendar only count while a mail or calendar preset is connected. |
+| `timezone` | `string \| null` | no | IANA zone the schedule is read in; null = the daemon's. |
 
 ### `jarvis.briefing.set`
 
@@ -1500,6 +1505,8 @@ Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it.
 | `enabled` | `boolean \| null` | no | Omitted keeps the current value. |
 | `instructions` | `string \| null` | no | Omitted keeps it. |
 | `schedule` | `string \| null` | no | Cron expression; omitted keeps it. |
+| `sections` | `("sessions" \| "waiting" \| "todos" \| "mail" \| "calendar")[] \| null` | no | Omitted keeps them. |
+| `timezone` | `string \| null` | no | IANA zone; '' clears it (daemon-local); omitted keeps it. |
 
 **Result**
 
@@ -1510,6 +1517,8 @@ Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it.
 | `jobId` | `string \| null` | no | Scheduler job that runs it, while enabled. |
 | `nextRunAt` | `string \| null` | no | UTC ISO time of the next run. |
 | `schedule` | `string` | no | Cron expression, daemon-local time. |
+| `sections` | `("sessions" \| "waiting" \| "todos" \| "mail" \| "calendar")[]` | no | What it covers; mail and calendar only count while a mail or calendar preset is connected. |
+| `timezone` | `string \| null` | no | IANA zone the schedule is read in; null = the daemon's. |
 
 ### `jarvis.delegation.list`
 
@@ -1881,7 +1890,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; title?: string \| null; })[]` | no | Known jobs. |
+| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; target?: string \| null; task: string; timezone?: string \| null; title?: string \| null; })[]` | no | Known jobs. |
 
 ### `job.nextRunForClient`
 
@@ -2025,7 +2034,9 @@ Change an existing job (addendum 12).
 | `ownerClientId` | `string \| null` | no | The owning browser clientId; only the owner sees it. |
 | `spec` | `string` | yes | Schedule as given. |
 | `state` | `"scheduled" \| "running" \| "cancelled"` | no | Current job state. |
+| `target` | `string \| null` | no | What runs it when not an ordinary scheduled session: 'jarvis-task' is a Jarvis mode assistant task (1.53.0, WP8): its own worker session, result handed to Jarvis. |
 | `task` | `string` | yes | Prompt run on each firing. |
+| `timezone` | `string \| null` | no | IANA zone its cron clock times are read in; null is the daemon's (1.53.0). |
 | `title` | `string \| null` | no | The job's short name, when it has one (1.33.0). |
 
 ### `llm.sample`
@@ -2301,10 +2312,14 @@ Assistant presets (1.53.0, WP8): add the preset's MCP server with the given inpu
 
 | field | type | required | description |
 |---|---|---|---|
-| `add` | `{ auth?: { clientId?: string \| null; required?: boolean; state?: "ok" \| "needs_auth" \| "none"; }; error?: string \| null; ok?: boolean; path: string; state?: "stopped" \| "starting" \| "ready" \| "error"; tools?: ({ description?: string; name: string; })[]; warnings?: string[]; }` | yes | What mcp.add reported for the entry. |
+| `add` | `{ auth?: { clientId?: string \| null; required?: boolean; state?: "ok" \| "needs_auth" \| "none"; }; error?: string \| null; ok?: boolean; path: string; state?: "stopped" \| "starting" \| "ready" \| "error"; tools?: ({ description?: string; name: string; })[]; warnings?: string[]; }` | yes | What mcp.add reported for the first entry. |
+| `adds` | `({ auth?: { clientId?: string \| null; required?: boolean; state?: "ok" \| "needs_auth" \| "none"; }; error?: string \| null; ok?: boolean; path: string; state?: "stopped" \| "starting" \| "ready" \| "error"; tools?: ({ description?: string; name: string; })[]; warnings?: string[]; })[]` | no | mcp.add's report for each, in the same order. |
+| `already` | `boolean` | no | Nothing changed: the preset was already applied the same way. |
 | `jobs` | `string[]` | no | Scheduler job ids created for recipes. |
 | `needsAuth` | `boolean` | no | Call mcp.authorize next (auth 'oauth'). |
-| `server` | `string` | yes | Name of the configured MCP server. |
+| `server` | `string` | yes | Name of the first configured MCP server. |
+| `servers` | `string[]` | no | Every server it configured (WP8), in order. |
+| `signIn` | `({ command?: string \| null; method: "oauth" \| "deviceCode" \| "none"; note?: string; server: string; })[]` | no | What still needs a sign-in, per server. |
 
 ### `mcp.preset.list`
 
@@ -2320,7 +2335,27 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `presets` | `({ applied?: boolean; auth: "oauth" \| "token" \| "none"; category: "mail" \| "calendar" \| "todo" \| "other"; description?: string; entry?: Record<string, unknown>; homepage?: string; id: string; inputs?: ({ label: string; name: string; placeholder?: string; required?: boolean; secret?: boolean; })[]; readTools?: string[]; recipes?: ({ defaultEnabled?: boolean; id: string; prompt: string; schedule: string; title: string; })[]; sendTools?: string[]; title: string; transport: "stdio" \| "http" \| "sse"; })[]` | no | In display order. |
+| `presets` | `({ applied?: boolean; appliedServers?: string[]; auth: "oauth" \| "token" \| "none"; category: "mail" \| "calendar" \| "todo" \| "other"; description?: string; entry?: Record<string, unknown>; homepage?: string; id: string; inputs?: ({ label: string; name: string; placeholder?: string; required?: boolean; secret?: boolean; })[]; readTools?: string[]; recipes?: ({ defaultEnabled?: boolean; id: string; prompt: string; schedule: string; title: string; })[]; sendTools?: string[]; servers?: ({ auth: "oauth" \| "token" \| "none"; entry?: Record<string, unknown>; kind: string; loginCommand?: string \| null; readTools?: string[]; sendTools?: string[]; signIn?: "oauth" \| "deviceCode" \| "none"; suffix: string; title: string; transport: "stdio" \| "http" \| "sse"; })[]; title: string; transport: "stdio" \| "http" \| "sse"; })[]` | no | In display order. |
+
+### `mcp.preset.remove`
+
+*Direction:* client → server
+
+Assistant presets (1.53.0, WP8): undo an applied preset: its servers, permission tags, stored client secret and recipe jobs go back to what they were before.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes | Preset to remove. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `jobs` | `string[]` | no | Recipe jobs deleted. |
+| `removed` | `boolean` | yes | False when the preset was not applied. |
+| `servers` | `string[]` | no | Servers put back or removed. |
 
 ### `mcp.reload`
 

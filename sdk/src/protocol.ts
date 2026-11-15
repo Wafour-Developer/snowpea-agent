@@ -1833,6 +1833,10 @@ export interface JarvisBriefingGetResult {
   nextRunAt?: string | null;
   /** Cron expression, daemon-local time. */
   schedule?: string;
+  /** What it covers; mail and calendar only count while a mail or calendar preset is connected. */
+  sections?: ("sessions" | "waiting" | "todos" | "mail" | "calendar")[];
+  /** IANA zone the schedule is read in; null = the daemon's. */
+  timezone?: string | null;
 }
 
 /** `jarvis.briefing.set` params. Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. */
@@ -1843,6 +1847,10 @@ export interface JarvisBriefingSetParams {
   instructions?: string | null;
   /** Cron expression; omitted keeps it. */
   schedule?: string | null;
+  /** Omitted keeps them. */
+  sections?: ("sessions" | "waiting" | "todos" | "mail" | "calendar")[] | null;
+  /** IANA zone; '' clears it (daemon-local); omitted keeps it. */
+  timezone?: string | null;
 }
 
 /** `jarvis.briefing.set` result. */
@@ -1857,6 +1865,10 @@ export interface JarvisBriefingSetResult {
   nextRunAt?: string | null;
   /** Cron expression, daemon-local time. */
   schedule?: string;
+  /** What it covers; mail and calendar only count while a mail or calendar preset is connected. */
+  sections?: ("sessions" | "waiting" | "todos" | "mail" | "calendar")[];
+  /** IANA zone the schedule is read in; null = the daemon's. */
+  timezone?: string | null;
 }
 
 /** `jarvis.delegation.list` params. Jarvis mode (1.53.0, WP2): delegation grants in force. */
@@ -2512,8 +2524,12 @@ export interface JobListResult {
     spec: string;
     /** Current job state. */
     state?: "scheduled" | "running" | "cancelled";
+    /** What runs it when not an ordinary scheduled session: 'jarvis-task' is a Jarvis mode assistant task (1.53.0, WP8): its own worker session, result handed to Jarvis. */
+    target?: string | null;
     /** Prompt run on each firing. */
     task: string;
+    /** IANA zone its cron clock times are read in; null is the daemon's (1.53.0). */
+    timezone?: string | null;
     /** The job's short name, when it has one (1.33.0). */
     title?: string | null;
   })[];
@@ -2697,8 +2713,12 @@ export interface JobUpdateResult {
   spec: string;
   /** Current job state. */
   state?: "scheduled" | "running" | "cancelled";
+  /** What runs it when not an ordinary scheduled session: 'jarvis-task' is a Jarvis mode assistant task (1.53.0, WP8): its own worker session, result handed to Jarvis. */
+  target?: string | null;
   /** Prompt run on each firing. */
   task: string;
+  /** IANA zone its cron clock times are read in; null is the daemon's (1.53.0). */
+  timezone?: string | null;
   /** The job's short name, when it has one (1.33.0). */
   title?: string | null;
 }
@@ -3105,7 +3125,7 @@ export interface McpPresetApplyParams {
 
 /** `mcp.preset.apply` result. */
 export interface McpPresetApplyResult {
-  /** What mcp.add reported for the entry. */
+  /** What mcp.add reported for the first entry. */
   add: {
     /** OAuth standing (1.34.0). A probe that met 401 still writes the entry, with state needs_auth, so the client can go on to mcp.authorize. */
     auth?: {
@@ -3134,12 +3154,56 @@ export interface McpPresetApplyResult {
     /** Security findings that --force accepted. */
     warnings?: string[];
   };
+  /** mcp.add's report for each, in the same order. */
+  adds?: ({
+    /** OAuth standing (1.34.0). A probe that met 401 still writes the entry, with state needs_auth, so the client can go on to mcp.authorize. */
+    auth?: {
+      /** The entry's configured oauth.clientId, when it has one. */
+      clientId?: string | null;
+      /** True when the server asked for authorization (answered 401) or a sign-in is stored for it. */
+      required?: boolean;
+      /** ok (tokens stored for this URL), needs_auth (the server answered 401 and a refresh did not help: call mcp.authorize) or none. */
+      state?: "ok" | "needs_auth" | "none";
+    };
+    /** Why the server did not start. */
+    error?: string | null;
+    /** True when the entry was written. */
+    ok?: boolean;
+    /** File the entry was written to. */
+    path: string;
+    /** State of the server after the write. */
+    state?: "stopped" | "starting" | "ready" | "error";
+    /** Tools the probe found, so a client can offer a picker. */
+    tools?: ({
+      /** One-line description from the server. */
+      description?: string;
+      /** Tool name as the server reports it, without the mcp__ prefix. */
+      name: string;
+    })[];
+    /** Security findings that --force accepted. */
+    warnings?: string[];
+  })[];
+  /** Nothing changed: the preset was already applied the same way. */
+  already?: boolean;
   /** Scheduler job ids created for recipes. */
   jobs?: string[];
   /** Call mcp.authorize next (auth 'oauth'). */
   needsAuth?: boolean;
-  /** Name of the configured MCP server. */
+  /** Name of the first configured MCP server. */
   server: string;
+  /** Every server it configured (WP8), in order. */
+  servers?: string[];
+  /** What still needs a sign-in, per server. */
+  signIn?: ({
+    /** With deviceCode: run this once. */
+    command?: string | null;
+    /** How to sign in. */
+    method: "oauth" | "deviceCode" | "none";
+    /** What the person still has to do. */
+    note?: string;
+    /** Configured server name. */
+    server: string;
+  })[];
 }
 
 /** `mcp.preset.list` params. Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipes. */
@@ -3151,6 +3215,8 @@ export interface McpPresetListResult {
   presets?: ({
     /** A server from this preset is configured. */
     applied?: boolean;
+    /** Names of the servers it configured, once applied. */
+    appliedServers?: string[];
     /** As McpCatalogEntry.auth: oauth (mcp.authorize after apply), token (an input) or none. */
     auth: "oauth" | "token" | "none";
     /** Grouping. */
@@ -3193,11 +3259,50 @@ export interface McpPresetListResult {
     })[];
     /** Tools that send or change things; tagged 'send' (guarded secret_send). */
     sendTools?: string[];
+    /** The servers it writes (1.53.0, WP8). entry, transport, auth, readTools and sendTools above describe the first one / the union. */
+    servers?: ({
+      /** As McpPresetInfo.auth, for this server. */
+      auth: "oauth" | "token" | "none";
+      /** The .mcp.json entry template. */
+      entry?: Record<string, unknown>;
+      /** 'mail', 'calendar' or 'mail+calendar'. */
+      kind: string;
+      /** With deviceCode: the command. */
+      loginCommand?: string | null;
+      /** Tagged 'read'. */
+      readTools?: string[];
+      /** Known send/modify tools. */
+      sendTools?: string[];
+      /** How the person signs in: oauth (mcp.authorize), deviceCode (a command run once on the daemon's machine, see loginCommand) or none. */
+      signIn?: "oauth" | "deviceCode" | "none";
+      /** Appended to the preset's server name ('' = the name alone). */
+      suffix: string;
+      /** Human name. */
+      title: string;
+      /** stdio, http or sse. */
+      transport: "stdio" | "http" | "sse";
+    })[];
     /** Human name. */
     title: string;
     /** stdio, http or sse. */
     transport: "stdio" | "http" | "sse";
   })[];
+}
+
+/** `mcp.preset.remove` params. Assistant presets (1.53.0, WP8): undo an applied preset: its servers, permission tags, stored client secret and recipe jobs go back to what they were before. */
+export interface McpPresetRemoveParams {
+  /** Preset to remove. */
+  id: string;
+}
+
+/** `mcp.preset.remove` result. */
+export interface McpPresetRemoveResult {
+  /** Recipe jobs deleted. */
+  jobs?: string[];
+  /** False when the preset was not applied. */
+  removed: boolean;
+  /** Servers put back or removed. */
+  servers?: string[];
 }
 
 /** `mcp.reload` params. Restart one MCP server, or every configured one. */
@@ -9231,6 +9336,7 @@ export interface MethodMap {
   "mcp.list": { params: McpListParams; result: McpListResult };
   "mcp.preset.apply": { params: McpPresetApplyParams; result: McpPresetApplyResult };
   "mcp.preset.list": { params: McpPresetListParams; result: McpPresetListResult };
+  "mcp.preset.remove": { params: McpPresetRemoveParams; result: McpPresetRemoveResult };
   "mcp.reload": { params: McpReloadParams; result: McpReloadResult };
   "mcp.remove": { params: McpRemoveParams; result: McpRemoveResult };
   "mcp.test": { params: McpTestParams; result: McpTestResult };
@@ -9435,6 +9541,7 @@ export type ClientMethod =
   | "mcp.list"
   | "mcp.preset.apply"
   | "mcp.preset.list"
+  | "mcp.preset.remove"
   | "mcp.reload"
   | "mcp.remove"
   | "mcp.test"

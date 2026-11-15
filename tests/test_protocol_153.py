@@ -59,6 +59,7 @@ M19_METHODS = {
     "external.close",
     "mcp.preset.list",
     "mcp.preset.apply",
+    "mcp.preset.remove",
 }
 WP2_METHODS = {
     "jarvis.ledger",
@@ -76,6 +77,13 @@ WP3_METHODS = {
     "jarvis.project.list",
     "jarvis.project.rename",
     "jarvis.project.alias",
+}
+WP8_METHODS = {
+    "mcp.preset.list",
+    "mcp.preset.apply",
+    "mcp.preset.remove",
+    "jarvis.briefing.get",
+    "jarvis.briefing.set",
 }
 M19_EVENTS = {
     "jarvis.state",
@@ -117,23 +125,24 @@ def test_version_and_declared_contract() -> None:
     assert M19_METHODS <= set(protocol.METHODS)
     # Declared only until their work package lands: the dispatcher's
     # not_implemented stub answers the rest.
-    assert M19_METHODS & protocol.IMPLEMENTED_METHODS == WP2_METHODS | WP3_METHODS
+    assert M19_METHODS & protocol.IMPLEMENTED_METHODS == (
+        WP2_METHODS | WP3_METHODS | WP8_METHODS
+    )
     assert M19_EVENTS <= set(protocol.EVENTS)
     assert {"jarvis_disabled", "jarvis_person_only", "external_view_only"} <= set(ERROR_CODES)
     assert "external_unavailable" in ERROR_CODES
 
 
 def test_pending_capabilities_are_not_advertised() -> None:
-    assert set(protocol.PENDING_CAPABILITIES) == {
-        "externalSessions",
-        "mcpPresets",
-        "jarvisBriefing",
-    }
+    assert set(protocol.PENDING_CAPABILITIES) == {"externalSessions"}
     assert not (set(protocol.PENDING_CAPABILITIES) & set(protocol.CAPABILITIES))
     # Implemented in WP1, WP2 and WP3, so advertised now.
     assert "messageOrigin" in protocol.CAPABILITIES
     assert "jarvisDelegation" in protocol.CAPABILITIES
     assert "jarvis" in protocol.CAPABILITIES
+    # Implemented in WP8.
+    assert "mcpPresets" in protocol.CAPABILITIES
+    assert "jarvisBriefing" in protocol.CAPABILITIES
     assert protocol.dump_schema()["capabilities"] == list(protocol.CAPABILITIES)
 
 
