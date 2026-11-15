@@ -220,7 +220,7 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   if (input.effort) {
     segments.push({
       key: "effort",
-      text: `⚙ ${input.effort}`,
+      text: `◈ ${input.effort}`,
       dimColor: true,
       priority: 4,
     });
@@ -328,7 +328,7 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   if (input.externalWarning) {
     segments.push({
       key: "external-warning",
-      text: `⚠ ${input.externalWarning}`,
+      text: `▲ ${input.externalWarning}`,
       color: "red",
       bold: true,
       priority: 0,
@@ -348,7 +348,7 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   if (input.pendingApprovals > 0) {
     segments.push({
       key: "approvals",
-      text: `⚠ ${input.pendingApprovals} approval${input.pendingApprovals === 1 ? "" : "s"}`,
+      text: `▲ ${input.pendingApprovals} approval${input.pendingApprovals === 1 ? "" : "s"}`,
       color: "yellow",
       bold: true,
       priority: 1,
@@ -359,7 +359,7 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   // running and for how long, so the HUD only adds what it does not: the name
   // of the command that owns the turn, and how to stop it.
   if (input.runningCommand) {
-    segments.push({ key: "command", text: `▶ ${input.runningCommand}`, color: "yellow", priority: 2 });
+    segments.push({ key: "command", text: `⏵ ${input.runningCommand}`, color: "yellow", priority: 2 });
   } else if (input.turnActive) {
     segments.push({ key: "command", text: "Esc stops · type what to change", dimColor: true, priority: 3 });
   }

@@ -100,7 +100,7 @@ describe("buildHudSegments", () => {
     expect(buildHudSegments(base).find((s) => s.key === "effort")).toBeUndefined();
     const segments = buildHudSegments({ ...base, effort: "high" });
     const keys = segments.map((s) => s.key);
-    expect(segments.find((s) => s.key === "effort")?.text).toBe("⚙ high");
+    expect(segments.find((s) => s.key === "effort")?.text).toBe("◈ high");
     expect(keys.indexOf("effort")).toBe(keys.indexOf("model") + 1);
   });
 
@@ -133,10 +133,10 @@ describe("buildHudSegments", () => {
 
   it("warns about unattended approvals", () => {
     expect(buildHudSegments({ ...base, pendingApprovals: 1 }).find((s) => s.key === "approvals")?.text).toBe(
-      "⚠ 1 approval",
+      "▲ 1 approval",
     );
     expect(buildHudSegments({ ...base, pendingApprovals: 2 }).find((s) => s.key === "approvals")?.text).toBe(
-      "⚠ 2 approvals",
+      "▲ 2 approvals",
     );
   });
 
@@ -145,7 +145,7 @@ describe("buildHudSegments", () => {
       buildHudSegments({ ...base, runningCommand: "/ralph", turnActive: true }).find(
         (s) => s.key === "command",
       )?.text,
-    ).toBe("▶ /ralph");
+    ).toBe("⏵ /ralph");
     // The indicator above the input says the turn is running; the HUD only
     // adds how to stop it.
     expect(
@@ -270,7 +270,7 @@ describe("layoutHud", () => {
 
   it("keeps the approval warning when space is scarce", () => {
     const rows = layoutHud(buildHudSegments({ ...base, pendingApprovals: 3 }), 46);
-    expect(text(rows).join(" ")).toContain("⚠ 3 approvals");
+    expect(text(rows).join(" ")).toContain("▲ 3 approvals");
   });
 
   it("truncates the last survivor rather than drawing nothing", () => {

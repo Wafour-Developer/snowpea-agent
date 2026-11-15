@@ -13,13 +13,13 @@ import { formatTokens } from "../layout/hud.js";
 import type { State, ToolCallEntry } from "./store.js";
 
 /** The glyphs the spinner cycles through. */
-export const SPINNER_FRAMES: readonly string[] = ["✢", "✳", "✶", "✻", "✽"];
+export const SPINNER_FRAMES: readonly string[] = ["✢", "✱", "✶", "✻", "✽"];
 
 /** One spinner step. Five frames a second is smooth and cheap. */
 export const SPINNER_INTERVAL_MS = 200;
 
 /** Shown instead of a spinner while the turn is blocked on a person. */
-export const PAUSED_GLYPH = "⏸";
+export const PAUSED_GLYPH = "‖";
 
 export type WorkingPhase =
   /** Nothing is running. */

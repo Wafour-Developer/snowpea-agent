@@ -22,8 +22,8 @@ export const CONTEXT_CRITICAL_PERCENT = 85;
 /** Mode chips, in the reference's glyphs. */
 const MODE_CHIP: Record<Mode, string> = {
   auto: "⏵⏵ auto mode on",
-  accept: "▶ accept mode",
-  plan: "⏸ plan mode",
+  accept: "⏵ accept mode",
+  plan: "‖ plan mode",
 };
 
 function modeColor(mode: Mode): string {
@@ -34,8 +34,8 @@ function modeColor(mode: Mode): string {
 
 const MODE_PARTS: Record<Mode, { prefix: string; word: string; suffix: string }> = {
   auto: { prefix: "⏵⏵ ", word: "auto", suffix: " mode on" },
-  accept: { prefix: "▶ ", word: "accept", suffix: " mode" },
-  plan: { prefix: "⏸ ", word: "plan", suffix: " mode" },
+  accept: { prefix: "⏵ ", word: "accept", suffix: " mode" },
+  plan: { prefix: "‖ ", word: "plan", suffix: " mode" },
 };
 
 export interface PaintedSegment {

@@ -272,7 +272,7 @@ describe("formatting", () => {
     expect(workingLine({ ...stats, phase: { kind: "command", name: "/ralph" } })).toBe(
       `${SPINNER_FRAMES[1]} /ralph… (12s · ↓ 1.2k tokens)`,
     );
-    expect(workingLine({ ...stats, phase: { kind: "approval" } })).toBe("⏸ Waiting for approval");
+    expect(workingLine({ ...stats, phase: { kind: "approval" } })).toBe("‖ Waiting for approval");
     expect(workingLine({ ...stats, phase: { kind: "idle" } })).toBeNull();
   });
 

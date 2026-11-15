@@ -87,12 +87,12 @@ describe("summaryLine", () => {
     expect(auto.text).toBe("⏵⏵ auto mode on · ⇧Tab change mode · Ctrl+P plan");
     expect(auto.segments?.find((segment) => segment.text === "auto")?.color).toBe("yellow");
     const accept = summaryLine({ mode: "accept", shells: 0, agents: 0 });
-    expect(accept.text).toContain("▶ accept mode · ⇧Tab change mode");
+    expect(accept.text).toContain("⏵ accept mode · ⇧Tab change mode");
     expect(accept.segments?.find((segment) => segment.text === "accept")?.color).toBe(
       accentColor("truecolor"),
     );
     expect(summaryLine({ mode: "plan", shells: 0, agents: 0 }).text).toContain(
-      "⏸ plan mode · ⇧Tab change mode",
+      "‖ plan mode · ⇧Tab change mode",
     );
   });
 
