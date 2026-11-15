@@ -53,6 +53,8 @@ from snowpea_core.server.home_lock import (
     release_home_lock,
 )
 from snowpea_core.server.job_handlers import register_job_handlers
+from snowpea_core.server.keep_awake import KeepAwake
+from snowpea_core.server.keep_awake import running_turns as keep_awake_running_turns
 from snowpea_core.server.lifecycle import Lifecycle
 from snowpea_core.server.lsp_handlers import register_lsp_handlers
 from snowpea_core.server.mcp_handlers import register_mcp_handlers
@@ -151,6 +153,8 @@ class Core:
     policy: PermissionPolicy = field(default_factory=PermissionPolicy)
     hub: EventHub = field(default_factory=EventHub)
     lifecycle: Lifecycle = field(default_factory=Lifecycle)
+    #: Idle-sleep inhibitor held while a turn runs; ``Daemon.start`` builds it.
+    keep_awake: Any = None
     pid: int = field(default_factory=os.getpid)
     port: int = 0
     started_at: str = field(default_factory=_utc_now)
@@ -845,6 +849,18 @@ class Daemon:
         except Exception:  # noqa: BLE001 - one bad server must not stop the daemon
             log.warning("could not start global MCP servers", exc_info=True)
         core.lifecycle.start()
+        # One watcher over every session's ``current_turn`` covers every kind
+        # of turn — typed, queued, delegated, scheduled, a goal round.
+        # ``SNOWPEA_KEEP_AWAKE=0`` overrides the setting (the test suite).
+        def keep_awake_enabled() -> bool:
+            return bool(core.settings.daemon.keepAwake) and (
+                os.environ.get("SNOWPEA_KEEP_AWAKE") != "0"
+            )
+
+        core.keep_awake = KeepAwake(enabled=keep_awake_enabled(), pid=core.pid)
+        core.keep_awake.start(
+            lambda: keep_awake_running_turns(core), enabled=keep_awake_enabled
+        )
         await start_scheduler(core)
         self._advert_task = asyncio.ensure_future(self._keep_advert())
         # Not over an update hand-off made during boot: that advert names the
@@ -995,6 +1011,8 @@ class Daemon:
                 await asyncio.gather(task, return_exceptions=True)
                 setattr(self.core, attribute, None)
             await self.core.lifecycle.stop()
+            if self.core.keep_awake is not None:
+                await self.core.keep_awake.stop()
             await stop_scheduler(self.core)
             if self.core.lsp is not None:
                 # Language servers are children of this process; leaving them

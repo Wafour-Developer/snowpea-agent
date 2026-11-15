@@ -34,6 +34,8 @@ def snowpea_home() -> Iterator[Path]:
             SNOWPEA_HOME=str(home),
             SNOWPEA_UPDATE_CHECK="0",
             SNOWPEA_MODELS_DEV="0",
+            # Never hold a real sleep inhibitor on the machine running the suite.
+            SNOWPEA_KEEP_AWAKE="0",
             CLAUDE_CONFIG_DIR=str(home / "claude-config"),
         ):
             yield home

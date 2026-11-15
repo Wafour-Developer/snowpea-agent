@@ -378,6 +378,11 @@ class AgentSettings(_Model):
 
 class DaemonSettings(_Model):
     idleTimeoutSec: int = 1800
+    #: Keep the machine from idle-sleeping while a turn runs (``caffeinate -i``
+    #: on macOS, ``systemd-inhibit --what=idle`` on Linux,
+    #: ``SetThreadExecutionState`` on Windows).  The display still sleeps and
+    #: closing a laptop's lid still sleeps the machine.
+    keepAwake: bool = True
 
 
 class SearchSettings(_Model):
