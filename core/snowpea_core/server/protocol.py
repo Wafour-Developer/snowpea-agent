@@ -2167,7 +2167,8 @@ class ApprovalRequest(Payload):
             "True on a request only a person may answer (1.53.0): Jarvis's delegation_set "
             "proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, "
             "note}, from the Jarvis session). Answered with approval.respond {decision, scope: "
-            "'once'} from a person's connection; any other answerer is refused."
+            "'once'}: 'allow' only from a person's connection (else jarvis_person_only); "
+            "'deny' from anyone who sees it."
         ),
     )
 
