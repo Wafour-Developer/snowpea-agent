@@ -229,8 +229,6 @@ const UPDATE_OPTIONS: ConfirmOption<boolean>[] = [
 
 /** How often the unattended queue is re-read while it is not empty. */
 export const APPROVAL_POLL_MS = 5000;
-/** How often a request Jarvis holds is checked for being routed to the person after all. */
-export const HELD_POLL_MS = 2000;
 
 /**
  * Longest message the status line will carry.
@@ -881,6 +879,20 @@ export function App({
       onJarvisEscalation: (params) => screensRef.current?.listeners.onJarvisEscalation?.(params),
       onJarvisDelegation: (params) => screensRef.current?.listeners.onJarvisDelegation?.(params),
       onQuestionPending: (params) => screensRef.current?.listeners.onQuestionPending?.(params),
+      // Jarvis took a request, or handed it back to the person: the prompt and
+      // the "Jarvis is deciding" line follow the event, not a poll.
+      onApprovalRouteChanged: (params) => {
+        dispatch({ type: "approval/route", requestId: params.requestId, route: params.route });
+        // A request this surface has not listed yet: ask once.
+        if (!knownApprovalsRef.current.some((request) => request.requestId === params.requestId)) {
+          refreshApprovals();
+        }
+        screensRef.current?.listeners.onApprovalRouteChanged?.(params);
+      },
+      onQuestionRouteChanged: (params) => {
+        dispatch({ type: "question/route", requestId: params.requestId, route: params.route });
+        screensRef.current?.listeners.onQuestionRouteChanged?.(params);
+      },
       onExternalEvent: (params) => screensRef.current?.listeners.onExternalEvent?.(params),
       onExternalState: (params) => screensRef.current?.listeners.onExternalState?.(params),
       onExternalClisChanged: (params) => screensRef.current?.listeners.onExternalClisChanged?.(params),
@@ -949,6 +961,12 @@ export function App({
         }
         showToast("daemon restarted — session resumed");
         dispatch({ type: "session/reconnected" });
+        // Route changes during the gap were not delivered: read the lists once.
+        refreshApprovals();
+        void client
+          .call("question.list", {})
+          .then((result) => dispatch({ type: "question/list", requests: result?.requests ?? [] }))
+          .catch(() => undefined);
         screensRef.current?.reconnected();
         // A restarted daemon may be a different version: ask it, so a banner
         // raised by the one it replaced does not outlive it.
@@ -963,7 +981,8 @@ export function App({
         dispatch({ type: "question/resolved", requestId });
         questionResolvers.current.delete(requestId);
       },
-      onApprovalPending: () => {
+      onApprovalPending: (params) => {
+        screensRef.current?.listeners.onApprovalPending?.(params);
         refreshApprovals();
         void screensRef.current?.refresh();
       },
@@ -1150,23 +1169,14 @@ export function App({
     };
   }, [update.phase, client, onRestart, exit]);
 
-  // Poll while something is waiting: unattended requests are raised by turns
-  // this surface never sees, so there is no event to hang the refresh off.
+  // A safety net while the unattended queue is not empty. A request Jarvis
+  // holds is not polled: `approval.route.changed` / `question.route.changed`
+  // say when it comes back to the person.
   useEffect(() => {
-    const held = state.heldApprovals.length + state.heldQuestions.length;
-    if (state.approvalQueue.length === 0 && held === 0) return;
-    const timer = setInterval(() => {
-      refreshApprovals();
-      // A request Jarvis holds comes back to the person when the daemon routes it so.
-      if (state.heldQuestions.length > 0) {
-        void client
-          .call("question.list", {})
-          .then((result) => dispatch({ type: "question/list", requests: result?.requests ?? [] }))
-          .catch(() => undefined);
-      }
-    }, held > 0 ? HELD_POLL_MS : APPROVAL_POLL_MS);
+    if (state.approvalQueue.length === 0) return;
+    const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
-  }, [state.approvalQueue.length, state.heldApprovals.length, state.heldQuestions.length, refreshApprovals, client]);
+  }, [state.approvalQueue.length, refreshApprovals]);
 
   // Speech follows the transcript: every assistant message that finishes while
   // `/tts` is on is read out once, and never twice however often this renders.
@@ -1472,7 +1482,7 @@ export function App({
         turnActive: state.turnActive,
         toast: modeToast && modeToast.length <= TOAST_INLINE_MAX ? modeToast : null,
         modeHint: modeHintVisible,
-        jarvis: state.heldApprovals.length + state.heldQuestions.length > 0 ? JARVIS_DECIDING : screens.marker,
+        jarvis: state.heldApprovals.length + state.heldQuestions.filter((q) => q.route === "jarvis").length > 0 ? JARVIS_DECIDING : screens.marker,
         externalWarning,
       }),
     [
@@ -1507,7 +1517,7 @@ export function App({
       modeHintVisible,
       screens.marker,
       state.heldApprovals.length,
-      state.heldQuestions.length,
+      state.heldQuestions,
       externalWarning,
     ],
   );

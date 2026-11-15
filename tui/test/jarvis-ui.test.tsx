@@ -52,6 +52,7 @@ function fakeClient(opts: Opts = {}) {
     model: "fast",
   });
   let enabled = opts.enabled ?? true;
+  const listed = { count: 0 };
   const client: any = {
     calls,
     responded,
@@ -67,7 +68,11 @@ function fakeClient(opts: Opts = {}) {
     onQuestionRequest: (handler: any) => {
       onQuestion = handler;
     },
-    listApprovals: async () => ({ requests: opts.approvals ?? [] }),
+    listApprovals: async () => {
+      listed.count += 1;
+      return { requests: opts.approvals ?? [] };
+    },
+    listCount: () => listed.count,
     checkUpdate: async () => ({ available: false, current: "0.2.88", latest: "0.2.88" }),
     prompt: async () => ({ turnId: "t" }),
     interrupt: async () => undefined,
@@ -986,8 +991,11 @@ describe("the final Jarvis contract", () => {
     expect(app.view()).not.toContain("Approval required");
     expect(app.view()).toContain("Jarvis is deciding");
     // The daemon gives up on Jarvis and asks the person.
-    approvals[0] = { ...request, route: "person" };
-    await sleep(2600);
+    const listsBefore = client.listCount();
+    client.emit("onApprovalRouteChanged", { requestId: "a-j", sessionId: "s-1", route: "person", reason: "paused" });
+    await sleep(200);
+    // The event moved it; nothing was polled.
+    expect(client.listCount()).toBe(listsBefore);
     expect(app.view()).toContain("Approval required");
     expect(app.view()).not.toContain("Jarvis is deciding");
     expect(settled).toBe(false);
@@ -1035,11 +1043,43 @@ describe("the final Jarvis contract", () => {
     await sleep(250);
     expect(app.view()).not.toContain("Which database?");
     expect(app.view()).toContain("Jarvis is deciding");
-    questions[0] = { ...request, route: "person" };
-    await sleep(2600);
+    const listsBefore = client.calls.filter((c: any) => c.method === "question.list").length;
+    client.emit("onQuestionRouteChanged", { requestId: "q-j", sessionId: "s-1", route: "person", reason: "declined" });
+    await sleep(200);
+    expect(client.calls.filter((c: any) => c.method === "question.list").length).toBe(listsBefore);
     expect(app.view()).toContain("Which database?");
     app.done();
   });
+
+  it("withdraws a prompt that is on screen when Jarvis mode takes the request", async () => {
+    const client = fakeClient();
+    const app = await mount(client);
+    const request = { requestId: "a-w", sessionId: "s-1", tool: "shell", args: { command: "make test" }, route: "person", risk: "low" };
+    void client.ask(request);
+    await sleep(250);
+    expect(app.view()).toContain("Approval required");
+    client.emit("onApprovalRouteChanged", { requestId: "a-w", sessionId: "s-1", route: "jarvis", reason: "jarvis_enabled" });
+    await sleep(200);
+    expect(app.view()).not.toContain("Approval required");
+    expect(app.view()).toContain("Jarvis is deciding");
+    client.emit("onApprovalRouteChanged", { requestId: "a-w", sessionId: "s-1", route: null, reason: "jarvis_disabled" });
+    await sleep(200);
+    expect(app.view()).toContain("Approval required");
+    app.done();
+  });
+
+  it("does not poll approval.list or question.list while Jarvis holds a request", async () => {
+    const client = fakeClient();
+    const app = await mount(client);
+    void client.ask({ requestId: "a-h", sessionId: "s-1", tool: "shell", args: { command: "ls" }, route: "jarvis", risk: "low" });
+    await sleep(300);
+    const lists = client.listCount();
+    const questionLists = client.calls.filter((c: any) => c.method === "question.list").length;
+    await sleep(5500);
+    expect(client.listCount()).toBe(lists);
+    expect(client.calls.filter((c: any) => c.method === "question.list").length).toBe(questionLists);
+    app.done();
+  }, 15_000);
 
   it("asks a person-only request once, with no session, project or always rows", async () => {
     const client = fakeClient();
@@ -1363,8 +1403,8 @@ describe("external sessions, final contract", () => {
       expect(app.view()).toContain("t types into its tmux pane");
       app.stdin.write("t");
       await sleep(50);
-      approvals.push(request);
-      await sleep(1200);
+      client.emit("onApprovalPending", { request });
+      await sleep(300);
       expect(client.calls.find((c: any) => c.method === "external.open" && c.params.transport === "tmux")?.params).toEqual({ ref, limit: 200, transport: "tmux" });
       const view = app.view();
       expect(view).toContain("Let snowpea type into your tmux pane?");
@@ -1400,7 +1440,9 @@ describe("external sessions, final contract", () => {
       const app = await mount(client);
       await openFirst(client, app);
       app.stdin.write("t");
-      await sleep(1200);
+      await sleep(50);
+      client.emit("onApprovalPending", { request });
+      await sleep(300);
       app.stdin.write("n");
       await sleep(150);
       expect(client.responded[0]).toMatchObject({ requestId: "ad-1", decision: "deny", scope: "once" });

@@ -440,6 +440,10 @@ export type Action =
   | { type: "approval/request"; request: ApprovalRequestParams }
   | { type: "approval/list"; requests: ApprovalRequestParams[] }
   | { type: "approval/resolved"; requestId: string }
+  /** `approval.route.changed`: a waiting approval was routed to Jarvis, or came back to the person. */
+  | { type: "approval/route"; requestId: string; route: ApprovalRequestParams["route"] }
+  /** `question.route.changed`. */
+  | { type: "question/route"; requestId: string; route: QuestionRequestParams["route"] }
   | { type: "question/list"; requests: QuestionRequestParams[] }
   | { type: "question/request"; request: QuestionRequestParams }
   | { type: "question/resolved"; requestId: string }
@@ -1515,6 +1519,69 @@ export function reducer(state: State, action: Action): State {
       };
     }
 
+    case "approval/route": {
+      const { requestId, route } = action;
+      const held = state.heldApprovals.find((r) => r.requestId === requestId);
+      const pending = state.pendingApproval?.requestId === requestId ? state.pendingApproval : null;
+      const queued = state.approvalQueue.some((r) => r.requestId === requestId);
+      const retag = <T extends ApprovalEntry>(r: T): T => (r.requestId === requestId ? { ...r, route } : r);
+      if (route === "jarvis") {
+        // Jarvis decides: an interactive prompt on screen is withdrawn (the
+        // daemon still waits on this connection's answer, which it may give
+        // later); a person-only request is never Jarvis's.
+        if (pending && !pending.personOnly) {
+          return {
+            ...state,
+            pendingApproval: null,
+            heldApprovals: [...state.heldApprovals.filter((r) => r.requestId !== requestId), { ...pending, route }],
+          };
+        }
+        return {
+          ...state,
+          pendingApproval: state.pendingApproval ? retag(state.pendingApproval) : null,
+          heldApprovals: state.heldApprovals.map(retag),
+          approvalQueue: state.approvalQueue.map(retag),
+        };
+      }
+      if (held) {
+        // Back to the person: the prompt if it is free, else the queue.
+        const entry = { ...held, route };
+        const rest = state.heldApprovals.filter((r) => r.requestId !== requestId);
+        return state.pendingApproval
+          ? { ...state, heldApprovals: rest, approvalQueue: [...state.approvalQueue, { ...entry, source: "queue" as const }] }
+          : { ...state, heldApprovals: rest, pendingApproval: entry };
+      }
+      if (!pending && !queued) return state;
+      return {
+        ...state,
+        pendingApproval: state.pendingApproval ? retag(state.pendingApproval) : null,
+        approvalQueue: state.approvalQueue.map(retag),
+      };
+    }
+
+    case "question/route": {
+      const { requestId, route } = action;
+      const held = state.heldQuestions.find((r) => r.requestId === requestId);
+      const pending = state.pendingQuestion?.requestId === requestId ? state.pendingQuestion : null;
+      if (route === "jarvis") {
+        if (!pending) return state;
+        return {
+          ...state,
+          pendingQuestion: null,
+          heldQuestions: [...state.heldQuestions.filter((r) => r.requestId !== requestId), { ...pending, route }],
+        };
+      }
+      if (held) {
+        const rest = state.heldQuestions.filter((r) => r.requestId !== requestId);
+        // Only one question is on screen at a time; a second waits (no longer
+        // "deciding") and takes the prompt when the first is answered.
+        return state.pendingQuestion
+          ? { ...state, heldQuestions: state.heldQuestions.map((r) => (r.requestId === requestId ? { ...r, route } : r)) }
+          : { ...state, heldQuestions: rest, pendingQuestion: { ...held, route } };
+      }
+      return pending ? { ...state, pendingQuestion: { ...pending, route } } : state;
+    }
+
     case "approval/resolved":
       return {
         ...state,
@@ -1544,13 +1611,19 @@ export function reducer(state: State, action: Action): State {
       };
     }
 
-    case "question/resolved":
+    case "question/resolved": {
+      const pending =
+        state.pendingQuestion?.requestId === action.requestId ? null : state.pendingQuestion;
+      const held = state.heldQuestions.filter((r) => r.requestId !== action.requestId);
+      // A question the daemon gave back to the person while another was on
+      // screen takes the prompt now.
+      const next = pending ? undefined : held.find((r) => r.route !== "jarvis");
       return {
         ...state,
-        pendingQuestion:
-          state.pendingQuestion?.requestId === action.requestId ? null : state.pendingQuestion,
-        heldQuestions: state.heldQuestions.filter((r) => r.requestId !== action.requestId),
+        pendingQuestion: pending ?? next ?? null,
+        heldQuestions: held.filter((r) => r !== next),
       };
+    }
 
     case "error":
       return { ...state, errors: [...state.errors, action.message] };

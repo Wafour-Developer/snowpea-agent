@@ -43,6 +43,7 @@ import {
 } from "../state/external.js";
 import {
   accessLine,
+  externalOfRequest,
   initialJarvis,
   MAX_ESCALATIONS,
   jarvisMarker,
@@ -135,6 +136,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
   const loadClisRef = useRef<(() => Promise<ExternalCliInfo[]>) | null>(null);
   const lastAccess = useRef(new Map<string, number>());
   const lastRefusal = useRef(0);
+  /** The session `/external adopt` is waiting on a confirmation for. */
+  const adopting = useRef<ExternalRef | null>(null);
   const externalRef = useRef<ExternalView | null>(null);
   externalRef.current = external;
   const jarvisRef = useRef<JarvisState>(jarvis);
@@ -150,7 +153,13 @@ export function useJarvisScreens(deps: ScreensDeps) {
 
   // --- reading Jarvis ---------------------------------------------------------
 
-  const refresh = useCallback(async () => {
+  /**
+   * Read the daemon's state. The waiting requests are not part of the timer's
+   * refresh: `approval.pending`, `question.pending` and the two route events
+   * keep them, so they are listed only when something asks for it (start-up,
+   * a reconnect, a resolved request).
+   */
+  const refresh = useCallback(async (options: { periodic?: boolean } = {}) => {
     if (!support.jarvis || refreshing.current) return;
     refreshing.current = true;
     try {
@@ -159,8 +168,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
       if (!status?.enabled) return;
       const [overview, approvals, questions, ledger, notices, sessions] = await Promise.all([
         client.call("jarvis.overview", { includeIdle: true, includeExternal: true, limit: 100 }).catch(() => null),
-        client.listApprovals().catch(() => null),
-        client.call("question.list", {}).catch(() => null),
+        options.periodic ? Promise.resolve(null) : client.listApprovals().catch(() => null),
+        options.periodic ? Promise.resolve(null) : client.call("question.list", {}).catch(() => null),
         support.delegation ? client.call("jarvis.ledger", { limit: 12 }).catch(() => null) : Promise.resolve(null),
         client.call("jarvis.escalations.list", { limit: MAX_ESCALATIONS }).catch(() => null),
         client.call("session.list", {}).catch(() => null),
@@ -195,7 +204,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
 
   useEffect(() => {
     if (!jarvisOn) return;
-    const timer = setInterval(() => void refresh(), onJarvisScreen ? POLL_VISIBLE_MS : POLL_BACKGROUND_MS);
+    const timer = setInterval(() => void refresh({ periodic: true }), onJarvisScreen ? POLL_VISIBLE_MS : POLL_BACKGROUND_MS);
     return () => clearInterval(timer);
   }, [jarvisOn, onJarvisScreen, refresh]);
 
@@ -225,7 +234,26 @@ export function useJarvisScreens(deps: ScreensDeps) {
         jarvisDispatch({ type: "event/delegation", payload });
         void refresh();
       },
-      onQuestionPending: () => void refresh(),
+      onApprovalPending: (payload) => {
+        const request = (payload as { request?: ApprovalRequestParams } | undefined)?.request;
+        if (!request) return;
+        jarvisDispatch({ type: "pending", kind: "approval", request });
+        // The confirmation for the adoption this screen started.
+        const wanted = adopting.current;
+        const asked = request.tool === "tmux.adopt" ? externalOfRequest(request) : null;
+        if (wanted && asked && sameRef(asked, wanted)) setUi({ kind: "adopt", ref: wanted, request });
+      },
+      onQuestionPending: (payload) => {
+        const request = (payload as { request?: QuestionRequestParams } | undefined)?.request;
+        if (request) jarvisDispatch({ type: "pending", kind: "question", request });
+        else void refresh();
+      },
+      // Jarvis took a request, or gave it back: the "deciding" count and the
+      // prompt list follow the event.
+      onApprovalRouteChanged: (payload) =>
+        jarvisDispatch({ type: "route", requestId: payload.requestId, route: payload.route }),
+      onQuestionRouteChanged: (payload) =>
+        jarvisDispatch({ type: "route", requestId: payload.requestId, route: payload.route }),
       onJarvisEscalationDismissed: (payload) => jarvisDispatch({ type: "event/dismissed", payload }),
       onSessionsChanged: (payload) => {
         if (payload?.sessionId && payload.jarvis !== undefined) {
@@ -821,7 +849,9 @@ export function useJarvisScreens(deps: ScreensDeps) {
       showToast("adopting needs a Claude Code session open in your own tmux pane");
       return;
     }
-    let settled = false;
+    // The confirmation reaches every surface as `approval.pending`; the
+    // listener above picks it up for this ref while the call waits.
+    adopting.current = ref;
     showToast("Confirm in the prompt — snowpea types into the pane only after you say yes");
     void client
       .call("external.open", { ref, limit: 200, transport: "tmux" })
@@ -831,23 +861,9 @@ export function useJarvisScreens(deps: ScreensDeps) {
       })
       .catch((error: unknown) => showToast(describeExternalError(error, ref.cli, "adopt")))
       .finally(() => {
-        settled = true;
+        adopting.current = null;
         setUi((current) => (current?.kind === "adopt" ? null : current));
       });
-    void (async () => {
-      while (!settled) {
-        const listed = await client.listApprovals().catch(() => null);
-        const hit = (listed?.requests ?? []).find(
-          (request: ApprovalRequestParams) =>
-            request.tool === "tmux.adopt" && request.external != null && sameRef(request.external, ref),
-        );
-        if (hit && !settled) {
-          setUi({ kind: "adopt", ref, request: hit });
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 700));
-      }
-    })();
   }, [client, showOpened, showToast]);
 
   const answerAdopt = useCallback(

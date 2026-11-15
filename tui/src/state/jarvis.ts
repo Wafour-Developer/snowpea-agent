@@ -76,6 +76,9 @@ export interface JarvisState {
   /** `jarvis.status`; null until asked or on a daemon without the feature. */
   status: JarvisStatus | null;
   rows: JarvisOverviewRow[];
+  /** Every request the daemon lists, whoever it is routed to; route events edit it in place. */
+  requests: WaitingItem[];
+  /** The part of `requests` that waits on the person. */
   waiting: WaitingItem[];
   /** Requests routed to Jarvis that nobody has answered yet. */
   deciding: number;
@@ -92,6 +95,7 @@ export interface JarvisState {
 export const initialJarvis: JarvisState = {
   status: null,
   rows: [],
+  requests: [],
   waiting: [],
   deciding: 0,
   decisions: [],
@@ -109,6 +113,10 @@ export type JarvisAction =
       approvals: ApprovalRequestParams[];
       questions: QuestionRequestParams[];
     }
+  /** `approval.pending` / `question.pending`: one request joined the shared queue. */
+  | { type: "pending"; kind: "approval" | "question"; request: ApprovalRequestParams | QuestionRequestParams }
+  /** `approval.route.changed` / `question.route.changed`. */
+  | { type: "route"; requestId: string; route: ApprovalRequestParams["route"] }
   | { type: "decisions"; entries: JarvisLedgerEntry[] }
   | { type: "event/state"; payload: JarvisStateEvent }
   | { type: "event/decision"; payload: JarvisDecisionEvent }
@@ -137,17 +145,25 @@ export function jarvisReducer(state: JarvisState, action: JarvisAction): JarvisS
     case "overview":
       return { ...state, rows: action.rows, loadedAt: action.at };
 
-    case "waiting": {
-      const items = [
+    case "waiting":
+      return withRequests(state, [
         ...action.approvals.map((request) => waitingFrom("approval", request, state.rows)),
         ...action.questions.map((request) => waitingFrom("question", request, state.rows)),
-      ];
-      const routedToJarvis = items.filter((item) => routeOf(item.request) === "jarvis").length;
-      return {
-        ...state,
-        waiting: items.filter((item) => needsPerson(item.request)),
-        deciding: routedToJarvis,
-      };
+      ]);
+
+    case "pending": {
+      const item = waitingFrom(action.kind, action.request, state.rows);
+      return withRequests(state, [...state.requests.filter((known) => known.requestId !== item.requestId), item]);
+    }
+
+    case "route": {
+      if (!state.requests.some((item) => item.requestId === action.requestId)) return state;
+      return withRequests(
+        state,
+        state.requests.map((item) =>
+          item.requestId === action.requestId ? { ...item, request: { ...item.request, route: action.route } } : item,
+        ),
+      );
     }
 
     case "decisions":
@@ -204,10 +220,10 @@ export function jarvisReducer(state: JarvisState, action: JarvisAction): JarvisS
       return { ...state, notice: `Jarvis delegation ${action.payload.reason}` };
 
     case "resolved":
-      return {
-        ...state,
-        waiting: state.waiting.filter((item) => item.requestId !== action.requestId),
-      };
+      return withRequests(
+        state,
+        state.requests.filter((item) => item.requestId !== action.requestId),
+      );
 
     case "notice/clear":
       return state.notice === null ? state : { ...state, notice: null };
@@ -215,6 +231,15 @@ export function jarvisReducer(state: JarvisState, action: JarvisAction): JarvisS
     default:
       return state;
   }
+}
+
+function withRequests(state: JarvisState, requests: WaitingItem[]): JarvisState {
+  return {
+    ...state,
+    requests,
+    waiting: requests.filter((item) => needsPerson(item.request)),
+    deciding: requests.filter((item) => routeOf(item.request) === "jarvis").length,
+  };
 }
 
 /** The escalations that persist as notices; the rest are requests waiting in the queue. */
@@ -689,6 +714,9 @@ export function isDelegationProposal(request: ApprovalRequestParams): boolean {
 }
 
 /** The request is the confirmation for adopting a tmux pane (`external.open` with `transport: "tmux"`). */
+/** A line starting with this is drawn red in a person-only confirmation. */
+const UNRESTRICTED_WARN = "UNRESTRICTED";
+
 export function isTmuxAdopt(request: ApprovalRequestParams): boolean {
   return request.personOnly === true && request.tool === "tmux.adopt";
 }
@@ -781,14 +809,35 @@ export function personOnlyView(request: ApprovalRequestParams, now: number): Per
   }
   if (isTmuxAdopt(request)) {
     const args = request.args ?? {};
-    const where = [text(args["session"]), text(args["pane"])].filter(Boolean).join(" ");
-    const lines = [
-      `Pane     ${where || "(unnamed)"}`,
+    // `args.tmux {session, pane}` is the contract's shape; the flat form is an older core's.
+    const tmux = (args["tmux"] ?? {}) as Record<string, unknown>;
+    const where = [text(tmux["session"]) ?? text(args["session"]), text(tmux["pane"]) ?? text(args["pane"])]
+      .filter(Boolean)
+      .join(" ");
+    const unrestricted = args["unrestricted"] === true;
+    const lines = [`Pane     ${where || "(unnamed)"}`];
+    // What tmux says runs there and where: the person checks it is the session they mean.
+    const running = text(args["paneCommand"]);
+    if (running) lines.push(`Running  ${running}`);
+    const folder = text(args["paneCwd"]) ?? text(args["cwd"]);
+    if (folder) lines.push(`Folder   ${folder}`);
+    lines.push(
       "Does     snowpea types your prompts into that pane",
       "Stays    permission prompts remain yours, answered in the terminal",
-    ];
+    );
+    if (unrestricted) {
+      lines.push(
+        `${UNRESTRICTED_WARN}  the pane runs with a permission bypass`,
+        `${UNRESTRICTED_WARN}  snowpea cannot control what it runs`,
+      );
+    }
     if (request.note) lines.push(`Note     ${request.note}`);
-    return { title: "Let snowpea type into your tmux pane?", from: "tmux", lines };
+    return {
+      title: "Let snowpea type into your tmux pane?",
+      from: "tmux",
+      lines,
+      warnPrefix: unrestricted ? UNRESTRICTED_WARN : undefined,
+    };
   }
   return null;
 }
