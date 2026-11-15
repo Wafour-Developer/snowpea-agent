@@ -160,6 +160,53 @@ async def test_end_to_end_with_an_adapter(daemon: Daemon, http: aiohttp.ClientSe
             await client.stop()
 
 
+async def test_send_subscribes_the_sender(daemon: Daemon, http: aiohttp.ClientSession,
+                                          tmp_path: Path) -> None:
+    """external.list -> external.send on a host none session streams to the sender."""
+    assert daemon.core is not None and daemon.core.external is not None
+    registry = daemon.core.external.registry
+    for cli in registry.ids():
+        registry.unregister(cli)
+    registry.register(FakeClaudeAdapter())
+    project = tmp_path / "proj"
+    project.mkdir()
+    ide = await _client(http, daemon, "ide")
+    try:
+        await ide.ok("workspace.add", {"path": str(project)})
+        ref = (await ide.ok("external.create",
+                            {"cli": "claude", "project": str(project)}))["session"]["ref"]
+        first = (await ide.ok("external.send", {"ref": ref, "text": "start"}))["turnId"]
+        await _wait(lambda: [p for p in ide.of_method("external.event")
+                             if p["kind"] == "turn.done" and p["turnId"] == first])
+        await ide.ok("external.close", {"ref": ref})
+        await _wait(lambda: not daemon.core.external.supervisor.live())
+    finally:
+        await ide.stop()
+    tui = await _client(http, daemon, "tui")
+    watcher = await _client(http, daemon, "ide")
+    try:
+        listed = await tui.ok("external.list", {"cwd": str(project)})
+        row = next(s for s in listed["sessions"] if s["ref"] == ref)
+        assert row["host"] == "none"
+        turn = (await tui.ok("external.send", {"ref": ref, "text": "hello"}))["turnId"]
+        done = await _wait(lambda: [p for p in tui.of_method("external.event")
+                                    if p["kind"] == "turn.done" and p["turnId"] == turn])
+        assert done[0]["ref"] == ref
+        mine = [p for p in tui.of_method("external.event") if p.get("turnId") == turn]
+        assert any(p["kind"] == "message.user" for p in mine)
+        assert not watcher.of_method("external.event")  # only the sender is subscribed
+        # A second send does not subscribe twice (each event arrives once).
+        second = (await tui.ok("external.send", {"ref": ref, "text": "again"}))["turnId"]
+        await _wait(lambda: [p for p in tui.of_method("external.event")
+                             if p["kind"] == "turn.done" and p["turnId"] == second])
+        seqs = [p["seq"] for p in tui.of_method("external.event")]
+        assert len(seqs) == len(set(seqs))
+        await tui.ok("external.close", {"ref": ref})
+    finally:
+        await tui.stop()
+        await watcher.stop()
+
+
 async def test_daemon_stop_stops_external_children(tmp_path: Path,
                                                    http: aiohttp.ClientSession) -> None:
     with env_vars(FAKE_CLI_SCENARIO=None):

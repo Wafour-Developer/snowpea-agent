@@ -161,7 +161,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`external.list`](#externallist) | client → server | External sessions (1.53.0, WP5/6): one working directory's sessions (or every exposed project's) for the requested CLIs, newest first, paged. |
 | [`external.open`](#externalopen) | client → server | External sessions (1.53.0, WP5/6): subscribe this connection to a session's external.event stream and return the newest page of its timeline; a host 'none' session is continued under snowpea (host 'snowpea'). |
 | [`external.read`](#externalread) | client → server | External sessions (1.53.0, WP5/6): an older page of a session's timeline. |
-| [`external.send`](#externalsend) | client → server | External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes). |
+| [`external.send`](#externalsend) | client → server | External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event to the sender, which is subscribed to the ref (idempotent; no external.open needed). A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. A tmux pane that is not ready answers session_busy with error.data.details.reason terminal_prompt, terminal_busy or terminal_typing. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes). |
 | [`external.setMode`](#externalsetmode) | client → server | External sessions (1.53.0, WP6): switch a session to default, readonly or unrestricted; unrestricted only from a human connection. |
 | [`external.unwatch`](#externalunwatch) | client → server | External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok. |
 | [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
@@ -509,7 +509,7 @@ Ask the client to approve a tool call.
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments it wants to use. |
 | `diff` | `string \| null` | no | For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. |
-| `external` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null` | no | Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. |
+| `external` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null` | no | Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. |
 | `folder` | `string \| null` | no | For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. |
 | `guard` | `string \| null` | no | Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. |
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
@@ -1101,7 +1101,7 @@ External sessions (1.53.0, WP5/6): an older page of a session's timeline.
 
 *Direction:* client → server
 
-External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes).
+External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event to the sender, which is subscribed to the ref (idempotent; no external.open needed). A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. A tmux pane that is not ready answers session_busy with error.data.details.reason terminal_prompt, terminal_busy or terminal_typing. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes).
 
 **Params**
 
@@ -5146,7 +5146,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `attachments` | `({ kind?: "file" \| "image" \| "text" \| "page"; name?: string; title?: string \| null; url?: string \| null; })[]` | no | Files sent along with the prompt. |
 | `expansion` | `{ kind?: "skill" \| "command"; name: string; text: string; } \| null` | no | Set when `text` is a skill command: the skill body the model was given instead. Surfaces show it folded, like a tool call, not inline. |
 | `kind` | `"message.user"` | no |  |
-| `origin` | `{ kind: "human" \| "jarvis" \| "schedule" \| "gateway" \| "subagent" \| "system"; surface?: string \| null; } \| null` | no | Whose words these are (1.53.0, capability 'messageOrigin'). Only kind 'human' moves lastPrompt/lastUserAt and pauses Jarvis in a managed session. Null on events stored before 1.53.0; read those as human. |
+| `origin` | `{ kind: "human" \| "jarvis" \| "schedule" \| "gateway" \| "subagent" \| "system"; surface?: string \| null; } \| null` | no | Whose words these are (1.53.0, capability 'messageOrigin'). Only kind 'human' moves lastPrompt/lastUserAt and pauses Jarvis in a managed session. Null on events stored before 1.53.0; read those as human. A Jarvis wake (the turn's turn.started reason 'jarvis-intake') is kind 'system', surface null: core's text, verbatim with its 'untrusted' fences, never the person's. |
 | `refs` | `(Record<string, unknown>)[]` | no | Resolved @ references (path, kind, lines, truncated). |
 | `steered` | `boolean` | no | True when this prompt was queued behind a running turn and then folded into that same turn before its next model call. |
 | `text` | `string` | yes | Prompt text as the user typed it. |
@@ -5387,11 +5387,11 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `goalId` | `string \| null` | no | The goal the round works on (1.50.0); absent otherwise. |
 | `goalRound` | `number \| null` | no | A goal round's number, from 1 (reason 'goal', 1.50.0); absent on every other turn. |
-| `initiator` | `"user" \| "system"` | no | Who started the turn (1.8.0). 'system' = session.continue: the input is a [system] note, no message.user is emitted, and surfaces show a status line instead of a user bubble. |
+| `initiator` | `"user" \| "system"` | no | Who started the turn (1.8.0). 'system' = session.continue: the input is a [system] note, no message.user is emitted, and surfaces show a status line instead of a user bubble. Exception (1.53.0): a Jarvis wake (reason 'jarvis-intake') emits its text as message.user with origin {kind: 'system', surface: null} right after this event; prompt stays null. |
 | `kind` | `"turn.started"` | no |  |
 | `prompt` | `string \| null` | no | The prompt that opened it; null when there is none. |
 | `queued` | `boolean` | no | True when this turn waited in the prompt queue first. |
-| `reason` | `string \| null` | no | Why a system turn started, e.g. 'handback' (1.8.0). |
+| `reason` | `string \| null` | no | Why a system turn started, e.g. 'handback' (1.8.0), 'goal' (1.50.0), 'jarvis-intake' (a Jarvis wake, 1.53.0). |
 | `turnId` | `string` | yes | Turn that is now running. |
 
 ### kind `usage`

@@ -212,6 +212,9 @@ class QueuedTurn:
     #: Where the words were typed (a client kind, a messenger platform), for
     #: the ``message.user`` origin (1.53.0); ``None`` when not known.
     surface: str | None = None
+    #: A system turn whose text clients should see (a Jarvis wake): published
+    #: as ``message.user`` with its system origin, never as the person's words.
+    show_prompt: bool = False
 
 
 def new_turn_id() -> str:
@@ -1619,11 +1622,13 @@ def start_turn(
     origin: str | None = None,
     surface: str | None = None,
     origin_kind: str | None = None,
+    show_prompt: bool = False,
 ) -> str:
     """Schedule a turn, or queue it behind the session's active turn.
 
     ``surface`` and ``origin_kind`` shape the prompt's ``message.user``
-    origin (1.53.0, :func:`message_origin`).
+    origin (1.53.0, :func:`message_origin`).  ``show_prompt`` publishes a
+    system turn's text as ``message.user`` too (see :func:`run_turn`).
 
     A user can keep typing while tools or subagents are running.  Those
     follow-ups must not start overlapping provider loops against the same
@@ -1648,6 +1653,7 @@ def start_turn(
         reason=reason,
         origin=origin,
         surface=surface,
+        show_prompt=show_prompt,
     )
     task = session.turn_task
     if task is not None and not task.done():
@@ -1935,6 +1941,7 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
                     if queued.initiator != "user"
                     else {}
                 ),
+                **({"show_prompt": True} if queued.show_prompt else {}),
             )
             # The queue is *not* re-flushed here.  ``session.interrupt`` already
             # emptied it synchronously, at the instant Stop was pressed; a
@@ -1984,12 +1991,15 @@ async def run_turn(
     reason: str | None = None,
     origin: str | None = None,
     surface: str | None = None,
+    show_prompt: bool = False,
 ) -> str:
     """Run one full turn; returns its turn id once ``turn.done`` was emitted.
 
     ``origin`` (:data:`ORIGINS`) defaults to what was recorded for ``turn_id``
     — a command's nested run inherits the turn that dispatched it — and then
-    to ``human`` (``system`` for a system turn).
+    to ``human`` (``system`` for a system turn).  A system turn publishes no
+    ``message.user`` unless ``show_prompt`` (a Jarvis wake): then its text is
+    one, with the recorded non-human origin, so it never counts as the person's.
     """
     turn_id = turn_id or new_turn_id()
     recorded = origin or session.turn_origins.get(turn_id)
@@ -2040,6 +2050,7 @@ async def run_turn(
             refs=refs,
             expansion=expansion,
             system=system,
+            show_prompt=show_prompt,
         )
     except asyncio.CancelledError:
         # A shutdown in progress (``Daemon.stop`` -> ``SessionManager.close_all``,
@@ -2234,6 +2245,7 @@ async def _drive(
     refs: list[dict[str, Any]] | None = None,
     expansion: dict[str, Any] | None = None,
     system: bool = False,
+    show_prompt: bool = False,
 ) -> str:
     """The loop proper; emits ``turn.done`` itself and returns its reason."""
     hub = core.hub
@@ -2277,8 +2289,10 @@ async def _drive(
         # and none of the questions.  Once per prompt, and never for the
         # continuation nudge the loop appends to itself further down. A
         # system-started turn has no user words to show: ``turn.started``
-        # carries its initiator and reason instead.
-        if not system:
+        # carries its initiator and reason instead.  A Jarvis wake
+        # (``show_prompt``) is shown, with its system origin: the human-only
+        # bookkeeping (lastUserAt, lastPrompt, takeover) filters on origin.
+        if not system or show_prompt:
             await hub.emit_event(
                 session.id,
                 events.message_user(

@@ -236,7 +236,8 @@ class MessageOrigin(Payload):
         description=(
             "human (the session's own person), jarvis (reserved for the Jarvis session), "
             "schedule, gateway (another member of a messenger chat), subagent (delegation "
-            "traffic) or system (text core or a model wrote: goal rounds, queued commands)."
+            "traffic) or system (text core or a model wrote: queued commands, Jarvis "
+            "wakes)."
         )
     )
     surface: str | None = Field(
@@ -2149,7 +2150,11 @@ class ApprovalRequest(Payload):
         default=None,
         description=(
             "Set when the call comes from an external CLI session snowpea hosts (1.53.0); "
-            "sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI."
+            "sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such "
+            "a request is never sent as approval.request to a connection: it waits in the "
+            "shared queue and is announced as approval.pending (with route) to every "
+            "authenticated surface, listed by approval.list and answered with "
+            "approval.respond."
         ),
     )
     route: ApprovalRoute | None = Field(
@@ -5251,7 +5256,9 @@ class MessageUser(Payload):
         description=(
             "Whose words these are (1.53.0, capability 'messageOrigin'). Only kind 'human' "
             "moves lastPrompt/lastUserAt and pauses Jarvis in a managed session. Null on "
-            "events stored before 1.53.0; read those as human."
+            "events stored before 1.53.0; read those as human. A Jarvis wake (the turn's "
+            "turn.started reason 'jarvis-intake') is kind 'system', surface null: core's "
+            "text, verbatim with its 'untrusted' fences, never the person's."
         ),
     )
 
@@ -6073,11 +6080,17 @@ class TurnStarted(Payload):
         description=(
             "Who started the turn (1.8.0). 'system' = session.continue: the input is a "
             "[system] note, no message.user is emitted, and surfaces show a status line "
-            "instead of a user bubble."
+            "instead of a user bubble. Exception (1.53.0): a Jarvis wake (reason "
+            "'jarvis-intake') emits its text as message.user with origin {kind: 'system', "
+            "surface: null} right after this event; prompt stays null."
         ),
     )
     reason: str | None = Field(
-        default=None, description="Why a system turn started, e.g. 'handback' (1.8.0)."
+        default=None,
+        description=(
+            "Why a system turn started, e.g. 'handback' (1.8.0), 'goal' (1.50.0), "
+            "'jarvis-intake' (a Jarvis wake, 1.53.0)."
+        ),
     )
     goalRound: int | None = Field(
         default=None,
@@ -8380,8 +8393,9 @@ class ExternalClisChangedNotification(Payload):
 class ExternalEventNotification(Payload):
     """One timeline entry of an opened external session (1.53.0).
 
-    Sent only to connections that called external.open on that ref, like
-    session.event to subscribers.
+    Sent only to the connections subscribed to that ref — those that called
+    external.open, external.create or external.send on it, until external.unwatch,
+    external.close or the connection closes — like session.event to subscribers.
     """
 
     ref: ExternalRef = Field(description="Session it belongs to.")
@@ -9825,10 +9839,13 @@ METHODS: dict[str, RpcMethod] = {
             ExternalSendResult,
             (
                 "External sessions (1.53.0, WP6): send a prompt; the reply streams as "
-                "external.event. A host 'none' session is continued first in its current mode "
-                "or the CLI's defaultMode ('unrestricted' only for a human connection, else "
-                "jarvis_person_only). During a running turn: added to that turn when "
-                "capabilities.steer (same turnId back), else session_busy. Refused with "
+                "external.event to the sender, which is subscribed to the ref (idempotent; "
+                "no external.open needed). A host 'none' session is continued first in its "
+                "current mode or the CLI's defaultMode ('unrestricted' only for a human "
+                "connection, else jarvis_person_only). During a running turn: added to that "
+                "turn when capabilities.steer (same turnId back), else session_busy. A tmux "
+                "pane that is not ready answers session_busy with error.data.details.reason "
+                "terminal_prompt, terminal_busy or terminal_typing. Refused with "
                 "external_view_only while canSend is false (host 'terminal'). A send from a "
                 "human connection pauses Jarvis in that session (jarvis.quietMinutes)."
             ),
@@ -9953,7 +9970,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "tool.cancel": ToolCancelNotification,
     "sessions.changed": SessionsChangedNotification,
     # M19 (1.53.0): every one daemon-wide, except external.event, which goes only
-    # to the connections that called external.open on its ref.
+    # to the connections subscribed to its ref (external.open/create/send).
     "jarvis.state": JarvisStateNotification,
     "jarvis.decision": JarvisDecisionNotification,
     "jarvis.escalation": JarvisEscalationNotification,
