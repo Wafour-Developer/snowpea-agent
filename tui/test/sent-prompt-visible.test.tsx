@@ -137,3 +137,32 @@ describe("a sent prompt is in the next frame (real Ink)", () => {
     expect(all).toContain("follow up please");
   }, 20000);
 });
+
+describe("full screen: sending a prompt while scrolled up", () => {
+  it("brings the view back to the bottom, where the prompt is", async () => {
+    const client = fakeClient();
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(100, 24);
+    const instance = render(
+      <App client={client as any} sessionId="sess-1" mode="accept" workdir="/work" fullscreen />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+    await sleep(200);
+    const long = Array.from({ length: 80 }, (_, i) => `answer line ${i}`).join("\n");
+    client.emit(event(1, "message.done", { text: long }));
+    await sleep(150);
+    // PgUp twice: the reader is looking at older lines.
+    stdin.write("\u001B[5~");
+    await sleep(80);
+    stdin.write("\u001B[5~");
+    await sleep(150);
+    await type(stdin, "NEW-PROMPT-VISIBLE", 5);
+    stdout.chunks.length = 0;
+    stdin.write("\r");
+    await sleep(250);
+    const after = stdout.text();
+    instance.unmount();
+    stdin.end();
+    expect(after).toContain("NEW-PROMPT-VISIBLE");
+  }, 20000);
+});

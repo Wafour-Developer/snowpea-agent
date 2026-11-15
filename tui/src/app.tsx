@@ -2211,6 +2211,9 @@ export function App({
   const submit = useCallback(
     (text: string) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
+      // Full screen: whatever the reader had scrolled up to, what was just
+      // sent is at the bottom, and that is where the view has to be.
+      setScrollOffset(0);
       // Both nudges are about the turn that just ended; the next prompt buries
       // them.
       setSkillChip(null);
