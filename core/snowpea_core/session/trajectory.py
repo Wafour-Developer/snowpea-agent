@@ -236,6 +236,8 @@ class TrajectoryBuilder:
         )
         if p.get("error"):
             row.data["error"] = p.get("error")
+        if p.get("errorCode"):
+            row.data["errorCode"] = p.get("errorCode")
 
     def _message_done(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
         if p.get("role") == "system":

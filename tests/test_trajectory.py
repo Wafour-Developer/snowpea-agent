@@ -163,3 +163,26 @@ async def test_an_unknown_session_is_not_found(tmp_path: Any) -> None:
             )
     finally:
         await daemon.stop()
+
+
+def test_a_failed_step_row_carries_the_error_code() -> None:
+    events = [
+        {"seq": 1, "kind": "turn.started", "ts": "T1", "payload": {"turnId": "t1", "prompt": "x"}},
+        {"seq": 2, "kind": "step.started", "ts": "T1", "payload": {"turnId": "t1", "step": 1}},
+        {
+            "seq": 3,
+            "kind": "step.done",
+            "ts": "T2",
+            "payload": {
+                "turnId": "t1",
+                "step": 1,
+                "outcome": "error",
+                "error": "server said no",
+                "errorCode": "rate_limited",
+            },
+        },
+        {"seq": 4, "kind": "turn.done", "ts": "T3", "payload": {"turnId": "t1", "reason": "error"}},
+    ]
+    rows = trajectory.build(events)
+    failed = [r for r in rows if (r.get("data") or {}).get("error")]
+    assert failed and failed[0]["data"]["errorCode"] == "rate_limited"
