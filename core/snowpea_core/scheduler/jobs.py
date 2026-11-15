@@ -139,6 +139,14 @@ class Job(BaseModel):
     #: with meta is *owned*: only ``owner_client_id`` may change or run it.
     meta: dict[str, Any] | None = None
     owner_client_id: str | None = None
+    #: What runs the job instead of an ordinary scheduled session: ``jarvis-task``
+    #: is an assistant task of Jarvis mode (its own isolated worker session,
+    #: result handed to Jarvis fenced; M19 WP8).  ``target_data`` is that
+    #: runner's own description of the task (kind, tools, preset).
+    target: str | None = None
+    target_data: dict[str, Any] | None = None
+    #: IANA zone the job's cron clock times are read in; ``None`` = daemon-local.
+    timezone: str | None = None
 
     @property
     def owned(self) -> bool:
@@ -158,6 +166,8 @@ class Job(BaseModel):
             "channel": self.channel,
             "meta": self.meta,
         }
+        if self.target:
+            body.update(target=self.target, targetData=self.target_data, timezone=self.timezone)
         canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -197,6 +207,7 @@ class Job(BaseModel):
             cron=self.cron,
             interval_sec=self.interval_sec,
             at=self.next_run,
+            tz=self.timezone,
         )
 
     def info(self, *, owner: bool = False) -> JobInfo:
@@ -218,6 +229,8 @@ class Job(BaseModel):
             catchUpWindowMinutes=self.catch_up_window_min,
             createdVia=self.created_via,
             owned=self.owned,
+            target=self.target,
+            timezone=self.timezone,
             meta=self.meta if owner else None,
             ownerClientId=self.owner_client_id if owner else None,
             fingerprint=self.fingerprint() if owner else None,
@@ -254,6 +267,10 @@ class Job(BaseModel):
             data["createdVia"] = self.created_via
         if self.meta is not None:
             data.update(meta=self.meta, ownerClientId=self.owner_client_id)
+        if self.target:
+            data.update(target=self.target, targetData=self.target_data)
+        if self.timezone:
+            data["timezone"] = self.timezone
         if data == {"catchUpWindowMinutes": 60}:
             return None
         return json.dumps(data)
@@ -303,6 +320,12 @@ def _options_of(row: sqlite3.Row) -> dict[str, Any]:
     if isinstance(data.get("meta"), dict):
         options["meta"] = data["meta"]
         options["owner_client_id"] = data.get("ownerClientId")
+    if data.get("target"):
+        options["target"] = str(data["target"])
+        if isinstance(data.get("targetData"), dict):
+            options["target_data"] = data["targetData"]
+    if data.get("timezone"):
+        options["timezone"] = str(data["timezone"])
     return options
 
 

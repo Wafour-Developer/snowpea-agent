@@ -113,6 +113,7 @@ class JarvisService:
         self.engine.pause_listeners.append(self._on_pause)
         self.engine.ledger.listeners.append(self._on_ledger)
         self.hooks = Hooks()
+        self.hooks.tools.append(_assistant_tools)
         self.projects = ProjectBook(core, self.home / "projects.json")
         self.escalations = EscalationBook(self.home / "escalations.json")
         self.intake: Intake | None = None
@@ -247,7 +248,17 @@ class JarvisService:
                 reason = "settings"
             else:
                 return
+            await self._sync_briefing()
         await self.emit_state(reason)  # type: ignore[arg-type]
+
+    async def _sync_briefing(self) -> None:
+        """Keep the briefing's scheduler job in step with ``jarvis.briefing`` (WP8)."""
+        from snowpea_core.jarvis import briefing
+
+        try:
+            await briefing.sync(self.core)
+        except Exception:  # noqa: BLE001 - a bad briefing setting must not stop Jarvis
+            log.warning("could not sync the Jarvis briefing job", exc_info=True)
 
     async def _save_settings(self) -> None:
         core = self.core
@@ -311,6 +322,7 @@ class JarvisService:
         self.core.approvals.router = self.route_approval
         self.core.questions.router = self.route_question
         self._tick_task = asyncio.ensure_future(self._tick_loop())
+        await self._sync_briefing()
         log.info("Jarvis mode running (session %s, folder %s)", session.id, self.folder())
 
     async def _deactivate(self, *, close_session: bool) -> None:
@@ -855,6 +867,13 @@ class JarvisService:
             include_external=include_external,
             limit=limit,
         )
+
+
+def _assistant_tools(service: JarvisService) -> list[Any]:
+    """The briefing and schedule tools (WP8), built when the Jarvis session's tools are."""
+    from snowpea_core.jarvis import assist_tools
+
+    return assist_tools.factory(service)
 
 
 def service_of(core: Core) -> JarvisService:

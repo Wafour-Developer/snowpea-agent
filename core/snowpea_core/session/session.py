@@ -132,6 +132,10 @@ class Session:
     #: Tool names this agent is narrowed to (``delegate_task(tools=...)`` or an
     #: agent definition); ``None`` means every tool.
     allowed_tools: set[str] | None = None
+    #: ``allowed_tools`` is the whole list: the always-allowed reading tools
+    #: (``read_file``, ``grep``...) and ``tool_search`` are not added to it.  Set on
+    #: the isolated worker of a Jarvis mail task (M19 WP8).
+    exclusive_tools: bool = False
     #: ``"jarvis"`` on the daemon's Jarvis session (M19, set by its service);
     #: ``None`` everywhere else.  Jarvis's own tools exist only on it.
     role: str | None = None

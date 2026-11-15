@@ -3616,6 +3616,18 @@ class JobInfo(Payload):
         default=False,
         description="True for a job with meta: only its owner may change, run or delete it.",
     )
+    target: str | None = Field(
+        default=None,
+        description=(
+            "What runs it when not an ordinary scheduled session: 'jarvis-task' is a Jarvis "
+            "mode assistant task (1.53.0, WP8): its own worker session, result handed to "
+            "Jarvis."
+        ),
+    )
+    timezone: str | None = Field(
+        default=None,
+        description="IANA zone its cron clock times are read in; null is the daemon's (1.53.0).",
+    )
     meta: dict[str, Any] | None = Field(
         default=None, description="The job's meta; only the owner connection sees it."
     )
@@ -7769,6 +7781,9 @@ class JarvisPauseResult(Payload):
     state: SessionJarvisState = Field(description="The session's Jarvis state after the call.")
 
 
+JarvisBriefingSection = Literal["sessions", "waiting", "todos", "mail", "calendar"]
+
+
 class JarvisBriefing(Payload):
     """Jarvis's periodic briefing (1.53.0); off until the person asks for it."""
 
@@ -7776,6 +7791,16 @@ class JarvisBriefing(Payload):
     schedule: str = Field(default="0 9 * * 1-5", description="Cron expression, daemon-local time.")
     instructions: str = Field(
         default="", description="What to cover, as the person said it (adjusted in conversation)."
+    )
+    timezone: str | None = Field(
+        default=None, description="IANA zone the schedule is read in; null = the daemon's."
+    )
+    sections: list[JarvisBriefingSection] = Field(
+        default_factory=lambda: ["sessions", "waiting", "todos", "mail", "calendar"],
+        description=(
+            "What it covers; mail and calendar only count while a mail or calendar preset "
+            "is connected."
+        ),
     )
     jobId: str | None = Field(
         default=None, description="Scheduler job that runs it, while enabled."
@@ -7787,6 +7812,12 @@ class JarvisBriefingSetParams(Payload):
     enabled: bool | None = Field(default=None, description="Omitted keeps the current value.")
     schedule: str | None = Field(default=None, description="Cron expression; omitted keeps it.")
     instructions: str | None = Field(default=None, description="Omitted keeps it.")
+    timezone: str | None = Field(
+        default=None, description="IANA zone; '' clears it (daemon-local); omitted keeps it."
+    )
+    sections: list[JarvisBriefingSection] | None = Field(
+        default=None, description="Omitted keeps them."
+    )
 
 
 class JarvisStateNotification(Payload):
@@ -8342,6 +8373,34 @@ class McpPresetRecipe(Payload):
     defaultEnabled: bool = Field(default=False, description="Preselected in the apply dialog.")
 
 
+class McpPresetServer(Payload):
+    """One server of a preset (a preset may be several: Gmail and Calendar are two)."""
+
+    suffix: str = Field(description="Appended to the preset's server name ('' = the name alone).")
+    title: str = Field(description="Human name.")
+    kind: str = Field(description="'mail', 'calendar' or 'mail+calendar'.")
+    transport: McpTransport = Field(description="stdio, http or sse.")
+    auth: McpCatalogAuth = Field(description="As McpPresetInfo.auth, for this server.")
+    signIn: Literal["oauth", "deviceCode", "none"] = Field(
+        default="none",
+        description=(
+            "How the person signs in: oauth (mcp.authorize), deviceCode (a command run once "
+            "on the daemon's machine, see loginCommand) or none."
+        ),
+    )
+    loginCommand: str | None = Field(default=None, description="With deviceCode: the command.")
+    entry: dict[str, Any] = Field(default_factory=dict, description="The .mcp.json entry template.")
+    readTools: list[str] = Field(default_factory=list, description="Tagged 'read'.")
+    sendTools: list[str] = Field(default_factory=list, description="Known send/modify tools.")
+
+
+class McpPresetSignIn(Payload):
+    server: str = Field(description="Configured server name.")
+    method: Literal["oauth", "deviceCode", "none"] = Field(description="How to sign in.")
+    command: str | None = Field(default=None, description="With deviceCode: run this once.")
+    note: str = Field(default="", description="What the person still has to do.")
+
+
 class McpPresetInfo(Payload):
     """A one-step assistant setup on top of an MCP catalog entry (1.53.0)."""
 
@@ -8374,10 +8433,30 @@ class McpPresetInfo(Payload):
     recipes: list[McpPresetRecipe] = Field(default_factory=list, description="Schedule templates.")
     homepage: str = Field(default="", description="Where the server is documented.")
     applied: bool = Field(default=False, description="A server from this preset is configured.")
+    servers: list[McpPresetServer] = Field(
+        default_factory=list,
+        description=(
+            "The servers it writes (1.53.0, WP8). entry, transport, auth, readTools and "
+            "sendTools above describe the first one / the union."
+        ),
+    )
+    appliedServers: list[str] = Field(
+        default_factory=list, description="Names of the servers it configured, once applied."
+    )
 
 
 class McpPresetListResult(Payload):
     presets: list[McpPresetInfo] = Field(default_factory=list, description="In display order.")
+
+
+class McpPresetRemoveParams(Payload):
+    id: str = Field(description="Preset to remove.")
+
+
+class McpPresetRemoveResult(Payload):
+    removed: bool = Field(description="False when the preset was not applied.")
+    servers: list[str] = Field(default_factory=list, description="Servers put back or removed.")
+    jobs: list[str] = Field(default_factory=list, description="Recipe jobs deleted.")
 
 
 class McpPresetApplyParams(Payload):
@@ -8396,8 +8475,20 @@ class McpPresetApplyParams(Payload):
 
 
 class McpPresetApplyResult(Payload):
-    server: str = Field(description="Name of the configured MCP server.")
-    add: McpAddResult = Field(description="What mcp.add reported for the entry.")
+    server: str = Field(description="Name of the first configured MCP server.")
+    add: McpAddResult = Field(description="What mcp.add reported for the first entry.")
+    servers: list[str] = Field(
+        default_factory=list, description="Every server it configured (WP8), in order."
+    )
+    adds: list[McpAddResult] = Field(
+        default_factory=list, description="mcp.add's report for each, in the same order."
+    )
+    signIn: list[McpPresetSignIn] = Field(
+        default_factory=list, description="What still needs a sign-in, per server."
+    )
+    already: bool = Field(
+        default=False, description="Nothing changed: the preset was already applied the same way."
+    )
     jobs: list[str] = Field(
         default_factory=list, description="Scheduler job ids created for recipes."
     )
@@ -9698,6 +9789,16 @@ METHODS: dict[str, RpcMethod] = {
             "Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipes.",
         ),
         _m(
+            "mcp.preset.remove",
+            McpPresetRemoveParams,
+            McpPresetRemoveResult,
+            (
+                "Assistant presets (1.53.0, WP8): undo an applied preset: its servers, "
+                "permission tags, stored client secret and recipe jobs go back to what they "
+                "were before."
+            ),
+        ),
+        _m(
             "mcp.preset.apply",
             McpPresetApplyParams,
             McpPresetApplyResult,
@@ -9829,18 +9930,17 @@ CAPABILITIES: list[str] = [
     "jarvis",
     # M19 WP5: external.* and ApprovalRequest.external.
     "externalSessions",
+    # mcp.preset.list/apply/remove — M19 WP8 (assistant presets).
+    "mcpPresets",
+    # jarvis.briefing.get/set — M19 WP8 (briefings and assistant tasks).
+    "jarvisBriefing",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
 #: ``system.hello`` until the work package that implements them lands; that
 #: package moves its name into :data:`CAPABILITIES`.  Their methods answer
 #: ``not_implemented`` until then.
-PENDING_CAPABILITIES: dict[str, str] = {
-    # mcp.preset.list/apply — M19 WP8 (assistant presets).
-    "mcpPresets": "WP8",
-    # jarvis.briefing.get/set — M19 WP8 (assistant jobs).
-    "jarvisBriefing": "WP8",
-}
+PENDING_CAPABILITIES: dict[str, str] = {}
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
 #: ``standard`` since 1.7.0, ``deep`` and ``vision`` since 1.33.0.
@@ -10043,6 +10143,12 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "external.close",
         "external.get",
         "external.unwatch",
+        # M19 WP8 (capabilities mcpPresets, jarvisBriefing)
+        "mcp.preset.list",
+        "mcp.preset.apply",
+        "mcp.preset.remove",
+        "jarvis.briefing.get",
+        "jarvis.briefing.set",
     }
 )
 
