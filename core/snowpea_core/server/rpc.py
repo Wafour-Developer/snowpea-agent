@@ -85,6 +85,9 @@ class RpcConnection:
         self.client_id: str | None = None
         self.instance_id: str | None = None
         self.keep_alive: bool = False
+        #: Came in through the remote web listener's password login (M19):
+        #: it may not hand guarded classes to Jarvis.
+        self.remote_login: bool = False
         #: Called with this connection once it closes (host tools, keep-alive).
         self.on_close: list[Callable[[RpcConnection], Any]] = []
 
