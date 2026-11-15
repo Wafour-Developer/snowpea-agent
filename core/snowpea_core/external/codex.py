@@ -536,13 +536,14 @@ class AppServer:
         self.executable: PinnedExecutable | None = None
         self.codex_home: str | None = None
         self.channels: dict[str, CodexChannel] = {}
-        self._reader: asyncio.Task[None] | None = None
+        self._readers: dict[ExternalProcess, asyncio.Task[None]] = {}
+        #: Processes being stopped on purpose (their exit is not a crash).
+        self._stopping: set[ExternalProcess] = set()
         self._idle: asyncio.Task[None] | None = None
         self._pending: dict[int, tuple[str, asyncio.Future[Any]]] = {}
         self._next_id = 1
         self._start_lock: asyncio.Lock | None = None
         self._ready = False
-        self._stopping = False
         self._crashes: list[float] = []
         self._last_error = ""
         self._stop_reason: str | None = None
@@ -553,7 +554,9 @@ class AppServer:
     # -- state ------------------------------------------------------------
     @property
     def alive(self) -> bool:
-        return self.process is not None and self.process.alive and self._ready
+        process = self.process
+        return (process is not None and process.alive and self._ready
+                and process not in self._stopping)
 
     @property
     def pid(self) -> int | None:
@@ -574,11 +577,13 @@ class AppServer:
         if self._start_lock is None:
             self._start_lock = asyncio.Lock()
         async with self._start_lock:
-            if self.alive and self.executable == executable:
+            # A new codex binary (an upgrade, a changed path) waits until the
+            # threads running on the old one are closed.
+            if self.alive and (self.executable == executable or self.channels):
                 self.last_used = time.monotonic()
                 return
             if self.process is not None:
-                await self.stop()
+                await self._stop_locked()
             await self._backoff()
             await self._spawn(executable)
 
@@ -614,10 +619,9 @@ class AppServer:
         self.process = process
         self.executable = executable
         self._ready = False
-        self._stopping = False
         self._pending = {}
         self.starts += 1
-        self._reader = asyncio.ensure_future(self._read(process))
+        self._readers[process] = asyncio.ensure_future(self._read(process))
         try:
             result = await self._call(
                 "initialize",
@@ -633,7 +637,8 @@ class AppServer:
             reason = exc.message
             tail = _last_line(process.stderr_tail())
             self._last_error = tail or reason
-            self._crashes.append(time.monotonic())
+            if process.alive:  # an exit was already counted by _died
+                self._crashes.append(time.monotonic())
             await self._kill(process)
             raise unavailable(
                 f"codex app-server did not start: {reason}" + (f" ({tail})" if tail else "")
@@ -646,20 +651,26 @@ class AppServer:
             self._idle = asyncio.ensure_future(self._idle_loop())
 
     async def _kill(self, process: ExternalProcess) -> None:
-        self._stopping = True
+        self._stopping.add(process)
         with contextlib.suppress(Exception):
             await process.terminate(grace=1.0)
-        reader = self._reader
+        reader = self._readers.get(process)
         if reader is not None and reader is not asyncio.current_task():
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(asyncio.shield(reader), 5)
 
     async def stop(self) -> None:
         """Close stdin (codex exits and releases every lock), then make sure it is gone."""
+        if self._start_lock is None:
+            self._start_lock = asyncio.Lock()
+        async with self._start_lock:
+            await self._stop_locked()
+
+    async def _stop_locked(self) -> None:
         process = self.process
         if process is None:
             return
-        self._stopping = True
+        self._stopping.add(process)
         await process.close_stdin()
         with contextlib.suppress(Exception):
             await asyncio.wait_for(process.proc.wait(), 3)
@@ -681,9 +692,15 @@ class AppServer:
             if self.channels or self._pending:
                 continue
             if time.monotonic() - self.last_used >= limit:
-                log.info("stopping the idle codex app-server")
-                self._idle = None
-                await self.stop()
+                assert self._start_lock is not None
+                async with self._start_lock:
+                    # Re-check: a list or a channel may have come in meanwhile.
+                    if (self.channels or self._pending or self.process is None
+                            or time.monotonic() - self.last_used < limit):
+                        continue
+                    log.info("stopping the idle codex app-server")
+                    self._idle = None
+                    await self._stop_locked()
                 return
 
     # -- wire -------------------------------------------------------------
@@ -700,20 +717,33 @@ class AppServer:
         *,
         trusted: Mapping[str, Any] | None = None,
         timeout: float | None = None,
+        restart_on_timeout: bool = True,
     ) -> Any:
         """Send one request and wait for its answer.
 
         ``params`` is scanned for bypass values; ``trusted`` holds values from
-        :func:`proc.unrestricted_values` and is merged after the scan.
+        :func:`proc.unrestricted_values` and is merged after the scan.  A
+        server that does not answer in time is taken for hung and restarted,
+        unless ``restart_on_timeout`` is false (best-effort calls).
         """
         _scan(params)
         if trusted:
             params = {**params, **trusted}
         return await self._call(method, params,
-                                timeout=timeout or self.adapter.request_timeout_sec)
+                                timeout=timeout or self.adapter.request_timeout_sec,
+                                restart_on_timeout=restart_on_timeout)
+
+    def send_quietly(self, method: str, params: dict[str, Any]) -> None:
+        """Fire a request without waiting (safe from inside the reader)."""
+
+        async def run() -> None:
+            with contextlib.suppress(ExternalError):
+                await self.request(method, params, timeout=30, restart_on_timeout=False)
+
+        asyncio.ensure_future(run())
 
     async def _call(self, method: str, params: dict[str, Any], *, timeout: float,
-                    ready: bool = True) -> Any:
+                    ready: bool = True, restart_on_timeout: bool = True) -> Any:
         if ready and not self.alive:
             raise unavailable("codex app-server is not running")
         request_id = self._next_id
@@ -727,10 +757,9 @@ class AppServer:
         except TimeoutError as exc:
             # It stopped answering: a hung server is restarted, not waited on.
             process = self.process
-            log.warning("codex app-server did not answer %s in %.0fs; restarting it",
-                        method, timeout)
+            log.warning("codex app-server did not answer %s in %.0fs", method, timeout)
             self._last_error = f"no answer to {method}"
-            if process is not None and ready:
+            if process is not None and ready and restart_on_timeout:
                 self._crashes.append(time.monotonic())
                 self._stop_reason = f"codex app-server stopped answering ({method}); restarted"
                 asyncio.ensure_future(self._kill(process))
@@ -810,9 +839,14 @@ class AppServer:
         channel.on_approval_request(request_id, method, params)
 
     async def _died(self, process: ExternalProcess, code: int | None) -> None:
+        self._readers.pop(process, None)
+        expected = process in self._stopping
+        self._stopping.discard(process)
+        if process.alive:
+            # Its stdout closed but it still runs (and holds writer locks).
+            asyncio.ensure_future(process.terminate(grace=1.0))
         if process is not self.process:
             return
-        expected = self._stopping
         self.process = None
         self._ready = False
         tail = _last_line(process.stderr_tail())
@@ -876,6 +910,11 @@ class CodexChannel(ExternalChannel):
         self._interrupt_timer: asyncio.Task[None] | None = None
         self._approvals: dict[Any, asyncio.Task[None]] = {}
         self._changes: dict[str, Any] = {}
+        #: Codex turns snowpea already ended (interrupt deadline, lost login):
+        #: their late notifications must not touch the next turn.
+        self._ended: set[str] = set()
+        #: The app-server process this thread is loaded in.
+        self._process: ExternalProcess | None = None
 
     # -- state ------------------------------------------------------------
     @property
@@ -919,6 +958,7 @@ class CodexChannel(ExternalChannel):
                     ) from exc
                 raise
             self.server.attach(thread_id, self)
+            self._process = self.server.process
             self.attached = True
         else:
             result = await self.server.request(
@@ -931,6 +971,7 @@ class CodexChannel(ExternalChannel):
             proc.validate_session_id(new_id)
             self.session_id = new_id
             self.server.attach(new_id, self)
+            self._process = self.server.process
             self.attached = True
             await self.host_api.id_known(new_id)
         self.applied_mode = self.mode
@@ -959,12 +1000,19 @@ class CodexChannel(ExternalChannel):
             raise
         self.applied_mode = self.mode
         turn = result.get("turn") if isinstance(result, Mapping) else None
-        if self.codex_turn is None and isinstance(turn, Mapping) and isinstance(
-            turn.get("id"), str
-        ):
-            self.codex_turn = turn["id"]
-        if self._interrupt_wanted and self.turn_open:
-            await self.interrupt()
+        started = turn.get("id") if isinstance(turn, Mapping) else None
+        if isinstance(started, str):
+            if self.codex_turn is None:
+                self.codex_turn = started
+            if not self.turn_open:
+                # Ended before codex even answered (lost login): keep it ended.
+                self._ended.add(started)
+        if self._interrupt_wanted:
+            if self.turn_open:
+                await self.interrupt()
+            elif isinstance(started, str):
+                self.server.send_quietly(
+                    "turn/interrupt", {"threadId": self.session_id, "turnId": started})
 
     async def steer(self, text: str, *, origin: dict[str, Any] | None = None) -> None:
         """Add ``text`` to the running turn (``turn/steer {expectedTurnId}``).
@@ -1004,7 +1052,7 @@ class CodexChannel(ExternalChannel):
             try:
                 await self.server.request(
                     "turn/interrupt", {"threadId": self.session_id, "turnId": self.codex_turn},
-                    timeout=10,
+                    timeout=10, restart_on_timeout=False,
                 )
             except CodexRpcError:
                 # "no active turn to interrupt": it already ended on codex's side.
@@ -1022,6 +1070,8 @@ class CodexChannel(ExternalChannel):
         if not self.turn_open:
             return
         self.turn_open = False
+        if self.codex_turn is not None:
+            self._ended.add(self.codex_turn)
         timer = self._interrupt_timer
         self._interrupt_timer = None
         if timer is not None and timer is not asyncio.current_task():
@@ -1038,10 +1088,14 @@ class CodexChannel(ExternalChannel):
         builder = self.host_api.builder
         item = params.get("item")
         item = item if isinstance(item, Mapping) else None
+        if params.get("turnId") in self._ended:
+            return
         if method == "turn/started":
             turn = params.get("turn")
-            if self.turn_open and self.codex_turn is None and isinstance(turn, Mapping):
-                self.codex_turn = str(turn.get("id"))
+            turn_id = turn.get("id") if isinstance(turn, Mapping) else None
+            if (self.turn_open and self.codex_turn is None and isinstance(turn_id, str)
+                    and turn_id not in self._ended):
+                self.codex_turn = turn_id
             return
         if method == "turn/completed":
             await self._turn_completed(params)
@@ -1058,6 +1112,9 @@ class CodexChannel(ExternalChannel):
         if method == "error":
             await self._error(params)
             return
+        if item is not None and item.get("type") == "fileChange" and item.get("id") is not None:
+            # Kept even after snowpea ended the turn: its approval card shows the diff.
+            self._changes[str(item["id"])] = item.get("changes")
         if not self.turn_open:
             return
         if method == "item/agentMessage/delta":
@@ -1066,16 +1123,12 @@ class CodexChannel(ExternalChannel):
             if isinstance(delta, str) and item_id is not None:
                 builder.delta(delta, message_key=item_key(item_id, "message"))
         elif method == "item/started" and item is not None:
-            if item.get("type") == "fileChange" and item.get("id") is not None:
-                self._changes[str(item["id"])] = item.get("changes")
             if ITEM_FILTER.keep(item.get("type")):
                 announce_item(builder, item, turn_id=None, ts=None)
         elif method == "item/completed" and item is not None:
             kind = item.get("type")
             if kind == "userMessage" or not ITEM_FILTER.keep(kind):
                 return
-            if kind == "fileChange" and item.get("id") is not None:
-                self._changes[str(item["id"])] = item.get("changes")
             announce_item(builder, item, turn_id=None, ts=None)
             finish_item(builder, item, turn_id=None, ts=None)
         else:
@@ -1088,6 +1141,8 @@ class CodexChannel(ExternalChannel):
         turn = params.get("turn")
         turn = turn if isinstance(turn, Mapping) else {}
         turn_id = turn.get("id")
+        if turn_id in self._ended:
+            return
         if self.codex_turn is not None and turn_id is not None and turn_id != self.codex_turn:
             return
         status = turn.get("status")
@@ -1110,8 +1165,13 @@ class CodexChannel(ExternalChannel):
             # Do not sit through codex's reconnect attempts: say so and stop.
             self.turn_error = _NOT_LOGGED_IN
             if params.get("willRetry"):
-                with contextlib.suppress(ExternalError):
-                    await self.interrupt()
+                # This runs on the shared reader: never wait for an answer here.
+                if self.codex_turn is not None and self.session_id is not None:
+                    self.server.send_quietly(
+                        "turn/interrupt", {"threadId": self.session_id,
+                                           "turnId": self.codex_turn})
+                else:
+                    self._interrupt_wanted = True
                 await self._finish("error", _NOT_LOGGED_IN)
             return
         if params.get("willRetry"):
@@ -1172,18 +1232,39 @@ class CodexChannel(ExternalChannel):
         # Never ``acceptWithExecpolicyAmendment``: it writes the owner's codex rules.
         return "accept"
 
+    def _outside_project(self, root: Any) -> bool:
+        try:
+            target = Path(str(root)).resolve()
+            base = Path(self.spec.cwd).resolve()
+        except (OSError, RuntimeError, ValueError):
+            return True
+        return target != base and base not in target.parents
+
     async def _approve(self, request_id: Any, method: str, params: Mapping[str, Any]) -> None:
         decision = "decline"
+        grant_root = params.get("grantRoot") if method == FILE_APPROVAL else None
         try:
+            if grant_root and self._outside_project(grant_root):
+                # Write access outside the project for the rest of the session is
+                # more than an edit approval can give: refused without asking.
+                builder = self.host_api.builder
+                builder.note(f"Refused codex's request to write under {grant_root} "
+                             "(outside the project).")
+                await self.host_api.emit(builder.drain())
+                return
             answer = await self.host_api.ask_approval(self._ask(method, params))
             decision = self._decision(method, params, answer)
+            if grant_root and decision == "acceptForSession":
+                decision = "accept"  # a root grant is never widened to the session
         except asyncio.CancelledError:
             decision = "cancel"
             raise
         except Exception:  # noqa: BLE001 - a broken bridge declines, never hangs the turn
             log.warning("codex approval bridge failed", exc_info=True)
         finally:
-            if not self.dead:
+            # Answer the process that asked, even after this thread was closed
+            # under us; never a restarted one (its ids are not ours).
+            if self._process is not None and self.server.process is self._process:
                 await self.server.respond(request_id, {"decision": decision})
 
     def _cancel_approvals(self) -> None:
@@ -1208,12 +1289,12 @@ class CodexChannel(ExternalChannel):
                     await self.server.request(
                         "turn/interrupt",
                         {"threadId": self.session_id, "turnId": self.codex_turn},
-                        timeout=5,
+                        timeout=5, restart_on_timeout=False,
                     )
-            # Unsubscribing releases the writer lock so the person's TUI can take it.
+            # Unsubscribing lets codex unload the thread and release its writer lock.
             with contextlib.suppress(ExternalError):
                 await self.server.request("thread/unsubscribe", {"threadId": self.session_id},
-                                          timeout=5)
+                                          timeout=5, restart_on_timeout=False)
         self.server.detach(self.session_id, self)
         self.attached = False
         self.turn_open = False

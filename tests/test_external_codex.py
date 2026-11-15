@@ -875,3 +875,121 @@ async def test_shutdown_stops_the_shared_server(env: Env) -> None:
     await until(lambda: not proc.pid_alive(pid))
     await until(lambda: env.adapter.server.process is None)
     assert not list((env.home / "external").glob("*.json"))
+
+
+# -- review follow-ups ------------------------------------------------------------------------
+
+
+def _channel(env: Env, ref: dict[str, str]) -> codex.CodexChannel:
+    channel = env.manager._records[("codex", ref["id"])].channel
+    assert isinstance(channel, codex.CodexChannel)
+    return channel
+
+
+async def test_login_lost_while_codex_retries_never_blocks_the_reader(env: Env) -> None:
+    env.write_scenario(scenario="slow", delay=0.2, reply="z" * 20)
+    conn = Conn()
+    ref = await _create(env, conn)
+    turn = (await env.manager.send(ref["cli"], ref["id"], "go", conn=conn))["turnId"]
+    channel = _channel(env, ref)
+    await until(lambda: channel.codex_turn is not None)
+    codex_turn = channel.codex_turn
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    await env.adapter.server._dispatch({"method": "error", "params": {
+        "threadId": ref["id"], "turnId": codex_turn, "willRetry": True,
+        "error": {"message": "Reconnecting... 1/5",
+                  "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": 401}}}}})
+    assert loop.time() - started < 1.0  # the reader did not wait for an answer
+    done = _done(conn, turn)
+    assert done["payload"]["reason"] == "error"
+    await until(lambda: env.sent("turn/interrupt"))
+    assert env.sent("turn/interrupt")[0]["params"]["turnId"] == codex_turn
+    # The interrupted turn's late completion does not touch the next turn.
+    await asyncio.sleep(0.5)
+    await _turn(env, conn, ref, "after")
+    assert env.adapter.server.alive and env.adapter.server.starts == 1
+
+
+async def test_late_completion_of_an_ended_turn_is_ignored(env: Env) -> None:
+    conn = Conn()
+    ref = await _create(env, conn)
+    channel = _channel(env, ref)
+    channel._ended.add("old-turn")
+    channel.turn_open, channel.codex_turn = True, None
+    await channel.on_notification("item/agentMessage/delta", {
+        "threadId": ref["id"], "turnId": "old-turn", "itemId": "m", "delta": "stale"})
+    await channel.on_notification("turn/started", {"threadId": ref["id"],
+                                                   "turn": {"id": "old-turn"}})
+    await channel.on_notification("turn/completed", {"threadId": ref["id"], "turn": {
+        "id": "old-turn", "status": "interrupted"}})
+    assert channel.turn_open and channel.codex_turn is None
+    assert "message.delta" not in conn.kinds()
+    channel.turn_open = False
+
+
+async def test_root_grants_are_never_widened(env: Env) -> None:
+    conn = Conn()
+    ref = await _create(env, conn)
+    channel = _channel(env, ref)
+    asks: list[Any] = []
+
+    async def ask(request: Any) -> ApprovalAnswer:
+        asks.append(request)
+        return ApprovalAnswer(allow=True, scope="session")
+
+    channel.host_api.ask_approval = ask  # type: ignore[method-assign]
+    channel.on_approval_request(51, codex.FILE_APPROVAL, {
+        "threadId": ref["id"], "turnId": "t", "itemId": "p", "grantRoot": "/"})
+    channel.on_approval_request(52, codex.FILE_APPROVAL, {
+        "threadId": ref["id"], "turnId": "t", "itemId": "p",
+        "grantRoot": str(env.project / "src")})
+    def answered() -> dict[int, str] | None:
+        found = {f["data"]["id"]: f["data"]["result"]["decision"] for f in env.records("in")
+                 if f["data"].get("id") in (51, 52)}
+        return found if len(found) == 2 else None
+
+    replies = await until(answered)
+    assert replies == {51: "decline", 52: "accept"}
+    assert len(asks) == 1 and "src" in asks[0].note  # "/" was refused without asking
+
+
+async def test_best_effort_timeouts_do_not_restart_the_server(env: Env) -> None:
+    await env.manager.discover("codex")
+    pid = env.server_pid()
+    os.kill(pid, signal.SIGSTOP)
+    try:
+        with pytest.raises(ExternalError):
+            await env.adapter.server.request("thread/loaded/list", {}, timeout=0.3,
+                                             restart_on_timeout=False)
+        await asyncio.sleep(0.3)
+        assert proc.pid_alive(pid) and env.adapter.server.process is not None
+    finally:
+        os.kill(pid, signal.SIGCONT)
+    assert await env.adapter.server.request("thread/loaded/list", {}) is not None
+
+
+async def test_new_codex_binary_waits_for_running_threads(env: Env) -> None:
+    conn = Conn()
+    ref = await _create(env, conn)
+    pid = env.server_pid()
+    upgraded = proc.PinnedExecutable(path=str(FAKE_CODEX), version="codex-cli 0.168.0")
+    await env.adapter.ensure_server(upgraded)
+    assert env.server_pid() == pid  # the open thread keeps its server
+    await env.manager.close(ref["cli"], ref["id"], conn=conn)
+    await env.adapter.ensure_server(upgraded)
+    assert env.server_pid() != pid
+
+
+async def test_idle_stop_and_a_new_request_do_not_race(env: Env) -> None:
+    env.adapter.server_idle_sec = 0.2
+    await env.manager.discover("codex")
+    for _ in range(10):
+        rows = await env.adapter.list_sessions([str(env.project)], limit=5)
+        assert rows == []
+        await asyncio.sleep(0.12)
+    await until(lambda: env.adapter.server.process is None)
+    rows = await env.adapter.list_sessions([str(env.project)], limit=5)
+    assert rows == [] and env.adapter.server.alive
+    idle = env.adapter.server._idle
+    assert idle is not None and not idle.done()  # the new server still stops when idle
