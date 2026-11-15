@@ -93,6 +93,16 @@ UI는 전체 화면 앱입니다. 입력줄, 모드·상태 줄, 에이전트 �
 
 시계와 토큰 수는 세션 전체가 아니라 이번 턴의 것입니다. 세션 합계는 상태 줄에 있습니다. `Esc`로 중단합니다.
 
+모델 서버에 닿지 않으면 턴은 계속 재시도하고, 스크롤백에는 그 상황을 나타내는 한 줄이 뜹니다. 재시도할 때마다 이 줄이 제자리에서 갱신됩니다:
+
+- `Network or model server unreachable — retrying (attempt 3, up to 9 min left)`
+- `Model server is silent — retry 2/7 in 30s`
+- `Model server error (ReadTimeout) — retry 1/7 in 5s`
+
+에이전트가 일을 계속하도록 다시 돌려보내면 `↻ continuing (unfinished work 1/2): …` 줄이 이유를 말합니다. 라벨은 `unfinished work`, `checks`, `stop hook`, `context trimmed`, `handback`, `budget`, `goal`입니다.
+
+중단된 턴은 이유를 말합니다. `✗ Stopped after …` 줄 아래 둘째 줄 `reason: …`에 턴이 오류로 끝났으면 오류 내용이, 아니면 `interrupted`나 `denied` 같은 이유 단어가 옵니다. 정상 완료된 턴에는 이유 줄이 없습니다.
+
 연달아 실행된 툴 호출은 끝나면 카드 여러 장이 아니라 스크롤백의 한 줄로 접힙니다.
 
 ```text
@@ -337,6 +347,8 @@ ctx 34% (68k/200k)
 
 프롬프트는 실행 중 턴으로 합쳐지거나(steered), 자기 턴이 시작되는 순간 목록에서 사라집니다. `Esc` 는 대기열 전체를 비우고, 프롬프트마다 한 줄씩이 아니라 `2 queued prompts dropped` 처럼 한 번만 알려 줍니다.
 
+답변이 아직 흘러나오는 중에 보낸 프롬프트는 대화 기록에 들어갈 때까지 입력줄 아래에 목록으로 보입니다. 그 사이에도 화면에서 사라지지 않습니다. 전체 화면에서는 위로 스크롤해 둔 상태여도 프롬프트를 보내면 화면이 맨 아래로 돌아옵니다.
+
 ### 프롬프트 하나를 에이전트에게 넘기기
 
 `$이름 ` 으로 시작하는 입력은 메인 세션이 아니라 그 에이전트에게 갑니다. 보내기 전에 입력줄이 먼저 그렇게 말해 줍니다.
@@ -508,3 +520,6 @@ uv tool install --force --reinstall 'snowpea-agent[images] @ git+https://github.
 
 TUI가 열려 있는 상태에서 데몬이 재시작되거나 업그레이드되면 클라이언트는 제한된 지수 백오프로 자동 재연결을 시도합니다. `daemon.json`에서 새로 갱신된 접속 정보와 토큰을 다시 읽어 `system.hello` 핸드셰이크를 수행하고, `session.resume`을 통해 시퀀스 번호 기준으로 중단된 세션을 원활하게 복구합니다. 연결이 끊겨 있는 동안 HUD에는 `⟳ reconnecting… (n)`(여기서 `n`은 재시도 횟수)이 표시되며, 연결이 복구되면 `● connected`로 전환되면서 `daemon restarted — session resumed` 토스트 알림이 뜹니다. 만약 데몬이 종료되었거나 20초 이상 연결할 수 없는 경우 HUD에 `daemon is not running — press R to start it`이 표시되며, `R` 키를 눌러 데몬을 바로 시작하고 재연결할 수 있습니다.
 
+## 알려진 한계
+
+- **인라인 화면에서 답변이 흐르는 중에 창 너비 줄이기.** `--inline`으로 쓸 때 답변이 흐르는 중에 터미널 창을 좁히면, 그 순간 화면에 있던 몇 줄이 스크롤백에 반복해서 남을 수 있습니다. 앱이 다시 그리기 전에 터미널이 그 줄들을 다시 줄바꿈하기 때문입니다. 내용은 잃어버리지 않으며, 창을 넓히는 것은 괜찮습니다. 전체 화면(기본값)에는 영향이 없습니다.

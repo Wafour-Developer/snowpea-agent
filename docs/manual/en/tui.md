@@ -93,6 +93,16 @@ A turn shows one line above the input, and that line says what is actually happe
 
 The clock counts this turn and the token counts are this turn's, not the session's — the session totals are in the status line. `Esc` interrupts.
 
+A turn that cannot reach the model server keeps retrying, and the transcript shows one line for it that updates in place with each attempt:
+
+- `Network or model server unreachable — retrying (attempt 3, up to 9 min left)`
+- `Model server is silent — retry 2/7 in 30s`
+- `Model server error (ReadTimeout) — retry 1/7 in 5s`
+
+When the agent is sent back to keep working, a line `↻ continuing (unfinished work 1/2): …` says why. The labels are `unfinished work`, `checks`, `stop hook`, `context trimmed`, `handback`, `budget` and `goal`.
+
+A stopped turn says why. Under its `✗ Stopped after …` line a second line, `reason: …`, gives the error text when the turn ended on an error, and the reason word otherwise, such as `interrupted` or `denied`. A completed turn has no reason line.
+
 When a run of tool calls finishes, it collapses into one line in the scrollback rather than a card each:
 
 ```text
@@ -337,6 +347,8 @@ While the queue drains the UI shows it: the working line gains a `⏳ N queued` 
 
 A prompt leaves the list the moment it is steered into the running turn or starts its own queued turn. `Esc` clears the whole queue and says so once — `2 queued prompts dropped` — rather than one notice per prompt.
 
+A prompt sent while an answer is still streaming is listed under the input until it joins the transcript, so it stays on screen during the gap. In full screen, sending a prompt also returns the view to the bottom if you had scrolled up.
+
 ### Handing one prompt to an agent
 
 A draft that starts with `$name ` goes to that agent rather than to the main session, and the input says so before you send it:
@@ -508,3 +520,6 @@ A child always comes back with something to read. Its brief says how many tool r
 
 When the daemon is restarted or upgraded while the TUI is open, the client automatically initiates reconnection with bounded exponential backoff. It re-reads the updated endpoint and credentials from `daemon.json`, handshakes with `system.hello`, and seamlessly resumes the session via `session.resume` with sequence replay. While the connection is down, the HUD displays `⟳ reconnecting… (n)` (where `n` is the attempt counter); once connection is restored, it returns to `● connected` and displays a `daemon restarted — session resumed` toast notification. If the daemon process is stopped or unreachable for more than 20 seconds, the HUD displays `daemon is not running — press R to start it`, allowing you to press `R` to start the daemon and reconnect immediately.
 
+## Known limits
+
+- **Inline layout, narrowing while an answer streams.** With `--inline`, making the terminal window narrower while an answer is streaming can leave the few lines that were on screen at that moment repeated in the scrollback. The terminal re-wraps those lines before the app can redraw them. Nothing is lost, and widening the window is fine. The full-screen layout (the default) is not affected.

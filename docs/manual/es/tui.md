@@ -93,6 +93,16 @@ Un turno muestra una línea sobre la entrada, y esa línea dice lo que está pas
 
 El reloj cuenta este turno y los tokens son los de este turno, no los de la sesión; los totales de la sesión están en la línea de estado. `Esc` interrumpe.
 
+Mientras no se puede alcanzar el servidor de modelos, la tanda sigue reintentando, y la transcripción muestra una sola línea que se actualiza en su sitio con cada intento:
+
+- `Network or model server unreachable — retrying (attempt 3, up to 9 min left)`
+- `Model server is silent — retry 2/7 in 30s`
+- `Model server error (ReadTimeout) — retry 1/7 in 5s`
+
+Cuando se devuelve el agente para que siga trabajando, una línea `↻ continuing (unfinished work 1/2): …` explica por qué. Las etiquetas son `unfinished work`, `checks`, `stop hook`, `context trimmed`, `handback`, `budget` y `goal`.
+
+Una tanda detenida dice por qué. Bajo su línea `✗ Stopped after …` aparece una segunda línea, `reason: …`, con el texto del error si la tanda terminó por un error, y si no, la palabra del motivo, como `interrupted` o `denied`. Una tanda completada no tiene línea de motivo.
+
 Cuando termina una tanda de llamadas a herramientas, se pliega en una sola línea del scrollback en lugar de una tarjeta por llamada:
 
 ```text
@@ -231,6 +241,8 @@ Mientras la cola se vacía la interfaz la muestra: la línea de trabajo gana un 
 ```
 
 Un prompt sale de la lista en cuanto empieza su turno. `Esc` vacía la cola entera y lo dice una sola vez — `2 queued prompts dropped` — en lugar de un aviso por prompt.
+
+Un prompt enviado mientras la respuesta todavía se está generando aparece listado bajo la entrada hasta que entra en la transcripción, así que sigue a la vista durante ese intervalo. En pantalla completa, enviar un prompt también devuelve la vista al final si habías subido con el desplazamiento.
 
 ### Pasarle un prompt a un agente
 
@@ -375,3 +387,7 @@ La entrada, el estado de conexión/modelo, el resumen de modo y la lista de agen
 El primer `snowpea setup` crea un team `default` a partir de los roles incorporados. `/team create delivery architect executor verifier` crea un team de proyecto a partir de agentes existentes, lo activa de inmediato, y rechaza nombres desconocidos. Gestiónalo con `/team list`, `/team use <name>` y `/team delete <name>`. Con un team activo, el pie muestra solo su nombre y sus miembros, y la delegación automática queda confinada a esa plantilla.
 
 Escribe `$executor fix the tests` para delegar directamente sin un comando largo. Los nombres desconocidos o fuera del team fallan en lugar de convertirse silenciosamente en un agente genérico. La delegación interna que omite un nombre usa de forma determinista `executor` si existe, y si no el primer miembro del team.
+
+## Límites conocidos
+
+- **Disposición inline, reducir la ventana mientras se genera una respuesta.** Con `--inline`, estrechar la ventana de la terminal mientras se genera una respuesta puede dejar repetidas en el scrollback las pocas líneas que había en pantalla en ese momento. La terminal vuelve a partir esas líneas antes de que la aplicación pueda redibujarlas. No se pierde nada, y ensanchar la ventana no tiene problema. La disposición de pantalla completa (la predeterminada) no se ve afectada.

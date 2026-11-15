@@ -93,6 +93,16 @@ Press R or type /resume to continue it
 
 计时和 token 数是本回合的，不是整个会话的；会话总量在状态行里。`Esc` 中断。
 
+模型服务器连不上时，回合会继续重试，记录里只显示一行，每次重试都在原处更新：
+
+- `Network or model server unreachable — retrying (attempt 3, up to 9 min left)`
+- `Model server is silent — retry 2/7 in 30s`
+- `Model server error (ReadTimeout) — retry 1/7 in 5s`
+
+当代理被送回继续工作时，会出现一行 `↻ continuing (unfinished work 1/2): …` 说明原因。标签有 `unfinished work`、`checks`、`stop hook`、`context trimmed`、`handback`、`budget` 和 `goal`。
+
+被停止的回合会说明原因。在 `✗ Stopped after …` 行下面的第二行 `reason: …` 中，回合因错误结束时给出错误内容，否则给出原因词，例如 `interrupted` 或 `denied`。正常完成的回合没有原因行。
+
 一连串工具调用结束后，会折叠成回滚缓冲里的一行，而不是每次一张卡片：
 
 ```text
@@ -231,6 +241,8 @@ ctx 34% (68k/200k)
 ```
 
 一条 prompt 轮到自己时就从列表里消失。`Esc` 会清空整个队列，并且只提示一次——`2 queued prompts dropped`——而不是每条一行。
+
+回答还在流式输出时发出的 prompt，会列在输入行下面，直到它进入记录，所以在这段时间里也不会消失。全屏布局下，即使你向上滚动过，发送 prompt 也会把视图拉回底部。
 
 ### 把一条 prompt 交给某个代理
 
@@ -375,3 +387,7 @@ uv tool install --force --reinstall 'snowpea-agent[images] @ git+https://github.
 第一次 `snowpea setup` 会用内置角色创建一个 `default` team。`/team create delivery architect executor verifier` 会用已有的 agent 创建一个项目 team，立即激活它，并拒绝不认识的名字。用 `/team list`、`/team use <name>` 和 `/team delete <name>` 管理它。有 team 处于激活状态时，页脚只显示它的名字和成员，自动委派也被限制在这份名单之内。
 
 输入 `$executor fix the tests` 就能直接委派，不用写长命令。不认识的名字或不在 team 内的名字会直接失败，而不是悄悄变成一个通用 agent。省略名字的内部委派会确定性地使用 `executor`（如果存在），否则用 team 的第一个成员。
+
+## 已知限制
+
+- **内联布局下，回答流式输出时缩窄窗口。** 使用 `--inline` 时，回答流式输出期间把终端窗口调窄，当时屏幕上的几行可能会在回滚缓冲区里重复出现。这是因为应用重绘之前，终端已经重新折行了这些行。内容不会丢失，把窗口调宽没有问题。全屏布局（默认）不受影响。
