@@ -36,6 +36,15 @@ def _claude() -> ExternalAdapter:
 BUILTIN_ADAPTERS.append(_claude)
 
 
+def _agy() -> ExternalAdapter:
+    from snowpea_core.external.agy import AgyAdapter
+
+    return AgyAdapter()
+
+
+BUILTIN_ADAPTERS.append(_agy)
+
+
 class AdapterRegistry:
     """CLI id -> adapter."""
 

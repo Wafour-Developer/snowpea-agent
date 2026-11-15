@@ -108,3 +108,15 @@ Also present: the FTS5 table `conversations_fts` (title, workspace, user_body, a
 - Assistant text deltas split paths and links mid-token. Concatenate them before rendering links.
 - The first `session/new` takes about 2 s (language-server start). Keep the child alive per open session and close it on idle.
 - `agy acp --process-per-session` exists (an isolated worker per session) but was not needed.
+
+## Re-check on 1.5.9 (WP6c adapter, 2026-11-15)
+
+Two real turns in empty scratch folders, plus token-free calls:
+
+- `agy --version` prints `1.5.9`; `initialize` still reports ACP `protocolVersion` 1.
+- `session/set_model {sessionId, modelId}` works (answers `{}` and sends a `config_option_update`); `agy models` lists the same ids as `availableModels`, one per line after a `Fetching available models...` line (tab-separated id and name). `agy acp` has no `--mode` or `--model` flag.
+- **`plan` mode is not read-only.** Asked to create a file in `plan` mode, agy wrote an implementation plan into its own `brain/<id>/` folder (outside the workspace, without asking under `always-proceed`) and asked in chat whether to proceed; it executes once the chat says so. With in-workspace edits never prompting either, nothing keeps a session read-only, so the adapter offers only `default` and `unrestricted`.
+- `user_message_chunk` echoes can carry a leading space (`" Create a file…"`); the adapter strips user text.
+- A conversation created by `session/new` with no turn yet is missing from ACP `session/list`; it is in the summaries database after its first turn, as before.
+- `session/load` did not change `last_modified_time`, `title` or `preview` of a conversation whose title was already set.
+- An `antigravity-oauth-token` file in `~/.gemini/antigravity-cli/` was present early in the re-check and gone during the smoke run while agy stayed signed in, so a sign-in cannot be detected from files (existence is only a positive hint); "not signed in" is only known when `session/new`/`session/load` fails.
