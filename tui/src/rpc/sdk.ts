@@ -29,7 +29,14 @@ import type {
   ExternalListResult,
   ExternalOpenResult,
   ExternalClisResult,
+  ExternalClisChangedPayload,
+  ExternalClisConfirmPathParams,
   ExternalStatePayload,
+  ApprovalRouteChangedPayload,
+  JarvisAccessPayload,
+  JarvisEscalationDismissedPayload,
+  JarvisHandbackResult,
+  QuestionRouteChangedPayload,
   JarvisDecisionPayload,
   JarvisDelegationChangedPayload,
   JarvisEscalationPayload,
@@ -46,14 +53,7 @@ export { connect, defaultResolveEndpoint } from "@snowpea/sdk";
 export type SessionEvent = SessionEventPayload;
 
 /** Server→client `approval.request` (contract §1, §7). */
-export type ApprovalRequestParams = SdkApprovalRequestParams & {
-  /**
-   * True on a request only a person may answer (core 1.53): Jarvis's
-   * `delegation_set` proposal and the `tmux.adopt` confirmation. Declared here
-   * until the SDK carries it; shaped like the generated type.
-   */
-  personOnly?: boolean | null;
-};
+export type ApprovalRequestParams = SdkApprovalRequestParams;
 export type ApprovalResponse = ApprovalRequestResult;
 
 export type ApprovalDecision = ApprovalRequestResult["decision"];
@@ -122,61 +122,28 @@ export type ExternalSessionRow = NonNullable<ExternalListResult["sessions"]>[num
 /** One entry of an external timeline page. */
 export type ExternalTimelineEvent = NonNullable<ExternalOpenResult["events"]>[number];
 export type ExternalModeName = NonNullable<ExternalSessionRow["mode"]>;
-type SdkExternalCliInfo = NonNullable<ExternalClisResult["clis"]>[number];
-/**
- * One CLI of `external.clis`. `models`, `modes` and `capabilities.steer` are
- * core 1.53 additions the SDK build here does not carry yet; declared locally,
- * shaped like the generated ones.
- */
-export type ExternalCliInfo = Omit<SdkExternalCliInfo, "capabilities"> & {
-  capabilities?: (NonNullable<SdkExternalCliInfo["capabilities"]> & { steer?: boolean }) | null;
-  /** Models the CLI lists (empty until it answered; `external.clis.changed` follows). */
-  models?: string[];
-  /** The modes a new session may use (also when the CLI is not installed). */
-  modes?: ExternalModeName[];
-};
+/** One CLI of `external.clis`. */
+export type ExternalCliInfo = NonNullable<ExternalClisResult["clis"]>[number];
 /** `external.clis.changed`: all four CLIs, as `external.clis` would answer now. */
-export interface ExternalClisChanged {
-  clis?: ExternalCliInfo[];
-}
+export type ExternalClisChanged = ExternalClisChangedPayload;
+/** `external.clis.confirmPath` params. */
+export type ExternalConfirmPathParams = ExternalClisConfirmPathParams;
 /** `jarvis.escalation.dismissed`. */
-export interface JarvisEscalationDismissed {
-  ids: string[];
-}
+export type JarvisEscalationDismissed = JarvisEscalationDismissedPayload;
 /** `jarvis.access`: Jarvis read or instructed a session. */
-export interface JarvisAccessEvent {
-  action: "read" | "prompt" | "steer" | "interrupt" | "create" | "approval" | "question";
-  external?: ExternalRef | null;
-  hostToolsFrom?: string | null;
-  id: string;
-  project?: string | null;
-  /** `ext:<cli>:<id>` for an external session. */
-  sessionId: string;
-  summary?: string;
-  ts: string;
-}
-/** `SessionSummary.jarvis` (1.53 + levelScope/grantId). */
-export interface SessionJarvisState {
-  exposed: boolean;
-  grantId?: string | null;
-  level?: "staged" | "full" | null;
-  levelScope?: "session" | "project" | "global" | "default" | null;
-  pausedUntil?: string | null;
-  takenOver?: boolean;
-}
+export type JarvisAccessEvent = JarvisAccessPayload;
+/** `approval.route.changed`. */
+export type ApprovalRouteChanged = ApprovalRouteChangedPayload;
+/** `question.route.changed`. */
+export type QuestionRouteChanged = QuestionRouteChangedPayload;
+/** `SessionSummary.jarvis`. */
+export type SessionJarvisState = JarvisHandbackResult["state"];
 export type ExternalEvent = ExternalEventPayload;
 export type ExternalState = ExternalStatePayload;
 
 export type JarvisStatus = JarvisStatusResult;
-/** One overview row; the external-session fields are core 1.53 additions. */
-export type JarvisOverviewRow = NonNullable<JarvisOverviewResult["rows"]>[number] & {
-  approvals?: "bridged" | "person" | "degraded" | "none" | null;
-  /** False: snowpea does not gate what the session runs (UNCONTROLLED). */
-  controlled?: boolean | null;
-  /** False: hidden from Jarvis (project not exposed). */
-  exposed?: boolean;
-  mode?: ExternalModeName | null;
-};
+/** One overview row. */
+export type JarvisOverviewRow = NonNullable<JarvisOverviewResult["rows"]>[number];
 export type JarvisLedgerEntry = NonNullable<JarvisLedgerResult["entries"]>[number];
 export type JarvisStateEvent = JarvisStatePayload;
 export type JarvisDecisionEvent = JarvisDecisionPayload;

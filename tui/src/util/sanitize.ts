@@ -11,8 +11,9 @@
  *
  * Removed: ESC-introduced sequences (OSC/DCS/SOS/PM/APC strings, CSI, and
  * two-character escapes), their 8-bit C1 forms, and every other C0/C1 control
- * character except newline and tab. Carriage returns go too (they overwrite
- * a line). Nothing else is changed.
+ * character except newline and tab, and the bidi embedding/override/isolate
+ * controls. Carriage returns go too (they overwrite a line). Nothing else is
+ * changed.
  */
 
 // OSC / DCS / SOS / PM / APC strings (terminated by BEL or ST, or unterminated),
@@ -21,13 +22,17 @@ const ESCAPES =
   /(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)?|(?:\x1b[PX^_]|[\x90\x98\x9e\x9f])[^\x1b\x9c]*(?:\x1b\\|\x9c)?|(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]?|\x1b[ -/]*[0-~]?/g;
 // C0 except \t (0x09) and \n (0x0a), DEL and C1.
 const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
+// Bidirectional embedding, override and isolate controls (U+202A-202E,
+// U+2066-2069): one in a title reorders what follows it ("txt.exe" shown as
+// "exe.txt"), so a session title or a command can read as something else.
+const BIDI = /[‪-‮⁦-⁩]/g;
 // Fast path: nothing to strip.
-const ANY = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/;
+const ANY = /[\x00-\x08\x0b-\x1f\x7f-\x9f‪-‮⁦-⁩]/;
 
-/** `text` with escape sequences and control characters (but \n and \t) removed. */
+/** `text` with escape sequences, control and bidi override characters (but \n and \t) removed. */
 export function sanitizeText(text: string): string {
   if (!ANY.test(text)) return text;
-  return text.replace(/\r\n/g, "\n").replace(ESCAPES, "").replace(CONTROLS, "");
+  return text.replace(/\r\n/g, "\n").replace(ESCAPES, "").replace(CONTROLS, "").replace(BIDI, "");
 }
 
 /** {@link sanitizeText} applied to every string (keys too) of a JSON value. */

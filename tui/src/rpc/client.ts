@@ -15,6 +15,8 @@ import {
   connect as sdkConnect,
   type ApprovalRequestParams,
   type ApprovalResponse,
+  type ApprovalRouteChanged,
+  type QuestionRouteChanged,
   type ConnectFn,
   type ExternalClisChanged,
   type ExternalEvent,
@@ -117,6 +119,10 @@ export interface TuiClientListeners {
   onMcpChanged?: (params: McpChangedPayload) => void;
   /** A question joined the shared queue (1.53.0 shows it in the Jarvis panel). */
   onQuestionPending?: (params: unknown) => void;
+  /** A waiting approval's route changed (person, jarvis, auto, or null when Jarvis mode went off). */
+  onApprovalRouteChanged?: (params: ApprovalRouteChanged) => void;
+  /** A waiting question's route changed. */
+  onQuestionRouteChanged?: (params: QuestionRouteChanged) => void;
   /** Jarvis mode (1.53.0, capability `jarvis` / `jarvisDelegation`). */
   onJarvisState?: (params: JarvisStateEvent) => void;
   onJarvisDecision?: (params: JarvisDecisionEvent) => void;
@@ -202,6 +208,8 @@ export class TuiClient {
     // The 1.53.0 notifications are subscribed through the untyped `on` so a
     // pre-1.53 SDK build or daemon never has to know them.
     untypedOn("question.pending", (params) => this.listeners.onQuestionPending?.(params));
+    untypedOn("approval.route.changed", (params) => this.listeners.onApprovalRouteChanged?.(params));
+    untypedOn("question.route.changed", (params) => this.listeners.onQuestionRouteChanged?.(params));
     untypedOn("jarvis.state", (params) => this.listeners.onJarvisState?.(params));
     untypedOn("jarvis.decision", (params) => this.listeners.onJarvisDecision?.(params));
     untypedOn("jarvis.escalation", (params) => this.listeners.onJarvisEscalation?.(params));
