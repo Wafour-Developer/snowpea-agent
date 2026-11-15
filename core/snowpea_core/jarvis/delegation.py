@@ -43,6 +43,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import sqlite3
 import threading
 import uuid
@@ -81,6 +82,22 @@ DEFAULT_QUIET_MINUTES = 10
 MAX_TAKEOVER_MINUTES = 10080
 #: Routes remembered for :meth:`DelegationEngine.validate_decision`.
 ROUTE_MEMORY = 4096
+
+#: Words in a question or its options that ask for consent to a guarded action
+#: ("Shall I push?", "Delete the old data?", "Which token should I use?").
+_GUARDED_QUESTION = re.compile(
+    r"(\b(deploy\w*|releas\w*|publish\w*|push\w*|merg\w*|ship|shipping|shipped|"
+    r"roll\s*(out|back)|rollout|rollback|"
+    r"delet\w*|remov\w*|rm|drop\w*|wip(e|es|ed|ing)|purg\w*|destroy\w*|truncat\w*|"
+    r"overwrit\w*|force\w*|outside|elsewhere|"
+    r"secret\w*|tokens?|passwords?|passphrases?|credentials?|api[\s_-]?keys?|"
+    r"private[\s_-]?keys?|ssh|env\s+file|"
+    r"send\w*|upload\w*|e-?mail\w*|mail\w*|post(s|ed|ing)?|shar(e|es|ed|ing)|webhooks?|"
+    r"pay\w*|purchas\w*|charg(e|es|ed|ing)|billing|transfer\w*)\b|\.env\b|"
+    r"배포|릴리[스즈]|푸시|게시|퍼블리시|머지|병합|삭제|제거|지우|초기화|강제|외부|"
+    r"비밀|토큰|비밀번호|암호|자격\s*증명|전송|보내|업로드|메일|공유|결제|송금)",
+    re.IGNORECASE,
+)
 
 #: Client kinds (``system.hello`` ``clientKind``) a person sits behind.  The
 #: desktop app and the TUI send none.  Anything else — a browser host, the
@@ -426,16 +443,19 @@ class DelegationEngine:
             self.dir.mkdir(parents=True, exist_ok=True)
             with contextlib.suppress(OSError):
                 os.chmod(self.dir, 0o700)
-            fresh = not self.db_path.exists()
             db = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
             db.row_factory = sqlite3.Row
             db.executescript(_SCHEMA)
             db.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema', ?)", (SCHEMA_VERSION,)
             )
-            if fresh:
-                with contextlib.suppress(OSError):
-                    os.chmod(self.db_path, 0o600)
+            # Owner-only on every open, not only when created: a file someone
+            # loosened (or restored from a backup) is tightened again.
+            for path in (self.db_path, *(self.db_path.with_name(self.db_path.name + suffix)
+                                         for suffix in ("-wal", "-shm", "-journal"))):
+                if path.exists():
+                    with contextlib.suppress(OSError):
+                        os.chmod(path, 0o600)
             self._db = db
         return self._db
 
@@ -1099,9 +1119,19 @@ class DelegationEngine:
         budget_exhausted: bool = False,
         jarvis_session: bool = False,
         browser_owned: bool = False,
+        text: str = "",
+        secret: bool = False,
     ) -> Route:
-        """Where a question goes: Jarvis answers how-to questions at either level."""
+        """Where a question goes: Jarvis answers how-to questions at either level.
+
+        A question is not a way around an approval: one whose text or options
+        (``text``) mention a guarded action — deploy/push/release/publish,
+        deleting or anything outside, secrets or sending — or that asks for a
+        secret (``secret``) is the person's, whatever was delegated.
+        """
         if jarvis_session or browser_owned or not exposed or budget_exhausted:
+            return "person"
+        if secret or (text and _GUARDED_QUESTION.search(text)):
             return "person"
         if session_id is None and external is None:
             return "person"
@@ -1119,11 +1149,14 @@ class DelegationEngine:
         budget_exhausted: bool = False,
         jarvis_session: bool = False,
         browser_owned: bool = False,
+        text: str = "",
+        secret: bool = False,
     ) -> None:
         """Raise :class:`DecisionRefused` unless Jarvis may answer this session's question now."""
         route = self.route_question(
             session_id, external=external, exposed=exposed, budget_exhausted=budget_exhausted,
-            jarvis_session=jarvis_session, browser_owned=browser_owned,
+            jarvis_session=jarvis_session, browser_owned=browser_owned, text=text,
+            secret=secret,
         )
         if route != "jarvis":
             raise DecisionRefused("this question is the person's to answer")

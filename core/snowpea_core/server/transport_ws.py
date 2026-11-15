@@ -53,6 +53,14 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
         )
     if not token_matches(core.token, params.token):
         raise RpcError(errors.UNAUTHORIZED, "invalid token")
+    if conn.authenticated and params.clientKind != conn.client_kind:
+        # What a connection is (a person's app, a browser host, the connector)
+        # is decided once: a later hello may not turn it into something else.
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            f"clientKind is fixed for this connection ({conn.client_kind or 'none'}); "
+            "open a new connection to be another client",
+        )
     conn.authenticated = True
     conn.client_version = params.clientVersion
     from snowpea_core.server.host_handlers import adopt_hello

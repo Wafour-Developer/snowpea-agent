@@ -113,6 +113,10 @@ class Ledger:
             return
         self._primed = True
         for path in self.files():
+            # Owner-only on first open too, rotated files included (review L3).
+            with contextlib.suppress(OSError):
+                os.chmod(path, 0o600)
+        for path in self.files():
             for record in _read_reversed(path):
                 number = _id_number(str(record.get("id", "")))
                 if number is not None:
@@ -147,6 +151,9 @@ class Ledger:
                 self._rotate()
             fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
             try:
+                # Owner-only on every write, not only when created (review L3).
+                with contextlib.suppress(OSError, AttributeError):
+                    os.fchmod(fd, 0o600)
                 os.write(fd, data)
             finally:
                 os.close(fd)

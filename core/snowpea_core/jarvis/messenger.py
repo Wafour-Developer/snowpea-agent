@@ -75,6 +75,10 @@ BRIEFING_CHARS = 3500
 #: Rows in ``/jarvis`` and the longest one-press confirmation wait.
 OVERVIEW_ROWS = 8
 CONFIRM_TIMEOUT_SEC = 600.0
+#: Longest first message an unrestricted confirmation shows.  The whole prompt
+#: is always shown; a longer one is refused rather than cut, so the person
+#: never allows text they could not read.
+CONFIRM_PROMPT_MAX = 3000
 #: Jarvis turns remembered as the bound person's (for the unrestricted ask).
 TURNS_KEPT = 64
 #: Importance levels that reach a messenger (as in the service).
@@ -528,6 +532,12 @@ class MessengerBridge:
             person_confirmation_from_gateway(binding.platform, bound_person=True, settings=settings)
         except ExternalError as exc:
             return exc.message
+        prompt_text = str(ask.get("prompt") or "").strip()
+        if len(prompt_text) > CONFIRM_PROMPT_MAX:
+            return (
+                f"the first message is {len(prompt_text)} characters; a confirmation shows it "
+                f"whole, so at most {CONFIRM_PROMPT_MAX}: start the session with a shorter one"
+            )
         proof = await self.confirm_unrestricted(
             binding_id,
             cli=str(ask.get("cli") or "?"),
@@ -565,13 +575,15 @@ class MessengerBridge:
         channel = self.router.owner_chat(binding) if binding is not None else None
         if binding is None or not binding.user_id or channel is None:
             return None
+        if len(prompt.strip()) > CONFIRM_PROMPT_MAX:
+            return None  # never ask the person to allow text they cannot see whole
         token = f"uc-{uuid.uuid4().hex[:12]}"
         loop = asyncio.get_running_loop()
         future: asyncio.Future[MessengerConfirmation | None] = loop.create_future()
         self._confirms[token] = (binding.id, channel, future)
         text = f"⚠️ unrestricted · {cli}\nsession: {session}\nproject: {project}\n"
         if prompt.strip():
-            text += f"first message / 첫 메시지: {clip(prompt.strip(), 300)}\n"
+            text += f"first message / 첫 메시지 (whole / 전체):\n{prompt.strip()}\n"
         text += (
             "snowpea does not control what this session runs; Jarvis's guarded-class rules "
             "do not apply inside it. / snowpea는 이 세션이 실행하는 것을 통제하지 않습니다."
@@ -621,12 +633,14 @@ class MessengerBridge:
         word, _, rest = args.strip().partition(" ")
         word = word.lower()
         rest = rest.strip()
-        if word in ("", "status", "overview", "상태"):
-            return self.status_text()
         if word in ("help", "?"):
             return COMMANDS_HELP
+        # Everything else, the status too (it names sessions, projects and what
+        # waits), is the bound person's only, not any member of a group chat.
         if not self.is_person(binding, message):
             return PERSON_ONLY_TEXT
+        if word in ("", "status", "overview", "상태"):
+            return self.status_text()
         service = self._service()
         if word in ("on", "enable", "켜", "켜기"):
             return await self._switch(service, True)

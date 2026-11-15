@@ -147,10 +147,14 @@ async def test_tools_exist_only_on_the_jarvis_session(tmp_path: Path) -> None:
             "schedule_update",
             "schedule_remove",
             "schedule_run",
+            # the built-in readers, with secret files left out of their results
+            "grep",
+            "glob",
         } == own
         # schedule_list / schedule_create are also the daemon's own tools of those names
-        # (the plain scheduler ones); Jarvis's replace them on its session only.
-        shared = {"schedule_list", "schedule_create"}
+        # (the plain scheduler ones); Jarvis's replace them on its session only.  So do
+        # grep and glob, filtered (security review M1).
+        shared = {"schedule_list", "schedule_create", "grep", "glob"}
         assert all(core.tools.get(name) is None for name in own - shared)
         assert all(core.tools.get(name, worker) is None for name in own - shared)
         for name in shared:

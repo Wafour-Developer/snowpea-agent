@@ -87,6 +87,64 @@ MESSENGER_IMPORTANCE = frozenset({"high", "urgent"})
 ROUTED_KEPT = 4096
 
 
+#: Credential directories under the user's home a Jarvis folder may neither be
+#: nor contain nor lie in (its folder is one of its read roots).
+_SENSITIVE_HOME_DIRS = (
+    ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".password-store", ".1password",
+    ".terraform.d", ".config/gh", ".config/gcloud", ".config/op", ".config/hub",
+)
+
+
+def jarvis_folder_problem(
+    folder: str | os.PathLike[str], home: str | os.PathLike[str] | None,
+    user_home: str | os.PathLike[str] | None = None,
+) -> str | None:
+    """Why ``folder`` may not be Jarvis's folder, or ``None`` when it may.
+
+    Jarvis reads everything in its folder, so it must not be (or contain, or
+    lie inside) ``$SNOWPEA_HOME`` or a credential directory such as ``~/.ssh``
+    — a folder at ``~`` would put snowpea's token and the keys in reach.
+    """
+    try:
+        path = Path(os.path.realpath(os.path.expanduser(str(folder))))
+        mine = Path(os.path.realpath(os.path.expanduser(str(user_home or Path.home()))))
+    except (OSError, RuntimeError, ValueError):
+        return "jarvis.folder could not be resolved"
+    guarded: list[tuple[Path, str]] = []
+    if home is not None:
+        guarded.append((Path(os.path.realpath(home)), "snowpea's home ($SNOWPEA_HOME)"))
+    guarded.extend((mine / name, f"~/{name}") for name in _SENSITIVE_HOME_DIRS)
+    for sensitive, label in guarded:
+        if path == sensitive or sensitive in path.parents:
+            return f"jarvis.folder must not lie inside {label}; choose a folder of its own"
+        if path in sensitive.parents:
+            return (
+                f"jarvis.folder must not contain {label} ({path} is a parent of it): Jarvis "
+                "reads its whole folder; choose a folder of its own, such as ~/Snowpea/Jarvis"
+            )
+    return None
+
+
+def question_text(request: Any) -> tuple[str, bool]:
+    """Everything a question shows (texts, headers, options) and whether it asks a secret."""
+    if isinstance(request, dict):
+        items = request.get("questions") or []
+    else:
+        items = list(getattr(request, "questions", None) or [])
+    parts: list[str] = []
+    secret = False
+    for item in items:
+        get = item.get if isinstance(item, dict) else (lambda k, i=item: getattr(i, k, None))
+        parts.extend(str(get(key) or "") for key in ("header", "question"))
+        secret = secret or bool(get("secret"))
+        for option in get("options") or []:
+            opt = option.get if isinstance(option, dict) else (
+                lambda k, o=option: getattr(o, k, None)
+            )
+            parts.extend(str(opt(key) or "") for key in ("label", "description", "preview"))
+    return "\n".join(p for p in parts if p), secret
+
+
 class JarvisError(Exception):
     """A Jarvis request that cannot be carried out; ``code`` is a protocol error code."""
 
@@ -211,6 +269,9 @@ class JarvisService:
                 path = Path(os.path.expanduser(folder.strip()))
                 if not path.is_absolute():
                     raise JarvisError("invalid_params", "folder must be an absolute path")
+                problem = jarvis_folder_problem(path, self.core.paths.home)
+                if problem:
+                    raise JarvisError("invalid_params", problem)
                 changed = changed or folder.strip() != settings.folder
                 settings.folder = folder.strip()
             settings.enabled = True
@@ -286,6 +347,9 @@ class JarvisService:
             await self.core.hub.notify("settings.changed", payload.model_dump(mode="json"))
 
     def _make_folder(self) -> None:
+        problem = jarvis_folder_problem(self.folder(), self.core.paths.home)
+        if problem:
+            raise JarvisError("invalid_params", problem)
         try:
             self.folder().mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -848,12 +912,15 @@ class JarvisService:
         if is_task_worker(session):
             return "person"
         project = canonical(session.workdir) if session is not None else None
+        text, secret = question_text(request)
         return self.engine.route_question(
             getattr(session, "id", None),
             exposed=self.projects.exposed(project),
             budget_exhausted=self.budget_exhausted(),
             jarvis_session=self.in_jarvis_family(session),
             browser_owned=self.browser_host(session),
+            text=text,
+            secret=secret,
         )
 
     def forget_request(self, request_id: str) -> None:
@@ -1142,6 +1209,7 @@ __all__ = [
     "WAKE_REASON",
     "JarvisError",
     "JarvisService",
+    "jarvis_folder_problem",
     "service_of",
     "start_jarvis",
 ]

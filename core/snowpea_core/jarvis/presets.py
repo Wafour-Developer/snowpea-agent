@@ -79,8 +79,13 @@ def _book_path(core: Core) -> Path:
 
 
 def load_book(core: Core) -> dict[str, dict[str, Any]]:
+    path = _book_path(core)
+    if path.exists():
+        # Owner-only on every open, not only when written (review L3).
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
     try:
-        raw = json.loads(_book_path(core).read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     presets = raw.get("presets") if isinstance(raw, dict) else None
@@ -93,6 +98,8 @@ def save_book(core: Core, book: dict[str, dict[str, Any]]) -> None:
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
+        with contextlib.suppress(OSError, AttributeError):
+            os.fchmod(fd, 0o600)  # a leftover .tmp keeps its old mode otherwise
         os.write(fd, json.dumps({"presets": book}, ensure_ascii=False, indent=2).encode("utf-8"))
     finally:
         os.close(fd)

@@ -118,6 +118,13 @@ async def settings_set_handler(
     unknown = _unknown_profile_vendors(params.patch, updated_settings)
     if unknown:
         raise RpcError(errors.INVALID_PARAMS, unknown)
+    raw_jarvis = params.patch.get("jarvis")
+    if isinstance(raw_jarvis, dict) and "folder" in raw_jarvis:
+        from snowpea_core.jarvis.service import jarvis_folder_problem
+
+        problem = jarvis_folder_problem(updated_settings.jarvis.folder, core.paths.home)
+        if problem:
+            raise RpcError(errors.INVALID_PARAMS, problem)
     updated_settings.save(core.paths)
     # The daemon holds the old document in half a dozen places; rebinding here
     # is what makes settings.get and the next turn agree without a restart
