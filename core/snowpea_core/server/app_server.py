@@ -142,6 +142,8 @@ class Core:
     #: Named persistent agents (US-021); ``Daemon.start`` builds it and
     #: restores its sessions before the gateway re-attaches its bindings.
     named_agents: Any = None
+    #: Jarvis mode (M19, ``jarvis.service.JarvisService``); ``Daemon.start`` builds it.
+    jarvis: Any = None
     sessions: SessionManager = field(default_factory=SessionManager)
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     commands: CommandRegistry = field(default_factory=CommandRegistry)
@@ -254,6 +256,12 @@ class Core:
                     await apply_enabled()
                 except Exception:  # noqa: BLE001 - a broken loader must not stop the event
                     log.warning("could not apply the skills settings", exc_info=True)
+        if self.jarvis is not None and any(k == "jarvis" or k.startswith("jarvis.") for k in keys):
+            # jarvis.enabled / model / folder edited outside jarvis.enable (M19).
+            try:
+                await self.jarvis.apply_settings()
+            except Exception:  # noqa: BLE001 - Jarvis must not stop the event
+                log.warning("could not apply the Jarvis settings", exc_info=True)
         if "extensions" in keys and self.extensions is not None:
             # settings.extensions.<name>.{enabled,config} edited: follow it.
             try:
@@ -714,6 +722,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.jarvis_delegation_handlers import register_jarvis_delegation_handlers
 
     register_jarvis_delegation_handlers(dispatcher)
+    from snowpea_core.server.jarvis_handlers import register_jarvis_handlers
+
+    register_jarvis_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
@@ -845,6 +856,11 @@ class Daemon:
         # Before the gateway: a binding that targets a named agent's session
         # needs that session to exist again (M7 contract §6).
         await core.named_agents.restore()
+        # Jarvis mode's reserved agent is not in that restore: its service
+        # brings it back only while jarvis.enabled is on (M19).
+        from snowpea_core.jarvis.service import start_jarvis
+
+        await start_jarvis(core)
         await core.gateway.restore()
         core.sessions_loaded = True
         # A messenger the setup wizard enabled goes live here, without anyone
@@ -1068,6 +1084,10 @@ class Daemon:
             # before we start tearing down the services it depends on
             # (CORE-memory-race).
             self.core.stopping = True
+            if self.core.jarvis is not None:
+                # Stop watching before the sessions close under the intake.
+                with contextlib.suppress(Exception):
+                    await self.core.jarvis.stop()
             # Close every turn still in flight while the hub and the store are
             # both still up.  ``close_all`` below cancels the turn tasks, and a
             # turn cancelled during shutdown skips its own final write

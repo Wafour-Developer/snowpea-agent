@@ -445,6 +445,9 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
     machine = machine_of(core)
     rows = [_with_effort(core, _with_waits(core, row)).model_copy(update={"machine": machine})
             for row in rows]
+    jarvis = getattr(core, "jarvis", None)
+    if jarvis is not None:  # SessionSummary.role / .jarvis (1.53.0)
+        rows = [jarvis.decorate(row) for row in rows]
     return sorted(rows, key=lambda row: row.createdAt, reverse=True)
 
 
