@@ -226,6 +226,11 @@ async def test_never_types_while_an_attached_person_is_typing(env: TmuxEnv) -> N
         await env.manager.send("claude", ref["id"], "not now", conn=conn)
     assert caught.value.code == errors.SESSION_BUSY
     assert caught.value.details == {"reason": "terminal_typing"}
+    # On the wire the reason is error.data.details.reason, as for every error's details.
+    from snowpea_core.server.external_handlers import _rpc
+
+    wire = _rpc(caught.value).to_jsonrpc()["data"]
+    assert wire == {"code": "session_busy", "details": {"reason": "terminal_typing"}}
     assert [e for e in fake_log(env.log) if e["kind"] == "prompt"] == []
     channel.server.last_client_activity = real  # type: ignore[method-assign]
     assert (await env.turn(conn, ref, "now"))["payload"]["reason"] == "complete"

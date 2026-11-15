@@ -478,6 +478,7 @@ class JarvisService:
             initiator="system",
             reason=WAKE_REASON,
             origin_kind=WAKE_ORIGIN_KIND,
+            show_prompt=True,
         )
         if listener is not None:
             listener.turn_id = turn_id
@@ -504,7 +505,7 @@ class JarvisService:
         try:
             listener.turn_id = agent_loop.start_turn(
                 self.core, session, text, unattended=True, initiator="system",
-                reason=WAKE_REASON, origin_kind=WAKE_ORIGIN_KIND,
+                reason=WAKE_REASON, origin_kind=WAKE_ORIGIN_KIND, show_prompt=True,
             )
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(listener.done.wait(), timeout)

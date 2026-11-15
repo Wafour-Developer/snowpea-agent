@@ -1189,10 +1189,13 @@ class ExternalManager:
             assert channel is not None
             if record.turn_id is not None:
                 if record.adapter.capabilities.steer and channel.can_steer:
+                    self._subscribe(record, conn)
                     return await self._steer(record, channel, text, conn=conn, origin=origin)
                 raise ExternalError(
                     errors.SESSION_BUSY, "a turn is running in this session; interrupt it first"
                 )
+            # The reply streams to the sender as external.event, opened or not.
+            self._subscribe(record, conn)
             turn_id = f"xt-{uuid.uuid4().hex[:12]}"
             record.turn_id = turn_id
             record.turn_cancel = asyncio.Event()

@@ -289,7 +289,7 @@ export interface ApprovalListResult {
     args?: Record<string, unknown>;
     /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
     diff?: string | null;
-    /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. */
+    /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
     external?: {
       /** claude, codex, agy or cursor. */
       cli: "claude" | "codex" | "agy" | "cursor";
@@ -344,7 +344,7 @@ export interface ApprovalRequestParams {
   args?: Record<string, unknown>;
   /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
   diff?: string | null;
-  /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. */
+  /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
   external?: {
     /** claude, codex, agy or cursor. */
     cli: "claude" | "codex" | "agy" | "cursor";
@@ -1307,7 +1307,7 @@ export interface ExternalReadResult {
   hasMore?: boolean;
 }
 
-/** `external.send` params. External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes). */
+/** `external.send` params. External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event to the sender, which is subscribed to the ref (idempotent; no external.open needed). A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. A tmux pane that is not ready answers session_busy with error.data.details.reason terminal_prompt, terminal_busy or terminal_typing. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes). */
 export interface ExternalSendParams {
   /** Session to talk to. */
   ref: {
@@ -7912,7 +7912,7 @@ export interface ApprovalPendingPayload {
     args?: Record<string, unknown>;
     /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
     diff?: string | null;
-    /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. */
+    /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
     external?: {
       /** claude, codex, agy or cursor. */
       cli: "claude" | "codex" | "agy" | "cursor";
@@ -8922,9 +8922,9 @@ export interface MessageUserEventPayload {
     text: string;
   } | null;
   kind?: "message.user";
-  /** Whose words these are (1.53.0, capability 'messageOrigin'). Only kind 'human' moves lastPrompt/lastUserAt and pauses Jarvis in a managed session. Null on events stored before 1.53.0; read those as human. */
+  /** Whose words these are (1.53.0, capability 'messageOrigin'). Only kind 'human' moves lastPrompt/lastUserAt and pauses Jarvis in a managed session. Null on events stored before 1.53.0; read those as human. A Jarvis wake (the turn's turn.started reason 'jarvis-intake') is kind 'system', surface null: core's text, verbatim with its 'untrusted' fences, never the person's. */
   origin?: {
-    /** human (the session's own person), jarvis (reserved for the Jarvis session), schedule, gateway (another member of a messenger chat), subagent (delegation traffic) or system (text core or a model wrote: goal rounds, queued commands). */
+    /** human (the session's own person), jarvis (reserved for the Jarvis session), schedule, gateway (another member of a messenger chat), subagent (delegation traffic) or system (text core or a model wrote: queued commands, Jarvis wakes). */
     kind: "human" | "jarvis" | "schedule" | "gateway" | "subagent" | "system";
     /** Where it was typed, when known: the client kind from system.hello ('ide', 'tui', 'cli', 'web', 'browser', ...) or the messenger platform ('telegram', 'slack', ...) for human and gateway; null otherwise. */
     surface?: string | null;
@@ -9293,14 +9293,14 @@ export interface TurnStartedEventPayload {
   goalId?: string | null;
   /** A goal round's number, from 1 (reason 'goal', 1.50.0); absent on every other turn. */
   goalRound?: number | null;
-  /** Who started the turn (1.8.0). 'system' = session.continue: the input is a [system] note, no message.user is emitted, and surfaces show a status line instead of a user bubble. */
+  /** Who started the turn (1.8.0). 'system' = session.continue: the input is a [system] note, no message.user is emitted, and surfaces show a status line instead of a user bubble. Exception (1.53.0): a Jarvis wake (reason 'jarvis-intake') emits its text as message.user with origin {kind: 'system', surface: null} right after this event; prompt stays null. */
   initiator?: "user" | "system";
   kind?: "turn.started";
   /** The prompt that opened it; null when there is none. */
   prompt?: string | null;
   /** True when this turn waited in the prompt queue first. */
   queued?: boolean;
-  /** Why a system turn started, e.g. 'handback' (1.8.0). */
+  /** Why a system turn started, e.g. 'handback' (1.8.0), 'goal' (1.50.0), 'jarvis-intake' (a Jarvis wake, 1.53.0). */
   reason?: string | null;
   /** Turn that is now running. */
   turnId: string;
