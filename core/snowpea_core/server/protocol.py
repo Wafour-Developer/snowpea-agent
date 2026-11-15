@@ -7707,7 +7707,11 @@ class JarvisDecision(Payload):
         )
     )
     classification: JarvisClassification | None = Field(
-        default=None, description="Engine verdict for an approval."
+        default=None,
+        description=(
+            "Engine verdict for an approval. 'never' means never delegable: always the "
+            "person's to answer (they may still allow it), not blocked."
+        ),
     )
     guardedClass: GuardedClass | None = Field(
         default=None, description="With classification 'guarded'."
@@ -7920,7 +7924,8 @@ class JarvisEscalationNotification(Payload):
         "guarded", "risky", "never", "question", "finished", "error", "stalled", "budget", "jarvis"
     ] = Field(
         description=(
-            "guarded/risky/never: an approval the engine routed to the person; question: a "
+            "guarded/risky/never: an approval the engine routed to the person ('never': never "
+            "delegable, the person may still allow it); question: a "
             "question routed to the person; finished/error/stalled: a turn ended that way in a "
             "fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose "
             "to ask the person."
@@ -8136,7 +8141,17 @@ class ExternalCliInfo(Payload):
         default="default",
         description=(
             "jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets "
-            "unless one is chosen ('readonly' for cursor). Set only by the person."
+            "unless one is chosen ('readonly' for cursor). Set only by the person; never "
+            "'unrestricted' (that mode comes only from an explicit mode in the person's request)."
+        ),
+    )
+    pendingPath: str | None = Field(
+        default=None,
+        description=(
+            "The resolved real path of a jarvis.external.clis.<id>.path override the person has "
+            "not confirmed yet: it is not run (not even --version) and the CLI shows as not "
+            "installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there "
+            "is no override or it is confirmed."
         ),
     )
     modes: list[ExternalSessionMode] = Field(
@@ -8170,6 +8185,18 @@ class ExternalCliInfo(Payload):
 class ExternalClisResult(Payload):
     clis: list[ExternalCliInfo] = Field(
         default_factory=list, description="All four, in a fixed order."
+    )
+
+
+class ExternalClisConfirmPathParams(Payload):
+    """The person confirms a CLI path override (security review H2)."""
+
+    cli: ExternalCli = Field(description="Which CLI.")
+    path: str = Field(
+        description=(
+            "The resolved path the person saw (ExternalCliInfo.pendingPath); it must still be "
+            "what jarvis.external.clis.<cli>.path resolves to, else invalid_params."
+        )
     )
 
 
@@ -8292,6 +8319,17 @@ class ExternalOpenParams(Payload):
             "'structured': as before."
         ),
     )
+    trust: bool = Field(
+        default=False,
+        description=(
+            "The person's one-time confirmation that external CLIs may run in this project "
+            "(they load the project's own settings and hooks). Needed only when starting a "
+            "CLI in a project no person trusted yet: without it external_unavailable with "
+            "details.reason 'untrusted_project' (show the confirmation, retry with trust: "
+            "true). Only a person's local connection can trust; anyone else gets details.reason "
+            "'untrusted_project_person_only'."
+        ),
+    )
 
 
 class ExternalOpenResult(Payload):
@@ -8358,6 +8396,9 @@ class ExternalCreateParams(Payload):
             "pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else "
             "external_unavailable."
         ),
+    )
+    trust: bool = Field(
+        default=False, description="As ExternalOpenParams.trust (untrusted_project)."
     )
 
 
@@ -8581,6 +8622,13 @@ class McpPresetRemoveResult(Payload):
     removed: bool = Field(description="False when the preset was not applied.")
     servers: list[str] = Field(default_factory=list, description="Servers put back or removed.")
     jobs: list[str] = Field(default_factory=list, description="Recipe jobs deleted.")
+    notice: str | None = Field(
+        default=None,
+        description=(
+            "What the person still has to do themselves, e.g. a device-code server's own "
+            "sign-in that snowpea cannot clear (show it). Null when nothing is left."
+        ),
+    )
 
 
 class McpPresetApplyParams(Payload):
@@ -9809,6 +9857,16 @@ METHODS: dict[str, RpcMethod] = {
             ),
         ),
         _m(
+            "external.clis.confirmPath",
+            ExternalClisConfirmPathParams,
+            ExternalClisResult,
+            (
+                "External sessions (security review H2): the person confirms the resolved path "
+                "of a jarvis.external.clis.<cli>.path override (ExternalCliInfo.pendingPath) "
+                "so snowpea may run it; person's local connection only (jarvis_person_only)."
+            ),
+        ),
+        _m(
             "external.list",
             ExternalListParams,
             ExternalListResult,
@@ -10272,6 +10330,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         # M19 WP5 (1.53.0): the external.* family, answered by the common layer
         # (external_unavailable until an adapter for the CLI is registered).
         "external.clis",
+        "external.clis.confirmPath",
         "external.list",
         "external.open",
         "external.read",

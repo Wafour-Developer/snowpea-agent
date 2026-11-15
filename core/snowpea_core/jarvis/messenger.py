@@ -75,6 +75,10 @@ BRIEFING_CHARS = 3500
 #: Rows in ``/jarvis`` and the longest one-press confirmation wait.
 OVERVIEW_ROWS = 8
 CONFIRM_TIMEOUT_SEC = 600.0
+#: Longest first message an unrestricted confirmation shows.  The whole prompt
+#: is always shown; a longer one is refused rather than cut, so the person
+#: never allows text they could not read.
+CONFIRM_PROMPT_MAX = 3000
 #: Jarvis turns remembered as the bound person's (for the unrestricted ask).
 TURNS_KEPT = 64
 #: Importance levels that reach a messenger (as in the service).
@@ -324,6 +328,34 @@ class MessengerBridge:
     def resolved(self, request_id: str) -> None:
         self._posted = {key for key in self._posted if key[2] != request_id}
 
+    def hidden(self, request: dict[str, Any]) -> bool:
+        """The request comes from a project hidden from Jarvis (not forwarded by it)."""
+        service = self.service
+        core = self.router.core
+        if service is None or core is None:
+            return False
+        session = core.sessions.get(str(request.get("sessionId") or ""))
+        workdir = getattr(session, "workdir", None)
+        if workdir is None:
+            return False
+        try:
+            return bool(service.path_hidden(workdir))
+        except Exception:  # noqa: BLE001 - unknown is hidden
+            return True
+
+    async def _private_targets(self) -> list[tuple[Binding, str]]:
+        """``(binding, private chat)`` of every bound person Jarvis may write to (H3)."""
+        out = []
+        for binding in self.router.list():
+            if binding.state != "active" or not binding.user_id:
+                continue
+            channel = self.router.private_chat(binding)
+            if channel is None:
+                await self.router.no_private_chat(binding)
+                continue
+            out.append((binding, channel))
+        return out
+
     def label(self, request: dict[str, Any]) -> str:
         """``[title · project · s-1a2b3c]``: which session asks, as the person names it."""
         session_id = str(request.get("sessionId") or "")
@@ -440,12 +472,7 @@ class MessengerBridge:
             return
         head = "\U0001f5de️ Jarvis · briefing / 브리핑"
         where = f"{report} (Jarvis folder / 자비스 폴더)" if report else "the Jarvis folder"
-        for binding in self.router.list():
-            if binding.state != "active" or not binding.user_id:
-                continue
-            channel = self.router.owner_chat(binding)
-            if channel is None:
-                continue
+        for binding, channel in await self._private_targets():
             limit = min(self.router.message_limit(binding), BRIEFING_CHARS)
             pointer = f"\n\n(저장 / saved: {where})"
             body = f"{head}\n{text}"
@@ -491,12 +518,8 @@ class MessengerBridge:
             pointer = "…\n(/jarvis — 더 보기 / more)"
             text = text[: NOTICE_CHARS - len(pointer)] + pointer
         self._last_sent = asyncio.get_running_loop().time()
-        for binding in self.router.list():
-            if binding.state != "active" or not binding.user_id:
-                continue
-            channel = self.router.owner_chat(binding)
-            if channel is not None:
-                await self.router.send(binding, channel, text)
+        for binding, channel in await self._private_targets():
+            await self.router.send(binding, channel, text)
 
     # -- one-press confirmations (unrestricted mode seam) ------------------------
     def note_turn(self, turn_id: str, binding: Binding, message: InboundMessage) -> None:
@@ -528,6 +551,12 @@ class MessengerBridge:
             person_confirmation_from_gateway(binding.platform, bound_person=True, settings=settings)
         except ExternalError as exc:
             return exc.message
+        prompt_text = str(ask.get("prompt") or "").strip()
+        if len(prompt_text) > CONFIRM_PROMPT_MAX:
+            return (
+                f"the first message is {len(prompt_text)} characters; a confirmation shows it "
+                f"whole, so at most {CONFIRM_PROMPT_MAX}: start the session with a shorter one"
+            )
         proof = await self.confirm_unrestricted(
             binding_id,
             cli=str(ask.get("cli") or "?"),
@@ -562,16 +591,21 @@ class MessengerBridge:
         no bound person.  Only that person's press counts.
         """
         binding = self.router.get(binding_id)
-        channel = self.router.owner_chat(binding) if binding is not None else None
+        # Only in the person's private chat, never a group (security review H3).
+        channel = self.router.private_chat(binding) if binding is not None else None
         if binding is None or not binding.user_id or channel is None:
+            if binding is not None:
+                await self.router.no_private_chat(binding)
             return None
+        if len(prompt.strip()) > CONFIRM_PROMPT_MAX:
+            return None  # never ask the person to allow text they cannot see whole
         token = f"uc-{uuid.uuid4().hex[:12]}"
         loop = asyncio.get_running_loop()
         future: asyncio.Future[MessengerConfirmation | None] = loop.create_future()
         self._confirms[token] = (binding.id, channel, future)
         text = f"⚠️ unrestricted · {cli}\nsession: {session}\nproject: {project}\n"
         if prompt.strip():
-            text += f"first message / 첫 메시지: {clip(prompt.strip(), 300)}\n"
+            text += f"first message / 첫 메시지 (whole / 전체):\n{prompt.strip()}\n"
         text += (
             "snowpea does not control what this session runs; Jarvis's guarded-class rules "
             "do not apply inside it. / snowpea는 이 세션이 실행하는 것을 통제하지 않습니다."
@@ -621,12 +655,14 @@ class MessengerBridge:
         word, _, rest = args.strip().partition(" ")
         word = word.lower()
         rest = rest.strip()
-        if word in ("", "status", "overview", "상태"):
-            return self.status_text()
         if word in ("help", "?"):
             return COMMANDS_HELP
+        # Everything else, the status too (it names sessions, projects and what
+        # waits), is the bound person's only, not any member of a group chat.
         if not self.is_person(binding, message):
             return PERSON_ONLY_TEXT
+        if word in ("", "status", "overview", "상태"):
+            return self.status_text()
         service = self._service()
         if word in ("on", "enable", "켜", "켜기"):
             return await self._switch(service, True)

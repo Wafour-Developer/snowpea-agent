@@ -15,6 +15,7 @@ snapshot is not re-sent on every model call.
 
 from __future__ import annotations
 
+import re
 import secrets
 from typing import TYPE_CHECKING, Any
 
@@ -141,8 +142,13 @@ def build_rows(
     return rows[:limit] if limit is not None else rows
 
 
+_FENCE_TAG = re.compile(r"<(\s*/?\s*)(untrusted)", re.IGNORECASE)
+
+
 def _cell(text: Any, limit: int) -> str:
-    value = " ".join(str(text or "").split()).replace("|", "/")
+    # A title or digest may not close (or open) the table's fence.
+    value = " ".join(str(text or "").replace(_NONCE, "").split()).replace("|", "/")
+    value = _FENCE_TAG.sub(r"&lt;\1\2", value)
     return value if len(value) <= limit else value[: limit - 1] + "…"
 
 
@@ -204,7 +210,8 @@ def external_flags(row: JarvisOverviewRow) -> str:
     if row.mode:
         flags.append(f"mode {row.mode}")
     if row.controlled is False:
-        flags.append("UNCONTROLLED: snowpea cannot gate what it runs")
+        flags.append("UNCONTROLLED: snowpea cannot gate what it runs; read only, never send it "
+                     "work")
     if row.approvals == "person":
         flags.append("its prompts are answered by the person in the terminal")
     elif row.host == "terminal":

@@ -957,7 +957,7 @@ export interface ExternalClisResult {
       /** external.create {transport: 'tmux'} works: Claude Code only, on Linux/macOS with tmux installed (beta). */
       tmux?: boolean;
     } | null;
-    /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person. */
+    /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
     /** jarvis.external.clis.<id>.enabled. */
     enabled?: boolean;
@@ -973,6 +973,64 @@ export interface ExternalClisResult {
     modes?: ("default" | "readonly" | "unrestricted")[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
+    /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
+    pendingPath?: string | null;
+    /** Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'. */
+    problems?: string[];
+    /** Display name, e.g. 'Claude Code'. */
+    title: string;
+    /** Its --version, when it answered. */
+    version?: string | null;
+  })[];
+}
+
+/** `external.clis.confirmPath` params. External sessions (security review H2): the person confirms the resolved path of a jarvis.external.clis.<cli>.path override (ExternalCliInfo.pendingPath) so snowpea may run it; person's local connection only (jarvis_person_only). */
+export interface ExternalClisConfirmPathParams {
+  /** Which CLI. */
+  cli: "claude" | "codex" | "agy" | "cursor";
+  /** The resolved path the person saw (ExternalCliInfo.pendingPath); it must still be what jarvis.external.clis.<cli>.path resolves to, else invalid_params. */
+  path: string;
+}
+
+/** `external.clis.confirmPath` result. */
+export interface ExternalClisConfirmPathResult {
+  /** All four, in a fixed order. */
+  clis?: ({
+    /** agy only: what the CLI's own settings say, which snowpea cannot change per session — asks (prompts are bridged) or auto (it runs without asking; edit work then needs mode 'unrestricted', confirmed by the person). Null for the others. */
+    approvalPolicy?: "asks" | "auto" | null;
+    /** What works with this version; null when not installed. */
+    capabilities?: {
+      /** bridged: the CLI's permission prompts become snowpea approvals; degraded: edits are auto-allowed and everything else is blocked (Cursor). */
+      approvals: "bridged" | "degraded";
+      /** A session open in another terminal can be followed live (else on refresh). */
+      liveView: boolean;
+      /** Modes it offers. agy has no 'readonly' (its plan mode still writes files); cursor offers readonly (its default), default (edits and sandboxed shell with no prompt: approvals 'degraded') and unrestricted. */
+      modes?: ("default" | "readonly" | "unrestricted")[];
+      /** external.send during a running turn adds the text to that turn (Codex turn/steer) instead of answering session_busy; the same turnId comes back. */
+      steer?: boolean;
+      /** Replies stream as message.delta while the CLI writes. */
+      streaming: boolean;
+      /** external.create {transport: 'tmux'} works: Claude Code only, on Linux/macOS with tmux installed (beta). */
+      tmux?: boolean;
+    } | null;
+    /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
+    defaultMode?: "default" | "readonly" | "unrestricted";
+    /** jarvis.external.clis.<id>.enabled. */
+    enabled?: boolean;
+    /** claude, codex, agy or cursor. */
+    id: "claude" | "codex" | "agy" | "cursor";
+    /** An executable was found (jarvis.external.clis.<id>.path or PATH). */
+    installed: boolean;
+    /** Model ids external.create {model} accepts, as the CLI lists them without spending tokens. Filled in the background: empty until the CLI answered (then external.clis.changed goes out); empty when it cannot list them. */
+    models?: string[];
+    /** True once the CLI answered the model listing (models may still be empty: it lists none); false while it has not answered yet, or the CLI is not usable. */
+    modelsLoaded?: boolean;
+    /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
+    modes?: ("default" | "readonly" | "unrestricted")[];
+    /** Absolute executable path pinned at discovery. */
+    path?: string | null;
+    /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
+    pendingPath?: string | null;
     /** Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'. */
     problems?: string[];
     /** Display name, e.g. 'Claude Code'. */
@@ -1011,6 +1069,8 @@ export interface ExternalCreateParams {
   project: string;
   /** structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. */
   transport?: "structured" | "tmux";
+  /** As ExternalOpenParams.trust (untrusted_project). */
+  trust?: boolean;
 }
 
 /** `external.create` result. */
@@ -1209,6 +1269,8 @@ export interface ExternalOpenParams {
   };
   /** 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. */
   transport?: "structured" | "tmux" | null;
+  /** The person's one-time confirmation that external CLIs may run in this project (they load the project's own settings and hooks). Needed only when starting a CLI in a project no person trusted yet: without it external_unavailable with details.reason 'untrusted_project' (show the confirmation, retry with trust: true). Only a person's local connection can trust; anyone else gets details.reason 'untrusted_project_person_only'. */
+  trust?: boolean;
 }
 
 /** `external.open` result. */
@@ -2204,7 +2266,7 @@ export interface JarvisEscalationsListResult {
     importance?: "low" | "normal" | "high" | "urgent";
     /** Its project root. */
     project?: string | null;
-    /** guarded/risky/never: an approval the engine routed to the person; question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. */
+    /** guarded/risky/never: an approval the engine routed to the person ('never': never delegable, the person may still allow it); question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. */
     reason: "guarded" | "risky" | "never" | "question" | "finished" | "error" | "stalled" | "budget" | "jarvis";
     /** Its id, to answer with approval.respond / question.respond. */
     requestId?: string | null;
@@ -2271,7 +2333,7 @@ export interface JarvisLedgerParams {
 export interface JarvisLedgerResult {
   /** Newest first. */
   entries?: ({
-    /** Engine verdict for an approval. */
+    /** Engine verdict for an approval. 'never' means never delegable: always the person's to answer (they may still allow it), not blocked. */
     classification?: "safe" | "risky" | "guarded" | "never" | null;
     /** jarvis (the model, within the engine's options), person, or auto (the engine alone). */
     decidedBy: "jarvis" | "person" | "auto";
@@ -3423,6 +3485,8 @@ export interface McpPresetRemoveParams {
 export interface McpPresetRemoveResult {
   /** Recipe jobs deleted. */
   jobs?: string[];
+  /** What the person still has to do themselves, e.g. a device-code server's own sign-in that snowpea cannot clear (show it). Null when nothing is left. */
+  notice?: string | null;
   /** False when the preset was not applied. */
   removed: boolean;
   /** Servers put back or removed. */
@@ -8047,7 +8111,7 @@ export interface ExternalClisChangedPayload {
       /** external.create {transport: 'tmux'} works: Claude Code only, on Linux/macOS with tmux installed (beta). */
       tmux?: boolean;
     } | null;
-    /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person. */
+    /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
     /** jarvis.external.clis.<id>.enabled. */
     enabled?: boolean;
@@ -8063,6 +8127,8 @@ export interface ExternalClisChangedPayload {
     modes?: ("default" | "readonly" | "unrestricted")[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
+    /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
+    pendingPath?: string | null;
     /** Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'. */
     problems?: string[];
     /** Display name, e.g. 'Claude Code'. */
@@ -8170,7 +8236,7 @@ export interface JarvisAccessPayload {
 export interface JarvisDecisionPayload {
   /** The decision. */
   entry: {
-    /** Engine verdict for an approval. */
+    /** Engine verdict for an approval. 'never' means never delegable: always the person's to answer (they may still allow it), not blocked. */
     classification?: "safe" | "risky" | "guarded" | "never" | null;
     /** jarvis (the model, within the engine's options), person, or auto (the engine alone). */
     decidedBy: "jarvis" | "person" | "auto";
@@ -8258,7 +8324,7 @@ export interface JarvisEscalationPayload {
   importance?: "low" | "normal" | "high" | "urgent";
   /** Its project root. */
   project?: string | null;
-  /** guarded/risky/never: an approval the engine routed to the person; question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. */
+  /** guarded/risky/never: an approval the engine routed to the person ('never': never delegable, the person may still allow it); question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. */
   reason: "guarded" | "risky" | "never" | "question" | "finished" | "error" | "stalled" | "budget" | "jarvis";
   /** Its id, to answer with approval.respond / question.respond. */
   requestId?: string | null;
@@ -9475,6 +9541,7 @@ export interface MethodMap {
   "extension.list": { params: ExtensionListParams; result: ExtensionListResult };
   "extension.reload": { params: ExtensionReloadParams; result: ExtensionReloadResult };
   "external.clis": { params: ExternalClisParams; result: ExternalClisResult };
+  "external.clis.confirmPath": { params: ExternalClisConfirmPathParams; result: ExternalClisConfirmPathResult };
   "external.close": { params: ExternalCloseParams; result: ExternalCloseResult };
   "external.create": { params: ExternalCreateParams; result: ExternalCreateResult };
   "external.get": { params: ExternalGetParams; result: ExternalGetResult };
@@ -9684,6 +9751,7 @@ export type ClientMethod =
   | "extension.list"
   | "extension.reload"
   | "external.clis"
+  | "external.clis.confirmPath"
   | "external.close"
   | "external.create"
   | "external.get"

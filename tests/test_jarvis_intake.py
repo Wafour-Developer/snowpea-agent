@@ -351,7 +351,10 @@ async def test_proactive_switches_gate_the_notices(harness: Harness) -> None:
 
 
 async def test_delegated_session_endings_wake_within_the_batch(harness: Harness) -> None:
-    harness.core.settings.jarvis.delegation.default = "full"
+    from snowpea_core.jarvis.delegation import Caller
+
+    person = Caller(kind="connection", surface="ide")
+    harness.engine.set_grant("global", None, "full", [], caller=person)
     await harness.start()
     s = await harness.session("p", title="nightly refactor")
     await harness.emit(s, events.turn_started("t1"))

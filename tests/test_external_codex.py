@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from _external_adapter import FAKE_CLIS
-from _support import env_vars
+from _support import env_vars, pinned_cli
 
 from snowpea_core.config.paths import resolve_home
 from snowpea_core.config.settings import Settings
@@ -93,7 +93,7 @@ async def until(predicate: Callable[[], Any], timeout: float = 15.0) -> Any:
 
 def _settings(path: Path = FAKE_CODEX, **cli: Any) -> Settings:
     return Settings.model_validate(
-        {"jarvis": {"external": {"clis": {"codex": {"path": str(path), **cli}}}}}
+        {"jarvis": {"external": {"clis": {"codex": {**pinned_cli(path), **cli}}}}}
     )
 
 
@@ -1011,3 +1011,40 @@ async def test_a_reread_history_does_not_repeat_snowpea_prompts(env: Env) -> Non
     await env.manager._publish(record, await env.adapter.read(record.info))
     users = [e["payload"]["text"] for e in conn.events() if e["kind"] == "message.user"]
     assert users == ["first prompt", "second prompt"]
+
+
+async def test_approval_floods_reused_ids_and_foreign_threads(env: Env) -> None:
+    """Security review 2 (codex channel): bounded asks, one answer per id, own threads only."""
+    conn = Conn()
+    ref = await _create(env, conn)
+    channel = env.manager._records[("codex", ref["id"])].channel
+    assert isinstance(channel, codex.CodexChannel)
+    started: list[Any] = []
+    declined: list[Any] = []
+    gate = asyncio.Event()
+
+    async def slow(request_id: Any, method: str, params: Any) -> None:
+        started.append(request_id)
+        await gate.wait()
+
+    channel._approve = slow  # type: ignore[method-assign]
+    channel.server.send_quietly_response = (  # type: ignore[method-assign]
+        lambda rid, result: declined.append((rid, result)))
+    params = {"threadId": ref["id"], "command": "ls"}
+    for request_id in range(codex.MAX_OPEN_APPROVALS + 4):
+        channel.on_approval_request(request_id, codex.COMMAND_APPROVAL, params)
+    channel.on_approval_request(3, codex.COMMAND_APPROVAL, params)  # reused while open
+    await asyncio.sleep(0.05)
+    assert started == list(range(codex.MAX_OPEN_APPROVALS))
+    assert [rid for rid, _ in declined] == list(range(codex.MAX_OPEN_APPROVALS,
+                                                     codex.MAX_OPEN_APPROVALS + 4))
+    assert all(result == {"decision": "decline"} for _, result in declined)
+    gate.set()
+    await asyncio.sleep(0.05)
+    # A request for a thread snowpea does not run is refused, never asked.
+    await channel.server._dispatch({"method": codex.COMMAND_APPROVAL, "id": 555,
+                                    "params": {"threadId": "someone-elses-thread"}})
+    refusal = await until(lambda: [f["data"] for f in env.records("in")
+                                   if f["data"].get("id") == 555 and "error" in f["data"]])
+    assert refusal[0]["error"]["code"] == -32601
+    assert 555 not in started

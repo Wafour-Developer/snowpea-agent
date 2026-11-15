@@ -240,12 +240,16 @@ def iter_lines(
         handle.close()
 
 
+#: Longest transcript line parsed; a longer one is skipped (security review L1).
+MAX_RECORD_BYTES = 32 * 1024 * 1024
+
+
 def parse_record(line: bytes) -> dict[str, Any] | None:
-    if not line.strip():
+    if not line.strip() or len(line) > MAX_RECORD_BYTES:
         return None
     try:
         value = json.loads(line)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     return value if isinstance(value, dict) else None
 
@@ -355,6 +359,33 @@ def patch_from_result(result: Any, cwd: str | None) -> tuple[str, str] | None:
     return None
 
 
+def _previewable(path: str, cwd: str | None) -> Path | None:
+    """``path`` resolved when its old contents may be shown, else ``None``.
+
+    Only a file inside the session's real folder that is neither a secret
+    (``classify.is_secret_path``) nor snowpea configuration (``config_guard``).
+    """
+    if not cwd:
+        return None
+    try:
+        base = Path(cwd).resolve(strict=True)
+        raw = Path(path).expanduser()
+        target = (raw if raw.is_absolute() else base / raw).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if target != base and base not in target.parents:
+        return None
+    try:
+        from snowpea_core.jarvis.classify import is_secret_path
+        from snowpea_core.tools.config_guard import is_config_path
+
+        if is_secret_path(target) or is_config_path(str(target), workdir=str(base)):
+            return None
+    except Exception:  # noqa: BLE001 - unknown is protected
+        return None
+    return target
+
+
 def preview_diff(tool: str, args: dict[str, Any], cwd: str | None) -> str | None:
     """A diff for an approval card (Write / Edit / MultiEdit input)."""
     path = args.get("file_path")
@@ -363,12 +394,22 @@ def preview_diff(tool: str, args: dict[str, Any], cwd: str | None) -> str | None
     shown = _display_path(path, cwd)
     if tool == "Write" and isinstance(args.get("content"), str):
         old: list[str] = []
-        with contextlib.suppress(OSError, UnicodeDecodeError):
-            target = Path(path)
-            if target.is_file() and target.stat().st_size <= 1024 * 1024:
-                old = target.read_text(encoding="utf-8").splitlines()
+        target = _previewable(path, cwd)
+        if target is not None:
+            with contextlib.suppress(OSError, UnicodeDecodeError):
+                if target.is_file() and target.stat().st_size <= 1024 * 1024:
+                    old = target.read_text(encoding="utf-8").splitlines()
         new = args["content"].splitlines()
-        return "\n".join(difflib.unified_diff(old, new, f"a/{shown}", f"b/{shown}", lineterm=""))
+        body = "\n".join(difflib.unified_diff(old, new, f"a/{shown}", f"b/{shown}", lineterm=""))
+        if target is None:
+            # The file is outside the session's folder or a secret / config
+            # file: its current contents are never read into the approval card
+            # every surface sees (security review M1).
+            return (
+                f"# {shown}: the current contents are not shown (outside the project or a "
+                f"protected file); the new contents follow\n{body}"
+            )
+        return body
     edits: list[dict[str, Any]] = []
     if tool == "Edit":
         edits = [args]
@@ -663,7 +704,7 @@ def read_status(pid: int) -> dict[str, Any] | None:
         if path.stat().st_size > MAX_STATUS_BYTES:
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
     return data if isinstance(data, dict) else None
 
@@ -835,7 +876,7 @@ class ClaudeAdapter(ExternalAdapter):
             return None
         try:
             data = json.loads(out.decode("utf-8", "replace"))
-        except ValueError:
+        except (ValueError, RecursionError):
             return None
         value = data.get("loggedIn") if isinstance(data, dict) else None
         del data

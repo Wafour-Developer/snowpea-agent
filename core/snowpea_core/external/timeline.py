@@ -107,6 +107,55 @@ def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+#: Terminal escape sequences (security review M7): OSC (``ESC ]`` … BEL or
+#: ``ESC \\``, e.g. OSC 52 clipboard writes, OSC 8 links), DCS/SOS/PM/APC
+#: strings, CSI (``ESC [`` … final byte, also the 8-bit ``\x9b``) and any other
+#: two-character ``ESC x`` sequence.
+_ESCAPE_RE = re.compile(
+    r"(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)?"
+    r"|(?:\x1b[PX^_]|[\x90\x98\x9e\x9f])[^\x1b\x9c]*(?:\x1b\\|\x9c)?"
+    r"|(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]?"
+    r"|\x1b[ -/]*[0-~]?"
+)
+#: C0 (except tab and newline), DEL and C1 controls; carriage return goes too
+#: (it overwrites a terminal line).
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def clean_text(text: str) -> str:
+    """``text`` without terminal escape sequences or control characters (keeps \\n, \\t).
+
+    Every string external CLIs give snowpea (transcript text, titles,
+    previews, errors) passes through here before it reaches a client: a
+    transcript must not be able to drive the person's terminal (OSC 52
+    clipboard writes, OSC 8 links, cursor movement).  It is *not* HTML
+    escaping: clients that render markup still escape it themselves.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    if "\x1b" not in text and not _CONTROL_RE.search(text):
+        return text
+    return _CONTROL_RE.sub("", _ESCAPE_RE.sub("", text.replace("\r\n", "\n")))
+
+
+def clean_payload(value: Any, depth: int = 0) -> Any:
+    """:func:`clean_text` applied to every string (and key) of a payload."""
+    if isinstance(value, str):
+        return clean_text(value)
+    if depth > 64:
+        return value
+    if isinstance(value, dict):
+        return {
+            (clean_text(k) if isinstance(k, str) else k): clean_payload(v, depth + 1)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [clean_payload(item, depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return tuple(clean_payload(item, depth + 1) for item in value)
+    return value
+
+
 def clip(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
     """``text`` cut to ``limit`` characters with a marker."""
     if len(text) <= limit:
@@ -208,6 +257,7 @@ class TimelineBuilder:
         if item_key in self._seen:
             return None
         self._seen.add(item_key)
+        payload = clean_payload(payload)
         item = TimelineItem(kind=kind, payload=payload, ts=ts or utc_now(), key=item_key,
                             turn_id=turn_id)
         self._out.append(item)

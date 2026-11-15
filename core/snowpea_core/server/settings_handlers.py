@@ -66,6 +66,108 @@ _mask_secrets = mask_secrets
 _deep_merge = deep_merge
 
 
+#: Global settings only a person at a local connection may change over RPC
+#: (security review H2): every Jarvis switch, and the MCP tags that decide
+#: which tools read and which send.  Project scope: its ``jarvis`` block.
+PERSON_ONLY_KEYS: tuple[tuple[str, ...], ...] = (
+    ("jarvis",),
+    ("mcp", "permissions"),
+    ("mcp", "allowVars"),
+)
+#: Settings changes written to the Jarvis ledger (who changed what).
+_LEDGERED: tuple[tuple[str, ...], ...] = (
+    ("jarvis", "delegation", "default"),
+    ("jarvis", "external", "clis", "*", "path"),
+    ("jarvis", "external", "clis", "*", "defaultMode"),
+    ("jarvis", "external", "clis", "*", "passEnv"),
+)
+
+
+def _touches(patch: Any, key: tuple[str, ...]) -> bool:
+    node = patch
+    for part in key:
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    return True
+
+
+def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> list[tuple[tuple[str, ...], Any]]:
+    if isinstance(node, dict) and node:
+        out: list[tuple[tuple[str, ...], Any]] = []
+        for key, value in node.items():
+            out.extend(_leaves(value, (*prefix, str(key))))
+        return out
+    return [(prefix, node)]
+
+
+def _matches(path: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
+    return len(path) >= len(pattern) and all(
+        want in ("*", got) for want, got in zip(pattern, path, strict=False)
+    )
+
+
+def guard_patch(conn: Any, patch: dict[str, Any], *, project: bool) -> None:
+    """Refuse a patch a caller may not make (security review H2)."""
+    from snowpea_core.server.person_gate import require_person
+
+    keys = (("jarvis",),) if project else PERSON_ONLY_KEYS
+    touched = [".".join(key) for key in keys if _touches(patch, key)]
+    if touched:
+        require_person(conn, f"change {', '.join(touched)}", local=True)
+    if project or not isinstance(patch.get("jarvis"), dict):
+        return
+    for path, value in _leaves(patch["jarvis"]):
+        full = ("jarvis", *path)
+        if _matches(full, ("jarvis", "delegation", "default")) and value not in (None, "staged"):
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                "jarvis.delegation.default can only be 'staged'; to delegate everything, "
+                "make a global grant (jarvis.delegation.set {scope: 'global', level: 'full'})",
+            )
+        if _matches(full, ("jarvis", "external", "clis", "*", "defaultMode")) and (
+            value == "unrestricted"
+        ):
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                "defaultMode cannot be 'unrestricted'; choose unrestricted for one session "
+                "when you open or create it",
+            )
+        if _matches(full, ("jarvis", "external", "clis", "*", "confirmedPath")):
+            raise RpcError(
+                errors.INVALID_PARAMS, "confirmedPath is set only by external.clis.confirmPath"
+            )
+
+
+def _ledger_changes(core: Any, conn: Any, patch: dict[str, Any]) -> None:
+    """One ledger record per change of a ledgered Jarvis setting (who changed what)."""
+    raw = patch.get("jarvis")
+    if not isinstance(raw, dict):
+        return
+    changes = [
+        (".".join(("jarvis", *path)), value)
+        for path, value in _leaves(raw)
+        if any(_matches(("jarvis", *path), pattern) for pattern in _LEDGERED)
+    ]
+    if not changes:
+        return
+    try:
+        from snowpea_core.jarvis.delegation import engine_for
+
+        ledger = engine_for(core).ledger
+        by = str(getattr(conn, "client_kind", None) or "local")
+        for key, value in changes:
+            ledger.record_decision(
+                kind="escalate",
+                decided_by="person",
+                summary=f"setting {key} changed to {value!r} (settings.set from {by})"[:300],
+                reason="settings",
+                importance="normal",
+            )
+    except Exception:  # noqa: BLE001 - the change itself was allowed and saved
+        log.warning("could not ledger a Jarvis settings change", exc_info=True)
+
+
 def _require_workdir(params: SettingsGetParams | SettingsSetParams) -> str:
     if not params.workdir:
         raise RpcError(errors.INVALID_PARAMS, 'workdir is required when scope is "project"')
@@ -84,11 +186,12 @@ async def settings_get_handler(
 
 
 async def settings_set_handler(
-    _conn: RpcConnection, params: SettingsSetParams, core: Core
+    conn: RpcConnection, params: SettingsSetParams, core: Core
 ) -> SettingsResult:
     """``settings.set`` — deep-merge ``patch`` into settings and persist it."""
     if not isinstance(params.patch, dict):
         raise RpcError(errors.INVALID_PARAMS, "patch must be an object")
+    guard_patch(conn, params.patch, project=params.scope == "project")
 
     # A client that reads back ``settings.get``'s masked response and echoes
     # it into a patch (naive read-modify-write) must not be able to persist
@@ -118,7 +221,19 @@ async def settings_set_handler(
     unknown = _unknown_profile_vendors(params.patch, updated_settings)
     if unknown:
         raise RpcError(errors.INVALID_PARAMS, unknown)
+    raw_jarvis = params.patch.get("jarvis")
+    if isinstance(raw_jarvis, dict) and "folder" in raw_jarvis:
+        from snowpea_core.jarvis.service import jarvis_folder_problem
+
+        service = getattr(core, "jarvis", None)
+        roots = service.projects.known_roots() if service is not None else []
+        problem = jarvis_folder_problem(
+            updated_settings.jarvis.folder, core.paths.home, roots=roots
+        )
+        if problem:
+            raise RpcError(errors.INVALID_PARAMS, problem)
     updated_settings.save(core.paths)
+    _ledger_changes(core, conn, params.patch)
     # The daemon holds the old document in half a dozen places; rebinding here
     # is what makes settings.get and the next turn agree without a restart
     # (CORE-settings-reload).

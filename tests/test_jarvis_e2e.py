@@ -29,7 +29,7 @@ import aiohttp
 import pytest
 import pytest_asyncio
 from _external_adapter import FAKE_CLAUDE
-from _support import RpcClient, connect, env_vars, make_daemon
+from _support import RpcClient, connect, env_vars, make_daemon, pinned_cli
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.external.claude import ClaudeAdapter
@@ -237,7 +237,7 @@ async def test_jarvis_mode_end_to_end(http: aiohttp.ClientSession, tmp_path: Pat
         "jarvis": {
             "folder": str(tmp_path / "JarvisFolder"),
             "stallMinutes": 1,
-            "external": {"clis": {"claude": {"path": str(FAKE_CLAUDE)}}},
+            "external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE)}}},
         }
     }
     daemon = await _start(home, brain, settings)

@@ -10,6 +10,7 @@
  */
 
 import { detectLanguage, setUiLanguage } from "../layout/language.js";
+import { sanitizeDeep } from "../util/sanitize.js";
 import {
   connect as sdkConnect,
   type ApprovalRequestParams,
@@ -184,16 +185,22 @@ export class TuiClient {
     });
     this.client = client;
 
-    client.on("session.event", (event: SessionEvent) => this.handleSessionEvent(event));
-    client.on("approval.resolved", (params: any) => this.listeners.onApprovalResolved?.(params));
-    client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
-    client.on("approval.pending", (params: any) => this.listeners.onApprovalPending?.(params));
-    client.on("question.resolved", (params: any) => this.listeners.onQuestionResolved?.(params));
-    client.on("system.updateProgress", (params: any) => this.listeners.onUpdateProgress?.(params));
-    client.on("mcp.changed", (params) => this.listeners.onMcpChanged?.(params));
+    // Every notification passes the terminal-safety filter before any
+    // listener sees it (security review M7): this class is the TUI's one
+    // boundary for server-provided strings (notifications, call results and
+    // server->client requests alike).
+    const rawOn = client.on.bind(client) as (event: string, handler: (params: any) => void) => unknown;
+    const untypedOn = (event: string, handler: (params: any) => void): unknown =>
+      rawOn(event, (params: any) => handler(sanitizeDeep(params)));
+    untypedOn("session.event", (event: SessionEvent) => this.handleSessionEvent(event));
+    untypedOn("approval.resolved", (params: any) => this.listeners.onApprovalResolved?.(params));
+    untypedOn("commands.changed", () => this.listeners.onCommandsChanged?.());
+    untypedOn("approval.pending", (params: any) => this.listeners.onApprovalPending?.(params));
+    untypedOn("question.resolved", (params: any) => this.listeners.onQuestionResolved?.(params));
+    untypedOn("system.updateProgress", (params: any) => this.listeners.onUpdateProgress?.(params));
+    untypedOn("mcp.changed", (params) => this.listeners.onMcpChanged?.(params));
     // The 1.53.0 notifications are subscribed through the untyped `on` so a
     // pre-1.53 SDK build or daemon never has to know them.
-    const untypedOn = client.on.bind(client) as (event: string, handler: (params: any) => void) => unknown;
     untypedOn("question.pending", (params) => this.listeners.onQuestionPending?.(params));
     untypedOn("jarvis.state", (params) => this.listeners.onJarvisState?.(params));
     untypedOn("jarvis.decision", (params) => this.listeners.onJarvisDecision?.(params));
@@ -205,7 +212,7 @@ export class TuiClient {
     untypedOn("jarvis.escalation.dismissed", (params) => this.listeners.onJarvisEscalationDismissed?.(params));
     untypedOn("external.clis.changed", (params) => this.listeners.onExternalClisChanged?.(params));
     untypedOn("sessions.changed", (params) => this.listeners.onSessionsChanged?.(params));
-    client.on("settings.changed", (params: any) => {
+    untypedOn("settings.changed", (params: any) => {
       void this.loadUiLanguage();
       this.listeners.onSettingsChanged?.(params ?? {});
     });
@@ -254,12 +261,14 @@ export class TuiClient {
 
   /** Bind the interactive server→client approval prompt. */
   onApprovalRequest(handler: ApprovalHandler): void {
-    this.require().onRequest("approval.request", handler);
+    this.require().onRequest("approval.request", ((params: any) =>
+      handler(sanitizeDeep(params))) as ApprovalHandler);
   }
 
   /** Bind the `ask_user` picker; the daemon blocks on the answer. */
   onQuestionRequest(handler: QuestionHandler): void {
-    this.require().onRequest("question.request", handler);
+    this.require().onRequest("question.request", ((params: any) =>
+      handler(sanitizeDeep(params))) as QuestionHandler);
   }
 
   /**
@@ -295,7 +304,7 @@ export class TuiClient {
   call(method: string, params: Record<string, unknown> = {}): Promise<any> {
     const client = this.require();
     const untyped = client.call.bind(client) as (m: string, p?: unknown) => Promise<any>;
-    return untyped(method, params);
+    return untyped(method, params).then((result) => sanitizeDeep(result));
   }
 
   async createSession(options: CreateSessionOptions): Promise<string> {

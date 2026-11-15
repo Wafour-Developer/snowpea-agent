@@ -847,10 +847,14 @@ async def test_mail_triage_is_isolated_and_mail_cannot_command_anything(
         # 5. The worker's session is its own, scratch only, and closed again.
         run = (await core.scheduler.store.runs(job_id))[0]
         assert run["status"] == "ok" and run["session_id"] != jarvis.id
-        row = await core.store.session(run["session_id"])
-        assert Path(row["workdir"]).parts[-2] == ".scratch"
+        # Its transcript (what it read) is purged after the hand-over (security
+        # review M6); one ledger line says so.  The scratch folder is gone too.
+        assert await core.store.session(run["session_id"]) is None
         assert core.sessions.get(run["session_id"]) is None
-        assert not Path(row["workdir"]).exists()
+        purged = [e for e in core.jarvis.engine.ledger.entries()
+                  if e.get("action") == "purge" and e.get("sessionId") == run["session_id"]]
+        assert len(purged) == 1
+        assert not (core.jarvis.folder() / ".scratch" / job_id).exists()
     finally:
         await daemon.stop()
 

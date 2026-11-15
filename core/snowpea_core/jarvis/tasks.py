@@ -162,7 +162,33 @@ async def run_worker(
         with contextlib.suppress(Exception):
             await core.sessions.close(session.id)
         core.lifecycle.set_counter("sessions", len(core.sessions))
+        await _purge_worker(core, session.id, job_id)
     return WorkerResult(collector.status(), collector.final_text, session.id)
+
+
+async def _purge_worker(core: Core, session_id: str, job_id: str) -> None:
+    """Delete a finished worker's stored transcript; keep one ledger line (security review M6).
+
+    What a mail or calendar worker read stays only in the fenced report and
+    the hand-over, never in ``state.db`` where any ``session.*`` call reaches.
+    """
+    store = getattr(core, "store", None)
+    if store is not None:
+        try:
+            await store.delete_sessions([session_id])
+        except Exception:  # noqa: BLE001 - the report is saved either way
+            log.warning("could not purge the jarvis-task worker %s", session_id, exc_info=True)
+            return
+    with contextlib.suppress(Exception):
+        service_of(core).engine.ledger.append(
+            {
+                "type": "access",
+                "sessionId": session_id,
+                "action": "purge",
+                "summary": f"jarvis-task worker of job {job_id} finished; its transcript was "
+                "deleted (the result is in the report)",
+            }
+        )
 
 
 def scratch(service: Any, job_id: str) -> Path:
@@ -301,6 +327,10 @@ async def run_job(
         )
     else:
         workdir = Path(job.workdir) if job.workdir else service.folder()
+        # Exposure is checked again at every firing (security review M2): a
+        # project hidden after the task was scheduled is never worked in.
+        if service.path_hidden(workdir):
+            return ("error", f"{title}: that project is hidden from Jarvis now", None)
         result = await run_worker(
             core,
             job_id=job.id,

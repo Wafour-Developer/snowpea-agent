@@ -17,9 +17,12 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.external.manager import ExternalManager
 from snowpea_core.external.proc import ExternalError
+from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
+from snowpea_core.server.person_gate import is_person, require_person
 from snowpea_core.server.protocol import (
     Empty,
+    ExternalClisConfirmPathParams,
     ExternalClisResult,
     ExternalCreateParams,
     ExternalCreateResult,
@@ -46,6 +49,7 @@ log = logging.getLogger("snowpea.external")
 
 HANDLED_METHODS: tuple[str, ...] = (
     "external.clis",
+    "external.clis.confirmPath",
     "external.list",
     "external.open",
     "external.read",
@@ -77,12 +81,11 @@ async def _roots(core: Core) -> list[str]:
 
 
 async def _exposed(root: str) -> bool:
-    """``jarvis.expose`` of the project at ``root`` (default true)."""
+    """``jarvis.expose`` of the project at ``root``; a broken settings file hides it (M2)."""
     try:
-        settings = await asyncio.to_thread(ProjectSettings.load, root)
-    except Exception:  # noqa: BLE001 - an unreadable project file keeps the default
-        return True
-    return bool(settings.jarvis.expose)
+        return await asyncio.to_thread(ProjectSettings.exposed, root)
+    except Exception:  # noqa: BLE001 - fail closed
+        return False
 
 
 def _workdir_fn(core: Core) -> Callable[[str], Awaitable[str | None]]:
@@ -156,16 +159,66 @@ async def _call(coro: Awaitable[Any]) -> Any:
         raise _rpc(exc) from exc
 
 
+def _own_only(conn: RpcConnection | None, core: Core, cli: str, session_id: str) -> None:
+    """A browser host or the connector reaches only sessions it watches (security review L6).
+
+    A person (local or remote web login) reaches every session in a
+    registered project, as before.  Anyone else must have opened, created or
+    sent to the session first; otherwise it does not exist for them.
+    """
+    if is_person(conn):
+        return
+    if not ensure_manager(core).watched_by(cli, session_id, conn):
+        raise RpcError(errors.NOT_FOUND, f"no {cli} session {session_id} for this connection")
+
+
 async def clis_handler(_conn: RpcConnection, _params: Empty, core: Core) -> ExternalClisResult:
     rows = await _call(ensure_manager(core).clis())
     return ExternalClisResult.model_validate({"clis": rows})
 
 
+async def confirm_path_handler(
+    conn: RpcConnection, params: ExternalClisConfirmPathParams, core: Core
+) -> ExternalClisResult:
+    """``external.clis.confirmPath``: the person allows snowpea to run a CLI path override."""
+    from snowpea_core.config.settings import Settings
+    from snowpea_core.external.manager import resolved_override
+
+    require_person(conn, "confirm an external CLI path", local=True)
+    cli_settings = core.settings.jarvis.external.clis.get(params.cli)
+    override = getattr(cli_settings, "path", None)
+    real = resolved_override(override) if override else None
+    if real is None or real != params.path:
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            "that is not the path jarvis.external.clis."
+            f"{params.cli}.path resolves to now; read external.clis again",
+        )
+    merged = core.settings.model_dump(mode="json")
+    merged["jarvis"]["external"]["clis"][params.cli]["confirmedPath"] = real
+    updated = Settings.model_validate(merged)
+    updated.save(core.paths)
+    await core.adopt_settings(updated, ["jarvis"])
+    with contextlib.suppress(Exception):
+        from snowpea_core.jarvis.delegation import engine_for
+
+        engine_for(core).ledger.record_decision(
+            kind="escalate",
+            decided_by="person",
+            summary=f"confirmed {params.cli} executable {real}"[:300],
+            reason="settings",
+            importance="normal",
+        )
+    rows = await _call(ensure_manager(core).clis(refresh=True))
+    return ExternalClisResult.model_validate({"clis": rows})
+
+
 async def list_handler(
-    _conn: RpcConnection, params: ExternalListParams, core: Core
+    conn: RpcConnection, params: ExternalListParams, core: Core
 ) -> ExternalListResult:
+    manager = ensure_manager(core)
     result = await _call(
-        ensure_manager(core).list_sessions(
+        manager.list_sessions(
             clis=params.clis,
             cwd=params.cwd,
             session_id=params.sessionId,
@@ -174,6 +227,12 @@ async def list_handler(
             before=params.before,
         )
     )
+    if not is_person(conn):
+        own = manager.watched_refs(conn)
+        result["sessions"] = [
+            row for row in result["sessions"]
+            if (row["ref"]["cli"], row["ref"]["id"]) in own
+        ]
     return ExternalListResult.model_validate(result)
 
 
@@ -183,15 +242,16 @@ async def open_handler(
     result = await _call(
         ensure_manager(core).open(
             params.ref.cli, params.ref.id, limit=params.limit, mode=params.mode, conn=conn,
-            transport=params.transport,
+            transport=params.transport, trust=params.trust,
         )
     )
     return ExternalOpenResult.model_validate(result)
 
 
 async def read_handler(
-    _conn: RpcConnection, params: ExternalReadParams, core: Core
+    conn: RpcConnection, params: ExternalReadParams, core: Core
 ) -> ExternalReadResult:
+    _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(
         ensure_manager(core).read(
             params.ref.cli, params.ref.id, before_seq=params.beforeSeq, limit=params.limit
@@ -203,6 +263,7 @@ async def read_handler(
 async def send_handler(
     conn: RpcConnection, params: ExternalSendParams, core: Core
 ) -> ExternalSendResult:
+    _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(
         ensure_manager(core).send(params.ref.cli, params.ref.id, params.text, conn=conn)
     )
@@ -212,6 +273,7 @@ async def send_handler(
 async def set_mode_handler(
     conn: RpcConnection, params: ExternalSetModeParams, core: Core
 ) -> ExternalCreateResult:
+    _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(
         ensure_manager(core).set_mode(params.ref.cli, params.ref.id, params.mode, conn=conn)
     )
@@ -219,8 +281,9 @@ async def set_mode_handler(
 
 
 async def interrupt_handler(
-    _conn: RpcConnection, params: ExternalRefParams, core: Core
+    conn: RpcConnection, params: ExternalRefParams, core: Core
 ) -> Ok:
+    _own_only(conn, core, params.ref.cli, params.ref.id)
     await _call(ensure_manager(core).interrupt(params.ref.cli, params.ref.id))
     return Ok(ok=True)
 
@@ -236,19 +299,22 @@ async def create_handler(
             mode=params.mode,
             transport=params.transport,
             conn=conn,
+            trust=params.trust,
         )
     )
     return ExternalCreateResult.model_validate(result)
 
 
 async def close_handler(conn: RpcConnection, params: ExternalRefParams, core: Core) -> Ok:
+    _own_only(conn, core, params.ref.cli, params.ref.id)
     await _call(ensure_manager(core).close(params.ref.cli, params.ref.id, conn=conn))
     return Ok(ok=True)
 
 
 async def get_handler(
-    _conn: RpcConnection, params: ExternalRefParams, core: Core
+    conn: RpcConnection, params: ExternalRefParams, core: Core
 ) -> ExternalGetResult:
+    _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(ensure_manager(core).get(params.ref.cli, params.ref.id))
     return ExternalGetResult.model_validate(result)
 
@@ -260,6 +326,7 @@ async def unwatch_handler(conn: RpcConnection, params: ExternalRefParams, core: 
 
 def register_external_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("external.clis", clis_handler)
+    dispatcher.register("external.clis.confirmPath", confirm_path_handler)
     dispatcher.register("external.list", list_handler)
     dispatcher.register("external.open", open_handler)
     dispatcher.register("external.read", read_handler)

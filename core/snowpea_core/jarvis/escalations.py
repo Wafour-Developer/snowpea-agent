@@ -34,6 +34,10 @@ class EscalationBook:
         self._items: list[dict[str, Any]] = self._load()
 
     def _load(self) -> list[dict[str, Any]]:
+        if self.path.exists():
+            # Owner-only on every open, not only when written (review L3).
+            with contextlib.suppress(OSError):
+                os.chmod(self.path, 0o600)
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -47,9 +51,20 @@ class EscalationBook:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps({"open": self._items}, ensure_ascii=False), encoding="utf-8")
-            with contextlib.suppress(OSError):
-                os.chmod(tmp, 0o600)
+            # Created owner-only: the text is never readable by others, even
+            # for the moment before a chmod.
+            # A fresh file every time, never through a symlink left in its place.
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(tmp, flags, 0o600)
+            try:
+                with contextlib.suppress(OSError, AttributeError):
+                    os.fchmod(fd, 0o600)
+                os.write(fd, json.dumps({"open": self._items}, ensure_ascii=False)
+                         .encode("utf-8"))
+            finally:
+                os.close(fd)
             tmp.replace(self.path)
         except OSError:
             log.warning("could not write %s", self.path, exc_info=True)

@@ -45,7 +45,6 @@ import logging
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -265,7 +264,7 @@ def _proc_locks_holders(st: os.stat_result) -> set[int] | None:
 
 
 def _lsof_holders(path: str | os.PathLike[str]) -> set[int] | None:
-    lsof = shutil.which("lsof")
+    lsof = proc.trusted_tool("lsof")
     if lsof is None:
         return None
     try:
@@ -774,6 +773,10 @@ class AppServer:
         with contextlib.suppress(ExternalError):
             await self._write({"id": request_id, "result": result})
 
+    def send_quietly_response(self, request_id: Any, result: dict[str, Any]) -> None:
+        """Answer a server request without waiting (safe from inside the reader)."""
+        asyncio.ensure_future(self.respond(request_id, result))
+
     async def respond_error(self, request_id: Any, code: int, message: str) -> None:
         with contextlib.suppress(ExternalError):
             await self._write({"id": request_id, "error": {"code": code, "message": message}})
@@ -883,6 +886,10 @@ def _last_line(text: str) -> str:
 COMMAND_APPROVAL = "item/commandExecution/requestApproval"
 FILE_APPROVAL = "item/fileChange/requestApproval"
 APPROVAL_METHODS = frozenset({COMMAND_APPROVAL, FILE_APPROVAL})
+#: Approval asks one thread may have open at once; more are declined unasked.
+MAX_OPEN_APPROVALS = 16
+#: File-change items kept for approval diffs (oldest dropped first).
+MAX_KEPT_CHANGES = 256
 
 
 # ---------------------------------------------------------------------------
@@ -1115,6 +1122,8 @@ class CodexChannel(ExternalChannel):
         if item is not None and item.get("type") == "fileChange" and item.get("id") is not None:
             # Kept even after snowpea ended the turn: its approval card shows the diff.
             self._changes[str(item["id"])] = item.get("changes")
+            while len(self._changes) > MAX_KEPT_CHANGES:  # bounded under a flood
+                self._changes.pop(next(iter(self._changes)))
         if not self.turn_open:
             return
         if method == "item/agentMessage/delta":
@@ -1187,7 +1196,16 @@ class CodexChannel(ExternalChannel):
                             ) -> None:
         previous = self._approvals.get(request_id)
         if previous is not None and not previous.done():
-            previous.cancel()
+            # A reused id while the first ask is open: that ask answers the id,
+            # once; the copy is never asked (security review, codex channel).
+            log.warning("codex reused approval id %r while it was open; ignored", request_id)
+            return
+        if self.closed or self.dead or len(
+            [t for t in self._approvals.values() if not t.done()]
+        ) >= MAX_OPEN_APPROVALS:
+            # A closed channel or a flood of asks: declined without asking anyone.
+            self.server.send_quietly_response(request_id, {"decision": "decline"})
+            return
         task = asyncio.ensure_future(self._approve(request_id, method, params))
         self._approvals[request_id] = task
         task.add_done_callback(functools.partial(self._forget_approval, request_id))

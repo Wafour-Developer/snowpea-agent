@@ -15,7 +15,52 @@ import pytest
 import pytest_asyncio
 from _support import PROVIDER_FIXTURES, env_vars
 
+from snowpea_core.external import proc as external_proc
 from snowpea_core.gateway.fake import FakeAdapter
+
+# The fake CLIs are steered by FAKE_* variables; an external CLI child gets
+# only allow-listed variables (security review L3), so the suite adds its own.
+if "FAKE_" not in external_proc.EXTRA_ALLOW_PREFIXES:
+    external_proc.EXTRA_ALLOW_PREFIXES.append("FAKE_")
+
+
+@pytest.fixture(autouse=True)
+def _projects_trusted_for_external_clis(request: pytest.FixtureRequest) -> Iterator[None]:
+    """External CLI tests run in projects the person already trusted (security review M4).
+
+    Before the review any registered project was enough; the suites written
+    then exercise sessions, not the trust step.  Tests marked ``real_trust``
+    (tests/test_security_review2_*.py) see the real rule.  Patched by hand,
+    not through ``monkeypatch``: an autouse fixture that requested it would
+    make every test's own monkeypatching outlive its other fixtures.
+    """
+    if request.node.get_closest_marker("real_trust") is not None:
+        yield
+        return
+    from snowpea_core.external.trust import ProjectTrust
+
+    original = ProjectTrust.trusted
+    ProjectTrust.trusted = lambda self, root: True  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        ProjectTrust.trusted = original  # type: ignore[method-assign]
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "real_trust: external CLI project trust is not pre-granted (M4)"
+    )
+
+
+@pytest.fixture(autouse=True)
+def _no_legacy_settings_carry_over() -> Iterator[None]:
+    """Legacy settings values one test loads never raise another test's escalation."""
+    from snowpea_core.config.settings import LEGACY_VALUES
+
+    LEGACY_VALUES.clear()
+    yield
+    LEGACY_VALUES.clear()
 
 
 @pytest.fixture(scope="session", autouse=True)

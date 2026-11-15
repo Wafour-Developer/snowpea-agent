@@ -95,6 +95,7 @@ def parse_envelope(envelope: dict[str, Any]) -> InboundMessage | None:
             attachments=list(event.get("files") or []),
             message_id=str(event.get("ts", "")) or None,
             reply_to=str(event.get("thread_ts")) if event.get("thread_ts") else None,
+            metadata={"chat_type": str(event.get("channel_type") or _chat_type(channel))},
         )
     if kind == "interactive":
         actions = payload.get("actions") or []
@@ -110,6 +111,7 @@ def parse_envelope(envelope: dict[str, Any]) -> InboundMessage | None:
             text="",
             callback_data=str(action.get("value", "")) or None,
             callback_id=str(envelope.get("envelope_id", "")) or None,
+            metadata={"chat_type": _chat_type(channel)},
         )
     if kind == "slash_commands":
         # Slack intercepts anything starting with "/", so this *is* the typed
@@ -125,8 +127,14 @@ def parse_envelope(envelope: dict[str, Any]) -> InboundMessage | None:
             user_id=str(payload.get("user_id") or ""),
             text=f"{command} {args}".rstrip(),
             callback_id=str(envelope.get("envelope_id", "")) or None,
+            metadata={"chat_type": _chat_type(channel)},
         )
     return None
+
+
+def _chat_type(channel: Any) -> str:
+    """``im`` for a direct-message channel (Slack DM ids start with ``D``), else ``channel``."""
+    return "im" if str(channel or "").startswith("D") else "channel"
 
 
 def slack_manifest(bot_name: str = "snowpea") -> dict[str, Any]:

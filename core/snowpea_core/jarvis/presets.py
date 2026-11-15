@@ -79,8 +79,13 @@ def _book_path(core: Core) -> Path:
 
 
 def load_book(core: Core) -> dict[str, dict[str, Any]]:
+    path = _book_path(core)
+    if path.exists():
+        # Owner-only on every open, not only when written (review L3).
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
     try:
-        raw = json.loads(_book_path(core).read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     presets = raw.get("presets") if isinstance(raw, dict) else None
@@ -93,6 +98,8 @@ def save_book(core: Core, book: dict[str, dict[str, Any]]) -> None:
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
+        with contextlib.suppress(OSError, AttributeError):
+            os.fchmod(fd, 0o600)  # a leftover .tmp keeps its old mode otherwise
         os.write(fd, json.dumps({"presets": book}, ensure_ascii=False, indent=2).encode("utf-8"))
     finally:
         os.close(fd)
@@ -355,11 +362,32 @@ def _credentials(core: Core) -> CredentialStore:
     return CredentialStore(core.paths)
 
 
+#: Where a credential a preset replaced is kept until ``remove`` puts it back:
+#: in the credential store itself, so ``presets.json`` only names it
+#: (security review L4).
+BACKUP_PREFIX = "__preset_backup__"
+
+
+def _backup_key(preset_id: str, name: str) -> str:
+    return f"{BACKUP_PREFIX}{preset_id}__{name}"
+
+
 def _restore_credentials(core: Core, previous: dict[str, Any]) -> None:
+    """Put credentials back: ``None`` removes, ``{"ref": key}`` takes the kept value.
+
+    A plain string (a ``presets.json`` written before the references) is
+    still honoured.
+    """
     store = _credentials(core)
     data = store.load()
     for name, value in previous.items():
-        if value is None:
+        if isinstance(value, dict) and isinstance(value.get("ref"), str):
+            kept = data.pop(value["ref"], None)
+            if kept is None:
+                data.pop(name, None)
+            else:
+                data[name] = kept
+        elif value is None:
             data.pop(name, None)
         else:
             data[name] = value
@@ -589,30 +617,40 @@ async def _apply_locked(
             )
 
     # What to put back on remove: the very first state, kept across re-applies.
+    # A credential it replaces is kept in the credential store under a backup
+    # key; the snapshot (presets.json) holds only that reference (L4).
     snapshot: dict[str, Any] = (
         old["snapshot"]
         if old
         else {
             "entries": {n: existing.get(n) for n, _ in named},
             "permissions": {k: _permission_table(core).get(k) for k in permissions},
-            "credentials": {k: stored_creds.get(k) for k in secret_values},
+            "credentials": {},
         }
     )
     for key in permissions:
         snapshot["permissions"].setdefault(key, _permission_table(core).get(key))
+    backups: dict[str, Any] = {}
     for key in secret_values:
-        snapshot["credentials"].setdefault(key, stored_creds.get(key))
+        if key in snapshot["credentials"]:
+            continue
+        if stored_creds.get(key) is None:
+            snapshot["credentials"][key] = None
+        else:
+            ref = _backup_key(preset["id"], key)
+            backups[ref] = stored_creds[key]
+            snapshot["credentials"][key] = {"ref": ref}
 
     undo: list[Any] = []
     adds: list[McpAddResult] = []
     created_jobs: list[str] = []
     prior_entries = {n: existing.get(n) for n, _ in named}
     prior_perms = {k: _permission_table(core).get(k) for k in permissions}
-    prior_creds = {k: stored_creds.get(k) for k in secret_values}
+    prior_creds = {k: stored_creds.get(k) for k in [*secret_values, *backups]}
     try:
         if secret_values:
             store = _credentials(core)
-            store.save({**store.load(), **secret_values})
+            store.save({**store.load(), **backups, **secret_values})
             undo.append(lambda: _async_none(_restore_credentials, core, prior_creds))
         await _write_permissions(core, dict(permissions))
         undo.append(lambda: _write_permissions(core, dict(prior_perms)))
@@ -750,7 +788,19 @@ async def remove(core: Core, preset_id: str) -> McpPresetRemoveResult:
                 await _restart(core, name, workdir)
         book.pop(preset_id, None)
         save_book(core, book)
-        return McpPresetRemoveResult(removed=True, servers=servers, jobs=jobs)
+        notice = None
+        preset = mcp_catalog.preset(preset_id)
+        if preset is not None and any(
+            s.get("signIn") == "deviceCode" for s in preset.get("servers", [])
+        ):
+            # The server keeps its own sign-in (a token cache snowpea does not
+            # manage); say so rather than claim it is gone (security review L4).
+            notice = (
+                "The server's own sign-in is not removed by snowpea. Sign out with the "
+                "server's logout command, or revoke the app's access in your Microsoft "
+                "account settings."
+            )
+        return McpPresetRemoveResult(removed=True, servers=servers, jobs=jobs, notice=notice)
 
 
 def applied_servers(core: Core) -> dict[str, dict[str, Any]]:

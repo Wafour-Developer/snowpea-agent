@@ -340,7 +340,14 @@ async def search_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     entries = (await relevant(memory.store, query, found, namespaces))[:limit]
     if not entries:
         return ToolResult(ok=True, output="no memories matched")
-    return ToolResult(ok=True, output="\n".join(format_entry(entry) for entry in entries))
+    output = "\n".join(format_entry(entry) for entry in entries)
+    if jarvis_reads is not None:
+        # Jarvis: memories hold text sessions wrote (or a fooled Jarvis saved):
+        # data inside the fence, never instructions (security review L2).
+        from snowpea_core.jarvis.tools import fence
+
+        output = fence("memory", output)
+    return ToolResult(ok=True, output=output)
 
 
 TOOLS: tuple[Tool, ...] = (

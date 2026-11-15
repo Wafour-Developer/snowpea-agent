@@ -321,6 +321,9 @@ async def session_resume_handler(
     conn: RpcConnection, params: SessionResumeParams, core: Core
 ) -> SessionResumeResult:
     """``session.resume`` — re-subscribe and replay events after ``afterSeq``."""
+    from snowpea_core.server.person_gate import hide_task_worker
+
+    await hide_task_worker(conn, core, params.sessionId)
     session = core.sessions.get(params.sessionId)
     if session is None:
         session = await core.sessions.restore(params.sessionId, origin_conn=conn)
@@ -371,10 +374,15 @@ async def session_resume_handler(
 async def session_list_handler(
     conn: RpcConnection, params: SessionListParams, core: Core
 ) -> SessionListResult:
+    from snowpea_core.server.person_gate import is_person, is_task_worker
+
     rows = await collect_sessions(core, params)
     # The origin as this caller may see it (whose it is, not other clients' ids).
     out = []
+    person = is_person(conn)
     for row in rows:
+        if not person and await is_task_worker(core, row.sessionId):
+            continue  # a jarvis-task worker is the person's only (security review M6)
         live = core.sessions.get(row.sessionId)
         origin = origin_of(live, conn) if live is not None else None
         out.append(row.model_copy(update={"origin": origin}))

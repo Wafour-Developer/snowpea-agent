@@ -32,7 +32,7 @@ from _claude_support import (
     write_transcript,
 )
 from _external_adapter import FAKE_CLAUDE
-from _support import env_vars
+from _support import env_vars, pinned_cli
 from test_external_claude import Conn, Hub
 
 from snowpea_core.config.settings import Settings
@@ -85,7 +85,7 @@ class TmuxEnv:
         self.project = (tmp_path / "proj").resolve()
         self.project.mkdir(parents=True)
         self.settings = Settings.model_validate(
-            {"jarvis": {"external": {"clis": {"claude": {"path": str(FAKE_CLAUDE)}}}}}
+            {"jarvis": {"external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE)}}}}}
         )
         self.hub = Hub()
         self.approvals = ApprovalQueue(self.settings, hub=self.hub)  # type: ignore[arg-type]
@@ -435,7 +435,7 @@ async def test_adopting_over_external_open_is_the_persons_call(tmp_path: Path,
     project.mkdir()
     sid = str(uuid.uuid4())
     settings = Settings.model_validate(
-        {"jarvis": {"external": {"clis": {"claude": {"path": str(FAKE_CLAUDE)}}}}}
+        {"jarvis": {"external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE)}}}}}
     )
     hub = Hub()
     approvals = ApprovalQueue(settings, hub=hub)  # type: ignore[arg-type]
@@ -465,7 +465,10 @@ async def test_adopting_over_external_open_is_the_persons_call(tmp_path: Path,
                                            if m == "approval.pending"])
             request = pending[-1]
             assert request["tool"] == "tmux.adopt" and request["personOnly"] is True
-            assert set(request["args"]) == {"cli", "sessionId", "tmux", "cwd"}
+            assert set(request["args"]) == {"cli", "sessionId", "tmux", "cwd", "paneCommand",
+                                            "paneCwd", "unrestricted"}
+            # What tmux says runs in the pane, and no bypass flag (security review M5).
+            assert request["args"]["paneCommand"] and request["args"]["unrestricted"] is False
             assert request["args"]["cli"] == "claude" and request["args"]["sessionId"] == sid
             assert set(request["args"]["tmux"]) == {"session", "pane"}
             assert request["route"] in (None, "person")

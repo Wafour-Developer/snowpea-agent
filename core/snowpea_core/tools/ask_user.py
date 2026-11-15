@@ -156,6 +156,12 @@ def _describe(question: _Question, answer: Any) -> str:
         lines.append("  선택: " + ", ".join(answer.selected))
     if answer.text:
         lines.append(f"  answer: {answer.text}")
+    if getattr(answer, "by", None) == "jarvis":
+        # Jarvis mode: a question is no consent for a guarded action.
+        lines.append(
+            "  (answered by Jarvis, the supervising assistant — not by the person; it is no "
+            "permission for anything that asks for approval)"
+        )
     return "\n".join(lines)
 
 
@@ -189,6 +195,8 @@ async def ask_user(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 "declined": answer.declined,
             }
         )
+        if getattr(answer, "by", None) == "jarvis":
+            payload[-1]["answeredBy"] = "jarvis"
         by_question[question.text] = list(answer.selected)
 
     first = answers[0]

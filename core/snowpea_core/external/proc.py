@@ -30,12 +30,14 @@ from __future__ import annotations
 import asyncio
 import collections
 import contextlib
+import functools
 import json
 import logging
 import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -101,6 +103,32 @@ SCRUB_EXACT: frozenset[str] = frozenset(
         "CLAUDE_CODE_SSE_PORT",
     }
 )
+
+#: Environment variables a CLI child inherits (security review L3: an
+#: allowlist, not a blocklist).  Each CLI's own config-dir variable is here
+#: (``CLAUDE_CONFIG_DIR``, ``CODEX_HOME``); credentials are not.
+ALLOW_EXACT: frozenset[str] = frozenset(
+    {
+        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "COLORTERM",
+        "TZ", "TMPDIR", "TEMP", "TMP", "NO_COLOR", "FORCE_COLOR",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE",
+        "NO_PROXY",
+        "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+        "TMUX_TMPDIR", "__CF_USER_TEXT_ENCODING",
+        # Windows: what a process needs to start and find its profile.
+        "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "APPDATA",
+        "LOCALAPPDATA", "USERPROFILE", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
+        "PROGRAMW6432", "COMMONPROGRAMFILES", "HOMEDRIVE", "HOMEPATH", "USERNAME",
+        "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
+    }
+)
+ALLOW_PREFIXES: tuple[str, ...] = ("LC_", "XDG_")
+#: Proxy variables pass only without credentials in them (no ``user:pass@``).
+PROXY_VARS: frozenset[str] = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"})
+#: Test seam: prefixes the test suite's fake CLIs read (``FAKE_``); empty in production.
+EXTRA_ALLOW_PREFIXES: list[str] = []
+#: A variable name ``passEnv`` may list.
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 #: Longest stdout line kept (bytes); a longer one is dropped whole.
 MAX_LINE_BYTES = 16 * 1024 * 1024
@@ -577,16 +605,36 @@ def build_argv(
     return argv
 
 
+def _env_allowed(key: str, value: str, passed: frozenset[str]) -> bool:
+    upper = key.upper()
+    if key in SCRUB_EXACT or upper.startswith(SCRUB_PREFIXES):
+        return False
+    if upper in passed:
+        return True
+    if upper in PROXY_VARS:
+        return "@" not in value  # a proxy URL with credentials stays behind
+    return upper in ALLOW_EXACT or upper.startswith(ALLOW_PREFIXES + tuple(EXTRA_ALLOW_PREFIXES))
+
+
 def scrubbed_env(
-    extra: Mapping[str, str] | None = None, base: Mapping[str, str] | None = None
+    extra: Mapping[str, str] | None = None,
+    base: Mapping[str, str] | None = None,
+    *,
+    pass_env: Iterable[str] = (),
 ) -> dict[str, str]:
-    """The daemon's environment minus snowpea secrets, plus ``extra``."""
+    """The allow-listed part of the daemon's environment, plus ``extra``.
+
+    Only :data:`ALLOW_EXACT` / :data:`ALLOW_PREFIXES` (locale, terminal, home,
+    temp, certificates, each CLI's config-dir variable) and credential-free
+    proxies pass (security review L3); provider keys and tokens
+    (``ANTHROPIC_API_KEY``, ``GITHUB_TOKEN``, ``AWS_*`` …) reach a CLI only
+    when the person names them in ``jarvis.external.clis.<id>.passEnv``.
+    """
     source = dict(os.environ if base is None else base)
-    env = {
-        key: value
-        for key, value in source.items()
-        if key not in SCRUB_EXACT and not key.upper().startswith(SCRUB_PREFIXES)
-    }
+    passed = frozenset(
+        str(name).upper() for name in pass_env if isinstance(name, str) and ENV_NAME_RE.match(name)
+    )
+    env = {key: value for key, value in source.items() if _env_allowed(key, value, passed)}
     for key, value in (extra or {}).items():
         if key in SCRUB_EXACT or key.upper().startswith(SCRUB_PREFIXES):
             raise ExternalError(errors.INVALID_PARAMS, f"refused environment variable {key}")
@@ -678,9 +726,12 @@ def process_start_time(pid: int) -> str | None:
         return fields[19] if len(fields) > 19 else None
     if IS_WINDOWS:  # pragma: no cover - Windows only
         return None
+    ps = trusted_tool("ps")
+    if ps is None:
+        return None
     try:
         out = subprocess.run(
-            ["ps", "-o", "lstart=", "-p", str(pid)],
+            [ps, "-o", "lstart=", "-p", str(pid)],
             capture_output=True,
             text=True,
             timeout=5,
@@ -953,7 +1004,7 @@ class ExternalProcess:
                 continue
             try:
                 value = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):
                 self.garbage_lines += 1
                 continue
             if not isinstance(value, dict):
@@ -1075,7 +1126,7 @@ class ProcessSupervisor:
         except BaseException:
             self._helper_slots.release()
             raise
-        pid_file = self._write_pid_file(raw.pid, cli, "helper")
+        pid_file = self._write_pid_file(raw.pid, cli, "helper", exe=argv[0])
         handle = ExternalProcess(raw, cli=cli, ref="helper", supervisor=self, pid_file=pid_file)
         self._helpers[raw.pid] = handle
         self.helpers_started += 1
@@ -1146,26 +1197,61 @@ class ProcessSupervisor:
             ) from exc
         finally:
             self._reserved -= 1
-        pid_file = self._write_pid_file(proc.pid, cli, ref)
+        pid_file = self._write_pid_file(proc.pid, cli, ref, exe=argv[0])
         handle = ExternalProcess(proc, cli=cli, ref=ref, supervisor=self, pid_file=pid_file)
         self._live[proc.pid] = handle
         return handle
 
-    def _write_pid_file(self, pid: int, cli: str, ref: str | None) -> Path | None:
+    def _secure_dir(self) -> bool:
+        """Create the pid-file directory 0700; False when it is not safely ours.
+
+        A symlink, a non-directory or a directory another user owns is never
+        used: its records could name any process (security review H1).
+        """
+        with contextlib.suppress(OSError):
+            self.dir.parent.mkdir(parents=True, exist_ok=True)
+            self.dir.mkdir(mode=0o700, exist_ok=True)
+        try:
+            info = os.lstat(self.dir)
+        except OSError:
+            return False
+        if not stat.S_ISDIR(info.st_mode):
+            return False
+        if not IS_WINDOWS:
+            if info.st_uid != os.getuid():
+                return False
+            if stat.S_IMODE(info.st_mode) & 0o077:
+                try:
+                    os.chmod(self.dir, 0o700)
+                except OSError:
+                    return False
+        return True
+
+    def _write_pid_file(
+        self, pid: int, cli: str, ref: str | None, exe: str | None = None
+    ) -> Path | None:
         record = {
             "pid": pid,
             "pgid": None if IS_WINDOWS else _safe_getpgid(pid),
             "startTime": process_start_time(pid),
+            "exe": exe,
             "cli": cli,
             "ref": ref,
             "daemonPid": os.getpid(),
             "ts": utc_now(),
         }
         try:
-            self.dir.mkdir(parents=True, exist_ok=True)
+            if not self._secure_dir():
+                log.warning("the external pid-file directory is not safe; %s not recorded", cli)
+                return None
             path = self.dir / f"{pid}.json"
             tmp = self.dir / f".{pid}.json.tmp"
-            tmp.write_text(json.dumps(record), encoding="utf-8")
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()  # unlink never follows a symlink
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(tmp, flags, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(record))
             os.replace(tmp, path)
             return path
         except OSError:
@@ -1173,16 +1259,22 @@ class ProcessSupervisor:
             return None
 
     def reap_orphans(self) -> int:
-        """Kill CLI processes a previous daemon left behind; returns how many."""
+        """Kill CLI processes a previous daemon left behind; returns how many.
+
+        A record is trusted only when every check passes (security review H1):
+        a regular file this user owns (no symlink) named after the recorded
+        pid, a recorded start time and executable that match the live
+        process, and a recording daemon that is gone (or is this daemon).
+        Anything else is removed without a signal.
+        """
         killed = 0
-        if not self.dir.is_dir():
+        if not self.dir.is_dir() or not self._secure_dir():
             return 0
         mine = self.pids()
         for path in sorted(self.dir.glob("*.json")):
-            try:
-                record = json.loads(path.read_text(encoding="utf-8"))
-                pid = int(record["pid"])
-            except (OSError, ValueError, KeyError, TypeError):
+            record = _read_pid_record(path)
+            pid = _record_pid(path, record)
+            if record is None or pid is None:
                 with contextlib.suppress(OSError):
                     path.unlink()
                 continue
@@ -1198,16 +1290,27 @@ class ProcessSupervisor:
 
     @staticmethod
     def _same_process(pid: int, record: Mapping[str, Any]) -> bool:
-        if pid == os.getpid() or not pid_alive(pid):
+        if not _killable_pid(pid) or not pid_alive(pid):
             return False
+        daemon = record.get("daemonPid")
+        if not isinstance(daemon, int) or isinstance(daemon, bool):
+            return False
+        if daemon != os.getpid() and pid_alive(daemon):
+            return False  # another daemon still owns it
         recorded = record.get("startTime")
-        if recorded is not None:
-            return process_start_time(pid) == recorded
-        pgid = record.get("pgid")
-        return pgid is not None and _safe_getpgid(pid) == pgid
+        if not isinstance(recorded, str) or not recorded:
+            return False  # no identity stamp: never killed
+        if process_start_time(pid) != recorded:
+            return False
+        exe = record.get("exe")
+        if not isinstance(exe, str) or not os.path.isabs(exe):
+            return False
+        return process_runs(pid, exe)
 
     @staticmethod
     def _kill_now(pid: int, pgid: Any) -> None:
+        if not _killable_pid(pid):
+            return
         if IS_WINDOWS:  # pragma: no cover - Windows only
             with contextlib.suppress(OSError, subprocess.SubprocessError):
                 subprocess.run(
@@ -1218,11 +1321,12 @@ class ProcessSupervisor:
                 )
             return
         tree = descendants(pid)
-        group = int(pgid) if isinstance(pgid, int) else pid
-        _signal_group(group, signal.SIGKILL)
+        if _orphan_group(pid, pgid) is not None:
+            _signal_group(pid, signal.SIGKILL)
         _signal_pid(pid, signal.SIGKILL)
         for child in tree:
-            _signal_pid(child, signal.SIGKILL)
+            if _killable_pid(child):
+                _signal_pid(child, signal.SIGKILL)
 
     async def shutdown(self, grace: float = KILL_GRACE_SEC) -> None:
         """Stop every child and helper this daemon runs, then sweep the pid files."""
@@ -1241,6 +1345,129 @@ def _safe_getpgid(pid: int) -> int | None:
         return os.getpgid(pid)
     except OSError:
         return None
+
+
+#: Largest pid file read (a record is ~250 bytes).
+MAX_PID_RECORD_BYTES = 4096
+
+
+def _read_pid_record(path: Path) -> dict[str, Any] | None:
+    """A pid record from a regular file this user owns, never through a symlink."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return None
+    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_PID_RECORD_BYTES:
+        return None
+    if not IS_WINDOWS and info.st_uid != os.getuid():
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as handle:
+            raw = handle.read(MAX_PID_RECORD_BYTES + 1)
+        record = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _record_pid(path: Path, record: Mapping[str, Any] | None) -> int | None:
+    """The record's pid when it is a real int that matches the file name."""
+    if record is None:
+        return None
+    pid = record.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return None
+    if path.stem != str(pid):
+        return None
+    return pid if _killable_pid(pid) else None
+
+
+def _killable_pid(pid: Any) -> bool:
+    """Never init, a group wildcard, this daemon or its parent."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        return False
+    return pid not in (os.getpid(), os.getppid())
+
+
+def _orphan_group(pid: int, pgid: Any) -> int | None:
+    """The group a reaped orphan leads, or ``None`` (then it is killed by pid only)."""
+    if not isinstance(pgid, int) or isinstance(pgid, bool) or pgid <= 1 or pgid != pid:
+        return None
+    with contextlib.suppress(OSError):
+        if pgid == os.getpgrp():
+            return None
+    if _safe_getpgid(pid) != pgid:
+        return None
+    return pgid
+
+
+def process_runs(pid: int, exe: str) -> bool:
+    """True when ``pid`` runs ``exe`` (directly or as a script its interpreter runs)."""
+    want = os.path.realpath(exe)
+    if sys.platform.startswith("linux"):
+        with contextlib.suppress(OSError):
+            if os.path.realpath(os.readlink(f"/proc/{pid}/exe")) == want:
+                return True
+        try:
+            raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        except OSError:
+            return False
+        head = [part.decode("utf-8", "replace") for part in raw.split(b"\x00")[:3] if part]
+        return any(
+            part in (exe, want) or (os.path.isabs(part) and os.path.realpath(part) == want)
+            for part in head
+        )
+    if IS_WINDOWS:  # pragma: no cover - Windows only
+        return False
+    out = _ps_command(pid)
+    return any(out.startswith(path) or f" {path}" in out for path in (exe, want))
+
+
+def _ps_command(pid: int) -> str:
+    ps = trusted_tool("ps")
+    if ps is None:
+        return ""
+    try:
+        return subprocess.run(
+            [ps, "-ww", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def process_argv(pid: int) -> list[str]:
+    """The command line of ``pid`` (Linux exactly; elsewhere split on spaces); [] if unknown."""
+    if sys.platform.startswith("linux"):
+        try:
+            raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        except OSError:
+            return []
+        return [part.decode("utf-8", "replace") for part in raw.split(b"\x00") if part]
+    if IS_WINDOWS:  # pragma: no cover - Windows only
+        return []
+    return _ps_command(pid).split()
+
+
+#: Directories a system helper (``ps``, ``lsof``, ``systemd-run``) is taken
+#: from: never a user-writable ``PATH`` entry (security review L5).
+TRUSTED_TOOL_DIRS: tuple[str, ...] = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
+
+
+@functools.lru_cache(maxsize=16)
+def trusted_tool(name: str) -> str | None:
+    """Absolute path of a system helper in :data:`TRUSTED_TOOL_DIRS`, or ``None``."""
+    if IS_WINDOWS:  # pragma: no cover - Windows only
+        return None
+    for folder in TRUSTED_TOOL_DIRS:
+        candidate = os.path.join(folder, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
 
 
 __all__ = [

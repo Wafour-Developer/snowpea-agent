@@ -644,6 +644,9 @@ async def session_events_handler(
     Nothing changes: the caller is not subscribed, does not become the session's
     surface, and a closed session stays closed.
     """
+    from snowpea_core.server.person_gate import hide_task_worker
+
+    await hide_task_worker(_conn, core, params.sessionId)
     if core.sessions.get(params.sessionId) is None and not await _stored(core, params.sessionId):
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     if core.store is None:

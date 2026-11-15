@@ -13,7 +13,7 @@ from typing import Any
 
 import aiohttp
 import pytest
-from _support import connect, make_daemon
+from _support import connect, delegate_everything, make_daemon
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.agent import named, runtime_context
@@ -446,7 +446,7 @@ async def test_routed_request_wakes_jarvis_with_a_system_turn(
         core.providers.get = lambda _p, _m: echo
         service = core.jarvis
         # Fully delegated by default: a risky command goes to Jarvis.
-        core.settings.jarvis.delegation.default = "full"
+        delegate_everything(core)
         client = await connect(http, daemon)
         worker = await core.sessions.create(project, mode="auto")
         jarvis = service.session()

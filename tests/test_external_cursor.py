@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from _support import env_vars
+from _support import env_vars, pinned_cli
 
 from snowpea_core.config.settings import Settings
 from snowpea_core.external import cursor as cur
@@ -96,7 +96,7 @@ class Env:
         self.scenario_file = tmp_path / "scenario.json"
         self.scenario()
         self.settings = Settings.model_validate(
-            {"jarvis": {"external": {"clis": {"cursor": {"path": str(FAKE_CURSOR)}}}}}
+            {"jarvis": {"external": {"clis": {"cursor": {**pinned_cli(FAKE_CURSOR)}}}}}
         )
         self.adapter = CursorAdapter(cursor_home=self.state / ".cursor", stall_sec=60.0)
         self.hub = Hub()

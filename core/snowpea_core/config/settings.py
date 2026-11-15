@@ -748,8 +748,18 @@ class JarvisDelegationSettings(_Model):
     """Delegation defaults (M19, 1.53.0); grants themselves live in ``jarvis/delegation.db``."""
 
     #: Level with no grant: ``staged`` lets Jarvis decide only safe approvals
-    #: and how-to questions; ``full`` also risky approvals, stops and questions.
-    default: Literal["staged", "full"] = "staged"
+    #: and how-to questions.  ``full`` is not a settable default (security
+    #: review H2): "everything delegated" is a global grant the person makes
+    #: through ``jarvis.delegation.set``; a stored ``full`` loads as ``staged``.
+    default: Literal["staged"] = "staged"
+
+    @field_validator("default", mode="before")
+    @classmethod
+    def _no_full_default(cls, value: Any) -> Any:
+        if value == "full":
+            LEGACY_VALUES.add("jarvis.delegation.default=full")
+            return "staged"
+        return value
     #: Lifetime of a project grant given without an expiry, in hours.
     projectTtlHours: int = Field(default=24, ge=1, le=24 * 365)
 
@@ -801,16 +811,60 @@ class JarvisMessengerSettings(_Model):
 EXTERNAL_CLI_IDS = ("claude", "codex", "agy", "cursor")
 
 
+#: Settings values earlier betas accepted that are no longer settable, found
+#: while loading (``"jarvis.delegation.default=full"``,
+#: ``"jarvis.external.clis.<id>.defaultMode=unrestricted"``).  They load as the
+#: safe value; Jarvis mode raises one escalation explaining how to grant the
+#: old behaviour properly (:func:`take_legacy_values`).  Security review H2.
+LEGACY_VALUES: set[str] = set()
+
+
+def take_legacy_values() -> list[str]:
+    """The legacy values seen since the last call (and forget them)."""
+    found = sorted(LEGACY_VALUES)
+    LEGACY_VALUES.clear()
+    return found
+
+
 class JarvisExternalCliSettings(_Model):
     enabled: bool = True
-    #: Absolute executable path; ``None`` searches ``PATH``.
+    #: Absolute executable path; ``None`` searches ``PATH``.  An override is
+    #: never run (not even ``--version``) until the person confirmed its
+    #: resolved real path (``external.clis.confirmPath``, stored in
+    #: ``confirmedPath``).
     path: str | None = None
+    #: The resolved real path of ``path`` the person confirmed; written only by
+    #: ``external.clis.confirmPath`` (``settings.set`` refuses it).
+    confirmedPath: str | None = None
     #: Mode a new or continued session gets unless one is chosen; ``None``
     #: means the CLI's own default (``readonly`` for cursor).  A mode the CLI
     #: does not offer (agy has no ``readonly``) falls back to that default.
-    #: Only the person sets it; ``unrestricted`` lets the CLI bypass its own
-    #: permission prompts and snowpea's.
-    defaultMode: Literal["default", "readonly", "unrestricted"] | None = None
+    #: ``unrestricted`` is never a default: it comes only from an explicit
+    #: ``mode`` in the person's own request (security review H2).
+    defaultMode: Literal["default", "readonly"] | None = None
+    #: Environment variables (names) passed to this CLI besides the allowlist,
+    #: e.g. ``ANTHROPIC_API_KEY`` (security review L3).  Person only.
+    passEnv: list[str] = Field(default_factory=list)
+
+    @field_validator("defaultMode", mode="before")
+    @classmethod
+    def _no_unrestricted_default(cls, value: Any) -> Any:
+        if value == "unrestricted":
+            LEGACY_VALUES.add("jarvis.external.clis.defaultMode=unrestricted")
+            return None
+        return value
+
+    @field_validator("passEnv")
+    @classmethod
+    def _env_names(cls, value: list[str]) -> list[str]:
+        import re
+
+        for name in value:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name):
+                raise ValueError(f"passEnv: {name!r} is not an environment variable name")
+            if name.upper().startswith("SNOWPEA_"):
+                raise ValueError("passEnv: snowpea's own variables are never passed")
+        return value
 
 
 class JarvisExternalSettings(_Model):
