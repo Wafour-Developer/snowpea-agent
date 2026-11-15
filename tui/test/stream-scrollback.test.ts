@@ -37,7 +37,7 @@ describe("commitStreamingPrefixes", () => {
     const first = commitStreamingPrefixes(stateWith(msg), 0, 40, 6, new Map());
     expect(first.chunks).toHaveLength(1);
     expect(first.chunks[0].lines.length).toBe(24);
-    expect(first.committed.get("m1")).toBe(24);
+    expect(first.committed.get("m1")?.lines).toBe(24);
 
     const grown = message("m1", `${long}\nline 31\nline 32`, true);
     const second = commitStreamingPrefixes(
@@ -48,13 +48,13 @@ describe("commitStreamingPrefixes", () => {
       first.committed,
     );
     expect(second.chunks).toHaveLength(1);
-    expect(second.committed.get("m1")).toBe(26);
+    expect(second.committed.get("m1")?.lines).toBe(26);
   });
 
   it("flushes the remainder when streaming ends", () => {
     const msg = message("m1", long, false);
     const result = commitStreamingPrefixes(stateWith(msg), 0, 40, 6, new Map());
-    expect(result.committed.get("m1")).toBe(wrappedMessageLines(msg, 40).length);
+    expect(result.committed.get("m1")?.lines).toBe(wrappedMessageLines(msg, 40).length);
     expect(messageFullyCommitted(msg, 40, result.committed)).toBe(true);
   });
 });

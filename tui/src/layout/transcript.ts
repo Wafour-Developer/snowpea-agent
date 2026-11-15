@@ -30,6 +30,8 @@ export interface Segment {
 export interface Line {
   key: string;
   segments: Segment[];
+  /** For a message row: the index of the source line it was drawn from. */
+  source?: number;
 }
 
 /** Tool output stays collapsed unless Ctrl+O expanded that call. */
@@ -119,6 +121,7 @@ export function wrapLine(line: Line, width: number, indent = ""): Line[] {
     out.push({
       key: `${line.key}-w${out.length}`,
       segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments,
+      ...(line.source !== undefined ? { source: line.source } : {}),
     });
     start = end;
     while (parts[start]?.text === " ") start += 1;
@@ -236,14 +239,21 @@ function tableAt(source: string[], start: number, width: number, id: string): { 
   return { lines, end };
 }
 
+/**
+ * The source lines `messageLines` draws, the streaming `…` included.
+ *
+ * A model often opens with a blank line; the glyph belongs on the first line
+ * that says something, not on an empty one above it.
+ */
+export function messageSource(message: Message): string[] {
+  const text = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
+  return (message.streaming ? `${text}…` : text).split("\n");
+}
+
 /** One message, markdown-lite applied, with the role glyph on the first row. */
 export function messageLines(message: Message, width = 80): Line[] {
   const out: Line[] = [];
-  // A model often opens with a blank line; the glyph belongs on the first
-  // line that says something, not on an empty one above it.
-  const text = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
-  const body = message.streaming ? `${text}…` : text;
-  const source = body.split("\n");
+  const source = messageSource(message);
   let inFence = false;
 
   for (let index = 0; index < source.length; index += 1) {
@@ -253,6 +263,7 @@ export function messageLines(message: Message, width = 80): Line[] {
       if (table) {
         table.lines.forEach((line, row) => out.push({
           ...line,
+          source: index,
           segments: [index === 0 && row === 0 ? roleMark(message.role) : { text: "  " }, ...line.segments],
         }));
         index = table.end - 1;
@@ -275,7 +286,7 @@ export function messageLines(message: Message, width = 80): Line[] {
       else segments = inlineSegments(raw);
     }
     const mark = index === 0 ? roleMark(message.role) : { text: "  " };
-    out.push({ key, segments: [mark, ...segments] });
+    out.push({ key, segments: [mark, ...segments], source: index });
   }
 
   return out;

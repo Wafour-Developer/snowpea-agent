@@ -131,6 +131,8 @@ import { entryRows, settledCount } from "./layout/statics.js";
 import {
   commitStreamingPrefixes,
   messageFullyCommitted,
+  messageStartRow,
+  type CommittedPrefix,
   type StreamChunkEntry,
 } from "./layout/stream-scrollback.js";
 import { RenderedLines } from "./components/RenderedLines.js";
@@ -454,7 +456,7 @@ function releaseEntries(
   state: State,
   items: TimelineItem[],
   width: number,
-  streamCommitted: ReadonlyMap<string, number>,
+  streamCommitted: ReadonlyMap<string, CommittedPrefix>,
 ): StaticEntry[] {
   const out: StaticEntry[] = [];
   let run: ToolCallEntry[] = [];
@@ -486,7 +488,7 @@ function releaseEntries(
       if (message && messageFullyCommitted(message, width, streamCommitted)) {
         continue;
       }
-      const startLine = streamCommitted.get(item.id) ?? 0;
+      const startLine = message ? messageStartRow(message, width, streamCommitted) : 0;
       out.push({
         key: `${item.kind}-${item.id}`,
         kind: "entry",
@@ -666,7 +668,7 @@ export function App({
   /** Full-screen's twin of the `✓ Done` lines `<Static>` is given, with where each turn ended. */
   const turnNotesRef = useRef<TurnNote[]>([]);
   /** Wrapped rows already committed to scrollback per open-stream message id. */
-  const streamCommittedRef = useRef<Map<string, number>>(new Map());
+  const streamCommittedRef = useRef<Map<string, CommittedPrefix>>(new Map());
   /**
    * The turn in flight: when it started and what the session had spent by then,
    * so the indicator can report this turn rather than the whole session.
@@ -3240,6 +3242,13 @@ export function App({
   }
   streamCommittedRef.current = streamCommit.committed;
   const staticItems = staticBlocksRef.current;
+  // Re-derived at the current width on every frame: the scrollback holds whole
+  // source lines, and a resize changes how many rows those are.
+  const liveStartRow = (item: TimelineItem): number => {
+    if (item.kind !== "message") return 0;
+    const message = state.messages.find((entry) => entry.id === item.id);
+    return message ? messageStartRow(message, contentWidth, streamCommittedRef.current) : 0;
+  };
 
   return (
     <Box flexDirection="column">
@@ -3307,9 +3316,7 @@ export function App({
             expandedId={expandedId}
             width={contentWidth}
             maxMessageRows={liveMessageRows}
-            messageStartLine={
-              item.kind === "message" ? streamCommittedRef.current.get(item.id) ?? 0 : 0
-            }
+            messageStartLine={liveStartRow(item)}
           />
         ))
       )}
