@@ -228,7 +228,7 @@ async def test_forks_in_rows_and_lineage(tmp_path: Any) -> None:
 
         lead.title = "release work"
         second = await session_fork_handler(None, SessionForkParams(sessionId=lead.id), core)
-        assert core.sessions.get(second.sessionId).title == "release work (fork)"
+        assert core.sessions.get(second.sessionId).title == "release work"  # 1.53.0: no suffix
 
         # A delegated child of the second fork: delegation, then fork, up to the lead.
         child = await core.sessions.create(
@@ -245,7 +245,7 @@ async def test_forks_in_rows_and_lineage(tmp_path: Any) -> None:
             (first.sessionId, turns[0]),
             (second.sessionId, turns[1]),
         ]
-        assert top.forks[0].title is None and top.forks[1].title == "release work (fork)"
+        assert top.forks[0].title is None and top.forks[1].title == "release work"
     finally:
         await daemon.stop()
 

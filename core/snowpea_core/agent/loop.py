@@ -209,6 +209,9 @@ class QueuedTurn:
     origin: str = "human"
     #: Why a system turn started (``"handback"``); ``None`` for user turns.
     reason: str | None = None
+    #: Where the words were typed (a client kind, a messenger platform), for
+    #: the ``message.user`` origin (1.53.0); ``None`` when not known.
+    surface: str | None = None
 
 
 def new_turn_id() -> str:
@@ -1558,6 +1561,47 @@ def note_origin(session: Session, turn_id: str, origin: str) -> None:
         origins.pop(next(iter(origins)))
 
 
+#: :data:`ORIGINS` -> ``message.user`` ``origin.kind`` (1.53.0).  ``agent``
+#: text (a queued command, ``/ralplan``) is ``system``: no person typed it.
+#: ``jarvis`` is reserved for the Jarvis session (M19 WP4).
+_MESSAGE_ORIGIN_KINDS = {
+    "human": "human",
+    "member": "gateway",
+    "schedule": "schedule",
+    "system": "system",
+    "agent": "system",
+}
+
+
+def message_origin(
+    session: Session, origin: str | None, surface: str | None = None, kind: str | None = None
+) -> dict[str, Any]:
+    """The ``message.user`` origin ``{"kind", "surface"}`` for whose words a prompt is.
+
+    ``kind`` overrides the mapping from ``origin`` (``"subagent"`` for a
+    delegation's hand-back announcement).  Inside a delegated child nobody
+    types: what reads as the person's words there is the lead's brief.
+    """
+    wire = kind or _MESSAGE_ORIGIN_KINDS.get(origin or "human", "system")
+    if wire == "human" and getattr(session, "is_subagent", False):
+        wire = "subagent"
+    return {"kind": wire, "surface": surface if wire in ("human", "gateway") else None}
+
+
+def note_message_origin(
+    session: Session,
+    turn_id: str,
+    origin: str,
+    surface: str | None = None,
+    kind: str | None = None,
+) -> None:
+    """Record the ``message.user`` origin turn ``turn_id``'s prompt is published with."""
+    origins = session.turn_message_origins
+    origins[turn_id] = message_origin(session, origin, surface, kind)
+    while len(origins) > 64:
+        origins.pop(next(iter(origins)))
+
+
 def start_turn(
     core: Core,
     session: Session,
@@ -1571,8 +1615,13 @@ def start_turn(
     initiator: str = "user",
     reason: str | None = None,
     origin: str | None = None,
+    surface: str | None = None,
+    origin_kind: str | None = None,
 ) -> str:
     """Schedule a turn, or queue it behind the session's active turn.
+
+    ``surface`` and ``origin_kind`` shape the prompt's ``message.user``
+    origin (1.53.0, :func:`message_origin`).
 
     A user can keep typing while tools or subagents are running.  Those
     follow-ups must not start overlapping provider loops against the same
@@ -1583,6 +1632,7 @@ def start_turn(
     origin = origin or ("system" if initiator == "system" else "human")
     drop_owned_context(session, origin)
     note_origin(session, turn_id, origin)
+    note_message_origin(session, turn_id, origin, surface, origin_kind)
     queued = QueuedTurn(
         turn_id=turn_id,
         text=text,
@@ -1595,6 +1645,7 @@ def start_turn(
         initiator=initiator,
         reason=reason,
         origin=origin,
+        surface=surface,
     )
     task = session.turn_task
     if task is not None and not task.done():
@@ -1753,7 +1804,10 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
         session.history.append(
             ChatMessage(role="user", content=body, source=history_mod.source("lead", "relay"))
         )
-        await core.hub.emit_event(session.id, events.message_user(body, steered=True))
+        lead = message_origin(session, None, kind="subagent")
+        await core.hub.emit_event(
+            session.id, events.message_user(body, steered=True, origin=lead)
+        )
     rpc_injected = 0
     while session.rpc_steers:
         # ``session.steer`` is an explicit request, so it ignores agent.busy.
@@ -1811,6 +1865,8 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
                 steered=True,
                 refs=queued.refs,
                 expansion=queued.expansion,
+                origin=session.turn_message_origins.get(queued.turn_id)
+                or message_origin(session, queued.origin, queued.surface),
             ),
         )
         await core.hub.emit_event(
@@ -1831,7 +1887,11 @@ async def _inject_external_steer(
         ChatMessage(role="user", content=body, source=history_mod.source("user", "steer"))
     )
     session.history.compact()
-    await core.hub.emit_event(session.id, events.message_user(body, steered=True))
+    # session.steer from a surface, or the person's steer relayed down from an
+    # ancestor session: the person's words either way.
+    await core.hub.emit_event(
+        session.id, events.message_user(body, steered=True, origin=message_origin(session, "human"))
+    )
     return True
 
 
@@ -1909,6 +1969,7 @@ async def run_turn(
     initiator: str = "user",
     reason: str | None = None,
     origin: str | None = None,
+    surface: str | None = None,
 ) -> str:
     """Run one full turn; returns its turn id once ``turn.done`` was emitted.
 
@@ -1921,6 +1982,10 @@ async def run_turn(
     origin = recorded or ("system" if initiator == "system" else "human")
     drop_owned_context(session, origin)
     note_origin(session, turn_id, origin)
+    if surface is not None or turn_id not in session.turn_message_origins:
+        # A turn start_turn queued keeps what it recorded; a command's nested
+        # run of the same turn id inherits it.
+        note_message_origin(session, turn_id, origin, surface)
     if recorded == "human":
         # The person's own next turn ends an agent-switch guard (addendum 25);
         # what the agent queued for itself stays guarded, and so does a turn
@@ -2185,7 +2250,11 @@ async def _drive(
     if history_text or attachments:
         blocks = content_parts.history_blocks(history_text, attachments) if attachments else None
         turn_message = ChatMessage(
-            role="user", content=blocks if blocks is not None else history_text
+            role="user",
+            content=blocks if blocks is not None else history_text,
+            # A core-started turn's ``[system]`` note (goal round, hand-back,
+            # session.continue) is the daemon's, not the person's (1.53.0).
+            source=history_mod.source("system", "notice") if system else None,
         )
         session.history.append(turn_message)
         session.history.compact()
@@ -2198,7 +2267,14 @@ async def _drive(
         if not system:
             await hub.emit_event(
                 session.id,
-                events.message_user(text, attachments, refs=refs, expansion=expansion),
+                events.message_user(
+                    text,
+                    attachments,
+                    refs=refs,
+                    expansion=expansion,
+                    origin=session.turn_message_origins.get(turn_id)
+                    or message_origin(session, session.turn_origins.get(turn_id)),
+                ),
             )
         if blocks is not None:
             # A blind model gets the vision model's description of each image,

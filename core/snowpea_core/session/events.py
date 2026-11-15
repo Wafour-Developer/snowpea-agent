@@ -70,8 +70,12 @@ def message_user(
     steered: bool = False,
     refs: Sequence[dict[str, Any]] | None = None,
     expansion: dict[str, Any] | None = None,
+    origin: dict[str, Any] | None = None,
 ) -> Event:
     """The prompt that opened this turn, as it entered the history.
+
+    ``origin`` (1.53.0) is ``{"kind", "surface"}``: whose words these are
+    (``agent.loop.message_origin``).
 
     Emitted once per prompt, where the user message is appended — so a
     ``session.resume`` replays the question alongside the answer it produced.
@@ -98,6 +102,7 @@ def message_user(
             steered=steered,
             refs=plain_refs,
             expansion=expansion,  # type: ignore[arg-type]
+            origin=origin,  # type: ignore[arg-type]
         )
     )
 

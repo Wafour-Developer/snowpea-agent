@@ -533,6 +533,7 @@ def _track(
             unattended=True,
             model_text=f"[system] {note}",
             origin="agent",
+            origin_kind="subagent",
         )
 
     def done(_task: asyncio.Future[Any]) -> None:

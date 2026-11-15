@@ -96,8 +96,9 @@ async def session_fork_handler(
         origin_conn=conn,
     )
     at_turn = payload.get("turnId")
-    # An untitled source gives an untitled fork; a client names it (1.50.0).
-    fork.title = f"{source.title} (fork)" if source.title else None
+    # The fork keeps the source's title unchanged (1.53.0: no " (fork)" suffix,
+    # forkedFrom says what it is); an untitled source gives an untitled fork.
+    fork.title = source.title or None
     if fork.title:
         try:
             await store.update_title(fork.id, fork.title)

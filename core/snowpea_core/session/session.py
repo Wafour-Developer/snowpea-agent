@@ -142,6 +142,10 @@ class Session:
     #: ``turn id -> origin`` (``agent.loop.ORIGINS``) for the latest turns, so a
     #: command's nested run inherits whose words started it.
     turn_origins: dict[str, str] = field(default_factory=dict)
+    #: ``turn id -> {"kind", "surface"}``: the ``message.user`` origin
+    #: (1.53.0) a turn's prompt is published with, kept beside
+    #: :attr:`turn_origins` and trimmed with it.
+    turn_message_origins: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: ``turn id -> job run`` (``tool.invoke`` ``job``, 1.23.0) for turns a
     #: scheduled run started; dropped when the run ends.
     turn_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)

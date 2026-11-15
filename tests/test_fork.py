@@ -59,7 +59,7 @@ async def test_fork_at_a_middle_turn_keeps_history_up_to_it(tmp_path: Any) -> No
         assert _words(fork) == ["first", "second"]
         assert _words(source) == ["first", "second", "third"]  # untouched
         assert fork.workdir == source.workdir and fork.mode == source.mode
-        assert fork.title == "release work (fork)"
+        assert fork.title == "release work"  # 1.53.0: the title is kept unchanged
         # Its log holds the inherited turns, then the fork marker.
         events = await core.store.events_after(fork.id, 0)
         assert events[-1]["kind"] == "session.forked"

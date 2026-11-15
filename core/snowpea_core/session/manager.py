@@ -685,6 +685,12 @@ def _mark_history_persisted(
 HOST_LIFECYCLE_KINDS = frozenset({"turn.started", "turn.done", "error"})
 
 
+def _human_origin(payload: dict[str, Any]) -> bool:
+    """A ``message.user`` a person typed: origin kind ``human``, or none (before 1.53.0)."""
+    origin = payload.get("origin")
+    return not isinstance(origin, dict) or origin.get("kind", "human") == "human"
+
+
 def _host_tools_connection(session: Any) -> Any:
     """The live connection serving ``session``'s host tools, if any."""
     from snowpea_core.tools.host_tools import HOST_TOOLS
@@ -783,8 +789,8 @@ class EventHub:
         seq = session.next_seq() if session is not None else 0
         body = event_builders.validate(kind, payload)
         ts = utc_now()
-        if session is not None and kind == "message.user":
-            session.last_user_at = ts  # session.list lastUserAt (1.50.0)
+        if session is not None and kind == "message.user" and _human_origin(body):
+            session.last_user_at = ts  # session.list lastUserAt (1.50.0; human only, 1.53.0)
         turn_id = getattr(session, "current_turn", None) if session is not None else None
         step = int(getattr(session, "current_step", 0) or 0) if turn_id else None
         if self.store is not None:

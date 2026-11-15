@@ -438,14 +438,9 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
     if core.store is not None:
         enriched = []
         for row in rows:
-            messages = await core.store.messages(row.sessionId)
-            latest = next((item for item in reversed(messages) if item["role"] == "user"), None)
-            prompt = (
-                host_context.user_words(message_text(message_from_json("user", latest["content"])))
-                if latest is not None
-                else await _last_command_line(core, row.sessionId)
+            enriched.append(
+                row.model_copy(update={"lastPrompt": await _last_prompt(core, row.sessionId)})
             )
-            enriched.append(row.model_copy(update={"lastPrompt": prompt}))
         rows = enriched
     machine = machine_of(core)
     rows = [_with_effort(core, _with_waits(core, row)).model_copy(update={"machine": machine})
@@ -481,6 +476,44 @@ def _with_waits(core: Core, row: SessionSummary) -> SessionSummary:
     elif questions:
         update["status"] = "awaiting_question"
     return row.model_copy(update=update)
+
+
+async def _last_prompt(core: Core, session_id: str) -> str | None:
+    """``SessionSummary.lastPrompt``: the newest prompt a person typed (1.53.0).
+
+    Read from the human ``message.user`` events, so a goal round, a hand-back,
+    a scheduled task or a delegation's brief never replaces it, and a session
+    holding only those has none.  A session with no ``message.user`` at all
+    (from before it existed) falls back to its stored history, and one used
+    only through slash commands to the newest command line.
+    """
+    text, has_events = await core.store.last_user_prompt(session_id)
+    if text is not None:
+        return host_context.user_words(text)
+    if has_events:
+        # Only scheduled, delegation or system prompts: nothing a person typed.
+        return None
+    for item in reversed(await core.store.messages(session_id)):
+        if item["role"] != "user":
+            continue
+        message = message_from_json("user", item["content"])
+        if _typed_by_person(message):
+            return host_context.user_words(message_text(message))
+    return await _last_command_line(core, session_id)
+
+
+def _typed_by_person(message: Any) -> bool:
+    """A stored user message the person typed, by its ``source`` (M16 P1.3).
+
+    Skips every injected entry: skill and instruction notes, session notices,
+    runtime-context snapshots, turn-stopping continuations, a core-started
+    turn's ``[system]`` note, lead relays; a steer counts only when the person
+    sent it.
+    """
+    src = message.source
+    if not src:
+        return True
+    return src.get("form") == "steer" and src.get("producer") in ("user", "human")
 
 
 async def _last_command_line(core: Core, session_id: str) -> str | None:
@@ -695,6 +728,7 @@ async def session_prompt_handler(
         model_text=prepared.model_text,
         refs=prepared.refs,
         when_busy=params.whenBusy,
+        surface=getattr(conn, "client_kind", None) or getattr(session, "origin_surface", None),
     )
     if params.attachments:
         AttachmentStore(core.paths.attachments_dir).assign_message(session.id, turn_id)

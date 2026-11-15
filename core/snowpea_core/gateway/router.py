@@ -1239,6 +1239,7 @@ class GatewayRouter:
             model_text=prepared.model_text,
             refs=prepared.refs,
             origin=_origin(binding, message),
+            surface=binding.platform,
         )
 
     async def _session_for(

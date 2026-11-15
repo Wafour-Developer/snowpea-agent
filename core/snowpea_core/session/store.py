@@ -131,6 +131,11 @@ def _turn_fields(row: Any) -> dict[str, Any]:
     return out
 
 
+
+#: SQL true for a ``message.user`` row a person typed (1.53.0): origin kind
+#: ``human``, or no origin at all (stored before 1.53.0).
+_HUMAN_ORIGIN_SQL = "COALESCE(json_extract(payload_json, '$.origin.kind'), 'human') = 'human'"
+
 class StoreClosed(RuntimeError):
     """A :class:`Store` operation was attempted after :meth:`Store.close`.
 
@@ -361,17 +366,48 @@ class Store:
         )
 
     async def last_user_times(self, session_ids: list[str]) -> dict[str, str]:
-        """``{sessionId: ts}`` of each session's latest ``message.user`` event (1.50.0)."""
+        """``{sessionId: ts}`` of each session's latest human ``message.user`` event.
+
+        1.50.0; since 1.53.0 only an event whose ``origin.kind`` is ``human``
+        (or that has no origin, from before 1.53.0) counts.
+        """
         if not session_ids:
             return {}
         marks = ",".join("?" for _ in session_ids)
         rows = await asyncio.to_thread(
             self._query,
             "SELECT session_id, MAX(ts) AS last FROM events WHERE kind = 'message.user' "
-            f"AND session_id IN ({marks}) GROUP BY session_id",
+            f"AND {_HUMAN_ORIGIN_SQL} AND session_id IN ({marks}) GROUP BY session_id",
             tuple(session_ids),
         )
         return {str(row["session_id"]): str(row["last"]) for row in rows if row["last"]}
+
+    async def last_user_prompt(self, session_id: str) -> tuple[str | None, bool]:
+        """The newest human ``message.user`` text, and whether any ``message.user`` exists.
+
+        ``session.list`` lastPrompt (1.53.0): goal rounds, hand-backs, scheduled
+        and delegation prompts never replace the person's.  The flag lets a
+        caller tell a session from before ``message.user`` existed.
+        """
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT payload_json FROM events WHERE session_id = ? AND kind = 'message.user' "
+            f"AND {_HUMAN_ORIGIN_SQL} ORDER BY seq DESC LIMIT 1",
+            (session_id,),
+        )
+        if rows:
+            try:
+                payload = json.loads(rows[0]["payload_json"])
+            except (TypeError, ValueError):
+                payload = None
+            text = payload.get("text") if isinstance(payload, dict) else None
+            return (text if isinstance(text, str) else None), True
+        any_rows = await asyncio.to_thread(
+            self._query,
+            "SELECT 1 FROM events WHERE session_id = ? AND kind = 'message.user' LIMIT 1",
+            (session_id,),
+        )
+        return None, bool(any_rows)
 
     async def update_goal(self, session_id: str, goal_json: str | None) -> None:
         """Persist the session's goal (M16 P1.6); ``None`` clears it."""

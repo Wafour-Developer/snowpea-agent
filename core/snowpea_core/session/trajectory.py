@@ -184,6 +184,11 @@ class TrajectoryBuilder:
         row.data["outcome"] = p.get("reason")
 
     def _message_user(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
+        data: dict[str, Any] = {"steered": True} if p.get("steered") else {}
+        origin = p.get("origin")
+        if isinstance(origin, dict) and origin.get("kind"):
+            # Whose words (1.53.0); absent on rows stored before it.
+            data["origin"] = {"kind": origin["kind"], "surface": origin.get("surface")}
         self._add(
             Row(
                 "user",
@@ -193,7 +198,7 @@ class TrajectoryBuilder:
                 step=step,
                 title=_first_line(p.get("text")),
                 text=_preview(p.get("text"), 4000),
-                data={"steered": True} if p.get("steered") else {},
+                data=data,
             )
         )
 
