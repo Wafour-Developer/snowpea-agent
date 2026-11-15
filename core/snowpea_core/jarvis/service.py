@@ -135,6 +135,10 @@ class JarvisService:
         from snowpea_core.jarvis import external as external_sessions
 
         external_sessions.attach(self)
+        gateway = getattr(core, "gateway", None)
+        if gateway is not None:
+            # Messenger routing and notices (WP7) follow this service.
+            gateway.jarvis.attach(self)
 
     # -- small reads -----------------------------------------------------
     @property
@@ -760,6 +764,11 @@ class JarvisService:
         ).model_dump(mode="json")
         with contextlib.suppress(Exception):
             await self.core.hub.notify("jarvis.state", payload)
+        for hook in list(self.hooks.state):
+            try:
+                await hook(reason, self.running)
+            except Exception:  # noqa: BLE001 - a messenger must not break the state change
+                log.warning("jarvis state hook failed", exc_info=True)
 
     async def on_budget(self, exhausted: bool) -> None:
         """The allowance ran out (or came back)."""
