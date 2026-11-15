@@ -290,6 +290,9 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
     shutdown has begun, for the same reason the final write is skipped in
     :func:`run_turn` (CORE-session-race).
     """
+    # Before the "sessions changed" announcement below: a client that re-reads
+    # its list on that announcement must already see this turn as over.
+    session.done_turn = turn_id
     await _mark_turn_finished(core, session, reason)
     await _flush_notices(session)
     if (
@@ -336,7 +339,6 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
         except Exception:  # noqa: BLE001 - checkpoints must never fail a turn
             log.warning("could not finalize checkpoint for %s", turn_id, exc_info=True)
     history = getattr(session, "history", None)
-    session.done_turn = turn_id
     await core.hub.emit_event(
         session.id,
         events.turn_done(

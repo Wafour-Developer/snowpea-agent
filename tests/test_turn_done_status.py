@@ -26,10 +26,14 @@ class RowAtTurnDone:
     def __init__(self, session: Any) -> None:
         self.session = session
         self.rows: list[Any] = []
+        self.announced: list[Any] = []
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if method == "session.event" and params.get("kind") == "turn.done":
             self.rows.append(self.session.summary())
+        # The list announcement at the end of a turn comes before ``turn.done``.
+        if method == "sessions.changed" and params.get("status") in {"idle", "error"}:
+            self.announced.append(self.session.summary())
 
 
 async def test_row_is_not_running_once_turn_done_is_out(tmp_path: Path) -> None:
@@ -50,6 +54,8 @@ async def test_row_is_not_running_once_turn_done_is_out(tmp_path: Path) -> None:
         row = watcher.rows[-1]
         assert row.status != "running"
         assert row.running is False
+        assert watcher.announced, "no idle sessions.changed was announced"
+        assert all(r.status != "running" for r in watcher.announced)
         # A later turn is running again as soon as it starts.
         session.current_turn = "t-2"
         assert session.summary().status == "running"
