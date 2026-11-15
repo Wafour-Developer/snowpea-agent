@@ -16,6 +16,15 @@ mechanism — or, under ``--mode ask``, a ``permissionDenied`` result),
 ``assistant`` deltas with ``timestamp_ms`` then the full message without it,
 ``result``.  There is no in-band cancel: interrupt = kill the process group.
 
+Options are read only before ``--`` (as commander does), so a prompt that looks
+like a flag stays text.  ``status --format json`` reports the login
+(``FAKE_CURSOR_LOGGED_OUT=1`` for logged out, which also makes print mode fail
+like the real CLI).  ``FAKE_CURSOR_WORKER_PIDFILE`` makes print mode leave a
+detached ``worker-server`` behind (its own session, reparented away, like the
+real one) and write its pid there.  Scenario ``error`` ends the turn with an
+``is_error`` result; ``linger`` stays up after its result, as the real CLI does
+while its language servers and shell run.
+
 With ``FAKE_CLI_STATE_DIR`` set, chats persist like the real layout:
 ``<state>/.cursor/chats/<md5(workspace)>/<chatId>/meta.json`` and
 ``<state>/.cursor/projects/<encoded>/agent-transcripts/<chatId>/<chatId>.jsonl``.
@@ -24,7 +33,9 @@ With ``FAKE_CLI_STATE_DIR`` set, chats persist like the real layout:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import subprocess
 import sys
 import time
 
@@ -68,10 +79,38 @@ def touch_meta(workspace: str, chat_id: str) -> None:
     c.write_json(path, meta)
 
 
+def options(args: list[str]) -> list[str]:
+    return args[:args.index("--")] if "--" in args else args
+
+
+def opt(flag: str) -> str | None:
+    return c.arg_value(flag, options(sys.argv[1:]))
+
+
 def prompt_of(args: list[str]) -> str:
     if "--" in args:
         return " ".join(args[args.index("--") + 1:])
     return args[-1] if args else ""
+
+
+def logged_out() -> bool:
+    return os.environ.get("FAKE_CURSOR_LOGGED_OUT") == "1"
+
+
+def leave_worker() -> None:
+    """Like the real CLI: a detached worker-server that outlives the run."""
+    path = os.environ.get("FAKE_CURSOR_WORKER_PIDFILE")
+    if not path:
+        return
+    code = (
+        "import os, subprocess, sys\n"
+        "child = subprocess.Popen([sys.executable, '-c', "
+        "'import time\\nwhile True: time.sleep(60)', 'worker-server'], "
+        "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, "
+        "start_new_session=True)\n"
+        "open(sys.argv[1], 'w').write(str(child.pid))\n"
+    )
+    subprocess.run([sys.executable, "-c", code, path], check=False)
 
 
 def run_print() -> int:
@@ -79,11 +118,16 @@ def run_print() -> int:
     c.prepare(cfg)
     c.maybe_spawn_child()
     args = sys.argv[1:]
-    workspace = c.arg_value("--workspace") or os.getcwd()
-    chat_id = c.arg_value("--resume") or c.new_id()
-    mode = c.arg_value("--mode") or "agent"
-    partial = c.has_flag("--stream-partial-output")
-    run_everything = any(flag in args for flag in ("--yolo", "-f", "--force"))
+    if logged_out():
+        print("Error: Authentication required. Please run 'agent login' first, or set "
+              "CURSOR_API_KEY.", file=sys.stderr)
+        return 1
+    leave_worker()
+    workspace = opt("--workspace") or os.getcwd()
+    chat_id = opt("--resume") or c.new_id()
+    mode = opt("--mode") or "agent"
+    partial = "--stream-partial-output" in options(args)
+    run_everything = any(flag in options(args) for flag in ("--yolo", "-f", "--force"))
     scenario = str(cfg["scenario"])
     text = prompt_of(args)
     base = {"session_id": chat_id}
@@ -95,7 +139,7 @@ def run_print() -> int:
             c.append_jsonl(transcript, record)
 
     c.write({"type": "system", "subtype": "init", "apiKeySource": "login", "cwd": workspace,
-             "session_id": chat_id, "model": c.arg_value("--model") or "Composer fake",
+             "session_id": chat_id, "model": opt("--model") or "Composer fake",
              "permissionMode": "default"})
     if scenario == "garbage":
         c.garbage()
@@ -145,9 +189,15 @@ def run_print() -> int:
     keep({"role": "assistant", "message": {"content": [{"type": "text", "text": written}]}})
     keep({"type": "turn_ended", "status": "success"})
     touch_meta(workspace, chat_id)
-    c.write({"type": "result", "subtype": "success", "duration_ms": 1, "is_error": False,
-             "result": written, "session_id": chat_id, "request_id": c.new_id(),
+    failed = scenario == "error"
+    c.write({"type": "result", "subtype": "error" if failed else "success", "duration_ms": 1,
+             "is_error": failed, "result": "model unavailable" if failed else written,
+             "session_id": chat_id, "request_id": c.new_id(),
              "usage": {"inputTokens": 1, "outputTokens": 1}})
+    if scenario == "linger":
+        c.log("linger")
+        while True:
+            time.sleep(3600)
     c.log("exit", 0)
     return 0
 
@@ -162,7 +212,14 @@ def main() -> int:
         touch_meta(c.arg_value("--workspace") or os.getcwd(), chat_id)
         print(chat_id)
         return 0
-    if "--list-models" in args:
+    if args[:1] in (["status"], ["whoami"]):
+        if "json" in args:
+            print(json.dumps({"status": "unauthenticated" if logged_out() else "authenticated",
+                              "isAuthenticated": not logged_out()}))
+        else:
+            print("Not logged in" if logged_out() else "Logged in")
+        return 0
+    if "--list-models" in options(args):
         print("auto - Auto (default)\ncomposer-fake - Composer fake")
         return 0
     if "-p" not in args and "--print" not in args:

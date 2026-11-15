@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from snowpea_core.external.base import ExternalAdapter
-from snowpea_core.external.codex import CodexAdapter
 
 #: ``external.clis`` order.
 CLI_ORDER: tuple[str, ...] = ("claude", "codex", "agy", "cursor")
@@ -24,7 +23,6 @@ CLI_TITLES: dict[str, str] = {
 
 #: Factories for the adapters shipped with core, filled in by WP6a-d.
 BUILTIN_ADAPTERS: list[Callable[[], ExternalAdapter]] = []
-BUILTIN_ADAPTERS.append(CodexAdapter)
 
 
 def _claude() -> ExternalAdapter:
@@ -36,6 +34,15 @@ def _claude() -> ExternalAdapter:
 BUILTIN_ADAPTERS.append(_claude)
 
 
+def _codex() -> ExternalAdapter:
+    from snowpea_core.external.codex import CodexAdapter
+
+    return CodexAdapter()
+
+
+BUILTIN_ADAPTERS.append(_codex)
+
+
 def _agy() -> ExternalAdapter:
     from snowpea_core.external.agy import AgyAdapter
 
@@ -43,6 +50,15 @@ def _agy() -> ExternalAdapter:
 
 
 BUILTIN_ADAPTERS.append(_agy)
+
+
+def _cursor() -> ExternalAdapter:
+    from snowpea_core.external.cursor import CursorAdapter
+
+    return CursorAdapter()
+
+
+BUILTIN_ADAPTERS.append(_cursor)
 
 
 class AdapterRegistry:
