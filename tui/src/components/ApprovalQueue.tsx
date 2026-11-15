@@ -27,10 +27,11 @@ export type ApprovalQueueRespond = (
 ) => void;
 
 /** `[Codex] ` for an external CLI's request, `[Jarvis deciding] ` while Jarvis has it (1.53.0). */
-export function queueBadge(request: Pick<ApprovalEntry, "external" | "route">): string {
+export function queueBadge(request: Pick<ApprovalEntry, "external" | "route" | "personOnly">): string {
   const cli = request.external ? `[${cliLabel(request.external.cli)}] ` : "";
   const route = request.route === "jarvis" ? "[Jarvis deciding] " : "";
-  return `${cli}${route}`;
+  const person = request.personOnly ? "[only you] " : "";
+  return `${cli}${route}${person}`;
 }
 
 function summarise(request: ApprovalEntry): string {

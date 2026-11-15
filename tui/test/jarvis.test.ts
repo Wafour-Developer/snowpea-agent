@@ -151,7 +151,7 @@ describe("jarvisReducer", () => {
   });
 
   it("toasts an escalation once, and not a low-importance one", () => {
-    const base = { id: "e1", ts: inMinutes(0), reason: "guarded" as const, summary: "git push needs you", importance: "high" as const };
+    const base = { id: "e1", ts: inMinutes(0), reason: "finished" as const, summary: "git push needs you", importance: "high" as const };
     let state = jarvisReducer(initialJarvis, { type: "event/escalation", payload: base });
     expect(state.notice).toBe("Jarvis: git push needs you");
     state = jarvisReducer(state, { type: "notice/clear" });
@@ -270,7 +270,7 @@ describe("the panel", () => {
       .join("\n");
     expect(text).toContain("No supervised sessions yet.");
     expect(text).toContain("budget used up");
-    expect(text).toContain("⚠ model unreachable");
+    expect(text).toContain("! model unreachable");
   });
 });
 
@@ -296,6 +296,7 @@ describe("labels", () => {
 describe("the delegation proposal", () => {
   const proposal = approval({
     tool: "delegation_set",
+    personOnly: true,
     args: { scope: "project", target: "/work/snowpea", level: "full", allow: ["deploy", "secret_send"], expiresAt: inMinutes(90), note: "ship the release" },
   });
 
@@ -320,12 +321,12 @@ describe("the delegation proposal", () => {
   });
 
   it("reads a short proposal as the narrowest thing it could be, never wider", () => {
-    const parsed = parseProposal(approval({ tool: "delegation_set", args: {} }))!;
+    const parsed = parseProposal(approval({ tool: "delegation_set", personOnly: true, args: {} }))!;
     expect(parsed).toMatchObject({ scope: "session", level: "staged", allow: [], expiresAt: null });
     const lines = proposalLines(parsed, NOW).join("\n");
     expect(lines).toContain("none — deploy, outside-project and secret/send actions still ask you");
     expect(lines).toContain("until the session ends");
-    const unknownScope = parseProposal(approval({ tool: "delegation_set", args: { scope: "everything", level: "total" } }))!;
+    const unknownScope = parseProposal(approval({ tool: "delegation_set", personOnly: true, args: { scope: "everything", level: "total" } }))!;
     expect(unknownScope.scope).toBe("session");
     expect(unknownScope.level).toBe("staged");
   });

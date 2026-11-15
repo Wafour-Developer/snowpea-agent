@@ -25,6 +25,14 @@ interface Opts {
   externals?: any[];
   clis?: any[];
   openResult?: (params: any) => any;
+  /** `jarvis.escalations.list` answer; the test may mutate the array. */
+  escalations?: any[];
+  /** `session.list` answer (carries each session's `jarvis` state). */
+  sessions?: any[];
+  /** Methods that fail: `{ "external.send": { code: "session_busy", message: "…" } }`. */
+  fail?: Record<string, { code: string; message: string }>;
+  /** `external.get` answer. */
+  getResult?: (params: any) => any;
 }
 
 function fakeClient(opts: Opts = {}) {
@@ -34,6 +42,7 @@ function fakeClient(opts: Opts = {}) {
   const responded: Array<{ requestId: string; decision: string; scope: string; reason?: string }> = [];
   const answered: Array<{ requestId: string; answers: any }> = [];
   let onApproval: ((request: any) => Promise<any>) | undefined;
+  let onQuestion: ((request: any) => Promise<any>) | undefined;
   const status = (enabled: boolean) => ({
     enabled,
     running: enabled,
@@ -55,7 +64,9 @@ function fakeClient(opts: Opts = {}) {
     onApprovalRequest: (handler: any) => {
       onApproval = handler;
     },
-    onQuestionRequest: () => undefined,
+    onQuestionRequest: (handler: any) => {
+      onQuestion = handler;
+    },
     listApprovals: async () => ({ requests: opts.approvals ?? [] }),
     checkUpdate: async () => ({ available: false, current: "0.2.88", latest: "0.2.88" }),
     prompt: async () => ({ turnId: "t" }),
@@ -69,7 +80,28 @@ function fakeClient(opts: Opts = {}) {
     },
     call: async (method: string, params: any = {}) => {
       calls.push({ method, params });
+      const failure = opts.fail?.[method];
+      if (failure) throw Object.assign(new Error(failure.message), { data: { code: failure.code } });
       switch (method) {
+        case "jarvis.escalations.list":
+          return { escalations: opts.escalations ?? [], nextBefore: null };
+        case "jarvis.escalations.dismiss": {
+          const list = opts.escalations ?? [];
+          const ids = params.all ? list.map((e: any) => e.id) : params.ids;
+          for (const id of ids) {
+            const at = list.findIndex((e: any) => e.id === id);
+            if (at !== -1) list.splice(at, 1);
+          }
+          return { dismissed: ids };
+        }
+        case "session.list":
+          return { sessions: opts.sessions ?? [] };
+        case "external.get":
+          return opts.getResult ? opts.getResult(params) : { session: (opts.externals ?? [])[0] };
+        case "external.unwatch":
+        case "external.close":
+        case "external.interrupt":
+          return { ok: true };
         case "jarvis.status":
           return status(enabled);
         case "jarvis.enable":
@@ -116,6 +148,7 @@ function fakeClient(opts: Opts = {}) {
     },
     emit: (name: string, payload: unknown) => listeners[name]?.(payload),
     ask: (request: any) => onApproval!(request),
+    askQuestion: (request: any) => onQuestion!(request),
   };
   return client;
 }
@@ -290,6 +323,7 @@ describe("Jarvis mode", () => {
       requestId: "d-1",
       sessionId: JARVIS_SESSION,
       tool: "delegation_set",
+      personOnly: true,
       risk: "high",
       args: { scope: "project", target: "/work/snowpea", level: "full", allow: ["deploy"], expiresAt: new Date(Date.now() + 90 * 60_000).toISOString(), note: "ship it" },
     });
@@ -316,7 +350,7 @@ describe("Jarvis mode", () => {
   it("declines a proposal with n, telling Jarvis why", async () => {
     const client = fakeClient();
     const app = await mount(client);
-    const answer = client.ask({ requestId: "d-2", sessionId: JARVIS_SESSION, tool: "delegation_set", args: { scope: "global", level: "full" } });
+    const answer = client.ask({ requestId: "d-2", sessionId: JARVIS_SESSION, tool: "delegation_set", personOnly: true, args: { scope: "global", level: "full" } });
     await sleep(200);
     app.stdin.write("n");
     expect(await answer).toEqual({ decision: "deny", scope: "once", reason: "declined by the person" });
@@ -506,7 +540,9 @@ describe("external sessions", () => {
     await sleep(150);
     app.stdin.write("\x1b");
     await sleep(200);
-    expect(methods(client)).toContain("external.close");
+    // Leaving only stops watching; the process keeps running until /external stop.
+    expect(methods(client)).toContain("external.unwatch");
+    expect(methods(client)).not.toContain("external.close");
     expect(app.view()).not.toContain("Claude Code · write the docs");
     app.done();
   });
@@ -519,7 +555,7 @@ describe("external sessions", () => {
     await sleep(250);
     app.stdin.write("\r");
     await sleep(300);
-    expect(app.view()).toContain("Open in another terminal — view only.");
+    expect(app.view()).toContain("Open in another terminal — view only");
     await type(app.stdin, "hello", 10);
     app.stdin.write("\r");
     await sleep(150);
@@ -527,7 +563,7 @@ describe("external sessions", () => {
     client.emit("onExternalState", { ref: sessions[0].ref, status: "idle", host: "snowpea", canSend: true, approvals: "bridged", mode: "default", controlled: true });
     await sleep(250);
     expect(app.view()).toContain("The other terminal closed");
-    expect(app.view()).not.toContain("Open in another terminal — view only.");
+    expect(app.view()).not.toContain("Open in another terminal — view only");
     await submit(app, "hello again");
     expect(client.calls.find((c: any) => c.method === "external.send")?.params.text).toBe("hello again");
     app.done();
@@ -544,7 +580,8 @@ describe("external sessions", () => {
     expect(app.view()).toContain("Claude Code · write the docs");
     app.stdin.write("\x1b");
     await sleep(250);
-    expect(methods(client)).toContain("external.close");
+    expect(methods(client)).toContain("external.unwatch");
+    expect(methods(client)).not.toContain("external.close");
     expect(methods(client)).not.toContain("external.interrupt");
     expect(app.view()).not.toContain("Claude Code · write the docs");
     app.done();
@@ -828,5 +865,574 @@ describe("full screen", () => {
     // The HUD and the agent panel are still the last rows.
     expect(view).toContain("● connected");
     app.done();
+  });
+});
+
+const inMin = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+
+describe("the final Jarvis contract", () => {
+  it("keeps notices across a reload, and dismisses them with /jarvis dismiss", async () => {
+    const notices = [
+      { id: "e1", ts: inMin(-5), reason: "finished", summary: "테스트가 모두 통과했습니다", title: "인증 모듈", project: "/work/웹서비스" },
+      { id: "e2", ts: inMin(-9), reason: "error", summary: "build failed", title: "api", project: "/work/api" },
+    ];
+    const client = fakeClient({ escalations: [...notices] });
+    const app = await mount(client);
+    await submit(app, "/jarvis");
+    await sleep(350);
+    expect(client.calls.find((c: any) => c.method === "jarvis.escalations.list")).toBeTruthy();
+    expect(app.view()).toContain("Notices (2)");
+    expect(app.view()).toContain("테스트가 모두 통과했습니다");
+    await submit(app, "/jarvis dismiss 2");
+    expect(client.calls.find((c: any) => c.method === "jarvis.escalations.dismiss")?.params).toEqual({ ids: ["e2"] });
+    expect(app.view()).toContain("Notices (1)");
+    // Another surface dismissed the other one.
+    client.emit("onJarvisEscalationDismissed", { ids: ["e1"] });
+    await sleep(150);
+    expect(app.view()).not.toContain("Notices (");
+    app.done();
+    // A new connection reads them from the daemon again: nothing lives only in the client.
+    const second = await mount(fakeClient({ escalations: [...notices] }));
+    await submit(second, "/jarvis");
+    await sleep(350);
+    expect(second.view()).toContain("Notices (2)");
+    second.done();
+  });
+
+  it("dismisses every notice at once", async () => {
+    const client = fakeClient({ escalations: [{ id: "e1", ts: inMin(-1), reason: "stalled", summary: "no progress" }] });
+    const app = await mount(client);
+    await submit(app, "/jarvis");
+    await sleep(300);
+    await submit(app, "/jarvis dismiss");
+    expect(client.calls.find((c: any) => c.method === "jarvis.escalations.dismiss")?.params).toEqual({ all: true });
+    expect(app.view()).not.toContain("Notices (");
+    app.done();
+  });
+
+  it("says once, quietly, that Jarvis read or instructed the session on screen", async () => {
+    const client = fakeClient();
+    const app = await mount(client);
+    const at = new Date().toISOString();
+    client.emit("onJarvisAccess", { id: "x1", ts: at, sessionId: "s-1", action: "read", summary: "digest" });
+    client.emit("onJarvisAccess", { id: "x2", ts: at, sessionId: "s-1", action: "read", summary: "digest again" });
+    client.emit("onJarvisAccess", { id: "x3", ts: at, sessionId: "s-9", action: "prompt", summary: "elsewhere" });
+    await sleep(200);
+    expect(app.view().match(/Jarvis read this session/g)).toHaveLength(1);
+    expect(app.view()).not.toContain("elsewhere");
+    client.emit("onJarvisAccess", { id: "x4", ts: at, sessionId: "s-1", action: "steer", summary: "use the other branch" });
+    await sleep(200);
+    expect(app.view()).toContain("Jarvis instructed this session");
+    app.done();
+  });
+
+  it("keeps the access line and the held-request status inside 60 columns with wide text", async () => {
+    const approvals: any[] = [];
+    const client = fakeClient({ approvals });
+    const app = await mount(client, {}, 60, 40);
+    client.emit("onJarvisAccess", { id: "x1", ts: new Date().toISOString(), sessionId: "s-1", action: "prompt", summary: "배포 스크립트 점검 결과를 확인하고 인증 모듈 테스트를 다시 실행하라고 지시함" });
+    const request = { requestId: "a-j", sessionId: "s-1", tool: "shell", args: { command: "배포" }, route: "jarvis" };
+    approvals.push(request);
+    void client.ask(request);
+    await sleep(250);
+    expect(app.view()).toContain("Jarvis instructed this session");
+    expect(app.view()).toContain("Jarvis is deciding");
+    for (const line of screen(app.stdout.text(), 40)) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+    app.done();
+  });
+
+  it("says where an inherited level comes from in the status marker", async () => {
+    const client = fakeClient({
+      rows: [row({ sessionId: "s-1" })],
+      sessions: [{ sessionId: "s-1", jarvis: { exposed: true, level: "full", levelScope: "project", grantId: "g1" } }],
+    });
+    const app = await mount(client);
+    await sleep(300);
+    expect(app.view()).toContain("Jarvis deciding · full (from the project)");
+    app.done();
+  });
+
+  it("shows UNCONTROLLED, read-only and who answers on external rows, inside 60 columns", async () => {
+    const client = fakeClient({
+      rows: [
+        row({ sessionId: null, external: { cli: "cursor", id: "c0ffee00" }, host: "snowpea", mode: "default", controlled: false, approvals: "degraded", title: "한글 제목으로 된 아주 긴 세션 이름", level: null }),
+        row({ sessionId: null, external: { cli: "claude", id: "abc12345" }, host: "tmux", mode: "default", controlled: true, approvals: "person", title: "docs", level: null }),
+        row({ sessionId: null, external: { cli: "codex", id: "019abc" }, host: "none", mode: "readonly", controlled: true, approvals: "bridged", title: "audit", level: null, status: "idle" }),
+      ],
+    });
+    const app = await mount(client, {}, 60, 40);
+    await submit(app, "/jarvis");
+    await sleep(350);
+    const view = app.view();
+    expect(view).toContain("UNCONTROLLED");
+    expect(view).toContain("you answer");
+    expect(view).toContain("read-only");
+    for (const line of screen(app.stdout.text(), 40)) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+    app.done();
+  });
+
+  it("does not open the prompt for a request routed to Jarvis; it appears if the daemon routes it to the person", async () => {
+    const approvals: any[] = [];
+    const client = fakeClient({ approvals });
+    const app = await mount(client);
+    const request = { requestId: "a-j", sessionId: "s-1", tool: "shell", args: { command: "pytest -q" }, route: "jarvis", risk: "low" };
+    approvals.push(request);
+    const answer = client.ask(request);
+    let settled = false;
+    void answer.then(() => {
+      settled = true;
+    });
+    await sleep(250);
+    expect(app.view()).not.toContain("Approval required");
+    expect(app.view()).toContain("Jarvis is deciding");
+    // The daemon gives up on Jarvis and asks the person.
+    approvals[0] = { ...request, route: "person" };
+    await sleep(2600);
+    expect(app.view()).toContain("Approval required");
+    expect(app.view()).not.toContain("Jarvis is deciding");
+    expect(settled).toBe(false);
+    app.stdin.write("\r");
+    expect(await answer).toEqual({ decision: "allow", scope: "once" });
+    app.done();
+  });
+
+  it("drops a held request when Jarvis answers it, and labels who answered", async () => {
+    const approvals: any[] = [];
+    const client = fakeClient({ approvals });
+    const app = await mount(client);
+    const request = { requestId: "a-j", sessionId: "s-1", tool: "shell", args: { command: "pytest -q" }, route: "jarvis", risk: "low" };
+    approvals.push(request);
+    void client.ask(request);
+    await sleep(200);
+    expect(app.view()).toContain("Jarvis is deciding");
+    approvals.length = 0;
+    client.emit("onApprovalResolved", { requestId: "a-j", decision: "allow", by: "jarvis" });
+    await sleep(200);
+    expect(app.view()).not.toContain("Jarvis is deciding");
+    expect(app.view()).toContain("Jarvis allowed shell: pytest -q");
+    const auto = { ...request, requestId: "a-k", args: { command: "ls" } };
+    void client.ask(auto);
+    await sleep(100);
+    client.emit("onApprovalResolved", { requestId: "a-k", decision: "deny", by: "jarvis:auto" });
+    await sleep(200);
+    expect(app.view()).toContain("Jarvis (auto) denied shell: ls");
+    // A person's answer from another surface is not labelled as Jarvis's.
+    void client.ask({ ...request, requestId: "a-l", route: "person" });
+    await sleep(100);
+    client.emit("onApprovalResolved", { requestId: "a-l", decision: "allow", by: "tui" });
+    await sleep(150);
+    expect(app.view().match(/Jarvis allowed/g)).toHaveLength(1);
+    app.done();
+  });
+
+  it("holds a question routed to Jarvis the same way, and asks it when it falls to the person", async () => {
+    const questions: any[] = [];
+    const client = fakeClient({ questions });
+    const app = await mount(client);
+    const request = { requestId: "q-j", sessionId: "s-1", route: "jarvis", questions: [{ question: "Which database?", options: [{ label: "pg" }, { label: "sqlite" }] }] };
+    questions.push(request);
+    void client.askQuestion(request);
+    await sleep(250);
+    expect(app.view()).not.toContain("Which database?");
+    expect(app.view()).toContain("Jarvis is deciding");
+    questions[0] = { ...request, route: "person" };
+    await sleep(2600);
+    expect(app.view()).toContain("Which database?");
+    app.done();
+  });
+
+  it("asks a person-only request once, with no session, project or always rows", async () => {
+    const client = fakeClient();
+    const app = await mount(client);
+    const answer = client.ask({ requestId: "p-1", sessionId: "s-1", tool: "tmux.other", args: { x: 1 }, route: "person", personOnly: true, risk: "high" });
+    await sleep(250);
+    const view = app.view();
+    expect(view).toContain("Approval required");
+    expect(view).not.toContain("this session only");
+    expect(view).not.toContain("project allowlist");
+    expect(view).not.toContain("Allow Everything");
+    app.stdin.write("\r");
+    expect(await answer).toEqual({ decision: "allow", scope: "once" });
+    app.done();
+  });
+
+  it("takes a session over while Jarvis is off", async () => {
+    const client = fakeClient({ enabled: false });
+    const app = await mount(client);
+    await submit(app, "/jarvis takeover 20");
+    expect(client.calls.find((c: any) => c.method === "jarvis.takeover")?.params).toEqual({ sessionId: "s-1", minutes: 20 });
+    app.done();
+  });
+
+  it("explains jarvis_person_only when a hand-back is refused", async () => {
+    const client = fakeClient({ fail: { "jarvis.handback": { code: "jarvis_person_only", message: "refused" } } });
+    const app = await mount(client);
+    await submit(app, "/jarvis handback");
+    await sleep(150);
+    expect(app.view()).toContain("Only a person can do that");
+    app.done();
+  });
+
+  it("shows a briefing Jarvis wrote like any other Jarvis message, and its wake message as a quiet line", async () => {
+    const base = fakeClient();
+    const original = base.call;
+    base.call = async (method: string, params: any = {}) => {
+      if (method === "session.resume") {
+        return {
+          sessionId: params.sessionId,
+          mode: "accept",
+          events: [
+            { sessionId: params.sessionId, seq: 1, kind: "message.user", ts: "2026-11-16T08:00:00Z", payload: { text: "<untrusted source=briefing>\nsessions: 3\n</untrusted>", origin: { kind: "system" } } },
+            { sessionId: params.sessionId, seq: 2, kind: "message.done", ts: "2026-11-16T08:00:05Z", payload: { role: "assistant", text: "Good morning. Three sessions ran overnight; one waits for you." } },
+          ],
+        };
+      }
+      return original(method, params);
+    };
+    const app = await mount(base);
+    await submit(app, "/jarvis");
+    await sleep(400);
+    const view = app.view();
+    expect(view).toContain("Good morning. Three sessions ran overnight; one waits for you.");
+    expect(view).not.toContain("❯ <untrusted");
+    app.done();
+  });
+});
+
+describe("external sessions, final contract", () => {
+  const ref = { cli: "claude", id: "abcdef012345" };
+  const history = [{ seq: 1, kind: "message.user", ts: "2026-11-16T10:00:01Z", payload: { text: "document the api" } }];
+  /** A turn starts and streams: the session is mid-answer. */
+  const running = async (client: any, who = ref) => {
+    client.emit("onExternalEvent", { ref: who, seq: 2, kind: "turn.started", ts: "t", payload: { turnId: "t1" } });
+    client.emit("onExternalEvent", { ref: who, seq: 3, kind: "message.delta", ts: "t", payload: { text: "Working on it" } });
+    await sleep(200);
+  };
+  const cli = (id: string, patch: Record<string, unknown> = {}) => ({
+    id,
+    title: id,
+    installed: true,
+    enabled: true,
+    defaultMode: "default",
+    capabilities: { approvals: "bridged", liveView: true, streaming: true },
+    ...patch,
+  });
+
+  async function openFirst(client: any, app: any) {
+    await submit(app, "/external");
+    await sleep(250);
+    app.stdin.write("\r");
+    await sleep(300);
+  }
+
+  it("leaving only unwatches; /external stop closes the process", async () => {
+    const sessions = [ext()];
+    const client = fakeClient({ externals: sessions, openResult: () => ({ session: sessions[0], events: history, hasMore: false }) });
+    const app = await mount(client);
+    await openFirst(client, app);
+    await submit(app, "/external close");
+    expect(client.calls.filter((c: any) => c.method === "external.unwatch")).toHaveLength(1);
+    expect(client.calls.find((c: any) => c.method === "external.unwatch")?.params).toEqual({ ref });
+    expect(methods(client)).not.toContain("external.close");
+    await openFirst(client, app);
+    await submit(app, "/external stop");
+    expect(client.calls.find((c: any) => c.method === "external.close")?.params).toEqual({ ref });
+    expect(app.view()).not.toContain("Claude Code · write the docs");
+    app.done();
+  });
+
+  it("opens a session by its handle through external.get, and says why a stale one cannot open", async () => {
+    const sessions = [ext()];
+    const client = fakeClient({ externals: sessions, openResult: () => ({ session: sessions[0], events: history, hasMore: false }) });
+    const app = await mount(client);
+    await submit(app, "/external open claude:abcdef012345");
+    await sleep(250);
+    expect(client.calls.find((c: any) => c.method === "external.get")?.params).toEqual({ ref });
+    expect(methods(client).indexOf("external.get")).toBeLessThan(methods(client).indexOf("external.open"));
+    expect(app.view()).toContain("Claude Code · write the docs");
+    app.done();
+    const stale = fakeClient({ fail: { "external.get": { code: "not_found", message: "no such session" } } });
+    const second = await mount(stale);
+    await submit(second, "/external open codex:gone");
+    await sleep(200);
+    expect(second.view()).toContain("That session does not exist");
+    expect(methods(stale)).not.toContain("external.open");
+    second.done();
+    const outside = fakeClient({ fail: { "external.get": { code: "outside_root", message: "x" } } });
+    const third = await mount(outside);
+    await submit(third, "/external open codex:elsewhere");
+    await sleep(200);
+    expect(third.view()).toContain("not in a registered project");
+    third.done();
+  });
+
+  it("picks the model from the CLI's list, with a typed name as the fallback", async () => {
+    const clis = [cli("claude", { models: ["opus", "sonnet"], modes: ["default", "readonly", "unrestricted"] })];
+    const client = fakeClient({ externals: [], clis });
+    const app = await mount(client);
+    await submit(app, "/external new");
+    await sleep(250);
+    app.stdin.write("\r"); // Claude Code
+    await sleep(100);
+    app.stdin.write("\r"); // default mode
+    await sleep(150);
+    expect(app.view()).toContain("opus");
+    expect(app.view()).toContain("sonnet");
+    expect(app.view()).toContain("Type a name");
+    app.stdin.write("\x1b[B"); // opus
+    await sleep(50);
+    app.stdin.write("\r");
+    await sleep(300);
+    expect(client.calls.find((c: any) => c.method === "external.create")?.params).toMatchObject({ cli: "claude", mode: "default", model: "opus" });
+    app.done();
+  });
+
+  it("falls back to a text field while the list is empty, and fills it in when external.clis.changed brings models", async () => {
+    const clis = [cli("claude", { models: [] })];
+    const client = fakeClient({ externals: [], clis });
+    const app = await mount(client);
+    await submit(app, "/external new");
+    await sleep(250);
+    app.stdin.write("\r");
+    await sleep(100);
+    app.stdin.write("\r");
+    await sleep(150);
+    expect(app.view()).toContain("model: ");
+    client.emit("onExternalClisChanged", { clis: [cli("claude", { models: ["haiku"] })] });
+    await sleep(200);
+    expect(app.view()).toContain("haiku");
+    app.done();
+  });
+
+  it("offers agy no read-only mode, and Cursor read-only first", async () => {
+    const clis = [
+      cli("agy", { modes: ["default", "unrestricted"] }),
+      cli("cursor", { modes: ["readonly", "default", "unrestricted"], defaultMode: "readonly" }),
+    ];
+    const client = fakeClient({ externals: [], clis });
+    const app = await mount(client);
+    await submit(app, "/external new");
+    await sleep(250);
+    app.stdin.write("\r"); // agy
+    await sleep(150);
+    expect(app.view()).not.toContain("read-only");
+    expect(app.view()).toContain("UNRESTRICTED");
+    app.stdin.write("\x1b"); // back to the CLI list
+    await sleep(100);
+    app.stdin.write("\x1b[B"); // cursor
+    await sleep(50);
+    app.stdin.write("\r");
+    await sleep(150);
+    const view = app.view();
+    expect(view.indexOf("read-only")).toBeGreaterThan(-1);
+    expect(view.indexOf("read-only")).toBeLessThan(view.indexOf("UNRESTRICTED"));
+    app.done();
+  });
+
+  it("refuses /external mode for a mode the CLI lacks", async () => {
+    const sessions = [ext({ ref: { cli: "agy", id: "a1" }, mode: "default" })];
+    const client = fakeClient({ externals: sessions, clis: [cli("agy", { modes: ["default", "unrestricted"] })], openResult: () => ({ session: sessions[0], events: history, hasMore: false }) });
+    const app = await mount(client);
+    await openFirst(client, app);
+    await submit(app, "/external mode readonly");
+    await sleep(150);
+    expect(app.view()).toContain("agy has no read-only mode");
+    expect(methods(client)).not.toContain("external.setMode");
+    app.done();
+  });
+
+  it("sends during a running turn only where the CLI can steer it", async () => {
+    // Claude cannot steer: nothing is sent, and the person is told.
+    const sessions = [ext({ status: "running" })];
+    const client = fakeClient({ externals: sessions, clis: [cli("claude", { capabilities: { approvals: "bridged", liveView: true, streaming: true, steer: false } })], openResult: () => ({ session: sessions[0], events: history, hasMore: false }) });
+    const app = await mount(client);
+    await openFirst(client, app);
+    await running(client);
+    await submit(app, "and also the cli");
+    expect(methods(client)).not.toContain("external.send");
+    expect(app.view()).toContain("still answering");
+    app.done();
+    // Codex can: the message goes out, to be added to the turn.
+    const codex = [ext({ ref: { cli: "codex", id: "c1" }, status: "running" })];
+    const steer = fakeClient({ externals: codex, clis: [cli("codex", { capabilities: { approvals: "bridged", liveView: true, streaming: true, steer: true } })], openResult: () => ({ session: codex[0], events: history, hasMore: false }) });
+    const second = await mount(steer);
+    await openFirst(steer, second);
+    await running(steer, { cli: "codex", id: "c1" });
+    expect(second.view()).toContain("type to steer it");
+    await submit(second, "use the other branch");
+    expect(steer.calls.find((c: any) => c.method === "external.send")?.params).toEqual({ ref: { cli: "codex", id: "c1" }, text: "use the other branch" });
+    second.done();
+  });
+
+  it("sends to a session with no process without opening it first", async () => {
+    const sessions = [ext({ host: "none", canSend: true })];
+    const client = fakeClient({ externals: sessions, openResult: () => ({ session: sessions[0], events: history, hasMore: false }) });
+    const app = await mount(client);
+    await openFirst(client, app);
+    const opens = methods(client).filter((m: string) => m === "external.open").length;
+    await submit(app, "continue please");
+    expect(methods(client).filter((m: string) => m === "external.send")).toHaveLength(1);
+    expect(methods(client).filter((m: string) => m === "external.open")).toHaveLength(opens);
+    app.done();
+  });
+
+  it("shows the daemon's reason when typing into a tmux pane is refused", async () => {
+    const sessions = [ext({ host: "tmux", canSend: true, approvals: "person", tmux: { session: "work", pane: "%3" } })];
+    const client = fakeClient({
+      externals: sessions,
+      openResult: () => ({ session: sessions[0], events: history, hasMore: false }),
+      fail: { "external.send": { code: "session_busy", message: "someone is typing in the terminal; try again in a moment" } },
+    });
+    const app = await mount(client);
+    await openFirst(client, app);
+    // Prompts of a tmux pane are answered in the terminal, and the screen says so.
+    expect(app.view()).toContain("answer permission prompts in the terminal");
+    await submit(app, "hello");
+    await sleep(200);
+    expect(app.view()).toContain("someone is typing in the terminal; try again in a moment");
+    app.done();
+  });
+
+  it("says why Esc cannot stop a turn in another terminal, and leaves on the second Esc", async () => {
+    const sessions = [ext({ host: "terminal", canSend: false, status: "running" })];
+    const client = fakeClient({ externals: sessions, openResult: () => ({ session: sessions[0], events: history, hasMore: false, readOnly: true }) });
+    const app = await mount(client);
+    await openFirst(client, app);
+    await running(client);
+    app.stdin.write("\x1b");
+    await sleep(200);
+    expect(methods(client)).not.toContain("external.interrupt");
+    expect(app.view()).toContain("runs in another terminal");
+    expect(app.view()).toContain("Claude Code · write the docs");
+    app.stdin.write("\x1b");
+    await sleep(200);
+    expect(methods(client)).toContain("external.unwatch");
+    expect(app.view()).not.toContain("Claude Code · write the docs");
+    app.done();
+  });
+
+  it("interrupts a tmux pane with Esc", async () => {
+    const sessions = [ext({ host: "tmux", canSend: true, approvals: "person", status: "running", tmux: { session: "work", pane: "%3" } })];
+    const client = fakeClient({ externals: sessions, openResult: () => ({ session: sessions[0], events: history, hasMore: false }) });
+    const app = await mount(client);
+    await openFirst(client, app);
+    await running(client);
+    app.stdin.write("\x1b");
+    await sleep(200);
+    expect(client.calls.find((c: any) => c.method === "external.interrupt")?.params).toEqual({ ref });
+    app.done();
+  });
+
+  it("explains an interrupt the daemon refuses for a terminal session", async () => {
+    const sessions = [ext({ host: "snowpea", canSend: true, status: "running" })];
+    const client = fakeClient({
+      externals: sessions,
+      openResult: () => ({ session: sessions[0], events: history, hasMore: false }),
+      fail: { "external.interrupt": { code: "external_view_only", message: "this session runs in another terminal; stop it there" } },
+    });
+    const app = await mount(client);
+    await openFirst(client, app);
+    await running(client);
+    app.stdin.write("\x1b");
+    await sleep(200);
+    expect(app.view()).toContain("stop it there");
+    app.done();
+  });
+
+  describe("adopting a tmux pane", () => {
+    const viewOnly = () => ext({ host: "terminal", canSend: false, status: "idle" });
+    const request = { requestId: "ad-1", sessionId: "ext:claude:abcdef012345", external: ref, tool: "tmux.adopt", personOnly: true, route: "person", risk: "high", args: { session: "work", pane: "%3" }, note: "snowpea will type into this tmux pane" };
+
+    it("asks the person, shows the pane, and types into it after a yes", async () => {
+      let allow!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        allow = resolve;
+      });
+      const sessions = [viewOnly()];
+      const approvals: any[] = [];
+      const client = fakeClient({
+        externals: sessions,
+        approvals,
+        openResult: (params: any) =>
+          params.transport === "tmux"
+            ? gate.then(() => ({ session: { ...sessions[0], host: "tmux", canSend: true, approvals: "person", tmux: { session: "work", pane: "%3" } }, events: history, hasMore: false }))
+            : { session: sessions[0], events: history, hasMore: false, readOnly: true },
+      });
+      const app = await mount(client);
+      await openFirst(client, app);
+      expect(app.view()).toContain("t types into its tmux pane");
+      app.stdin.write("t");
+      await sleep(50);
+      approvals.push(request);
+      await sleep(1200);
+      expect(client.calls.find((c: any) => c.method === "external.open" && c.params.transport === "tmux")?.params).toEqual({ ref, limit: 200, transport: "tmux" });
+      const view = app.view();
+      expect(view).toContain("Let snowpea type into your tmux pane?");
+      expect(view).toContain("work %3");
+      expect(view).toContain("y confirm");
+      app.stdin.write("\r");
+      await sleep(100);
+      expect(client.responded).toEqual([]);
+      app.stdin.write("y");
+      await sleep(150);
+      expect(client.responded).toEqual([{ requestId: "ad-1", decision: "allow", scope: "once", reason: undefined }]);
+      allow();
+      await sleep(300);
+      expect(app.view()).toContain("tmux work");
+      expect(app.view()).toContain("answer permission prompts in the terminal");
+      app.done();
+    });
+
+    it("stays view only when the person declines", async () => {
+      const sessions = [viewOnly()];
+      const approvals: any[] = [request];
+      let reject!: () => void;
+      const gate = new Promise<void>((_, fail) => {
+        reject = () => fail(Object.assign(new Error("typing into that tmux pane was not allowed"), { data: { code: "external_view_only" } }));
+      });
+      gate.catch(() => undefined);
+      const client = fakeClient({
+        externals: sessions,
+        approvals,
+        openResult: (params: any) =>
+          params.transport === "tmux" ? gate : { session: sessions[0], events: history, hasMore: false, readOnly: true },
+      });
+      const app = await mount(client);
+      await openFirst(client, app);
+      app.stdin.write("t");
+      await sleep(1200);
+      app.stdin.write("n");
+      await sleep(150);
+      expect(client.responded[0]).toMatchObject({ requestId: "ad-1", decision: "deny", scope: "once" });
+      reject();
+      await sleep(250);
+      expect(app.view()).toContain("stays view only");
+      expect(app.view()).toContain("Claude Code · write the docs");
+      app.done();
+    });
+
+    it("answers a tmux.adopt that reaches the prompt directly with the same one-key confirmation", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      const answer = client.ask({ ...request, sessionId: "s-1" });
+      await sleep(250);
+      expect(app.view()).toContain("Let snowpea type into your tmux pane?");
+      expect(app.view()).not.toContain("this session only");
+      app.stdin.write("y");
+      expect(await answer).toEqual({ decision: "allow", scope: "once" });
+      app.done();
+    });
+
+    it("only a Claude Code session in another terminal can be adopted", async () => {
+      const sessions = [ext({ ref: { cli: "codex", id: "c1" }, host: "terminal", canSend: false })];
+      const client = fakeClient({ externals: sessions, openResult: () => ({ session: sessions[0], events: history, hasMore: false, readOnly: true }) });
+      const app = await mount(client);
+      await openFirst(client, app);
+      app.stdin.write("t");
+      await sleep(150);
+      expect(app.view()).toContain("needs a Claude Code session");
+      expect(client.calls.some((c: any) => c.method === "external.open" && c.params.transport === "tmux")).toBe(false);
+      app.done();
+    });
   });
 });

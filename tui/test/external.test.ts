@@ -256,8 +256,25 @@ describe("the CLIs", () => {
 
   it("puts the CLI's default mode first, and offers only what it supports", () => {
     expect(modesFor(info({ capabilities: { approvals: "degraded", liveView: false, streaming: true, modes: ["readonly", "unrestricted"] }, defaultMode: "readonly" }))).toEqual(["readonly", "unrestricted"]);
-    expect(modesFor(info({ defaultMode: "unrestricted" }))).toEqual(["unrestricted", "default", "readonly"]);
+    expect(modesFor(info({ id: "claude", defaultMode: "unrestricted" }))).toEqual(["unrestricted", "default", "readonly"]);
     expect(modesFor(undefined)).toEqual(["default", "readonly", "unrestricted"]);
+  });
+
+  it("offers the modes the CLI lists, agy without read-only and Cursor read-only first", () => {
+    // agy has no read-only mode, even from an older daemon that lists no modes.
+    expect(modesFor(info({ id: "agy" }))).toEqual(["default", "unrestricted"]);
+    expect(modesFor(info({ id: "agy", modes: ["default", "unrestricted"], defaultMode: "default" }))).toEqual(["default", "unrestricted"]);
+    expect(modesFor(info({ id: "cursor", modes: ["readonly", "default", "unrestricted"], defaultMode: "readonly" }))).toEqual([
+      "readonly",
+      "default",
+      "unrestricted",
+    ]);
+    // `modes` is also sent for a CLI that is not installed, and wins over the older capability list.
+    expect(
+      modesFor(
+        info({ id: "cursor", installed: false, modes: ["readonly"], capabilities: { approvals: "degraded", liveView: false, streaming: true, modes: ["default"] } }),
+      ),
+    ).toEqual(["readonly"]);
   });
 
   it("says why a CLI cannot be started", () => {

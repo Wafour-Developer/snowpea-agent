@@ -23,6 +23,8 @@ export interface ExternalTranscriptProps {
   warning: string | null;
   /** Why the input is off; else null. */
   viewOnly: string | null;
+  /** A quiet line (a tmux pane's prompts are answered in the terminal); else null. */
+  note?: string | null;
   lines: Line[];
   height: number;
   width: number;
@@ -34,8 +36,12 @@ export interface ExternalTranscriptProps {
 export const EXTERNAL_CHROME_ROWS = 4;
 
 /** Extra rows the warning and the view-only line take. */
-export function externalExtraRows(warning: string | null, viewOnly: string | null): number {
-  return (warning ? 1 : 0) + (viewOnly ? 1 : 0);
+export function externalExtraRows(
+  warning: string | null,
+  viewOnly: string | null,
+  note: string | null = null,
+): number {
+  return (warning ? 1 : 0) + (viewOnly ? 1 : 0) + (note ? 1 : 0);
 }
 
 function ExternalTranscriptInner({
@@ -43,6 +49,7 @@ function ExternalTranscriptInner({
   status,
   warning,
   viewOnly,
+  note = null,
   lines,
   height,
   width,
@@ -64,10 +71,14 @@ function ExternalTranscriptInner({
         <Text bold>{spread(title, scrollIndicator ? `${scrollIndicator} · ${status}` : status, inner - 2)}</Text>
       </Text>
       {warning ? (
-        <Text bold color="red" wrap="truncate-end">{`⚠ ${fit(warning, inner - 2)}`}</Text>
+        <Text bold color="red" wrap="truncate-end">{`! ${fit(warning, inner - 2)}`}</Text>
       ) : null}
       {viewOnly ? (
         <Text color="yellow" wrap="truncate-end">{fit(viewOnly, inner)}</Text>
+      ) : null}
+
+      {note ? (
+        <Text dimColor wrap="truncate-end">{fit(note, inner)}</Text>
       ) : null}
 
       {empty ? (

@@ -15,10 +15,13 @@ import {
   type ApprovalRequestParams,
   type ApprovalResponse,
   type ConnectFn,
+  type ExternalClisChanged,
   type ExternalEvent,
   type ExternalState,
+  type JarvisAccessEvent,
   type JarvisDecisionEvent,
   type JarvisDelegationEvent,
+  type JarvisEscalationDismissed,
   type JarvisEscalationEvent,
   type JarvisStateEvent,
   type McpChangedPayload,
@@ -118,9 +121,17 @@ export interface TuiClientListeners {
   onJarvisDecision?: (params: JarvisDecisionEvent) => void;
   onJarvisEscalation?: (params: JarvisEscalationEvent) => void;
   onJarvisDelegation?: (params: JarvisDelegationEvent) => void;
+  /** Jarvis read or instructed a session. */
+  onJarvisAccess?: (params: JarvisAccessEvent) => void;
+  /** Escalations dismissed on any surface. */
+  onJarvisEscalationDismissed?: (params: JarvisEscalationDismissed) => void;
+  /** A session's summary changed (carries `jarvis` with `levelScope`). */
+  onSessionsChanged?: (params: { sessionId?: string; jarvis?: unknown }) => void;
   /** External CLI sessions (1.53.0, capability `externalSessions`). */
   onExternalEvent?: (params: ExternalEvent) => void;
   onExternalState?: (params: ExternalState) => void;
+  /** The CLI list changed (models listed, a CLI installed or switched off). */
+  onExternalClisChanged?: (params: ExternalClisChanged) => void;
 }
 
 export class TuiClient {
@@ -190,6 +201,10 @@ export class TuiClient {
     untypedOn("jarvis.delegation.changed", (params) => this.listeners.onJarvisDelegation?.(params));
     untypedOn("external.event", (params) => this.listeners.onExternalEvent?.(params));
     untypedOn("external.state", (params) => this.listeners.onExternalState?.(params));
+    untypedOn("jarvis.access", (params) => this.listeners.onJarvisAccess?.(params));
+    untypedOn("jarvis.escalation.dismissed", (params) => this.listeners.onJarvisEscalationDismissed?.(params));
+    untypedOn("external.clis.changed", (params) => this.listeners.onExternalClisChanged?.(params));
+    untypedOn("sessions.changed", (params) => this.listeners.onSessionsChanged?.(params));
     client.on("settings.changed", (params: any) => {
       void this.loadUiLanguage();
       this.listeners.onSettingsChanged?.(params ?? {});

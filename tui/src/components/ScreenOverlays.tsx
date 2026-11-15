@@ -10,14 +10,14 @@ import React from "react";
 import type { JarvisScreens } from "../hooks/useJarvisScreens.js";
 import { approvalPromptRows } from "../layout/viewport.js";
 import { fit } from "../layout/fit.js";
-import { ApprovalPrompt, approvalExtraRows } from "./ApprovalPrompt.js";
+import { ApprovalPrompt } from "./ApprovalPrompt.js";
 import { ConfirmMenu } from "./ConfirmMenu.js";
 import { DelegationConfirm, delegationConfirmRows } from "./DelegationConfirm.js";
 import { EXTERNAL_NEW_ROWS, ExternalNewForm } from "./ExternalNewForm.js";
 import { EXTERNAL_PICKER_TOTAL_ROWS, ExternalPicker } from "./ExternalPicker.js";
 import { QuestionPrompt, questionPromptRows } from "./QuestionPrompt.js";
 import { UnrestrictedConfirm, unrestrictedConfirmRows } from "./UnrestrictedConfirm.js";
-import { rowStatus, sessionLabel, parseProposal } from "../state/jarvis.js";
+import { rowStatus, sessionLabel, personOnlyView } from "../state/jarvis.js";
 import { spread } from "../layout/fit.js";
 import type { ApprovalEntry } from "../state/store.js";
 
@@ -34,14 +34,18 @@ export function screenOverlayRows(screens: JarvisScreens, width: number): number
       return Math.min(screens.jarvis.rows.length, 10) + 4;
     case "unrestricted":
       return unrestrictedConfirmRows(ui.lines.length);
+    case "adopt": {
+      const view = personOnlyView(ui.request, 0);
+      return view ? delegationConfirmRows(view) : 0;
+    }
     case "answer": {
       const item = screens.waitingItem;
       if (!item) return 0;
       if (item.kind === "question") return questionPromptRows(item.request as never, width) + 1;
       const request = item.request as ApprovalEntry;
-      const proposal = parseProposal(request);
-      if (proposal) return delegationConfirmRows(proposal);
-      return approvalPromptRows(Object.keys(request.args ?? {}).length) + approvalExtraRows(request);
+      const view = personOnlyView(request, 0);
+      if (view) return delegationConfirmRows(view);
+      return approvalPromptRows(Object.keys(request.args ?? {}).length);
     }
   }
 }
@@ -124,6 +128,14 @@ export function ScreenOverlays({
     );
   }
 
+  if (ui.kind === "adopt") {
+    const view = personOnlyView(ui.request, now);
+    if (!view) return null;
+    return (
+      <DelegationConfirm view={view} label={view.from} width={width} onAnswer={screens.answerAdopt} />
+    );
+  }
+
   const item = screens.waitingItem;
   if (!item) return null;
   if (item.kind === "question") {
@@ -136,14 +148,13 @@ export function ScreenOverlays({
     );
   }
   const request: ApprovalEntry = { ...(item.request as ApprovalEntry), source: "queue" };
-  const proposal = parseProposal(request);
-  if (proposal) {
+  const view = personOnlyView(request, now);
+  if (view) {
     return (
       <DelegationConfirm
-        proposal={proposal}
+        view={view}
         label={item.label}
         width={width}
-        now={now}
         onAnswer={(confirmed) =>
           screens.answerApproval(
             item.requestId,
@@ -160,6 +171,7 @@ export function ScreenOverlays({
       request={request}
       label={fit(item.label, Math.max(10, width - 24))}
       crossSession
+      onceOnly={request.personOnly === true}
       mode="accept"
       onDecide={(answer, reason) => screens.answerApproval(item.requestId, answer.decision, answer.scope, reason)}
     />

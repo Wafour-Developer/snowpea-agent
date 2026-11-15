@@ -228,6 +228,13 @@ export interface State {
   pendingApproval: ApprovalEntry | null;
   /** Unattended backlog, seeded from `approval.list`. */
   approvalQueue: ApprovalEntry[];
+  /**
+   * Requests of this session the delegation engine routed to Jarvis (1.53):
+   * held without a prompt while Jarvis decides, promoted to the prompt when the
+   * daemon routes them to the person after all.
+   */
+  heldApprovals: ApprovalEntry[];
+  heldQuestions: QuestionEntry[];
   /** The `ask_user` question this surface is being asked, at most one.
    *  It is drawn ahead of any approval: the daemon is blocked on it, and the
    *  question is the thing the user was in the middle of thinking about. */
@@ -348,6 +355,8 @@ export const initialState: State = {
   diffs: [],
   timeline: [],
   pendingApproval: null,
+  heldApprovals: [],
+  heldQuestions: [],
   approvalQueue: [],
   pendingQuestion: null,
   commands: [],
@@ -431,6 +440,7 @@ export type Action =
   | { type: "approval/request"; request: ApprovalRequestParams }
   | { type: "approval/list"; requests: ApprovalRequestParams[] }
   | { type: "approval/resolved"; requestId: string }
+  | { type: "question/list"; requests: QuestionRequestParams[] }
   | { type: "question/request"; request: QuestionRequestParams }
   | { type: "question/resolved"; requestId: string }
   | { type: "errors/clear" }
@@ -776,6 +786,25 @@ function applySessionEvent(
     // replay it is the only record of what was asked.
     case "message.user": {
       const text = String(payload.text ?? "");
+      // Jarvis's own wake messages (a briefing's facts, a digest) are not the
+      // person's words: one quiet line instead of a "you" bubble holding a
+      // fenced dump. The reply they cause is an ordinary assistant message.
+      const originKind = (payload.origin as { kind?: string } | null | undefined)?.kind;
+      if (originKind === "system" || originKind === "jarvis") {
+        const first = text.split("\n").find((line) => line.trim() !== "" && !/^<\/?untrusted/.test(line.trim())) ?? "";
+        const shown = first.trim().length > 100 ? `${first.trim().slice(0, 99)}…` : first.trim();
+        const message: Message = {
+          id: nextId("msg"),
+          role: "system",
+          text: shown ? `${originKind === "jarvis" ? "Jarvis" : "wake"}: ${shown}` : `${originKind === "jarvis" ? "Jarvis" : "wake"} message`,
+          streaming: false,
+        };
+        return {
+          ...base,
+          messages: [...base.messages, message],
+          timeline: pushTimeline(base, { kind: "message", id: message.id }),
+        };
+      }
       const expansion = parseSkillExpansion(payload);
       const attachExpansion = (messages: Message[]): Message[] | null => {
         if (!expansion) return null;
@@ -1450,16 +1479,39 @@ export function reducer(state: State, action: Action): State {
       return { ...state, children: { ...state.children, [action.sessionId]: next } };
     }
 
-    case "approval/request":
+    case "approval/request": {
+      // Routed to Jarvis: it decides, the person is not asked. A person-only
+      // request is never Jarvis's, whatever its route says.
+      if (action.request.route === "jarvis" && !action.request.personOnly) {
+        const rest = state.heldApprovals.filter((r) => r.requestId !== action.request.requestId);
+        return { ...state, heldApprovals: [...rest, { ...action.request, source: "interactive" }] };
+      }
       return { ...state, pendingApproval: { ...action.request, source: "interactive" } };
+    }
 
     case "approval/list": {
-      const pendingId = state.pendingApproval?.requestId;
+      const fallen = state.heldApprovals.flatMap((held) => {
+        const now = action.requests.find((r) => r.requestId === held.requestId);
+        return now && now.route !== "jarvis" ? [{ ...held, ...now, source: "interactive" as const }] : [];
+      });
+      const heldIds = new Set(state.heldApprovals.map((r) => r.requestId));
+      const stillHeld = state.heldApprovals.filter(
+        (held) => !fallen.some((f) => f.requestId === held.requestId),
+      );
+      // The daemon routed some to the person after all: the first takes the
+      // prompt when it is free, the rest wait in the queue.
+      const promoted = state.pendingApproval ? [] : fallen.slice(0, 1);
+      const pending = state.pendingApproval ?? promoted[0] ?? null;
       return {
         ...state,
-        approvalQueue: action.requests
-          .filter((r) => r.requestId !== pendingId)
-          .map((r) => ({ ...r, source: "queue" as const })),
+        pendingApproval: pending,
+        heldApprovals: stillHeld,
+        approvalQueue: [
+          ...action.requests
+            .filter((r) => r.requestId !== pending?.requestId)
+            .filter((r) => !heldIds.has(r.requestId) || fallen.some((f) => f.requestId === r.requestId))
+            .map((r) => ({ ...r, source: "queue" as const })),
+        ],
       };
     }
 
@@ -1469,16 +1521,35 @@ export function reducer(state: State, action: Action): State {
         pendingApproval:
           state.pendingApproval?.requestId === action.requestId ? null : state.pendingApproval,
         approvalQueue: state.approvalQueue.filter((r) => r.requestId !== action.requestId),
+        heldApprovals: state.heldApprovals.filter((r) => r.requestId !== action.requestId),
       };
 
     case "question/request":
+      if (action.request.route === "jarvis") {
+        const rest = state.heldQuestions.filter((r) => r.requestId !== action.request.requestId);
+        return { ...state, heldQuestions: [...rest, action.request] };
+      }
       return { ...state, pendingQuestion: action.request };
+
+    case "question/list": {
+      const fallen = state.heldQuestions.filter((held) =>
+        action.requests.some((r) => r.requestId === held.requestId && r.route !== "jarvis"),
+      );
+      if (fallen.length === 0) return state;
+      const take = state.pendingQuestion ? null : fallen[0];
+      return {
+        ...state,
+        pendingQuestion: state.pendingQuestion ?? take,
+        heldQuestions: state.heldQuestions.filter((held) => held.requestId !== take?.requestId),
+      };
+    }
 
     case "question/resolved":
       return {
         ...state,
         pendingQuestion:
           state.pendingQuestion?.requestId === action.requestId ? null : state.pendingQuestion,
+        heldQuestions: state.heldQuestions.filter((r) => r.requestId !== action.requestId),
       };
 
     case "error":

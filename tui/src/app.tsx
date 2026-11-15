@@ -39,12 +39,13 @@ import { ExternalTranscript, externalExtraRows } from "./components/ExternalTran
 import { DelegationConfirm, delegationConfirmRows } from "./components/DelegationConfirm.js";
 import {
   cliLabel,
+  externalNote,
   hostLabel,
   modeLabel as externalModeLabel,
   ungatedWarning,
   viewOnlyReason,
 } from "./state/external.js";
-import { parseProposal, requestLabel, supportOf } from "./state/jarvis.js";
+import { JARVIS_DECIDING, personOnlyView, requestLabel, resolvedLine, supportOf } from "./state/jarvis.js";
 import {
   bannerText,
   cancel as cancelUpdate,
@@ -228,6 +229,8 @@ const UPDATE_OPTIONS: ConfirmOption<boolean>[] = [
 
 /** How often the unattended queue is re-read while it is not empty. */
 export const APPROVAL_POLL_MS = 5000;
+/** How often a request Jarvis holds is checked for being routed to the person after all. */
+export const HELD_POLL_MS = 2000;
 
 /**
  * Longest message the status line will carry.
@@ -549,6 +552,13 @@ export function App({
   const activeSessionRef = useRef(initialSessionId);
   const resumingRef = useRef(false);
   const [state, dispatch] = useReducer(reducer, initialState);
+  /** Every approval this surface knows, for notification handlers bound once per session. */
+  const knownApprovalsRef = useRef<ApprovalRequestParams[]>([]);
+  knownApprovalsRef.current = [
+    ...state.heldApprovals,
+    ...(state.pendingApproval ? [state.pendingApproval] : []),
+    ...state.approvalQueue,
+  ];
   const [reconnectAttempt, setReconnectAttempt] = useState<number | null>(null);
   const [daemonGone, setDaemonGone] = useState(false);
   const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -723,9 +733,9 @@ export function App({
    */
   const [updateAvailable, setUpdateAvailable] = useState(false);
   /** Resolver for the approval promise the SDK is awaiting. */
-  const approvalResolver = useRef<((response: ApprovalResponse) => void) | null>(null);
+  const approvalResolvers = useRef(new Map<string, (response: ApprovalResponse) => void>());
   /** Resolver for the `ask_user` question the daemon is blocked on. */
-  const questionResolver = useRef<((response: QuestionResponse) => void) | null>(null);
+  const questionResolvers = useRef(new Map<string, (response: QuestionResponse) => void>());
   /** The Jarvis and external-session screens, for the listeners bound once per session. */
   const screensRef = useRef<ReturnType<typeof useJarvisScreens> | null>(null);
 
@@ -873,6 +883,10 @@ export function App({
       onQuestionPending: (params) => screensRef.current?.listeners.onQuestionPending?.(params),
       onExternalEvent: (params) => screensRef.current?.listeners.onExternalEvent?.(params),
       onExternalState: (params) => screensRef.current?.listeners.onExternalState?.(params),
+      onExternalClisChanged: (params) => screensRef.current?.listeners.onExternalClisChanged?.(params),
+      onJarvisAccess: (params) => screensRef.current?.listeners.onJarvisAccess?.(params),
+      onJarvisEscalationDismissed: (params) => screensRef.current?.listeners.onJarvisEscalationDismissed?.(params),
+      onSessionsChanged: (params) => screensRef.current?.listeners.onSessionsChanged?.(params),
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
       onSessionEvent: (event) => {
@@ -945,6 +959,10 @@ export function App({
       },
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
+      onQuestionResolved: ({ requestId }) => {
+        dispatch({ type: "question/resolved", requestId });
+        questionResolvers.current.delete(requestId);
+      },
       onApprovalPending: () => {
         refreshApprovals();
         void screensRef.current?.refresh();
@@ -986,7 +1004,11 @@ export function App({
           const next = (phase ?? "started") as "started" | "done" | "failed";
           return updateProgress(current, next, message ?? "");
         }),
-      onApprovalResolved: ({ requestId }) => {
+      onApprovalResolved: ({ requestId, decision, by }) => {
+        // Jarvis answered: say so once, in words, so the request does not just vanish.
+        const known = knownApprovalsRef.current.find((request) => request.requestId === requestId);
+        const line = resolvedLine(by, decision, known);
+        if (line) dispatch({ type: "note", text: line });
         dispatch({ type: "approval/resolved", requestId });
         // Another surface may have answered one of ours, or freed a slot that
         // lets a queued turn raise its own request; re-read the backlog.
@@ -1036,7 +1058,7 @@ export function App({
     client.onApprovalRequest(
       (request: ApprovalRequestParams) =>
         new Promise<ApprovalResponse>((resolve) => {
-          approvalResolver.current = resolve;
+          approvalResolvers.current.set(request.requestId, resolve);
           dispatch({ type: "approval/request", request });
         }),
     );
@@ -1044,7 +1066,7 @@ export function App({
     client.onQuestionRequest(
       (request: QuestionRequestParams) =>
         new Promise<QuestionResponse>((resolve) => {
-          questionResolver.current = resolve;
+          questionResolvers.current.set(request.requestId, resolve);
           dispatch({ type: "question/request", request });
         }),
     );
@@ -1131,10 +1153,20 @@ export function App({
   // Poll while something is waiting: unattended requests are raised by turns
   // this surface never sees, so there is no event to hang the refresh off.
   useEffect(() => {
-    if (state.approvalQueue.length === 0) return;
-    const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
+    const held = state.heldApprovals.length + state.heldQuestions.length;
+    if (state.approvalQueue.length === 0 && held === 0) return;
+    const timer = setInterval(() => {
+      refreshApprovals();
+      // A request Jarvis holds comes back to the person when the daemon routes it so.
+      if (state.heldQuestions.length > 0) {
+        void client
+          .call("question.list", {})
+          .then((result) => dispatch({ type: "question/list", requests: result?.requests ?? [] }))
+          .catch(() => undefined);
+      }
+    }, held > 0 ? HELD_POLL_MS : APPROVAL_POLL_MS);
     return () => clearInterval(timer);
-  }, [state.approvalQueue.length, refreshApprovals]);
+  }, [state.approvalQueue.length, state.heldApprovals.length, state.heldQuestions.length, refreshApprovals, client]);
 
   // Speech follows the transcript: every assistant message that finishes while
   // `/tts` is on is read out once, and never twice however often this renders.
@@ -1440,7 +1472,7 @@ export function App({
         turnActive: state.turnActive,
         toast: modeToast && modeToast.length <= TOAST_INLINE_MAX ? modeToast : null,
         modeHint: modeHintVisible,
-        jarvis: screens.marker,
+        jarvis: state.heldApprovals.length + state.heldQuestions.length > 0 ? JARVIS_DECIDING : screens.marker,
         externalWarning,
       }),
     [
@@ -1474,6 +1506,8 @@ export function App({
       modeToast,
       modeHintVisible,
       screens.marker,
+      state.heldApprovals.length,
+      state.heldQuestions.length,
       externalWarning,
     ],
   );
@@ -1620,7 +1654,7 @@ export function App({
   const overlayRows = screenOverlayRows(screens, contentWidth);
   const approvalLabel = requestLabel(state.pendingApproval, screens.jarvis.rows, sessionId);
   const screenQuestionLabel = requestLabel(state.pendingQuestion, screens.jarvis.rows, sessionId);
-  const proposalRequest = state.pendingApproval ? parseProposal(state.pendingApproval) : null;
+  const proposalRequest = state.pendingApproval ? personOnlyView(state.pendingApproval, screens.now) : null;
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
     rows: usableRows(terminal.rows),
@@ -1656,7 +1690,6 @@ export function App({
       extraRows:
         jarvisPanelLines.length +
         overlayRows +
-        (state.pendingApproval && state.pendingApproval.route === "jarvis" ? 1 : 0) +
         (state.pendingQuestion && screenQuestionLabel ? 1 : 0) +
         (proposalRequest ? delegationConfirmRows(proposalRequest) - approvalPromptRows(Object.keys(state.pendingApproval?.args ?? {}).length) : 0),
     }),
@@ -1665,7 +1698,8 @@ export function App({
   // the scrollback and Ink clears the whole terminal on every frame once that
   // region reaches the terminal's height — so the window takes what the status
   // block and the input leave over, and no more.
-  const externalExtra = externalOpen ? externalExtraRows(externalWarning, externalViewOnly) : 0;
+  const externalNoteLine = externalOpen ? externalNote(externalOpen.session) : null;
+  const externalExtra = externalOpen ? externalExtraRows(externalWarning, externalViewOnly, externalNoteLine) : 0;
   const agentWindowRows = Math.max(
     3,
     agentTranscriptRows({
@@ -2771,9 +2805,9 @@ export function App({
         if (state.mode === "plan") planThenAuto();
         else changeMode("auto");
       }
-      const resolve = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
-      approvalResolver.current = null;
+      const resolve = requestId ? approvalResolvers.current.get(requestId) : undefined;
+      if (requestId) approvalResolvers.current.delete(requestId);
       if (requestId) dispatch({ type: "approval/resolved", requestId });
       // `reason` is only ever set by "No, with reason"; the daemon quotes it
       // back to the model as the tool's refusal (M15b §1).
@@ -2785,9 +2819,9 @@ export function App({
 
   const answerQuestion = useCallback(
     (answers: QuestionAnswerItem[]) => {
-      const resolve = questionResolver.current;
       const requestId = state.pendingQuestion?.requestId;
-      questionResolver.current = null;
+      const resolve = requestId ? questionResolvers.current.get(requestId) : undefined;
+      if (requestId) questionResolvers.current.delete(requestId);
       if (requestId) dispatch({ type: "question/resolved", requestId });
       resolve?.({ answers });
     },
@@ -2797,11 +2831,13 @@ export function App({
   const respondQueued = useCallback(
     (requestId: string, decision: ApprovalDecision, scope: ApprovalScope, reason?: string) => {
       dispatch({ type: "approval/resolved", requestId });
+      // A request only a person may settle is settled once, whatever the scope row says.
+      const personOnly = state.approvalQueue.find((entry) => entry.requestId === requestId)?.personOnly === true;
       void client
-        .respondApproval(requestId, decision, scope, reason)
+        .respondApproval(requestId, decision, personOnly ? "once" : scope, reason)
         .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
     },
-    [client],
+    [client, state.approvalQueue],
   );
 
   useInput((input, key) => {
@@ -2897,9 +2933,24 @@ export function App({
       }
     }
 
-    // A view-only external session has no input to take Esc: it leaves from here.
+    // A view-only external session has no input to take Esc: it stops its turn
+    // (where that is possible from here) or leaves from here.
     if (externalOpen && externalViewOnly !== null && key.escape) {
-      screens.leaveExternal();
+      screens.escapeExternal();
+      return;
+    }
+    // A view-only Claude Code session in the person's own tmux pane can be
+    // adopted: there is no input line to type /external adopt into, so a key does it.
+    if (
+      externalOpen &&
+      externalViewOnly !== null &&
+      input === "t" &&
+      !key.ctrl &&
+      !key.meta &&
+      screens.ui === null &&
+      state.pendingApproval === null
+    ) {
+      screens.adoptExternal();
       return;
     }
     // An open external session scrolls with PgUp/PgDn; the arrows stay with the input.
@@ -3156,12 +3207,12 @@ export function App({
       {state.pendingQuestion ? (
         <QuestionPrompt request={state.pendingQuestion} onAnswer={answerQuestion} label={screenQuestionLabel} />
       ) : state.pendingApproval && proposalRequest ? (
-        // Jarvis proposing what it may decide: one key confirms or declines.
+        // A request only a person may answer (Jarvis's proposal, a tmux
+        // adoption): one key confirms or declines.
         <DelegationConfirm
-          proposal={proposalRequest}
-          label={approvalLabel ?? "Jarvis"}
+          view={proposalRequest}
+          label={approvalLabel ?? proposalRequest.from}
           width={contentWidth}
-          now={screens.now}
           onAnswer={(confirmed) =>
             decideApproval(
               { decision: confirmed ? "allow" : "deny", scope: "once" },
@@ -3176,6 +3227,7 @@ export function App({
           mode={state.mode}
           label={approvalLabel}
           crossSession={approvalLabel !== null}
+          onceOnly={state.pendingApproval.personOnly === true}
         />
       ) : screens.ui ? (
         <ScreenOverlays screens={screens} width={contentWidth} folder={workdir} now={screens.now} />
@@ -3255,7 +3307,9 @@ export function App({
               ? externalViewOnly
                 ? "view only"
                 : externalOpen.state.turnActive
-                  ? "Esc stops the turn · type to queue a change"
+                  ? screens.canSteer
+                    ? "Esc stops the turn · type to steer it"
+                    : "Esc stops the turn · wait to send"
                   : `message ${cliLabel(externalOpen.ref.cli)} · Esc goes back`
               : state.turnActive
                 ? "Esc stops · type what to change"
@@ -3357,6 +3411,7 @@ export function App({
       ].join(" · ")}
       warning={externalWarning}
       viewOnly={externalViewOnly}
+      note={externalNoteLine}
       lines={agentViewport.lines}
       height={agentWindowRows}
       width={contentWidth}

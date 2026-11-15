@@ -15,6 +15,7 @@ import type { QuestionAnswerItem } from "../components/QuestionPrompt.js";
 import { useClock } from "./useClock.js";
 import type { TuiClient, TuiClientListeners } from "../rpc/client.js";
 import type {
+  ExternalTimelineEvent,
   ApprovalDecision,
   ApprovalRequestParams,
   ApprovalScope,
@@ -23,11 +24,15 @@ import type {
   ExternalSessionRow,
   JarvisOverviewRow,
   QuestionRequestParams,
+  SessionJarvisState,
 } from "../rpc/sdk.js";
 import {
   externalReducer,
   describeExternalError,
+  extSessionId,
+  interruptRefusal,
   modeLabel,
+  modesFor,
   openExternal,
   sameRef,
   unrestrictedPrompt,
@@ -37,7 +42,9 @@ import {
   type ExternalView,
 } from "../state/external.js";
 import {
+  accessLine,
   initialJarvis,
+  MAX_ESCALATIONS,
   jarvisMarker,
   jarvisReducer,
   panelLines,
@@ -53,6 +60,11 @@ import {
 import { parseExternalCommand, parseJarvisCommand } from "../slash/jarvis.js";
 import { cliLabel } from "../state/external.js";
 
+/** True when the CLI adds a message to a running turn instead of refusing it. */
+export function steerOf(infos: readonly ExternalCliInfo[] | null, cli: string): boolean {
+  return infos?.find((info) => info.id === cli)?.capabilities?.steer === true;
+}
+
 /** Which overlay replaces the input line, if any. */
 export type ScreenUi =
   | {
@@ -67,7 +79,9 @@ export type ScreenUi =
   | { kind: "new"; infos: ExternalCliInfo[] }
   | { kind: "sessions" }
   | { kind: "answer"; requestId: string }
-  | { kind: "unrestricted"; ref: ExternalRef; lines: string[] };
+  | { kind: "unrestricted"; ref: ExternalRef; lines: string[] }
+  /** The person-only confirmation for adopting a tmux pane (`tmux.adopt`). */
+  | { kind: "adopt"; ref: ExternalRef; request: ApprovalRequestParams };
 
 type ViewAction = ExternalAction | { type: "close" };
 
@@ -96,6 +110,10 @@ function errorText(error: unknown): string {
   return raw?.message ?? String(error);
 }
 
+/** Jarvis reading a session again within this long says nothing new. */
+const ACCESS_QUIET_MS = 30_000;
+/** A second Esc within this long leaves a session whose turn cannot be stopped from here. */
+const ESC_AGAIN_MS = 3000;
 const POLL_VISIBLE_MS = 4000;
 const POLL_BACKGROUND_MS = 15_000;
 const PAGE = 40;
@@ -111,6 +129,12 @@ export function useJarvisScreens(deps: ScreensDeps) {
   const returnTo = useRef<string | null>(null);
   const refreshing = useRef(false);
   const clisRef = useRef<ExternalCliInfo[] | null>(null);
+  const [clis, setClis] = useState<ExternalCliInfo[] | null>(null);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  const loadClisRef = useRef<(() => Promise<ExternalCliInfo[]>) | null>(null);
+  const lastAccess = useRef(new Map<string, number>());
+  const lastRefusal = useRef(0);
   const externalRef = useRef<ExternalView | null>(null);
   externalRef.current = external;
   const jarvisRef = useRef<JarvisState>(jarvis);
@@ -133,11 +157,13 @@ export function useJarvisScreens(deps: ScreensDeps) {
       const status = await client.call("jarvis.status", {}).catch(() => null);
       if (status) jarvisDispatch({ type: "status", status });
       if (!status?.enabled) return;
-      const [overview, approvals, questions, ledger] = await Promise.all([
+      const [overview, approvals, questions, ledger, notices, sessions] = await Promise.all([
         client.call("jarvis.overview", { includeIdle: true, includeExternal: true, limit: 100 }).catch(() => null),
         client.listApprovals().catch(() => null),
         client.call("question.list", {}).catch(() => null),
         support.delegation ? client.call("jarvis.ledger", { limit: 12 }).catch(() => null) : Promise.resolve(null),
+        client.call("jarvis.escalations.list", { limit: MAX_ESCALATIONS }).catch(() => null),
+        client.call("session.list", {}).catch(() => null),
       ]);
       if (overview) {
         jarvisDispatch({ type: "overview", rows: overview.rows ?? [], at: Date.now() });
@@ -150,6 +176,14 @@ export function useJarvisScreens(deps: ScreensDeps) {
         });
       }
       if (ledger) jarvisDispatch({ type: "decisions", entries: ledger.entries ?? [] });
+      if (notices) jarvisDispatch({ type: "escalations", entries: notices.escalations ?? [] });
+      if (sessions) {
+        const states: Record<string, SessionJarvisState> = {};
+        for (const entry of (sessions.sessions ?? []) as Array<{ sessionId: string; jarvis?: SessionJarvisState | null }>) {
+          if (entry.jarvis) states[entry.sessionId] = entry.jarvis;
+        }
+        jarvisDispatch({ type: "sessionStates", states });
+      }
     } finally {
       refreshing.current = false;
     }
@@ -192,6 +226,36 @@ export function useJarvisScreens(deps: ScreensDeps) {
         void refresh();
       },
       onQuestionPending: () => void refresh(),
+      onJarvisEscalationDismissed: (payload) => jarvisDispatch({ type: "event/dismissed", payload }),
+      onSessionsChanged: (payload) => {
+        if (payload?.sessionId && payload.jarvis !== undefined) {
+          jarvisDispatch({
+            type: "sessionState",
+            sessionId: payload.sessionId,
+            state: (payload.jarvis as SessionJarvisState | null) ?? null,
+          });
+        }
+      },
+      // One quiet line in the session Jarvis read or instructed, not one per read.
+      onJarvisAccess: (event) => {
+        const view = externalRef.current;
+        const onView =
+          view !== null &&
+          (event.sessionId === extSessionId(view.ref) || (event.external != null && sameRef(event.external, view.ref)));
+        if (!onView && event.sessionId !== sessionIdRef.current) return;
+        const key = `${event.sessionId}:${event.action === "read" ? "read" : "instruct"}`;
+        const at = Date.now();
+        if (at - (lastAccess.current.get(key) ?? 0) < ACCESS_QUIET_MS) return;
+        lastAccess.current.set(key, at);
+        if (onView) viewDispatch({ type: "note", text: accessLine(event) });
+        else note(accessLine(event));
+      },
+      onExternalClisChanged: (payload) => {
+        const next = (payload?.clis ?? []) as ExternalCliInfo[];
+        clisRef.current = next;
+        setClis(next);
+        setUi((current) => (current?.kind === "new" ? { ...current, infos: next } : current));
+      },
       onExternalEvent: (payload) => viewDispatch({ type: "event", event: payload }),
       onExternalState: (payload) => {
         viewDispatch({ type: "state", payload });
@@ -216,7 +280,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
         );
       },
     }),
-    [refresh],
+    [refresh, note],
   );
 
   /** After a reconnect the daemon forgot who listens to the open session. */
@@ -294,17 +358,46 @@ export function useJarvisScreens(deps: ScreensDeps) {
     );
   }, []);
 
+  /** Stop this connection's `external.event` stream for a session; its process keeps running. */
+  const unwatch = useCallback(
+    (ref: ExternalRef) => {
+      void client.call("external.unwatch", { ref }).catch(() => undefined);
+    },
+    [client],
+  );
+
+  /** Show a session the daemon just opened or created; the one it replaces stops being watched. */
+  const showOpened = useCallback(
+    (session: ExternalSessionRow, events: ExternalTimelineEvent[], hasMore: boolean) => {
+      const previous = externalRef.current;
+      if (previous && !sameRef(previous.ref, session.ref)) unwatch(previous.ref);
+      viewDispatch({ type: "opened", session, events, hasMore });
+      setUi(null);
+      // Whether the CLI takes a message mid-turn is in its capabilities.
+      void loadClisRef.current?.().catch(() => undefined);
+    },
+    [unwatch],
+  );
+
   const openExternalRef = useCallback(
     (ref: ExternalRef, mode?: string) => {
       void client
         .call("external.open", { ref, limit: 200, ...(mode ? { mode } : {}) })
-        .then((result) => {
-          viewDispatch({ type: "opened", session: result.session, events: result.events ?? [], hasMore: result.hasMore === true });
-          setUi(null);
-        })
-        .catch((error: unknown) => showToast(describeExternalError(error, ref.cli)));
+        .then((result) => showOpened(result.session, result.events ?? [], result.hasMore === true))
+        .catch((error: unknown) => showToast(describeExternalError(error, ref.cli, "open")));
     },
-    [client, showToast],
+    [client, showOpened, showToast],
+  );
+
+  /** `/external open <cli>:<id>`: look the row up first so a stale handle says why. */
+  const openByRef = useCallback(
+    (ref: ExternalRef) => {
+      void client
+        .call("external.get", { ref })
+        .then((result) => openExternalRef(result.session.ref))
+        .catch((error: unknown) => showToast(describeExternalError(error, ref.cli, "open")));
+    },
+    [client, openExternalRef, showToast],
   );
 
   const openRow = useCallback(
@@ -359,7 +452,9 @@ export function useJarvisScreens(deps: ScreensDeps) {
           note(
             code === "jarvis_disabled"
               ? "Jarvis is off — /jarvis on"
-              : `${method} failed: ${errorText(error)}`,
+              : code === "jarvis_person_only"
+                ? "Only a person can do that — it is refused from a connection Jarvis or a script drives."
+                : `${method} failed: ${errorText(error)}`,
           );
         });
     },
@@ -410,6 +505,28 @@ export function useJarvisScreens(deps: ScreensDeps) {
           const row = resolveRow(command.target);
           if (!row) showToast(`no supervised session "${command.target}"`);
           else openRow(row);
+          break;
+        }
+        case "dismiss": {
+          const list = jarvisRef.current.escalations;
+          if (list.length === 0) {
+            showToast("no notices to dismiss");
+            break;
+          }
+          const picked = command.target === "all" ? list : [list[command.target - 1]];
+          if (picked[0] === undefined) {
+            showToast(`no notice ${command.target} — /jarvis lists them`);
+            break;
+          }
+          const ids = picked.map((entry) => entry.id);
+          jarvisCall(
+            "jarvis.escalations.dismiss",
+            command.target === "all" ? { all: true } : { ids },
+            (result) => {
+              jarvisDispatch({ type: "event/dismissed", payload: { ids: result?.dismissed ?? ids } });
+              return ids.length === 1 ? "notice dismissed" : `${ids.length} notices dismissed`;
+            },
+          );
           break;
         }
         case "waiting":
@@ -497,8 +614,11 @@ export function useJarvisScreens(deps: ScreensDeps) {
     if (clisRef.current) return clisRef.current;
     const result = await client.call("external.clis", {});
     clisRef.current = (result?.clis ?? []) as ExternalCliInfo[];
+    setClis(clisRef.current);
     return clisRef.current;
   }, [client]);
+
+  loadClisRef.current = loadClis;
 
   const loadPicker = useCallback(
     async (allProjects: boolean, before: string | null, keep: ExternalSessionRow[]) => {
@@ -569,16 +689,13 @@ export function useJarvisScreens(deps: ScreensDeps) {
           transport: "structured",
           ...(choice.model ? { model: choice.model } : {}),
         })
-        .then((result) => {
-          viewDispatch({ type: "opened", session: result.session, events: [], hasMore: false });
-          setUi(null);
-        })
+        .then((result) => showOpened(result.session, [], false))
         .catch((error: unknown) => {
           setUi(null);
           note(`external: ${describeExternalError(error, choice.cli)}`);
         });
     },
-    [client, note, workdir],
+    [client, note, showOpened, workdir],
   );
 
   const loadOlder = useCallback(() => {
@@ -611,10 +728,18 @@ export function useJarvisScreens(deps: ScreensDeps) {
         showToast(why);
         return;
       }
+      // A running turn takes a message only where the CLI can steer it (Codex);
+      // elsewhere the daemon would answer session_busy, so say it before echoing.
+      if (view.state.turnActive && !steerOf(clisRef.current, view.ref.cli)) {
+        showToast(`${cliLabel(view.ref.cli)} is still answering — Esc stops the turn, then send`);
+        return;
+      }
       viewDispatch({ type: "sent", text });
       void client.call("external.send", { ref: view.ref, text }).catch((error: unknown) => {
         const message = describeExternalError(error, view.ref.cli);
         viewDispatch({ type: "failed", message });
+        // The reason (a turn is running, a prompt is open in the pane, someone is typing) is what to act on.
+        showToast(message);
       });
     },
     [client, showToast],
@@ -625,23 +750,117 @@ export function useJarvisScreens(deps: ScreensDeps) {
     if (!view) return;
     void client
       .call("external.interrupt", { ref: view.ref })
-      .catch((error: unknown) => showToast(describeExternalError(error, view.ref.cli)));
+      .catch((error: unknown) => showToast(describeExternalError(error, view.ref.cli, "interrupt")));
   }, [client, showToast]);
 
+  /** Leave the screen; the process keeps running and an idle one is stopped by the daemon later. */
   const leaveExternal = useCallback(() => {
     const view = externalRef.current;
     if (!view) return;
     viewDispatch({ type: "close" });
-    void client.call("external.close", { ref: view.ref }).catch(() => undefined);
-  }, [client]);
+    unwatch(view.ref);
+  }, [unwatch]);
 
-  /** Esc in an external session: stop the running turn, else go back. */
+  /** `/external stop`: also stop the process snowpea runs for the session. */
+  const stopExternal = useCallback(() => {
+    const view = externalRef.current;
+    if (!view) {
+      showToast("no external session is open");
+      return;
+    }
+    viewDispatch({ type: "close" });
+    void client
+      .call("external.close", { ref: view.ref })
+      .then(() => showToast(`${cliLabel(view.ref.cli)} session stopped — its transcript stays`))
+      .catch((error: unknown) => showToast(describeExternalError(error, view.ref.cli)));
+  }, [client, showToast]);
+
+  /**
+   * Esc in an external session: stop the running turn, else go back. A turn in
+   * another terminal cannot be stopped from here: the first Esc says so, a
+   * second one right after leaves.
+   */
   const escapeExternal = useCallback(() => {
     const view = externalRef.current;
     if (!view) return;
-    if (view.state.turnActive) interruptExternal();
-    else leaveExternal();
-  }, [interruptExternal, leaveExternal]);
+    if (!view.state.turnActive) {
+      leaveExternal();
+      return;
+    }
+    const why = interruptRefusal(view.session);
+    if (why) {
+      const at = Date.now();
+      if (at - lastRefusal.current < ESC_AGAIN_MS) {
+        leaveExternal();
+        return;
+      }
+      lastRefusal.current = at;
+      showToast(why);
+      return;
+    }
+    interruptExternal();
+  }, [interruptExternal, leaveExternal, showToast]);
+
+  /**
+   * `/external adopt`: let snowpea type into the tmux pane a Claude Code
+   * session runs in. The call waits for a confirmation only a person can give;
+   * it is found in the queue and drawn here, and the call's own answer closes it.
+   */
+  const adoptExternal = useCallback(() => {
+    const view = externalRef.current;
+    if (!view) {
+      showToast("open an external session first — /external");
+      return;
+    }
+    const { ref, session } = view;
+    if (session.host === "tmux") {
+      showToast("snowpea already types into this tmux pane");
+      return;
+    }
+    if (ref.cli !== "claude" || session.host !== "terminal") {
+      showToast("adopting needs a Claude Code session open in your own tmux pane");
+      return;
+    }
+    let settled = false;
+    showToast("Confirm in the prompt — snowpea types into the pane only after you say yes");
+    void client
+      .call("external.open", { ref, limit: 200, transport: "tmux" })
+      .then((result) => {
+        showToast("snowpea types into the tmux pane now — answer permission prompts there");
+        showOpened(result.session, result.events ?? [], result.hasMore === true);
+      })
+      .catch((error: unknown) => showToast(describeExternalError(error, ref.cli, "adopt")))
+      .finally(() => {
+        settled = true;
+        setUi((current) => (current?.kind === "adopt" ? null : current));
+      });
+    void (async () => {
+      while (!settled) {
+        const listed = await client.listApprovals().catch(() => null);
+        const hit = (listed?.requests ?? []).find(
+          (request: ApprovalRequestParams) =>
+            request.tool === "tmux.adopt" && request.external != null && sameRef(request.external, ref),
+        );
+        if (hit && !settled) {
+          setUi({ kind: "adopt", ref, request: hit });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    })();
+  }, [client, showOpened, showToast]);
+
+  const answerAdopt = useCallback(
+    (confirmed: boolean) => {
+      const current = uiRef.current;
+      if (current?.kind !== "adopt") return;
+      setUi(null);
+      void client
+        .respondApproval(current.request.requestId, confirmed ? "allow" : "deny", "once", confirmed ? undefined : "declined by the person")
+        .catch((error: unknown) => note(`approval.respond failed: ${errorText(error)}`));
+    },
+    [client, note],
+  );
 
   const changeMode = useCallback(
     (mode: "default" | "readonly" | "unrestricted") => {
@@ -652,6 +871,11 @@ export function useJarvisScreens(deps: ScreensDeps) {
       }
       if (view.session.mode === mode) {
         showToast(`already ${modeLabel(mode)}`);
+        return;
+      }
+      const info = clisRef.current?.find((entry) => entry.id === view.ref.cli);
+      if (info && !modesFor(info).includes(mode)) {
+        showToast(`${cliLabel(view.ref.cli)} has no ${modeLabel(mode)} mode`);
         return;
       }
       if (mode === "unrestricted") {
@@ -701,9 +925,18 @@ export function useJarvisScreens(deps: ScreensDeps) {
         case "new":
           openNewForm();
           break;
+        case "open":
+          openByRef(command.ref as ExternalRef);
+          break;
         case "close":
           if (externalRef.current) leaveExternal();
           else showToast("no external session is open");
+          break;
+        case "stop":
+          stopExternal();
+          break;
+        case "adopt":
+          adoptExternal();
           break;
         case "mode":
           changeMode(command.mode);
@@ -714,7 +947,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
       }
       return true;
     },
-    [changeMode, gate, leaveExternal, loadOlder, note, openNewForm, openPicker, showToast],
+    [adoptExternal, changeMode, gate, leaveExternal, loadOlder, note, openByRef, openNewForm, openPicker, showToast, stopExternal],
   );
 
   /** `/jarvis …` and `/external …`; false for any other line. */
@@ -760,8 +993,9 @@ export function useJarvisScreens(deps: ScreensDeps) {
         : null);
     // A pause the status knows about wins over a stale overview row.
     const paused = pause && merged ? { ...merged, pausedUntil: pause.until ?? merged.pausedUntil, takenOver: merged.takenOver || (pause.reason === "takeover" && !pause.until) } : merged;
-    return jarvisMarker(jarvis.status, paused, now);
-  }, [jarvis.rows, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId]);
+    const scoped = paused ? { ...paused, levelScope: jarvis.sessionStates[sessionId]?.levelScope ?? null } : paused;
+    return jarvisMarker(jarvis.status, scoped, now);
+  }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId]);
 
   const panel = useCallback(
     (width: number, maxRows: number): PanelLine[] => (onJarvisScreen ? panelLines(jarvis, width, maxRows, now) : []),
@@ -795,6 +1029,11 @@ export function useJarvisScreens(deps: ScreensDeps) {
     interruptExternal,
     escapeExternal,
     leaveExternal,
+    stopExternal,
+    adoptExternal,
+    answerAdopt,
+    /** True when the open session's CLI takes a message during a running turn. */
+    canSteer: external ? steerOf(clis, external.ref.cli) : false,
     confirmUnrestricted,
     marker,
     panel,

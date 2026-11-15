@@ -68,17 +68,35 @@ export function hostLabel(session: Pick<ExternalSessionRow, "host" | "tmux">): s
 
 /** Why `external.send` would be refused, or null when it is not. */
 export function viewOnlyReason(
-  session: Pick<ExternalSessionRow, "canSend" | "host" | "tmux" | "cwd">,
+  session: Pick<ExternalSessionRow, "canSend" | "host" | "tmux" | "cwd"> & { ref?: ExternalRef },
 ): string | null {
   if (session.canSend !== false) return null;
   if (session.host === "terminal") {
-    return "Open in another terminal — view only. It becomes usable here when that process exits.";
+    // A Claude Code session in the person's own tmux pane can be adopted.
+    return session.ref?.cli === "claude"
+      ? "Open in another terminal — view only · t types into its tmux pane · or wait until it exits"
+      : "Open in another terminal — view only until that process exits.";
   }
   if (session.host === "tmux") {
     const where = session.tmux ? ` (${session.tmux.session} ${session.tmux.pane})` : "";
     return `Running in a tmux pane${where} — view only here.`;
   }
   return "This session is view only.";
+}
+
+/**
+ * A line for a session snowpea can type into but whose permission prompts the
+ * person answers: a tmux pane (`approvals: person`). Null for any other.
+ */
+export function externalNote(session: Pick<ExternalSessionRow, "approvals" | "host" | "canSend">): string | null {
+  if (session.approvals !== "person" || session.canSend === false) return null;
+  return "tmux pane — answer permission prompts in the terminal; snowpea types only while you are not";
+}
+
+/** Why Esc cannot stop the running turn of a view-only session, or null when it can. */
+export function interruptRefusal(session: Pick<ExternalSessionRow, "host" | "canSend">): string | null {
+  if (session.host !== "terminal") return null;
+  return "This session runs in another terminal — stop it there. Esc again leaves the screen.";
 }
 
 export function modeLabel(mode: ExternalModeName | null | undefined): string {
@@ -128,9 +146,15 @@ export function confirmsUnrestricted(typed: string): boolean {
 
 /** The modes a CLI offers for a new session, default first. */
 export function modesFor(info: ExternalCliInfo | undefined): ExternalModeName[] {
-  const listed = info?.capabilities?.modes;
+  // `modes` is what a new session may use (agy has no read-only; Cursor starts
+  // read-only); the capability list is the older spelling of it.
+  const listed = info?.modes?.length ? info.modes : info?.capabilities?.modes;
   const modes: ExternalModeName[] =
-    listed && listed.length > 0 ? [...listed] : ["default", "readonly", "unrestricted"];
+    listed && listed.length > 0
+      ? [...listed]
+      : info?.id === "agy"
+        ? ["default", "unrestricted"]
+        : ["default", "readonly", "unrestricted"];
   const first = info?.defaultMode;
   if (first && modes.includes(first)) return [first, ...modes.filter((mode) => mode !== first)];
   return modes;
@@ -228,6 +252,7 @@ export type ExternalAction =
   | { type: "session"; session: ExternalSessionRow }
   | { type: "sent"; text: string }
   | { type: "interrupted" }
+  | { type: "note"; text: string }
   | { type: "failed"; message: string }
   | { type: "notice/clear" };
 
@@ -263,6 +288,9 @@ export function openExternal(
 
 /** A mode the view should say out loud when it changes under the person. */
 function flipNotice(before: ExternalSessionRow, after: ExternalSessionRow): string | null {
+  if (before.host !== "tmux" && after.host === "tmux" && after.canSend !== false) {
+    return "snowpea types into the tmux pane now — answer permission prompts there.";
+  }
   if (before.canSend === false && after.canSend !== false) {
     return "The other terminal closed — you can send from here now.";
   }
@@ -367,6 +395,9 @@ export function externalReducer(view: ExternalView, action: ExternalAction): Ext
     case "interrupted":
       return view;
 
+    case "note":
+      return { ...view, state: reducer(view.state, { type: "note", text: action.text }) };
+
     case "failed": {
       // A send that never started leaves nothing running: settle the turn the
       // optimistic echo opened, or the input would wait for an end that is not coming.
@@ -394,8 +425,11 @@ export function externalReducer(view: ExternalView, action: ExternalAction): Ext
 
 // --- errors -------------------------------------------------------------------------
 
+/** What the person was doing when a call failed, for the codes that mean different things. */
+export type ExternalCallKind = "send" | "interrupt" | "adopt" | "open";
+
 /** The line to show for a failed `external.*` call. */
-export function describeExternalError(error: unknown, cli?: string): string {
+export function describeExternalError(error: unknown, cli?: string, kind: ExternalCallKind = "send"): string {
   const raw = error as { message?: string; data?: { code?: string }; code?: string | number } | null;
   const code = raw?.data?.code ?? (typeof raw?.code === "string" ? raw.code : undefined);
   const message = raw?.message ?? String(error);
@@ -403,11 +437,23 @@ export function describeExternalError(error: unknown, cli?: string): string {
     case "external_unavailable":
       return `${cli ? cliLabel(cli) : "That CLI"} is not available: ${message}`;
     case "external_view_only":
+      if (kind === "interrupt") {
+        return "This session runs in another terminal — stop it there; snowpea cannot interrupt it.";
+      }
+      if (kind === "adopt") return "Typing into that tmux pane was not allowed — the session stays view only.";
       return "This session is open in another terminal — view only until it exits.";
+    case "session_busy":
+      // The daemon says why: a turn is running, a prompt is open in the pane,
+      // or someone is typing there. Its words are the reason.
+      return message && message !== "session_busy" ? message : "The session is busy — wait for the turn to end.";
     case "jarvis_person_only":
       return "Only a person can do that here (not Jarvis).";
     case "jarvis_disabled":
       return "Jarvis mode is off — /jarvis on";
+    case "not_found":
+      return "That session does not exist (anymore).";
+    case "outside_root":
+      return "That session is not in a registered project.";
     default:
       return message;
   }

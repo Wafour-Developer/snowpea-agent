@@ -24,6 +24,7 @@ import {
   usable,
 } from "../state/external.js";
 import { ChoiceList } from "./ChoiceList.js";
+import { ConfirmMenu } from "./ConfirmMenu.js";
 import { UnrestrictedConfirm } from "./UnrestrictedConfirm.js";
 
 export interface NewExternalChoice {
@@ -119,7 +120,55 @@ function ModeStep({
   );
 }
 
+/** Marks the "type a name" row of the model list. */
+const TYPE_A_NAME = Symbol("type-a-name");
+const GO_BACK = Symbol("go-back");
+type ModelChoice = string | null | typeof TYPE_A_NAME | typeof GO_BACK;
+
+/** Rows of the model list shown at once. */
+const MODEL_WINDOW = 7;
+
+/**
+ * The model: pick from what the CLI lists, or type a name. While the list is
+ * empty (the CLI has not answered yet, or lists none) it is a text field.
+ */
 function ModelStep({
+  models,
+  onSubmit,
+  onBack,
+  isActive,
+  width,
+}: {
+  models: string[];
+  onSubmit: (model: string | null) => void;
+  onBack: () => void;
+  isActive: boolean;
+  width: number;
+}): React.ReactElement {
+  const [typing, setTyping] = useState(false);
+  if (models.length > 0 && !typing) {
+    return (
+      <ConfirmMenu<ModelChoice>
+        options={[
+          { label: "The CLI's default model", value: null },
+          ...models.map((model) => ({ label: fit(model, Math.max(10, width - 12)), value: model as ModelChoice })),
+          { label: "Type a name…", value: TYPE_A_NAME },
+        ]}
+        escapeValue={GO_BACK}
+        windowSize={MODEL_WINDOW}
+        isActive={isActive}
+        onChoose={(choice) => {
+          if (choice === GO_BACK) onBack();
+          else if (choice === TYPE_A_NAME) setTyping(true);
+          else onSubmit(choice);
+        }}
+      />
+    );
+  }
+  return <ModelText onSubmit={onSubmit} onBack={models.length > 0 ? () => setTyping(false) : onBack} isActive={isActive} width={width} />;
+}
+
+function ModelText({
   onSubmit,
   onBack,
   isActive,
@@ -177,6 +226,8 @@ export function ExternalNewForm({
   const [mode, setMode] = useState<ExternalModeName>("default");
   const [model, setModel] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // `external.clis.changed` brings the model list in while the form is open.
+  const liveInfo = info ? (infos.find((entry) => entry.id === info.id) ?? info) : null;
 
   return (
     <Box flexDirection="column" width={width} borderStyle="round" borderColor="blue" paddingX={1}>
@@ -206,7 +257,7 @@ export function ExternalNewForm({
       ) : null}
       {step === "mode" && info ? (
         <ModeStep
-          modes={modesFor(info)}
+          modes={modesFor(liveInfo ?? info)}
           isActive={isActive}
           onBack={() => setStep("cli")}
           onChoose={(chosen) => {
@@ -217,6 +268,7 @@ export function ExternalNewForm({
       ) : null}
       {step === "model" && info ? (
         <ModelStep
+          models={liveInfo?.models ?? []}
           width={width}
           isActive={isActive}
           onBack={() => setStep("mode")}

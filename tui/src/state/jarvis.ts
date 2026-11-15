@@ -11,16 +11,20 @@
 import type {
   ApprovalRequestParams,
   ExternalRef,
+  JarvisAccessEvent,
   JarvisDecisionEvent,
   JarvisDelegationEvent,
+  JarvisEscalationDismissed,
   JarvisEscalationEvent,
   JarvisLedgerEntry,
   JarvisOverviewRow,
   JarvisStateEvent,
   JarvisStatus,
   QuestionRequestParams,
+  SessionJarvisState,
 } from "../rpc/sdk.js";
 import { fit, spread } from "../layout/fit.js";
+import { textWidth } from "../layout/text-width.js";
 import { cliLabel } from "./external.js";
 
 // --- capability gating -------------------------------------------------------
@@ -76,7 +80,10 @@ export interface JarvisState {
   /** Requests routed to Jarvis that nobody has answered yet. */
   deciding: number;
   decisions: JarvisLedgerEntry[];
+  /** Open notices (finished, error, stalled, budget, jarvis); they persist until dismissed. */
   escalations: JarvisEscalationEvent[];
+  /** `session.list`'s `jarvis` per session, for where a level comes from. */
+  sessionStates: Record<string, SessionJarvisState>;
   /** The latest thing worth a toast; the app shows and clears it. */
   notice: string | null;
   loadedAt: number | null;
@@ -89,6 +96,7 @@ export const initialJarvis: JarvisState = {
   deciding: 0,
   decisions: [],
   escalations: [],
+  sessionStates: {},
   notice: null,
   loadedAt: null,
 };
@@ -105,6 +113,10 @@ export type JarvisAction =
   | { type: "event/state"; payload: JarvisStateEvent }
   | { type: "event/decision"; payload: JarvisDecisionEvent }
   | { type: "event/escalation"; payload: JarvisEscalationEvent }
+  | { type: "escalations"; entries: JarvisEscalationEvent[] }
+  | { type: "event/dismissed"; payload: JarvisEscalationDismissed }
+  | { type: "sessionStates"; states: Record<string, SessionJarvisState> }
+  | { type: "sessionState"; sessionId: string; state: SessionJarvisState | null }
   | { type: "event/delegation"; payload: JarvisDelegationEvent }
   | { type: "resolved"; requestId: string }
   | { type: "notice/clear" }
@@ -154,12 +166,38 @@ export function jarvisReducer(state: JarvisState, action: JarvisAction): JarvisS
       const known = state.escalations.some((entry) => entry.id === action.payload.id);
       if (known) return state;
       const importance = action.payload.importance ?? "normal";
+      // A waiting approval or question is answered, not dismissed: only the
+      // other reasons are kept as notices (what `jarvis.escalations.list` holds).
+      const kept = isNotice(action.payload);
       return {
         ...state,
-        escalations: [action.payload, ...state.escalations].slice(0, MAX_ESCALATIONS),
+        escalations: kept
+          ? [action.payload, ...state.escalations].slice(0, MAX_ESCALATIONS)
+          : state.escalations,
         // Low-importance news stays in the panel; the rest also gets a toast.
         notice: importance === "low" ? state.notice : `Jarvis: ${action.payload.summary}`,
       };
+    }
+
+    case "escalations":
+      // The daemon keeps them until dismissed, so its list is the truth after a
+      // reload or reconnect; the next refresh heals a notice that raced it.
+      return { ...state, escalations: action.entries.slice(0, MAX_ESCALATIONS) };
+
+    case "event/dismissed": {
+      const gone = new Set(action.payload.ids);
+      if (!state.escalations.some((entry) => gone.has(entry.id))) return state;
+      return { ...state, escalations: state.escalations.filter((entry) => !gone.has(entry.id)) };
+    }
+
+    case "sessionStates":
+      return { ...state, sessionStates: action.states };
+
+    case "sessionState": {
+      const next = { ...state.sessionStates };
+      if (action.state) next[action.sessionId] = action.state;
+      else delete next[action.sessionId];
+      return { ...state, sessionStates: next };
     }
 
     case "event/delegation":
@@ -177,6 +215,13 @@ export function jarvisReducer(state: JarvisState, action: JarvisAction): JarvisS
     default:
       return state;
   }
+}
+
+/** The escalations that persist as notices; the rest are requests waiting in the queue. */
+const NOTICE_REASONS = new Set(["finished", "error", "stalled", "budget", "jarvis"]);
+
+export function isNotice(escalation: Pick<JarvisEscalationEvent, "reason">): boolean {
+  return NOTICE_REASONS.has(escalation.reason);
 }
 
 // --- who is waiting, and what for ---------------------------------------------
@@ -325,6 +370,8 @@ export function hostChip(host: JarvisOverviewRow["host"]): string | null {
   }
 }
 
+// The glyphs below are one cell in every terminal and in Ink's own measure;
+// ✳ ⏸ ⚠ are two cells to Ink and would push a full-width row past the edge.
 export interface RowStatus {
   /** One glyph. */
   glyph: string;
@@ -339,10 +386,10 @@ export function rowStatus(row: JarvisOverviewRow, now: number): RowStatus {
   const left = formatRemaining(row.pausedUntil, now);
   if (waiting > 0) return { glyph: "!", color: "yellow", text: `waits for you (${waiting})` };
   if (row.takenOver) return { glyph: "✋", color: "cyan", text: "yours" };
-  if (left) return { glyph: "⏸", color: "cyan", text: `paused ${left}` };
+  if (left) return { glyph: "‖", color: "cyan", text: `paused ${left}` };
   switch (row.status) {
     case "running":
-      return { glyph: "✳", color: "green", text: "running" };
+      return { glyph: "●", color: "green", text: "running" };
     case "awaiting_approval":
     case "awaiting_question":
       return { glyph: "◐", color: "yellow", text: "Jarvis deciding" };
@@ -351,6 +398,49 @@ export function rowStatus(row: JarvisOverviewRow, now: number): RowStatus {
     default:
       return { glyph: "◯", color: undefined, text: "idle" };
   }
+}
+
+/** The chips after a row's status: gating and approvals first, since they are warnings. */
+export function rowChips(row: JarvisOverviewRow, width: number): string[] {
+  const chips: string[] = [];
+  if (row.exposed === false) chips.push("hidden from Jarvis");
+  if (row.external) {
+    if (row.controlled === false) chips.push("UNCONTROLLED");
+    else if (row.mode === "readonly") chips.push("read-only");
+    chips.push(hostChip(row.host) ?? "external");
+    if (row.approvals === "person") chips.push("you answer");
+  }
+  if (row.level && width >= 44) chips.push(row.level);
+  return chips;
+}
+
+/** `parts` joined with ` · `, the last ones dropped until it fits `max` cells. */
+export function fitChips(parts: string[], max: number): string {
+  const kept = [...parts];
+  while (kept.length > 1 && textWidth(kept.join(" · ")) > max) kept.pop();
+  return kept.join(" · ");
+}
+
+const NOTICE_GLYPH: Record<string, string> = {
+  finished: "✓",
+  error: "✗",
+  stalled: "…",
+  budget: "$",
+  jarvis: "◆",
+};
+
+function noticeColor(entry: JarvisEscalationEvent): string | undefined {
+  if (entry.reason === "error") return "red";
+  if (entry.reason === "budget" || entry.reason === "stalled") return "yellow";
+  return undefined;
+}
+
+/** `✓ snowpea · fix login — tests pass` */
+export function noticeLine(entry: JarvisEscalationEvent): string {
+  const name = (entry.title ?? "").trim() || baseName(entry.project) || (entry.sessionId ?? "").slice(0, 8);
+  const who = entry.external ? `${cliLabel(entry.external.cli)} ${name}`.trim() : name;
+  const head = `${NOTICE_GLYPH[entry.reason] ?? "•"} ${who ? `${who} — ` : ""}`;
+  return `${head}${entry.summary}`;
 }
 
 /** Rows the panel may show of one section before saying "+N more". */
@@ -392,12 +482,13 @@ export function panelLines(
   });
   for (const problem of status?.problems ?? []) {
     if (lines.length >= maxRows) break;
-    lines.push({ key: `problem-${problem}`, segments: [{ text: fit(`⚠ ${problem}`, w), color: "yellow" }] });
+    lines.push({ key: `problem-${problem}`, segments: [{ text: fit(`! ${problem}`, w), color: "yellow" }] });
   }
 
   const rows = state.rows;
   const waiting = state.waiting;
   const decisions = state.decisions;
+  const notices = state.escalations;
 
   // Space left for sections after the header; one row per section title.
   let room = Math.max(0, maxRows - lines.length);
@@ -405,7 +496,12 @@ export function panelLines(
   const decisionShown = budget(decisions.length, Math.min(decisions.length, Math.max(0, Math.floor(room / 4))));
   const waitingRows = waiting.length > 0 ? 1 + waitingShown + (waiting.length > waitingShown ? 1 : 0) : 0;
   const decisionRows = decisions.length > 0 && decisionShown > 0 ? 1 + decisionShown : 0;
-  const sessionRoom = Math.max(0, room - waitingRows - decisionRows - (rows.length > 0 ? 1 : 0));
+  const noticeShown = budget(notices.length, Math.min(notices.length, Math.max(0, Math.floor(room / 4))));
+  const noticeRows = noticeShown > 0 ? 1 + noticeShown + (notices.length > noticeShown ? 1 : 0) : 0;
+  const sessionRoom = Math.max(
+    0,
+    room - waitingRows - decisionRows - noticeRows - (rows.length > 0 ? 1 : 0),
+  );
   const hasMore = rows.length > sessionRoom;
   const sessionShown = budget(rows.length, hasMore ? Math.max(0, sessionRoom - 1) : sessionRoom);
 
@@ -418,12 +514,12 @@ export function panelLines(
     });
     rows.slice(0, sessionShown).forEach((row, index) => {
       const st = rowStatus(row, now);
-      const chips: string[] = [];
-      if (row.external) chips.push(hostChip(row.host) ?? "external");
-      if (row.level && w >= 44) chips.push(row.level);
-      const right = [st.text, ...chips].join(" · ");
+      const chips = rowChips(row, w);
+      const right = fitChips([st.text, ...chips], Math.max(12, w - 24));
       const left = `${String(index + 1).padStart(2)} ${st.glyph} ${sessionLabel(row)}`;
-      lines.push({ key: `row-${index}`, segments: [{ text: spread(left, right, w), color: st.color }] });
+      // A session snowpea does not gate is red unless it waits on the person.
+      const color = row.controlled === false && st.color !== "yellow" ? "red" : st.color;
+      lines.push({ key: `row-${index}`, segments: [{ text: spread(left, right, w), color }] });
     });
     if (hasMore) {
       lines.push({
@@ -441,7 +537,7 @@ export function panelLines(
       ],
     });
     waiting.slice(0, waitingShown).forEach((item, index) => {
-      const mark = item.kind === "approval" ? "⚠" : "?";
+      const mark = item.kind === "approval" ? "!" : "?";
       lines.push({
         key: `wait-${index}`,
         segments: [{ text: fit(` ${mark} ${item.label} — ${item.summary}`, w), color: "yellow" }],
@@ -451,6 +547,25 @@ export function panelLines(
       lines.push({
         key: "waiting-more",
         segments: [{ text: fit(`   … ${waiting.length - waitingShown} more`, w), dimColor: true }],
+      });
+    }
+  }
+
+  if (noticeRows > 0) {
+    lines.push({
+      key: "notices-title",
+      segments: [{ text: fit(`Notices (${notices.length}) · /jarvis dismiss`, w), dimColor: true }],
+    });
+    notices.slice(0, noticeShown).forEach((entry, index) => {
+      lines.push({
+        key: `notice-${index}`,
+        segments: [{ text: fit(` ${index + 1}. ${noticeLine(entry)}`, w), color: noticeColor(entry) }],
+      });
+    });
+    if (notices.length > noticeShown) {
+      lines.push({
+        key: "notices-more",
+        segments: [{ text: fit(`   … ${notices.length - noticeShown} more`, w), dimColor: true }],
       });
     }
   }
@@ -468,30 +583,79 @@ export function panelLines(
   return lines.slice(0, Math.max(1, maxRows));
 }
 
+/** Who answered, in words: `jarvis` and `jarvis:auto` are Jarvis's (1.53). */
+export function byLabel(by: string | null | undefined): string {
+  if (by === "jarvis:auto" || by === "auto") return "auto";
+  return by ?? "";
+}
+
+/** The status-line text while a request of this session waits on Jarvis. */
+export const JARVIS_DECIDING = "Jarvis is deciding";
+
+/**
+ * The transcript line for an approval Jarvis answered (`approval.resolved.by`
+ * `jarvis` / `jarvis:auto`), or null for any other answerer or an unknown request.
+ */
+export function resolvedLine(
+  by: string | undefined,
+  decision: string | undefined,
+  request: ApprovalRequestParams | undefined,
+): string | null {
+  if ((by !== "jarvis" && by !== "jarvis:auto") || !request) return null;
+  const who = by === "jarvis:auto" ? "Jarvis (auto)" : "Jarvis";
+  return `${who} ${decision === "deny" ? "denied" : "allowed"} ${approvalSummary(request)}`;
+}
+
+/** The one quiet line a supervised session shows when Jarvis looked at or instructed it. */
+export function accessLine(event: Pick<JarvisAccessEvent, "action" | "summary">): string {
+  const verb = event.action === "read" ? "read" : "instructed";
+  const raw = (event.summary ?? "").replace(/\s+/g, " ").trim();
+  const what = raw.length > 80 ? `${raw.slice(0, 79)}…` : raw;
+  return `Jarvis ${verb} this session${what ? ` — ${what}` : ""}`;
+}
+
 /** `jarvis allowed shell: pytest (snowpea)` */
 export function decisionLine(entry: JarvisLedgerEntry): string {
-  const who = entry.decidedBy === "auto" ? "auto" : entry.decidedBy;
+  const who = byLabel(entry.decidedBy);
   const where = baseName(entry.project);
   return `${who}: ${entry.summary}${where ? ` (${where})` : ""}`;
 }
 
 // --- the status-line marker ----------------------------------------------------
 
+/** Where a level comes from, when it is not the session's own. */
+export function levelSource(scope: SessionJarvisState["levelScope"]): string | null {
+  switch (scope) {
+    case "project":
+      return "from the project";
+    case "global":
+      return "from the global setting";
+    default:
+      return null;
+  }
+}
+
 /**
  * The marker for an ordinary session Jarvis supervises, or null when it does
- * not: "Jarvis deciding" while its authority holds, "paused, returns in N min"
+ * not: "Jarvis deciding" while its authority holds (saying when the level was
+ * inherited from the project or the global setting), "paused, returns in N min"
  * after the person typed there, "yours" after a takeover.
  */
 export function jarvisMarker(
   status: JarvisStatus | null,
-  row: Pick<JarvisOverviewRow, "level" | "pausedUntil" | "takenOver"> | null | undefined,
+  row:
+    | (Pick<JarvisOverviewRow, "level" | "pausedUntil" | "takenOver"> & Pick<SessionJarvisState, "levelScope">)
+    | null
+    | undefined,
   now: number,
 ): string | null {
   if (!status?.enabled || !row) return null;
   if (row.takenOver) return "Jarvis: you have this session · /jarvis handback";
   const left = formatRemaining(row.pausedUntil, now);
   if (left) return `Jarvis paused, returns in ${left}`;
-  return row.level ? `Jarvis deciding · ${row.level}` : "Jarvis deciding";
+  if (!row.level) return "Jarvis deciding";
+  const source = levelSource(row.levelScope);
+  return `Jarvis deciding · ${row.level}${source ? ` (${source})` : ""}`;
 }
 
 // --- the delegation confirmation -----------------------------------------------
@@ -516,9 +680,17 @@ export function guardedWords(name: string): string {
   return GUARDED_WORDS[name] ?? name;
 }
 
-/** The request is Jarvis's `delegation_set` proposal. */
+/**
+ * The request is Jarvis's `delegation_set` proposal: the daemon marks it
+ * `personOnly` with `tool: "delegation_set"` (1.53). Nothing else is read as one.
+ */
 export function isDelegationProposal(request: ApprovalRequestParams): boolean {
-  return /(^|[.:/])delegation_set$/.test(request.tool);
+  return request.personOnly === true && request.tool === "delegation_set";
+}
+
+/** The request is the confirmation for adopting a tmux pane (`external.open` with `transport: "tmux"`). */
+export function isTmuxAdopt(request: ApprovalRequestParams): boolean {
+  return request.personOnly === true && request.tool === "tmux.adopt";
 }
 
 function text(value: unknown): string | null {
@@ -580,6 +752,45 @@ export function proposalLines(proposal: DelegationProposal, now: number): string
   const lines = [`Scope    ${scope}`, `Level    ${level}`, `Guarded  ${guarded}`, `Expires  ${expiry}`];
   if (proposal.note) lines.push(`Note     ${proposal.note}`);
   return lines;
+}
+
+/** What the one-key confirmation of a person-only request shows. */
+export interface PersonOnlyView {
+  title: string;
+  /** Who asks, when the request names no session. */
+  from: string;
+  lines: string[];
+  /** Lines starting with this are drawn as a warning. */
+  warnPrefix?: string;
+}
+
+/**
+ * The confirmation for a request only a person may answer, or null for any
+ * other request (and for a person-only one of a kind this build does not know,
+ * which gets the ordinary prompt reduced to yes/no once).
+ */
+export function personOnlyView(request: ApprovalRequestParams, now: number): PersonOnlyView | null {
+  const proposal = parseProposal(request);
+  if (proposal) {
+    return {
+      title: "Jarvis asks to change what it may decide",
+      from: "Jarvis",
+      lines: proposalLines(proposal, now),
+      warnPrefix: proposal.allow.length > 0 ? "Guarded" : undefined,
+    };
+  }
+  if (isTmuxAdopt(request)) {
+    const args = request.args ?? {};
+    const where = [text(args["session"]), text(args["pane"])].filter(Boolean).join(" ");
+    const lines = [
+      `Pane     ${where || "(unnamed)"}`,
+      "Does     snowpea types your prompts into that pane",
+      "Stays    permission prompts remain yours, answered in the terminal",
+    ];
+    if (request.note) lines.push(`Note     ${request.note}`);
+    return { title: "Let snowpea type into your tmux pane?", from: "tmux", lines };
+  }
+  return null;
 }
 
 // --- /jarvis status ---------------------------------------------------------------

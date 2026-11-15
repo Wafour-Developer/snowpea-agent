@@ -21,10 +21,12 @@ export type JarvisCommand =
   | { kind: "sessions" }
   | { kind: "open"; target: string }
   | { kind: "waiting" }
+  /** Dismiss notices: the nth, or all of them. */
+  | { kind: "dismiss"; target: number | "all" }
   | { kind: "invalid"; usage: string };
 
 export const JARVIS_USAGE =
-  "/jarvis [on|off|status|back|sessions|waiting|open <n>|handback [n]|takeover [n] [minutes]]";
+  "/jarvis [on|off|status|back|sessions|waiting|open <n>|dismiss [n|all]|handback [n]|takeover [n] [minutes]]";
 
 export const JARVIS_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
   { action: "on", summary: "Turn Jarvis mode on (beta): one session supervises the others." },
@@ -34,6 +36,7 @@ export const JARVIS_ACTIONS: ReadonlyArray<{ action: string; summary: string }> 
   { action: "sessions", summary: "Pick a supervised session to open." },
   { action: "waiting", summary: "Answer what is waiting for you, from any session." },
   { action: "open", summary: "/jarvis open <n> — open the nth supervised session." },
+  { action: "dismiss", summary: "Dismiss Jarvis's notices: /jarvis dismiss [n|all]." },
   { action: "handback", summary: "Give this session back to Jarvis now." },
   { action: "takeover", summary: "Take this session back from Jarvis: /jarvis takeover [minutes]." },
 ];
@@ -58,6 +61,12 @@ export function parseJarvisCommand(line: string): JarvisCommand | null {
       return { kind: "sessions" };
     case "open":
       return rest.length === 1 ? { kind: "open", target: rest[0] } : { kind: "invalid", usage: JARVIS_USAGE };
+    case "dismiss": {
+      if (rest.length === 0 || (rest.length === 1 && rest[0] === "all")) return { kind: "dismiss", target: "all" };
+      return rest.length === 1 && /^\d+$/.test(rest[0]) && Number(rest[0]) > 0
+        ? { kind: "dismiss", target: Number(rest[0]) }
+        : { kind: "invalid", usage: JARVIS_USAGE };
+    }
     case "handback":
       return rest.length <= 1 ? { kind: "handback", target: rest[0] ?? null } : { kind: "invalid", usage: JARVIS_USAGE };
     case "takeover": {
@@ -79,19 +88,29 @@ export type ExternalCommand =
   /** The picker of this folder's sessions. */
   | { kind: "picker" }
   | { kind: "new" }
-  /** Leave the open session's screen. */
+  /** Open a session by its handle, `<cli>:<id>` (a deep link). */
+  | { kind: "open"; ref: { cli: string; id: string } }
+  /** Leave the open session's screen; it keeps running (`external.unwatch`). */
   | { kind: "close" }
+  /** Stop the process snowpea runs for the open session (`external.close`). */
+  | { kind: "stop" }
+  /** Type into the person's own tmux pane (`external.open` with `transport: "tmux"`). */
+  | { kind: "adopt" }
   /** Switch the open session's mode. */
   | { kind: "mode"; mode: "default" | "readonly" | "unrestricted" }
   /** Load an older page of the open session. */
   | { kind: "more" }
   | { kind: "invalid"; usage: string };
 
-export const EXTERNAL_USAGE = "/external [new|close|mode default|readonly|unrestricted|more]";
+export const EXTERNAL_USAGE =
+  "/external [new|open <cli>:<id>|close|stop|adopt|mode default|readonly|unrestricted|more]";
 
 export const EXTERNAL_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
   { action: "new", summary: "Start a new Claude Code, Codex, agy or Cursor session." },
-  { action: "close", summary: "Leave the open external session (its transcript stays)." },
+  { action: "open", summary: "/external open <cli>:<id> — open a session by its handle." },
+  { action: "close", summary: "Leave the open external session; it keeps running." },
+  { action: "stop", summary: "Stop the process snowpea runs for the open session (the transcript stays)." },
+  { action: "adopt", summary: "Let snowpea type into the tmux pane this Claude Code session runs in." },
   { action: "mode", summary: "/external mode default|readonly|unrestricted — switch the open session." },
   { action: "more", summary: "Load earlier messages of the open session." },
 ];
@@ -105,8 +124,14 @@ export function parseExternalCommand(line: string): ExternalCommand | null {
       return { kind: "picker" };
     case "new":
     case "close":
+    case "stop":
+    case "adopt":
     case "more":
       return rest.length === 0 ? { kind: action } : { kind: "invalid", usage: EXTERNAL_USAGE };
+    case "open": {
+      const ref = rest.length === 1 ? /^(claude|codex|agy|cursor):(\S+)$/.exec(rest[0]) : null;
+      return ref ? { kind: "open", ref: { cli: ref[1], id: ref[2] } } : { kind: "invalid", usage: EXTERNAL_USAGE };
+    }
     case "mode":
       return rest.length === 1 && ["default", "readonly", "unrestricted"].includes(rest[0])
         ? { kind: "mode", mode: rest[0] as "default" | "readonly" | "unrestricted" }
