@@ -183,6 +183,8 @@ Server capabilities advertised in the `system.hello` result:
 | [`jarvis.delegation.set`](#jarvisdelegationset) | client → server | Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is the person, so it applies at once; Jarvis's own proposals never use this method but raise a person-only approval. A guarded class needs a local connection or a re-authenticated remote one; from a messenger only when jarvis.messenger.allowGrants. |
 | [`jarvis.disable`](#jarvisdisable) | client → server | Jarvis mode (1.53.0, WP3): clear jarvis.enabled and park the Jarvis session; everything routes to the person again, messenger bindings get their targets back. |
 | [`jarvis.enable`](#jarvisenable) | client → server | Jarvis mode (1.53.0, WP3): set jarvis.enabled, create or resume the Jarvis session and start supervising every exposed project. Idempotent. |
+| [`jarvis.escalations.dismiss`](#jarvisescalationsdismiss) | client → server | Jarvis mode (1.53.0): dismiss escalations by id (or all); every client is told with jarvis.escalation.dismissed. |
+| [`jarvis.escalations.list`](#jarvisescalationslist) | client → server | Jarvis mode (1.53.0): the open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), newest first, paged. They persist until dismissed, across client reloads and daemon restarts. |
 | [`jarvis.handback`](#jarvishandback) | client → server | Jarvis mode (1.53.0, WP2): give one session back to Jarvis now, ending a takeover or a typing pause. Human connections only (else jarvis_person_only). |
 | [`jarvis.ledger`](#jarvisledger) | client → server | Jarvis mode (1.53.0, WP2): decisions made for supervised sessions, newest first, by Jarvis, the person or the engine alone, with classification, rule and grant. |
 | [`jarvis.overview`](#jarvisoverview) | client → server | Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external. |
@@ -486,7 +488,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -505,6 +507,7 @@ Ask the client to approve a tool call.
 | `guard` | `string \| null` | no | Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. |
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `paths` | `string[] \| null` | no | With reasonCode: the resolved absolute paths concerned (1.30.0). |
+| `personOnly` | `boolean \| null` | no | True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'} from a person's connection; any other answerer is refused. |
 | `reasonCode` | `string \| null` | no | Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. |
 | `remember` | `{ display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null` | no | For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && \|\| \| & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
@@ -1624,6 +1627,45 @@ Jarvis mode (1.53.0, WP3): set jarvis.enabled, create or resume the Jarvis sessi
 | `running` | `boolean` | no | True when the Jarvis service is up and watching sessions (enabled and started). |
 | `sessionId` | `string \| null` | no | The Jarvis session (SessionSummary.role 'jarvis'); null before it was first created. |
 
+### `jarvis.escalations.dismiss`
+
+*Direction:* client → server
+
+Jarvis mode (1.53.0): dismiss escalations by id (or all); every client is told with jarvis.escalation.dismissed.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `all` | `boolean` | no | Dismiss every open escalation. |
+| `ids` | `string[]` | no | Escalation ids to dismiss. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `dismissed` | `string[]` | no | Ids that were open and are now dismissed. |
+
+### `jarvis.escalations.list`
+
+*Direction:* client → server
+
+Jarvis mode (1.53.0): the open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), newest first, paged. They persist until dismissed, across client reloads and daemon restarts.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `before` | `string \| null` | no | Cursor from a previous page's nextBefore; omitted starts at the newest. |
+| `limit` | `number` | no | Escalations per page. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `escalations` | `({ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; guardedClass?: "deploy" \| "outside_destructive" \| "secret_send" \| null; id: string; importance?: "low" \| "normal" \| "high" \| "urgent"; project?: string \| null; reason: "guarded" \| "risky" \| "never" \| "question" \| "finished" \| "error" \| "stalled" \| "budget" \| "jarvis"; requestId?: string \| null; requestKind?: "approval" \| "question" \| null; sessionId?: string \| null; summary: string; title?: string \| null; ts: string; })[]` | no | Open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), as they were sent; kept in $SNOWPEA_HOME/jarvis/ so they survive a client reload and a daemon restart until dismissed. |
+| `nextBefore` | `string \| null` | no | Cursor for the next page; null at the end. |
+
 ### `jarvis.handback`
 
 *Direction:* client → server
@@ -1641,7 +1683,7 @@ Jarvis mode (1.53.0, WP2): give one session back to Jarvis now, ending a takeove
 
 | field | type | required | description |
 |---|---|---|---|
-| `state` | `{ exposed: boolean; level?: "staged" \| "full" \| null; pausedUntil?: string \| null; takenOver?: boolean; }` | yes | The session's Jarvis state after the call. |
+| `state` | `{ exposed: boolean; grantId?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; pausedUntil?: string \| null; takenOver?: boolean; }` | yes | The session's Jarvis state after the call. |
 
 ### `jarvis.ledger`
 
@@ -1685,7 +1727,7 @@ Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external.
 | field | type | required | description |
 |---|---|---|---|
 | `generatedAt` | `string` | yes | UTC ISO time the table was taken. |
-| `rows` | `({ digest?: string; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
+| `rows` | `({ digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
 
 ### `jarvis.project.alias`
 
@@ -1785,7 +1827,7 @@ Jarvis mode (1.53.0, WP2): the person takes one session back; Jarvis stops decid
 
 | field | type | required | description |
 |---|---|---|---|
-| `state` | `{ exposed: boolean; level?: "staged" \| "full" \| null; pausedUntil?: string \| null; takenOver?: boolean; }` | yes | The session's Jarvis state after the call. |
+| `state` | `{ exposed: boolean; grantId?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; pausedUntil?: string \| null; takenOver?: boolean; }` | yes | The session's Jarvis state after the call. |
 
 ### `job.cancel`
 
@@ -2976,6 +3018,8 @@ Open a session rooted at a working directory.
 | field | type | required | description |
 |---|---|---|---|
 | `delegation` | `boolean` | no | Whether the session starts in delegation mode (the lead hands the work to its team): the session pin, else agents.delegateByDefault. |
+| `jarvis` | `{ exposed: boolean; grantId?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; pausedUntil?: string \| null; takenOver?: boolean; } \| null` | no | As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. |
+| `role` | `"jarvis" \| null` | no | As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. |
 | `sessionId` | `string` | yes | Id of the new session. |
 | `workspaceDir` | `string \| null` | no | Session workspace with tmp/ and artifacts/ (1.7.0). |
 
@@ -3104,7 +3148,7 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `complete` | `boolean` | no | True when the list is all there is for what was asked (1.27.0): the daemon's boot has restored the sessions it reopens, and with includeClosed the saved ones were read. Without includeClosed it covers live sessions only, which after a restart is usually none; ask with includeClosed before forgetting a closed chat. False (or absent, from an older daemon) means an empty or short list proves nothing, so a client must not forget its own records by it. |
-| `sessions` | `({ agent?: string \| null; archived?: boolean; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; contextWindowSource?: "settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; forkedAtTurnId?: string \| null; forkedFrom?: string \| null; hostToolsFrom?: string \| null; jarvis?: { exposed: boolean; level?: "staged" \| "full" \| null; pausedUntil?: string \| null; takenOver?: boolean; } \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; lastUserAt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; pinned?: boolean; provider?: string \| null; role?: "jarvis" \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; workspaceId?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; archived?: boolean; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; contextWindowSource?: "settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; forkedAtTurnId?: string \| null; forkedFrom?: string \| null; hostToolsFrom?: string \| null; jarvis?: { exposed: boolean; grantId?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; pausedUntil?: string \| null; takenOver?: boolean; } \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; lastUserAt?: string \| null; machine?: { container: boolean; hostname: string; id: string; os: "linux" \| "darwin" \| "windows"; } \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; pinned?: boolean; provider?: string \| null; role?: "jarvis" \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; workspaceId?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -4522,7 +4566,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
-| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 
@@ -4589,6 +4633,18 @@ Set the sidebar order (1.47.0).
 | `kind` | `string` | yes | Event kind, e.g. 'message' or 'error'. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
+### `jarvis.access`
+
+| field | type | required | description |
+|---|---|---|---|
+| `action` | `"read" \| "prompt" \| "steer" \| "interrupt" \| "create" \| "approval" \| "question"` | yes | read (transcript or digest), prompt, steer, interrupt, create (a new session), approval or question (answered one). |
+| `hostToolsFrom` | `string \| null` | no | The session's owning client (browser host), when it has one. |
+| `id` | `string` | yes | Ledger record id. |
+| `project` | `string \| null` | no | Its project root. |
+| `sessionId` | `string` | yes | Session Jarvis read or instructed. |
+| `summary` | `string` | no | One short line: what was read or sent. |
+| `ts` | `string` | yes | UTC ISO time. |
+
 ### `jarvis.decision`
 
 | field | type | required | description |
@@ -4618,6 +4674,12 @@ Set the sidebar order (1.47.0).
 | `summary` | `string` | yes | One short line for the person (fits an OS notification, ~120 chars). |
 | `title` | `string \| null` | no | Its title. |
 | `ts` | `string` | yes | UTC ISO time. |
+
+### `jarvis.escalation.dismissed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `ids` | `string[]` | yes | Dismissed escalation ids. |
 
 ### `jarvis.state`
 
@@ -4719,7 +4781,9 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `browserProvider` | `"host" \| "local" \| null` | no | A browser session's browser: 'host' (Snowpea browser only) or 'local' (the user opted in to core's own browser); null for non-browser sessions. |
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8); null for unhosted sessions. |
+| `jarvis` | `{ exposed: boolean; grantId?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; pausedUntil?: string \| null; takenOver?: boolean; } \| null` | no | As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. |
 | `reason` | `string` | yes | create, prompt, turn, renamed, close, ... |
+| `role` | `"jarvis" \| null` | no | As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. |
 | `sessionId` | `string` | yes | Session that changed. |
 | `status` | `string \| null` | no | Its status now, when known. |
 | `title` | `string \| null` | no | Its title, when it has one. |

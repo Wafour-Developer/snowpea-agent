@@ -88,13 +88,6 @@ async def test_enable_disable_and_restore_across_a_restart(
         assert not folder.exists()
         # Off: the methods that need it say so.
         assert await _error_code(client, "jarvis.overview") == "jarvis_disabled"
-        assert (
-            await _error_code(client, "jarvis.takeover", {"sessionId": "s-x"})
-            == "jarvis_disabled"
-        )
-        assert await _error_code(client, "jarvis.handback", {"sessionId": "s-x"}) == (
-            "jarvis_disabled"
-        )
 
         status = await client.ok("jarvis.enable", {})
         assert status["enabled"] and status["running"]
@@ -277,9 +270,9 @@ async def test_exposure_hides_a_project_everywhere(
         assert listed[a.id]["jarvis"]["level"] == "staged"
         assert listed[b.id]["jarvis"]["exposed"] is False
         assert listed[b.id]["jarvis"]["level"] is None
-        # Nor can the person's takeover reach into it through Jarvis.
-        frame = await client.call("jarvis.takeover", {"sessionId": b.id})
-        assert frame["error"]["data"]["code"] == "not_found"
+        # A takeover there only records the pause; Jarvis still neither sees nor decides.
+        taken = await client.ok("jarvis.takeover", {"sessionId": b.id})
+        assert taken["state"]["exposed"] is False and taken["state"]["level"] is None
         projects = {p["root"]: p for p in (await client.ok("jarvis.project.list"))["projects"]}
         assert projects[canonical(hidden)]["exposed"] is False
         assert projects[canonical(shown)]["exposed"] is True
@@ -320,6 +313,8 @@ async def test_takeover_and_handback(http: aiohttp.ClientSession, tmp_path: Path
             "level": "staged",
             "pausedUntil": None,
             "takenOver": True,
+            "levelScope": "default",
+            "grantId": None,
         }
         paused = (await client.ok("jarvis.status"))["paused"]
         assert paused == [
@@ -442,12 +437,6 @@ async def test_routed_request_wakes_jarvis_with_a_system_turn(
     http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
     """The real tick loop: a request routed to Jarvis starts its turn about 2 s later."""
-    from snowpea_core.jarvis.ports import ConservativeDelegation, RouteDecision
-
-    class _ToJarvis(ConservativeDelegation):
-        def route(self, request: Any) -> RouteDecision:
-            return RouteDecision(route="jarvis", classification="risky", rule="test")
-
     project = tmp_path / "proj"
     project.mkdir()
     daemon = await make_daemon(tmp_path / "home", _settings(tmp_path, enabled=True))
@@ -456,9 +445,8 @@ async def test_routed_request_wakes_jarvis_with_a_system_turn(
         echo = _Echo()
         core.providers.get = lambda _p, _m: echo
         service = core.jarvis
-        service.engine = _ToJarvis(
-            now=service.clock.now, quiet_minutes=lambda: 10, default_level=lambda: "staged"
-        )
+        # Fully delegated by default: a risky command goes to Jarvis.
+        core.settings.jarvis.delegation.default = "full"
         client = await connect(http, daemon)
         worker = await core.sessions.create(project, mode="auto")
         jarvis = service.session()
@@ -466,7 +454,8 @@ async def test_routed_request_wakes_jarvis_with_a_system_turn(
         core.hub.subscribe(client_recorder := _Events(), jarvis.id)
         ask = asyncio.ensure_future(
             core.approvals.request(
-                worker, "shell", {"command": "make deploy"}, unattended=True, timeout_sec=30
+                worker, "shell", {"command": "make build"}, unattended=True, timeout_sec=30,
+                tags=("exec",),
             )
         )
         started = await client_recorder.wait("turn.started", timeout=10)
@@ -478,7 +467,8 @@ async def test_routed_request_wakes_jarvis_with_a_system_turn(
         assert started["payload"]["initiator"] == "system"
         await asyncio.wait_for(jarvis.turn_task, 30)
         sent = "\n".join(message_text(m) for m in echo.seen[-1])
-        assert "make deploy" in sent and "Waiting for your decision" in sent
+        assert "make build" in sent and "Waiting for your decision" in sent
+        assert core.approvals.list()[0].route == "jarvis"
         assert service.intake.budget.wakes_this_hour() == 1
         await core.approvals.respond(ask_id(core, worker.id), "deny")
         await asyncio.wait_for(ask, 5)

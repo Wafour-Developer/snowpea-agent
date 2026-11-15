@@ -1,13 +1,15 @@
 """``jarvis.*`` handlers of Jarvis mode's service (1.53.0, capability ``jarvis``; M19 WP3).
 
-``jarvis.status|enable|disable|overview|takeover|handback`` and
-``jarvis.project.list|rename|alias``.  The delegation methods (``jarvis.ledger``,
-``jarvis.delegation.*``) and the briefing belong to other work packages and keep
-the dispatcher's ``not_implemented`` stub until they land.
+``jarvis.status|enable|disable|overview``, ``jarvis.project.list|rename|alias``
+and ``jarvis.escalations.list|dismiss``.  ``jarvis.takeover`` / ``jarvis.handback``
+and the delegation methods are the delegation engine's
+(:mod:`snowpea_core.server.jarvis_delegation_handlers`); the briefing belongs to
+WP8 and keeps the dispatcher's ``not_implemented`` stub until it lands.
 """
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 from snowpea_core.jarvis.projects import ProjectError
@@ -17,16 +19,18 @@ from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     Empty,
     JarvisEnableParams,
+    JarvisEscalationNotification,
+    JarvisEscalationsDismissParams,
+    JarvisEscalationsDismissResult,
+    JarvisEscalationsListParams,
+    JarvisEscalationsListResult,
     JarvisOverviewParams,
     JarvisOverviewResult,
-    JarvisPauseResult,
     JarvisProjectAliasParams,
     JarvisProjectListResult,
     JarvisProjectRenameParams,
     JarvisProjectResult,
-    JarvisSessionTarget,
     JarvisStatusResult,
-    JarvisTakeoverParams,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -38,11 +42,11 @@ HANDLED_METHODS: tuple[str, ...] = (
     "jarvis.enable",
     "jarvis.disable",
     "jarvis.overview",
-    "jarvis.takeover",
-    "jarvis.handback",
     "jarvis.project.list",
     "jarvis.project.rename",
     "jarvis.project.alias",
+    "jarvis.escalations.list",
+    "jarvis.escalations.dismiss",
 )
 
 _CODES = {
@@ -101,26 +105,6 @@ async def jarvis_overview_handler(
     return JarvisOverviewResult(rows=rows, generatedAt=service.now_iso())
 
 
-async def jarvis_takeover_handler(
-    _conn: RpcConnection | None, params: JarvisTakeoverParams, core: Core
-) -> JarvisPauseResult:
-    try:
-        state = await service_of(core).takeover(params.sessionId, params.external, params.minutes)
-    except JarvisError as exc:
-        raise _rpc_error(exc) from exc
-    return JarvisPauseResult(state=state)
-
-
-async def jarvis_handback_handler(
-    _conn: RpcConnection | None, params: JarvisSessionTarget, core: Core
-) -> JarvisPauseResult:
-    try:
-        state = await service_of(core).handback(params.sessionId, params.external)
-    except JarvisError as exc:
-        raise _rpc_error(exc) from exc
-    return JarvisPauseResult(state=state)
-
-
 async def jarvis_project_list_handler(
     _conn: RpcConnection | None, _params: Empty, core: Core
 ) -> JarvisProjectListResult:
@@ -147,16 +131,46 @@ async def jarvis_project_alias_handler(
     return JarvisProjectResult(project=project)
 
 
+async def jarvis_escalations_list_handler(
+    _conn: RpcConnection | None, params: JarvisEscalationsListParams, core: Core
+) -> JarvisEscalationsListResult:
+    try:
+        items, next_before = service_of(core).escalations.page(
+            before=params.before, limit=params.limit
+        )
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    escalations = []
+    for item in items:
+        try:
+            escalations.append(JarvisEscalationNotification.model_validate(item))
+        except Exception:  # noqa: BLE001 - one unreadable entry never hides the rest
+            continue
+    return JarvisEscalationsListResult(escalations=escalations, nextBefore=next_before)
+
+
+async def jarvis_escalations_dismiss_handler(
+    _conn: RpcConnection | None, params: JarvisEscalationsDismissParams, core: Core
+) -> JarvisEscalationsDismissResult:
+    if not params.all and not params.ids:
+        raise RpcError(errors.INVALID_PARAMS, "give ids or all: true")
+    dismissed = service_of(core).escalations.dismiss(params.ids, everything=params.all)
+    if dismissed:
+        with contextlib.suppress(Exception):
+            await core.hub.notify("jarvis.escalation.dismissed", {"ids": dismissed})
+    return JarvisEscalationsDismissResult(dismissed=dismissed)
+
+
 def register_jarvis_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("jarvis.status", jarvis_status_handler)
     dispatcher.register("jarvis.enable", jarvis_enable_handler)
     dispatcher.register("jarvis.disable", jarvis_disable_handler)
     dispatcher.register("jarvis.overview", jarvis_overview_handler)
-    dispatcher.register("jarvis.takeover", jarvis_takeover_handler)
-    dispatcher.register("jarvis.handback", jarvis_handback_handler)
     dispatcher.register("jarvis.project.list", jarvis_project_list_handler)
     dispatcher.register("jarvis.project.rename", jarvis_project_rename_handler)
     dispatcher.register("jarvis.project.alias", jarvis_project_alias_handler)
+    dispatcher.register("jarvis.escalations.list", jarvis_escalations_list_handler)
+    dispatcher.register("jarvis.escalations.dismiss", jarvis_escalations_dismiss_handler)
     return dispatcher
 
 

@@ -307,10 +307,13 @@ async def session_create_handler(
     await _load_project_skills(core, session.workdir)
     await mcp_client.sync_tools_bounded(core, session.workdir)
     await announce_model(core, session)
+    jarvis = getattr(core, "jarvis", None)
     return SessionCreateResult(
         sessionId=session.id,
         delegation=effective_delegation(core, session)[0],
         workspaceDir=session.workspace_dir,
+        # SessionSummary.role / .jarvis (1.53.0)
+        **(jarvis.summary_fields(session.id) if jarvis is not None else {}),
     )
 
 

@@ -402,6 +402,8 @@ class DelegationEngine:
         self.grant_listeners: list[GrantListener] = []
         #: ``(target, state)`` whenever a pause starts or ends.
         self.pause_listeners: list[PauseListener] = []
+        #: True once :func:`_wire_events` announces this engine's changes.
+        self.events_wired = False
 
     # -- plumbing ------------------------------------------------------------
     @property
@@ -836,6 +838,14 @@ class DelegationEngine:
             current.until is None or parse_time(current.until) >= until
         ):
             return current
+        if current.paused and current.reason == "typing":
+            # Still typing: push the end out; the ledger already has the pause.
+            with self._lock:
+                self._conn().execute(
+                    "UPDATE pauses SET until = ?, set_at = ? WHERE target = ?",
+                    (_iso(until), _iso(self.now()), key),
+                )
+            return self._state_for(key)
         return self._set_pause(key, "typing", _iso(until), project, surface or "person")
 
     def takeover(
@@ -915,14 +925,20 @@ class DelegationEngine:
         if enabled is None:
             enabled = bool(_setting(self.settings, ("jarvis", "enabled"), False))
         state = self.pause_state(session_id, external=external)
-        level: Level | None = None
+        effective: Effective | None = None
         if enabled and exposed:
-            level = self.effective(session_id, project, external=external).level
+            effective = self.effective(session_id, project, external=external)
         return SessionJarvisState(
             exposed=exposed,
-            level=level,
+            level=effective.level if effective is not None else None,
             pausedUntil=None if state.taken_over else state.until,
             takenOver=state.taken_over,
+            levelScope=effective.source if effective is not None else None,  # type: ignore[arg-type]
+            grantId=(
+                effective.grant.id
+                if effective is not None and effective.grant is not None
+                else None
+            ),
         )
 
     # -- routing ---------------------------------------------------------------
@@ -1022,6 +1038,7 @@ class DelegationEngine:
         external: ExternalRef | dict[str, Any] | None = None,
         exposed: bool = True,
         budget_exhausted: bool = False,
+        expect: Route = "jarvis",
     ) -> RouteResult:
         """Re-check, server-side, an answer Jarvis wants to give; raise :class:`DecisionRefused`.
 
@@ -1029,22 +1046,28 @@ class DelegationEngine:
         ``request_id`` is given) **and** still be now — a grant revoked, a
         pause started or a budget spent in between all take it back.  Jarvis
         answers ``once`` only: a remembered rule is the person's to make.
+        ``expect="auto"`` re-checks the engine's own allow the same way (it
+        only ever allows).
         """
         if decision not in ("allow", "deny"):
             raise DecisionRefused(f"unknown decision {decision!r}")
         if decision == "allow" and scope != "once":
             raise DecisionRefused("Jarvis may only allow once; remembering a rule is the person's")
+        if expect == "auto" and decision != "allow":
+            raise DecisionRefused("the engine alone only ever allows")
+        if expect == "person":
+            raise DecisionRefused("a person's request is never decided for them")
         if request_id:
             earlier = self.routed(request_id)
             if earlier is None:
                 raise DecisionRefused("the engine has no record of routing this request")
-            if earlier.route != "jarvis":
+            if earlier.route != expect:
                 raise DecisionRefused(
                     f"this request was routed to {earlier.route} ({earlier.reason})", earlier
                 )
         current = self._route(request, project=project, external=external, exposed=exposed,
                               budget_exhausted=budget_exhausted)
-        if current.route != "jarvis":
+        if current.route != expect:
             raise DecisionRefused(
                 f"this request is now routed to {current.route} ({current.reason})", current
             )
@@ -1134,6 +1157,7 @@ def _wire_events(core: Any, engine: DelegationEngine) -> None:
 
     engine.grant_listeners.append(on_grant)
     engine.ledger.listeners.append(on_record)
+    engine.events_wired = True
 
 
 __all__ = [

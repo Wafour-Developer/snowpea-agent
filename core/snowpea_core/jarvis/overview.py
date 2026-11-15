@@ -93,7 +93,10 @@ def build_rows(
             status = "awaiting_approval"
         elif questions:
             status = "awaiting_question"
-        pause = engine.pause_state(digest.session_id)
+        state = engine.session_state(
+            digest.session_id, project=digest.project, exposed=True, enabled=True
+        )
+        readable = service.readable(digest)
         rows.append(
             JarvisOverviewRow(
                 sessionId=digest.session_id,
@@ -103,11 +106,13 @@ def build_rows(
                 pendingApprovals=approvals,
                 pendingQuestions=questions,
                 waitingOnPerson=intake.waiting_on_person(digest, approvals, questions),
-                level=engine.level(digest.session_id, digest.project),
-                pausedUntil=pause.paused_until if pause is not None else None,
-                takenOver=pause.taken_over if pause is not None else False,
+                level=state.level,
+                exposed=readable,
+                pausedUntil=state.pausedUntil,
+                takenOver=state.takenOver,
                 lastActivityAt=digest.last_activity,
-                digest=digest.line(),
+                # A browser-host session hidden by jarvis.exposeBrowser shows its status only.
+                digest=digest.line() if readable else "",
             )
         )
     if include_external:
@@ -166,6 +171,8 @@ def render_table(service: JarvisService, rows: list[JarvisOverviewRow], total: i
         ident = row.sessionId or (
             f"ext:{row.external.cli}:{row.external.id}" if row.external else "?"
         )
+        if not row.exposed:
+            level += ",browser: status only"
         lines.append(
             " | ".join(
                 [

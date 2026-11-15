@@ -3160,6 +3160,14 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "--force", action="store_true", help="rewrite AGENTS.md from scratch instead of merging"
     )
 
+    # The TUI's Jarvis screen and external-session picker (M19, beta): handled
+    # by ``cli.main`` (they open the TUI, not a one-shot command).
+    sub.add_parser("jarvis", help="open the terminal UI on the Jarvis screen (beta)")
+    sub.add_parser(
+        "external",
+        help="open the terminal UI on the external CLI sessions picker (beta)",
+    )
+
     audio = sub.add_parser("audio", help="install and inspect the local voice engines")
     audio_sub = audio.add_subparsers(dest="action", metavar="<action>")
     audio_install_parser = audio_sub.add_parser(

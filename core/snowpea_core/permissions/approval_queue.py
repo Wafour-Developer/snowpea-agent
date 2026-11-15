@@ -217,6 +217,10 @@ class Decision:
     #: answer to ``once``: ``approval.ask`` hands it back so the host can keep
     #: the choice on its side (addendum 22); nothing here stores it.
     picked: str = ""
+    #: Who answered a ``personOnly`` request (a
+    #: :class:`~snowpea_core.jarvis.delegation.Caller`), so the asker can name
+    #: the person as grantor (1.53.0); ``None`` for every other request.
+    person: Any = None
 
     @property
     def allowed(self) -> bool:
@@ -278,6 +282,10 @@ class ApprovalQueue:
         self.allowlist = allowlist
         self._pending: dict[str, _Pending] = {}
         self._cache: set[tuple[str, str, str]] = set()
+        #: Jarvis mode's router (1.53.0): ``router(request, session, tags,
+        #: interactive)`` returns ``ApprovalRequest.route`` before the request
+        #: goes on the wire, or ``None`` (Jarvis mode off).  Must not block.
+        self.router: Any = None
 
     def bind(
         self,
@@ -427,13 +435,20 @@ class ApprovalQueue:
         diff: str | None = None,
         reason_code: str | None = None,
         paths: list[str] | None = None,
+        tags: tuple[str, ...] | None = None,
+        person_only: bool = False,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied.
 
         ``note`` is the extra warning the surface shows with the prompt.
         ``cacheable`` is false for ``config`` calls, so answering "allow for the
         session" on one settings write does not silently cover the next one.
+        ``tags`` are the call's effective permission tags, for Jarvis mode's
+        router.  ``person_only`` marks a request only a person may answer
+        (``ApprovalRequest.personOnly``): never cached, never remembered.
         """
+        if person_only:
+            cacheable = False
         folder = (
             outside_folder(paths, workdir=getattr(session, "workdir", None), home=self._home())
             if reason_code == OUTSIDE_REASON
@@ -471,7 +486,16 @@ class ApprovalQueue:
             remember=remember_for(
                 tool, args, cacheable=cacheable, guard=guard, reason_code=reason_code
             ),
+            personOnly=True if person_only else None,
         )
+        if self.router is not None:
+            try:
+                route = self.router(request, session, tuple(tags or ()), origin is not None)
+            except Exception:  # noqa: BLE001 - a broken router leaves it to the person
+                log.warning("approval router failed for %s", request.requestId, exc_info=True)
+                route = "person"
+            if route is not None:
+                request = request.model_copy(update={"route": route})
         loop = asyncio.get_running_loop()
         entry = _Pending(
             request=request,
@@ -621,14 +645,16 @@ class ApprovalQueue:
                 errors.UNAUTHORIZED,
                 "a browser-owned job's approvals may only be answered by that browser",
             )
+        person = _person_answer(entry.request, conn, by, self.settings, decision)
         if entry.future.done():
             return
         entry.future.set_result(
             Decision(
                 decision="allow" if decision == "allow" else "deny",
-                scope=scope,
+                scope="once" if person is not None else scope,
                 by=by,
                 reason=reason,
+                person=person,
             )
         )
 
@@ -763,6 +789,34 @@ class ApprovalQueue:
                 handle.write(json.dumps(record) + "\n")
         except OSError:  # pragma: no cover - audit log must never break a turn
             log.warning("could not append to %s", self.paths.approvals_log, exc_info=True)
+
+
+def _person_answer(
+    request: ApprovalRequest, conn: Any, by: str, settings: Any, decision: str
+) -> Any:
+    """The person answering a ``personOnly`` request; refuses anyone else.
+
+    ``None`` for an ordinary request.  A person is a human client connection
+    (:func:`~snowpea_core.jarvis.delegation.require_person`), or the bound
+    person of a messenger chat (the gateway answers as ``gateway:<platform>:<user>``
+    only after checking the approver) while ``jarvis.messenger.allowGrants``
+    is on.  Jarvis, the engine and in-process callers are refused.
+    """
+    if not request.personOnly:
+        return None
+    from snowpea_core.jarvis.delegation import Caller, person_refusal
+
+    if conn is not None:
+        caller = Caller.from_connection(conn)
+    elif str(by).startswith("gateway:"):
+        caller = Caller.messenger(str(by).split(":")[1] or "messenger", bound_person=True)
+    else:
+        caller = Caller(kind="jarvis" if str(by).startswith("jarvis") else "system")
+    allow = (request.args or {}).get("allow") if isinstance(request.args, dict) else None
+    refusal = person_refusal(caller, settings, guarded=decision == "allow" and bool(allow))
+    if refusal is not None:
+        raise RpcError(errors.JARVIS_PERSON_ONLY, f"only a person may answer this: {refusal}")
+    return caller
 
 
 __all__ = [

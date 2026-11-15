@@ -304,6 +304,8 @@ export interface ApprovalListResult {
     note?: string;
     /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
     paths?: string[] | null;
+    /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'} from a person's connection; any other answerer is refused. */
+    personOnly?: boolean | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
     /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -357,6 +359,8 @@ export interface ApprovalRequestParams {
   note?: string;
   /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
   paths?: string[] | null;
+  /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'} from a person's connection; any other answerer is refused. */
+  personOnly?: boolean | null;
   /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
   reasonCode?: string | null;
   /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -2064,6 +2068,66 @@ export interface JarvisEnableResult {
   sessionId?: string | null;
 }
 
+/** `jarvis.escalations.dismiss` params. Jarvis mode (1.53.0): dismiss escalations by id (or all); every client is told with jarvis.escalation.dismissed. */
+export interface JarvisEscalationsDismissParams {
+  /** Dismiss every open escalation. */
+  all?: boolean;
+  /** Escalation ids to dismiss. */
+  ids?: string[];
+}
+
+/** `jarvis.escalations.dismiss` result. */
+export interface JarvisEscalationsDismissResult {
+  /** Ids that were open and are now dismissed. */
+  dismissed?: string[];
+}
+
+/** `jarvis.escalations.list` params. Jarvis mode (1.53.0): the open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), newest first, paged. They persist until dismissed, across client reloads and daemon restarts. */
+export interface JarvisEscalationsListParams {
+  /** Cursor from a previous page's nextBefore; omitted starts at the newest. */
+  before?: string | null;
+  /** Escalations per page. */
+  limit?: number;
+}
+
+/** `jarvis.escalations.list` result. */
+export interface JarvisEscalationsListResult {
+  /** Open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), as they were sent; kept in $SNOWPEA_HOME/jarvis/ so they survive a client reload and a daemon restart until dismissed. */
+  escalations?: ({
+    /** External session concerned. */
+    external?: {
+      /** claude, codex, agy or cursor. */
+      cli: "claude" | "codex" | "agy" | "cursor";
+      /** The CLI's own session (thread, chat) id. */
+      id: string;
+    } | null;
+    /** With reason 'guarded'. */
+    guardedClass?: "deploy" | "outside_destructive" | "secret_send" | null;
+    /** Escalation id (repeats of the same need keep it). */
+    id: string;
+    /** How prominently to show it: in-app badge always, OS notification from normal (jarvis.notify.os), messenger from high (jarvis.notify.messenger). */
+    importance?: "low" | "normal" | "high" | "urgent";
+    /** Its project root. */
+    project?: string | null;
+    /** guarded/risky/never: an approval the engine routed to the person; question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. */
+    reason: "guarded" | "risky" | "never" | "question" | "finished" | "error" | "stalled" | "budget" | "jarvis";
+    /** Its id, to answer with approval.respond / question.respond. */
+    requestId?: string | null;
+    /** Kind of the waiting request, when one. */
+    requestKind?: "approval" | "question" | null;
+    /** snowpea session concerned. */
+    sessionId?: string | null;
+    /** One short line for the person (fits an OS notification, ~120 chars). */
+    summary: string;
+    /** Its title. */
+    title?: string | null;
+    /** UTC ISO time. */
+    ts: string;
+  })[];
+  /** Cursor for the next page; null at the end. */
+  nextBefore?: string | null;
+}
+
 /** `jarvis.handback` params. Jarvis mode (1.53.0, WP2): give one session back to Jarvis now, ending a takeover or a typing pause. Human connections only (else jarvis_person_only). */
 export interface JarvisHandbackParams {
   /** External session. */
@@ -2083,8 +2147,12 @@ export interface JarvisHandbackResult {
   state: {
     /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
     exposed: boolean;
+    /** The grant in force (jarvis.delegation.list id); null for the default. */
+    grantId?: string | null;
     /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
     level?: "staged" | "full" | null;
+    /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
     /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
     pausedUntil?: string | null;
     /** True after jarvis.takeover without a limit, until jarvis.handback. */
@@ -2172,6 +2240,8 @@ export interface JarvisOverviewResult {
   rows?: ({
     /** One line: what it did last or is waiting for (at most 200 characters). */
     digest?: string;
+    /** False for a browser-host session while jarvis.exposeBrowser is off: listed with its status only; Jarvis cannot read its transcript or instruct it. */
+    exposed?: boolean;
     /** External session; null for snowpea. */
     external?: {
       /** claude, codex, agy or cursor. */
@@ -2353,8 +2423,12 @@ export interface JarvisTakeoverResult {
   state: {
     /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
     exposed: boolean;
+    /** The grant in force (jarvis.delegation.list id); null for the default. */
+    grantId?: string | null;
     /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
     level?: "staged" | "full" | null;
+    /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
     /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
     pausedUntil?: string | null;
     /** True after jarvis.takeover without a limit, until jarvis.handback. */
@@ -4035,6 +4109,23 @@ export interface SessionCreateParams {
 export interface SessionCreateResult {
   /** Whether the session starts in delegation mode (the lead hands the work to its team): the session pin, else agents.delegateByDefault. */
   delegation?: boolean;
+  /** As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. */
+  jarvis?: {
+    /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
+    exposed: boolean;
+    /** The grant in force (jarvis.delegation.list id); null for the default. */
+    grantId?: string | null;
+    /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
+    level?: "staged" | "full" | null;
+    /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
+    /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
+    pausedUntil?: string | null;
+    /** True after jarvis.takeover without a limit, until jarvis.handback. */
+    takenOver?: boolean;
+  } | null;
+  /** As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. */
+  role?: "jarvis" | null;
   /** Id of the new session. */
   sessionId: string;
   /** Session workspace with tmp/ and artifacts/ (1.7.0). */
@@ -4388,8 +4479,12 @@ export interface SessionListResult {
     jarvis?: {
       /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
       exposed: boolean;
+      /** The grant in force (jarvis.delegation.list id); null for the default. */
+      grantId?: string | null;
       /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
       level?: "staged" | "full" | null;
+      /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+      levelScope?: "session" | "project" | "global" | "default" | null;
       /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
       pausedUntil?: string | null;
       /** True after jarvis.takeover without a limit, until jarvis.handback. */
@@ -7603,6 +7698,8 @@ export interface ApprovalPendingPayload {
     note?: string;
     /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
     paths?: string[] | null;
+    /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'} from a person's connection; any other answerer is refused. */
+    personOnly?: boolean | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
     /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -7755,6 +7852,24 @@ export interface GatewayEventPayload {
   payload?: Record<string, unknown>;
 }
 
+/** `jarvis.access` notification payload. */
+export interface JarvisAccessPayload {
+  /** read (transcript or digest), prompt, steer, interrupt, create (a new session), approval or question (answered one). */
+  action: "read" | "prompt" | "steer" | "interrupt" | "create" | "approval" | "question";
+  /** The session's owning client (browser host), when it has one. */
+  hostToolsFrom?: string | null;
+  /** Ledger record id. */
+  id: string;
+  /** Its project root. */
+  project?: string | null;
+  /** Session Jarvis read or instructed. */
+  sessionId: string;
+  /** One short line: what was read or sent. */
+  summary?: string;
+  /** UTC ISO time. */
+  ts: string;
+}
+
 /** `jarvis.decision` notification payload. */
 export interface JarvisDecisionPayload {
   /** The decision. */
@@ -7861,6 +7976,12 @@ export interface JarvisEscalationPayload {
   title?: string | null;
   /** UTC ISO time. */
   ts: string;
+}
+
+/** `jarvis.escalation.dismissed` notification payload. */
+export interface JarvisEscalationDismissedPayload {
+  /** Dismissed escalation ids. */
+  ids: string[];
 }
 
 /** `jarvis.state` notification payload. */
@@ -8090,8 +8211,25 @@ export interface SessionsChangedPayload {
   browserProvider?: "host" | "local" | null;
   /** The session's owning client (addendum 8); null for unhosted sessions. */
   hostToolsFrom?: string | null;
+  /** As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. */
+  jarvis?: {
+    /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
+    exposed: boolean;
+    /** The grant in force (jarvis.delegation.list id); null for the default. */
+    grantId?: string | null;
+    /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
+    level?: "staged" | "full" | null;
+    /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
+    /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
+    pausedUntil?: string | null;
+    /** True after jarvis.takeover without a limit, until jarvis.handback. */
+    takenOver?: boolean;
+  } | null;
   /** create, prompt, turn, renamed, close, ... */
   reason: string;
+  /** As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. */
+  role?: "jarvis" | null;
   /** Session that changed. */
   sessionId: string;
   /** Its status now, when known. */
@@ -9061,6 +9199,8 @@ export interface MethodMap {
   "jarvis.delegation.set": { params: JarvisDelegationSetParams; result: JarvisDelegationSetResult };
   "jarvis.disable": { params: JarvisDisableParams; result: JarvisDisableResult };
   "jarvis.enable": { params: JarvisEnableParams; result: JarvisEnableResult };
+  "jarvis.escalations.dismiss": { params: JarvisEscalationsDismissParams; result: JarvisEscalationsDismissResult };
+  "jarvis.escalations.list": { params: JarvisEscalationsListParams; result: JarvisEscalationsListResult };
   "jarvis.handback": { params: JarvisHandbackParams; result: JarvisHandbackResult };
   "jarvis.ledger": { params: JarvisLedgerParams; result: JarvisLedgerResult };
   "jarvis.overview": { params: JarvisOverviewParams; result: JarvisOverviewResult };
@@ -9263,6 +9403,8 @@ export type ClientMethod =
   | "jarvis.delegation.set"
   | "jarvis.disable"
   | "jarvis.enable"
+  | "jarvis.escalations.dismiss"
+  | "jarvis.escalations.list"
   | "jarvis.handback"
   | "jarvis.ledger"
   | "jarvis.overview"
@@ -9412,9 +9554,11 @@ export interface EventMap {
   "external.event": ExternalEventPayload;
   "external.state": ExternalStatePayload;
   "gateway.event": GatewayEventPayload;
+  "jarvis.access": JarvisAccessPayload;
   "jarvis.decision": JarvisDecisionPayload;
   "jarvis.delegation.changed": JarvisDelegationChangedPayload;
   "jarvis.escalation": JarvisEscalationPayload;
+  "jarvis.escalation.dismissed": JarvisEscalationDismissedPayload;
   "jarvis.state": JarvisStatePayload;
   "job.event": JobEventPayload;
   "lsp.changed": LspChangedPayload;
@@ -9441,9 +9585,11 @@ export const EVENT_NAMES: readonly EventName[] = [
   "external.event",
   "external.state",
   "gateway.event",
+  "jarvis.access",
   "jarvis.decision",
   "jarvis.delegation.changed",
   "jarvis.escalation",
+  "jarvis.escalation.dismissed",
   "jarvis.state",
   "job.event",
   "lsp.changed",

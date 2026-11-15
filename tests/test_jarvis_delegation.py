@@ -536,7 +536,7 @@ async def test_rpc_takeover_handback_and_ledger(
         assert timed["takenOver"] is False and timed["pausedUntil"]
         state = (await person.ok("jarvis.handback", {"sessionId": session.id}))["state"]
         assert state == {"exposed": True, "level": None, "pausedUntil": None,
-                         "takenOver": False}
+                         "takenOver": False, "levelScope": None, "grantId": None}
         assert _code(await person.call("jarvis.takeover", {"sessionId": "nope"})) == "not_found"
         both = {"sessionId": session.id, "external": {"cli": "codex", "id": "t"}}
         assert _code(await person.call("jarvis.takeover", both)) == "invalid_params"

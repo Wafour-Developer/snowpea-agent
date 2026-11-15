@@ -848,8 +848,7 @@ class JarvisNotifySettings(_Model):
 class JarvisSettings(_Model):
     """Jarvis mode (M19, beta, 1.53.0): one supervising session per daemon.
 
-    Settings only; the service, delegation engine and external CLIs land in
-    later work packages (docs/design/m19-jarvis-mode.md).
+    Design: docs/design/m19-jarvis-mode.md.
     """
 
     enabled: bool = False
@@ -862,6 +861,15 @@ class JarvisSettings(_Model):
     #: Minutes without the person's input after which a paused session's
     #: delegation returns by itself.
     quietMinutes: int = Field(default=10, ge=1, le=24 * 60)
+    #: Minutes a fully delegated session may sit still before Jarvis is woken:
+    #: a running turn with no event at all, or an idle session whose last
+    #: answer said work remains (the unfinished-work gate's wording).
+    stallMinutes: int = Field(default=15, ge=1, le=24 * 60)
+    #: Browser-host sessions (owned by a browser connection) are read and
+    #: instructed like any other exposed session.  Off: they are listed with
+    #: their status only — no transcript, no prompts.  Their approvals are
+    #: never Jarvis's either way.
+    exposeBrowser: bool = True
     proactive: JarvisProactiveSettings = Field(default_factory=JarvisProactiveSettings)
     briefing: JarvisBriefingSettings = Field(default_factory=JarvisBriefingSettings)
     budget: JarvisBudgetSettings = Field(default_factory=JarvisBudgetSettings)

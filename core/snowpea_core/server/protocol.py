@@ -282,6 +282,17 @@ class SessionJarvisState(Payload):
         default=False,
         description="True after jarvis.takeover without a limit, until jarvis.handback.",
     )
+    levelScope: Literal["session", "project", "global", "default"] | None = Field(
+        default=None,
+        description=(
+            "Which scope supplied level: a session, project or global grant, or "
+            "jarvis.delegation.default (no grant); null while level is null."
+        ),
+    )
+    grantId: str | None = Field(
+        default=None,
+        description="The grant in force (jarvis.delegation.list id); null for the default.",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -797,6 +808,14 @@ class SessionsChangedNotification(Payload):
             "(the user opted in to core's own browser); null for non-browser sessions."
         ),
     )
+    role: Literal["jarvis"] | None = Field(
+        default=None,
+        description="As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session.",
+    )
+    jarvis: SessionJarvisState | None = Field(
+        default=None,
+        description="As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off.",
+    )
 
 
 class UsageSummaryParams(Payload):
@@ -885,6 +904,14 @@ class SessionCreateResult(Payload):
             "Whether the session starts in delegation mode (the lead hands the work "
             "to its team): the session pin, else agents.delegateByDefault."
         ),
+    )
+    role: Literal["jarvis"] | None = Field(
+        default=None,
+        description="As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session.",
+    )
+    jarvis: SessionJarvisState | None = Field(
+        default=None,
+        description="As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off.",
     )
 
 
@@ -2132,6 +2159,15 @@ class ApprovalRequest(Payload):
             "person (wait for a human, as before), jarvis (the Jarvis session decides; a "
             "person may still answer first) or auto (allowed by the engine, shown for the "
             "record). Null when Jarvis mode is off."
+        ),
+    )
+    personOnly: bool | None = Field(
+        default=None,
+        description=(
+            "True on a request only a person may answer (1.53.0): Jarvis's delegation_set "
+            "proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, "
+            "note}, from the Jarvis session). Answered with approval.respond {decision, scope: "
+            "'once'} from a person's connection; any other answerer is refused."
         ),
     )
 
@@ -7507,6 +7543,13 @@ class JarvisOverviewRow(Payload):
     level: JarvisLevel | None = Field(
         default=None, description="Delegation in force for it; null when not exposed."
     )
+    exposed: bool = Field(
+        default=True,
+        description=(
+            "False for a browser-host session while jarvis.exposeBrowser is off: listed with "
+            "its status only; Jarvis cannot read its transcript or instruct it."
+        ),
+    )
     pausedUntil: str | None = Field(default=None, description="As SessionJarvisState.pausedUntil.")
     takenOver: bool = Field(default=False, description="As SessionJarvisState.takenOver.")
     lastActivityAt: str | None = Field(
@@ -7777,6 +7820,77 @@ class JarvisEscalationNotification(Payload):
         default=None, description="Its id, to answer with approval.respond / question.respond."
     )
     guardedClass: GuardedClass | None = Field(default=None, description="With reason 'guarded'.")
+
+
+class JarvisEscalationsListParams(Payload):
+    """``jarvis.escalations.list`` (1.53.0): the open escalations, newest first."""
+
+    before: str | None = Field(
+        default=None,
+        description="Cursor from a previous page's nextBefore; omitted starts at the newest.",
+    )
+    limit: int = Field(default=50, ge=1, le=500, description="Escalations per page.")
+
+
+class JarvisEscalationsListResult(Payload):
+    escalations: list[JarvisEscalationNotification] = Field(
+        default_factory=list,
+        description=(
+            "Open escalations that are not a waiting approval or question (finished, error, "
+            "stalled, budget, jarvis), as they were sent; kept in $SNOWPEA_HOME/jarvis/ so "
+            "they survive a client reload and a daemon restart until dismissed."
+        ),
+    )
+    nextBefore: str | None = Field(
+        default=None, description="Cursor for the next page; null at the end."
+    )
+
+
+class JarvisEscalationsDismissParams(Payload):
+    """``jarvis.escalations.dismiss`` (1.53.0)."""
+
+    ids: list[str] = Field(default_factory=list, description="Escalation ids to dismiss.")
+    all: bool = Field(default=False, description="Dismiss every open escalation.")
+
+
+class JarvisEscalationsDismissResult(Payload):
+    dismissed: list[str] = Field(
+        default_factory=list, description="Ids that were open and are now dismissed."
+    )
+
+
+class JarvisEscalationsDismissedNotification(Payload):
+    """Daemon-wide (1.53.0): escalations a client dismissed, so others drop them too."""
+
+    ids: list[str] = Field(description="Dismissed escalation ids.")
+
+
+class JarvisAccessNotification(Payload):
+    """Daemon-wide (1.53.0): Jarvis read or instructed a session (an audit line).
+
+    Sent for every Jarvis tool call that reads a session's transcript or acts on
+    it; the session's own surfaces (its origin connection, a browser host for a
+    browser-owned session) show it as an audit line.  Also kept in the ledger as
+    an ``access`` record.
+    """
+
+    id: str = Field(description="Ledger record id.")
+    ts: str = Field(description="UTC ISO time.")
+    sessionId: str = Field(description="Session Jarvis read or instructed.")
+    project: str | None = Field(default=None, description="Its project root.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description="The session's owning client (browser host), when it has one.",
+    )
+    action: Literal[
+        "read", "prompt", "steer", "interrupt", "create", "approval", "question"
+    ] = Field(
+        description=(
+            "read (transcript or digest), prompt, steer, interrupt, create (a new session), "
+            "approval or question (answered one)."
+        )
+    )
+    summary: str = Field(default="", description="One short line: what was read or sent.")
 
 
 class JarvisDelegationChangedNotification(Payload):
@@ -9341,6 +9455,25 @@ METHODS: dict[str, RpcMethod] = {
             ),
         ),
         _m(
+            "jarvis.escalations.list",
+            JarvisEscalationsListParams,
+            JarvisEscalationsListResult,
+            (
+                "Jarvis mode (1.53.0): the open escalations that are not a waiting approval "
+                "or question (finished, error, stalled, budget, jarvis), newest first, paged. "
+                "They persist until dismissed, across client reloads and daemon restarts."
+            ),
+        ),
+        _m(
+            "jarvis.escalations.dismiss",
+            JarvisEscalationsDismissParams,
+            JarvisEscalationsDismissResult,
+            (
+                "Jarvis mode (1.53.0): dismiss escalations by id (or all); every client is "
+                "told with jarvis.escalation.dismissed."
+            ),
+        ),
+        _m(
             "jarvis.project.list",
             Empty,
             JarvisProjectListResult,
@@ -9494,6 +9627,8 @@ EVENTS: dict[str, type[BaseModel]] = {
     "jarvis.decision": JarvisDecisionNotification,
     "jarvis.escalation": JarvisEscalationNotification,
     "jarvis.delegation.changed": JarvisDelegationChangedNotification,
+    "jarvis.escalation.dismissed": JarvisEscalationsDismissedNotification,
+    "jarvis.access": JarvisAccessNotification,
     "external.event": ExternalEventNotification,
     "external.state": ExternalStateNotification,
 }
@@ -9580,7 +9715,8 @@ CAPABILITIES: list[str] = [
     # M19 WP2 (delegation engine).
     "jarvisDelegation",
     # jarvis.status/enable/disable/overview, jarvis.project.*, jarvis.state,
-    # SessionSummary.role/jarvis — M19 WP3 (Jarvis service).
+    # jarvis.escalations.*, jarvis.escalation.dismissed, jarvis.access,
+    # SessionSummary.role/jarvis — M19 WP3/WP4 (Jarvis service and tools).
     "jarvis",
 ]
 
@@ -9784,6 +9920,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "jarvis.project.list",
         "jarvis.project.rename",
         "jarvis.project.alias",
+        "jarvis.escalations.list",
+        "jarvis.escalations.dismiss",
     }
 )
 

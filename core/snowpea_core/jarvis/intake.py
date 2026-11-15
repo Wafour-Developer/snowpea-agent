@@ -14,7 +14,16 @@ and decides when Jarvis has to be woken:
   same batch;
 * any other finished or failed turn, and what the engine allowed on its own —
   coalesced into one notice per :data:`NOTICE_WINDOW_SEC`; auto decisions alone
-  never wake Jarvis, they ride along with the next wake.
+  never wake Jarvis, they ride along with the next wake;
+* a fully delegated session that went still: a running turn with no event for
+  ``jarvis.stallMinutes``, or an idle one whose last answer said work remains
+  (the unfinished-work gate's wording) and nothing started since — ``stalled``,
+  woken like a turn that ended stalled.
+
+Where a request goes is the engine's call, made once when the request is
+raised (the service is the queues' router, so ``route`` is on the wire); the
+intake reads that route back.  What the engine routes ``auto`` is answered
+here, after the engine re-checked it, as ``by="jarvis:auto"``.
 
 A wake costs model tokens, so it is budgeted (``jarvis.budget``): once the
 wakes of the last hour or the tokens of the day are spent, nothing is routed to
@@ -36,7 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from snowpea_core.jarvis.ports import RouteDecision, RouteRequest
+from snowpea_core.jarvis.delegation import DecisionRefused, RouteResult
 from snowpea_core.server.protocol import JarvisBudget
 from snowpea_core.session.workspaces import canonical
 
@@ -107,6 +116,14 @@ class Digest:
     last_activity: str | None = None
     closed: bool = False
     pending: dict[str, PendingItem] = field(default_factory=dict)
+    #: Owned by a browser connection (host tools or a browser-owned job).
+    browser: bool = False
+    #: Monotonic time of the last event of any kind (stall detection).
+    last_event_mono: float | None = None
+    #: Monotonic time the last turn ended with work it said remains.
+    unfinished_since: float | None = None
+    #: A stall was reported for the current stretch of stillness.
+    stall_reported: bool = False
 
     def touch(self, ts: str | None) -> None:
         if ts and (self.last_activity is None or ts >= self.last_activity):
@@ -245,6 +262,7 @@ class Intake:
         self._exhausted = False
         self.budget = Budget(service, service.home / "budget.json")
         self.attached = False
+        self._stall_due: float | None = None
 
     # -- wiring --------------------------------------------------------
     def attach(self) -> None:
@@ -260,13 +278,15 @@ class Intake:
         self.attached = False
         self._routed.clear()
         self._notices.clear()
-        self._routed_due = self._notice_due = None
+        self._routed_due = self._notice_due = self._stall_due = None
 
     async def seed(self) -> None:
         """Rows for what already exists: live sessions, then open stored threads."""
         core = self.service.core
         for session in core.sessions.all():
             self._digest_for(session.id, session=session)
+        if any(digest.status == "running" for digest in self.digests.values()):
+            self._plan_stall()
         store = getattr(core, "store", None)
         if store is None:
             return
@@ -331,11 +351,16 @@ class Intake:
                 status="running" if session.turn_live else (
                     "error" if session.last_turn_reason == "error" else "idle"
                 ),
+                browser=self.service.browser_host(session),
             )
             digest.touch(session.last_activity_at or session.created_at)
+            if digest.status == "running":
+                digest.last_event_mono = self.service.clock.monotonic()
             self.digests[session_id] = digest
         if session is not None and session.title and session.title != digest.title:
             digest.title = session.title
+        if session is not None:
+            digest.browser = self.service.browser_host(session)
         return digest
 
     # -- the hub side ----------------------------------------------------
@@ -358,11 +383,15 @@ class Intake:
         if reason == "deleted":
             if session_id:
                 self.digests.pop(session_id, None)
+                self._end_session(session_id)
             else:
                 live = {s.id for s in self.service.core.sessions.all()}
                 for key in [k for k in self.digests if k not in live]:
                     self.digests.pop(key, None)
             return
+        if reason == "closed" and session_id and session_id != self.service.session_id:
+            # A session's grants and pauses end with it (the engine's rule).
+            self._end_session(session_id)
         digest = self._digest_for(session_id)
         if digest is None:
             return
@@ -370,6 +399,7 @@ class Intake:
             digest.title = str(params["title"])
         if reason == "closed":
             digest.closed = True
+            digest.unfinished_since = None
             if digest.status == "running":
                 digest.status = "idle"
         elif reason == "created":
@@ -393,18 +423,23 @@ class Intake:
         if kind not in ("message.delta", "message.reasoning", "tool.progress", "usage", "context"):
             digest.touch(ts)
         digest.closed = False
+        digest.last_event_mono = self.service.clock.monotonic()
+        digest.stall_reported = False
         if kind == "turn.started":
             digest.status = "running"
             digest.partial = ""
             digest.turn_reason = None
             digest.last_tool = None
+            digest.unfinished_since = None
             # An error belongs to the turn that hit it; the next one starts clean.
             digest.last_error = None
+            self._plan_stall()
         elif kind == "message.user":
             origin = payload.get("origin")
             human = not isinstance(origin, dict) or origin.get("kind", "human") == "human"
             if human:
-                await self.service.person_typed(session_id, digest.project)
+                surface = origin.get("surface") if isinstance(origin, dict) else None
+                await self.service.person_typed(session_id, digest.project, surface)
         elif kind == "message.delta":
             digest.partial = (digest.partial + str(payload.get("text") or ""))[-ANSWER_TAIL:]
         elif kind == "message.done":
@@ -426,7 +461,23 @@ class Intake:
             if digest.partial.strip() and not digest.last_answer:
                 digest.last_answer = digest.partial.strip()[-ANSWER_TAIL:]
             digest.partial = ""
+            if reason == "complete" and _says_work_remains(digest.last_answer):
+                digest.unfinished_since = self.service.clock.monotonic()
+                self._plan_stall()
             await self._on_turn_end(digest, reason)
+
+    def _end_session(self, session_id: str) -> None:
+        try:
+            self.service.engine.end_session(session_id)
+        except Exception:  # noqa: BLE001 - the engine's store must not break the fan-out
+            log.warning("could not end the delegation of %s", session_id, exc_info=True)
+
+    def delegated(self, digest: Digest) -> bool:
+        """Fully delegated and not held by the person right now."""
+        engine = self.service.engine
+        if engine.pause_state(digest.session_id).paused:
+            return False
+        return engine.effective(digest.session_id, digest.project).level == "full"
 
     async def _on_turn_end(self, digest: Digest, reason: str) -> None:
         category = _TURN_ENDS.get(reason)
@@ -434,13 +485,13 @@ class Intake:
             return
         service = self.service
         engine = service.engine
-        paused = engine.is_paused(digest.session_id)
+        paused = engine.pause_state(digest.session_id).paused
         label = service.label(digest)
         detail = digest.last_error if category == "error" else digest.last_answer
         text = f"{label}: turn {category} ({reason})"
         if detail:
             text += f"; {'error' if category == 'error' else 'last answer'}: {detail}"
-        delegated = engine.level(digest.session_id, digest.project) == "full" and not paused
+        delegated = not paused and self.delegated(digest)
         if delegated:
             self._queue_routed(
                 WakeItem(
@@ -485,37 +536,27 @@ class Intake:
         if digest is None:
             # Jarvis's own asks, unexposed projects, subagents: the person's, untouched.
             return
+        service = self.service
+        session = service.core.sessions.get(session_id)
         kind: Literal["approval", "question"] = (
             "approval" if method == "approval.pending" else "question"
         )
         interactive = bool(params.get("interactive"))
         summary = self._request_summary(kind, request)
-        decision = self.service.engine.route(
-            RouteRequest(
-                kind=kind,
-                request_id=request_id,
-                session_id=session_id,
-                project=digest.project,
-                payload=request,
-                interactive=interactive,
-            )
-        )
-        route = decision.route
-        paused = self.service.engine.is_paused(session_id)
-        if route == "jarvis" and (paused or self.budget.exhausted()):
-            # The person holds the session, or Jarvis is out of allowance.
-            route = "person"
-        if route == "auto" and kind != "approval":
-            route = "jarvis" if not (paused or self.budget.exhausted()) else "person"
-        if route == "auto" and paused:
-            # A person at the session decides there, even what the engine could allow.
-            route = "person"
+        decision: RouteResult | None = None
+        route: str
+        if kind == "approval":
+            decision = service.routed_approval(request, session)
+            route = decision.route
+        else:
+            route = request.get("route") or service.route_question(request, session) or "person"
+        paused = service.engine.pause_state(session_id).paused
         self._requests[request_id] = session_id
-        digest.pending[request_id] = PendingItem(kind, request_id, route, summary)
-        digest.touch(self.service.now_iso())
-        label = self.service.label(digest)
-        if route == "auto":
-            await self._auto_allow(digest, request, decision, label, summary)
+        digest.pending[request_id] = PendingItem(kind, request_id, str(route), summary)
+        digest.touch(service.now_iso())
+        label = service.label(digest)
+        if route == "auto" and decision is not None:
+            await self._auto_allow(digest, request, session, decision, label, summary)
             return
         if route == "jarvis":
             self._queue_routed(
@@ -532,9 +573,9 @@ class Intake:
         if interactive and paused:
             # The person is at that session and its own surface is asking them.
             return
-        if not self.service.core.settings.jarvis.proactive.needsYou:
+        if not service.core.settings.jarvis.proactive.needsYou:
             return
-        await self.service.escalate(
+        await service.escalate(
             reason="question" if kind == "question" else _escalation_reason(decision),
             summary=_one_line(f"{label} needs you: {summary}", 120),
             importance="high",
@@ -543,26 +584,41 @@ class Intake:
             title=digest.title,
             request_kind=kind,
             request_id=request_id,
-            guarded_class=decision.guarded_class,
+            guarded_class=decision.verdict.guarded_class if decision is not None else None,
         )
 
     async def _auto_allow(
         self,
         digest: Digest,
         request: dict[str, Any],
-        decision: RouteDecision,
+        session: Any,
+        decision: RouteResult,
         label: str,
         summary: str,
     ) -> None:
-        """The engine allowed it alone: answer, record, and mention it at the next wake."""
+        """The engine allowed it alone: re-check, answer, record, mention it at the next wake."""
+        service = self.service
         request_id = str(request["requestId"])
+        classified = service.classified(request_id)
         try:
-            await self.service.core.approvals.respond(
+            if classified is None:
+                raise DecisionRefused("no classification kept for this request")
+            classify, project = classified
+            decision = service.engine.validate_decision(
+                classify,
+                "allow",
+                request_id=request_id,
+                project=project,
+                exposed=service.projects.exposed(project),
+                budget_exhausted=service.budget_exhausted(),
+                expect="auto",
+            )
+            await service.core.approvals.respond(
                 request_id,
                 "allow",
                 "once",
                 by="jarvis:auto",
-                reason=decision.reason or decision.rule or "",
+                reason=decision.reason,
             )
         except Exception as exc:  # noqa: BLE001 - a request that cannot be answered stays the person's
             log.info("could not auto-allow %s: %s", request_id, exc)
@@ -570,25 +626,20 @@ class Intake:
             if item is not None:
                 item.route = "person"
             return
-        entry = self.service.engine.ledger_append(
-            {
-                "sessionId": digest.session_id,
-                "project": digest.project,
-                "kind": "approval",
-                "importance": "low",
-                "requestId": request_id,
-                "tool": request.get("tool"),
-                "summary": _one_line(f"allowed {summary} in {label}", 120),
-                "decision": "allow",
-                "decidedBy": "auto",
-                "classification": decision.classification,
-                "guardedClass": decision.guarded_class,
-                "rule": decision.rule,
-                "grantId": decision.grant_id,
-                "reason": decision.reason,
-            }
+        service.record_decision(
+            kind="approval",
+            decided_by="auto",
+            summary=f"allowed {summary} in {label}",
+            session_id=digest.session_id,
+            project=digest.project,
+            request_id=request_id,
+            tool=request.get("tool"),
+            decision="allow",
+            grant_id=decision.grant_id,
+            reason=decision.reason,
+            importance="low",
+            verdict=decision.verdict,
         )
-        await self.service.publish_decision(entry)
         self._queue_notice(
             WakeItem(
                 _one_line(f"auto-allowed in {label}: {summary}", LINE_MAX),
@@ -600,6 +651,7 @@ class Intake:
     def _on_resolved(self, params: dict[str, Any]) -> None:
         request_id = str(params.get("requestId") or "")
         session_id = self._requests.pop(request_id, None)
+        self.service.forget_request(request_id)
         if session_id is None:
             return
         digest = self.digests.get(session_id)
@@ -645,15 +697,73 @@ class Intake:
 
     def due_in(self) -> float | None:
         """Seconds until the next flush, ``None`` when nothing waits (for the tick loop)."""
-        dues = [due for due in (self._routed_due, self._notice_due) if due is not None]
+        dues = [
+            due for due in (self._routed_due, self._notice_due, self._stall_due) if due is not None
+        ]
         if not dues:
             return None
         return max(0.0, min(dues) - self.service.clock.monotonic())
+
+    # -- stalls -------------------------------------------------------------
+    def stall_sec(self) -> float:
+        return 60.0 * max(1, int(self.service.core.settings.jarvis.stallMinutes))
+
+    def _plan_stall(self) -> None:
+        """Make sure the tick loop looks for stalls within ``jarvis.stallMinutes``."""
+        due = self.service.clock.monotonic() + self.stall_sec()
+        if self._stall_due is None or due < self._stall_due:
+            self._stall_due = due
+            self.service.poke()
+
+    def _still_since(self, digest: Digest) -> float | None:
+        """Since when ``digest`` has been still in a way that counts as a stall."""
+        if digest.closed or digest.pending or digest.stall_reported:
+            return None
+        if digest.status == "running":
+            return digest.last_event_mono
+        if digest.status == "idle" and digest.unfinished_since is not None:
+            return digest.unfinished_since
+        return None
+
+    async def check_stalls(self) -> None:
+        """Report delegated sessions that went still for ``jarvis.stallMinutes``."""
+        now = self.service.clock.monotonic()
+        limit = self.stall_sec()
+        next_due: float | None = None
+        for digest in list(self.digests.values()):
+            since = self._still_since(digest)
+            if since is None:
+                continue
+            if now - since < limit:
+                due = since + limit
+                next_due = due if next_due is None else min(next_due, due)
+                continue
+            digest.stall_reported = True
+            if not self.delegated(digest):
+                continue
+            label = self.service.label(digest)
+            if digest.status == "running":
+                why = f"running with no activity for {int((now - since) // 60)} min"
+            else:
+                why = "stopped while its last answer says work remains"
+                if digest.last_answer:
+                    why += f"; last answer: {digest.last_answer}"
+            self._queue_routed(
+                WakeItem(
+                    _one_line(f"{label}: stalled ({why})", LINE_MAX),
+                    session_id=digest.session_id,
+                    reason="stalled",
+                    importance="high",
+                )
+            )
+        self._stall_due = next_due
 
     async def tick(self) -> None:
         """Flush whatever batch is due; also notices a budget that recovered."""
         now = self.service.clock.monotonic()
         await self._check_budget()
+        if self._stall_due is not None and now >= self._stall_due:
+            await self.check_stalls()
         if self._routed and self._routed_due is not None and now >= self._routed_due:
             routed, notices = self._routed, self._notices
             self._routed, self._notices = [], []
@@ -744,10 +854,23 @@ class Intake:
         return max(0, approvals + questions - handled)
 
 
-def _escalation_reason(decision: RouteDecision) -> str:
-    if decision.classification in ("guarded", "risky", "never"):
-        return str(decision.classification)
+def _escalation_reason(decision: RouteResult | None) -> str:
+    classification = decision.verdict.classification if decision is not None else None
+    if classification in ("guarded", "risky", "never"):
+        return str(classification)
     return "risky"
+
+
+def _says_work_remains(answer: str) -> bool:
+    """The unfinished-work gate's reading of a final answer (``agent/unfinished_work``)."""
+    if not answer.strip():
+        return False
+    from snowpea_core.agent import unfinished_work
+
+    try:
+        return bool(unfinished_work.detect(answer))
+    except Exception:  # noqa: BLE001 - a detector failure is "nothing remains"
+        return False
 
 
 def _section(lines: list[str], heading: str, items: list[WakeItem]) -> None:

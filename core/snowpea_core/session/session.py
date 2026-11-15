@@ -132,6 +132,12 @@ class Session:
     #: Tool names this agent is narrowed to (``delegate_task(tools=...)`` or an
     #: agent definition); ``None`` means every tool.
     allowed_tools: set[str] | None = None
+    #: ``"jarvis"`` on the daemon's Jarvis session (M19, set by its service);
+    #: ``None`` everywhere else.  Jarvis's own tools exist only on it.
+    role: str | None = None
+    #: Tools only this session sees, laid over the daemon's registry
+    #: (Jarvis's tools, M19 WP4); ``name -> Tool``.
+    session_tools: dict[str, Any] = field(default_factory=dict)
     #: The agent definition's prompt shape (``identity``, ``deferredTools``,
     #: ``skillsIndex``) and the plugin it came from; see
     #: :func:`snowpea_core.agent.session_agent.apply_prompt_shape`.

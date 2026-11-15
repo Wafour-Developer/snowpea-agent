@@ -120,6 +120,8 @@ async def _target(core: Core, params: JarvisSessionTarget) -> tuple[str | None, 
     if params.external is not None:
         return None, params.external, None
     session_id = str(params.sessionId)
+    if session_id == engine_for(core).jarvis_session_id:
+        raise RpcError(errors.INVALID_PARAMS, "that is Jarvis's own session")
     project = _session_project(core, session_id)
     if project is None:
         store = getattr(core, "store", None)
@@ -142,6 +144,16 @@ def _exposed(project: str | None) -> bool:
         return True
 
 
+def _state(core: Core, session_id: str | None, external: Any, project: str | None) -> Any:
+    """The session's ``SessionJarvisState`` after the change (the service's view when up)."""
+    service = getattr(core, "jarvis", None)
+    if service is not None and session_id is not None:
+        return service.session_state(session_id, project)
+    return engine_for(core).session_state(
+        session_id, external=external, project=project, exposed=_exposed(project)
+    )
+
+
 async def takeover_handler(
     conn: RpcConnection | None, params: JarvisTakeoverParams, core: Core
 ) -> JarvisPauseResult:
@@ -157,10 +169,7 @@ async def takeover_handler(
         )
     except DelegationError as exc:
         raise _refused(exc) from exc
-    state = engine.session_state(
-        session_id, external=external, project=project, exposed=_exposed(project)
-    )
-    return JarvisPauseResult(state=state)
+    return JarvisPauseResult(state=_state(core, session_id, external, project))
 
 
 async def handback_handler(
@@ -172,10 +181,7 @@ async def handback_handler(
         engine.handback(session_id, external=external, caller=Caller.from_connection(conn))
     except (PersonOnly, DelegationError) as exc:
         raise _refused(exc) from exc
-    state = engine.session_state(
-        session_id, external=external, project=project, exposed=_exposed(project)
-    )
-    return JarvisPauseResult(state=state)
+    return JarvisPauseResult(state=_state(core, session_id, external, project))
 
 
 async def ledger_handler(

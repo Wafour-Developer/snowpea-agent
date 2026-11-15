@@ -3123,6 +3123,7 @@ async def _run_one_call(
             note=_source_note(tool, GUARD_NOTE if guarded else policy.note(tag)),
             cacheable=tag not in UNPROMOTABLE and not guarded,
             guard=AGENT_SWITCH_GUARD if guarded else None,
+            tags=(tag,),
         )
         if session.interrupt.is_set():
             view_image.flush_tool_image_messages(core, session, append=False)

@@ -339,8 +339,8 @@ Defined in WP1, additive only. The models live in `CORE/server/protocol.py`; `do
 | Capability | Covers | Advertised from |
 |---|---|---|
 | `messageOrigin` | `message.user.origin`, trajectory `data.origin`, human-only `lastPrompt`/`lastUserAt` | WP1 (now) |
-| `jarvis` | `jarvis.status/enable/disable/overview/takeover/handback`, `jarvis.project.*`, `jarvis.state`, `SessionSummary.role/jarvis` | WP3 |
-| `jarvisDelegation` | `jarvis.ledger`, `jarvis.delegation.*`, `jarvis.decision/escalation/delegation.changed`, `ApprovalRequest.route` | WP2 |
+| `jarvis` | `jarvis.status/enable/disable/overview`, `jarvis.project.*`, `jarvis.escalations.*`, `jarvis.state`, `jarvis.escalation.dismissed`, `jarvis.access`, `SessionSummary.role/jarvis` | WP3/WP4 |
+| `jarvisDelegation` | `jarvis.ledger`, `jarvis.delegation.*`, `jarvis.takeover/handback`, `jarvis.decision/escalation/delegation.changed`, `ApprovalRequest.route`, `ApprovalRequest.personOnly` | WP2 |
 | `externalSessions` | `external.*`, `ApprovalRequest.external`; per-CLI availability is `external.clis`, not capability strings | WP5 (+ WP6a–d) |
 | `mcpPresets` | `mcp.preset.list/apply` | WP8 |
 | `jarvisBriefing` | `jarvis.briefing.get/set` | WP8 |
@@ -357,8 +357,10 @@ Defined in WP1, additive only. The models live in `CORE/server/protocol.py`; `do
 | `jarvis.delegation.list` | `{scope?, target?, includeExpired}` → `{grants, default}` | grants from `jarvis/delegation.db` | 2 |
 | `jarvis.delegation.set` | `{scope, target?, level, allow[], expiresAt?, note}` → `{grant, replaced}` | the calling connection is the person; applies at once. Jarvis's `delegation_set` tool never calls it — it raises a person-only approval. Guarded classes: local or re-authenticated connection; from a messenger only with `jarvis.messenger.allowGrants` (default true); no `allow` on a global grant in v1 | 2 |
 | `jarvis.delegation.revoke` | `{id}` → `{revoked}` | | 2 |
-| `jarvis.takeover` | `{sessionId \| external, minutes?}` → `{state}` | the person takes a session back until hand-back or `minutes` | 3 |
-| `jarvis.handback` | `{sessionId \| external}` → `{state}` | authority returns now (ends a takeover or a typing pause) | 3 |
+| `jarvis.takeover` | `{sessionId \| external, minutes?}` → `{state}` | the person takes a session back until hand-back or `minutes`; persisted in `jarvis/delegation.db` (a restart keeps it); any caller may take authority away; Jarvis's own session → `invalid_params` | 2 |
+| `jarvis.handback` | `{sessionId \| external}` → `{state}` | authority returns now (ends a takeover or a typing pause); person only (`jarvis_person_only`) | 2 |
+| `jarvis.escalations.list` | `{before?, limit}` → `{escalations, nextBefore}` | open escalations that are **not** a waiting request (finished, error, stalled, budget, jarvis), newest first, each as its `jarvis.escalation` params; kept in `$SNOWPEA_HOME/jarvis/escalations.json` until dismissed, so a reload or restart keeps them (waiting requests are `approval.list` / `question.list`) | core |
+| `jarvis.escalations.dismiss` | `{ids[], all}` → `{dismissed}` | drop open escalations; every client gets `jarvis.escalation.dismissed {ids}`; neither ids nor all → `invalid_params` | core |
 | `jarvis.project.list` | – → `{projects}` | root, name, aliases, exposed, named; names live in the Jarvis store, default workspace title or folder name | 3 |
 | `jarvis.project.rename` / `.alias` | `{root, name?}` / `{root, add[], remove[]}` → `{project}` | | 3 |
 | `jarvis.briefing.get` / `.set` | – / `{enabled?, schedule?, instructions?}` → `JarvisBriefing` | periodic briefing; off by default | 8 |
@@ -381,6 +383,8 @@ Defined in WP1, additive only. The models live in `CORE/server/protocol.py`; `do
 | `jarvis.decision` | daemon-wide (the "Decided by Jarvis" panel is not tied to a subscribed session) | `{entry: JarvisDecision}` — entry has `importance` and a short `summary` | 2 |
 | `jarvis.escalation` | daemon-wide; badge, OS notification and messenger per `jarvis.notify.*` | `{id, ts, sessionId \| external, project, title, reason, summary, importance, requestKind?, requestId?, guardedClass?}` | 2/3 |
 | `jarvis.delegation.changed` | daemon-wide | `{reason: set\|revoked\|expired, grant}` | 2 |
+| `jarvis.escalation.dismissed` | daemon-wide | `{ids}` — escalations a client dismissed | core |
+| `jarvis.access` | daemon-wide | `{id, ts, sessionId, project?, hostToolsFrom?, action: read\|prompt\|steer\|interrupt\|create\|approval\|question, summary}` — Jarvis read or instructed a session; the session's own surfaces (its origin, the owning browser host) show it as an audit line; also a ledger record of type `access` | 4 |
 | `external.event` | only connections that called `external.open` on the ref | `{ref, seq, kind, payload, ts, turnId?}` — kinds and payloads are the session-event ones (`message.delta`, `tool.call`, `turn.done`, …), own `seq` per ref | 5/6 |
 | `external.state` | daemon-wide | `{ref, status, previous?, host, previousHost?, canSend, approvals, tmux?, mode?, controlled, title?, error?}` | 5 |
 
@@ -394,7 +398,9 @@ None of the Jarvis events is a session event on the Jarvis session: clients need
 | trajectory `user` rows `data.origin` | copied from the event | 1 (done) |
 | `SessionSummary.lastPrompt` / `lastUserAt` | only human-origin `message.user` (or pre-1.53 rows without origin); a session with only non-human prompts has none | 1 (done) |
 | `session.fork` title | the fork keeps the source's title unchanged (no " (fork)"); untitled stays null | 1 (done) |
-| `SessionSummary.role?: "jarvis"`, `SessionSummary.jarvis?: {exposed, level, pausedUntil, takenOver}` | | 3 |
+| `SessionSummary.role?: "jarvis"`, `SessionSummary.jarvis?: {exposed, level, pausedUntil, takenOver, levelScope, grantId}` | also on `sessions.changed` and the `session.create` result; `levelScope` `session\|project\|global\|default` (which scope supplied `level`), `grantId` the grant in force (null for the default) | 3 |
+| `JarvisOverviewRow.exposed` | false for a browser-host session while `jarvis.exposeBrowser` is off: status only, empty `digest`, no transcript, no instructions | 4 |
+| `ApprovalRequest.personOnly?` | true on Jarvis's `delegation_set` proposal: `tool: "delegation_set"`, `args: {scope, target, level, allow, expiresAt, note}` (the `jarvis.delegation.set` fields), from the Jarvis session, `route: person`. Answered with `approval.respond {decision: allow\|deny, scope: "once"}` from a person's connection (or the bound messenger person while `jarvis.messenger.allowGrants`); any other answerer gets `jarvis_person_only`. On allow the engine applies the grant with the answering person as grantor (`proposedBy: jarvis`) | 4 |
 | `ApprovalRequest.external?`, `QuestionRequest.external?` `{cli, id}` | requests from a hosted external session (`sessionId` `ext:<cli>:<id>`) | 5 |
 | `ApprovalRequest.route?`, `QuestionRequest.route?` `person\|jarvis\|auto` | where the engine routed it; null with Jarvis mode off | 2 |
 | `approval.resolved.by` / `question.resolved.by` | new values `jarvis` and (approvals) `jarvis:auto` | 2 |
@@ -402,7 +408,7 @@ None of the Jarvis events is a session event on the Jarvis session: clients need
 | `JarvisDecision.kind: "unrestricted"`, `importance` (`low\|normal\|high\|urgent`) | ledger entry for every unrestricted open/switch (decidedBy person) | 2/6 |
 | Error codes | `jarvis_disabled`, `jarvis_person_only`, `external_view_only`, `external_unavailable` | – |
 
-Settings (no behaviour yet): `jarvis.{enabled=false, model=null, folder="~/Snowpea/Jarvis", delegation.{default="staged", projectTtlHours=24}, quietMinutes=10, proactive.{finished,error,needsYou,decided}=true, briefing.{enabled=false, schedule, instructions}, budget.{wakesPerHour=30, dailyTokens=2000000}, messenger.{route=true, allowGrants=true}, notify.{inApp, os, messenger}=true, external.{enabled=true, clis.<claude|codex|agy|cursor>.{enabled, path, defaultMode=null (= default; readonly for cursor; cursor may not be "default")}, maxProcesses=4, idleSec=900}}` in `config/settings.py`; per project `jarvis.expose=true` in `config/project.py`.
+Settings: `jarvis.{enabled=false, model=null, folder="~/Snowpea/Jarvis", delegation.{default="staged", projectTtlHours=24}, quietMinutes=10, stallMinutes=15 (a fully delegated session with a running turn and no event, or idle after an answer saying work remains, for this long wakes Jarvis as stalled), exposeBrowser=true (owner decision; false: browser-host sessions are listed with status only — no transcript, no prompt/steer/interrupt; their approvals are never Jarvis's either way), proactive.{finished,error,needsYou,decided}=true, briefing.{enabled=false, schedule, instructions}, budget.{wakesPerHour=30, dailyTokens=2000000}, messenger.{route=true, allowGrants=true}, notify.{inApp, os, messenger}=true, external.{enabled=true, clis.<claude|codex|agy|cursor>.{enabled, path, defaultMode=null (= default; readonly for cursor; cursor may not be "default")}, maxProcesses=4, idleSec=900}}` in `config/settings.py`; per project `jarvis.expose=true` in `config/project.py`.
 
 ## Spike outcomes the contract expresses
 

@@ -1,8 +1,8 @@
 """M19 WP3: the Jarvis intake — digests, wake batching, budget, takeover, overview order.
 
 The intake runs on a real daemon core (hub, approval and question queues) but
-with a hand-moved clock and a stand-in for the delegation engine, and the
-service's wake delivery is recorded instead of starting a model turn.
+with a hand-moved clock and the delegation engine with a settable verdict, and
+the service's wake delivery is recorded instead of starting a model turn.
 """
 
 from __future__ import annotations
@@ -17,19 +17,15 @@ import pytest_asyncio
 from _support import make_daemon
 
 from snowpea_core.jarvis import overview
+from snowpea_core.jarvis.classify import ClassifyRequest, Verdict
 from snowpea_core.jarvis.clock import Clock, iso
+from snowpea_core.jarvis.delegation import DelegationEngine, PauseState, RouteResult
 from snowpea_core.jarvis.intake import (
     NOTICE_WINDOW_SEC,
     ROUTED_BATCH_SEC,
     Digest,
     Intake,
     PendingItem,
-)
-from snowpea_core.jarvis.ports import (
-    ConservativeDelegation,
-    DelegationPort,
-    RouteDecision,
-    RouteRequest,
 )
 from snowpea_core.jarvis.service import JarvisService
 from snowpea_core.server.app_server import Daemon
@@ -53,26 +49,54 @@ class FakeClock(Clock):
         self.wall += timedelta(seconds=seconds)
 
 
-class FakeEngine(ConservativeDelegation):
-    """The conservative engine with a settable route and level."""
+class FakeEngine(DelegationEngine):
+    """The real engine (store, pauses, ledger) with a settable verdict.
 
-    def __init__(self, clock: FakeClock, *, route: str = "person", level: str = "staged") -> None:
-        super().__init__(now=clock.now, quiet_minutes=lambda: 10, default_level=lambda: level)
-        self.route_to = route
-        self.routed: list[RouteRequest] = []
+    ``route_to`` is what an exposed, unpaused request in budget gets; the
+    engine's own pause, exposure and budget rules still apply first.
+    """
+
+    def __init__(self, home: Path, clock: FakeClock, settings: Any) -> None:
+        super().__init__(home, lambda: settings, now=clock.now)
+        self.route_to = "person"
+        self.seen: list[ClassifyRequest] = []
         self.typed: list[str] = []
 
-    def route(self, request: RouteRequest) -> RouteDecision:
-        self.routed.append(request)
-        return RouteDecision(
-            route=self.route_to,  # type: ignore[arg-type]
-            classification="safe" if self.route_to == "auto" else "risky",
-            rule="test:rule",
+    def _route(  # type: ignore[override]
+        self,
+        request: ClassifyRequest,
+        *,
+        project: str | None,
+        external: Any,
+        exposed: bool,
+        budget_exhausted: bool,
+    ) -> RouteResult:
+        self.seen.append(request)
+        verdict = Verdict(
+            "safe" if self.route_to == "auto" else "risky", rules=("test:rule",)
         )
+        level = self.default_level
+        if not exposed:
+            return RouteResult("person", verdict, level, None, "not-exposed")
+        if self.pause_state(request.session_id).paused:
+            return RouteResult("person", verdict, level, None, "paused")
+        if budget_exhausted:
+            return RouteResult("person", verdict, level, None, "budget")
+        return RouteResult(self.route_to, verdict, level, None, "test")  # type: ignore[arg-type]
 
-    def note_person_message(self, session_id: str, project: str | None) -> bool:
+    def note_human_input(self, session_id: Any = None, **kwargs: Any) -> PauseState:
         self.typed.append(session_id)
-        return super().note_person_message(session_id, project)
+        return super().note_human_input(session_id, **kwargs)
+
+    def route_question(self, session_id: Any = None, **kwargs: Any) -> Any:
+        route = super().route_question(session_id, **kwargs)
+        return "person" if self.route_to == "person" else route
+
+    def is_paused(self, session_id: str) -> bool:
+        return self.pause_state(session_id).paused
+
+    def entries(self) -> list[Any]:
+        return self.ledger.decisions()[0]
 
 
 class Harness:
@@ -81,7 +105,7 @@ class Harness:
         self.core = daemon.core
         self.tmp = tmp
         self.clock = FakeClock()
-        self.engine = FakeEngine(self.clock)
+        self.engine = FakeEngine(Path(self.core.paths.home), self.clock, self.core.settings)
         self.core.settings.jarvis.enabled = True
         self.core.settings.jarvis.folder = str(tmp / "JarvisFolder")
         self.service = JarvisService(self.core, clock=self.clock, engine=self.engine)
@@ -237,7 +261,7 @@ async def test_unexposed_projects_never_reach_the_intake(harness: Harness) -> No
     await harness.emit(hidden, events.turn_done("t1", "error"))
     await harness.pending(hidden, "ap-h")
     assert hidden.id not in harness.intake.digests
-    assert harness.engine.routed == []
+    assert harness.engine.seen == []
     await harness.tick(NOTICE_WINDOW_SEC + 1)
     assert harness.wakes == [] and harness.of("jarvis.escalation") == []
     rows = overview.build_rows(harness.service)
@@ -327,7 +351,7 @@ async def test_proactive_switches_gate_the_notices(harness: Harness) -> None:
 
 
 async def test_delegated_session_endings_wake_within_the_batch(harness: Harness) -> None:
-    harness.engine._default_level = lambda: "full"
+    harness.core.settings.jarvis.delegation.default = "full"
     await harness.start()
     s = await harness.session("p", title="nightly refactor")
     await harness.emit(s, events.turn_started("t1"))
@@ -352,7 +376,7 @@ async def test_auto_decisions_wait_for_the_next_wake(harness: Harness) -> None:
     decided = harness.of("jarvis.decision")
     assert decided and decided[0]["entry"]["decidedBy"] == "auto"
     assert decided[0]["entry"]["rule"] == "test:rule"
-    assert harness.engine.entries and harness.engine.entries[0]["decision"] == "allow"
+    assert harness.engine.entries() and harness.engine.entries()[0].decision == "allow"
     await harness.tick(NOTICE_WINDOW_SEC + 1)
     assert harness.wakes == []
     # The next real wake mentions it.
@@ -559,26 +583,11 @@ async def test_waiting_rows_rank_first(harness: Harness) -> None:
     assert harness.intake.digests[waiting.id].pending == {}
 
 
-def test_the_conservative_engine_routes_everything_to_the_person() -> None:
-    clock = FakeClock()
-    engine: DelegationPort = ConservativeDelegation(
-        now=clock.now, quiet_minutes=lambda: 10, default_level=lambda: "staged"
-    )
-    assert isinstance(engine, DelegationPort)
-    verdict = engine.route(RouteRequest("approval", "ap", "s", None, {"tool": "read_file"}))
-    assert verdict.route == "person"
-    assert engine.level("s", None) == "staged"
-    entry = engine.ledger_append({"summary": "x"})
-    assert entry["id"] and entry["ts"]
-
-
-
-
 async def test_nothing_is_decided_for_a_paused_session(harness: Harness) -> None:
     harness.engine.route_to = "auto"
     await harness.start()
     s = await harness.session("p")
-    harness.engine.takeover(s.id, None, canonical(s.workdir))
+    harness.engine.takeover(s.id, project=canonical(s.workdir))
     await harness.pending(s, "ap-1")
     assert harness.of("jarvis.decision") == []
     assert harness.intake.digests[s.id].pending["ap-1"].route == "person"

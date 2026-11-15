@@ -64,6 +64,9 @@ class SessionManager:
         #: approvals with the owner's chat (``gateway.<platform>.shareActive``).
         self.active_id: str | None = None
         self.active_at: str | None = None
+        #: ``session id -> extra sessions.changed fields`` (``role``,
+        #: ``jarvis``; 1.53.0), installed by the Jarvis service.
+        self.summary_extras: Any = None
 
     def mark_active(self, session: Session) -> bool:
         """Make ``session`` the active one; False for a subagent or job run.
@@ -92,6 +95,10 @@ class SessionManager:
         try:
             session = self._sessions.get(session_id)
             payload: dict[str, Any] = {"reason": reason, "sessionId": session_id}
+            extras = self.summary_extras
+            if extras is not None:
+                # SessionSummary.role / .jarvis (1.53.0), from the Jarvis service.
+                payload.update(extras(session_id))
             if status is not None:
                 payload["status"] = status
             if session is not None and session.title:
