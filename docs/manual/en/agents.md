@@ -270,6 +270,18 @@ At a budget checkpoint, verification and Stop-hook continuations grant
 per-turn `auto_budget_continuations` limit. Productive work still receives the
 normal 500-round automatic renewals.
 
+A turn whose final answer lists work the agent could still do itself — a
+"remaining work" or "next steps" list, "I'll continue in the next turn", "ran out
+of time" — and asks the person nothing is sent back to finish it, at most
+`agent.unfinished_continue` times a turn (default **2**, `0` disables). The surface
+shows "The answer listed remaining work; continuing (1/2)." as a `hook.continue`
+event. An answer that asks a question, needs a choice, credential or access, or
+only offers optional follow-ups ("let me know if you want…") ends the turn as
+before, and so does a continuation that brings no tool call. It never applies in
+plan mode, at a budget checkpoint or while a goal is armed, and completion
+verification is checked first. The phrases are recognised in English, Korean,
+Japanese, Chinese and Spanish.
+
 `agent.no_progress_rounds` (default **40**, `0` disables) stops repeated rounds
 that produce no new file edits, distinct tool-call arguments, or tool output
 content. Reading a new file or range counts as progress; repeating the same read

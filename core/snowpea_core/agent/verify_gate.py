@@ -199,6 +199,11 @@ class TurnEvidence:
     #: The person's message said not to run checks.
     no_checks: bool = False
     closed: bool = False
+    #: Unfinished-work continuations this turn (agent/unfinished_work.py), and
+    #: :attr:`step` when the last one was sent: no tool call since means the
+    #: model only restated its list, and the turn may end.
+    unfinished_continues: int = 0
+    unfinished_step: int = -1
 
 
 def begin_turn(session: Session, text: str = "") -> None:

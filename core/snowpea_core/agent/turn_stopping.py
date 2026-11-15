@@ -9,6 +9,12 @@ Built in, in this order:
 
 * ``verify-gate`` (100) — edited code with no fresh passing check, a UI never
   looked at, open to-dos (Hermes verify-on-stop, ``agent.verify_gate``);
+* ``unfinished-work`` (150) — the answer lists work it could still do now
+  ("남은 일 (다음 턴): 1. …", "next steps: …") and waits on nobody: sent back
+  to finish it, at most ``agent.unfinished_continue`` times a turn, and not
+  again once a continuation brought no tool call (``agent.unfinished_work``);
+  never in plan mode, at a budget checkpoint or with a goal armed (the goal
+  driver owns continuation then);
 * ``stop-hooks`` (200) — Claude Code ``Stop`` hooks (``skills.hooks.stop``),
   at most ``MAX_STOP_CONTINUATIONS`` times a turn.
 
@@ -126,6 +132,37 @@ def _verify_gate(core: Any, session: Any, ctx: StopContext) -> StopDecision | No
     return StopDecision(text, "verify-gate") if text else None
 
 
+def _unfinished_work(core: Any, session: Any, ctx: StopContext) -> StopDecision | None:
+    from snowpea_core.agent import unfinished_work
+
+    agent = getattr(getattr(core, "settings", None), "agent", None)
+    limit = int(getattr(agent, "unfinished_continue", 2) or 0)
+    turn = getattr(session, "verify_turn", None)
+    if (
+        limit <= 0
+        or turn is None
+        or ctx.at_budget
+        or getattr(session, "mode", None) == "plan"
+        or getattr(session, "goal_armed", False)
+        or turn.question_unanswered
+        or turn.unfinished_continues >= limit
+        # Told to continue, the model answered again without a tool call.
+        or (turn.unfinished_continues and turn.step == turn.unfinished_step)
+        or not unfinished_work.detect(ctx.last_message)
+    ):
+        return None
+    turn.unfinished_continues += 1
+    turn.unfinished_step = turn.step
+    return StopDecision(
+        unfinished_work.INSTRUCTION,
+        "unfinished-work",
+        shown=(
+            "The answer listed remaining work; continuing "
+            f"({turn.unfinished_continues}/{limit})."
+        ),
+    )
+
+
 async def _stop_hooks(core: Any, session: Any, ctx: StopContext) -> StopDecision | None:
     from snowpea_core.skills import hooks as plugin_hooks
 
@@ -148,6 +185,7 @@ async def _stop_hooks(core: Any, session: Any, ctx: StopContext) -> StopDecision
 def default_chain() -> TurnStoppingChain:
     chain = TurnStoppingChain()
     chain.register("verify-gate", _verify_gate, order=100)
+    chain.register("unfinished-work", _unfinished_work, order=150)
     chain.register("stop-hooks", _stop_hooks, order=200)
     return chain
 

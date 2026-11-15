@@ -47,8 +47,12 @@ async def test_an_interrupted_turn_is_never_kept_going() -> None:
     assert await chain.run(None, stopped, _CTX) is None  # type: ignore[arg-type]
 
 
-def test_the_built_ins_are_verify_then_stop_hooks() -> None:
-    assert [entry.name for entry in ts.default_chain().listeners()] == ["verify-gate", "stop-hooks"]
+def test_the_built_ins_are_verify_unfinished_work_then_stop_hooks() -> None:
+    assert [entry.name for entry in ts.default_chain().listeners()] == [
+        "verify-gate",
+        "unfinished-work",
+        "stop-hooks",
+    ]
 
 
 class _TwoAnswers:

@@ -69,7 +69,7 @@ The package is `snowpea_core`, rooted at `core/snowpea_core/`.
 | `agent/loop.py` | the turn: prompt → provider stream → tool calls → results → repeat |
 | `prompts/sections.py` | the system prompt as named sections in one order table (`SECTION_ORDERS`); plugins add sections and get a disposer back |
 | `agent/runtime_context.py` | facts that change (goal, plan, plan-then-auto note, context pressure) sent as one `<system-reminder>` snapshot, only when it changed |
-| `agent/turn_stopping.py` | the one chain that may keep a stopping turn going: verify-on-stop, open to-dos, Stop hooks, plugins |
+| `agent/turn_stopping.py` | the one chain that may keep a stopping turn going: verify-on-stop, open to-dos, unfinished work an answer defers (`agent/unfinished_work.py`), Stop hooks, plugins |
 | `agent/goals.py`, `goal_driver.py` | goals that run in rounds until `goal_update` proves them complete or blocked, or the round cap |
 | `tools/result_hooks.py` | post-execute listeners that accept, rewrite or block a tool result before the model reads it |
 | `agent/subagent.py`, `team.py`, `named.py`, `definition.py` | delegation under a concurrency limit; worktree-per-worker team mode; persistent named agents; `agents/*.md` parsing and generation |

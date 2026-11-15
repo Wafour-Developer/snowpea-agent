@@ -329,6 +329,10 @@ class AgentSettings(_Model):
     #: sent back to verify, at most twice.  ``"auto"`` is on everywhere except
     #: messaging gateways.
     verifyOnStop: Literal["auto", "on", "off"] = "auto"
+    #: Times one turn is sent back when the model's final answer lists work
+    #: it could still do now ("남은 일 (다음 턴): 1. …") and asks the person
+    #: nothing (``agent/unfinished_work.py``); ``0`` turns it off.
+    unfinished_continue: int = Field(default=2, ge=0)
     #: Language the model answers in.  ``"auto"`` follows whatever the user
     #: wrote; a tag like ``"ko"`` emits a directed override (CORE-prompts).
     replyLanguage: str = "auto"
