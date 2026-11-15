@@ -9575,6 +9575,9 @@ CAPABILITIES: list[str] = [
     "lineage",
     "extensions",
     "messageOrigin",
+    # jarvis.status/enable/disable/overview/takeover/handback, jarvis.project.*,
+    # jarvis.state, SessionSummary.role/jarvis — M19 WP3 (Jarvis service).
+    "jarvis",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -9582,9 +9585,6 @@ CAPABILITIES: list[str] = [
 #: package moves its name into :data:`CAPABILITIES`.  Their methods answer
 #: ``not_implemented`` until then.
 PENDING_CAPABILITIES: dict[str, str] = {
-    # jarvis.status/enable/disable/overview/takeover/handback, jarvis.project.*,
-    # jarvis.state, SessionSummary.role/jarvis — M19 WP3 (Jarvis service).
-    "jarvis": "WP3",
     # jarvis.ledger, jarvis.delegation.*, jarvis.decision/escalation/
     # delegation.changed, ApprovalRequest.route — M19 WP2 (delegation engine).
     "jarvisDelegation": "WP2",
@@ -9768,6 +9768,16 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "site.stats",
         "site.list",
         "site.delete",
+        # M19 WP3 (capability jarvis)
+        "jarvis.status",
+        "jarvis.enable",
+        "jarvis.disable",
+        "jarvis.overview",
+        "jarvis.takeover",
+        "jarvis.handback",
+        "jarvis.project.list",
+        "jarvis.project.rename",
+        "jarvis.project.alias",
     }
 )
 

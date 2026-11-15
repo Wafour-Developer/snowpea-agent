@@ -58,6 +58,7 @@ Server capabilities advertised in the `system.hello` result:
 - `hostToolsSessionEvents`
 - `hostTurnContext`
 - `hostTurnContextCompaction`
+- `jarvis`
 - `jobRuns`
 - `lineage`
 - `llmSample`
