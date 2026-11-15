@@ -13,6 +13,9 @@ types:
     then stood and who did it.
 ``pause``
     The person stepping in (typing, a takeover) or handing back.
+``access``
+    Jarvis read or instructed a session (``jarvis.access``): the audit line the
+    session's own surfaces show.
 
 Lines are only ever appended.  When the file passes ``max_bytes`` it is
 rotated (``ledger.jsonl`` -> ``ledger.1.jsonl`` -> … -> ``ledger.<keep>.jsonl``,
@@ -38,7 +41,7 @@ from snowpea_core.server.protocol import ExternalRef, JarvisDecision, JarvisGran
 
 log = logging.getLogger("snowpea.jarvis.ledger")
 
-EntryType = Literal["decision", "grant", "pause"]
+EntryType = Literal["decision", "grant", "pause", "access"]
 DecisionKind = Literal[
     "approval", "question", "continue", "prompt", "interrupt", "escalate", "unrestricted"
 ]
@@ -124,7 +127,7 @@ class Ledger:
     # -- writing -----------------------------------------------------------
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         """Write one record (``type`` required); returns it with ``id`` and ``ts``."""
-        if record.get("type") not in ("decision", "grant", "pause"):
+        if record.get("type") not in ("decision", "grant", "pause", "access"):
             raise ValueError(f"unknown ledger record type {record.get('type')!r}")
         with self._lock:
             self._prime()

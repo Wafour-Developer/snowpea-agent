@@ -54,6 +54,7 @@ from snowpea_core.jarvis.ports import Hooks, build_engine
 from snowpea_core.jarvis.projects import ProjectBook
 from snowpea_core.server.protocol import (
     ApprovalRequest,
+    JarvisAccessNotification,
     JarvisDecision,
     JarvisEscalationNotification,
     JarvisStateNotification,
@@ -360,6 +361,7 @@ class JarvisService:
         self._session_id = session.id
         self.engine.jarvis_session_id = session.id
         session.role = "jarvis"
+        self.install_tools(session)
         core.lifecycle.set_counter("sessions", len(core.sessions))
         return session
 
@@ -612,6 +614,64 @@ class JarvisService:
         """A request was answered or withdrawn."""
         self.engine.forget(request_id)
         self._classified.pop(request_id, None)
+
+    def install_tools(self, session: Session | None = None) -> None:
+        """Give the Jarvis session its own tools, read-only built-ins and prompt."""
+        from snowpea_core.jarvis import tools
+
+        session = session or self.session()
+        if session is not None:
+            tools.install(self, session)
+
+    def path_hidden(self, path: Path | str) -> bool:
+        """True when ``path`` lies in a project whose ``jarvis.expose`` is off."""
+        from snowpea_core.config.project import ProjectSettings
+
+        resolved = Path(os.path.realpath(os.path.expanduser(str(path))))
+        user_home = Path(os.path.realpath(Path.home()))
+        # The home folder's .snowpea/ is snowpea's own home, not a project.
+        stop = {user_home, *user_home.parents, Path(os.path.realpath(self.core.paths.home))}
+        for candidate in (resolved, *resolved.parents):
+            if candidate in stop:
+                break
+            if ProjectSettings.path_for(candidate).is_file() and not self.projects.exposed(
+                canonical(candidate)
+            ):
+                return True
+        return False
+
+    async def record_access(
+        self,
+        *,
+        session_id: str,
+        project: str | None,
+        host: str | None,
+        action: str,
+        summary: str,
+    ) -> dict[str, Any]:
+        """Jarvis read or instructed a session: a ledger line and ``jarvis.access``."""
+        record = self.engine.ledger.append(
+            {
+                "type": "access",
+                "sessionId": session_id,
+                "project": project,
+                "hostToolsFrom": host,
+                "action": action,
+                "summary": " ".join(str(summary).split())[:160],
+            }
+        )
+        payload = JarvisAccessNotification(
+            id=record["id"],
+            ts=record["ts"],
+            sessionId=session_id,
+            project=project,
+            hostToolsFrom=host,
+            action=action,  # type: ignore[arg-type]
+            summary=record["summary"],
+        ).model_dump(mode="json")
+        with contextlib.suppress(Exception):
+            await self.core.hub.notify("jarvis.access", payload)
+        return payload
 
     def record_decision(self, **fields: Any) -> JarvisDecision:
         """One ledger decision; the engine's listener announces ``jarvis.decision``."""

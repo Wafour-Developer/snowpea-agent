@@ -32,6 +32,13 @@ DEFAULT_MODE: Mode = "accept"
 
 
 
+
+def _reserved_agent(kind: str, agent: str) -> bool:
+    """A daemon feature's own named agent (Jarvis): no agent definition file shapes it."""
+    from snowpea_core.agent.named import RESERVED_NAMES
+
+    return kind == "agent" and agent in RESERVED_NAMES
+
 class SessionManager:
     """Creates, tracks and closes sessions; resolves per-project defaults."""
 
@@ -169,7 +176,7 @@ class SessionManager:
         """
         resolved_dir = Path(workdir).expanduser()
         selected_team = active_team(self.settings, resolved_dir)
-        if definition_model is None and agent:
+        if definition_model is None and agent and not _reserved_agent(kind, agent):
             definition_model = self._definition_model(agent, resolved_dir)
         route = route_for(
             self.settings,
@@ -418,7 +425,7 @@ class SessionManager:
                 agent=session.agent,
                 definition_model=(
                     self._definition_model(session.agent, Path(session.workdir))
-                    if session.agent
+                    if session.agent and not _reserved_agent(session.kind, session.agent)
                     else None
                 ),
                 workdir=session.workdir,

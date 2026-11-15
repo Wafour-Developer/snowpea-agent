@@ -219,7 +219,7 @@ class Session:
     steered_prompts: list[tuple[str, str]] = field(default_factory=list)
     #: ``session.steer`` texts waiting for the running turn's next tool round;
     #: injected whatever ``agent.busy`` says (1.6.0).
-    rpc_steers: list[str] = field(default_factory=list)
+    rpc_steers: list[str | tuple[str, str]] = field(default_factory=list)
     #: Recall also searches pages a browser host ingested (1.7.0).
     browser_memory: bool = False
     #: ``session.create {memory, siteMemory}`` (addendum 27, C1): ``None``

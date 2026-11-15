@@ -75,8 +75,13 @@ async def _with_clock(daemon: Any) -> tuple[JarvisService, FakeClock, list[str]]
 async def _approval(core: Any, session: Any, command: str, **kwargs: Any) -> asyncio.Future[Any]:
     task = asyncio.ensure_future(
         core.approvals.request(
-            session, "shell", {"command": command}, unattended=True, timeout_sec=30,
-            tags=("exec",), **kwargs,
+            session,
+            "shell",
+            {"command": command},
+            unattended=True,
+            timeout_sec=30,
+            tags=("exec",),
+            **kwargs,
         )
     )
     for _ in range(200):
@@ -145,7 +150,11 @@ async def test_every_request_carries_the_engines_route(
         # A safe read is the engine's: allowed as jarvis:auto, recorded, announced.
         decision = await asyncio.wait_for(
             core.approvals.request(
-                worker, "shell", {"command": "git status"}, unattended=True, timeout_sec=30,
+                worker,
+                "shell",
+                {"command": "git status"},
+                unattended=True,
+                timeout_sec=30,
                 tags=("exec",),
             ),
             10,
@@ -340,13 +349,15 @@ async def test_browser_sessions_follow_expose_browser(
         await core.hub.emit_event(browser.id, events.turn_done("t1", "complete"))
         assert core.settings.jarvis.exposeBrowser is True
         row = next(
-            r for r in (await client.ok("jarvis.overview", {}))["rows"]
+            r
+            for r in (await client.ok("jarvis.overview", {}))["rows"]
             if r["sessionId"] == browser.id
         )
         assert row["exposed"] is True and "Booked the table" in row["digest"]
         core.settings.jarvis.exposeBrowser = False
         row = next(
-            r for r in (await client.ok("jarvis.overview", {}))["rows"]
+            r
+            for r in (await client.ok("jarvis.overview", {}))["rows"]
             if r["sessionId"] == browser.id
         )
         assert row["exposed"] is False and row["digest"] == "" and row["status"] == "idle"
@@ -423,9 +434,7 @@ async def test_stalls_wake_jarvis_for_delegated_sessions(tmp_path: Path) -> None
 # -- escalations survive a reload ------------------------------------------------------
 
 
-async def test_escalations_list_and_dismiss(
-    http: aiohttp.ClientSession, tmp_path: Path
-) -> None:
+async def test_escalations_list_and_dismiss(http: aiohttp.ClientSession, tmp_path: Path) -> None:
     home = tmp_path / "home"
     daemon = await make_daemon(home, _settings(tmp_path, enabled=True))
     try:
@@ -437,7 +446,10 @@ async def test_escalations_list_and_dismiss(
             )
         # A waiting request's escalation is approval.list's, not this list's.
         await service.escalate(
-            reason="risky", summary="needs you", request_kind="approval", request_id="ap-1",
+            reason="risky",
+            summary="needs you",
+            request_kind="approval",
+            request_id="ap-1",
             session_id="s-9",
         )
         page = await client.ok("jarvis.escalations.list", {"limit": 2})
