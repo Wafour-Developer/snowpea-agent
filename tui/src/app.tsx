@@ -46,6 +46,7 @@ import {
   type State,
   type TimelineItem,
   type ToolCallEntry,
+  waitingPrompts,
 } from "./state/store.js";
 import { derivePhase, queuedLabel, turnSummaryLine, workingLine, estimateTokens } from "./state/working.js";
 import { cycleMode } from "./state/mode.js";
@@ -1561,7 +1562,7 @@ export function App({
       errorVisible: state.errors.length > 0,
       workingVisible: workingText !== null,
       delegationVisible: delegation !== null,
-      queuedRows: Math.min(state.queued.length, 4),
+      queuedRows: Math.min(waitingPrompts(state).length, 4),
       noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX),
     }),
   });
@@ -2893,7 +2894,7 @@ export function App({
         <Text dimColor wrap="truncate-end">{`${SKILL_HINT_TEXT} · Esc dismisses`}</Text>
       ) : null}
 
-      <QueuedPrompts queued={state.queued} width={contentWidth} />
+      <QueuedPrompts queued={waitingPrompts(state)} width={contentWidth} />
 
       <AttachmentChips attachments={attachments} width={contentWidth} />
 

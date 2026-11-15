@@ -674,6 +674,36 @@ function flushDeferred(state: State): State {
   return next;
 }
 
+/**
+ * What the list under the input shows: the daemon's queue, then every prompt
+ * still waiting in `deferredPrompts` that no queue row stands for.
+ *
+ * A deferred prompt is in neither the transcript nor `queued` for the round
+ * trip before `turn.queued`, and again after `turn.dequeued` says it was
+ * steered into the running turn until the open answer closes. Listing it here
+ * keeps what the user just sent on screen the whole time.
+ */
+export function waitingPrompts(state: State): QueuedPrompt[] {
+  if (state.deferredPrompts.length === 0) return state.queued;
+  const rows = state.queued.slice();
+  const extra: QueuedPrompt[] = [];
+  for (const message of state.deferredPrompts) {
+    let at = rows.findIndex((entry) => entry.text === message.text);
+    // A row whose text has not arrived yet is this prompt's, too.
+    if (at === -1) at = rows.findIndex((entry) => entry.text === "");
+    if (at !== -1) {
+      rows.splice(at, 1);
+      continue;
+    }
+    extra.push({
+      turnId: message.id,
+      text: message.text,
+      position: state.queued.length + extra.length + 1,
+    });
+  }
+  return extra.length > 0 ? [...state.queued, ...extra] : state.queued;
+}
+
 /** Replace one subagent entry in place; unknown ids are ignored. */
 function patchSubagent(
   state: State,
