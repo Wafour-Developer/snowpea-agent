@@ -64,6 +64,10 @@ async def _wait(predicate: Any, timeout: float = 10.0) -> Any:
 async def test_with_no_adapters(daemon: Daemon, http: aiohttp.ClientSession,
                                 tmp_path: Path) -> None:
     assert "externalSessions" in CAPABILITIES
+    # The built-in adapters would find the real CLIs installed on this machine.
+    assert daemon.core is not None and daemon.core.external is not None
+    for cli in ("claude", "codex", "agy", "cursor"):
+        daemon.core.external.registry.unregister(cli)
     client = await connect(http, daemon)
     try:
         clis = (await client.ok("external.clis"))["clis"]

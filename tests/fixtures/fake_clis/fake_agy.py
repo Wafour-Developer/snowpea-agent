@@ -10,7 +10,8 @@ replayed as ``session/update`` *before* the result, a ``session_info_update``
 title after it), ``session/list`` (``{sessions:[{sessionId,cwd,title,
 updatedAt}]}``, newest first, no cwd filter), ``session/prompt`` (updates, then
 ``{stopReason: end_turn | cancelled}``), ``session/set_mode``,
-``session/close``; notification ``session/cancel``.  Agent request:
+``session/set_model``, ``session/close``; notification ``session/cancel``.
+``fake_agy.py models`` lists two models like ``agy models``.  Agent request:
 ``session/request_permission`` with a *string* id and options
 ``allow``/``deny`` (``allow_once`` / ``reject_once``); answer
 ``{"outcome": {"outcome": "selected", "optionId": "allow" | "deny"}}``.  A
@@ -155,6 +156,12 @@ class Agy:
         self.mode = params["modeId"]
         self.reply(rid, {})
 
+    def m_session_set_model(self, rid: object, params: dict) -> None:
+        if not str(params.get("modelId", "")).startswith("gemini-fake"):
+            self.fail(rid, -32602, "unknown model")
+            return
+        self.reply(rid, {})
+
     def m_session_close(self, rid: object, params: dict) -> None:
         self.reply(rid, {})
 
@@ -292,6 +299,11 @@ def main() -> int:
     c.log_start()
     if c.has_flag("--fake-terminal"):
         return fake_terminal()
+    if sys.argv[1:2] == ["models"]:
+        print("Fetching available models...")
+        print("gemini-fake\tGemini Fake")
+        print("gemini-fake-low\tGemini Fake (Low)")
+        return 0
     if not sys.argv[1:] or sys.argv[1] != "acp":
         print("fake agy: only `acp` is supported", file=sys.stderr)
         return 2
