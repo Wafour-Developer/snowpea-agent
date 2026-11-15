@@ -25,7 +25,7 @@ Para abrir snowpea web directamente desde otras máquinas —un portátil en la 
    { "web": { "remote": { "enabled": true, "username": "me" } } }
    ```
 
-2. Define la contraseña. Se pide dos veces y se guarda solo como un hash scrypt con sal en `credentials.json` (modo 0600), nunca en `settings.json`. `--stdin` lee una línea, para scripts, y `--clear` la borra.
+2. Define la contraseña (al menos 8 caracteres). Se pide dos veces y se guarda solo como un hash scrypt con sal en `credentials.json` (modo 0600), nunca en `settings.json`. `--stdin` lee una línea, para scripts, y `--clear` la borra.
 
    ```bash
    snowpea web password
@@ -55,6 +55,7 @@ Notas de seguridad:
 - Quien inicia sesión maneja el agente y, con él, la shell y los archivos de esta máquina. Usa una contraseña larga.
 - Cinco intentos fallidos desde una dirección en cinco minutos, o veinte en total, bloquean el inicio de sesión hasta que pasen esos cinco minutos. Los inicios de sesión y los fallos se registran con la dirección del cliente, nunca con la contraseña.
 - La sesión es una cookie (`HttpOnly`, `SameSite=Strict`, `Secure` con HTTPS). Las sesiones viven en la memoria del daemon: reiniciarlo cierra la sesión de todos. Cambiar o borrar la contraseña (`snowpea web password`) cierra la sesión de todos al instante; las demás sesiones duran hasta que caducan o cierras sesión.
+- Una página cuya sesión ha terminado (caducó, se cambió la contraseña o se cerró sesión en otro sitio) vuelve a la pantalla de inicio de sesión.
 - El listener remoto sirve solo la página, el inicio de sesión y el WebSocket —ni `/health`, ni `/version`, ni el esquema— y el WebSocket rechaza páginas de otro origen.
 
 ## La pantalla
@@ -69,6 +70,8 @@ El diseño sigue el cliente web de DeepSeek Harness: tres columnas, con la conve
 
 La barra lateral mide 280 px (arrastra su borde entre 264 y 420), se pliega a un riel por debajo de 1024 px y pasa a ser un cajón por debajo de 768 px; `Ctrl/⌘ B` la alterna. El dock se abre al 45 % de la ventana, conserva el ancho que le des, nunca ocupa más del 70 % y se cierra antes que dejar la conversación en menos de 400 px; `Ctrl/⌘ J` lo alterna.
 
+Un panel vacío del dock muestra una pestaña **Start** con tarjetas para los archivos del espacio de trabajo, los cambios y el plan (la tarjeta de terminal solo existe en el IDE). La barra de estado muestra si la página está conectada, y una pestaña abierta impide que el daemon se apague por inactividad.
+
 ## Los archivos se abren en el dock
 
 Un archivo que menciona la conversación se abre como pestaña en el dock, no en una ventana nueva:
@@ -76,6 +79,7 @@ Un archivo que menciona la conversación se abre como pestaña en el dock, no en
 - un enlace markdown a un archivo (`[math.ts]` + `(math.ts)`), una ruta relativa o absoluta, una ruta de Windows;
 - una línea o un rango: `#L24`, `#L24-L30`, `:24`, `:24-30`;
 - código en línea como `` `src/app.ts` ``, pero solo cuando nombra un archivo que el turno leyó o escribió;
+- un nombre de archivo suelto en la respuesta, como `notes.md`, cuando el turno leyó o escribió ese archivo. Los demás nombres sueltos quedan como texto plano, y el texto plano solo se enlaza si es una dirección explícita http(s), mailto: o www.
 - los chips de archivo y las tarjetas de artefacto bajo una respuesta.
 
 Abrir de nuevo el mismo archivo enfoca su pestaña. La vista previa es la del IDE: código con resaltado, markdown, imágenes, PDF, hojas de cálculo, documentos de office y notebooks. Un archivo HTML se muestra **estático** por defecto (saneado, sin scripts, con una política de seguridad de contenido estricta); cámbialo a **ejecutar scripts** para cargarlo en un marco aislado que puede ejecutar sus propios scripts pero no puede alcanzar la página, tus cookies ni el daemon.
@@ -98,8 +102,8 @@ La página no tiene acceso a tu sistema operativo, así que esto se queda en el 
 
 - terminales (Abrir en terminal, Nueva terminal);
 - acciones de git que se ejecutan localmente, y Mostrar en la carpeta / Abrir con la aplicación del sistema;
+- la terminal, las pantallas de archivos y worktrees, el gestor de conexiones y la autoactualización de la app (esas direcciones vuelven a la conversación);
 - el selector de carpetas nativo — añade un espacio de trabajo escribiendo su ruta;
-- leer las respuestas en voz alta.
 
 Los botones para estas acciones se ocultan en el navegador en lugar de fallar.
 

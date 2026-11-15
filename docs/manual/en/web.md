@@ -25,7 +25,7 @@ To open snowpea web from other machines directly — a laptop on the same networ
    { "web": { "remote": { "enabled": true, "username": "me" } } }
    ```
 
-2. Set the password. It is asked twice and stored only as a salted scrypt hash in `credentials.json` (mode 0600), never in `settings.json`:
+2. Set the password (at least 8 characters). It is asked twice and stored only as a salted scrypt hash in `credentials.json` (mode 0600), never in `settings.json`:
 
    ```bash
    snowpea web password             # prompts twice
@@ -55,6 +55,7 @@ Security notes:
 - Whoever signs in can drive the agent, and with it this machine's shell and files. Pick a long password.
 - Five failed sign-ins from one address in five minutes, or twenty from anywhere, lock sign-in for the rest of those five minutes. Sign-ins and failures are logged with the client address, never the password.
 - The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. Changing or clearing the password (`snowpea web password`) signs everyone out at once; other sessions last until they expire or you sign out.
+- A page whose session has ended (it expired, the password changed, or it was signed out elsewhere) goes back to the sign-in screen.
 - The remote listener serves only the page, sign-in and the WebSocket — no `/health`, `/version` or schema — and the WebSocket refuses a page from another origin.
 
 ## The screen
@@ -69,6 +70,8 @@ The layout follows the DeepSeek Harness web client: three columns, with the conv
 
 The sidebar is 280 px wide (drag its edge between 264 and 420), folds to a rail under 1024 px and becomes a drawer under 768 px; `Ctrl/⌘ B` toggles it. The dock opens at 45 % of the window, keeps the width you give it, never takes more than 70 %, and closes rather than leave the conversation less than 400 px; `Ctrl/⌘ J` toggles it.
 
+An empty pane in the dock shows a **Start** tab with cards for workspace files, changes and the plan (the terminal card is IDE only). The status bar shows whether the page is connected, and an open tab keeps the daemon from shutting down for being idle.
+
 ## Files open in the dock
 
 A file the conversation mentions opens as a tab in the dock, not in a new window:
@@ -76,6 +79,7 @@ A file the conversation mentions opens as a tab in the dock, not in a new window
 - a markdown link to a file (`[math.ts]` followed by `(math.ts)`), a relative or absolute path, a Windows path;
 - a line or a range: `#L24`, `#L24-L30`, `:24`, `:24-30`;
 - inline code such as `` `src/app.ts` ``, but only when it names a file the turn read or wrote;
+- a bare file name in the reply, such as `notes.md`, when the turn read or wrote that file. Other bare names stay plain text, and plain text is linked only when it is an explicit http(s), mailto: or www. address.
 - the file chips and artifact cards under a reply.
 
 Opening the same file again focuses its tab. The preview is the IDE's: code with highlighting, markdown, images, PDF, spreadsheets, office documents and notebooks. An HTML file is shown **static** by default (sanitised, no scripts, a strict content-security policy); switch it to **run scripts** to load it in an isolated frame that may run its own scripts but cannot reach the page, your cookies or the daemon.
@@ -98,8 +102,8 @@ The page has no access to your operating system, so these stay in the IDE and th
 
 - terminals (Open in terminal, New terminal);
 - git actions that run locally, and Reveal in folder / Open with the system app;
+- the Terminal, Files and Worktrees screens, the connection manager and app self-update (their addresses return to the conversation);
 - the native folder picker — add a workspace by typing its path;
-- speaking replies aloud.
 
 Buttons for them are hidden in the browser rather than failing.
 
