@@ -67,7 +67,7 @@ async def test_with_no_adapters(daemon: Daemon, http: aiohttp.ClientSession,
     assert "externalSessions" in CAPABILITIES
     assert daemon.core is not None
     registry = ensure_manager(daemon.core).registry
-    for cli in registry.ids():  # the builtin adapters (WP6) would find the fake CLI
+    for cli in registry.ids():  # the shipped adapters would find CLIs installed here
         registry.unregister(cli)
     client = await connect(http, daemon)
     try:
