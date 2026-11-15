@@ -777,6 +777,17 @@ class Intake:
                     importance="high",
                 )
             )
+            if self.service.core.settings.jarvis.proactive.error:
+                # Jarvis is woken to continue it; the person, who delegated it, keeps
+                # an open escalation until they dismiss it (jarvis.escalations.list).
+                await self.service.escalate(
+                    reason="stalled",
+                    summary=_one_line(f"{label} stalled: {why}", 120),
+                    importance="normal",
+                    session_id=digest.session_id,
+                    project=digest.project,
+                    title=digest.title,
+                )
         self._stall_due = next_due
 
     async def tick(self) -> None:
