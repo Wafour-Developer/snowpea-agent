@@ -155,6 +155,10 @@ export interface HudInput {
    * mode" segment would just repeat what that segment already says.
    */
   modeHint?: boolean;
+  /** Jarvis (1.53.0): "Jarvis deciding" / "paused, returns in 7 min" for a supervised session. */
+  jarvis?: string | null;
+  /** An open external session that snowpea does not gate; never dropped from the row. */
+  externalWarning?: string | null;
 }
 
 /**
@@ -318,6 +322,26 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
       text: `daemon: pid ${input.daemonPid}${summary}`,
       dimColor: true,
       priority: 7,
+    });
+  }
+
+  if (input.externalWarning) {
+    segments.push({
+      key: "external-warning",
+      text: `⚠ ${input.externalWarning}`,
+      color: "red",
+      bold: true,
+      priority: 0,
+    });
+  }
+
+  if (input.jarvis) {
+    segments.push({
+      key: "jarvis",
+      text: `◆ ${input.jarvis}`,
+      color: "magenta",
+      bold: true,
+      priority: 1,
     });
   }
 

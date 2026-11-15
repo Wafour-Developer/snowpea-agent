@@ -3,6 +3,7 @@
  *
  * Invoked by `snowpea` (cli/main.py) as:
  *   node dist/snowpea-tui.js --port <n> --token <t> [--mode plan|accept|auto] [--cwd DIR]
+ *                            [--start jarvis|external]
  *
  * Renders full screen on the alternate buffer by default; `--inline` keeps the
  * older layout that leaves the transcript in the terminal's scrollback.
@@ -40,6 +41,8 @@ import { TUI_VERSION } from "./version.js";
 
 const CLIENT_VERSION = TUI_VERSION;
 const MODES: readonly string[] = ["plan", "accept", "auto"];
+/** Screens `snowpea jarvis` / `snowpea external` open first (`--start`, or `SNOWPEA_TUI_START`). */
+const START_SCREENS: readonly string[] = ["jarvis", "external"];
 
 /** Flags that stand alone: they must not swallow the next argv entry. */
 const BOOLEAN_FLAGS = new Set(["fullscreen", "no-fullscreen", "inline"]);
@@ -58,6 +61,12 @@ export interface CliArgs {
   cwd: string;
   /** `--remote HOST`: the daemon is HOST's, reached through a tunnel on `port`. */
   remote?: string;
+  /**
+   * `--start jarvis|external` (or `SNOWPEA_TUI_START`): land on the Jarvis screen
+   * or the external-session picker. `snowpea jarvis` passes it; see the note on
+   * the launcher in `cli/main.py`.
+   */
+  start?: "jarvis" | "external";
   /**
    * Draw full screen on the alternate buffer: the input, the HUD and the agent
    * panel stay put at the bottom and only the transcript scrolls. The default
@@ -103,6 +112,11 @@ export function parseArgs(
     throw new Error(`--mode must be one of ${MODES.join("|")}`);
   }
 
+  const startRaw = values.get("start") || env.SNOWPEA_TUI_START || undefined;
+  if (startRaw !== undefined && !START_SCREENS.includes(startRaw)) {
+    throw new Error(`--start must be one of ${START_SCREENS.join("|")}`);
+  }
+
   // Full screen is the default; the inline layout has to be asked for.
   // `--fullscreen` stays accepted — it is now redundant, not wrong.
   const inlineRequested =
@@ -117,6 +131,7 @@ export function parseArgs(
     mode: modeRaw as Mode | undefined,
     cwd: values.get("cwd") || cwd,
     remote: values.get("remote") || undefined,
+    start: startRaw as CliArgs["start"],
     fullscreen: !inlineRequested,
   };
 }
@@ -339,6 +354,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       mode={args.mode ?? "accept"}
       workdir={args.cwd}
       remote={args.remote}
+      startScreen={args.start}
       fullscreen={args.fullscreen}
       history={history}
       sessions={sessions}

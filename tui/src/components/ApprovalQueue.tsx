@@ -17,6 +17,7 @@ import { Box, Text } from "ink";
 import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { ApprovalDecision, ApprovalScope } from "../rpc/sdk.js";
 import { APPROVAL_SCOPES, type ApprovalEntry } from "../state/store.js";
+import { cliLabel } from "../state/external.js";
 import { ChoiceList } from "./ChoiceList.js";
 
 export type ApprovalQueueRespond = (
@@ -24,6 +25,13 @@ export type ApprovalQueueRespond = (
   decision: ApprovalDecision,
   scope: ApprovalScope,
 ) => void;
+
+/** `[Codex] ` for an external CLI's request, `[Jarvis deciding] ` while Jarvis has it (1.53.0). */
+export function queueBadge(request: Pick<ApprovalEntry, "external" | "route">): string {
+  const cli = request.external ? `[${cliLabel(request.external.cli)}] ` : "";
+  const route = request.route === "jarvis" ? "[Jarvis deciding] " : "";
+  return `${cli}${route}`;
+}
 
 function summarise(request: ApprovalEntry): string {
   const command = (request.args ?? {})["command"];
@@ -90,7 +98,7 @@ export function ApprovalQueue({
       </Text>
       <ChoiceList
         options={requests.map((request) => ({
-          label: `${request.tool} · risk=${request.risk ?? "unknown"} · ${request.requestId.slice(0, 8)} · ${summarise(request)}`,
+          label: `${queueBadge(request)}${request.tool} · risk=${request.risk ?? "unknown"} · ${request.requestId.slice(0, 8)} · ${summarise(request)}`,
         }))}
         selectedIndex={isActive ? Math.min(selected, requests.length - 1) : -1}
         color="yellow"

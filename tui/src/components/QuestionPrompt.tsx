@@ -66,6 +66,8 @@ export interface QuestionPromptProps {
   request: QuestionEntry;
   onAnswer: (answers: QuestionAnswerItem[]) => void;
   isActive?: boolean;
+  /** Name of the session asking, when it is not the one the person is in (1.53.0). */
+  label?: string | null;
 }
 
 /** A blank answer; the shape the daemon reads as "not answered". */
@@ -113,6 +115,7 @@ export function QuestionPrompt({
   request,
   onAnswer,
   isActive = true,
+  label = null,
 }: QuestionPromptProps): React.ReactElement {
   const questions = useMemo(() => request.questions ?? [], [request]);
   const [tab, setTab] = useState(0);
@@ -259,6 +262,9 @@ export function QuestionPrompt({
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+      {label ? (
+        <Text dimColor wrap="truncate-end">{`from ${label}`}</Text>
+      ) : null}
       {questions.length > 1 ? (
         <Box>
           {questions.map((question, index) => {

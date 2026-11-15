@@ -25,6 +25,19 @@ import type {
   SystemCheckUpdateResult,
   SystemUpdateProgressPayload,
   SystemUpdateResult,
+  ExternalEventPayload,
+  ExternalListResult,
+  ExternalOpenResult,
+  ExternalClisResult,
+  ExternalStatePayload,
+  JarvisDecisionPayload,
+  JarvisDelegationChangedPayload,
+  JarvisEscalationPayload,
+  JarvisLedgerResult,
+  JarvisOverviewResult,
+  JarvisStatePayload,
+  JarvisStatusResult,
+  QuestionListResult,
 } from "@snowpea/sdk";
 
 export { connect, defaultResolveEndpoint } from "@snowpea/sdk";
@@ -89,3 +102,29 @@ export type TurnStarted = TurnStartedEventPayload;
 export type ToolProgress = ToolProgressEventPayload;
 /** `compaction.started` — compaction is under way. */
 export type CompactionStarted = CompactionStartedEventPayload;
+
+/** One external CLI: `claude`, `codex`, `agy` or `cursor` (1.53.0). */
+export type ExternalCli = NonNullable<ExternalClisResult["clis"]>[number]["id"];
+/** The handle of an external session. */
+export interface ExternalRef {
+  cli: ExternalCli;
+  id: string;
+}
+/** One row of `external.list` / the session an `external.open` returns. */
+export type ExternalSessionRow = NonNullable<ExternalListResult["sessions"]>[number];
+/** One entry of an external timeline page. */
+export type ExternalTimelineEvent = NonNullable<ExternalOpenResult["events"]>[number];
+/** One CLI of `external.clis`. */
+export type ExternalCliInfo = NonNullable<ExternalClisResult["clis"]>[number];
+export type ExternalModeName = NonNullable<ExternalSessionRow["mode"]>;
+export type ExternalEvent = ExternalEventPayload;
+export type ExternalState = ExternalStatePayload;
+
+export type JarvisStatus = JarvisStatusResult;
+export type JarvisOverviewRow = NonNullable<JarvisOverviewResult["rows"]>[number];
+export type JarvisLedgerEntry = NonNullable<JarvisLedgerResult["entries"]>[number];
+export type JarvisStateEvent = JarvisStatePayload;
+export type JarvisDecisionEvent = JarvisDecisionPayload;
+export type JarvisEscalationEvent = JarvisEscalationPayload;
+export type JarvisDelegationEvent = JarvisDelegationChangedPayload;
+export type QuestionList = QuestionListResult;

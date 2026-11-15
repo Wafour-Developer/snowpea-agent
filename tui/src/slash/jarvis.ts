@@ -1,0 +1,139 @@
+/**
+ * `/jarvis` and `/external`: this surface's own commands for Jarvis mode and
+ * the external CLI sessions (1.53.0, beta).
+ *
+ * The daemon has no command of these names; they drive `jarvis.*` and
+ * `external.*` calls and move the screen, so they are parsed here. Pure.
+ */
+
+import type { CommandInfo } from "../rpc/sdk.js";
+
+export type JarvisCommand =
+  /** Go to the Jarvis screen (`/jarvis`, `snowpea jarvis`). */
+  | { kind: "enter" }
+  /** Back to the session the person came from. */
+  | { kind: "back" }
+  | { kind: "status" }
+  | { kind: "on" }
+  | { kind: "off" }
+  | { kind: "handback"; target: string | null }
+  | { kind: "takeover"; target: string | null; minutes: number | null }
+  | { kind: "sessions" }
+  | { kind: "open"; target: string }
+  | { kind: "waiting" }
+  | { kind: "invalid"; usage: string };
+
+export const JARVIS_USAGE =
+  "/jarvis [on|off|status|back|sessions|waiting|open <n>|handback [n]|takeover [n] [minutes]]";
+
+export const JARVIS_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
+  { action: "on", summary: "Turn Jarvis mode on (beta): one session supervises the others." },
+  { action: "off", summary: "Turn Jarvis mode off; every request goes to you again." },
+  { action: "status", summary: "Show whether Jarvis is running, its model and budget." },
+  { action: "back", summary: "Return to the session you came from." },
+  { action: "sessions", summary: "Pick a supervised session to open." },
+  { action: "waiting", summary: "Answer what is waiting for you, from any session." },
+  { action: "open", summary: "/jarvis open <n> — open the nth supervised session." },
+  { action: "handback", summary: "Give this session back to Jarvis now." },
+  { action: "takeover", summary: "Take this session back from Jarvis: /jarvis takeover [minutes]." },
+];
+
+/** `null` when the line is not a `/jarvis` command. */
+export function parseJarvisCommand(line: string): JarvisCommand | null {
+  const match = /^\/jarvis(?:\s+(.*))?$/.exec(line.trim());
+  if (!match) return null;
+  const words = (match[1] ?? "").trim().split(/\s+/).filter(Boolean);
+  const [action, ...rest] = words;
+  switch (action) {
+    case undefined:
+      return { kind: "enter" };
+    case "on":
+    case "off":
+    case "status":
+    case "back":
+    case "sessions":
+    case "waiting":
+      return rest.length === 0 ? { kind: action } : { kind: "invalid", usage: JARVIS_USAGE };
+    case "list":
+      return { kind: "sessions" };
+    case "open":
+      return rest.length === 1 ? { kind: "open", target: rest[0] } : { kind: "invalid", usage: JARVIS_USAGE };
+    case "handback":
+      return rest.length <= 1 ? { kind: "handback", target: rest[0] ?? null } : { kind: "invalid", usage: JARVIS_USAGE };
+    case "takeover": {
+      // `/jarvis takeover 30` is minutes for this session; `/jarvis takeover 2 30` names row 2.
+      const numbers = rest.filter((word) => /^\d+$/.test(word));
+      if (rest.length > 2 || numbers.length !== rest.length) {
+        return { kind: "invalid", usage: JARVIS_USAGE };
+      }
+      if (rest.length === 0) return { kind: "takeover", target: null, minutes: null };
+      if (rest.length === 1) return { kind: "takeover", target: null, minutes: Number(rest[0]) };
+      return { kind: "takeover", target: rest[0], minutes: Number(rest[1]) };
+    }
+    default:
+      return { kind: "invalid", usage: JARVIS_USAGE };
+  }
+}
+
+export type ExternalCommand =
+  /** The picker of this folder's sessions. */
+  | { kind: "picker" }
+  | { kind: "new" }
+  /** Leave the open session's screen. */
+  | { kind: "close" }
+  /** Switch the open session's mode. */
+  | { kind: "mode"; mode: "default" | "readonly" | "unrestricted" }
+  /** Load an older page of the open session. */
+  | { kind: "more" }
+  | { kind: "invalid"; usage: string };
+
+export const EXTERNAL_USAGE = "/external [new|close|mode default|readonly|unrestricted|more]";
+
+export const EXTERNAL_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
+  { action: "new", summary: "Start a new Claude Code, Codex, agy or Cursor session." },
+  { action: "close", summary: "Leave the open external session (its transcript stays)." },
+  { action: "mode", summary: "/external mode default|readonly|unrestricted — switch the open session." },
+  { action: "more", summary: "Load earlier messages of the open session." },
+];
+
+export function parseExternalCommand(line: string): ExternalCommand | null {
+  const match = /^\/external(?:\s+(.*))?$/.exec(line.trim());
+  if (!match) return null;
+  const [action, ...rest] = (match[1] ?? "").trim().split(/\s+/).filter(Boolean);
+  switch (action) {
+    case undefined:
+      return { kind: "picker" };
+    case "new":
+    case "close":
+    case "more":
+      return rest.length === 0 ? { kind: action } : { kind: "invalid", usage: EXTERNAL_USAGE };
+    case "mode":
+      return rest.length === 1 && ["default", "readonly", "unrestricted"].includes(rest[0])
+        ? { kind: "mode", mode: rest[0] as "default" | "readonly" | "unrestricted" }
+        : { kind: "invalid", usage: EXTERNAL_USAGE };
+    default:
+      return { kind: "invalid", usage: EXTERNAL_USAGE };
+  }
+}
+
+function subCommands(
+  draft: string,
+  command: string,
+  actions: ReadonlyArray<{ action: string; summary: string }>,
+): CommandInfo[] {
+  const match = new RegExp(`^\\/${command}(?:\\s+([^\\s]*))?$`).exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return actions
+    .filter((entry) => entry.action.startsWith(typed))
+    .map((entry) => ({ name: `${command} ${entry.action}`, summary: entry.summary, source: "tui" }));
+}
+
+export function jarvisSubCommands(draft: string): CommandInfo[] {
+  return subCommands(draft, "jarvis", JARVIS_ACTIONS);
+}
+
+export function externalSubCommands(draft: string): CommandInfo[] {
+  return subCommands(draft, "external", EXTERNAL_ACTIONS);
+}

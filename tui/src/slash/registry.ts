@@ -46,7 +46,31 @@ const SURFACE_COMMANDS: CommandInfo[] = [
     summary: "Mouse on|off: click ◯ rows to open an agent (Shift+drag selects while on).",
     source: "tui",
   },
+  {
+    name: "jarvis",
+    summary: "Jarvis mode (beta): /jarvis, /jarvis on|off|back|sessions|waiting|handback|takeover.",
+    source: "tui",
+  },
+  {
+    name: "external",
+    summary: "Claude Code, Codex, agy and Cursor sessions (beta): pick one, or /external new.",
+    source: "tui",
+  },
 ];
+
+/** What an older daemon gets in place of the two beta commands' summaries. */
+export const REQUIRES_CORE_SUMMARY = "requires core 1.53 — this daemon is older (/update)";
+
+let unsupportedSurface = new Set<string>();
+
+/**
+ * Tell the palette which of the 1.53.0 commands this daemon cannot run. They
+ * stay listed — a missing command is harder to explain than a disabled one —
+ * and say why in place of their usual summary.
+ */
+export function setSurfaceSupport(unsupported: Iterable<string>): void {
+  unsupportedSurface = new Set(unsupported);
+}
 
 /** The words `/tts` takes, offered as completions after the command. */
 export const TTS_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
@@ -88,7 +112,14 @@ function subCommands(
 
 function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
   const names = new Set(commands.map((command) => command.name));
-  return [...commands, ...SURFACE_COMMANDS.filter((command) => !names.has(command.name))];
+  return [
+    ...commands,
+    ...SURFACE_COMMANDS.filter((command) => !names.has(command.name)).map((command) =>
+      unsupportedSurface.has(command.name)
+        ? { ...command, summary: REQUIRES_CORE_SUMMARY }
+        : command,
+    ),
+  ];
 }
 
 /** Structural subset of `TuiClient` the registry needs; keeps tests trivial. */

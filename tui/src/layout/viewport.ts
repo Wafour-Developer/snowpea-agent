@@ -174,6 +174,7 @@ export function bottomRows({
   noticeVisible = false,
   queuedRows = 0,
   delegationVisible = false,
+  extraRows = 0,
 }: {
   /** Visual rows the draft currently occupies. */
   inputRows?: number;
@@ -193,6 +194,8 @@ export function bottomRows({
   queuedRows?: number;
   /** The `$agent` chip above the input. */
   delegationVisible?: boolean;
+  /** Rows of a panel or picker drawn with the input: the Jarvis panel, an external picker, … */
+  extraRows?: number;
 } = {}): number {
   // A question takes the input's place, the same way an approval does, and
   // wins when both are somehow pending: it is drawn first.
@@ -209,7 +212,8 @@ export function bottomRows({
     (workingVisible ? 1 : 0) +
     (noticeVisible ? 1 : 0) +
     Math.max(0, queuedRows) +
-    (delegationVisible ? 1 : 0)
+    (delegationVisible ? 1 : 0) +
+    Math.max(0, extraRows)
   );
 }
 

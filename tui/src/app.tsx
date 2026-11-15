@@ -30,7 +30,21 @@ import type {
   SessionEvent,
 } from "./rpc/sdk.js";
 import { defaultResolveEndpoint } from "./rpc/sdk.js";
-import { SlashRegistry, ttsSubCommands, voiceSubCommands } from "./slash/registry.js";
+import { SlashRegistry, setSurfaceSupport, ttsSubCommands, voiceSubCommands } from "./slash/registry.js";
+import { externalSubCommands, jarvisSubCommands } from "./slash/jarvis.js";
+import { useJarvisScreens } from "./hooks/useJarvisScreens.js";
+import { ScreenOverlays, screenOverlayRows } from "./components/ScreenOverlays.js";
+import { JarvisPanel } from "./components/JarvisPanel.js";
+import { ExternalTranscript, externalExtraRows } from "./components/ExternalTranscript.js";
+import { DelegationConfirm, delegationConfirmRows } from "./components/DelegationConfirm.js";
+import {
+  cliLabel,
+  hostLabel,
+  modeLabel as externalModeLabel,
+  ungatedWarning,
+  viewOnlyReason,
+} from "./state/external.js";
+import { parseProposal, requestLabel, supportOf } from "./state/jarvis.js";
 import {
   bannerText,
   cancel as cancelUpdate,
@@ -118,6 +132,7 @@ import { TUI_VERSION } from "./version.js";
 import { screenTranscriptLines, type TurnNote } from "./layout/screen-transcript.js";
 import {
   HEADER_ROWS,
+  approvalPromptRows,
   bottomRows as reserveBottomRows,
   clampScroll,
   computeLayout,
@@ -365,6 +380,8 @@ export interface AppProps {
   editor?: EditorRunner;
   /** Starts the daemon when gone; injected for tests or defaults to launcher path. */
   startDaemon?: () => Promise<void> | void;
+  /** Open this screen first: `jarvis` (`snowpea jarvis`) or `external` (`snowpea external`). */
+  startScreen?: "jarvis" | "external";
 }
 
 /** One transcript entry — a message, a tool call, a diff or a compaction. */
@@ -525,6 +542,7 @@ export function App({
   recordingPath,
   editor,
   startDaemon,
+  startScreen,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [sessionId, setSessionId] = useState(initialSessionId);
@@ -708,6 +726,8 @@ export function App({
   const approvalResolver = useRef<((response: ApprovalResponse) => void) | null>(null);
   /** Resolver for the `ask_user` question the daemon is blocked on. */
   const questionResolver = useRef<((response: QuestionResponse) => void) | null>(null);
+  /** The Jarvis and external-session screens, for the listeners bound once per session. */
+  const screensRef = useRef<ReturnType<typeof useJarvisScreens> | null>(null);
 
   const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
   /**
@@ -837,7 +857,22 @@ export function App({
       dispatch({ type: "session/event", event }),
     );
 
+    // 1.53.0: the two beta commands stay listed on an older daemon, disabled.
+    const featureSupport = supportOf(client.serverCapabilities?.());
+    setSurfaceSupport([
+      ...(featureSupport.jarvis ? [] : ["jarvis"]),
+      ...(featureSupport.external ? [] : ["external"]),
+    ]);
+
     client.setListeners({
+      // The Jarvis and external-session notifications go to their hook.
+      onJarvisState: (params) => screensRef.current?.listeners.onJarvisState?.(params),
+      onJarvisDecision: (params) => screensRef.current?.listeners.onJarvisDecision?.(params),
+      onJarvisEscalation: (params) => screensRef.current?.listeners.onJarvisEscalation?.(params),
+      onJarvisDelegation: (params) => screensRef.current?.listeners.onJarvisDelegation?.(params),
+      onQuestionPending: (params) => screensRef.current?.listeners.onQuestionPending?.(params),
+      onExternalEvent: (params) => screensRef.current?.listeners.onExternalEvent?.(params),
+      onExternalState: (params) => screensRef.current?.listeners.onExternalState?.(params),
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
       onSessionEvent: (event) => {
@@ -900,6 +935,7 @@ export function App({
         }
         showToast("daemon restarted — session resumed");
         dispatch({ type: "session/reconnected" });
+        screensRef.current?.reconnected();
         // A restarted daemon may be a different version: ask it, so a banner
         // raised by the one it replaced does not outlive it.
         void client.checkUpdate(false).then((check) => {
@@ -909,7 +945,10 @@ export function App({
       },
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
-      onApprovalPending: () => refreshApprovals(),
+      onApprovalPending: () => {
+        refreshApprovals();
+        void screensRef.current?.refresh();
+      },
       // A plugin install or `skill.reload` moved the server-side table.
       onCommandsChanged: () => {
         refreshSkills();
@@ -952,6 +991,7 @@ export function App({
         // Another surface may have answered one of ours, or freed a slot that
         // lets a queued turn raise its own request; re-read the backlog.
         refreshApprovals();
+        void screensRef.current?.refresh();
       },
     });
 
@@ -1325,6 +1365,8 @@ export function App({
       ...mcp,
       ...ttsSubCommands(draft),
       ...voiceSubCommands(draft),
+      ...jarvisSubCommands(draft),
+      ...externalSubCommands(draft),
       ...registryRef.current.complete(draft),
     ];
   }, [draft, state.commands, state.mcp, mcpCatalog, skillRows]);
@@ -1339,6 +1381,28 @@ export function App({
   const daemon = useDaemonInfo(client);
   const sessionElapsedMs = useElapsed();
   /** Daemon version once it answered; the bundled constant until then. */
+  const note = useCallback((text: string) => dispatch({ type: "note", text }), []);
+  const screens = useJarvisScreens({
+    client,
+    workdir,
+    sessionId,
+    turnActive: state.turnActive,
+    resumeSession,
+    showToast,
+    note,
+    start: startScreen,
+  });
+  screensRef.current = screens;
+  const externalOpen = screens.external;
+  const externalWarning = externalOpen ? ungatedWarning(externalOpen.session) : null;
+  const externalViewOnly = externalOpen ? viewOnlyReason(externalOpen.session) : null;
+
+  // A newly opened external session starts at its newest message.
+  const externalId = externalOpen?.ref.id ?? null;
+  useEffect(() => {
+    setAgentScroll(0);
+  }, [externalId]);
+
   const version = update.current || TUI_VERSION;
   const hudSegments = useMemo(
     () =>
@@ -1376,6 +1440,8 @@ export function App({
         turnActive: state.turnActive,
         toast: modeToast && modeToast.length <= TOAST_INLINE_MAX ? modeToast : null,
         modeHint: modeHintVisible,
+        jarvis: screens.marker,
+        externalWarning,
       }),
     [
       state.status,
@@ -1407,6 +1473,8 @@ export function App({
       state.turnActive,
       modeToast,
       modeHintVisible,
+      screens.marker,
+      externalWarning,
     ],
   );
   const hudRows = useMemo(
@@ -1470,12 +1538,15 @@ export function App({
   const openAgentEntry = openAgent
     ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId)
     : undefined;
+  const externalState = externalOpen?.state ?? null;
   const agentLines = useMemo(
     () =>
-      openAgent && state.children[openAgent.sessionId]
-        ? screenTranscriptLines(state.children[openAgent.sessionId], contentWidth - 4)
-        : [],
-    [openAgent, state.children, contentWidth],
+      externalState
+        ? screenTranscriptLines(externalState, contentWidth - 4)
+        : openAgent && state.children[openAgent.sessionId]
+          ? screenTranscriptLines(state.children[openAgent.sessionId], contentWidth - 4)
+          : [],
+    [externalState, openAgent, state.children, contentWidth],
   );
 
   // --- the working indicator -------------------------------------------------
@@ -1539,6 +1610,17 @@ export function App({
   /** The hint shares the `↓ 5 more` row when the panel ends in one. */
   const hintRows = hintShares(agentRows) ? 0 : 1;
   const showLogo = !fullscreen;
+  // Rows the Jarvis panel and the screens' pickers add to the bottom block.
+  const jarvisPanelLines = useMemo(
+    () => screens.panel(contentWidth, Math.max(6, Math.min(12, Math.floor(usableRows(terminal.rows) / 3)))),
+    // `screens.panel` changes with the Jarvis state and the clock.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [screens.panel, contentWidth, terminal.rows],
+  );
+  const overlayRows = screenOverlayRows(screens, contentWidth);
+  const approvalLabel = requestLabel(state.pendingApproval, screens.jarvis.rows, sessionId);
+  const screenQuestionLabel = requestLabel(state.pendingQuestion, screens.jarvis.rows, sessionId);
+  const proposalRequest = state.pendingApproval ? parseProposal(state.pendingApproval) : null;
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
     rows: usableRows(terminal.rows),
@@ -1571,19 +1653,29 @@ export function App({
       delegationVisible: delegation !== null,
       queuedRows: Math.min(waitingPrompts(state).length, 4),
       noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX),
+      extraRows:
+        jarvisPanelLines.length +
+        overlayRows +
+        (state.pendingApproval && state.pendingApproval.route === "jarvis" ? 1 : 0) +
+        (state.pendingQuestion && screenQuestionLabel ? 1 : 0) +
+        (proposalRequest ? delegationConfirmRows(proposalRequest) - approvalPromptRows(Object.keys(state.pendingApproval?.args ?? {}).length) : 0),
     }),
   });
   // How tall the open agent's window may be. Inline, the live region sits under
   // the scrollback and Ink clears the whole terminal on every frame once that
   // region reaches the terminal's height — so the window takes what the status
   // block and the input leave over, and no more.
-  const agentWindowRows = agentTranscriptRows({
-    fullscreen,
-    usable: usableRows(terminal.rows),
-    statusRows: layout.statusRows,
-    bottomRows: layout.bottomRows,
-    transcriptRows: layout.transcriptRows,
-  });
+  const externalExtra = externalOpen ? externalExtraRows(externalWarning, externalViewOnly) : 0;
+  const agentWindowRows = Math.max(
+    3,
+    agentTranscriptRows({
+      fullscreen,
+      usable: usableRows(terminal.rows),
+      statusRows: layout.statusRows,
+      bottomRows: layout.bottomRows,
+      transcriptRows: layout.transcriptRows,
+    }) - externalExtra,
+  );
   // Rows the inline live region may occupy before Ink starts clearing the
   // screen on every frame. Full-screen draws a fixed window into the alternate
   // buffer and never takes that branch, so nothing is bounded there.
@@ -2218,6 +2310,18 @@ export function App({
       // them.
       setSkillChip(null);
       setSkillHint(false);
+      // `/jarvis` and `/external` are this surface's own commands (1.53.0, beta).
+      const screensNow = screensRef.current;
+      if (screensNow?.handleCommand(text)) {
+        history?.add(text, workdir);
+        return;
+      }
+      // Inside an external session the line is its prompt, not the daemon's.
+      if (screensNow?.external) {
+        history?.add(text, workdir);
+        screensNow.sendExternal(text);
+        return;
+      }
       // `/delegate` and `$agent` take the same road: the text goes to the
       // daemon as a prompt and its own parser starts the turn. `command.run`
       // would reach the same `commands.start`, but one road means one thing to
@@ -2722,7 +2826,7 @@ export function App({
       // Help covers the transcript; scrolling what nobody can see would leave
       // it somewhere else when help closes.
       if (showHelp) return;
-      if (openAgent) {
+      if (openAgent || externalOpen) {
         setAgentScroll((offset) =>
           clampScroll(offset + wheel * WHEEL_ROWS, agentLines.length, agentWindowRows),
         );
@@ -2731,14 +2835,20 @@ export function App({
     }
     // A prompt on screen owns every other key: mode cycling, Ctrl+O and the
     // rest would otherwise fire underneath the question being asked.
-    if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
+    if (
+      state.pendingQuestion ||
+      state.pendingApproval ||
+      update.phase === "confirm" ||
+      modelPicker ||
+      screens.ui !== null
+    ) {
       return;
     }
     if (reports.length > 0) {
       // Mouse traffic never reaches the editor, handled or not.
       const mouse = reports.find((report) => report.press);
       if (!mouse) return;
-      if (openAgent || mouse.button !== 0) return;
+      if (openAgent || externalOpen || mouse.button !== 0) return;
       const index = panelRowAt(mouse.row, panelMouseLayout);
       if (index === null) return;
       setFocus({ zone: "agent", index });
@@ -2787,6 +2897,23 @@ export function App({
       }
     }
 
+    // A view-only external session has no input to take Esc: it leaves from here.
+    if (externalOpen && externalViewOnly !== null && key.escape) {
+      screens.leaveExternal();
+      return;
+    }
+    // An open external session scrolls with PgUp/PgDn; the arrows stay with the input.
+    if (externalOpen) {
+      if (key.pageUp) {
+        setAgentScroll((offset) => offset + agentWindowRowsRef.current);
+        return;
+      }
+      if (key.pageDown) {
+        setAgentScroll((offset) => Math.max(0, offset - agentWindowRowsRef.current));
+        return;
+      }
+    }
+
     // The cursor has walked out of the input and into the rows under it.
     if (!isInput(focus)) {
       if (key.escape) {
@@ -2822,6 +2949,12 @@ export function App({
     }
     if (key.ctrl && input === "r") {
       setQueueFocused((focused) => !focused && state.approvalQueue.length > 0);
+      return;
+    }
+    // Ctrl+W answers what waits for the person in any session (Jarvis, 1.53.0).
+    if (key.ctrl && input === "w") {
+      if (screens.jarvis.waiting.length > 0) screens.openWaiting();
+      else showToast("nothing is waiting for you");
       return;
     }
     // Ctrl+O opens the newest thing worth opening: a tool call's output, or a
@@ -3018,14 +3151,34 @@ export function App({
         onBlur={() => setQueueFocused(false)}
       />
 
+      <JarvisPanel lines={jarvisPanelLines} />
+
       {state.pendingQuestion ? (
-        <QuestionPrompt request={state.pendingQuestion} onAnswer={answerQuestion} />
+        <QuestionPrompt request={state.pendingQuestion} onAnswer={answerQuestion} label={screenQuestionLabel} />
+      ) : state.pendingApproval && proposalRequest ? (
+        // Jarvis proposing what it may decide: one key confirms or declines.
+        <DelegationConfirm
+          proposal={proposalRequest}
+          label={approvalLabel ?? "Jarvis"}
+          width={contentWidth}
+          now={screens.now}
+          onAnswer={(confirmed) =>
+            decideApproval(
+              { decision: confirmed ? "allow" : "deny", scope: "once" },
+              confirmed ? undefined : "declined by the person",
+            )
+          }
+        />
       ) : state.pendingApproval ? (
         <ApprovalPrompt
           request={state.pendingApproval}
           onDecide={decideApproval}
           mode={state.mode}
+          label={approvalLabel}
+          crossSession={approvalLabel !== null}
         />
+      ) : screens.ui ? (
+        <ScreenOverlays screens={screens} width={contentWidth} folder={workdir} now={screens.now} />
       ) : modePicker ? (
         <ConfirmMenu<Mode | null>
           options={(["accept", "auto", "plan"] as Mode[]).map((value) => ({ label: `${value} mode`, value }))}
@@ -3097,7 +3250,17 @@ export function App({
           onInserted={() => setInsert(null)}
           append={append}
           onAppended={() => setAppend(null)}
-          placeholder={state.turnActive ? "Esc stops · type what to change" : undefined}
+          placeholder={
+            externalOpen
+              ? externalViewOnly
+                ? "view only"
+                : externalOpen.state.turnActive
+                  ? "Esc stops the turn · type to queue a change"
+                  : `message ${cliLabel(externalOpen.ref.cli)} · Esc goes back`
+              : state.turnActive
+                ? "Esc stops · type what to change"
+                : undefined
+          }
           completions={completions}
           agents={completableAgents}
           onFileComplete={handleFileComplete}
@@ -3108,6 +3271,11 @@ export function App({
             if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
           }}
           onInterrupt={() => {
+            // In an external session Esc stops its turn, or goes back when idle.
+            if (externalOpen) {
+              screens.escapeExternal();
+              return;
+            }
             // Esc with nothing running is how the nudge is waved away; with a
             // turn in flight it still means "stop".
             if (skillHint && !state.turnActive) {
@@ -3117,7 +3285,7 @@ export function App({
             setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null}
         />
       )}
     </>
@@ -3179,6 +3347,24 @@ export function App({
     />
   ) : null;
 
+  const externalNode = externalOpen ? (
+    <ExternalTranscript
+      title={`${cliLabel(externalOpen.ref.cli)} · ${(externalOpen.session.title ?? "").trim() || externalOpen.ref.id.slice(0, 8)}`}
+      status={[
+        externalOpen.state.turnActive ? "running" : externalOpen.session.status,
+        hostLabel(externalOpen.session),
+        externalModeLabel(externalOpen.session.mode),
+      ].join(" · ")}
+      warning={externalWarning}
+      viewOnly={externalViewOnly}
+      lines={agentViewport.lines}
+      height={agentWindowRows}
+      width={contentWidth}
+      scrollIndicator={scrollIndicator(agentViewport)}
+      empty={agentLines.length === 0}
+    />
+  ) : null;
+
   // While `$EDITOR` has the terminal the TUI draws nothing at all: two
   // full-screen programs cannot share one screen, and Ink would repaint over
   // the editor on its next frame.
@@ -3196,7 +3382,7 @@ export function App({
         lines={viewport.lines}
         banner={bannerText(update)}
         scrollIndicator={scrollIndicator(viewport)}
-        overlay={helpNode ?? (state.timeline.length === 0 && !openAgent ? (
+        overlay={helpNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
           <LaunchBanner
             width={terminal.columns - 2}
             terminalRows={terminal.rows}
@@ -3327,7 +3513,7 @@ export function App({
           oldest rows go, clipped at the top, and the newest stay. Whatever is
           clipped is still live, so it reaches the scrollback whole later. */}
       <Box flexDirection="column" flexShrink={1} overflowY="hidden" justifyContent="flex-end">
-      {showHelp ? null : openAgent ? (
+      {showHelp ? null : externalNode ? externalNode : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}

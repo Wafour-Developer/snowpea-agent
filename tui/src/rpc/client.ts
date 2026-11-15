@@ -15,6 +15,12 @@ import {
   type ApprovalRequestParams,
   type ApprovalResponse,
   type ConnectFn,
+  type ExternalEvent,
+  type ExternalState,
+  type JarvisDecisionEvent,
+  type JarvisDelegationEvent,
+  type JarvisEscalationEvent,
+  type JarvisStateEvent,
   type McpChangedPayload,
   type Mode,
   type QuestionRequestParams,
@@ -105,6 +111,16 @@ export interface TuiClientListeners {
   onSettingsChanged?: (params: { keys?: string[] }) => void;
   /** An MCP server was added, removed, or changed state (M14 §3). */
   onMcpChanged?: (params: McpChangedPayload) => void;
+  /** A question joined the shared queue (1.53.0 shows it in the Jarvis panel). */
+  onQuestionPending?: (params: unknown) => void;
+  /** Jarvis mode (1.53.0, capability `jarvis` / `jarvisDelegation`). */
+  onJarvisState?: (params: JarvisStateEvent) => void;
+  onJarvisDecision?: (params: JarvisDecisionEvent) => void;
+  onJarvisEscalation?: (params: JarvisEscalationEvent) => void;
+  onJarvisDelegation?: (params: JarvisDelegationEvent) => void;
+  /** External CLI sessions (1.53.0, capability `externalSessions`). */
+  onExternalEvent?: (params: ExternalEvent) => void;
+  onExternalState?: (params: ExternalState) => void;
 }
 
 export class TuiClient {
@@ -164,6 +180,16 @@ export class TuiClient {
     client.on("question.resolved", (params: any) => this.listeners.onQuestionResolved?.(params));
     client.on("system.updateProgress", (params: any) => this.listeners.onUpdateProgress?.(params));
     client.on("mcp.changed", (params) => this.listeners.onMcpChanged?.(params));
+    // The 1.53.0 notifications are subscribed through the untyped `on` so a
+    // pre-1.53 SDK build or daemon never has to know them.
+    const untypedOn = client.on.bind(client) as (event: string, handler: (params: any) => void) => unknown;
+    untypedOn("question.pending", (params) => this.listeners.onQuestionPending?.(params));
+    untypedOn("jarvis.state", (params) => this.listeners.onJarvisState?.(params));
+    untypedOn("jarvis.decision", (params) => this.listeners.onJarvisDecision?.(params));
+    untypedOn("jarvis.escalation", (params) => this.listeners.onJarvisEscalation?.(params));
+    untypedOn("jarvis.delegation.changed", (params) => this.listeners.onJarvisDelegation?.(params));
+    untypedOn("external.event", (params) => this.listeners.onExternalEvent?.(params));
+    untypedOn("external.state", (params) => this.listeners.onExternalState?.(params));
     client.on("settings.changed", (params: any) => {
       void this.loadUiLanguage();
       this.listeners.onSettingsChanged?.(params ?? {});

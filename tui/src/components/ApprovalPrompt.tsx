@@ -128,19 +128,32 @@ export function formatArgs(args: Record<string, unknown> | undefined, max = 72):
   });
 }
 
+/** The prompt's extra header lines for a request from another session or Jarvis (1.53.0). */
+export function approvalExtraRows(request: Pick<ApprovalEntry, "route">): number {
+  return request.route === "jarvis" ? 1 : 0;
+}
+
 export function ApprovalPrompt({
   request,
   onDecide,
   isActive = true,
   mode,
+  label = null,
+  crossSession = false,
 }: {
   request: ApprovalEntry;
   onDecide: (answer: ApprovalAnswer, reason?: string) => void;
   isActive?: boolean;
   /** The session's mode, which decides what "Allow Everything" means. */
   mode?: Mode;
+  /** Name of the session asking, when it is not the one the person is in. */
+  label?: string | null;
+  /** The request belongs to another session: "Allow Everything" would switch the wrong one, so it is not offered. */
+  crossSession?: boolean;
 }): React.ReactElement {
-  const options = approvalOptions(mode, request);
+  const options = approvalOptions(mode, request).filter(
+    (option) => !(crossSession && option.value.switchToAuto),
+  );
   // A daemon that suggests a scope moves the cursor to it; otherwise the
   // cursor sits on plain Yes, which is what Enter should mean by default.
   const suggested = options.findIndex(
@@ -173,9 +186,12 @@ export function ApprovalPrompt({
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
-      <Text bold color="yellow">
-        Approval required
+      <Text bold color="yellow" wrap="truncate-end">
+        {label ? `Approval required · ${label}` : "Approval required"}
       </Text>
+      {request.route === "jarvis" ? (
+        <Text dimColor wrap="truncate-end">Jarvis is deciding this; you may answer first.</Text>
+      ) : null}
       <Text>
         <Text bold>{request.tool}</Text>
         <Text dimColor> risk=</Text>
