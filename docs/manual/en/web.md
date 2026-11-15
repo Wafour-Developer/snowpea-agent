@@ -54,7 +54,7 @@ Security notes:
 - **It is plain HTTP.** The password and everything you do travel unencrypted. On anything beyond a network you trust, put it behind TLS (a reverse proxy such as Caddy or nginx, with `trustProxy: true`) or reach it over a VPN or the ssh tunnel above.
 - Whoever signs in can drive the agent, and with it this machine's shell and files. Pick a long password.
 - Five failed sign-ins from one address in five minutes, or twenty from anywhere, lock sign-in for the rest of those five minutes. Sign-ins and failures are logged with the client address, never the password.
-- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. A new password applies to the next sign-in; sessions already open last until they expire, you sign out, or the daemon restarts.
+- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. Changing or clearing the password (`snowpea web password`) signs everyone out at once; other sessions last until they expire or you sign out.
 - The remote listener serves only the page, sign-in and the WebSocket — no `/health`, `/version` or schema — and the WebSocket refuses a page from another origin.
 
 ## The screen

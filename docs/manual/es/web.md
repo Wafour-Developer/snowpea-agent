@@ -54,7 +54,7 @@ Notas de seguridad:
 - **Es HTTP sin cifrar.** La contraseña y todo lo que hagas viajan en claro. Fuera de una red de confianza, ponlo detrás de TLS (un proxy inverso como Caddy o nginx, con `trustProxy: true`) o accede por una VPN o el túnel ssh de arriba.
 - Quien inicia sesión maneja el agente y, con él, la shell y los archivos de esta máquina. Usa una contraseña larga.
 - Cinco intentos fallidos desde una dirección en cinco minutos, o veinte en total, bloquean el inicio de sesión hasta que pasen esos cinco minutos. Los inicios de sesión y los fallos se registran con la dirección del cliente, nunca con la contraseña.
-- La sesión es una cookie (`HttpOnly`, `SameSite=Strict`, `Secure` con HTTPS). Las sesiones viven en la memoria del daemon: reiniciarlo cierra la sesión de todos. Una contraseña nueva vale desde el siguiente inicio de sesión; las sesiones ya abiertas duran hasta que caducan, cierras sesión o el daemon se reinicia.
+- La sesión es una cookie (`HttpOnly`, `SameSite=Strict`, `Secure` con HTTPS). Las sesiones viven en la memoria del daemon: reiniciarlo cierra la sesión de todos. Cambiar o borrar la contraseña (`snowpea web password`) cierra la sesión de todos al instante; las demás sesiones duran hasta que caducan o cierras sesión.
 - El listener remoto sirve solo la página, el inicio de sesión y el WebSocket —ni `/health`, ni `/version`, ni el esquema— y el WebSocket rechaza páginas de otro origen.
 
 ## La pantalla

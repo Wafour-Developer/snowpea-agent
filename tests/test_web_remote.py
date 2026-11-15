@@ -327,6 +327,36 @@ async def test_logout_closes_open_sockets(paths: Paths) -> None:
         await client.close()
 
 
+@pytest.mark.parametrize("clear", [False, True])
+async def test_password_change_signs_everyone_out(paths: Paths, clear: bool) -> None:
+    client, _, _ = await _remote(paths)
+    own = f"http://{client.server.host}:{client.server.port}"
+    try:
+        assert (await _login(client)).status == 200
+        ws = await client.ws_connect("/ws", headers={"Origin": own})
+        assert (await client.get("/web/session")).status == 200
+        if clear:
+            assert web_remote.clear_password(paths)
+        else:
+            web_remote.set_password(paths, "another long password")
+        assert (await client.get("/web/session")).status == 401
+        message = await ws.receive(timeout=5)
+        assert message.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED}
+        assert ws.close_code == 4401
+    finally:
+        await client.close()
+
+
+async def test_unchanged_hash_keeps_session(paths: Paths) -> None:
+    client, _, _ = await _remote(paths)
+    try:
+        assert (await _login(client)).status == 200
+        CredentialStore(paths).set("unrelated.key", "x")
+        assert (await client.get("/web/session")).status == 200
+    finally:
+        await client.close()
+
+
 # -- loopback listener --------------------------------------------------------
 
 

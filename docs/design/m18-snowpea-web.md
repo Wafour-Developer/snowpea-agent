@@ -111,6 +111,8 @@ Client flow: on load, `GET /web/session`; `200` â†’ hello with `token`; `401` â†
 with 4401, or a later `401`, goes back to the form. A `?token=` in the address still wins
 (loopback).
 
-Sessions live in daemon memory (lost on restart) and expire after `sessionHours`; settings apply
+Sessions live in daemon memory (lost on restart) and expire after `sessionHours`; each remembers a
+fingerprint of the password hash it was opened under, so changing or clearing the password
+(`snowpea web password`) ends all of them at the next request (sockets closed with 4401); settings apply
 on daemon restart. `snowpea web status` reads the daemon's view from the loopback-only
 `GET /web/remote/status` (`Authorization: Bearer <daemon token>`).

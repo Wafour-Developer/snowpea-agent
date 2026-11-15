@@ -15,6 +15,7 @@ with a much smaller app:
 The password lives in ``credentials.json`` as a salted scrypt hash under
 :data:`PASSWORD_KEY`.  Sessions are kept in memory, so a daemon restart logs
 everyone out.
+Changing or clearing the password also ends every open session.
 """
 
 from __future__ import annotations
@@ -122,6 +123,10 @@ def stored_hash(paths: Paths) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _fingerprint(stored: str) -> str:
+    return hashlib.sha256(stored.encode("utf-8")).hexdigest() if stored else ""
+
+
 def set_password(paths: Paths, password: str) -> None:
     CredentialStore(paths).set(PASSWORD_KEY, hash_password(password))
 
@@ -154,6 +159,7 @@ def config_problem(remote: Any, paths: Paths) -> str | None:
 class _Session:
     username: str
     expires: float
+    fingerprint: str = ""
     sockets: set[web.WebSocketResponse] = field(default_factory=set)
 
 
@@ -169,11 +175,27 @@ class RemoteAuth:
         self._global_failures: deque[float] = deque()
         self.failure_delay = FAILURE_DELAY_SEC
         self.clock = time.monotonic
+        self._hash_stamp: tuple[int, int, int] | None = None
+        self._hash_print = ""
+
+    def _current_fingerprint(self) -> str:
+        """Fingerprint of the stored hash; the file is re-read only when it changed."""
+        try:
+            st = CredentialStore(self.paths).path.stat()
+            stamp: tuple[int, int, int] | None = (st.st_mtime_ns, st.st_size, st.st_ino)
+        except OSError:
+            stamp = None
+        if stamp is None or stamp != self._hash_stamp:
+            self._hash_print = _fingerprint(stored_hash(self.paths))
+            self._hash_stamp = stamp
+        return self._hash_print
 
     # -- sessions --------------------------------------------------------
     def open_session(self) -> str:
         token = secrets.token_urlsafe(32)
-        self.sessions[token] = _Session(self.username, self.clock() + self.session_sec)
+        self.sessions[token] = _Session(
+            self.username, self.clock() + self.session_sec, self._current_fingerprint()
+        )
         return token
 
     def session(self, token: str | None) -> _Session | None:
@@ -184,6 +206,13 @@ class RemoteAuth:
             return None
         if found.expires <= self.clock():
             self.sessions.pop(token, None)
+            return None
+        current = self._current_fingerprint()
+        if not current or current != found.fingerprint:
+            # The password was changed or cleared: end the session like a logout.
+            self.sessions.pop(token, None)
+            with contextlib.suppress(RuntimeError):
+                asyncio.get_running_loop().create_task(_close_all(found.sockets))
             return None
         return found
 
@@ -196,10 +225,11 @@ class RemoteAuth:
         now = self.clock()
         for token in [t for t, s in self.sessions.items() if s.expires <= now]:
             await self.drop(token)
+        for token in list(self.sessions):
+            self.session(token)
 
     def active(self) -> int:
-        now = self.clock()
-        return sum(1 for s in self.sessions.values() if s.expires > now)
+        return sum(1 for token in list(self.sessions) if self.session(token) is not None)
 
     # -- rate limits -----------------------------------------------------
     def _trim(self, queue: deque[float]) -> None:
