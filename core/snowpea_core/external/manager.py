@@ -258,7 +258,6 @@ class ExternalManager:
         #: cli -> (monotonic time, executable path, model ids).
         self._models: dict[str, tuple[float, str | None, list[str]]] = {}
         self._model_tasks: dict[str, asyncio.Task[None]] = {}
-        self._tasks: set[asyncio.Task[Any]] = set()
         for cli in self.registry.ids():
             adapter = self.registry.get(cli)
             if adapter is not None:
@@ -269,11 +268,6 @@ class ExternalManager:
         if adapter.supervisor is None:
             adapter.supervisor = self.supervisor
         return adapter
-
-    def _soon(self, coro: Awaitable[Any]) -> None:
-        task = asyncio.ensure_future(coro)
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
 
     # -- settings ---------------------------------------------------------
     def _ext_settings(self) -> Any:
@@ -330,9 +324,9 @@ class ExternalManager:
             self._sweeper.cancel()
             await asyncio.gather(self._sweeper, return_exceptions=True)
             self._sweeper = None
-        for task in [*self._model_tasks.values(), *self._tasks]:
+        for task in self._model_tasks.values():
             task.cancel()
-        await asyncio.gather(*self._model_tasks.values(), *self._tasks, return_exceptions=True)
+        await asyncio.gather(*self._model_tasks.values(), return_exceptions=True)
         self._model_tasks.clear()
         for record in list(self._records.values()):
             await self._stop_follow(record)

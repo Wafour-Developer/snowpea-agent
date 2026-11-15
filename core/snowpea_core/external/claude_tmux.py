@@ -75,6 +75,9 @@ MAX_PROMPT_CHARS = 100_000
 SEND_KEYS_MAX = 2_000
 #: Seconds to see a typed prompt start a turn.
 START_TIMEOUT_SEC = 15.0
+#: Seconds after a keypress from an attached tmux client during which snowpea
+#: does not type into the pane (the person is typing).
+TYPING_QUIET_SEC = 3.0
 #: Window size of a pane snowpea starts.
 WINDOW = ("200", "50")
 _TRUST_MARKERS = ("quick safety check", "trust this folder", "do you trust")
@@ -260,6 +263,15 @@ class Tmux:
         code, out = await self.run("list-clients", "-t", f"={name}", "-F", "#{client_tty}",
                                    check=False)
         return [line for line in out.splitlines() if line.strip()] if code == 0 else []
+
+    async def last_client_activity(self, name: str) -> float | None:
+        """Unix time of the newest keypress from a client attached to ``name``, if any."""
+        code, out = await self.run("list-clients", "-t", f"={name}", "-F",
+                                   "#{client_activity}", check=False)
+        if code != 0:
+            return None
+        stamps = [int(line) for line in out.split() if line.strip().isdigit()]
+        return float(max(stamps)) if stamps else None
 
     async def capture(self, pane: str) -> str:
         validate_pane(pane)
@@ -597,6 +609,13 @@ class ClaudeTmuxChannel(ExternalChannel):
         if status != "idle":
             raise ExternalError(errors.SESSION_BUSY,
                                 "Claude Code is busy in the terminal; wait for it or interrupt it")
+        if self.session_name is not None:
+            # A person attached to the pane who typed a moment ago is mid-sentence:
+            # never type over them (tmux reports each client's last keypress).
+            active = await self.server.last_client_activity(self.session_name)
+            if active is not None and time.time() - active < TYPING_QUIET_SEC:
+                raise ExternalError(errors.SESSION_BUSY,
+                                    "someone is typing in the terminal; try again in a moment")
         await self._poll()
         self._prompts_before = self.tail.converter.prompts
         self.tail.converter.expect_prompt = text

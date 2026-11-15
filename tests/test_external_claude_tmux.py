@@ -206,6 +206,30 @@ async def test_tmux_refuses_mode_switching_prompts(env: TmuxEnv) -> None:
     assert (await env.turn(conn, ref, "fine"))["payload"]["reason"] == "complete"
 
 
+async def test_never_types_while_an_attached_person_is_typing(env: TmuxEnv) -> None:
+    import time
+
+    conn = Conn()
+    ref = (await env.create(conn))["ref"]
+    channel = env.manager._records[("claude", ref["id"])].channel
+    assert isinstance(channel, ClaudeTmuxChannel) and channel.server is not None
+    assert channel.session_name is not None
+    # Nobody attached: tmux reports no client activity at all.
+    assert await channel.server.last_client_activity(channel.session_name) is None
+    real = channel.server.last_client_activity
+
+    async def typing_now(_name: str) -> float:
+        return time.time()
+
+    channel.server.last_client_activity = typing_now  # type: ignore[method-assign]
+    with pytest.raises(ExternalError) as caught:
+        await env.manager.send("claude", ref["id"], "not now", conn=conn)
+    assert caught.value.code == errors.SESSION_BUSY
+    assert [e for e in fake_log(env.log) if e["kind"] == "prompt"] == []
+    channel.server.last_client_activity = real  # type: ignore[method-assign]
+    assert (await env.turn(conn, ref, "now"))["payload"]["reason"] == "complete"
+
+
 async def test_approvals_are_answered_by_the_person(env: TmuxEnv) -> None:
     conn = Conn()
     with env_vars(FAKE_CLI_SCENARIO="approval"):
