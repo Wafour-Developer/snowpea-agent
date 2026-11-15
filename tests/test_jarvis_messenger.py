@@ -315,18 +315,20 @@ async def test_a_wake_is_shown_as_a_system_message_never_as_the_person(rig: Rig)
     assert len(seen.prompts()) == shown_before
 
 
-async def test_a_group_member_reaches_jarvis_as_another_member(rig: Rig) -> None:
+async def test_a_group_member_never_reaches_jarvis(rig: Rig) -> None:
+    # Security review H3 (the owner's rule): with Jarvis routing on, only the
+    # bound person talks to Jarvis; another member hears that, once in a while.
     jarvis = await rig.jarvis_on()
     seen = _Events()
     rig.core.hub.subscribe(seen, jarvis.id)
-    await rig.says("do the thing", user=MEMBER)
+    assert "owner" in await rig.says("do the thing", user=MEMBER)
+    before = len(rig.adapter.sent)
+    await rig.adapter.push("again", channel_id="c1", user_id=MEMBER)
+    await rig.quiet(before)  # rate-limited: no second notice
     await rig.says("and this", user=PERSON)
-    member, person = seen.prompts()
-    assert member["origin"] == {"kind": "gateway", "surface": "telegram"}
+    (person,) = seen.prompts()
     assert person["origin"] == {"kind": "human", "surface": "telegram"}
-    # Only the person's words are a human turn, so only they can start a proposal.
-    turns = jarvis.turn_origins
-    assert list(turns.values())[-2:] == ["member", "human"]
+    assert list(jarvis.turn_origins.values()) == ["human"]
 
 
 async def test_registry_commands_do_not_act_on_jarvis_and_resume_is_locked(rig: Rig) -> None:
@@ -671,10 +673,13 @@ async def test_jarvis_command_overview_takeover_and_handback_by_name(rig: Rig) -
     assert rig.core.jarvis.engine.pause_state(worker.id).paused
     assert "Login bug" in await rig.says("/status") and "taken over" in await rig.says("/sessions")
 
-    # Another member of the chat cannot hand it back, or switch Jarvis off.
-    assert "bound to this chat" in await rig.says("/jarvis handback login", user=MEMBER)
-    assert "bound to this chat" in await rig.says("/jarvis off", user=MEMBER)
+    # Another member of the chat cannot hand it back, or switch Jarvis off: in
+    # Jarvis mode nothing they write reaches it (security review 2, H3).
+    assert "owner" in await rig.says("/jarvis handback login", user=MEMBER)
+    await rig.adapter.push("/jarvis off", channel_id="c1", user_id=MEMBER)
+    await asyncio.sleep(0.2)
     assert rig.core.settings.jarvis.enabled
+    assert rig.core.jarvis.engine.pause_state(worker.id).paused
     back = await rig.says("/jarvis handback Login bug")
     assert "handed back" in back
     assert not rig.core.jarvis.engine.pause_state(worker.id).paused

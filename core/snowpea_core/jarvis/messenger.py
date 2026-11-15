@@ -328,6 +328,34 @@ class MessengerBridge:
     def resolved(self, request_id: str) -> None:
         self._posted = {key for key in self._posted if key[2] != request_id}
 
+    def hidden(self, request: dict[str, Any]) -> bool:
+        """The request comes from a project hidden from Jarvis (not forwarded by it)."""
+        service = self.service
+        core = self.router.core
+        if service is None or core is None:
+            return False
+        session = core.sessions.get(str(request.get("sessionId") or ""))
+        workdir = getattr(session, "workdir", None)
+        if workdir is None:
+            return False
+        try:
+            return bool(service.path_hidden(workdir))
+        except Exception:  # noqa: BLE001 - unknown is hidden
+            return True
+
+    async def _private_targets(self) -> list[tuple[Binding, str]]:
+        """``(binding, private chat)`` of every bound person Jarvis may write to (H3)."""
+        out = []
+        for binding in self.router.list():
+            if binding.state != "active" or not binding.user_id:
+                continue
+            channel = self.router.private_chat(binding)
+            if channel is None:
+                await self.router.no_private_chat(binding)
+                continue
+            out.append((binding, channel))
+        return out
+
     def label(self, request: dict[str, Any]) -> str:
         """``[title · project · s-1a2b3c]``: which session asks, as the person names it."""
         session_id = str(request.get("sessionId") or "")
@@ -444,12 +472,7 @@ class MessengerBridge:
             return
         head = "\U0001f5de️ Jarvis · briefing / 브리핑"
         where = f"{report} (Jarvis folder / 자비스 폴더)" if report else "the Jarvis folder"
-        for binding in self.router.list():
-            if binding.state != "active" or not binding.user_id:
-                continue
-            channel = self.router.owner_chat(binding)
-            if channel is None:
-                continue
+        for binding, channel in await self._private_targets():
             limit = min(self.router.message_limit(binding), BRIEFING_CHARS)
             pointer = f"\n\n(저장 / saved: {where})"
             body = f"{head}\n{text}"
@@ -495,12 +518,8 @@ class MessengerBridge:
             pointer = "…\n(/jarvis — 더 보기 / more)"
             text = text[: NOTICE_CHARS - len(pointer)] + pointer
         self._last_sent = asyncio.get_running_loop().time()
-        for binding in self.router.list():
-            if binding.state != "active" or not binding.user_id:
-                continue
-            channel = self.router.owner_chat(binding)
-            if channel is not None:
-                await self.router.send(binding, channel, text)
+        for binding, channel in await self._private_targets():
+            await self.router.send(binding, channel, text)
 
     # -- one-press confirmations (unrestricted mode seam) ------------------------
     def note_turn(self, turn_id: str, binding: Binding, message: InboundMessage) -> None:
@@ -572,8 +591,11 @@ class MessengerBridge:
         no bound person.  Only that person's press counts.
         """
         binding = self.router.get(binding_id)
-        channel = self.router.owner_chat(binding) if binding is not None else None
+        # Only in the person's private chat, never a group (security review H3).
+        channel = self.router.private_chat(binding) if binding is not None else None
         if binding is None or not binding.user_id or channel is None:
+            if binding is not None:
+                await self.router.no_private_chat(binding)
             return None
         if len(prompt.strip()) > CONFIRM_PROMPT_MAX:
             return None  # never ask the person to allow text they cannot see whole

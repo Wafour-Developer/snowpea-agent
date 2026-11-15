@@ -730,6 +730,15 @@ def _host_tools_connection(session: Any) -> Any:
     return conn
 
 
+#: Daemon-wide events only people's connections receive (security review L6).
+PERSON_ONLY_EVENTS: frozenset[str] = frozenset({"external.state", "external.clis.changed"})
+
+
+def person_only_event(method: str) -> bool:
+    """``jarvis.*``, ``external.state`` and ``external.clis.changed``."""
+    return method in PERSON_ONLY_EVENTS or method.startswith("jarvis.")
+
+
 class EventHub:
     """Assigns sequence numbers, persists events and fans them out."""
 
@@ -850,6 +859,13 @@ class EventHub:
         owner = self.sessions.get(session_id) if self.sessions is not None else None
         params["hostToolsFrom"] = getattr(owner, "host_tools_from", None)
         targets = self.subscribers_for(session_id)
+        if getattr(owner, "origin_surface", None) == "jarvis-task":
+            # A jarvis-task worker reads mail: its events reach people only (M6).
+            from snowpea_core.server.person_gate import is_person
+
+            targets = [
+                conn for conn in targets if is_person(conn) or not hasattr(conn, "client_kind")
+            ]
         if kind in HOST_LIFECYCLE_KINDS and owner is not None:
             host_conn = _host_tools_connection(owner)
             if host_conn is not None and not any(host_conn is conn for conn in targets):
@@ -867,13 +883,26 @@ class EventHub:
         return await self.emit(session_id, kind, payload)
 
     async def notify(self, method: str, params: dict[str, Any], *, exclude: Any = None) -> None:
-        """Send a plain notification to every subscribed connection."""
+        """Send a plain notification to every subscribed connection.
+
+        Jarvis's and the external CLIs' daemon-wide events (:func:`person_only_event`)
+        go to people's connections only: a browser host or the connector gets
+        what concerns its own sessions from the code that owns them (security
+        review L6).
+        """
         seen: list[Any] = []
         targets = [conn for conn, _ in self._subscribers] + self._clients
+        people_only = person_only_event(method)
+        if people_only:
+            from snowpea_core.server.person_gate import is_person
         for conn in targets:
             if conn is exclude or any(other is conn for other in seen):
                 continue
             if getattr(conn, "closed", False):
+                continue
+            if people_only and hasattr(conn, "client_kind") and not is_person(conn):
+                # A client connection that is not a person (in-process listeners,
+                # which have no client kind, still hear everything).
                 continue
             seen.append(conn)
             try:

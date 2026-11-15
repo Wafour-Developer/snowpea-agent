@@ -139,9 +139,9 @@ def _exposed(project: str | None) -> bool:
     try:
         from snowpea_core.config.project import ProjectSettings
 
-        return bool(ProjectSettings.load(Path(project)).jarvis.expose)
-    except Exception:  # noqa: BLE001 - an unreadable project file keeps the default
-        return True
+        return ProjectSettings.exposed(Path(project))
+    except Exception:  # noqa: BLE001 - fail closed (security review M2)
+        return False
 
 
 def _state(core: Core, session_id: str | None, external: Any, project: str | None) -> Any:

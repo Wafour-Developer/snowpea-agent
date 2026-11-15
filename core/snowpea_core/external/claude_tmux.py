@@ -36,6 +36,7 @@ import stat
 import subprocess
 import sys
 import time
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -172,7 +173,8 @@ def tty_of(pid: int) -> str | None:
             return target if target.startswith("/dev/") else None
         return None
     try:
-        out = subprocess.run(["ps", "-o", "tty=", "-p", str(pid)], capture_output=True,
+        ps = proc.trusted_tool("ps") or "/bin/ps"
+        out = subprocess.run([ps, "-o", "tty=", "-p", str(pid)], capture_output=True,
                              text=True, timeout=5, check=False).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return None
@@ -246,19 +248,23 @@ class Tmux:
         return code, out.decode("utf-8", "replace")
 
     async def pane_info(self, pane: str) -> dict[str, str] | None:
-        """``{pane, pid, tty, session}`` of a live pane, or ``None``."""
+        """``{pane, pid, tty, session, command, path}`` of a live pane, or ``None``."""
         validate_pane(pane)
         code, out = await self.run(
             "display-message", "-p", "-t", pane,
-            "#{pane_id}\t#{pane_pid}\t#{pane_tty}\t#{session_name}\t#{pane_dead}",
+            "#{pane_id}\t#{pane_pid}\t#{pane_tty}\t#{session_name}\t#{pane_dead}"
+            "\t#{pane_current_command}\t#{pane_current_path}",
             check=False,
         )
         if code != 0:
             return None
-        parts = out.strip().split("\t")
-        if len(parts) != 5 or parts[0] != pane or parts[4] == "1":
+        parts = out.rstrip("\n").split("\t", 6)
+        if len(parts) == 5:
+            parts += ["", ""]
+        if len(parts) != 7 or parts[0] != pane or parts[4] == "1":
             return None
-        return {"pane": parts[0], "pid": parts[1], "tty": parts[2], "session": parts[3]}
+        return {"pane": parts[0], "pid": parts[1], "tty": parts[2], "session": parts[3],
+                "command": parts[5], "path": parts[6]}
 
     async def has_session(self, name: str) -> bool:
         code, _ = await self.run("has-session", "-t", f"={name}", check=False)
@@ -304,13 +310,29 @@ def _scope_prefix() -> list[str]:
     """Run a new tmux server outside the daemon's systemd unit (S5 §7)."""
     if not sys.platform.startswith("linux") or not os.environ.get("INVOCATION_ID"):
         return []
-    runner = shutil.which("systemd-run")
+    runner = proc.trusted_tool("systemd-run")
     return [runner, "--user", "--scope", "--quiet", "--collect"] if runner else []
 
 
 def refuse_text(text: str) -> None:
-    """Prompts the shared terminal cannot take."""
-    stripped = text.lstrip()
+    """Prompts the shared terminal cannot take.
+
+    Leading whitespace, format characters (U+FEFF, U+200B, …) and controls are
+    skipped before the ``/`` ``!`` check (security review L7), and a prompt
+    that starts with a format character is refused outright: what a terminal
+    shows first must be what it reads first.
+    """
+    if text[:1] and unicodedata.category(text[0]) == "Cf":
+        raise ExternalError(
+            errors.INVALID_PARAMS, "prompt starts with an invisible formatting character"
+        )
+    start = 0
+    while start < len(text) and (
+        text[start].isspace()
+        or unicodedata.category(text[start]) in ("Cf", "Cc", "Zs", "Zl", "Zp")
+    ):
+        start += 1
+    stripped = text[start:]
     if not stripped:
         raise ExternalError(errors.INVALID_PARAMS, "empty prompt")
     if stripped[0] in ("/", "!"):
@@ -321,7 +343,7 @@ def refuse_text(text: str) -> None:
         )
     if len(text) > MAX_PROMPT_CHARS:
         raise ExternalError(errors.INVALID_PARAMS, "prompt is too long for the terminal")
-    if any((ord(ch) < 32 and ch not in "\n\t") or ord(ch) == 127 for ch in text):
+    if any((ord(ch) < 32 and ch not in "\n\t") or 127 <= ord(ch) <= 159 for ch in text):
         raise ExternalError(errors.INVALID_PARAMS,
                             "prompt contains control characters a terminal would act on")
 
@@ -338,6 +360,11 @@ class ClaudeTmuxChannel(ExternalChannel):
         self.pane: str | None = None
         self.session_name: str | None = None
         self.claude_pid: int | None = None
+        #: The Claude Code process's start time (pid reuse check before each send).
+        self.claude_start: str | None = None
+        #: The mode the process really runs in when it differs from the one asked
+        #: (an adopted pane started with a bypass flag); the manager reports it.
+        self.actual_mode: str | None = None
         #: snowpea started this pane (and may stop it); adopted panes are the person's.
         self.owned = False
         self.closing = False
@@ -423,6 +450,7 @@ class ClaudeTmuxChannel(ExternalChannel):
         self.session_name = name
         self.pane = parts[1]
         self.claude_pid = int(parts[2])
+        self.claude_start = proc.process_start_time(self.claude_pid)
         self.owned = True
         self.dead = False
         self.started_mode = self.mode
@@ -489,15 +517,29 @@ class ClaudeTmuxChannel(ExternalChannel):
                 "this Claude Code session runs in a tmux pane snowpea cannot reach; "
                 "continue it there",
             )
+        # The process must be the pinned Claude Code (security review M5), not
+        # whatever a status file in ~/.claude names.
+        start_time = proc.process_start_time(pid)
+        if start_time is None or not proc.process_runs(pid, self.spec.executable.path):
+            raise ExternalError(
+                errors.EXTERNAL_VIEW_ONLY,
+                "the process in that tmux pane is not the Claude Code snowpea uses; "
+                "continue it there",
+            )
+        bypass = any(proc.is_dangerous(arg) for arg in proc.process_argv(pid))
         # Person-only: never Jarvis, never the engine, never an unattended rule.
         answer = await self.host_api.ask_approval(ApprovalAsk(
             tool="tmux.adopt",
-            # ApprovalRequest.args of tmux.adopt (1.53.0): exactly these keys.
+            # ApprovalRequest.args of tmux.adopt (1.53.0): these keys; paneCommand
+            # and paneCwd (what tmux says runs there) added by the security review.
             args={
                 "cli": "claude",
                 "sessionId": self.session_id,
                 "tmux": {"session": info["session"], "pane": info["pane"]},
                 "cwd": str(self.spec.cwd),
+                "paneCommand": info.get("command") or "",
+                "paneCwd": info.get("path") or "",
+                "unrestricted": bypass,
             },
             risk="high",
             note=("snowpea will type into this tmux pane, which you started yourself; "
@@ -511,11 +553,35 @@ class ClaudeTmuxChannel(ExternalChannel):
         self.pane = info["pane"]
         self.session_name = info["session"]
         self.claude_pid = pid
+        self.claude_start = start_time
         self.owned = False
         self.dead = False
+        if bypass:
+            # Started with a permission bypass: snowpea cannot gate it, whatever
+            # mode was asked for (controlled: false; only the person sends).
+            self.mode = "unrestricted"
+            self.actual_mode = "unrestricted"
         self.started_mode = self.mode
         self.started_grant = self.grant
         self.tmux = {"session": info["session"], "pane": info["pane"]}
+
+    async def _verify_pane(self) -> None:
+        """Right before typing: still the same Claude Code process in the same pane (M5)."""
+        assert self.server is not None and self.pane is not None
+        pid = self.claude_pid
+        if (
+            pid is None
+            or (self.claude_start is not None and proc.process_start_time(pid) != self.claude_start)
+            or not proc.process_runs(pid, self.spec.executable.path)
+        ):
+            raise unavailable("the process in the tmux pane changed; snowpea will not type into it")
+        info = await self.server.pane_info(self.pane)
+        if info is None:
+            raise unavailable("the tmux pane is gone")
+        if info.get("pid") != str(pid):
+            tty = None if self.owned else tty_of(pid)
+            if not tty or info.get("tty") != tty:
+                raise unavailable("the tmux pane changed; snowpea will not type into it")
 
     # -- watching -----------------------------------------------------------------
     async def _poll(self) -> None:
@@ -630,6 +696,7 @@ class ClaudeTmuxChannel(ExternalChannel):
                                     "someone is typing in the terminal; try again in a moment",
                                     {"reason": BUSY_TERMINAL_TYPING})
         await self._poll()
+        await self._verify_pane()
         self._prompts_before = self.tail.converter.prompts
         self.tail.converter.expect_prompt = text
         self._turn_started = False

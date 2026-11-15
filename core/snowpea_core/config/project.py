@@ -195,6 +195,25 @@ class ProjectSettings(BaseModel):
             log.warning("ignoring invalid project settings at %s", path, exc_info=True)
             return cls()
 
+    @classmethod
+    def exposed(cls, workdir: Path | str) -> bool:
+        """``jarvis.expose`` for the exposure decision only, failing closed (security review M2).
+
+        No settings file: exposed (the default).  A file that exists but cannot
+        be read, parsed or validated: hidden — a broken file never shows a
+        project the person may have hidden.
+        """
+        path = cls.path_for(workdir)
+        try:
+            if not path.exists():
+                return True
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                return False
+            return bool(cls.model_validate(raw).jarvis.expose)
+        except (OSError, ValueError, ValidationError, RecursionError):
+            return False
+
     def save(self, workdir: Path | str) -> Path:
         """Write the project settings file, creating ``.snowpea/`` if needed."""
         path = self.path_for(workdir)

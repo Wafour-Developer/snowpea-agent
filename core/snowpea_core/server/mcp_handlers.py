@@ -395,6 +395,17 @@ def preset_entry(preset: str | None) -> dict[str, Any]:
     return dict(row["entry"])
 
 
+def _guard_read_tag(conn: RpcConnection | None, permission: str | None) -> None:
+    """Tagging a server ``read`` makes its tools run unasked (and safe for Jarvis):
+    only a person at a local connection may do that over RPC (security review H2).
+    Narrower tags (``network``, ``send``, ``secret``) stay open to every caller."""
+    if conn is None or permission != "read":
+        return
+    from snowpea_core.server.person_gate import require_person
+
+    require_person(conn, "tag an MCP server 'read'", local=True)
+
+
 async def set_permission(core: Core, name: str, permission: str) -> None:
     """Persist ``mcp.permissions[name]``; the tag lives in settings, not in the file."""
     current = core.settings.model_dump(mode="json")
@@ -520,6 +531,7 @@ async def mcp_add_handler(
     _conn: RpcConnection | None, params: McpAddParams, core: Core
 ) -> McpAddResult:
     """``mcp.add`` — validate, probe, write the file, then start the server."""
+    _guard_read_tag(_conn, params.permission)
     try:
         name = mcp_config.validate_name(params.name)
         entry = mcp_config.validate_entry(entry_from(params, preset_entry(params.preset)))
@@ -627,6 +639,7 @@ async def mcp_update_handler(
     _conn: RpcConnection | None, params: McpUpdateParams, core: Core
 ) -> Ok:
     """``mcp.update`` — merge a patch into an entry and restart the server."""
+    _guard_read_tag(_conn, params.patch.permission)
     workdir = workdir_of(core, params.sessionId, params.workdir)
     scope = scope_for(core, params.name, params.scope, workdir)
     path = _writable(core, params.name, scope, workdir)

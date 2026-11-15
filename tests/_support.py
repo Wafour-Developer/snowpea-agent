@@ -282,6 +282,32 @@ class RpcClient:
             await asyncio.sleep(0.02)
 
 
+def pinned_cli(path: Path) -> dict[str, str]:
+    """A CLI ``path`` override the person already confirmed (security review H2)."""
+    return {"path": str(path), "confirmedPath": str(Path(path).resolve())}
+
+
+def delegate_everything(core: Any) -> Any:
+    """What ``jarvis.delegation.default = "full"`` used to do: a person's global full grant.
+
+    Since the security review (H2) ``full`` is never a settings value; the
+    person grants it through ``jarvis.delegation.set``.
+    """
+    from snowpea_core.jarvis.delegation import Caller, engine_for
+
+    grant, _ = engine_for(core).set_grant(
+        "global", None, "full", [], caller=Caller(kind="connection", surface="ide")
+    )
+    return grant
+
+
+def undelegate(core: Any, grant: Any) -> None:
+    """Back to the staged default: the person revokes the global grant."""
+    from snowpea_core.jarvis.delegation import Caller, engine_for
+
+    engine_for(core).revoke(grant.id, caller=Caller(kind="connection", surface="ide"))
+
+
 async def make_daemon(home: Path, settings: dict[str, Any] | None = None) -> Daemon:
     """Start a daemon on an ephemeral port, optionally with a settings file."""
     home.mkdir(parents=True, exist_ok=True)

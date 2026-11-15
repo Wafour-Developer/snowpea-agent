@@ -62,13 +62,13 @@ def _rpc_error(exc: JarvisError) -> RpcError:
 
 
 async def jarvis_status_handler(
-    _conn: RpcConnection | None, _params: Empty, core: Core
+    conn: RpcConnection | None, _params: Empty, core: Core
 ) -> JarvisStatusResult:
     return await service_of(core).status()
 
 
 async def jarvis_enable_handler(
-    _conn: RpcConnection | None, params: JarvisEnableParams, core: Core
+    conn: RpcConnection | None, params: JarvisEnableParams, core: Core
 ) -> JarvisStatusResult:
     service = service_of(core)
     try:
@@ -79,7 +79,7 @@ async def jarvis_enable_handler(
 
 
 async def jarvis_disable_handler(
-    _conn: RpcConnection | None, _params: Empty, core: Core
+    conn: RpcConnection | None, _params: Empty, core: Core
 ) -> JarvisStatusResult:
     service = service_of(core)
     try:
@@ -90,7 +90,7 @@ async def jarvis_disable_handler(
 
 
 async def jarvis_overview_handler(
-    _conn: RpcConnection | None, params: JarvisOverviewParams, core: Core
+    conn: RpcConnection | None, params: JarvisOverviewParams, core: Core
 ) -> JarvisOverviewResult:
     service = service_of(core)
     try:
@@ -106,13 +106,13 @@ async def jarvis_overview_handler(
 
 
 async def jarvis_project_list_handler(
-    _conn: RpcConnection | None, _params: Empty, core: Core
+    conn: RpcConnection | None, _params: Empty, core: Core
 ) -> JarvisProjectListResult:
     return JarvisProjectListResult(projects=await service_of(core).projects.list())
 
 
 async def jarvis_project_rename_handler(
-    _conn: RpcConnection | None, params: JarvisProjectRenameParams, core: Core
+    conn: RpcConnection | None, params: JarvisProjectRenameParams, core: Core
 ) -> JarvisProjectResult:
     try:
         project = await service_of(core).projects.rename(params.root, params.name)
@@ -122,7 +122,7 @@ async def jarvis_project_rename_handler(
 
 
 async def jarvis_project_alias_handler(
-    _conn: RpcConnection | None, params: JarvisProjectAliasParams, core: Core
+    conn: RpcConnection | None, params: JarvisProjectAliasParams, core: Core
 ) -> JarvisProjectResult:
     try:
         project = await service_of(core).projects.alias(params.root, params.add, params.remove)
@@ -132,7 +132,7 @@ async def jarvis_project_alias_handler(
 
 
 async def jarvis_escalations_list_handler(
-    _conn: RpcConnection | None, params: JarvisEscalationsListParams, core: Core
+    conn: RpcConnection | None, params: JarvisEscalationsListParams, core: Core
 ) -> JarvisEscalationsListResult:
     try:
         items, next_before = service_of(core).escalations.page(
@@ -150,7 +150,7 @@ async def jarvis_escalations_list_handler(
 
 
 async def jarvis_escalations_dismiss_handler(
-    _conn: RpcConnection | None, params: JarvisEscalationsDismissParams, core: Core
+    conn: RpcConnection | None, params: JarvisEscalationsDismissParams, core: Core
 ) -> JarvisEscalationsDismissResult:
     if not params.all and not params.ids:
         raise RpcError(errors.INVALID_PARAMS, "give ids or all: true")

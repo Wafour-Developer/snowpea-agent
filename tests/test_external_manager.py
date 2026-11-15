@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from _external_adapter import FAKE_CLAUDE, FakeClaudeAdapter
-from _support import env_vars
+from _support import env_vars, pinned_cli
 
 from snowpea_core.config.settings import Settings
 from snowpea_core.external import proc
@@ -88,7 +88,7 @@ async def until(predicate: Callable[[], Any], timeout: float = 10.0) -> Any:
 
 def _settings(**cli: Any) -> Settings:
     return Settings.model_validate(
-        {"jarvis": {"external": {"clis": {"claude": {"path": str(FAKE_CLAUDE), **cli}}}}}
+        {"jarvis": {"external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE), **cli}}}}}
     )
 
 
@@ -176,7 +176,7 @@ async def test_clis_reports_the_installed_adapter(env: Env) -> None:
     assert claude["capabilities"]["approvals"] == "bridged"
     assert not rows["codex"]["installed"]
     env.settings = Settings.model_validate(
-        {"jarvis": {"external": {"clis": {"claude": {"path": str(FAKE_CLAUDE),
+        {"jarvis": {"external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE),
                                                      "enabled": False}}}}}
     )
     with pytest.raises(ExternalError) as caught:

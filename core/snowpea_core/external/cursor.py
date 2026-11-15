@@ -250,7 +250,7 @@ def _first_line(text: str, limit: int = 80) -> str:
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
     return value if isinstance(value, dict) else None
 
@@ -261,17 +261,42 @@ def _records(path: Path, limit_bytes: int | None = None) -> list[dict[str, Any]]
             raw = handle.read(limit_bytes) if limit_bytes else handle.read()
     except OSError:
         return []
+    return _parse_lines(raw.split(b"\n"))
+
+
+#: Most bytes one live-tail look reads; a longer gain is read over several looks.
+_TAIL_BYTES = 4 * 1024 * 1024
+#: Longest transcript line parsed; a longer one is skipped (security review L1).
+_MAX_LINE_BYTES = 16 * 1024 * 1024
+
+
+def _parse_lines(lines: list[bytes]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for line in raw.decode("utf-8", "replace").splitlines():
-        if not line.strip():
+    for line in lines:
+        if not line.strip() or len(line) > _MAX_LINE_BYTES:
             continue
         try:
-            value = json.loads(line)
-        except ValueError:
+            value = json.loads(line.decode("utf-8", "replace"))
+        except (ValueError, RecursionError):
             continue
         if isinstance(value, dict):
             out.append(value)
     return list(TRANSCRIPT_FILTER.apply(out, _record_kind))
+
+
+def _records_tail(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
+    """Complete records after byte ``offset`` (filtered) and the new offset (L2)."""
+    try:
+        with path.open("rb") as handle:
+            handle.seek(offset)
+            raw = handle.read(_TAIL_BYTES)
+    except OSError:
+        return [], offset
+    end = raw.rfind(b"\n")
+    if end < 0:
+        # No complete line yet; a line longer than one look is skipped whole.
+        return ([], offset + len(raw)) if len(raw) >= _TAIL_BYTES else ([], offset)
+    return _parse_lines(raw[:end].split(b"\n")), offset + end + 1
 
 
 def _write_diff(path: str, contents: str) -> str:
@@ -388,8 +413,8 @@ def _holders_linux(prefix: str) -> dict[str, set[int]]:
 def _holders_lsof(target: str) -> set[int]:
     try:
         out = subprocess.run(
-            ["lsof", "-t", "--", target], capture_output=True, text=True, timeout=5,
-            check=False,
+            [proc.trusted_tool("lsof") or "/usr/sbin/lsof", "-t", "--", target],
+            capture_output=True, text=True, timeout=5, check=False,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return set()
@@ -417,8 +442,8 @@ def tagged_pids(tags: set[str] | frozenset[str]) -> set[int]:
         return set()
     try:  # pragma: no cover - macOS / BSD: ``ps -E`` shows our own processes' environment
         out = subprocess.run(
-            ["ps", "-E", "-ww", "-x", "-o", "pid=,command="], capture_output=True, text=True,
-            timeout=5, check=False,
+            [proc.trusted_tool("ps") or "/bin/ps", "-E", "-ww", "-x", "-o", "pid=,command="],
+            capture_output=True, text=True, timeout=5, check=False,
         ).stdout
     except (OSError, subprocess.SubprocessError):  # pragma: no cover
         return set()
@@ -977,7 +1002,7 @@ class CursorAdapter(ExternalAdapter):
             return None
         try:
             value = json.loads(out)
-        except ValueError:
+        except (ValueError, RecursionError):
             return None if code == 0 else False
         if not isinstance(value, dict):
             return None
@@ -1136,21 +1161,44 @@ class CursorAdapter(ExternalAdapter):
     async def follow(
         self, info: SessionInfo, *, interval: float = 1.0
     ) -> AsyncIterator[list[TimelineItem]]:
-        """Re-read the transcript whenever it grows (it is append-only)."""
-        last: tuple[int, float] | None = None
+        """Read what the transcript gained since the last look (it is append-only).
+
+        Bounded reads from a byte offset (security review L2): only complete new
+        lines, at most :data:`_TAIL_BYTES` per look; a file that shrank is read
+        again from the start.  Keys come from record positions, so the first
+        look (from offset 0) repeats what the open already showed and the
+        manager drops those copies.
+        """
+        offset = 0
+        count = 0
+        path: Path | None = None
         while True:
             await asyncio.sleep(interval)
             fresh = await self.get_session(info.id) or info
             transcript = fresh.extra.get("transcript") if fresh.extra else None
-            try:
-                stat = Path(transcript).stat() if transcript else None
-            except OSError:
-                stat = None
-            mark = (stat.st_size, stat.st_mtime) if stat is not None else None
-            if mark is not None and mark == last:
+            current = Path(transcript) if transcript else None
+            if current is None:
                 continue
-            last = mark
-            yield await self.read(fresh)
+            if current != path:
+                path, offset, count = current, 0, 0
+            try:
+                size = current.stat().st_size
+            except OSError:
+                continue
+            if size < offset:
+                offset, count = 0, 0
+            if size == offset:
+                continue
+            records, offset = await asyncio.to_thread(_records_tail, current, offset)
+            if not records:
+                continue
+            created = fresh.extra.get("createdAtMs") if fresh.extra else None
+            items = convert_transcript(
+                records, TimelineBuilder(self.id, fresh.id), fresh.id, start=count,
+                fallback_ts=iso_from_ms(created) if created else None,
+            )
+            count += len(records)
+            yield items
 
     # -- liveness ---------------------------------------------------------
     def _store_db(self, info: SessionInfo) -> str:
@@ -1203,16 +1251,17 @@ class CursorAdapter(ExternalAdapter):
 
 def convert_transcript(
     records: list[dict[str, Any]], builder: TimelineBuilder, chat_id: str,
-    *, fallback_ts: str | None = None,
+    *, fallback_ts: str | None = None, start: int = 0,
 ) -> list[TimelineItem]:
     """A cursor transcript (already filtered) as timeline items, oldest first.
 
     Keys come from the record's position (the file is append-only), so a
-    re-read or a live tail yields no duplicates.  Tool calls have no ids and no
-    results in the transcript: each call is shown completed with no output.
+    re-read or a live tail yields no duplicates; ``start`` is the position of
+    ``records[0]`` (a tail read).  Tool calls have no ids and no results in the
+    transcript: each call is shown completed with no output.
     """
     ts = fallback_ts
-    for index, record in enumerate(records):
+    for index, record in enumerate(records, start):
         role = record.get("role")
         if record.get("type") == "turn_ended":
             if record.get("error") or record.get("status") not in (None, "success"):

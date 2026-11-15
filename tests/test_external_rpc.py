@@ -13,7 +13,7 @@ import aiohttp
 import pytest
 import pytest_asyncio
 from _external_adapter import FAKE_CLAUDE, FakeClaudeAdapter
-from _support import RpcClient, connect, env_vars, make_daemon
+from _support import RpcClient, connect, env_vars, make_daemon, pinned_cli
 
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.server.external_handlers import ensure_manager
@@ -21,7 +21,7 @@ from snowpea_core.server.protocol import CAPABILITIES, PROTOCOL_VERSION
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX fake CLIs")
 
-SETTINGS = {"jarvis": {"external": {"clis": {"claude": {"path": str(FAKE_CLAUDE)}}}}}
+SETTINGS = {"jarvis": {"external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE)}}}}}
 
 
 @pytest_asyncio.fixture
@@ -144,7 +144,8 @@ async def test_end_to_end_with_an_adapter(daemon: Daemon, http: aiohttp.ClientSe
         listed = await ide.ok("external.list", {"cwd": str(project)})
         assert [s["ref"] for s in listed["sessions"]] == [ref]
         mode = await agent.call("external.setMode", {"ref": ref, "mode": "unrestricted"})
-        assert _code(mode) == "jarvis_person_only"
+        # The connector does not watch it: it does not exist for it (security review L6).
+        assert _code(mode) == "not_found"
         switched = await ide.ok("external.setMode", {"ref": ref, "mode": "unrestricted"})
         assert switched["session"]["controlled"] is False
         ledger = Path(daemon.paths.home) / "jarvis" / "ledger.jsonl"

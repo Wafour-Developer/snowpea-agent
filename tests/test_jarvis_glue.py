@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from _external_adapter import FAKE_CLAUDE
-from _support import env_vars, make_daemon
+from _support import env_vars, make_daemon, pinned_cli
 
 from snowpea_core.external.claude import ClaudeAdapter
 from snowpea_core.gateway.fake import FakeAdapter
@@ -145,7 +145,7 @@ async def _rig(tmp_path: Path, **jarvis: Any) -> Rig:
     settings = {
         "jarvis": {
             "folder": str(tmp_path / "JarvisFolder"),
-            "external": {"clis": {"claude": {"path": str(FAKE_CLAUDE)}}},
+            "external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE)}}},
             **jarvis,
         }
     }
@@ -251,16 +251,17 @@ async def test_no_unrestricted_session_without_the_bound_persons_press(tmp_path:
         assert not refused.ok and "person's own choice" in refused.error
         assert _warnings(rig.adapter) == []
 
-        # Another member of the chat asking: their turn is not the person's.
+        # Another member of the chat asking never reaches Jarvis (security review 2, H3).
+        before = len(rig.adapter.sent)
         await rig.adapter.push(ASK, channel_id="c1", user_id=MEMBER)
-        await _wait(lambda: rig.provider.results)
-        await _idle(jarvis)
-        assert "person's own choice" in rig.provider.results[-1]
-        assert _warnings(rig.adapter) == []
+        notice = await rig.adapter.wait_for_send(TIMEOUT, count=before + 1)
+        assert "owner" in notice.text
+        await asyncio.sleep(0.2)
+        assert rig.provider.results == [] and _warnings(rig.adapter) == []
 
         # The bound person, but nobody presses in time.
         await rig.adapter.push(ASK, channel_id="c1", user_id=PERSON)
-        await _wait(lambda: len(rig.provider.results) == 2)
+        await _wait(lambda: len(rig.provider.results) == 1)
         await _idle(jarvis)
         assert "no answer in time" in rig.provider.results[-1]
         assert len(_warnings(rig.adapter)) == 1
@@ -269,14 +270,14 @@ async def test_no_unrestricted_session_without_the_bound_persons_press(tmp_path:
         await rig.adapter.push(ASK, channel_id="c1", user_id=PERSON)
         warning = (await _wait(lambda: _warnings(rig.adapter)[1:]))[0]
         await rig.adapter.press(warning.button_data()[1], channel_id=warning.channel_id)
-        await _wait(lambda: len(rig.provider.results) == 3)
+        await _wait(lambda: len(rig.provider.results) == 2)
         await _idle(jarvis)
         assert "declined" in rig.provider.results[-1]
 
         # With jarvis.messenger.allowGrants off nothing is even asked.
         core.settings.jarvis.messenger.allowGrants = False
         await rig.adapter.push(ASK, channel_id="c1", user_id=PERSON)
-        await _wait(lambda: len(rig.provider.results) == 4)
+        await _wait(lambda: len(rig.provider.results) == 3)
         await _idle(jarvis)
         assert "allowGrants" in rig.provider.results[-1]
         assert len(_warnings(rig.adapter)) == 2
@@ -399,7 +400,9 @@ async def test_handback_from_a_messenger_does_not_need_allow_grants(tmp_path: Pa
 
         assert "handback" in await says("/jarvis takeover login")
         assert core.jarvis.engine.pause_state(worker.id).paused
-        assert "bound to this chat" in await says("/jarvis handback login", user=MEMBER)
+        # Another member reaches nothing in Jarvis mode (security review 2, H3).
+        assert "owner" in await says("/jarvis handback login", user=MEMBER)
+        assert core.jarvis.engine.pause_state(worker.id).paused
         assert "handed back" in await says("/jarvis handback login")
         assert not core.jarvis.engine.pause_state(worker.id).paused
         # Grants still need the setting.

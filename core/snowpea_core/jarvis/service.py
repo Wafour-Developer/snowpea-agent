@@ -35,6 +35,7 @@ import contextlib
 import hashlib
 import logging
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -98,18 +99,34 @@ _SENSITIVE_HOME_DIRS = (
 def jarvis_folder_problem(
     folder: str | os.PathLike[str], home: str | os.PathLike[str] | None,
     user_home: str | os.PathLike[str] | None = None,
+    roots: Iterable[str] = (),
 ) -> str | None:
     """Why ``folder`` may not be Jarvis's folder, or ``None`` when it may.
 
     Jarvis reads everything in its folder, so it must not be (or contain, or
     lie inside) ``$SNOWPEA_HOME`` or a credential directory such as ``~/.ssh``
-    — a folder at ``~`` would put snowpea's token and the keys in reach.
+    — a folder at ``~`` would put snowpea's token and the keys in reach.  Nor
+    may it be ``/``, the home folder or above it, a registered project root
+    (``roots``: its folder is Jarvis's write root, a project is not), or a
+    folder that holds a credential directory of its own (security review M9).
     """
     try:
         path = Path(os.path.realpath(os.path.expanduser(str(folder))))
         mine = Path(os.path.realpath(os.path.expanduser(str(user_home or Path.home()))))
     except (OSError, RuntimeError, ValueError):
         return "jarvis.folder could not be resolved"
+    if path.parent == path or path == mine or path in mine.parents:
+        return "jarvis.folder must be a folder of its own, not / or your home folder"
+    for root in roots:
+        with contextlib.suppress(OSError, RuntimeError, ValueError):
+            if path == Path(os.path.realpath(os.path.expanduser(str(root)))):
+                return (
+                    "jarvis.folder must not be a project folder; choose a folder of its own, "
+                    "such as ~/Snowpea/Jarvis"
+                )
+    for name in _SENSITIVE_HOME_DIRS:
+        if (path / name).exists():
+            return f"jarvis.folder must not contain a credential folder ({name})"
     guarded: list[tuple[Path, str]] = []
     if home is not None:
         guarded.append((Path(os.path.realpath(home)), "snowpea's home ($SNOWPEA_HOME)"))
@@ -269,7 +286,9 @@ class JarvisService:
                 path = Path(os.path.expanduser(folder.strip()))
                 if not path.is_absolute():
                     raise JarvisError("invalid_params", "folder must be an absolute path")
-                problem = jarvis_folder_problem(path, self.core.paths.home)
+                problem = jarvis_folder_problem(
+                    path, self.core.paths.home, roots=self.projects.known_roots()
+                )
                 if problem:
                     raise JarvisError("invalid_params", problem)
                 changed = changed or folder.strip() != settings.folder
@@ -396,7 +415,42 @@ class JarvisService:
         self.core.questions.router = self.route_question
         self._tick_task = asyncio.ensure_future(self._tick_loop())
         await self._sync_briefing()
+        await self._legacy_settings_notice()
         log.info("Jarvis mode running (session %s, folder %s)", session.id, self.folder())
+
+    async def _legacy_settings_notice(self) -> None:
+        """One escalation for settings values earlier betas accepted (security review H2).
+
+        A stored ``jarvis.delegation.default: "full"`` loads as ``staged`` and a
+        ``defaultMode: "unrestricted"`` as the CLI's own default; the person is
+        told how to grant that properly, and the migrated file is saved.
+        """
+        from snowpea_core.config.settings import take_legacy_values
+
+        found = take_legacy_values()
+        if not found:
+            return
+        parts = []
+        if any(item.startswith("jarvis.delegation.default") for item in found):
+            parts.append(
+                "jarvis.delegation.default was 'full'; it is now 'staged'. To let Jarvis decide "
+                "everything again, make a global grant with level 'full' in the Jarvis "
+                "delegation settings (your confirmation)."
+            )
+        if any(".defaultMode=" in item for item in found):
+            parts.append(
+                "an external CLI's defaultMode was 'unrestricted'; it now uses the CLI's own "
+                "default. Choose unrestricted for one session when you open or create it."
+            )
+        with contextlib.suppress(Exception):
+            await self._save_settings()
+        with contextlib.suppress(Exception):
+            await self.escalate(
+                reason="jarvis",
+                summary=" ".join(parts)[:900],
+                importance="high",
+                title="Jarvis settings changed for safety",
+            )
 
     async def _deactivate(self, *, close_session: bool) -> None:
         if self._tick_task is not None:
@@ -992,6 +1046,16 @@ class JarvisService:
         ).model_dump(mode="json")
         with contextlib.suppress(Exception):
             await self.core.hub.notify("jarvis.access", payload)
+        if host:
+            # The hub sends jarvis.* to people only (security review L6); the
+            # browser host that owns the session still sees its audit line.
+            from snowpea_core.server.person_gate import is_person
+
+            clients = getattr(self.core.hub, "clients", None)
+            for conn in clients() if callable(clients) else []:
+                if getattr(conn, "client_id", None) == host and not is_person(conn):
+                    with contextlib.suppress(Exception):
+                        await conn.notify("jarvis.access", payload)
         return payload
 
     def record_decision(self, **fields: Any) -> JarvisDecision:

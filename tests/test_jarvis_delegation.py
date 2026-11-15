@@ -87,9 +87,13 @@ def test_scope_precedence(engine: DelegationEngine) -> None:
     assert found.grant == external
 
 
-def test_the_default_level_follows_settings(engine: DelegationEngine, settings: Settings) -> None:
-    settings.jarvis.delegation.default = "full"
-    assert engine.effective("s-1", PROJECT).level == "full"
+def test_the_default_level_is_always_staged(engine: DelegationEngine, settings: Settings) -> None:
+    # Security review H2: "full" is a global grant, never a settings value.
+    settings.jarvis.delegation.default = "full"  # type: ignore[assignment]
+    assert engine.effective("s-1", PROJECT).level == "staged"
+    assert Settings.model_validate(
+        {"jarvis": {"delegation": {"default": "full"}}}
+    ).jarvis.delegation.default == "staged"
 
 
 def test_malformed_grants_are_refused(engine: DelegationEngine) -> None:
@@ -490,9 +494,12 @@ async def test_rpc_grants_are_person_only(tmp_path: Path, http: aiohttp.ClientSe
         grant = result["grant"]
         assert grant["grantedBy"] == "local" and grant["allow"] == ["deploy"]
         assert result["replaced"] is None
-        changed = await browser.wait_notification("jarvis.delegation.changed")
+        # jarvis.* events reach people's connections only (security review L6).
+        changed = await person.wait_notification("jarvis.delegation.changed")
+        assert not any(n.get("method") == "jarvis.delegation.changed"
+                       for n in browser.notifications)
         assert changed["reason"] == "set" and changed["grant"]["id"] == grant["id"]
-        listed = await browser.ok("jarvis.delegation.list", {"scope": "project"})
+        listed = await person.ok("jarvis.delegation.list", {"scope": "project"})
         assert [g["id"] for g in listed["grants"]] == [grant["id"]]
         assert listed["default"] == "staged"
         # A restriction under it: lifting that is the person's, even over RPC.
@@ -586,7 +593,7 @@ async def test_a_settings_write_does_not_touch_grants(
         await person.ok("system.reloadSettings")
         listed = await person.ok("jarvis.delegation.list")
         assert [g["id"] for g in listed["grants"]] == [grant["id"]]
-        assert listed["default"] == "full"
+        assert listed["default"] == "staged"  # a stored "full" loads as staged (H2)
         engine = engine_for(daemon.core)
         assert engine.effective("s-1").level == "staged"
         # And a worker's write to the store itself is never Jarvis's to allow.

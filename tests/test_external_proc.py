@@ -160,10 +160,14 @@ def test_env_is_scrubbed() -> None:
         "TELEGRAM_BOT_TOKEN": "t",
         "CLAUDECODE": "1",
         "CLAUDE_CODE_SIMPLE": "1",
-        "ANTHROPIC_API_KEY": "kept-for-the-cli",
+        "ANTHROPIC_API_KEY": "only-when-passEnv-names-it",
     }
     env = proc.scrubbed_env(base=base)
-    assert env == {"PATH": "/usr/bin", "HOME": "/home/x", "ANTHROPIC_API_KEY": "kept-for-the-cli"}
+    # An allowlist since the security review (L3): provider keys stay behind
+    # unless jarvis.external.clis.<id>.passEnv names them.
+    assert env == {"PATH": "/usr/bin", "HOME": "/home/x"}
+    named = proc.scrubbed_env(base=base, pass_env=["ANTHROPIC_API_KEY"])
+    assert named["ANTHROPIC_API_KEY"] == "only-when-passEnv-names-it"
     assert proc.scrubbed_env({"NO_COLOR": "1"}, base={})["NO_COLOR"] == "1"
     with pytest.raises(ExternalError):
         proc.scrubbed_env({"SNOWPEA_TOKEN": "x"}, base={})

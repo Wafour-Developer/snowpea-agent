@@ -18,7 +18,7 @@ from typing import Any
 import aiohttp
 import pytest
 from _external_adapter import FAKE_CLAUDE
-from _support import connect, env_vars, make_daemon
+from _support import connect, env_vars, make_daemon, pinned_cli
 
 from snowpea_core.external.claude import ClaudeAdapter
 from snowpea_core.jarvis import tools as jarvis_tools
@@ -36,7 +36,7 @@ def _settings(tmp_path: Path, **jarvis: Any) -> dict[str, Any]:
     return {
         "jarvis": {
             "folder": str(tmp_path / "JarvisFolder"),
-            "external": {"clis": {"claude": {"path": str(FAKE_CLAUDE)}}},
+            "external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE)}}},
             **jarvis,
         }
     }

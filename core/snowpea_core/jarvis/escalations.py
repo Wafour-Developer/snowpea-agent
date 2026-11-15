@@ -53,7 +53,11 @@ class EscalationBook:
             tmp = self.path.with_suffix(".json.tmp")
             # Created owner-only: the text is never readable by others, even
             # for the moment before a chmod.
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            # A fresh file every time, never through a symlink left in its place.
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(tmp, flags, 0o600)
             try:
                 with contextlib.suppress(OSError, AttributeError):
                     os.fchmod(fd, 0o600)

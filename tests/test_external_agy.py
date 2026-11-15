@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from _external_adapter import FAKE_CLIS
-from _support import env_vars
+from _support import env_vars, pinned_cli
 from test_external_manager import Conn, Hub, until
 
 from snowpea_core.config.settings import Settings
@@ -49,7 +49,7 @@ RECORDINGS = Path(__file__).parent / "fixtures" / "external_recordings" / "agy"
 
 def _settings(**cli: Any) -> Settings:
     return Settings.model_validate(
-        {"jarvis": {"external": {"clis": {"agy": {"path": str(FAKE_AGY), **cli}}}}}
+        {"jarvis": {"external": {"clis": {"agy": {**pinned_cli(FAKE_AGY), **cli}}}}}
     )
 
 
@@ -668,3 +668,52 @@ async def test_a_reread_history_does_not_repeat_snowpea_prompts(env: Env) -> Non
     await env.manager._publish(record, await env.adapter.read(record.info))
     users = [e["payload"]["text"] for e in conn.events() if e["kind"] == "message.user"]
     assert users == ["first prompt", "second prompt"]
+
+
+async def test_agent_requests_are_refused_and_permissions_bounded(env: Env) -> None:
+    """Security review 2 (agy ACP): fs/terminal refused, own session only, bounded asks."""
+    conn = Conn()
+    ref = (await _create(env, conn))["ref"]
+    channel = env.manager._records[("agy", ref["id"])].channel
+    assert isinstance(channel, AgyChannel)
+    acp = channel.conn
+    assert acp is not None
+    replies: list[tuple[Any, Any]] = []
+    errors_: list[tuple[Any, int]] = []
+
+    async def reply(rid: Any, result: Any) -> None:
+        replies.append((rid, result))
+
+    async def reply_error(rid: Any, code: int, message: str) -> None:
+        errors_.append((rid, code))
+
+    acp.reply = reply  # type: ignore[method-assign]
+    acp.reply_error = reply_error  # type: ignore[method-assign]
+    for method in ("fs/read_text_file", "fs/write_text_file", "terminal/create",
+                   "terminal/output", "session/something_new"):
+        await channel._on_request({"jsonrpc": "2.0", "id": method, "method": method,
+                                   "params": {"sessionId": channel.session_id, "path": "/x"}})
+    assert [code for _rid, code in errors_] == [-32601] * 5
+    started: list[Any] = []
+    gate = asyncio.Event()
+
+    async def slow(conn_: Any, rid: Any, params: Any) -> None:
+        started.append(rid)
+        await gate.wait()
+
+    channel._permission = slow  # type: ignore[method-assign]
+    # Another session's permission: cancelled, never asked.
+    await channel._on_request({"id": "x1", "method": "session/request_permission",
+                               "params": {"sessionId": "someone-else"}})
+    assert replies == [("x1", {"outcome": {"outcome": "cancelled"}})]
+    for index in range(agy_mod.MAX_OPEN_PERMISSIONS + 2):
+        await channel._on_request({"id": index, "method": "session/request_permission",
+                                   "params": {"sessionId": channel.session_id}})
+    await channel._on_request({"id": 0, "method": "session/request_permission",
+                               "params": {"sessionId": channel.session_id}})  # reused
+    await asyncio.sleep(0.05)
+    assert started == list(range(agy_mod.MAX_OPEN_PERMISSIONS))
+    assert [rid for rid, _ in replies[1:]] == [agy_mod.MAX_OPEN_PERMISSIONS,
+                                               agy_mod.MAX_OPEN_PERMISSIONS + 1]
+    gate.set()
+    await asyncio.sleep(0.05)

@@ -37,6 +37,9 @@ def _builder(session_id: str) -> trajectory.TrajectoryBuilder:
 async def session_trajectory_handler(
     _conn: RpcConnection | None, params: SessionTrajectoryParams, core: Core
 ) -> SessionTrajectoryResult:
+    from snowpea_core.server.person_gate import hide_task_worker
+
+    await hide_task_worker(_conn, core, params.sessionId)
     store = getattr(core, "store", None)
     if store is None:
         raise RpcError(errors.INTERNAL, "no session store")

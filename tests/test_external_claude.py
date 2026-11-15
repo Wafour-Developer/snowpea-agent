@@ -36,7 +36,7 @@ from _claude_support import (
     write_transcript,
 )
 from _external_adapter import FAKE_CLAUDE
-from _support import env_vars
+from _support import env_vars, pinned_cli
 
 from snowpea_core.config.settings import Settings
 from snowpea_core.external import claude as claude_mod
@@ -111,7 +111,7 @@ class Env:
         self.project = (tmp_path / "proj").resolve()
         self.project.mkdir(parents=True)
         self.settings = Settings.model_validate(
-            {"jarvis": {"external": {"clis": {"claude": {"path": str(FAKE_CLAUDE)}}}}}
+            {"jarvis": {"external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE)}}}}}
         )
         self.hub = Hub()
         self.approvals = ApprovalQueue(self.settings, hub=self.hub)  # type: ignore[arg-type]

@@ -44,12 +44,20 @@ async def test_status_answers_the_bound_person_only(chat: Rig) -> None:
     await chat.jarvis_on()
     worker = await chat.worker("proj", "Secret project")
     del worker
-    for word in ("/jarvis", "/jarvis status", "/jarvis overview"):
-        refused = await chat.says(word, user=MEMBER)
-        assert "bound to this chat" in refused and "Secret project" not in refused
+    # With Jarvis routing on, another member reaches nothing at all (review 2,
+    # H3): one "owner only" notice, then silence, never the status.
+    refused = await chat.says("/jarvis status", user=MEMBER)
+    assert "owner" in refused and "Secret project" not in refused
+    before = len(chat.adapter.sent)
+    for word in ("/jarvis", "/jarvis overview", "/jarvis help"):
+        await chat.adapter.push(word, channel_id="c1", user_id=MEMBER)
+    await asyncio.sleep(0.3)
+    assert len(chat.adapter.sent) == before
     assert "Secret project" in await chat.says("/jarvis status")
-    # help is no information about anyone's work: anyone may see it
-    assert "/jarvis" in await chat.says("/jarvis help", user=MEMBER)
+    # With routing off the earlier rule still holds: status is the person's only.
+    await chat.core.jarvis.disable()
+    refused = await chat.says("/jarvis status", user=MEMBER)
+    assert "bound to this chat" in refused and "Secret project" not in refused
 
 
 async def test_the_confirmation_shows_the_whole_first_message(chat: Rig) -> None:

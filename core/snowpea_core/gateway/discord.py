@@ -84,6 +84,12 @@ def parse_event(frame: dict[str, Any]) -> InboundMessage | None:
         channel_id = data.get("channel_id")
         if channel_id is None:
             return None
+        metadata: dict[str, Any] = {"chat_type": _chat_type(data)}
+        reference = data.get("message_reference") or {}
+        if data.get("message_snapshots") or (
+            isinstance(reference, dict) and reference.get("type") == 1
+        ):
+            metadata["forwarded"] = True  # a forward (security review H3)
         return InboundMessage(
             platform="discord",
             channel_id=str(channel_id),
@@ -91,6 +97,7 @@ def parse_event(frame: dict[str, Any]) -> InboundMessage | None:
             text=str(data.get("content") or ""),
             attachments=list(data.get("attachments") or []),
             message_id=str(data.get("id", "")) or None,
+            metadata=metadata,
         )
     if name == "INTERACTION_CREATE":
         inner = data.get("data") or {}
@@ -109,6 +116,7 @@ def parse_event(frame: dict[str, Any]) -> InboundMessage | None:
                 user_id=str(user.get("id", "")),
                 text=command_text(inner),
                 callback_id=callback_id,
+                metadata={"chat_type": _chat_type(data)},
             )
         return InboundMessage(
             platform="discord",
@@ -117,8 +125,14 @@ def parse_event(frame: dict[str, Any]) -> InboundMessage | None:
             text="",
             callback_data=str(inner.get("custom_id", "")) or None,
             callback_id=callback_id,
+            metadata={"chat_type": _chat_type(data)},
         )
     return None
+
+
+def _chat_type(data: dict[str, Any]) -> str:
+    """``dm`` for a direct message (no guild), else ``guild``."""
+    return "guild" if data.get("guild_id") else "dm"
 
 
 def command_text(inner: dict[str, Any]) -> str:

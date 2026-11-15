@@ -481,8 +481,10 @@ class DelegationEngine:
 
     @property
     def default_level(self) -> Level:
-        value = _setting(self.settings, ("jarvis", "delegation", "default"), "staged")
-        return value if value in LEVELS else "staged"
+        """Always ``staged``: "everything delegated" is a global grant the person
+        makes, never a settings value (security review H2; a stored ``full``
+        loads as ``staged`` and raises an escalation)."""
+        return "staged"
 
     @property
     def quiet_minutes(self) -> int:

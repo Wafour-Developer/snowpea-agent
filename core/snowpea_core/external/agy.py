@@ -42,7 +42,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -117,6 +116,8 @@ MODELS_TIMEOUT_SEC = 30.0
 MODELS_TTL_SEC = 600.0
 #: Pages of ACP ``session/list`` followed at most.
 MAX_LIST_PAGES = 20
+#: Permission asks one session may have open at once; more are cancelled.
+MAX_OPEN_PERMISSIONS = 16
 
 _TEXT_UPDATES = ("user_message_chunk", "agent_message_chunk", "agent_thought_chunk")
 
@@ -162,7 +163,7 @@ def read_tool_permission(data_dir: Path) -> str:
     """agy's ``toolPermission`` setting (only that key is read)."""
     try:
         raw = json.loads((data_dir / "settings.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return DEFAULT_POLICY
     value = raw.get("toolPermission") if isinstance(raw, dict) else None
     return value if isinstance(value, str) and value else DEFAULT_POLICY
@@ -562,7 +563,7 @@ def _split_body(body: Any, offsets: Any) -> list[tuple[int, str]]:
         return []
     try:
         marks = json.loads(offsets)
-    except ValueError:
+    except (ValueError, RecursionError):
         return []
     data = body.encode("utf-8") if isinstance(body, str) else bytes(body or b"")
     clean = [
@@ -632,7 +633,7 @@ def _path_of_uri(uri: Any) -> str | None:
 def _workspaces(raw: Any) -> list[str]:
     try:
         uris = json.loads(raw) if isinstance(raw, str) else raw
-    except ValueError:
+    except (ValueError, RecursionError):
         return []
     if not isinstance(uris, list):
         return []
@@ -785,7 +786,7 @@ def _proc_locks_holders(path: Path) -> set[int]:
 
 def _lsof_holders(path: Path) -> set[int]:
     """Pids with ``path`` open (macOS: the TUI keeps its lock file open while it holds it)."""
-    lsof = shutil.which("lsof")
+    lsof = proc.trusted_tool("lsof")
     if lsof is None or not path.exists():
         return set()
     try:
@@ -1291,11 +1292,25 @@ class AgyChannel(ExternalChannel):
         if conn is None:
             return
         if frame.get("method") != "session/request_permission":
+            # agy runs its own tools: fs/*, terminal/* and anything else an agent
+            # asks of its client is refused (clientCapabilities says so too).
             await conn.reply_error(frame.get("id"), -32601, f"Method not found: {frame['method']}")
             return
         rid = frame.get("id")
         key = json.dumps(rid)
-        task = asyncio.ensure_future(self._permission(conn, rid, frame.get("params") or {}))
+        params = frame.get("params") if isinstance(frame.get("params"), dict) else {}
+        if self.session_id is not None and params.get("sessionId") not in (None, self.session_id):
+            # A permission for a session this channel does not run: never asked.
+            await conn.reply(rid, {"outcome": {"outcome": "cancelled"}})
+            return
+        running = self.permission_tasks.get(key)
+        if running is not None and not running.done():
+            return  # a reused id while it is open: the first ask answers it, once
+        if sum(1 for t in self.permission_tasks.values() if not t.done()) >= MAX_OPEN_PERMISSIONS:
+            # A flood of asks never floods the person's queue.
+            await conn.reply(rid, {"outcome": {"outcome": "cancelled"}})
+            return
+        task = asyncio.ensure_future(self._permission(conn, rid, params))
         self.permission_tasks[key] = task
 
         def forget(_task: asyncio.Task[None]) -> None:

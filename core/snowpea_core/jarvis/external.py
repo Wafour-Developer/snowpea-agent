@@ -569,8 +569,13 @@ async def create(
     turn = None
     if prompt:
         try:
-            turn = (await manager.send(ref["cli"], ref["id"], PROMPT_PREFIX + prompt,
-                                       origin={"kind": "jarvis", "surface": "jarvis"}))["turnId"]
+            turn = (await manager.send(
+                ref["cli"], ref["id"], PROMPT_PREFIX + prompt,
+                origin={"kind": "jarvis", "surface": "jarvis"},
+                # The person saw this first message whole when they confirmed
+                # an unrestricted session (it is their message).
+                confirmation=confirmation,
+            ))["turnId"]
         except ExternalError as exc:
             raise Refused(f"created {key}, but the first message failed: {_refusal(exc)}"
                           ) from exc

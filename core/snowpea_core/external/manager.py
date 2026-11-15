@@ -25,6 +25,7 @@ import collections
 import contextlib
 import inspect
 import logging
+import os
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Sequence
@@ -51,7 +52,13 @@ from snowpea_core.external.proc import (
     UnrestrictedGrant,
 )
 from snowpea_core.external.registry import CLI_ORDER, CLI_TITLES, AdapterRegistry
-from snowpea_core.external.timeline import TimelineBuilder, TimelineItem
+from snowpea_core.external.timeline import (
+    TimelineBuilder,
+    TimelineItem,
+    clean_payload,
+    clean_text,
+)
+from snowpea_core.external.trust import ProjectTrust
 from snowpea_core.permissions.allowlist import command_of
 from snowpea_core.permissions.shell_remember import matchable
 from snowpea_core.server import errors
@@ -131,7 +138,7 @@ class _ProxySession:
         self.workdir = Path(cwd)
         self.external = ExternalRef(cli=cli, id=session_id)  # type: ignore[arg-type]
         self.project = project
-        self.title = title
+        self.title = clean_text(title) if title else title
 
 
 @dataclass
@@ -172,6 +179,9 @@ class _Record:
         default_factory=lambda: collections.deque(maxlen=LIVE_PROMPTS_KEPT)
     )
     steers: int = 0
+    #: The validated real path of the session's folder (security review L8):
+    #: what a CLI is started in, never the transcript's raw string.
+    real_cwd: str | None = None
 
     @property
     def cli(self) -> str:
@@ -193,7 +203,8 @@ class _Host:
         self._manager = manager
         self._record = record
         self.supervisor = manager.supervisor
-        self.env = proc.scrubbed_env()
+        pass_env = getattr(manager._cli_settings(record.cli), "passEnv", None) or ()
+        self.env = proc.scrubbed_env(pass_env=pass_env)
 
     @property
     def builder(self) -> TimelineBuilder:
@@ -223,6 +234,7 @@ class _Host:
             self._record.info.id = session_id
 
     async def title_known(self, title: str) -> None:
+        title = clean_text(title)[:300] if title else title
         if title and title != self._record.info.title:
             self._record.info.title = title
             await self._manager._announce(self._record)
@@ -257,6 +269,8 @@ class ExternalManager:
         self.poll_interval = poll_interval
         self.sweep_interval = sweep_interval
         self.supervisor = ProcessSupervisor(self.home, self._max_processes)
+        #: Projects the person trusted for external CLIs (security review M4).
+        self.trust = ProjectTrust(self.home)
         self._records: dict[tuple[str, str], _Record] = {}
         self._discovery: dict[str, tuple[float, str | None, Discovery]] = {}
         self._watched_conns: set[int] = set()
@@ -300,12 +314,75 @@ class ExternalManager:
         return float(getattr(ext, "idleSec", 900) or 900)
 
     def default_mode(self, adapter: ExternalAdapter) -> str:
-        """``jarvis.external.clis.<id>.defaultMode`` or the CLI's own default."""
+        """``jarvis.external.clis.<id>.defaultMode`` or the CLI's own default.
+
+        Never ``unrestricted`` (security review H2): that mode comes only from
+        an explicit ``mode`` in the person's own request.
+        """
         configured = getattr(self._cli_settings(adapter.id), "defaultMode", None)
         mode = configured or adapter.builtin_default_mode
-        if mode not in adapter.capabilities.modes:
+        if mode == "unrestricted" or mode not in adapter.capabilities.modes:
             mode = adapter.builtin_default_mode
+        if mode == "unrestricted" or mode not in adapter.capabilities.modes:
+            mode = next(m for m in adapter.capabilities.modes if m != "unrestricted")
         return mode
+
+    def _implicit_mode(self, record: _Record) -> str:
+        """The mode a session continues in when the request names none.
+
+        The session's last mode unless that was ``unrestricted``: a continued
+        session (after an idle stop, a restart, a takeover) never comes back
+        unrestricted without a new, explicit choice.
+        """
+        if record.mode and record.mode != "unrestricted":
+            return record.mode
+        return self.default_mode(record.adapter)
+
+    def _require_trust(self, root: str | None, cwd: str, conn: Any, trust: bool) -> None:
+        """A CLI may start in ``root`` only when the person trusted it (security review M4).
+
+        A person's request trusts it with ``trust=True`` (the client's one-time
+        confirmation); without it the answer is ``external_unavailable`` with
+        ``details.reason: "untrusted_project"``.  Anyone else (Jarvis, a browser
+        host, the connector, a remote web login) gets ``details.reason:
+        "untrusted_project_person_only"``: the person must open an external
+        session there once.
+        """
+        from snowpea_core.server.person_gate import connection_kind
+
+        key = root or cwd
+        if self.trust.trusted(key):
+            return
+        if connection_kind(conn) == "person":
+            if trust:
+                self.trust.trust(key, by=str(getattr(conn, "client_kind", None) or "local"))
+                return
+            raise ExternalError(
+                errors.EXTERNAL_UNAVAILABLE,
+                "this is the first external CLI session in this project: the CLI will load the "
+                "project's own settings and hooks and may run code from it. Confirm once "
+                "(trust: true) to trust this project for external CLIs",
+                {"reason": "untrusted_project", "project": key},
+            )
+        raise ExternalError(
+            errors.EXTERNAL_UNAVAILABLE,
+            "the person must open an external session in this project once before anyone "
+            "else can",
+            {"reason": "untrusted_project_person_only", "project": key},
+        )
+
+    def watched_by(self, cli: str, session_id: str, conn: Any) -> bool:
+        """True when ``conn`` is subscribed to the session (it opened, created or sent to it)."""
+        record = self._records.get((cli, session_id))
+        return record is not None and conn is not None and any(
+            other is conn for other in record.subscribers
+        )
+
+    def watched_refs(self, conn: Any) -> set[tuple[str, str]]:
+        return {
+            key for key, record in self._records.items()
+            if any(other is conn for other in record.subscribers)
+        }
 
     def controlled_default_mode(self, adapter: ExternalAdapter) -> str:
         """The default mode for a caller that is not a person: never ``unrestricted``.
@@ -374,6 +451,19 @@ class ExternalManager:
             and now - cached[0] < DISCOVERY_TTL_SEC
         ):
             return cached[2]
+        pending = self.pending_path(cli)
+        if pending is not None:
+            # Never run an override the person has not confirmed (not even
+            # ``--version``): security review H2.
+            found = Discovery(
+                installed=False,
+                problems=[
+                    f"the configured path {pending} has not been confirmed yet "
+                    "(external.clis.confirmPath)"
+                ],
+            )
+            self._discovery[cli] = (now, override, found)
+            return found
         try:
             found = await adapter.discover(override)
         except ExternalError as exc:
@@ -383,6 +473,21 @@ class ExternalManager:
             found = Discovery(installed=False, problems=[f"discovery failed: {type(exc).__name__}"])
         self._discovery[cli] = (now, override, found)
         return found
+
+    def pending_path(self, cli: str) -> str | None:
+        """The resolved ``path`` override still waiting for the person's confirmation.
+
+        ``None`` when there is no override or its real path is the confirmed
+        one.  An override that does not resolve is shown as written.
+        """
+        cli_settings = self._cli_settings(cli)
+        override = getattr(cli_settings, "path", None)
+        if not override:
+            return None
+        real = resolved_override(override)
+        if real is not None and real == getattr(cli_settings, "confirmedPath", None):
+            return None
+        return real or str(override)
 
     async def clis(self, *, refresh: bool = False) -> list[dict[str, Any]]:
         """``external.clis``: all four, in a fixed order."""
@@ -410,6 +515,7 @@ class ExternalManager:
                 "modes": list(adapter.capabilities.modes) if adapter is not None else [],
                 "models": [],
                 "modelsLoaded": False,
+                "pendingPath": self.pending_path(cli),
                 "problems": [],
             }
             if adapter is None:
@@ -547,10 +653,29 @@ class ExternalManager:
         return list(await self._roots()) if self._roots is not None else []
 
     async def _exposed_roots(self) -> list[str]:
-        out = []
-        for root in await self.roots():
+        """Exposed roots, never one below a hidden root, never a wide root (M2/M3).
+
+        A folder too wide to stand for its contents (``/``, home) only ever
+        matches itself, so listing "every project" never sweeps every CLI
+        session on the machine in through it.
+        """
+        roots = await self.roots()
+        hidden: list[Path] = []
+        shown: list[str] = []
+        for root in roots:
             if self._exposed is None or await self._exposed(root):
-                out.append(root)
+                shown.append(root)
+            else:
+                hidden.append(Path(root).expanduser().resolve())
+        out = []
+        for root in shown:
+            real = Path(root).expanduser().resolve()
+            if proc._wide_root(real):
+                continue
+            if any(real == base or (not proc._wide_root(base) and base in real.parents)
+                   for base in hidden):
+                continue
+            out.append(root)
         return out
 
     # -- rows -------------------------------------------------------------
@@ -582,7 +707,7 @@ class ExternalManager:
         info = record.info
         return {
             "ref": record.ref,
-            "title": info.title,
+            "title": _line(info.title),
             "cwd": info.cwd,
             "project": record.project,
             "updatedAt": info.updated_at,
@@ -593,7 +718,7 @@ class ExternalManager:
             "tmux": record.channel.tmux if record.channel is not None else None,
             "mode": record.mode if record.host in ("snowpea", "tmux") else None,
             "controlled": self._controlled(record, found),
-            "preview": (info.preview or "").splitlines()[0][:300] if info.preview else "",
+            "preview": _preview(info.preview),
             "model": info.model,
         }
 
@@ -612,17 +737,34 @@ class ExternalManager:
             "mode": row["mode"],
             "controlled": row["controlled"],
             "title": row["title"],
-            "error": record.error if record.status == "error" else None,
+            "error": clean_text(record.error) if record.status == "error" and record.error
+            else None,
         }
 
     async def _announce(
         self, record: _Record, previous: str | None = None, previous_host: str | None = None
     ) -> None:
-        """``external.state`` to every authenticated connection."""
+        """``external.state`` to every person's connection and the session's own subscribers.
+
+        A browser host or the connector hears only about sessions it watches
+        (security review L6).
+        """
         if self.hub is None:
             return
+        from snowpea_core.server.person_gate import is_person
+
+        state = self._state(record, previous, previous_host)
+        for conn in list(record.subscribers):
+            # The hub sends it to people only; a browser host or the connector
+            # gets it here, for a session it watches.
+            if getattr(conn, "closed", False) or is_person(conn):
+                continue
+            if not hasattr(conn, "client_kind"):
+                continue  # an in-process listener: the hub tells it
+            with contextlib.suppress(Exception):
+                await conn.notify("external.state", state)
         try:
-            await self.hub.notify("external.state", self._state(record, previous, previous_host))
+            await self.hub.notify("external.state", state)
         except Exception:  # noqa: BLE001 - a dead socket must not break the session
             log.debug("could not broadcast external.state", exc_info=True)
 
@@ -788,6 +930,7 @@ class ExternalManager:
             scope = [proc.validate_cwd(folder, await self.roots())]
         cursor = _parse_cursor(before)
         rows: list[tuple[tuple[str, str, str], SessionInfo, ExternalAdapter]] = []
+        real_scope = [str(Path(root).expanduser().resolve()) for root in scope]
         if scope:
             for adapter in usable:
                 bound = cursor[0] if cursor is not None else None
@@ -799,6 +942,10 @@ class ExternalManager:
                     log.warning("listing %s sessions failed", adapter.id, exc_info=True)
                     continue
                 for info in found:
+                    # The adapters match by path prefix; keep a row only when its
+                    # real folder is under the scope by the wide-root rule (M3).
+                    if proc.project_of(os.path.realpath(info.cwd or "/"), real_scope) is None:
+                        continue
                     key = (info.updated_at or "", adapter.id, info.id)
                     if cursor is not None and key >= cursor:
                         continue
@@ -827,7 +974,7 @@ class ExternalManager:
         host = live.host if live is not None else "none"
         return {
             "ref": _ref(adapter.id, info.id),
-            "title": info.title,
+            "title": _line(info.title),
             "cwd": info.cwd,
             "project": proc.project_of(info.cwd, roots),
             "updatedAt": info.updated_at,
@@ -838,7 +985,7 @@ class ExternalManager:
             "tmux": live.tmux if live is not None else None,
             "mode": None,
             "controlled": True,
-            "preview": (info.preview or "").splitlines()[0][:300] if info.preview else "",
+            "preview": _preview(info.preview),
             "model": info.model,
         }
 
@@ -864,6 +1011,7 @@ class ExternalManager:
             info=info,
             project=proc.project_of(cwd, [str(Path(root).resolve()) for root in roots]),
             builder=TimelineBuilder(cli, session_id, salt=f"live-{uuid.uuid4().hex[:8]}"),
+            real_cwd=cwd,
         )
         self._records[key] = record
         try:
@@ -897,20 +1045,21 @@ class ExternalManager:
     async def open(
         self, cli: str, session_id: str, *, limit: int = 200, mode: str | None = None,
         conn: Any = None, transport: str | None = None,
-        confirmation: PersonConfirmation | None = None,
+        confirmation: PersonConfirmation | None = None, trust: bool = False,
     ) -> dict[str, Any]:
         """``external.open``: subscribe and return the newest page; continue a free session.
 
         ``transport="tmux"`` on a Claude session the person runs in a tmux pane
         adopts that pane (after the person allows it, person-only) instead of
-        showing it view only.
+        showing it view only.  ``trust`` is the person's one-time confirmation
+        for a project no external CLI ran in yet (:meth:`_require_trust`).
         """
         record, found = await self._load(cli, session_id)
         if transport not in (None, "structured", "tmux"):
             raise ExternalError(errors.INVALID_PARAMS, f"unknown transport {transport!r}")
         try:
             return await self._open(record, found, limit=limit, mode=mode, conn=conn,
-                                    transport=transport, confirmation=confirmation)
+                                    transport=transport, confirmation=confirmation, trust=trust)
         except ExternalError:
             await self._maybe_forget(record)
             raise
@@ -918,6 +1067,7 @@ class ExternalManager:
     async def _open(
         self, record: _Record, found: Discovery, *, limit: int, mode: str | None, conn: Any,
         transport: str | None = None, confirmation: PersonConfirmation | None = None,
+        trust: bool = False,
     ) -> dict[str, Any]:
         cli, session_id = record.cli, record.id
         async with record.lock:
@@ -935,7 +1085,9 @@ class ExternalManager:
                     )
                 if record.host == "none" or adopt:
                     chosen = proc.validate_mode(mode, record.adapter.capabilities.modes)
-                    chosen = chosen or record.mode or self.default_mode(record.adapter)
+                    chosen = chosen or self._implicit_mode(record)
+                    self._require_trust(record.project, record.real_cwd or record.info.cwd,
+                                        conn, trust)
                     grant = self._grant_if_unrestricted(record, chosen, conn, "open",
                                                         confirmation=confirmation)
                     try:
@@ -1099,8 +1251,16 @@ class ExternalManager:
         *, resume: bool, model: str | None = None, transport: str = "structured",
     ) -> None:
         assert found.executable is not None
+        # The folder is validated again now and the CLI starts in its real path,
+        # never the transcript's raw string (security review L8).
+        real = proc.validate_cwd(record.real_cwd or record.info.cwd, await self.roots())
+        if record.real_cwd is not None and real != record.real_cwd:
+            raise ExternalError(
+                errors.OUTSIDE_ROOT, "the session's folder changed since it was opened"
+            )
+        record.real_cwd = real
         spec = LaunchSpec(
-            cwd=record.info.cwd,
+            cwd=real,
             project=record.project,
             executable=found.executable,
             mode=mode,
@@ -1131,7 +1291,9 @@ class ExternalManager:
                 f"{record.adapter.title} did not start: {type(exc).__name__}",
             ) from exc
         record.channel = channel
-        record.mode = mode
+        # An adopted pane started with a bypass flag runs unrestricted whatever
+        # was asked (security review M5).
+        record.mode = getattr(channel, "actual_mode", None) or mode
         record.host = channel.host
         record.error = None
         record.last_activity = time.monotonic()
@@ -1151,6 +1313,7 @@ class ExternalManager:
     async def send(
         self, cli: str, session_id: str, text: str, *, conn: Any = None,
         origin: dict[str, Any] | None = None,
+        confirmation: PersonConfirmation | None = None,
     ) -> dict[str, str]:
         """``external.send``: start a turn; the reply streams as ``external.event``.
 
@@ -1164,14 +1327,15 @@ class ExternalManager:
             raise ExternalError(errors.INVALID_PARAMS, "empty prompt")
         record, found = await self._load(cli, session_id)
         try:
-            return await self._send(record, found, text, conn=conn, origin=origin)
+            return await self._send(record, found, text, conn=conn, origin=origin,
+                                    confirmation=confirmation)
         except ExternalError:
             await self._maybe_forget(record)
             raise
 
     async def _send(
         self, record: _Record, found: Discovery, text: str, *, conn: Any,
-        origin: dict[str, Any] | None,
+        origin: dict[str, Any] | None, confirmation: PersonConfirmation | None = None,
     ) -> dict[str, str]:
         cli = record.cli
         async with record.lock:
@@ -1185,13 +1349,13 @@ class ExternalManager:
                         "it can be continued here once that one exits",
                     )
                 previous_host = record.host
-                mode = record.mode or self.default_mode(record.adapter)
-                grant = None
-                if mode == "unrestricted":
-                    # A takeover in unrestricted mode is a new choice: the person makes it.
-                    grant = self._grant_if_unrestricted(record, mode, conn, "open")
+                # Continued in its last controlled mode: unrestricted needs a new,
+                # explicit choice (external.open / external.setMode), never a send.
+                mode = self._implicit_mode(record)
+                self._require_trust(record.project, record.real_cwd or record.info.cwd,
+                                    conn, False)
                 try:
-                    await self._start_channel(record, mode, grant, found, resume=True)
+                    await self._start_channel(record, mode, None, found, resume=True)
                 except ExternalError:
                     if record.host != previous_host:
                         await self._announce(record, None, previous_host)
@@ -1199,6 +1363,17 @@ class ExternalManager:
                 await self._announce(record, None, previous_host)
             channel = record.channel
             assert channel is not None
+            if (
+                record.mode == "unrestricted"
+                and not proc.is_human_connection(conn)
+                and confirmation is None
+            ):
+                # Nothing gates what an unrestricted CLI does with a prompt: only
+                # the person types into it (security review M5).
+                raise ExternalError(
+                    errors.JARVIS_PERSON_ONLY,
+                    "this session runs unrestricted; only the person may send to it",
+                )
             if record.turn_id is not None:
                 if record.adapter.capabilities.steer and channel.can_steer:
                     self._subscribe(record, conn)
@@ -1355,6 +1530,11 @@ class ExternalManager:
         every later one.  A guarded or ``never`` request is never answered from
         it (:meth:`_cacheable`).
         """
+        # What the CLI asks is shown on every surface: no escape sequences (M7).
+        ask.tool = clean_text(ask.tool)
+        ask.args = clean_payload(dict(ask.args or {}))
+        ask.note = clean_text(ask.note) if ask.note else ask.note
+        ask.diff = clean_text(ask.diff) if ask.diff else ask.diff
         command = command_of(ask.args or {})
         cache_key = _call_key(ask.tool, ask.args or {}, command)
         if (
@@ -1366,8 +1546,8 @@ class ExternalManager:
             return ApprovalAnswer(allow=True, scope="session", by="cache")
         if self.approvals is None:
             return ApprovalAnswer(allow=False, reason="no approval queue", by="none")
-        proxy = _ProxySession(record.cli, record.id, record.info.cwd, record.project,
-                              record.info.title)
+        proxy = _ProxySession(record.cli, record.id, record.real_cwd or record.info.cwd,
+                              record.project, record.info.title)
         decision = await self.approvals.request(
             proxy,
             ask.tool,
@@ -1404,11 +1584,12 @@ class ExternalManager:
     async def create(
         self, cli: str, project: str, *, model: str | None = None, mode: str | None = None,
         transport: str = "structured", conn: Any = None,
-        confirmation: PersonConfirmation | None = None,
+        confirmation: PersonConfirmation | None = None, trust: bool = False,
     ) -> dict[str, Any]:
         """``external.create``: a new session in a registered project, already open.
 
         The creating connection is subscribed (``external.event``) as on open.
+        ``trust`` as on :meth:`open`.
         """
         adapter, found = await self._usable(cli)
         roots = await self.roots()
@@ -1421,6 +1602,7 @@ class ExternalManager:
                 f"{adapter.title} cannot run in a shared tmux terminal on this machine",
             )
         root = proc.project_of(cwd, [str(Path(r).resolve()) for r in roots])
+        self._require_trust(root, cwd, conn, trust)
         grant = self._grant_if_unrestricted(cli, chosen, conn, "create", project=root,
                                             confirmation=confirmation)
         record = _Record(
@@ -1428,6 +1610,7 @@ class ExternalManager:
             info=SessionInfo(id="", cwd=cwd, updated_at=utc_now()),
             project=root,
             builder=TimelineBuilder(cli, "new", salt=f"live-{uuid.uuid4().hex[:8]}"),
+            real_cwd=cwd,
         )
         await self._start_channel(
             record, chosen, grant, found, resume=False, model=model, transport=transport
@@ -1521,6 +1704,31 @@ class ExternalManager:
     # -- introspection (tests, Jarvis) ----------------------------------------
     def opened(self) -> list[dict[str, Any]]:
         return [self._row(record) for record in self._records.values()]
+
+
+def _line(text: str | None) -> str | None:
+    """A title for a row: control and escape sequences removed (security review M7)."""
+    if text is None:
+        return None
+    return clean_text(str(text))[:300]
+
+
+def _preview(text: str | None) -> str:
+    if not text:
+        return ""
+    lines = clean_text(str(text)).splitlines()
+    return lines[0][:300] if lines else ""
+
+
+def resolved_override(path: str) -> str | None:
+    """The real path a ``path`` override resolves to (no execution), or ``None``."""
+    try:
+        candidate = Path(path).expanduser()
+        if not candidate.is_absolute():
+            return None
+        return str(candidate.resolve(strict=True))
+    except (OSError, RuntimeError, ValueError):
+        return None
 
 
 def _cursor(key: tuple[str, str, str]) -> str:

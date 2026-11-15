@@ -267,12 +267,21 @@ TASK_WORKER_REFUSAL = (
 )
 
 
-def human_turn(session: Any) -> bool:
-    """The Jarvis turn running now was started by the person's own message."""
+#: Turn origins of someone in a chat who is not the bound person.
+MEMBER_ORIGINS = frozenset({"member", "gateway"})
+
+
+def turn_origin(session: Any) -> str | None:
+    """The origin of the turn ``session`` runs now (``human``, ``member``, ``system`` …)."""
     turn = getattr(session, "current_turn", None)
     if not turn:
-        return False
-    return getattr(session, "turn_origins", {}).get(turn) == "human"
+        return None
+    return (getattr(session, "turn_origins", None) or {}).get(turn)
+
+
+def human_turn(session: Any) -> bool:
+    """The Jarvis turn running now was started by the person's own message."""
+    return turn_origin(session) == "human"
 
 
 async def _target(service: JarvisService, session_id: str, *, read: bool) -> Target:
@@ -343,7 +352,12 @@ async def _access(service: JarvisService, target: Target, action: str, summary: 
 def _authorized(
     service: JarvisService, ctx: ToolContext, session_id: str | None, project: str | None
 ) -> None:
-    """Instructions need the person's request this turn, or delegated work there."""
+    """Instructions need the person's request this turn, or delegated work there.
+
+    Never in a turn another chat member started (security review H3).
+    """
+    if turn_origin(ctx.session) in MEMBER_ORIGINS:
+        raise Refused("someone other than the person started this turn; instruct nothing")
     if human_turn(ctx.session):
         return
     effective = service.engine.effective(session_id, project)
@@ -1534,6 +1548,13 @@ def guard_call(
         return None
     jarvis = service.session()
     own = set(getattr(jarvis, "session_tools", {}) or {}) if jarvis is not None else set()
+    if jarvis is not None and turn_origin(jarvis) in MEMBER_ORIGINS:
+        # Defence in depth (security review H3): a turn someone other than the
+        # bound person started in a chat reads nothing and instructs nothing.
+        return (
+            "this turn was started by someone in a chat who is not the person; Jarvis "
+            "reads and acts only for its owner — answer without tools"
+        )
     if tag == "config":
         return (
             f"{tool_name} changes snowpea's configuration; Jarvis never changes settings, "

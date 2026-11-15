@@ -309,7 +309,10 @@ PRESETS: tuple[dict[str, Any], ...] = (
             "Read your Outlook mail and calendar through the community Microsoft 365 MCP "
             "server (Microsoft Graph). Reading runs unasked; sending, replying, deleting, "
             "moving and every calendar change ask you first. Sign in once with a device "
-            "code on the machine the daemon runs on."
+            "code on the machine the daemon runs on. Know the risk: this is a community "
+            "server, not Microsoft's, downloaded with npx and run with your account's access; "
+            "only its own version is pinned (its dependencies are not), and npm install "
+            "scripts are turned off."
         ),
         "category": "mail",
         "homepage": "https://github.com/Softeria/ms-365-mcp-server",
@@ -341,8 +344,11 @@ PRESETS: tuple[dict[str, Any], ...] = (
                 "verifyTool": "verify-login",
                 "entry": {
                     "command": "npx",
+                    # --ignore-scripts: no npm lifecycle script of the
+                    # package or its (unpinned) dependencies runs (M8).
                     "args": [
                         "-y",
+                        "--ignore-scripts",
                         f"@softeria/ms-365-mcp-server@{_MS365_VERSION}",
                         "--preset",
                         "mail,calendar",
@@ -353,7 +359,7 @@ PRESETS: tuple[dict[str, Any], ...] = (
                     },
                 },
                 "loginCommand": (
-                    f"npx -y @softeria/ms-365-mcp-server@{_MS365_VERSION} --login "
+                    f"npx -y --ignore-scripts @softeria/ms-365-mcp-server@{_MS365_VERSION} --login "
                     "--preset mail,calendar"
                 ),
                 "readTools": [
@@ -362,9 +368,7 @@ PRESETS: tuple[dict[str, Any], ...] = (
                     "list-mail-messages",
                     "get-mail-message",
                     "read-mail-text",
-                    "get-mail-message-mime",
                     "list-mail-attachments",
-                    "get-mail-attachment-content",
                     "list-mail-folders",
                     "list-mail-child-folders",
                     "list-mail-folder-messages",
@@ -374,7 +378,6 @@ PRESETS: tuple[dict[str, Any], ...] = (
                     "list-outlook-categories",
                     "get-mail-tips",
                     "get-mailbox-settings",
-                    "download-bytes",
                     "list-calendars",
                     "list-calendar-events",
                     "list-specific-calendar-events",
@@ -391,7 +394,13 @@ PRESETS: tuple[dict[str, Any], ...] = (
                     "list-supported-languages",
                     "list-supported-time-zones",
                 ],
+                # Raw MIME, attachment bytes and arbitrary downloads are not
+                # "read" (security review M6): they ask, and the isolated mail
+                # worker never has them.
                 "sendTools": [
+                    "get-mail-message-mime",
+                    "get-mail-attachment-content",
+                    "download-bytes",
                     "send-mail",
                     "send-draft-message",
                     "reply-mail-message",
@@ -498,7 +507,9 @@ PRESET_TEXTS: dict[str, dict[str, dict[str, Any]]] = {
                 "커뮤니티 Microsoft 365 MCP 서버(Microsoft Graph)로 Outlook 메일과 캘린더를 "
                 "읽습니다. 읽기는 묻지 않고 실행되고, 보내기·답장·삭제·이동과 모든 캘린더 "
                 "변경은 먼저 묻습니다. 데몬이 실행되는 컴퓨터에서 장치 코드로 한 번 "
-                "로그인하세요."
+                "로그인하세요. 위험을 알아 두세요: Microsoft가 아닌 커뮤니티 서버를 npx로 "
+                "내려받아 내 계정 권한으로 실행합니다. 서버 버전만 고정되고 의존 패키지는 "
+                "고정되지 않으며, npm 설치 스크립트는 끕니다."
             ),
             "inputs": {
                 "MS365_MCP_TENANT_ID": "테넌트 ID (개인 계정은 'consumers', 비우면 common)",

@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from _external_adapter import FAKE_CLAUDE, FakeClaudeAdapter
-from _support import env_vars
+from _support import env_vars, pinned_cli
 from test_external_manager import Conn, Env, until
 
 from snowpea_core.config.settings import Settings
@@ -193,26 +193,31 @@ async def test_send_continues_in_the_default_mode_never_unrestricted_for_jarvis(
     await until(lambda: "turn.done" in person.kinds())
     await env.manager.close("claude", ref["id"], conn=person)
     env.settings = Settings.model_validate(
-        {"jarvis": {"external": {"clis": {"claude": {"path": str(FAKE_CLAUDE),
+        {"jarvis": {"external": {"clis": {"claude": {**pinned_cli(FAKE_CLAUDE),
                                                      "defaultMode": "unrestricted"}}}}}
     )
     adapter = env.manager.registry.get("claude")
     assert adapter is not None
-    assert env.manager.default_mode(adapter) == "unrestricted"
+    # Security review 2 (H2): a stored "unrestricted" default loads as the CLI's
+    # own default; unrestricted comes only from an explicit mode in a person's request.
+    assert env.manager.default_mode(adapter) == "default"
     assert env.manager.controlled_default_mode(adapter) == "default"
-    # host none + defaultMode unrestricted: an in-process caller cannot open it so.
-    with pytest.raises(ExternalError) as caught:
-        await env.manager.send("claude", ref["id"], "go on", origin={"kind": "jarvis",
-                                                                    "surface": "jarvis"})
-    assert caught.value.code == errors.JARVIS_PERSON_ONLY
-    assert not env.manager.supervisor.live()
-    # A person's send opens it (their choice, a ledger entry) and runs the turn.
-    turn = (await env.manager.send("claude", ref["id"], "go on", conn=person))["turnId"]
+    # Jarvis's send continues it in the controlled default.
+    turn = (await env.manager.send("claude", ref["id"], "go on",
+                                   origin={"kind": "jarvis", "surface": "jarvis"}))["turnId"]
     record = env.manager._records[("claude", ref["id"])]
     await until(lambda: any(e["kind"] == "turn.done" and e["turnId"] == turn
                             for e in record.events))
+    assert env.manager.opened()[0]["mode"] == "default"
+    await env.manager.close("claude", ref["id"], conn=person)
+    # A person's explicit choice opens it unrestricted; a later send by Jarvis is refused.
+    await env.manager.open("claude", ref["id"], mode="unrestricted", conn=person)
     assert env.manager.opened()[0]["mode"] == "unrestricted"
     assert env.manager.opened()[0]["controlled"] is False
+    with pytest.raises(ExternalError) as caught:
+        await env.manager.send("claude", ref["id"], "more", origin={"kind": "jarvis",
+                                                                   "surface": "jarvis"})
+    assert caught.value.code == errors.JARVIS_PERSON_ONLY
 
 
 # -- transcript copies and observers ---------------------------------------------------

@@ -106,15 +106,42 @@ class ProjectBook:
 
     # -- exposure ------------------------------------------------------
     def exposed(self, root: str | None) -> bool:
-        """``jarvis.expose`` of the project at ``root`` (true when unknown or unset)."""
+        """Whether Jarvis may see the project at ``root`` (security review M2).
+
+        Hidden when its own ``jarvis.expose`` is false or its settings file
+        exists but is unreadable, and also when any registered project above it
+        is hidden: a subfolder never re-exposes what its parent hides.  (A
+        folder too wide to stand for its contents — home, ``/`` — hides only
+        itself.)
+        """
         if not root:
             return True
+        if not self._own_exposed(root):
+            return False
+        try:
+            target = Path(root)
+        except (TypeError, ValueError):
+            return False
+        from snowpea_core.external.proc import _wide_root
+
+        for other in self.known_roots():
+            base = Path(other)
+            if base == target or base not in target.parents:
+                continue
+            with contextlib.suppress(OSError, RuntimeError):
+                if _wide_root(base.resolve()):
+                    continue
+            if not self._own_exposed(other):
+                return False
+        return True
+
+    def _own_exposed(self, root: str) -> bool:
         settings_path = ProjectSettings.path_for(root)
         stamp = _stamp(settings_path)
         cached = self._exposure.get(root)
         if cached is not None and cached[0] == stamp:
             return cached[1]
-        value = True if stamp is None else bool(ProjectSettings.load(root).jarvis.expose)
+        value = True if stamp is None else ProjectSettings.exposed(root)
         self._exposure[root] = (stamp, value)
         return value
 

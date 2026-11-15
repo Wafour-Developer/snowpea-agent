@@ -154,6 +154,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`extension.list`](#extensionlist) | client → server | Extensions found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions'). |
 | [`extension.reload`](#extensionreload) | client → server | Unload and load again, picking up edits (1.49.0). |
 | [`external.clis`](#externalclis) | client → server | External sessions (1.53.0, WP5): Claude Code, Codex, agy and Cursor agent on the daemon host: installed, version, path, what works, problems. |
+| [`external.clis.confirmPath`](#externalclisconfirmpath) | client → server | External sessions (security review H2): the person confirms the resolved path of a jarvis.external.clis.<cli>.path override (ExternalCliInfo.pendingPath) so snowpea may run it; person's local connection only (jarvis_person_only). |
 | [`external.close`](#externalclose) | client → server | External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays. A screen that only goes away calls external.unwatch instead. |
 | [`external.create`](#externalcreate) | client → server | External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it; the calling connection is subscribed to its external.event stream as with external.open. |
 | [`external.get`](#externalget) | client → server | External sessions (1.53.0): one session's row without opening or reading it (deep links, pop-outs, restored tabs). not_found when the CLI has no such session; outside_root when it is not in a registered project. |
@@ -950,7 +951,26 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
+| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
+
+### `external.clis.confirmPath`
+
+*Direction:* client → server
+
+External sessions (security review H2): the person confirms the resolved path of a jarvis.external.clis.<cli>.path override (ExternalCliInfo.pendingPath) so snowpea may run it; person's local connection only (jarvis_person_only).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cli` | `"claude" \| "codex" \| "agy" \| "cursor"` | yes | Which CLI. |
+| `path` | `string` | yes | The resolved path the person saw (ExternalCliInfo.pendingPath); it must still be what jarvis.external.clis.<cli>.path resolves to, else invalid_params. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
 
 ### `external.close`
 
@@ -985,6 +1005,7 @@ External sessions (1.53.0, WP6): start a new session of a CLI in a registered pr
 | `model` | `string \| null` | no | Model id for the CLI; validated, never a flag. |
 | `project` | `string` | yes | A registered project root; anything else is refused. |
 | `transport` | `"structured" \| "tmux"` | no | structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. |
+| `trust` | `boolean` | no | As ExternalOpenParams.trust (untrusted_project). |
 
 **Result**
 
@@ -1066,6 +1087,7 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). |
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Session to open. |
 | `transport` | `"structured" \| "tmux" \| null` | no | 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. |
+| `trust` | `boolean` | no | The person's one-time confirmation that external CLIs may run in this project (they load the project's own settings and hooks). Needed only when starting a CLI in a project no person trusted yet: without it external_unavailable with details.reason 'untrusted_project' (show the confirmation, retry with trust: true). Only a person's local connection can trust; anyone else gets details.reason 'untrusted_project_person_only'. |
 
 **Result**
 
@@ -2418,6 +2440,7 @@ Assistant presets (1.53.0, WP8): undo an applied preset: its servers, permission
 | field | type | required | description |
 |---|---|---|---|
 | `jobs` | `string[]` | no | Recipe jobs deleted. |
+| `notice` | `string \| null` | no | What the person still has to do themselves, e.g. a device-code server's own sign-in that snowpea cannot clear (show it). Null when nothing is left. |
 | `removed` | `boolean` | yes | False when the preset was not applied. |
 | `servers` | `string[]` | no | Servers put back or removed. |
 
@@ -4710,7 +4733,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, as external.clis would answer now. |
+| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, as external.clis would answer now. |
 
 ### `external.event`
 
@@ -4783,7 +4806,7 @@ Set the sidebar order (1.47.0).
 | `id` | `string` | yes | Escalation id (repeats of the same need keep it). |
 | `importance` | `"low" \| "normal" \| "high" \| "urgent"` | no | How prominently to show it: in-app badge always, OS notification from normal (jarvis.notify.os), messenger from high (jarvis.notify.messenger). |
 | `project` | `string \| null` | no | Its project root. |
-| `reason` | `"guarded" \| "risky" \| "never" \| "question" \| "finished" \| "error" \| "stalled" \| "budget" \| "jarvis"` | yes | guarded/risky/never: an approval the engine routed to the person; question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. |
+| `reason` | `"guarded" \| "risky" \| "never" \| "question" \| "finished" \| "error" \| "stalled" \| "budget" \| "jarvis"` | yes | guarded/risky/never: an approval the engine routed to the person ('never': never delegable, the person may still allow it); question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. |
 | `requestId` | `string \| null` | no | Its id, to answer with approval.respond / question.respond. |
 | `requestKind` | `"approval" \| "question" \| null` | no | Kind of the waiting request, when one. |
 | `sessionId` | `string \| null` | no | snowpea session concerned. |

@@ -17,7 +17,7 @@ from typing import Any
 
 import aiohttp
 import pytest
-from _support import connect, make_daemon
+from _support import connect, delegate_everything, make_daemon, undelegate
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.jarvis import tools as jarvis_tools
@@ -349,7 +349,7 @@ async def test_expose_browser_both_values(http: aiohttp.ClientSession, tmp_path:
         assert not sent.ok and "browser" in sent.error
         # Its approvals are never Jarvis's, either way.
         core.settings.jarvis.exposeBrowser = True
-        core.settings.jarvis.delegation.default = "full"
+        delegate_everything(core)
         ask = asyncio.ensure_future(
             core.approvals.request(
                 browser,
@@ -521,9 +521,10 @@ async def test_approval_decide_goes_through_the_engine(
 ) -> None:
     project = tmp_path / "proj"
     project.mkdir()
-    daemon = await _daemon(tmp_path, delegation={"default": "full"})
+    daemon = await _daemon(tmp_path)
     try:
         core = daemon.core
+        everything = delegate_everything(core)
         client = await connect(http, daemon)
         worker = await core.sessions.create(project, mode="accept")
 
@@ -571,7 +572,7 @@ async def test_approval_decide_goes_through_the_engine(
         await asyncio.wait_for(task, 5)
 
         # A grant revoked meanwhile takes the decision back.
-        core.settings.jarvis.delegation.default = "staged"
+        undelegate(core, everything)
         task, request = await ask("make build")
         assert request.route == "person"
         refused = await _call(

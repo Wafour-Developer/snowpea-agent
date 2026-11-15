@@ -17,7 +17,7 @@ from typing import Any
 
 import aiohttp
 import pytest
-from _support import connect, make_daemon
+from _support import connect, delegate_everything, make_daemon, undelegate
 
 from snowpea_core.cli import main as cli_main
 from snowpea_core.jarvis.clock import Clock
@@ -168,7 +168,7 @@ async def test_every_request_carries_the_engines_route(
         assert core.jarvis.engine.routed(resolved[0]["requestId"]) is None
 
         # Full delegation: risky goes to Jarvis; guarded stays the person's.
-        core.settings.jarvis.delegation.default = "full"
+        delegate_everything(core)
         ask = await _approval(core, worker, "make build")
         assert _pending(core, worker.id).route == "jarvis"
         await core.approvals.respond(_pending(core, worker.id).requestId, "deny")
@@ -204,10 +204,11 @@ async def test_jarvis_cannot_answer_its_own_or_browser_requests(
     project.mkdir()
     daemon = await make_daemon(
         tmp_path / "home",
-        _settings(tmp_path, enabled=True, delegation={"default": "full"}),
+        _settings(tmp_path, enabled=True),
     )
     try:
         core = daemon.core
+        delegate_everything(core)
         jarvis = core.jarvis.session()
         assert jarvis is not None and jarvis.role == "jarvis"
         ask = await _approval(core, jarvis, "make build")
@@ -373,10 +374,11 @@ async def test_stalls_wake_jarvis_for_delegated_sessions(tmp_path: Path) -> None
     project.mkdir()
     daemon = await make_daemon(
         tmp_path / "home",
-        _settings(tmp_path, enabled=True, stallMinutes=5, delegation={"default": "full"}),
+        _settings(tmp_path, enabled=True, stallMinutes=5),
     )
     try:
         core = daemon.core
+        everything = delegate_everything(core)
         service, clock, wakes = await _with_clock(daemon)
         intake = service.intake
         assert intake is not None
@@ -420,7 +422,7 @@ async def test_stalls_wake_jarvis_for_delegated_sessions(tmp_path: Path) -> None
         assert len(wakes) == 3 and "stopped while its last answer says work remains" in wakes[2]
 
         # Staged sessions are not Jarvis's to restart.
-        core.settings.jarvis.delegation.default = "staged"
+        undelegate(core, everything)
         await core.hub.emit_event(worker.id, events.turn_started("t3"))
         clock.advance(6 * 60)
         await intake.tick()

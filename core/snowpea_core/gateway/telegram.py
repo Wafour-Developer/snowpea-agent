@@ -81,6 +81,15 @@ def parse_update(update: dict[str, Any]) -> InboundMessage | None:
     if not text and not attachments:
         return None
     reply = message.get("reply_to_message") or {}
+    metadata: dict[str, Any] = {"chat_type": str(chat.get("type") or "")}
+    if any(
+        message.get(key)
+        for key in ("forward_origin", "forward_from", "forward_from_chat", "forward_sender_name",
+                    "forward_date")
+    ):
+        # The text is someone else's message the sender passed on (security
+        # review H3): the router fences it as quoted, untrusted content.
+        metadata["forwarded"] = True
     return InboundMessage(
         platform="telegram",
         channel_id=str(chat_id),
@@ -89,7 +98,7 @@ def parse_update(update: dict[str, Any]) -> InboundMessage | None:
         attachments=attachments,
         message_id=str(message.get("message_id", "")) or None,
         reply_to=str(reply.get("message_id")) if reply.get("message_id") else None,
-        metadata={"chat_type": str(chat.get("type") or "")},
+        metadata=metadata,
     )
 
 

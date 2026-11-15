@@ -280,6 +280,9 @@ class RpcDispatcher:
                 errors.INVALID_PARAMS, "invalid params", exc.errors(include_url=False)
             ) from exc
         self._refuse_owned_run(method, params)
+        from snowpea_core.server.person_gate import method_refusal
+
+        method_refusal(method, conn)
         result = await handler(conn, params, self.core)
         return _as_dict(result)
 
