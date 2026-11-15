@@ -2396,7 +2396,7 @@ class TrajectoryRow(Payload):
 
 
 class ExtensionInfo(Payload):
-    """A Python plugin in $SNOWPEA_HOME/extensions (1.49.0, capability 'extensions')."""
+    """An extension in $SNOWPEA_HOME/extensions (1.49.0, capability 'extensions')."""
 
     name: str = Field(description="Plugin name.")
     path: str = Field(description="Its folder.")
@@ -7483,7 +7483,7 @@ METHODS: dict[str, RpcMethod] = {
             "extension.list",
             Empty,
             ExtensionListResult,
-            "Python plugins found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, "
+            "Extensions found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, "
             "capability 'extensions').",
         ),
         _m("extension.enable", ExtensionNameParams, ExtensionResult, "Enable and load (1.49.0)."),

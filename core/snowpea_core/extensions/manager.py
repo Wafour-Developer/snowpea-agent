@@ -1,8 +1,8 @@
-"""Finding, loading, enabling and unloading Python plugins (M16 Phase 3).
+"""Finding, loading, enabling and unloading extensions (M16 Phase 3).
 
 ``$SNOWPEA_HOME/extensions/<name>/plugin.py`` is a plugin; ``plugin.json``
 beside it describes it.  ``settings.extensions.<name>`` holds ``enabled``
-(default true: the user put the folder there) and ``config``.  A plugin whose
+(default true: the user put the folder there) and ``config``.  An extension whose
 ``apply`` raises is reported with its error and leaves nothing behind.
 """
 
@@ -122,7 +122,7 @@ class ExtensionManager:
         if ext.context is not None:
             return ext
         if not _compatible(ext.manifest):
-            ext.state, ext.error = "incompatible", f"needs plugin API {ext.manifest['engines']}"
+            ext.state, ext.error = "incompatible", f"needs extension API {ext.manifest['engines']}"
             return ext
         module_name = f"snowpea_extension_{name.replace('-', '_')}"
         try:

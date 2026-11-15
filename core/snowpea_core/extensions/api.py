@@ -1,4 +1,4 @@
-"""The Python plugin API (M16 Phase 3).
+"""The extension API (M16 Phase 3).
 
 A plugin is a folder ``$SNOWPEA_HOME/extensions/<name>/`` holding ``plugin.py``
 and, optionally, ``plugin.json`` (``name``, ``description``, ``version``,

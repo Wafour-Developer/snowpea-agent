@@ -2,6 +2,20 @@
 
 snowpea lee directamente la disposición de plugins de Claude Code. Un plugin escrito para Claude Code se instala y funciona aquí sin modificaciones, y un repositorio que ya tiene un directorio `.claude/` funciona sin ningún cambio.
 
+## Qué es cada cosa
+
+En esta página conviven tres cosas distintas.
+
+| Tipo | Formato | Dónde vive | ¿Puede llevarlo la carpeta del proyecto? | ¿Ejecuta código en el daemon? |
+|---|---|---|---|---|
+| **Skill** | `SKILL.md` — el estándar abierto agentskills.io que comparten Claude Code y Codex | `skills/` en la carpeta personal o el proyecto | sí | no, son instrucciones |
+| **Plugin (formato Claude Code)** | paquete de skills, comandos, agentes, hooks y servidores MCP | `$SNOWPEA_HOME/plugins/` | no, solo la carpeta personal | no; sus hooks y servidores MCP lanzan comandos que aprobaste |
+| **Extensión** (formato de extensión de snowpea, Python) | `plugin.py` con `apply(ctx)` | `$SNOWPEA_HOME/extensions/<nombre>/` | no, solo la carpeta personal | sí, Python dentro del daemon; requiere confianza |
+
+Una extensión se inspira en el diseño de DeepSeek Harness, pero no es compatible con los plugins de DeepSeek Harness.
+
+Los paquetes de plugin se leen solo en formato Claude Code. snowpea no lee las carpetas propias de Codex (`~/.codex`) ni un paquete de Codex. Una skill escrita para Codex funciona si su carpeta se coloca en una ubicación de skills de snowpea. El archivo de instrucciones del proyecto `AGENTS.md` se lee junto con `CLAUDE.md`.
+
 ## Disposición
 
 ```
@@ -125,9 +139,9 @@ Las raíces se recorren en este orden, y en caso de colisión de nombres gana la
 
 Así que una skill de proyecto sobrescribe una skill de plugin con el mismo nombre, y un plugin sobrescribe una incorporada. El loader registra de dónde vino cada una, y `skill list` lo muestra.
 
-## Plugins de Python
+## Extensiones
 
-Un plugin de Python es una carpeta `$SNOWPEA_HOME/extensions/<nombre>/` con un `plugin.py` que define `apply(ctx)` y, opcionalmente, un `plugin.json` (`name`, `description`, `version`, `engines.snowpea`, `configSchema`). Puede añadir herramientas, secciones del prompt, contexto de ejecución, ganchos sobre cada resultado de herramienta, comprobaciones al terminar un turno, comandos y servidores MCP; todo se deshace al desactivarlo, recargarlo o quitarlo, sin reiniciar. Se ejecuta dentro del daemon con sus permisos: instale solo código de confianza. Solo se busca en la carpeta personal, nunca en un proyecto. Detalles y ejemplo: [manual en inglés](../en/plugins.md#python-plugins).
+Una extensión (formato de extensión de snowpea, Python) es una carpeta `$SNOWPEA_HOME/extensions/<nombre>/` con un `plugin.py` que define `apply(ctx)` y, opcionalmente, un `plugin.json` (`name`, `description`, `version`, `engines.snowpea`, `configSchema`). Puede añadir herramientas, secciones del prompt, contexto de ejecución, ganchos sobre cada resultado de herramienta, comprobaciones al terminar un turno, comandos y servidores MCP; todo se deshace al desactivarlo, recargarlo o quitarlo, sin reiniciar. Se ejecuta dentro del daemon con sus permisos: instale solo código de confianza. Solo se busca en la carpeta personal, nunca en un proyecto. Detalles y ejemplo: [manual en inglés](../en/plugins.md#extensions).
 
 ## Siguiente
 

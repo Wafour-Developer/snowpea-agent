@@ -2,6 +2,21 @@
 
 snowpea reads the Claude Code plugin layout directly. A plugin written for Claude Code installs and runs here without modification, and a repository that already has a `.claude/` directory works with no changes at all.
 
+
+## What is what
+
+Three kinds of add-on share this page, and they are not the same thing.
+
+| Kind | Format | Lives in | Project folder may carry it | Code runs in the daemon |
+|---|---|---|---|---|
+| **Skill** | `SKILL.md` — the open agentskills.io standard shared by Claude Code and Codex | `skills/` in the home or the project | yes | no, it is instructions |
+| **Plugin (Claude Code format)** | a bundle of skills, commands, agents, hooks and MCP servers | `$SNOWPEA_HOME/plugins/` | no, home only | no; its hooks and MCP servers start commands you approved |
+| **Extension** (snowpea extension format, Python) | `plugin.py` with `apply(ctx)` | `$SNOWPEA_HOME/extensions/<name>/` | no, home only | yes, Python inside the daemon; trust required |
+
+An extension is modelled on the design of DeepSeek Harness but is not compatible with DeepSeek Harness plugins.
+
+Plugin bundles are read in Claude Code format only. snowpea does not read Codex's own folders (`~/.codex`) or a Codex bundle. A skill written for Codex works when its folder is placed in a snowpea skills location. The project instruction file `AGENTS.md` is read alongside `CLAUDE.md`.
+
 ## Layout
 
 ```
@@ -290,11 +305,11 @@ Loading happens at three moments, so a `/command` is never one restart away:
 
 Each of those broadcasts `commands.changed`, so the TUI palette and the desktop app update without a restart. `skill.list`, `command.list` and `tool.list` reflect the change as soon as it lands.
 
-## Python plugins
+## Extensions
 
-Skills, agents, commands, hooks and MCP servers cover most needs without code. When a plugin has to change how the agent works — add a tool written in Python, a prompt section, a fact the model should always see, a check on every tool result, or a reason to keep a turn going — it can be a Python plugin.
+Skills, agents, commands, hooks and MCP servers cover most needs without code. When something has to change how the agent works — add a tool written in Python, a prompt section, a fact the model should always see, a check on every tool result, or a reason to keep a turn going — write an extension (snowpea extension format, Python).
 
-A Python plugin is a folder in `$SNOWPEA_HOME/extensions/<name>/` with a `plugin.py` that defines `apply(ctx)`, and optionally a `plugin.json` (`name`, `description`, `version`, `engines.snowpea`, `configSchema`):
+An extension is a folder in `$SNOWPEA_HOME/extensions/<name>/` with a `plugin.py` that defines `apply(ctx)`, and optionally a `plugin.json` (`name`, `description`, `version`, `engines.snowpea`, `configSchema`):
 
 ```python
 from snowpea_core.agent.runtime_context import ContextProvider
@@ -323,13 +338,13 @@ def apply(ctx):
 | `hooks.post_execute(name, fn, order=)` | a look at every tool result: accept, rewrite, or block with feedback |
 | `hooks.turn_stopping(name, fn, order=)` | a check when a turn would end; return a decision to keep it going |
 | `commands.register(command)` | a slash command (a built-in one cannot be replaced) |
-| `mcp.register(name, entry)` | an MCP server that exists while the plugin is loaded |
+| `mcp.register(name, entry)` | an MCP server that exists while the extension is loaded |
 | `on_dispose(fn)` | anything else to undo |
 | `config` | `settings.extensions.<name>.config` |
 
-Everything registered through `ctx` is undone when the plugin is disabled, reloaded or removed — no restart. A plugin whose `apply` raises is reported with its error and leaves nothing behind. Plugins run inside the daemon with its permissions, so install only code you trust; only the home folder is scanned, never a project's, so opening a cloned repository never runs its code. Set `SNOWPEA_EXTENSIONS=0` to start the daemon without them.
+Everything registered through `ctx` is undone when the plugin is disabled, reloaded or removed — no restart. An extension whose `apply` raises is reported with its error and leaves nothing behind. Extensions run inside the daemon with its permissions, so install only code you trust; only the home folder is scanned, never a project's, so opening a cloned repository never runs its code. Set `SNOWPEA_EXTENSIONS=0` to start the daemon without them.
 
-Clients manage them with `extension.list`, `extension.enable`, `extension.disable`, `extension.reload` and `extension.configure` (the config is checked against `configSchema`, so a settings screen can be generated from it). `scripts/gen_extension_index.py` writes a market index (`index.json`, format 1) from plugin folders for anyone to host.
+Clients manage them with `extension.list`, `extension.enable`, `extension.disable`, `extension.reload` and `extension.configure` (the config is checked against `configSchema`, so a settings screen can be generated from it). `scripts/gen_extension_index.py` writes a market index (`index.json`, format 1) from extension folders for anyone to host.
 
 ## Next
 

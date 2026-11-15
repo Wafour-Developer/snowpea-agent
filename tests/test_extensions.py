@@ -1,4 +1,4 @@
-"""Python plugins (M16 Phase 3): everything a plugin registers leaves with it."""
+"""Extensions (M16 Phase 3): everything a plugin registers leaves with it."""
 
 from __future__ import annotations
 

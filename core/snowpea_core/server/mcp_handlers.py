@@ -153,7 +153,7 @@ def declarations(core: Core, workdir: Path | str | None) -> list[Declared]:
     for name, entry in plugins.items():
         if isinstance(entry, dict):
             take(name, entry, "plugin", attribution.get(str(name)))
-    # Servers a Python plugin registered live as long as the plugin (M16 Phase 3).
+    # Servers an extension registered live as long as the extension (M16 Phase 3).
     from snowpea_core.extensions.api import PLUGIN_MCP
 
     for name, (entry, owner) in list(PLUGIN_MCP.items()):

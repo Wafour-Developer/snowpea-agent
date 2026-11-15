@@ -4,6 +4,20 @@
 
 snowpea は Claude Code のプラグイン構成をそのまま読みます。Claude Code 向けに書かれたプラグインは修正なしでここにインストールされ動作しますし、すでに `.claude/` ディレクトリがあるリポジトリは何も変えずにそのまま動きます。
 
+## 何が何か
+
+このページには別々の 3 種類が出てきます。
+
+| 種類 | 形式 | 置き場所 | プロジェクトフォルダーに置けるか | デーモン内でコードが動くか |
+|---|---|---|---|---|
+| **スキル** | `SKILL.md` — Claude Code と Codex が共有するオープン標準（agentskills.io） | ホームまたはプロジェクトの `skills/` | はい | いいえ（指示のみ） |
+| **プラグイン（Claude Code 形式）** | スキル・コマンド・エージェント・フック・MCP サーバーのバンドル | `$SNOWPEA_HOME/plugins/` | いいえ（ホームのみ） | いいえ。フックと MCP サーバーは承認したコマンドを起動 |
+| **拡張**（snowpea 拡張形式、Python） | `apply(ctx)` を定義した `plugin.py` | `$SNOWPEA_HOME/extensions/<名前>/` | いいえ（ホームのみ） | はい、デーモン内の Python。信頼が必要 |
+
+拡張は DeepSeek Harness の設計を手本にしていますが、DeepSeek Harness のプラグインとは互換性がありません。
+
+プラグインのバンドルは Claude Code 形式のみ読みます。snowpea は Codex 固有のフォルダー（`~/.codex`）や Codex のバンドルを読みません。Codex 向けに書かれたスキルは、そのフォルダーを snowpea のスキル置き場に置けば動きます。プロジェクトの指示ファイル `AGENTS.md` は `CLAUDE.md` と並んで読まれます。
+
 ## Layout
 
 ```
@@ -127,9 +141,9 @@ snowpea tools list --json
 
 つまり、プロジェクトのスキルは同名のプラグインのスキルを上書きし、プラグインはビルトインを上書きします。ローダーはそれぞれの出どころを記録し、`skill list` がそれを表示します。
 
-## Python プラグイン
+## 拡張
 
-Python プラグインは `$SNOWPEA_HOME/extensions/<名前>/` フォルダーで、`apply(ctx)` を定義した `plugin.py` と、任意で `plugin.json`（`name`、`description`、`version`、`engines.snowpea`、`configSchema`）を置きます。ツール、プロンプトのセクション、実行時コンテキスト、すべてのツール結果へのフック、ターン終了時のチェック、コマンド、MCP サーバーを追加でき、無効化・再読み込み・削除で再起動なしにすべて元に戻ります。デーモン内でその権限で動くため、信頼できるコードだけを入れてください。スキャンするのはホームフォルダーのみで、プロジェクトのフォルダーは対象外です。詳細と例は [英語版マニュアル](../en/plugins.md#python-plugins)。
+拡張（snowpea 拡張形式、Python）は `$SNOWPEA_HOME/extensions/<名前>/` フォルダーで、`apply(ctx)` を定義した `plugin.py` と、任意で `plugin.json`（`name`、`description`、`version`、`engines.snowpea`、`configSchema`）を置きます。ツール、プロンプトのセクション、実行時コンテキスト、すべてのツール結果へのフック、ターン終了時のチェック、コマンド、MCP サーバーを追加でき、無効化・再読み込み・削除で再起動なしにすべて元に戻ります。デーモン内でその権限で動くため、信頼できるコードだけを入れてください。スキャンするのはホームフォルダーのみで、プロジェクトのフォルダーは対象外です。詳細と例は [英語版マニュアル](../en/plugins.md#extensions)。
 
 ## Next
 

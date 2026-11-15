@@ -1,1 +1,1 @@
-"""Python plugins (M16 Phase 3): see :mod:`snowpea_core.extensions.api`."""
+"""extensions (M16 Phase 3): see :mod:`snowpea_core.extensions.api`."""

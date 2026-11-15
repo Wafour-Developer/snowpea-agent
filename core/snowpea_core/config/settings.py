@@ -784,7 +784,7 @@ class Settings(_Model):
     #: Global allowlist patterns (contract §7); the project store lives in
     #: ``<workdir>/.snowpea/settings.json``.
     allowlist: list[AllowlistEntry] = Field(default_factory=list)
-    #: Python plugins in ``$SNOWPEA_HOME/extensions`` (M16 Phase 3), by name:
+    #: extensions in ``$SNOWPEA_HOME/extensions`` (M16 Phase 3), by name:
     #: ``{"enabled": bool, "config": {...}}``.  A plugin with no entry is enabled.
     extensions: dict[str, dict[str, Any]] = Field(default_factory=dict)
 

@@ -145,7 +145,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`extension.configure`](#extensionconfigure) | client → server | Save a plugin's config (validated by its configSchema) and reload it (1.49.0). |
 | [`extension.disable`](#extensiondisable) | client → server | Unload and disable; everything it registered goes (1.49.0). |
 | [`extension.enable`](#extensionenable) | client → server | Enable and load (1.49.0). |
-| [`extension.list`](#extensionlist) | client → server | Python plugins found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions'). |
+| [`extension.list`](#extensionlist) | client → server | Extensions found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions'). |
 | [`extension.reload`](#extensionreload) | client → server | Unload and load again, picking up edits (1.49.0). |
 | [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
 | [`fs.glob`](#fsglob) | client → server | Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never followed; '**' does not enter .git or node_modules. |
@@ -865,7 +865,7 @@ Enable and load (1.49.0).
 
 *Direction:* client → server
 
-Python plugins found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions').
+Extensions found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions').
 
 **Params**
 

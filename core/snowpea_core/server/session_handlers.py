@@ -193,7 +193,7 @@ def wire_core(core: Core) -> Core:
     register_builtin_commands(core.commands)
     core.skills = SkillLoader(core)
     core.skills.load_sync()
-    # Python plugins last: they may add tools, sections, commands and MCP
+    # Extensions last: they may add tools, sections, commands and MCP
     # servers on top of everything built in (M16 Phase 3).
     from snowpea_core.extensions.manager import ExtensionManager
 

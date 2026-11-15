@@ -4,6 +4,20 @@
 
 snowpea 直接读取 Claude Code 的插件目录布局。为 Claude Code 写的插件不用改动就能在这里安装并运行，而一个已经有 `.claude/` 目录的仓库则完全不需要任何改动。
 
+## 各是什么
+
+本页涉及三种不同的东西。
+
+| 种类 | 格式 | 位置 | 项目文件夹可否携带 | 代码是否在守护进程内运行 |
+|---|---|---|---|---|
+| **技能（Skill）** | `SKILL.md` —— Claude Code 与 Codex 共用的开放标准（agentskills.io） | 主目录或项目的 `skills/` | 可以 | 否，只是说明 |
+| **插件（Claude Code 格式）** | 技能、命令、agent、hook、MCP server 的打包 | `$SNOWPEA_HOME/plugins/` | 不可以，仅主目录 | 否；其 hook 与 MCP server 启动你已批准的命令 |
+| **扩展**（snowpea 扩展格式，Python） | 定义 `apply(ctx)` 的 `plugin.py` | `$SNOWPEA_HOME/extensions/<名称>/` | 不可以，仅主目录 | 是，守护进程内的 Python；需要信任 |
+
+扩展参照 DeepSeek Harness 的设计，但与 DeepSeek Harness 的插件不兼容。
+
+插件包只按 Claude Code 格式读取。snowpea 不读取 Codex 自己的文件夹（`~/.codex`）或 Codex 包。为 Codex 写的技能，把其文件夹放进 snowpea 的技能位置即可使用。项目指令文件 `AGENTS.md` 与 `CLAUDE.md` 一并读取。
+
 ## 布局
 
 ```
@@ -127,9 +141,9 @@ snowpea tools list --json
 
 所以同名时项目 skill 覆盖插件 skill，插件覆盖内置。加载器会记录每一项来自哪里，`skill list` 会显示出来。
 
-## Python 插件
+## 扩展
 
-Python 插件是 `$SNOWPEA_HOME/extensions/<名称>/` 文件夹，其中 `plugin.py` 定义 `apply(ctx)`，可选 `plugin.json`（`name`、`description`、`version`、`engines.snowpea`、`configSchema`）。它可以添加工具、提示词段落、运行时上下文、对每个工具结果的钩子、回合结束时的检查、命令和 MCP 服务器；禁用、重新加载或删除时全部撤销，无需重启。插件在守护进程内以其权限运行，请只安装可信代码。只扫描主目录，从不扫描项目文件夹。详情与示例见[英文手册](../en/plugins.md#python-plugins)。
+扩展（snowpea 扩展格式，Python）是 `$SNOWPEA_HOME/extensions/<名称>/` 文件夹，其中 `plugin.py` 定义 `apply(ctx)`，可选 `plugin.json`（`name`、`description`、`version`、`engines.snowpea`、`configSchema`）。它可以添加工具、提示词段落、运行时上下文、对每个工具结果的钩子、回合结束时的检查、命令和 MCP 服务器；禁用、重新加载或删除时全部撤销，无需重启。扩展在守护进程内以其权限运行，请只安装可信代码。只扫描主目录，从不扫描项目文件夹。详情与示例见[英文手册](../en/plugins.md#extensions)。
 
 ## 下一步
 

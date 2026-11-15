@@ -106,7 +106,7 @@ event; `tool.result` gains `concludesTurn`). No client breaks.
 
 ### Phase 3 — Plugin API (core)
 
-- `PluginContext` handed to a Python plugin: `tools.register`, `prompt.section`,
+- `PluginContext` handed to a Python plugin (now called an extension): `tools.register`, `prompt.section`,
   `prompt.context`, `commands.register`, `mcp.register`, `hooks.on(<point>, fn)`,
   `settings.schema` — each returns a disposer recorded on the plugin; disable/enable/reload
   without restarting the daemon.
