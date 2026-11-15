@@ -1,0 +1,8 @@
+{"_comment": "stdout of: echo 'Reply with exactly: OK' | codex exec --json -C <proj> -s workspace-write -", "codexVersion": "codex-cli 0.167.1"}
+{"type": "thread.started", "thread_id": "01a1df1d-ed82-7141-b654-600701f5d42c"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "error", "message": "<config warning redacted>"}}
+{"type": "item.completed", "item": {"id": "item_1", "type": "error", "message": "<config warning redacted>"}}
+{"type": "item.completed", "item": {"id": "item_2", "type": "error", "message": "<config warning redacted>"}}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_3", "type": "agent_message", "text": "OK"}}
+{"type": "turn.completed", "usage": {"input_tokens": 25877, "cached_input_tokens": 7168, "cache_write_input_tokens": 0, "output_tokens": 5, "reasoning_output_tokens": 0}}

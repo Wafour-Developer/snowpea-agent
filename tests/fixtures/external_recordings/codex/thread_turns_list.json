@@ -1,0 +1,72 @@
+{
+ "id": 6,
+ "result": {
+  "data": [
+   {
+    "id": "01a1df1b-b33e-7053-8087-73f454e39071",
+    "rootTurnId": "01a1df1b-b33e-7053-8087-73f454e39071",
+    "items": [
+     {
+      "type": "userMessage",
+      "id": "01a1df1b-b5ed-7ef2-84e9-3b42775c4f8e",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Create a file named note.txt containing the word hi",
+        "text_elements": []
+       }
+      ],
+      "startedAtMs": 1794744497645,
+      "completedAtMs": 1794744497645
+     },
+     {
+      "type": "agentMessage",
+      "id": "msg_08709ac005b89773016af9a0b50c0087d0a20e4820bbe360bc",
+      "text": "Created [note.txt](/work/proj/note.txt) containing `hi`.",
+      "phase": "final_answer",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null,
+      "startedAtMs": 1794744501127,
+      "completedAtMs": 1794744502228
+     }
+    ],
+    "itemsView": "summary",
+    "status": "completed",
+    "error": null,
+    "startedAt": 1794744496,
+    "completedAt": 1794744502,
+    "durationMs": 5305
+   },
+   {
+    "id": "01a1df17-f24c-7633-9f0e-2bd002956b47",
+    "rootTurnId": "01a1df17-f24c-7633-9f0e-2bd002956b47",
+    "items": [
+     {
+      "type": "userMessage",
+      "id": "01a1df17-f3c7-7a43-a9bf-246fd8054606",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Create a file named note.txt containing the word hi",
+        "text_elements": []
+       }
+      ],
+      "startedAtMs": 1794744251336,
+      "completedAtMs": 1794744251336
+     }
+    ],
+    "itemsView": "summary",
+    "status": "interrupted",
+    "error": null,
+    "startedAt": 1794744251,
+    "completedAt": 1794744431,
+    "durationMs": 180102
+   }
+  ],
+  "nextCursor": "{\"requestedThreadId\":\"01a1df17-dfd6-7363-be44-fc3d59478c51\",\"rolloutOrdinal\":18,\"includeAnchor\":false,\"scope\":{\"kind\":\"turns\"}}",
+  "backwardsCursor": "{\"requestedThreadId\":\"01a1df17-dfd6-7363-be44-fc3d59478c51\",\"rolloutOrdinal\":32,\"includeAnchor\":true,\"scope\":{\"kind\":\"turns\"}}"
+ }
+}

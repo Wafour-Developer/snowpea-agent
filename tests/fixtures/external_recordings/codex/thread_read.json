@@ -1,0 +1,205 @@
+{
+ "id": 5,
+ "result": {
+  "thread": {
+   "id": "01a1df17-dfd6-7363-be44-fc3d59478c51",
+   "environments": [
+    {
+     "environmentId": "local",
+     "cwd": "/work/proj",
+     "runtimeWorkspaceRoots": [
+      "/work/proj"
+     ]
+    }
+   ],
+   "extra": null,
+   "sessionId": "01a1df17-dfd6-7363-be44-fc3d59478c51",
+   "forkedFromId": null,
+   "parentThreadId": null,
+   "preview": "Reply with exactly: OK",
+   "ephemeral": false,
+   "section": null,
+   "sectionEnteredAt": null,
+   "projectId": null,
+   "historyMode": "paginated",
+   "modelProvider": "openai",
+   "model": "gpt-6.1-terra",
+   "reasoningEffort": "low",
+   "createdAt": 1794744246,
+   "updatedAt": 1794744502,
+   "recencyAt": 1794744496,
+   "status": {
+    "type": "idle"
+   },
+   "path": "/home/user/.codex/sessions/2026/11/15/rollout-2026-11-15T21-04-06-01a1df17-dfd6-7363-be44-fc3d59478c51.jsonl",
+   "cwd": "/work/proj",
+   "cliVersion": "0.167.1",
+   "originator": "snowpea_spike",
+   "source": "vscode",
+   "canAcceptDirectInput": true,
+   "threadSource": null,
+   "agentNickname": null,
+   "agentRole": null,
+   "gitInfo": {
+    "sha": "28cc4a91dcb3a9aa2e31757c6b13f2681406872e",
+    "branch": "master",
+    "originUrl": null
+   },
+   "name": null,
+   "daybreakEnabled": null,
+   "turns": [
+    {
+     "id": "01a1df17-e39b-7b23-ae0f-1d02b78b7c8b",
+     "rootTurnId": "01a1df17-e39b-7b23-ae0f-1d02b78b7c8b",
+     "items": [
+      {
+       "type": "userMessage",
+       "id": "01a1df17-eaef-7650-8d8b-87fd390982de",
+       "clientId": null,
+       "content": [
+        {
+         "type": "text",
+         "text": "Reply with exactly: OK",
+         "text_elements": []
+        }
+       ],
+       "startedAtMs": 1794744249072,
+       "completedAtMs": 1794744249072
+      },
+      {
+       "type": "agentMessage",
+       "id": "msg_03b9a66aab225a1f016af99fba4dbc87d0b247859a93c5231a",
+       "text": "OK",
+       "phase": "final_answer",
+       "memoryCitation": null,
+       "delivery": null,
+       "questions": null,
+       "startedAtMs": 1794744250438,
+       "completedAtMs": 1794744250503
+      }
+     ],
+     "itemsView": "full",
+     "status": "completed",
+     "error": null,
+     "startedAt": 1794744247,
+     "completedAt": 1794744250,
+     "durationMs": 3352
+    },
+    {
+     "id": "01a1df17-f24c-7633-9f0e-2bd002956b47",
+     "rootTurnId": "01a1df17-f24c-7633-9f0e-2bd002956b47",
+     "items": [
+      {
+       "type": "userMessage",
+       "id": "01a1df17-f3c7-7a43-a9bf-246fd8054606",
+       "clientId": null,
+       "content": [
+        {
+         "type": "text",
+         "text": "Create a file named note.txt containing the word hi",
+         "text_elements": []
+        }
+       ],
+       "startedAtMs": 1794744251336,
+       "completedAtMs": 1794744251336
+      },
+      {
+       "type": "agentMessage",
+       "id": "msg_03b9a66aab225a1f016af99fbc6e6c87d0b5519ba0f2c3e409",
+       "text": "I\u2019ll create `note.txt` in the current workspace and verify its contents.",
+       "phase": "commentary",
+       "memoryCitation": null,
+       "delivery": null,
+       "questions": null,
+       "startedAtMs": 1794744252513,
+       "completedAtMs": 1794744253007
+      }
+     ],
+     "itemsView": "full",
+     "status": "interrupted",
+     "error": null,
+     "startedAt": 1794744251,
+     "completedAt": 1794744431,
+     "durationMs": 180102
+    },
+    {
+     "id": "01a1df1b-b33e-7053-8087-73f454e39071",
+     "rootTurnId": "01a1df1b-b33e-7053-8087-73f454e39071",
+     "items": [
+      {
+       "type": "userMessage",
+       "id": "01a1df1b-b5ed-7ef2-84e9-3b42775c4f8e",
+       "clientId": null,
+       "content": [
+        {
+         "type": "text",
+         "text": "Create a file named note.txt containing the word hi",
+         "text_elements": []
+        }
+       ],
+       "startedAtMs": 1794744497645,
+       "completedAtMs": 1794744497645
+      },
+      {
+       "type": "agentMessage",
+       "id": "msg_08709ac005b89773016af9a0b2b12c87d092a17b8921447733",
+       "text": "I\u2019ll create `note.txt` in the workspace and check its contents.",
+       "phase": "commentary",
+       "memoryCitation": null,
+       "delivery": null,
+       "questions": null,
+       "startedAtMs": 1794744498769,
+       "completedAtMs": 1794744499181
+      },
+      {
+       "type": "commandExecution",
+       "id": "exec-3f47a5f5-5343-4d9b-9d9b-1760fe96f149",
+       "pluginId": null,
+       "scriptPath": null,
+       "command": "/bin/bash -lc 'printf hi > note.txt && cat note.txt'",
+       "cwd": "/work/proj",
+       "processId": "83365",
+       "source": "unifiedExecStartup",
+       "status": "completed",
+       "commandActions": [
+        {
+         "type": "unknown",
+         "command": "printf hi > note.txt && cat note.txt"
+        }
+       ],
+       "aggregatedOutput": "hi",
+       "exitCode": 0,
+       "durationMs": 0,
+       "startedAtMs": 1794744499878,
+       "completedAtMs": 1794744499988
+      },
+      {
+       "type": "agentMessage",
+       "id": "msg_08709ac005b89773016af9a0b50c0087d0a20e4820bbe360bc",
+       "text": "Created [note.txt](/work/proj/note.txt) containing `hi`.",
+       "phase": "final_answer",
+       "memoryCitation": null,
+       "delivery": null,
+       "questions": null,
+       "startedAtMs": 1794744501127,
+       "completedAtMs": 1794744502228
+      }
+     ],
+     "itemsView": "full",
+     "status": "completed",
+     "error": null,
+     "startedAt": 1794744496,
+     "completedAt": 1794744502,
+     "durationMs": 5305
+    }
+   ]
+  },
+  "readState": {
+   "firstUnread": {
+    "type": "turn",
+    "turnId": "01a1df17-e39b-7b23-ae0f-1d02b78b7c8b"
+   },
+   "revision": "3c858698-9536-4670-9c43-4073e5ec5ab7"
+  }
+ }
+}

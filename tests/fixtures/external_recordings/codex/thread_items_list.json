@@ -1,0 +1,98 @@
+{
+ "id": 7,
+ "result": {
+  "data": [
+   {
+    "turnId": "01a1df17-e39b-7b23-ae0f-1d02b78b7c8b",
+    "item": {
+     "type": "userMessage",
+     "id": "01a1df17-eaef-7650-8d8b-87fd390982de",
+     "clientId": null,
+     "content": [
+      {
+       "type": "text",
+       "text": "Reply with exactly: OK",
+       "text_elements": []
+      }
+     ],
+     "startedAtMs": 1794744249072,
+     "completedAtMs": 1794744249072
+    },
+    "startedAtMs": 1794744249072,
+    "completedAtMs": 1794744249072
+   },
+   {
+    "turnId": "01a1df17-e39b-7b23-ae0f-1d02b78b7c8b",
+    "item": {
+     "type": "agentMessage",
+     "id": "msg_03b9a66aab225a1f016af99fba4dbc87d0b247859a93c5231a",
+     "text": "OK",
+     "phase": "final_answer",
+     "memoryCitation": null,
+     "delivery": null,
+     "questions": null,
+     "startedAtMs": 1794744250438,
+     "completedAtMs": 1794744250503
+    },
+    "startedAtMs": 1794744250438,
+    "completedAtMs": 1794744250503
+   },
+   {
+    "turnId": "01a1df17-f24c-7633-9f0e-2bd002956b47",
+    "item": {
+     "type": "userMessage",
+     "id": "01a1df17-f3c7-7a43-a9bf-246fd8054606",
+     "clientId": null,
+     "content": [
+      {
+       "type": "text",
+       "text": "Create a file named note.txt containing the word hi",
+       "text_elements": []
+      }
+     ],
+     "startedAtMs": 1794744251336,
+     "completedAtMs": 1794744251336
+    },
+    "startedAtMs": 1794744251336,
+    "completedAtMs": 1794744251336
+   },
+   {
+    "turnId": "01a1df17-f24c-7633-9f0e-2bd002956b47",
+    "item": {
+     "type": "agentMessage",
+     "id": "msg_03b9a66aab225a1f016af99fbc6e6c87d0b5519ba0f2c3e409",
+     "text": "I\u2019ll create `note.txt` in the current workspace and verify its contents.",
+     "phase": "commentary",
+     "memoryCitation": null,
+     "delivery": null,
+     "questions": null,
+     "startedAtMs": 1794744252513,
+     "completedAtMs": 1794744253007
+    },
+    "startedAtMs": 1794744252513,
+    "completedAtMs": 1794744253007
+   },
+   {
+    "turnId": "01a1df1b-b33e-7053-8087-73f454e39071",
+    "item": {
+     "type": "userMessage",
+     "id": "01a1df1b-b5ed-7ef2-84e9-3b42775c4f8e",
+     "clientId": null,
+     "content": [
+      {
+       "type": "text",
+       "text": "Create a file named note.txt containing the word hi",
+       "text_elements": []
+      }
+     ],
+     "startedAtMs": 1794744497645,
+     "completedAtMs": 1794744497645
+    },
+    "startedAtMs": 1794744497645,
+    "completedAtMs": 1794744497645
+   }
+  ],
+  "nextCursor": "{\"requestedThreadId\":\"01a1df17-dfd6-7363-be44-fc3d59478c51\",\"rolloutOrdinal\":35,\"includeAnchor\":false,\"scope\":{\"kind\":\"itemsByCreatedAtOrdinal\"}}",
+  "backwardsCursor": "{\"requestedThreadId\":\"01a1df17-dfd6-7363-be44-fc3d59478c51\",\"rolloutOrdinal\":12,\"includeAnchor\":true,\"scope\":{\"kind\":\"itemsByCreatedAtOrdinal\"}}"
+ }
+}

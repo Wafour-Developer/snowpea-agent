@@ -1,0 +1,66 @@
+{
+ "id": 3,
+ "result": {
+  "data": [
+   {
+    "id": "01a1df17-dfd6-7363-be44-fc3d59478c51",
+    "environments": [
+     {
+      "environmentId": "local",
+      "cwd": "/work/proj",
+      "runtimeWorkspaceRoots": [
+       "/work/proj"
+      ]
+     }
+    ],
+    "extra": null,
+    "sessionId": "01a1df17-dfd6-7363-be44-fc3d59478c51",
+    "forkedFromId": null,
+    "parentThreadId": null,
+    "preview": "Reply with exactly: OK",
+    "ephemeral": false,
+    "section": null,
+    "sectionEnteredAt": null,
+    "projectId": null,
+    "historyMode": "paginated",
+    "modelProvider": "openai",
+    "model": "gpt-6.1-terra",
+    "reasoningEffort": "low",
+    "createdAt": 1794744246,
+    "updatedAt": 1794744502,
+    "recencyAt": 1794744496,
+    "status": {
+     "type": "idle"
+    },
+    "path": "/home/user/.codex/sessions/2026/11/15/rollout-2026-11-15T21-04-06-01a1df17-dfd6-7363-be44-fc3d59478c51.jsonl",
+    "cwd": "/work/proj",
+    "cliVersion": "0.167.1",
+    "originator": "snowpea_spike",
+    "source": "vscode",
+    "canAcceptDirectInput": null,
+    "threadSource": null,
+    "agentNickname": null,
+    "agentRole": null,
+    "gitInfo": {
+     "sha": "28cc4a91dcb3a9aa2e31757c6b13f2681406872e",
+     "branch": "master",
+     "originUrl": null
+    },
+    "name": null,
+    "daybreakEnabled": null,
+    "turns": []
+   }
+  ],
+  "readStates": {
+   "01a1df17-dfd6-7363-be44-fc3d59478c51": {
+    "firstUnread": {
+     "type": "turn",
+     "turnId": "01a1df17-e39b-7b23-ae0f-1d02b78b7c8b"
+    },
+    "revision": "3c858698-9536-4670-9c43-4073e5ec5ab7"
+   }
+  },
+  "nextCursor": null,
+  "backwardsCursor": "2026-11-15T12:04:06.995Z"
+ }
+}
