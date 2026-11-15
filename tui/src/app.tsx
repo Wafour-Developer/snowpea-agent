@@ -14,8 +14,8 @@
  * `FullscreenLayout` instead.
  */
 
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Box, Static, Text, useApp, useInput, useStdin, useStdout, type DOMElement } from "ink";
 
 import type { TuiClient } from "./rpc/client.js";
 import type {
@@ -1518,9 +1518,16 @@ export function App({
     () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
     [draft, knownAgents],
   );
+  // A long draft scrolls inside the composer rather than taking the rows the
+  // newest transcript entry needs: a third of the terminal, at least three.
+  const maxDraftRows = Math.max(3, Math.floor(usableRows(terminal.rows) / 3));
   const draftRows = useMemo(
-    () => editorLayout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length,
-    [draft, contentWidth],
+    () =>
+      Math.min(
+        maxDraftRows,
+        editorLayout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length,
+      ),
+    [draft, contentWidth, maxDraftRows],
   );
 
   // Full-screen greets an empty session with the launch banner inside the
@@ -1620,6 +1627,21 @@ export function App({
     }),
     [fullscreen, layout.rows, hintRows, terminal.rows, agentRows.length],
   );
+
+  // The inline live region, capped at the rows Ink may draw without clearing
+  // the terminal: Ink writes `clearTerminal` and the whole scrollback again on
+  // every frame whose height reaches `stdout.rows`. The budgets below keep it
+  // well short of that, but they are estimates; Yoga's `maxHeight` makes it a
+  // guarantee. Ink's `Box` has no such prop, so it is set on the node itself —
+  // during render, so a frame whose chrome grew is already capped, and after
+  // mount, when the node first exists. Ink never resets a style it does not
+  // know, so the value holds across commits.
+  const liveRegionRef = useRef<DOMElement>(null);
+  const liveMaxRows = usableRows(terminal.rows);
+  liveRegionRef.current?.yogaNode?.setMaxHeight(liveMaxRows);
+  useLayoutEffect(() => {
+    liveRegionRef.current?.yogaNode?.setMaxHeight(liveMaxRows);
+  });
 
   // --- what has reached the scrollback --------------------------------------
   // Appended during render, not from an effect: an effect would draw the
@@ -3077,6 +3099,7 @@ export function App({
           agents={completableAgents}
           onFileComplete={handleFileComplete}
           draftWidth={Math.max(1, contentWidth - 2)}
+          maxRows={maxDraftRows}
           onChange={(next) => {
             setDraft(next);
             if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
@@ -3296,7 +3319,11 @@ export function App({
         )}
       </Static>
 
-      <Box flexDirection="column" paddingX={1}>
+      <Box ref={liveRegionRef} flexDirection="column" paddingX={1}>
+      {/* The only part that gives way when the region is at its cap: the
+          oldest rows go, clipped at the top, and the newest stay. Whatever is
+          clipped is still live, so it reaches the scrollback whole later. */}
+      <Box flexDirection="column" flexShrink={1} overflowY="hidden" justifyContent="flex-end">
       {showHelp ? null : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
@@ -3310,18 +3337,21 @@ export function App({
         />
       ) : (
         live.map((item) => (
-          <TimelineEntry
-            key={`${item.kind}-${item.id}`}
-            state={state}
-            item={item}
-            expandedId={expandedId}
-            width={contentWidth}
-            maxMessageRows={liveMessageRows}
-            messageStartLine={liveStartRow(item)}
-          />
+          <Box key={`${item.kind}-${item.id}`} flexDirection="column" flexShrink={0}>
+            <TimelineEntry
+              state={state}
+              item={item}
+              expandedId={expandedId}
+              width={contentWidth}
+              maxMessageRows={liveMessageRows}
+              messageStartLine={liveStartRow(item)}
+            />
+          </Box>
         ))
       )}
+      </Box>
 
+      <Box flexDirection="column" flexShrink={0}>
       <UpdateBanner update={update} />
 
       {helpNode}
@@ -3329,6 +3359,7 @@ export function App({
       {bottomNode}
 
       {statusNode}
+      </Box>
       </Box>
     </Box>
   );

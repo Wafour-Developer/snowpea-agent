@@ -94,6 +94,8 @@ export interface ChatProps {
   agents?: AgentCandidate[];
   /** Cells available to the draft, excluding the `> ` prompt. */
   draftWidth?: number;
+  /** Rows the draft may show; a taller one shows the rows around the caret. */
+  maxRows?: number;
   disabled?: boolean;
   placeholder?: string;
   onChange?: (value: string) => void;
@@ -123,6 +125,7 @@ export function Chat({
   completions,
   agents = [],
   draftWidth,
+  maxRows,
   disabled = false,
   placeholder = "ask anything, or /command",
   onChange,
@@ -556,6 +559,9 @@ export function Chat({
       ) : (
         <Box flexDirection="column">
           {draft.lines.map((line, row) => {
+            const shown = Math.max(1, maxRows ?? draft.lines.length);
+            const first = Math.max(0, Math.min(draft.cursorRow - shown + 1, draft.lines.length - shown));
+            if (row < first || row >= first + shown) return null;
             const prefix = row === 0 ? "> " : "  ";
             if (row !== draft.cursorRow) {
               const text = value.slice(line.start, line.end);
