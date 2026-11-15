@@ -84,7 +84,9 @@ async def test_hello_advertises_site_memory_at_1_9_0(
     try:
         hello = await client.ok(
             "system.hello",
-            {"token": daemon.token, "clientVersion": "t", "protocolVersion": PROTOCOL_VERSION},
+            # The same kind as the connection's first hello: clientKind is pinned.
+            {"token": daemon.token, "clientVersion": "t", "protocolVersion": PROTOCOL_VERSION,
+             "clientKind": "browser"},
         )
         assert "siteMemory" in hello["capabilities"]
         assert tuple(map(int, PROTOCOL_VERSION.split("."))) >= (1, 9, 0)

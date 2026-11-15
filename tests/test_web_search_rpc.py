@@ -59,7 +59,9 @@ async def test_hello_advertises_web_search_at_1_11_0(
     try:
         hello = await client.ok(
             "system.hello",
-            {"token": daemon.token, "clientVersion": "t", "protocolVersion": PROTOCOL_VERSION},
+            # The same kind as the connection's first hello: clientKind is pinned.
+            {"token": daemon.token, "clientVersion": "t", "protocolVersion": PROTOCOL_VERSION,
+             "clientKind": "browser"},
         )
         assert "webSearch" in hello["capabilities"] and "webSearch" in CAPABILITIES
         assert tuple(map(int, PROTOCOL_VERSION.split("."))) >= (1, 11, 0)
