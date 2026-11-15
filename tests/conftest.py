@@ -25,20 +25,26 @@ if "FAKE_" not in external_proc.EXTRA_ALLOW_PREFIXES:
 
 
 @pytest.fixture(autouse=True)
-def _projects_trusted_for_external_clis(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _projects_trusted_for_external_clis(request: pytest.FixtureRequest) -> Iterator[None]:
     """External CLI tests run in projects the person already trusted (security review M4).
 
     Before the review any registered project was enough; the suites written
     then exercise sessions, not the trust step.  Tests marked ``real_trust``
-    (tests/test_security_review2_*.py) see the real rule.
+    (tests/test_security_review2_*.py) see the real rule.  Patched by hand,
+    not through ``monkeypatch``: an autouse fixture that requested it would
+    make every test's own monkeypatching outlive its other fixtures.
     """
     if request.node.get_closest_marker("real_trust") is not None:
+        yield
         return
     from snowpea_core.external.trust import ProjectTrust
 
-    monkeypatch.setattr(ProjectTrust, "trusted", lambda self, root: True)
+    original = ProjectTrust.trusted
+    ProjectTrust.trusted = lambda self, root: True  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        ProjectTrust.trusted = original  # type: ignore[method-assign]
 
 
 def pytest_configure(config: pytest.Config) -> None:
