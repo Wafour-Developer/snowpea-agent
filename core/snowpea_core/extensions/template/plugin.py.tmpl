@@ -1,0 +1,48 @@
+"""{{name}}: a snowpea extension.
+
+Created by `snowpea extension new {{name}}`. Edit this file, then run
+`snowpea extension reload {{name}}` and look for the tool in
+`snowpea tools list`. The developer guide is docs/manual/en/extensions.md.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+# Import only from snowpea_core.extensions: it is the stable API.
+from snowpea_core.extensions import PluginContext, Tool, ToolContext, ToolResult
+
+
+async def greet(tool_ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """Runs when the model calls the tool; ``args`` follows ``input_schema``."""
+    who = str(args.get("name") or "world").strip()
+    if len(who) > 100:
+        # ok=False: the model reads ``error`` and can call again with better args.
+        return ToolResult(ok=False, error="name is longer than 100 characters")
+    return ToolResult(ok=True, output=f"Hello, {who}!")
+
+
+def apply(ctx: PluginContext) -> None:
+    """Called once when the extension loads.
+
+    Everything registered through ``ctx`` is undone when the extension is
+    disabled, reloaded or removed. If this function raises, nothing stays
+    registered and `snowpea extension list` shows the error.
+    """
+    ctx.tools.register(
+        Tool(
+            name="{{ident}}_greet",
+            category="{{name}}",
+            description="Greet someone by name. Use it when the user asks to be greeted.",
+            input_schema={
+                "type": "object",
+                "properties": {"name": {"type": "string", "description": "Who to greet."}},
+            },
+            # read: runs without asking in every mode. Use write, exec, network
+            # or send for a tool that changes files, runs programs, goes online
+            # or sends messages; the mode then decides whether to ask.
+            permission="read",
+            run=greet,
+        )
+    )
+    ctx.log.info("ready")  # goes to $SNOWPEA_HOME/logs/daemon.log

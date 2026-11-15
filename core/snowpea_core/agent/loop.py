@@ -268,6 +268,19 @@ async def _mark_turn_finished(core: Core, session: Session, reason: str) -> None
         )
 
 
+def _source_note(tool: Any, note: str) -> str:
+    """The approval note, naming the extension that asks (M16 Phase 3).
+
+    A tool an extension registered says so in the prompt, so the person
+    approving it knows the call runs third-party code.
+    """
+    source = str(getattr(tool, "source", "") or "")
+    if not source.startswith("extension:"):
+        return note
+    origin = f"from extension {source.split(':', 1)[1]}"
+    return f"{origin}; {note}" if note else origin
+
+
 def _guarded_call(core: Core, session: Session, tool: Tool, tag: str) -> bool:
     """Whether this call falls under an agent-switch guard (addendum 25).
 
@@ -3031,7 +3044,7 @@ async def _run_one_call(
             risk=policy.risk(tag),
             unattended=unattended,
             cancel_event=session.interrupt,
-            note=GUARD_NOTE if guarded else policy.note(tag),
+            note=_source_note(tool, GUARD_NOTE if guarded else policy.note(tag)),
             cacheable=tag not in UNPROMOTABLE and not guarded,
             guard=AGENT_SWITCH_GUARD if guarded else None,
         )

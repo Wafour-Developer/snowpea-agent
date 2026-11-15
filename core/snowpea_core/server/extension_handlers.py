@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.extensions.manager import validate_config
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
@@ -43,11 +44,26 @@ def _info(core: Core, ext: Any) -> ExtensionInfo:
     return ExtensionInfo(**data, config=dict(config))
 
 
-def _named(core: Core, name: str) -> Any:
+async def _fresh(core: Core) -> Any:
+    """The manager after adopting an outside settings edit and rescanning the folder."""
+    reload_settings = getattr(core, "reload_settings", None)
+    if reload_settings is not None:
+        try:
+            await reload_settings()
+        except Exception:  # noqa: BLE001 - a bad settings file must not fail the call
+            pass
     manager = _manager(core)
-    manager.discover()
+    await manager.rescan()
+    return manager
+
+
+async def _named(core: Core, name: str) -> Any:
+    manager = await _fresh(core)
     if name not in manager.extensions:
-        raise RpcError(errors.NOT_FOUND, f"no extension {name!r} in {manager.root}")
+        raise RpcError(
+            errors.NOT_FOUND,
+            f"no extension {name!r} in {manager.root} (a folder with a plugin.py)",
+        )
     return manager
 
 
@@ -64,8 +80,7 @@ async def _save(core: Core) -> None:
 async def extension_list_handler(
     _conn: RpcConnection | None, _params: Empty, core: Core
 ) -> ExtensionListResult:
-    manager = _manager(core)
-    manager.discover()
+    manager = await _fresh(core)
     return ExtensionListResult(
         extensions=[_info(core, ext) for ext in manager.extensions.values()]
     )
@@ -74,8 +89,8 @@ async def extension_list_handler(
 async def extension_enable_handler(
     _conn: RpcConnection | None, params: ExtensionNameParams, core: Core
 ) -> ExtensionResult:
-    manager = _named(core, params.name)
-    ext = manager.set_enabled(params.name, True)
+    manager = await _named(core, params.name)
+    ext = await manager.set_enabled(params.name, True)
     await _save(core)
     return ExtensionResult(extension=_info(core, ext))
 
@@ -83,8 +98,8 @@ async def extension_enable_handler(
 async def extension_disable_handler(
     _conn: RpcConnection | None, params: ExtensionNameParams, core: Core
 ) -> ExtensionResult:
-    manager = _named(core, params.name)
-    ext = manager.set_enabled(params.name, False)
+    manager = await _named(core, params.name)
+    ext = await manager.set_enabled(params.name, False)
     await _save(core)
     return ExtensionResult(extension=_info(core, ext))
 
@@ -92,27 +107,22 @@ async def extension_disable_handler(
 async def extension_reload_handler(
     _conn: RpcConnection | None, params: ExtensionNameParams, core: Core
 ) -> ExtensionResult:
-    manager = _named(core, params.name)
-    ext = manager.reload(params.name)
+    manager = await _named(core, params.name)
+    ext = await manager.reload(params.name)
     return ExtensionResult(extension=_info(core, ext))
 
 
 async def extension_configure_handler(
     _conn: RpcConnection | None, params: ExtensionConfigureParams, core: Core
 ) -> ExtensionResult:
-    manager = _named(core, params.name)
+    manager = await _named(core, params.name)
     ext = manager.extensions[params.name]
-    schema = ext.manifest.get("configSchema")
-    if isinstance(schema, dict):
-        import jsonschema
-
-        try:
-            jsonschema.validate(params.config, schema)
-        except jsonschema.ValidationError as exc:
-            raise RpcError(errors.INVALID_PARAMS, f"config: {exc.message}") from exc
+    _config, problem = validate_config(ext.manifest, params.config)
+    if problem:
+        raise RpcError(errors.INVALID_PARAMS, problem)
     core.settings.extensions.setdefault(params.name, {})["config"] = dict(params.config)
     await _save(core)
-    ext = manager.reload(params.name) if ext.enabled else ext
+    ext = await manager.reload(params.name)
     return ExtensionResult(extension=_info(core, ext))
 
 

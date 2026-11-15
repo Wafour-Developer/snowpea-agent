@@ -273,6 +273,9 @@ async def tools_list(home: Path | str | None = None, *, as_json: bool = False) -
         provider = str(tool.get("provider", "") or "")
         if provider:
             suffix += f" [provider: {provider}]"
+        source = str(tool.get("source", "") or "")
+        if source.startswith("extension:"):
+            suffix += f" [{source}]"
         print(f"{name:<{width}}  {tag:<8}{suffix} {tool.get('description', '')}".rstrip())
     return EXIT_OK
 
@@ -2998,6 +3001,10 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     mcp_catalog = mcp_sub.add_parser("catalog", help="list the curated MCP server presets")
     mcp_catalog.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
+    from snowpea_core.cli.extension_cmd import add_arguments as add_extension_arguments
+
+    add_extension_arguments(sub)
+
     web_parser = sub.add_parser(
         "web", help="open snowpea web (the browser UI) served by the daemon"
     )
@@ -3645,6 +3652,10 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         )
     if subcommand == "mcp":
         return await mcp_command(str(action or ""), args, home, as_json=as_json)
+    if subcommand == "extension":
+        from snowpea_core.cli.extension_cmd import extension_command
+
+        return await extension_command(str(action or ""), args, home, as_json=as_json)
     if subcommand == "daemon":
         if action == "status":
             return await daemon_status(home, as_json=as_json)

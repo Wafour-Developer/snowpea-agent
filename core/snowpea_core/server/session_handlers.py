@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import functools
 import logging
-import os
 import re
 import shutil
 from collections.abc import Sequence
@@ -193,13 +192,11 @@ def wire_core(core: Core) -> Core:
     register_builtin_commands(core.commands)
     core.skills = SkillLoader(core)
     core.skills.load_sync()
-    # Extensions last: they may add tools, sections, commands and MCP
-    # servers on top of everything built in (M16 Phase 3).
+    # Extensions are loaded by ``Daemon.start`` after the skills, so they add
+    # on top of everything built in (M16 Phase 3); ``apply`` may be async.
     from snowpea_core.extensions.manager import ExtensionManager
 
     core.extensions = ExtensionManager(core)
-    if os.environ.get("SNOWPEA_EXTENSIONS", "1").strip().lower() not in ("0", "false", "off"):
-        core.extensions.load_all()
     from snowpea_core.skills import registry_client
 
     registry_client.configure_client(core.settings)

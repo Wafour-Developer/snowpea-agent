@@ -254,6 +254,12 @@ class Core:
                     await apply_enabled()
                 except Exception:  # noqa: BLE001 - a broken loader must not stop the event
                     log.warning("could not apply the skills settings", exc_info=True)
+        if "extensions" in keys and self.extensions is not None:
+            # settings.extensions.<name>.{enabled,config} edited: follow it.
+            try:
+                await self.extensions.apply_settings()
+            except Exception:  # noqa: BLE001 - a broken extension must not stop the event
+                log.warning("could not apply the extension settings", exc_info=True)
         hub = getattr(self, "hub", None)
         if hub is None:  # pragma: no cover - a core without a hub is a test double
             return
@@ -842,6 +848,15 @@ class Daemon:
         # having to call ``gateway.bind`` by hand (CORE-gateway-autostart).
         await core.gateway.sync_from_settings(core.settings)
         await core.skills.reload()
+        # Extensions after the skills: a name an extension asks for that a
+        # built-in or a skill already holds is refused with a clear error.
+        from snowpea_core.extensions.manager import enabled_by_env
+
+        if core.extensions is not None and enabled_by_env():
+            try:
+                await core.extensions.load_all()
+            except Exception:  # noqa: BLE001 - extensions must not stop the daemon
+                log.warning("could not load extensions", exc_info=True)
         # Global ``$SNOWPEA_HOME/.mcp.json`` servers start at boot, so their
         # tools are in ``tool.list`` before anyone opens a session; a project's
         # own ``.mcp.json`` still starts at ``session.create`` (M15 §B5e).
@@ -1076,6 +1091,10 @@ class Daemon:
             if self.core.keep_awake is not None:
                 await self.core.keep_awake.stop()
             await stop_scheduler(self.core)
+            if self.core.extensions is not None:
+                # Their on_dispose hooks close what they opened (M16 Phase 3).
+                with contextlib.suppress(Exception):
+                    await self.core.extensions.unload_all()
             if self.core.lsp is not None:
                 # Language servers are children of this process; leaving them
                 # running would leak a gopls per daemon restart.

@@ -68,7 +68,7 @@ async def test_a_plugin_registers_everything_and_unloading_removes_it(tmp_path: 
         _install(core.paths.home, "tickets", PLUGIN, {"name": "tickets", "version": "1.0.0"})
         before = _state()
         manager = ExtensionManager(core)
-        [info] = manager.load_all()
+        [info] = await manager.load_all()
         assert info["state"] == "loaded" and info["effects"] == 7, info
         after = _state()
         assert "ext:style" in after["sections"] and "ext:ticket" in after["contexts"]
@@ -80,7 +80,7 @@ async def test_a_plugin_registers_everything_and_unloading_removes_it(tmp_path: 
         text = "\n".join(t for _s, t in sections.REGISTRY.render(sections.PromptInputs()))
         assert "House style: terse." in text
 
-        manager.unload("tickets")
+        await manager.unload("tickets")
         assert _state() == before
         assert core.tools.get("ticket_lookup") is None and core.commands.get("ticket") is None
     finally:
@@ -95,7 +95,7 @@ async def test_a_plugin_that_fails_leaves_nothing_behind(tmp_path: Any) -> None:
         _install(core.paths.home, "broken", body)
         before = _state()
         manager = ExtensionManager(core)
-        [info] = manager.load_all()
+        [info] = await manager.load_all()
         assert info["state"] == "error" and "half way" in info["error"]
         assert _state() == before and core.tools.get("ticket_lookup") is None
     finally:
@@ -108,19 +108,19 @@ async def test_disable_enable_and_reload_after_an_edit(tmp_path: Any) -> None:
         core = daemon.core
         folder = _install(core.paths.home, "tickets", PLUGIN)
         manager = ExtensionManager(core)
-        manager.load_all()
-        manager.set_enabled("tickets", False)
+        await manager.load_all()
+        await manager.set_enabled("tickets", False)
         assert core.tools.get("ticket_lookup") is None
-        manager.set_enabled("tickets", True)
+        await manager.set_enabled("tickets", True)
         assert core.tools.get("ticket_lookup") is not None
         (folder / "plugin.py").write_text(
             PLUGIN.replace("House style: terse.", "House style: warm."), encoding="utf-8"
         )
-        ext = manager.reload("tickets")
+        ext = await manager.reload("tickets")
         assert ext.state == "loaded"
         text = "\n".join(t for _s, t in sections.REGISTRY.render(sections.PromptInputs()))
         assert "House style: warm." in text and "terse" not in text
-        manager.unload("tickets")
+        await manager.unload("tickets")
     finally:
         await daemon.stop()
 
@@ -130,7 +130,7 @@ async def test_a_plugin_for_a_newer_api_is_not_loaded(tmp_path: Any) -> None:
     try:
         core = daemon.core
         _install(core.paths.home, "future", PLUGIN, {"engines": {"snowpea": "^9.0.0"}})
-        [info] = ExtensionManager(core).load_all()
+        [info] = await ExtensionManager(core).load_all()
         assert info["state"] == "incompatible" and core.tools.get("ticket_lookup") is None
     finally:
         await daemon.stop()
@@ -142,7 +142,7 @@ async def test_a_built_in_command_cannot_be_replaced(tmp_path: Any) -> None:
         core = daemon.core
         body = PLUGIN.replace('Command(name="ticket"', 'Command(name="goal"')
         _install(core.paths.home, "grabby", body)
-        [info] = ExtensionManager(core).load_all()
+        [info] = await ExtensionManager(core).load_all()
         assert info["state"] == "error" and "built-in" in info["error"]
         assert core.commands.get("goal").run.__module__ == "snowpea_core.commands.goal_cmd"
     finally:
@@ -202,6 +202,6 @@ async def test_extension_rpcs_list_configure_and_toggle(tmp_path: Any) -> None:
 
         rows = declared(core, tmp_path)
         assert rows["ext-docs"].plugin == "tickets"
-        core.extensions.unload("tickets")
+        await core.extensions.unload("tickets")
     finally:
         await daemon.stop()
