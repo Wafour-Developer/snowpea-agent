@@ -16,6 +16,7 @@ from _external_adapter import FAKE_CLAUDE, FakeClaudeAdapter
 from _support import RpcClient, connect, env_vars, make_daemon
 
 from snowpea_core.server.app_server import Daemon
+from snowpea_core.server.external_handlers import ensure_manager
 from snowpea_core.server.protocol import CAPABILITIES, PROTOCOL_VERSION
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX fake CLIs")
@@ -64,6 +65,10 @@ async def _wait(predicate: Any, timeout: float = 10.0) -> Any:
 async def test_with_no_adapters(daemon: Daemon, http: aiohttp.ClientSession,
                                 tmp_path: Path) -> None:
     assert "externalSessions" in CAPABILITIES
+    assert daemon.core is not None
+    registry = ensure_manager(daemon.core).registry
+    for cli in registry.ids():  # the builtin adapters (WP6) would find the fake CLI
+        registry.unregister(cli)
     client = await connect(http, daemon)
     try:
         clis = (await client.ok("external.clis"))["clis"]

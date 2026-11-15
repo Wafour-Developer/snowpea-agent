@@ -12,6 +12,16 @@ Supported command lines::
     fake_claude.py --fake-terminal --resume <uuid>
         stands in for the person's interactive ``claude`` holding the session:
         writes ``sessions/<pid>.json`` and waits until stdin closes or it is killed.
+    fake_claude.py (--session-id <uuid> | --resume <uuid>) [--permission-mode m] [--model m]
+        the interactive UI as tmux sees it (spike S5): reads keys from its
+        terminal (``Enter`` submits, bracketed paste keeps newlines, ``Escape``
+        interrupts a busy turn or declines an open permission dialog, ``1``
+        allows it), keeps the transcript and the status file (``idle`` /
+        ``busy`` / ``waiting``, plus ``tmux`` when it runs in a pane).
+        ``FAKE_CLAUDE_TRUST=ask`` shows the folder trust dialog instead.
+    fake_claude.py auth status --json
+        ``loggedIn`` (false when ``FAKE_CLAUDE_LOGGED_IN=0``) plus account
+        fields carrying ``owner@example.com`` that adapters must not keep.
 
 stdin frames: ``control_request`` (``initialize``, ``interrupt``), ``user``,
 ``control_response`` (answers to ``can_use_tool``).  stdout frames: ``system/init``
@@ -32,6 +42,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import select
+import subprocess
 import sys
 import threading
 import time
@@ -66,6 +78,7 @@ class Store:
         self.cwd = cwd
         self.kind = kind
         self.parent: str | None = None
+        self.extra: dict = {}
         if self.root:
             self.transcript = os.path.join(
                 self.root, "projects", encoded(cwd), f"{session_id}.jsonl"
@@ -94,6 +107,8 @@ class Store:
             "name": "fake",
             "status": value,
             "updatedAt": c.now_ms(),
+            "statusUpdatedAt": c.now_ms(),
+            **self.extra,
         })
 
     def remove_status(self) -> None:
@@ -229,6 +244,16 @@ class Claude:
                  "tools": ["<trimmed>"], "claude_code_version": VERSION})
         if scenario == "garbage":
             c.garbage()
+        if scenario == "autherror":
+            failure = "Invalid API key · Please run /login"
+            self.assistant("msg_autherror", {"type": "text", "text": failure})
+            c.write({"type": "result", "subtype": "success", "is_error": True,
+                     "result": failure, "terminal_reason": "completed", "num_turns": 1,
+                     "session_id": self.session_id, "permission_denials": []})
+            self.store.status("idle")
+            with self.lock:
+                self.running = None
+            return None
         if self.replay:
             c.write({"type": "user", "isReplay": True, "uuid": user_uuid,
                      "timestamp": c.iso_now(), "message": {"role": "user", "content": text},
@@ -342,6 +367,236 @@ class Claude:
         return 0
 
 
+def tmux_address() -> str | None:
+    """``<session>:@<window>.%<pane>`` when running in a tmux pane (as Claude records it)."""
+    pane = os.environ.get("TMUX_PANE")
+    if not pane or not os.environ.get("TMUX"):
+        return None
+    try:
+        out = subprocess.run(
+            ["tmux", "display-message", "-p", "-t", pane,
+             "#{session_name}:#{window_id}.#{pane_id}"],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out or None
+
+
+class Interactive:
+    """The terminal UI, driven by keys (tmux ``send-keys`` / ``paste-buffer``)."""
+
+    def __init__(self) -> None:
+        self.cfg = c.config()
+        self.turns = c.Turns(self.cfg)
+        resume = c.arg_value("--resume")
+        self.session_id = c.arg_value("--session-id") or resume or c.new_id()
+        self.cwd = os.getcwd()
+        self.model = c.arg_value("--model") or "claude-haiku-fake"
+        self.mode = c.arg_value("--permission-mode") or "default"
+        self.bypass = c.has_flag("--dangerously-skip-permissions")
+        self.store = Store(self.session_id, self.cwd, kind="terminal")
+        address = tmux_address()
+        if address:
+            self.store.extra["tmux"] = address
+        self.state = "idle"
+        self.text = bytearray()
+        self.pending = b""
+        self.paste = False
+        self.decision: c.Waiter | None = None
+        self.interrupted = threading.Event()
+        self.worker: threading.Thread | None = None
+
+    def out(self, text: str) -> None:
+        sys.stdout.write(text + "\n")
+        sys.stdout.flush()
+
+    # -- keys -------------------------------------------------------------
+    def feed(self, data: bytes) -> None:
+        self.pending += data
+        while self.pending:
+            if self.paste:
+                end = self.pending.find(b"\x1b[201~")
+                if end < 0:
+                    self.text.extend(self.pending.replace(b"\r", b"\n"))
+                    self.pending = b""
+                    return
+                self.text.extend(self.pending[:end].replace(b"\r", b"\n"))
+                self.pending = self.pending[end + 6:]
+                self.paste = False
+                continue
+            byte = self.pending[0]
+            if byte == 0x1B:
+                if self.pending.startswith(b"\x1b[200~"):
+                    self.paste = True
+                    self.pending = self.pending[6:]
+                    continue
+                if len(self.pending) == 1:
+                    ready, _, _ = select.select([sys.stdin.fileno()], [], [], 0.05)
+                    if ready:
+                        more = os.read(sys.stdin.fileno(), 4096)
+                        if more:
+                            self.pending += more
+                            continue
+                    self.pending = b""
+                    self.escape()
+                    continue
+                if self.pending[1:2] == b"[":
+                    index = 2
+                    while index < len(self.pending) and not 0x40 <= self.pending[index] <= 0x7E:
+                        index += 1
+                    self.pending = self.pending[index + 1:]
+                    continue
+                self.pending = self.pending[1:]
+                self.escape()
+                continue
+            self.pending = self.pending[1:]
+            if byte in (0x0D, 0x0A):
+                self.enter()
+            elif byte == 0x7F:
+                del self.text[-1:]
+            elif self.state == "waiting":
+                if byte == ord("1") and self.decision is not None:
+                    self.decision.set("allow")
+            else:
+                self.text.append(byte)
+
+    def escape(self) -> None:
+        c.log("key", "Escape")
+        if self.state == "waiting" and self.decision is not None:
+            self.decision.set("deny")
+        elif self.state == "busy":
+            self.interrupted.set()
+        else:
+            self.text.clear()
+
+    def enter(self) -> None:
+        if self.state != "idle":
+            return  # queued in the real CLI; the fake keeps it in the input line
+        text = self.text.decode("utf-8", "replace")
+        self.text.clear()
+        if not text.strip():
+            return
+        c.log("prompt", text)
+        self.state = "busy"
+        self.store.status("busy")
+        self.worker = threading.Thread(target=self.turn, args=(text,), daemon=True)
+        self.worker.start()
+
+    # -- a turn -------------------------------------------------------------
+    def assistant(self, message_id: str, block: dict) -> None:
+        self.store.record("assistant", message={
+            "id": message_id, "type": "message", "role": "assistant", "model": self.model,
+            "content": [block]})
+
+    def turn(self, text: str) -> None:
+        scenario = self.turns.next()
+        self.interrupted.clear()
+        self.store.private_records()
+        self.store.record("user", message={"role": "user", "content": text},
+                          promptSource="typed", turnOrigin="human")
+        self.out("❯ " + text.replace("\n", "\n  "))
+        message_id = "msg_" + c.new_id().replace("-", "")[:20]
+        self.assistant(message_id, {"type": "thinking", "thinking": "", "signature": "sig"})
+        reply = str(self.cfg["reply"])
+        if scenario == "die":
+            c.die()
+        if scenario == "approval" and self.mode != "plan":
+            tool_id = "toolu_" + c.new_id().replace("-", "")[:20]
+            path = os.path.join(self.cwd, "note.txt")
+            self.assistant(message_id, {"type": "tool_use", "id": tool_id, "name": "Write",
+                                        "input": {"file_path": path, "content": "hi\n"}})
+            answer = "allow"
+            if not self.bypass:
+                self.decision = c.Waiter()
+                self.state = "waiting"
+                self.store.status("waiting")
+                self.out("● Write(note.txt)\n Do you want to create note.txt?\n ❯ 1. Yes\n"
+                         "   3. No\n Esc to cancel")
+                answer = self.decision.wait()
+                self.decision = None
+                self.state = "busy"
+                self.store.status("busy")
+            if answer == "allow":
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("hi\n")
+                self.store.record("user", message={"role": "user", "content": [
+                    {"tool_use_id": tool_id, "type": "tool_result",
+                     "content": f"File created successfully at: {path}"}]},
+                    toolUseResult={"type": "create", "filePath": path, "content": "hi\n",
+                                   "structuredPatch": [], "originalFile": None})
+                reply = "Allowed: wrote note.txt"
+            else:
+                self.store.record("user", message={"role": "user", "content": [
+                    {"tool_use_id": tool_id, "type": "tool_result", "is_error": True,
+                     "content": "The user doesn't want to proceed with this tool use."}]},
+                    toolUseResult="User rejected tool use")
+                self.store.record("user", message={"role": "user", "content":
+                                  "[Request interrupted by user for tool use]"})
+                return self.finish()
+        written = ""
+        for part in c.chunks(reply, scenario):
+            if self.interrupted.is_set():
+                self.store.record("user", message={"role": "user",
+                                                   "content": "[Request interrupted by user]"})
+                return self.finish()
+            written += part
+            if scenario == "slow":
+                time.sleep(float(self.cfg["delay"]))
+        self.assistant("msg_" + c.new_id().replace("-", "")[:20], {"type": "text", "text": written})
+        self.out("● " + written)
+        self.store.record("system", subtype="turn_duration", durationMs=1)
+        return self.finish()
+
+    def finish(self) -> None:
+        self.state = "idle"
+        self.store.status("idle")
+        self.out("❯ ")
+
+    def run(self) -> int:
+        c.prepare(self.cfg)
+        fd = sys.stdin.fileno()
+        saved = None
+        if os.isatty(fd):
+            import termios
+            import tty
+
+            saved = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+        try:
+            if os.environ.get("FAKE_CLAUDE_TRUST") == "ask":
+                self.out(" Quick safety check: Is this a project you created or one you trust?\n"
+                         " ❯ No, exit\n   Yes, I trust this folder\n Enter to confirm")
+                while True:
+                    data = os.read(fd, 1024)
+                    if not data or b"\r" in data or b"\n" in data:
+                        return 0
+            # Like the real UI: ask the terminal for bracketed paste, so a
+            # pasted newline is text, not Enter.
+            sys.stdout.write("\x1b[?2004h")
+            self.store.status("idle")
+            self.out(f"Claude Code (fake) {self.session_id}\n❯ ")
+            while True:
+                data = os.read(fd, 4096)
+                if not data:
+                    break
+                self.feed(data)
+        finally:
+            if saved is not None:
+                import termios
+
+                termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+            self.store.remove_status()
+        return 0
+
+
+def auth_status() -> int:
+    logged_in = os.environ.get("FAKE_CLAUDE_LOGGED_IN", "1") != "0"
+    print(json.dumps({"loggedIn": logged_in, "authMethod": "claude.ai" if logged_in else "none",
+                      "email": OWNER_EMAIL, "orgId": "org-1234", "orgName": "Owner Org"}))
+    return 0 if logged_in else 1
+
+
 def fake_terminal() -> int:
     """The person's interactive claude holding a session: liveness only."""
     session_id = c.arg_value("--resume") or c.new_id()
@@ -361,9 +616,10 @@ def main() -> int:
     c.log_start()
     if c.has_flag("--fake-terminal"):
         return fake_terminal()
+    if sys.argv[1:3] == ["auth", "status"]:
+        return auth_status()
     if not c.has_flag("-p"):
-        print("fake claude: only print mode (-p) is supported", file=sys.stderr)
-        return 2
+        return Interactive().run()
     return Claude().run()
 
 
