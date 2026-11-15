@@ -1,0 +1,35 @@
+=== typed [/help]
+› Reply with exactly: QUEUED
+• QUEUED
+  Worked for 17s • 9:14 PM
+› /help
+  GPT-6.1 Terra low · master · Context 93% left · 107K in · 93 out · 5h 99% left · weekly 83% left
+                                                                                                                                                                              ⚠ 3 warnings · f2 to view
+=== typed [!ls]
+› Reply with exactly: QUEUED
+• QUEUED
+  Worked for 17s • 9:14 PM
+! ls
+  GPT-6.1 Terra low · master · Context 93% left · 107K in · 93 out · 5h 99% left · weekly 83% left
+                                                                                                                                                                Shell mode    ⚠ 3 warnings · f2 to view
+=== typed [#note]
+› Reply with exactly: QUEUED
+• QUEUED
+  Worked for 17s • 9:14 PM
+› #note
+  GPT-6.1 Terra low · master · Context 93% left · 107K in · 93 out · 5h 99% left · weekly 83% left
+                                                                                                                                                                              ⚠ 3 warnings · f2 to view
+=== typed [$skill]
+  Skill Creator     [Skill] Create or update a skill
+  Skill Installer   [Skill] Install curated skills from openai/skills or other repos
+  PPT Design Skill  [Skill] Design and visually review editable PowerPoint decks
+  enter insert · esc close
+› $skill
+  GPT-6.1 Terra low · master · Context 93% left · 107K in · 93 out · 5h 99% left · weekly 83% left
+=== typed [ /help]
+› Reply with exactly: QUEUED
+• QUEUED
+  Worked for 17s • 9:14 PM
+›  /help
+  GPT-6.1 Terra low · master · Context 93% left · 107K in · 93 out · 5h 99% left · weekly 83% left
+                                                                                                                                                                              ⚠ 3 warnings · f2 to view

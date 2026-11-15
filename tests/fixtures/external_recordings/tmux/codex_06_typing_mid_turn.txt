@@ -1,0 +1,6 @@
+• Ran printf 'hi' > note.txt
+  └ (no output)
+• Working (4s • esc to interrupt)
+› Reply with exactly: QUEUED
+  GPT-6.1 Terra low · master · Context 93% left · 53.6K in · 85 out · 5h 99% left · weekly 83% left
+  tab to queue message

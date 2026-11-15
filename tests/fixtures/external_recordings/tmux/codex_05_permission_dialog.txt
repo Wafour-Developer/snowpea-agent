@@ -1,0 +1,22 @@
+│ Run npm install -g @openai/codex to update.     │
+│                                                 │
+│ See full release notes:                         │
+│ https://github.com/openai/codex/releases/latest │
+╰─────────────────────────────────────────────────╯
+  >_ OpenAI Codex (v0.167.1)
+     <PROJ>
+› Reply with exactly: OK
+• OK
+  Worked for 3s • 9:13 PM
+› Create a file named note.txt containing the word hi
+  (한국어 줄: 고마워요 — this line is only a test of multi-line input)
+• note.txt에 hi를 저장하겠습니다.
+• Running printf 'hi' > note.txt
+  Would you like to run the following command?
+  Environment: local
+  Reason: 작업 공간에 note.txt 파일을 생성하도록 허용하시겠습니까?
+  $ printf 'hi' > note.txt
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `printf 'hi' > note.txt` (p)
+  3. No, and tell Codex what to do differently (esc)
+  Press enter to confirm or esc to cancel

@@ -1,0 +1,16 @@
+     <PROJ>
+› Reply with exactly: OK
+• OK
+  Worked for 3s • 9:13 PM
+› Create a file named note.txt containing the word hi
+  (한국어 줄: 고마워요 — this line is only a test of multi-line input)
+• note.txt에 hi를 저장하겠습니다.
+✔ You approved codex to run printf 'hi' > note.txt this time
+• Ran printf 'hi' > note.txt
+  └ (no output)
+› Reply with exactly: QUEUED
+• QUEUED
+  Worked for 17s • 9:14 PM
+› Ask Codex to do anything
+  GPT-6.1 Terra low · master · Context 93% left · 107K in · 93 out · 5h 99% left · weekly 83% left
+  ← for agents · ? for shortcuts                                                                                                                                              ⚠ 3 warnings · f2 to view

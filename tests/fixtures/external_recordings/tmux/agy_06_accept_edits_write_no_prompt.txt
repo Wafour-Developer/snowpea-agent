@@ -1,0 +1,18 @@
+      ▄▀▀▄        Antigravity CLI 1.5.9
+     ▀▀▀▀▀▀       <EMAIL> (Google AI Pro)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
+   ▄▀▀    ▀▀▄     <PROJ>
+  ▄▀▀      ▀▀▄
+────────────────────────────────────────────────────────────
+> Reply with exactly: OK
+⚠ Sign-in update needed
+  ⎿  Your sign-in is missing permissions that are now required, so some requests may fail. Run /logout to sign in again.
+  OK
+────────────────────────────────────────────────────────────
+> Create a file named note.txt containing the word hi
+  (한국어 줄: 고마워요 — this line is only a test of multi-line input)
+⣾  Generating...
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc to cancel                                                                                                                                                     accept-edits · Gemini 3.8 Flash · high

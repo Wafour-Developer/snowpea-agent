@@ -1,0 +1,16 @@
+  ⎿  Your sign-in is missing permissions that are now required, so some requests may fail. Run /logout to sign in again.
+  OK
+────────────────────────────────────────────────────────────
+> Create a file named note.txt containing the word hi
+  (한국어 줄: 고마워요 — this line is only a test of multi-line input)
+○ Thought for 6.1s (The file creation request specifies "hi" as the content, despite the presence of an unrelated Korean sentence in the input. The focus is on generating the file with the primar...)
+● Edited 1 file (note.txt) (ctrl+o to expand)
+  Created note.txt.
+────────────────────────────────────────────────────────────
+> Run this shell command and nothing else: touch note2.txt
+● Ran (touch note2.txt) (ctrl+o to expand)
+⢿  Running command...
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc to cancel                                                                                                                                                                    Gemini 3.8 Flash · high

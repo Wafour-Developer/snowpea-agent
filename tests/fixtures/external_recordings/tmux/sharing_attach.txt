@@ -1,0 +1,7 @@
+clients: /dev/pts/29 100x30
+window size after attach: 100x29
+person's terminal received daemon text: False
+pane input line: ❯ typed by daemon and person
+clients after detach: ''
+window size after detach: 100x29
+session alive: True
