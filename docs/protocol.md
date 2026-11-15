@@ -219,6 +219,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`mcp.deauthorize`](#mcpdeauthorize) | client → server | Forget a remote MCP server's stored OAuth tokens (1.34.0). |
 | [`mcp.list`](#mcplist) | client → server | List every configured MCP server with its scope, state and tools. |
 | [`mcp.preset.apply`](#mcppresetapply) | client → server | Assistant presets (1.53.0, WP8): add the preset's MCP server with the given inputs and schedule the chosen recipes. |
+| [`mcp.preset.check`](#mcppresetcheck) | client → server | Assistant presets (1.53.0): whether each server of an applied preset is connected and still signed in (masked account; no tokens). |
 | [`mcp.preset.list`](#mcppresetlist) | client → server | Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipes. |
 | [`mcp.preset.remove`](#mcppresetremove) | client → server | Assistant presets (1.53.0, WP8): undo an applied preset: its servers, permission tags, stored client secret and recipe jobs go back to what they were before. |
 | [`mcp.reload`](#mcpreload) | client → server | Restart one MCP server, or every configured one. |
@@ -1064,7 +1065,7 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 | `limit` | `number` | no | Newest timeline entries to return. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). |
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Session to open. |
-| `transport` | `"structured" \| "tmux" \| null` | no | 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly) the person answers on any of their surfaces; Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. |
+| `transport` | `"structured" \| "tmux" \| null` | no | 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. |
 
 **Result**
 
@@ -2361,6 +2362,26 @@ Assistant presets (1.53.0, WP8): add the preset's MCP server with the given inpu
 | `servers` | `string[]` | no | Every server it configured (WP8), in order. |
 | `signIn` | `({ command?: string \| null; method: "oauth" \| "deviceCode" \| "none"; note?: string; server: string; })[]` | no | What still needs a sign-in, per server. |
 
+### `mcp.preset.check`
+
+*Direction:* client → server
+
+Assistant presets (1.53.0): whether each server of an applied preset is connected and still signed in (masked account; no tokens).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes | An applied preset. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `applied` | `boolean` | yes | False when the preset is not applied (servers empty). |
+| `id` | `string` | yes | The preset. |
+| `servers` | `({ account?: string \| null; authenticated?: boolean \| null; connected: boolean; detail?: string; server: string; })[]` | no |  |
+
 ### `mcp.preset.list`
 
 *Direction:* client → server
@@ -2369,12 +2390,15 @@ Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipe
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `locale` | `string \| null` | no | Language of the human texts (title, description, input labels, server and recipe titles): 'en' (default) or 'ko'; any other value answers in English. Ids, tool names, entries and recipe prompts are never translated. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
+| `locale` | `string` | no | The language the texts are in. |
 | `presets` | `({ applied?: boolean; appliedServers?: string[]; auth: "oauth" \| "token" \| "none"; category: "mail" \| "calendar" \| "todo" \| "other"; description?: string; entry?: Record<string, unknown>; homepage?: string; id: string; inputs?: ({ label: string; name: string; placeholder?: string; required?: boolean; secret?: boolean; })[]; readTools?: string[]; recipes?: ({ defaultEnabled?: boolean; id: string; prompt: string; schedule: string; title: string; })[]; sendTools?: string[]; servers?: ({ auth: "oauth" \| "token" \| "none"; entry?: Record<string, unknown>; kind: string; loginCommand?: string \| null; readTools?: string[]; sendTools?: string[]; signIn?: "oauth" \| "deviceCode" \| "none"; suffix: string; title: string; transport: "stdio" \| "http" \| "sse"; })[]; title: string; transport: "stdio" \| "http" \| "sse"; })[]` | no | In display order. |
 
 ### `mcp.preset.remove`

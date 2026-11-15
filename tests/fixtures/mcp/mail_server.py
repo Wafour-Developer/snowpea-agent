@@ -55,6 +55,17 @@ def send_mail(to: str, body: str) -> str:
     return "sent"
 
 
+@server.tool(description="Whether the sign-in holds (like ms-365's verify-login).")
+def verify_login() -> str:
+    import json
+    import os
+
+    if os.environ.get("FAKE_MAIL_SIGNED_OUT"):
+        return json.dumps({"success": False, "message": "Not logged in"})
+    return json.dumps({"success": True, "userData": {"displayName": "Boss",
+                                                     "userPrincipalName": "boss@example.com"}})
+
+
 if __name__ == "__main__":
     try:
         server.run("stdio")

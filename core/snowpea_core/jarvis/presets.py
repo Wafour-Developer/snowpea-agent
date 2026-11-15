@@ -44,12 +44,14 @@ from snowpea_core.server.protocol import (
     McpAddResult,
     McpPresetApplyParams,
     McpPresetApplyResult,
+    McpPresetCheckResult,
     McpPresetInfo,
     McpPresetInput,
     McpPresetListResult,
     McpPresetRecipe,
     McpPresetRemoveResult,
     McpPresetServer,
+    McpPresetServerCheck,
     McpPresetSignIn,
 )
 from snowpea_core.tools import mcp_catalog, mcp_config, mcp_oauth
@@ -159,24 +161,33 @@ def read_tool_names(name: str, server: dict[str, Any], kind: str | None = None) 
 # ---------------------------------------------------------------------------
 
 
-def _info(preset: dict[str, Any], record: dict[str, Any] | None) -> McpPresetInfo:
+def _info(
+    preset: dict[str, Any], record: dict[str, Any] | None, locale: str = "en"
+) -> McpPresetInfo:
     servers = preset["servers"]
     first = servers[0]
+    texts = mcp_catalog.PRESET_TEXTS.get(locale, {}).get(preset["id"], {})
+    labels = texts.get("inputs", {})
+    recipe_titles = texts.get("recipes", {})
+    server_titles = texts.get("servers", {})
     return McpPresetInfo(
         id=preset["id"],
-        title=preset["title"],
-        description=preset["description"],
+        title=texts.get("title") or preset["title"],
+        description=texts.get("description") or preset["description"],
         category=preset["category"],
         auth=first["auth"],
         transport=first["transport"],
         entry=deepcopy(first["entry"]),
-        inputs=[McpPresetInput(**i) for i in preset["inputs"]],
+        inputs=[
+            McpPresetInput(**{**i, "label": labels.get(i["name"]) or i["label"]})
+            for i in preset["inputs"]
+        ],
         readTools=[t for s in servers for t in s["readTools"]],
         sendTools=[t for s in servers for t in s["sendTools"]],
         recipes=[
             McpPresetRecipe(
                 id=r["id"],
-                title=r["title"],
+                title=recipe_titles.get(r["id"]) or r["title"],
                 schedule=r["schedule"],
                 prompt=r["prompt"],
                 defaultEnabled=bool(r.get("defaultEnabled")),
@@ -189,7 +200,7 @@ def _info(preset: dict[str, Any], record: dict[str, Any] | None) -> McpPresetInf
         servers=[
             McpPresetServer(
                 suffix=str(s.get("suffix") or ""),
-                title=s["title"],
+                title=server_titles.get(str(s.get("suffix") or "")) or s["title"],
                 kind=s["kind"],
                 transport=s["transport"],
                 auth=s["auth"],
@@ -204,9 +215,108 @@ def _info(preset: dict[str, Any], record: dict[str, Any] | None) -> McpPresetInf
     )
 
 
-async def list_presets(core: Core) -> McpPresetListResult:
+def resolve_locale(locale: str | None) -> str:
+    """``en`` or a locale :data:`mcp_catalog.PRESET_TEXTS` has (``ko``, ``ko-KR`` -> ``ko``)."""
+    wanted = str(locale or "").strip().lower().replace("_", "-").split("-")[0]
+    return wanted if wanted in mcp_catalog.PRESET_TEXTS else "en"
+
+
+async def list_presets(core: Core, locale: str | None = None) -> McpPresetListResult:
     book = load_book(core)
-    return McpPresetListResult(presets=[_info(p, book.get(p["id"])) for p in mcp_catalog.PRESETS])
+    chosen = resolve_locale(locale)
+    return McpPresetListResult(
+        presets=[_info(p, book.get(p["id"]), chosen) for p in mcp_catalog.PRESETS],
+        locale=chosen,
+    )
+
+
+# ---------------------------------------------------------------------------
+# check (is the sign-in still good?)
+# ---------------------------------------------------------------------------
+
+#: How long a verify tool may take before the check says "unknown".
+VERIFY_TIMEOUT_SEC = 20.0
+
+
+def mask_account(value: str) -> str:
+    """``j***@example.com`` / ``j***``: enough to recognise, never the whole id."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    local, at, domain = text.partition("@")
+    return f"{local[:1]}***@{domain}" if at else f"{text[:1]}***"
+
+
+def _verdict(text: str) -> tuple[bool | None, str | None, str]:
+    """``(authenticated, account, detail)`` read from a verify tool's answer."""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        data = None
+    if isinstance(data, dict):
+        user = data.get("userData") if isinstance(data.get("userData"), dict) else data
+        account = next(
+            (str(user[k]) for k in ("userPrincipalName", "mail", "email", "username")
+             if isinstance(user.get(k), str) and user.get(k)),
+            None,
+        )
+        ok = data.get("success", data.get("authenticated", data.get("loggedIn")))
+        if isinstance(ok, bool):
+            return ok, account, "signed in" if ok else "not signed in"
+    lowered = str(text or "").lower()
+    if any(w in lowered for w in ("not logged in", "not authenticated", "login required",
+                                  "not signed in")):
+        return False, None, "not signed in"
+    return None, None, "the server's answer did not say"
+
+
+async def check(core: Core, preset_id: str) -> McpPresetCheckResult:
+    """``mcp.preset.check``: per server, connected and still signed in (no secrets)."""
+    from snowpea_core.tools.mcp_client import MANAGER
+
+    preset = mcp_catalog.preset(preset_id)
+    if preset is None:
+        raise RpcError(errors.INVALID_PARAMS, f"unknown preset {preset_id!r}")
+    record = load_book(core).get(preset["id"])
+    if record is None:
+        return McpPresetCheckResult(id=preset["id"], applied=False)
+    by_name = {server_name(_prefix_of(record, preset), s): s for s in preset["servers"]}
+    rows: list[McpPresetServerCheck] = []
+    for entry in record["servers"]:
+        name = entry["name"]
+        spec = by_name.get(name) or {}
+        server = MANAGER.get(name)
+        connected = server is not None and server.running
+        method = spec.get("signIn") or ("oauth" if spec.get("auth") == "oauth" else "none")
+        authenticated: bool | None = None
+        account: str | None = None
+        detail = "connected" if connected else "not connected"
+        if method == "oauth":
+            row = mcp_handlers.declared(core, None).get(name)
+            url = row.config.url if row is not None else None
+            stored = bool(url) and mcp_oauth.TokenStore(core.paths.home).get(name, url) is not None
+            refused = bool(getattr(server, "needs_auth", False))
+            authenticated = stored and not refused
+            detail = "signed in" if authenticated else "sign in with mcp.authorize"
+        elif spec.get("verifyTool"):
+            if not connected:
+                detail = "not connected, so the sign-in cannot be checked"
+            else:
+                try:
+                    answer = await asyncio.wait_for(
+                        server.call(str(spec["verifyTool"]), {}),  # type: ignore[union-attr]
+                        VERIFY_TIMEOUT_SEC,
+                    )
+                    authenticated, found, detail = _verdict(getattr(answer, "text", str(answer)))
+                    account = mask_account(found) if found else None
+                except Exception as exc:  # noqa: BLE001 - any failure is "cannot tell"
+                    detail = f"could not check: {type(exc).__name__}"
+            if authenticated is False and spec.get("loginCommand"):
+                detail += f"; run once on the daemon's machine: {spec['loginCommand']}"
+        rows.append(McpPresetServerCheck(server=name, connected=connected,
+                                         authenticated=authenticated, account=account,
+                                         detail=detail))
+    return McpPresetCheckResult(id=preset["id"], applied=True, servers=rows)
 
 
 # ---------------------------------------------------------------------------
@@ -667,6 +777,8 @@ def _prefix_of(record: dict[str, Any], preset: dict[str, Any]) -> str:
 __all__ = [
     "applied_servers",
     "apply",
+    "check",
+    "mask_account",
     "desired_permissions",
     "list_presets",
     "load_book",

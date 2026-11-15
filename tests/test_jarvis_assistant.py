@@ -977,3 +977,70 @@ def test_exclusive_tools_are_not_widened() -> None:
     assert "read_file" in deferred.narrowed({"a"}, plain)
     assert deferred.narrowed({"a"}, only) == {"a"}
     assert deferred.narrowed({"a"}) >= {"a", "read_file", "tool_search"}
+
+
+# -- preset check and localized texts (M19 core integration) ----------------------------
+
+
+async def test_preset_check_reports_the_sign_in_without_secrets(
+    http: aiohttp.ClientSession, tmp_path: Path, fake_presets: None
+) -> None:
+    mcp_catalog.PRESETS[0]["servers"][0]["verifyTool"] = "verify_login"
+    daemon = await _daemon(tmp_path)
+    try:
+        client = await connect(http, daemon)
+        frame = await client.call("mcp.preset.check", {"id": "nope"})
+        assert frame["error"]["code"] == -32602 and "unknown preset" in frame["error"]["message"]
+        assert await client.ok("mcp.preset.check", {"id": "fakemail"}) == {
+            "id": "fakemail", "applied": False, "servers": [],
+        }
+        await client.ok("mcp.preset.apply", _apply_params(tmp_path / "mail.log"))
+        checked = await client.ok("mcp.preset.check", {"id": "fakemail"})
+        assert checked["applied"] is True
+        [row] = checked["servers"]
+        assert row["server"] == "fakemail-mail" and row["connected"] is True
+        assert row["authenticated"] is True and row["account"] == "b***@example.com"
+        assert "boss@example.com" not in json.dumps(checked)
+    finally:
+        await daemon.stop()
+
+
+def test_preset_check_reads_a_verify_answer() -> None:
+    signed_out = json.dumps({"success": False, "message": "Not logged in"})
+    assert presets._verdict(signed_out)[0] is False
+    assert presets._verdict("Not logged in. Run --login")[0] is False
+    assert presets._verdict("something else") == (None, None, "the server's answer did not say")
+    ok = json.dumps({"success": True, "userData": {"mail": "kim.w@corp.example"}})
+    assert presets._verdict(ok)[:2] == (True, "kim.w@corp.example")
+    assert presets.mask_account("kim.w@corp.example") == "k***@corp.example"
+    assert presets.mask_account("8c1f-uuid") == "8***"
+    ms365 = mcp_catalog.preset("microsoft365")
+    assert ms365 is not None and ms365["servers"][0]["verifyTool"] == "verify-login"
+    assert "verify-login" in ms365["servers"][0]["readTools"]
+
+
+async def test_preset_texts_come_in_korean(
+    http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    daemon = await _daemon(tmp_path)
+    try:
+        client = await connect(http, daemon)
+        english = await client.ok("mcp.preset.list", {})
+        korean = await client.ok("mcp.preset.list", {"locale": "ko-KR"})
+        assert english["locale"] == "en" and korean["locale"] == "ko"
+        assert (await client.ok("mcp.preset.list", {"locale": "fr"}))["locale"] == "en"
+        for en, ko in zip(english["presets"], korean["presets"], strict=True):
+            assert en["id"] == ko["id"] and en["title"] != ko["title"]
+            assert en["description"] != ko["description"]
+            assert [i["name"] for i in en["inputs"]] == [i["name"] for i in ko["inputs"]]
+            assert all(a["label"] != b["label"] for a, b in zip(en["inputs"], ko["inputs"],
+                                                                 strict=True))
+            assert all(a["title"] != b["title"] and a["prompt"] == b["prompt"]
+                       for a, b in zip(en["recipes"], ko["recipes"], strict=True))
+            assert en["readTools"] == ko["readTools"] and en["entry"] == ko["entry"]
+            assert all(any("가" <= c <= "힣" for c in s["title"]) or s["title"] == "Gmail"
+                       for s in ko["servers"])
+        google = next(p for p in korean["presets"] if p["id"] == "google")
+        assert google["title"] == "Google (Gmail과 캘린더)"
+    finally:
+        await daemon.stop()

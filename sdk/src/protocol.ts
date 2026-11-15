@@ -1207,7 +1207,7 @@ export interface ExternalOpenParams {
     /** The CLI's own session (thread, chat) id. */
     id: string;
   };
-  /** 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly) the person answers on any of their surfaces; Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. */
+  /** 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. */
   transport?: "structured" | "tmux" | null;
 }
 
@@ -3299,11 +3299,42 @@ export interface McpPresetApplyResult {
   })[];
 }
 
+/** `mcp.preset.check` params. Assistant presets (1.53.0): whether each server of an applied preset is connected and still signed in (masked account; no tokens). */
+export interface McpPresetCheckParams {
+  /** An applied preset. */
+  id: string;
+}
+
+/** `mcp.preset.check` result. */
+export interface McpPresetCheckResult {
+  /** False when the preset is not applied (servers empty). */
+  applied: boolean;
+  /** The preset. */
+  id: string;
+  servers?: ({
+    /** The signed-in account, masked (e.g. 'j***@example.com'); never a token or a full account id. */
+    account?: string | null;
+    /** Whether the sign-in holds: OAuth servers by the stored sign-in, a device-code server (Microsoft 365) by asking its read-only verify tool; null when the server offers no way to tell (or is not connected to ask). */
+    authenticated?: boolean | null;
+    /** Its MCP connection is up. */
+    connected: boolean;
+    /** One line for the person. */
+    detail?: string;
+    /** Configured server name. */
+    server: string;
+  })[];
+}
+
 /** `mcp.preset.list` params. Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipes. */
-export type McpPresetListParams = Record<string, unknown>;
+export interface McpPresetListParams {
+  /** Language of the human texts (title, description, input labels, server and recipe titles): 'en' (default) or 'ko'; any other value answers in English. Ids, tool names, entries and recipe prompts are never translated. */
+  locale?: string | null;
+}
 
 /** `mcp.preset.list` result. */
 export interface McpPresetListResult {
+  /** The language the texts are in. */
+  locale?: string;
   /** In display order. */
   presets?: ({
     /** A server from this preset is configured. */
@@ -9509,6 +9540,7 @@ export interface MethodMap {
   "mcp.deauthorize": { params: McpDeauthorizeParams; result: McpDeauthorizeResult };
   "mcp.list": { params: McpListParams; result: McpListResult };
   "mcp.preset.apply": { params: McpPresetApplyParams; result: McpPresetApplyResult };
+  "mcp.preset.check": { params: McpPresetCheckParams; result: McpPresetCheckResult };
   "mcp.preset.list": { params: McpPresetListParams; result: McpPresetListResult };
   "mcp.preset.remove": { params: McpPresetRemoveParams; result: McpPresetRemoveResult };
   "mcp.reload": { params: McpReloadParams; result: McpReloadResult };
@@ -9716,6 +9748,7 @@ export type ClientMethod =
   | "mcp.deauthorize"
   | "mcp.list"
   | "mcp.preset.apply"
+  | "mcp.preset.check"
   | "mcp.preset.list"
   | "mcp.preset.remove"
   | "mcp.reload"

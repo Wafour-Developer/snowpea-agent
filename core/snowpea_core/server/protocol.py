@@ -8272,7 +8272,8 @@ class ExternalOpenParams(Payload):
             "'tmux' on a Claude Code session the person runs in a tmux pane of their own "
             "(listed as host 'terminal'): adopt that pane, so snowpea can type into it (host "
             "'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', "
-            "personOnly) the person answers on any of their surfaces; Jarvis, the engine and "
+            "personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person "
+            "answers on any of their surfaces (approval.pending); Jarvis, the engine and "
             "unattended rules cannot. Declined or unreachable: the session stays view only. "
             "'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or "
             "'structured': as before."
@@ -8511,8 +8512,51 @@ class McpPresetInfo(Payload):
     )
 
 
+class McpPresetListParams(Payload):
+    locale: str | None = Field(
+        default=None,
+        description=(
+            "Language of the human texts (title, description, input labels, server and recipe "
+            "titles): 'en' (default) or 'ko'; any other value answers in English. Ids, tool "
+            "names, entries and recipe prompts are never translated."
+        ),
+    )
+
+
 class McpPresetListResult(Payload):
     presets: list[McpPresetInfo] = Field(default_factory=list, description="In display order.")
+    locale: str = Field(default="en", description="The language the texts are in.")
+
+
+class McpPresetCheckParams(Payload):
+    id: str = Field(description="An applied preset.")
+
+
+class McpPresetServerCheck(Payload):
+    server: str = Field(description="Configured server name.")
+    connected: bool = Field(description="Its MCP connection is up.")
+    authenticated: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the sign-in holds: OAuth servers by the stored sign-in, a device-code "
+            "server (Microsoft 365) by asking its read-only verify tool; null when the "
+            "server offers no way to tell (or is not connected to ask)."
+        ),
+    )
+    account: str | None = Field(
+        default=None,
+        description=(
+            "The signed-in account, masked (e.g. 'j***@example.com'); never a token or a "
+            "full account id."
+        ),
+    )
+    detail: str = Field(default="", description="One line for the person.")
+
+
+class McpPresetCheckResult(Payload):
+    id: str = Field(description="The preset.")
+    applied: bool = Field(description="False when the preset is not applied (servers empty).")
+    servers: list[McpPresetServerCheck] = Field(default_factory=list)
 
 
 class McpPresetRemoveParams(Payload):
@@ -9850,9 +9894,18 @@ METHODS: dict[str, RpcMethod] = {
         ),
         _m(
             "mcp.preset.list",
-            Empty,
+            McpPresetListParams,
             McpPresetListResult,
             "Assistant presets (1.53.0, WP8): mail, calendar and to-do MCP setups with recipes.",
+        ),
+        _m(
+            "mcp.preset.check",
+            McpPresetCheckParams,
+            McpPresetCheckResult,
+            (
+                "Assistant presets (1.53.0): whether each server of an applied preset is "
+                "connected and still signed in (masked account; no tokens)."
+            ),
         ),
         _m(
             "mcp.preset.remove",
@@ -9999,7 +10052,7 @@ CAPABILITIES: list[str] = [
     "jarvis",
     # M19 WP5: external.* and ApprovalRequest.external.
     "externalSessions",
-    # mcp.preset.list/apply/remove — M19 WP8 (assistant presets).
+    # mcp.preset.list/apply/remove/check — M19 WP8 (assistant presets).
     "mcpPresets",
     # jarvis.briefing.get/set — M19 WP8 (briefings and assistant tasks).
     "jarvisBriefing",
@@ -10216,6 +10269,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "mcp.preset.list",
         "mcp.preset.apply",
         "mcp.preset.remove",
+        "mcp.preset.check",
         "jarvis.briefing.get",
         "jarvis.briefing.set",
     }

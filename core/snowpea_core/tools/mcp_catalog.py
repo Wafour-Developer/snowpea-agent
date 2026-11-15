@@ -337,6 +337,8 @@ PRESETS: tuple[dict[str, Any], ...] = (
                 "transport": "stdio",
                 "auth": "none",
                 "signIn": "deviceCode",
+                # mcp.preset.check asks this read tool whether the sign-in holds.
+                "verifyTool": "verify-login",
                 "entry": {
                     "command": "npx",
                     "args": [
@@ -463,6 +465,55 @@ def _split_ms365() -> None:
 
 
 _split_ms365()
+
+#: The presets' texts in Korean (``mcp.preset.list {locale: "ko"}``); English is
+#: the catalog itself.  Keys: preset id, then ``title``, ``description``,
+#: ``inputs`` (name -> label), ``servers`` (suffix -> title), ``recipes`` (id -> title).
+PRESET_TEXTS: dict[str, dict[str, dict[str, Any]]] = {
+    "ko": {
+        "google": {
+            "title": "Google (Gmail과 캘린더)",
+            "description": (
+                "Google이 제공하는 원격 MCP 서버로 메일과 캘린더를 읽습니다. 읽기는 묻지 않고 "
+                "실행되고, 임시 보관함 작성·라벨 지정과 모든 캘린더 변경은 먼저 묻습니다. "
+                "Google 서버는 개발자 프리뷰입니다: Google Cloud 프로젝트에서 Gmail MCP와 "
+                "Calendar MCP API를 사용 설정하고, 'AI 기반 에이전트용'으로 표시한 OAuth "
+                "클라이언트가 필요합니다."
+            ),
+            "inputs": {
+                "GOOGLE_OAUTH_CLIENT_ID": (
+                    "OAuth 클라이언트 ID (Google Cloud, 'AI 기반 에이전트용'으로 표시)"
+                ),
+                "GOOGLE_OAUTH_CLIENT_SECRET": "OAuth 클라이언트 보안 비밀",
+            },
+            "servers": {"gmail": "Gmail", "calendar": "Google 캘린더"},
+            "recipes": {
+                "mail-digest": "평일 아침 메일 요약",
+                "calendar-today": "평일 아침 오늘의 일정",
+            },
+        },
+        "microsoft365": {
+            "title": "Microsoft 365 (Outlook 메일과 캘린더)",
+            "description": (
+                "커뮤니티 Microsoft 365 MCP 서버(Microsoft Graph)로 Outlook 메일과 캘린더를 "
+                "읽습니다. 읽기는 묻지 않고 실행되고, 보내기·답장·삭제·이동과 모든 캘린더 "
+                "변경은 먼저 묻습니다. 데몬이 실행되는 컴퓨터에서 장치 코드로 한 번 "
+                "로그인하세요."
+            ),
+            "inputs": {
+                "MS365_MCP_TENANT_ID": "테넌트 ID (개인 계정은 'consumers', 비우면 common)",
+                "MS365_MCP_CLIENT_ID": "Azure 앱 클라이언트 ID (비우면 서버에 내장된 앱)",
+            },
+            "servers": {"": "Outlook 메일과 캘린더"},
+            "recipes": {
+                "mail-digest": "평일 아침 메일 요약",
+                "calendar-today": "평일 아침 오늘의 일정",
+            },
+        },
+    },
+}
+#: Locales :data:`PRESET_TEXTS` has, besides the catalog's own English.
+PRESET_LOCALES: tuple[str, ...] = ("en", *PRESET_TEXTS)
 
 
 def preset(preset_id: str) -> dict[str, Any] | None:

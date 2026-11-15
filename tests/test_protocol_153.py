@@ -62,6 +62,7 @@ M19_METHODS = {
     "mcp.preset.list",
     "mcp.preset.apply",
     "mcp.preset.remove",
+    "mcp.preset.check",
 }
 WP2_METHODS = {
     "jarvis.ledger",
@@ -84,6 +85,7 @@ WP8_METHODS = {
     "mcp.preset.list",
     "mcp.preset.apply",
     "mcp.preset.remove",
+    "mcp.preset.check",
     "jarvis.briefing.get",
     "jarvis.briefing.set",
 }

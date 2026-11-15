@@ -492,7 +492,13 @@ class ClaudeTmuxChannel(ExternalChannel):
         # Person-only: never Jarvis, never the engine, never an unattended rule.
         answer = await self.host_api.ask_approval(ApprovalAsk(
             tool="tmux.adopt",
-            args={"session": info["session"], "pane": info["pane"]},
+            # ApprovalRequest.args of tmux.adopt (1.53.0): exactly these keys.
+            args={
+                "cli": "claude",
+                "sessionId": self.session_id,
+                "tmux": {"session": info["session"], "pane": info["pane"]},
+                "cwd": str(self.spec.cwd),
+            },
             risk="high",
             note=("snowpea will type into this tmux pane, which you started yourself; "
                   "permission prompts stay yours to answer there"),

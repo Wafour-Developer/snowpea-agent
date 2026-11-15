@@ -460,6 +460,10 @@ async def test_adopting_over_external_open_is_the_persons_call(tmp_path: Path,
                                            if m == "approval.pending"])
             request = pending[-1]
             assert request["tool"] == "tmux.adopt" and request["personOnly"] is True
+            assert set(request["args"]) == {"cli", "sessionId", "tmux", "cwd"}
+            assert request["args"]["cli"] == "claude" and request["args"]["sessionId"] == sid
+            assert set(request["args"]["tmux"]) == {"session", "pane"}
+            assert request["route"] in (None, "person")
             # Neither Jarvis nor the engine may allow it.
             for by in ("jarvis", "jarvis:auto"):
                 with pytest.raises(RpcError) as caught:

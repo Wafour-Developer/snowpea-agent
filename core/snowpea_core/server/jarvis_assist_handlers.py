@@ -19,6 +19,9 @@ from snowpea_core.server.protocol import (
     JarvisBriefingSetParams,
     McpPresetApplyParams,
     McpPresetApplyResult,
+    McpPresetCheckParams,
+    McpPresetCheckResult,
+    McpPresetListParams,
     McpPresetListResult,
     McpPresetRemoveParams,
     McpPresetRemoveResult,
@@ -32,15 +35,22 @@ HANDLED_METHODS: tuple[str, ...] = (
     "mcp.preset.list",
     "mcp.preset.apply",
     "mcp.preset.remove",
+    "mcp.preset.check",
     "jarvis.briefing.get",
     "jarvis.briefing.set",
 )
 
 
 async def preset_list_handler(
-    _conn: RpcConnection | None, _params: Empty, core: Core
+    _conn: RpcConnection | None, params: McpPresetListParams, core: Core
 ) -> McpPresetListResult:
-    return await presets.list_presets(core)
+    return await presets.list_presets(core, params.locale)
+
+
+async def preset_check_handler(
+    _conn: RpcConnection | None, params: McpPresetCheckParams, core: Core
+) -> McpPresetCheckResult:
+    return await presets.check(core, params.id)
 
 
 async def preset_apply_handler(
@@ -81,6 +91,7 @@ def register_jarvis_assist_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("mcp.preset.list", preset_list_handler)
     dispatcher.register("mcp.preset.apply", preset_apply_handler)
     dispatcher.register("mcp.preset.remove", preset_remove_handler)
+    dispatcher.register("mcp.preset.check", preset_check_handler)
     dispatcher.register("jarvis.briefing.get", briefing_get_handler)
     dispatcher.register("jarvis.briefing.set", briefing_set_handler)
     return dispatcher
