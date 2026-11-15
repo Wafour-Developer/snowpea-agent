@@ -62,6 +62,36 @@ class StopDecision:
     counts_as_stop_hook: bool = False
     #: What surfaces show for it (``hook.continue``); ``text`` when empty.
     shown: str = ""
+    #: ``hook.continue.kind`` (1.51.0); empty: from ``producer``, else ``other``.
+    kind: str = ""
+    #: The producer's count so far this turn and its cap, when it has them.
+    count: int | None = None
+    limit: int | None = None
+
+    def __post_init__(self) -> None:
+        kind = self.kind or _PRODUCER_KINDS.get(self.producer, "other")
+        object.__setattr__(self, "kind", kind if kind in HOOK_KINDS else "other")
+
+
+#: ``hook.continue.kind`` values (protocol ``HookContinueKind``).
+HOOK_KINDS: frozenset[str] = frozenset(
+    {
+        "unfinished_work",
+        "verify_gate",
+        "stop_hook",
+        "provider_retry",
+        "overflow",
+        "handback",
+        "budget",
+        "goal",
+        "other",
+    }
+)
+_PRODUCER_KINDS = {
+    "verify-gate": "verify_gate",
+    "unfinished-work": "unfinished_work",
+    "stop-hook": "stop_hook",
+}
 
 
 Listener = Callable[
@@ -129,7 +159,15 @@ def _verify_gate(core: Any, session: Any, ctx: StopContext) -> StopDecision | No
     from snowpea_core.agent import verify_gate
 
     text = verify_gate.nudge(core, session, ctx.last_message)
-    return StopDecision(text, "verify-gate") if text else None
+    if not text:
+        return None
+    turn = getattr(session, "verify_turn", None)
+    return StopDecision(
+        text,
+        "verify-gate",
+        count=getattr(turn, "nudges", None),
+        limit=verify_gate.MAX_NUDGES,
+    )
 
 
 def _unfinished_work(core: Any, session: Any, ctx: StopContext) -> StopDecision | None:
@@ -162,6 +200,8 @@ def _unfinished_work(core: Any, session: Any, ctx: StopContext) -> StopDecision 
             "The answer listed remaining work; continuing "
             f"({turn.unfinished_continues}/{limit})."
         ),
+        count=turn.unfinished_continues,
+        limit=limit,
     )
 
 
@@ -181,6 +221,8 @@ async def _stop_hooks(core: Any, session: Any, ctx: StopContext) -> StopDecision
         via="notice",
         counts_as_stop_hook=True,
         shown=decision.reason,
+        count=ctx.stop_continuations + 1,
+        limit=plugin_hooks.MAX_STOP_CONTINUATIONS,
     )
 
 
@@ -196,4 +238,11 @@ def default_chain() -> TurnStoppingChain:
 CHAIN = default_chain()
 
 
-__all__ = ["CHAIN", "StopContext", "StopDecision", "TurnStoppingChain", "default_chain"]
+__all__ = [
+    "CHAIN",
+    "HOOK_KINDS",
+    "StopContext",
+    "StopDecision",
+    "TurnStoppingChain",
+    "default_chain",
+]

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.50.0"
+PROTOCOL_VERSION = "1.51.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2383,7 +2383,14 @@ class TrajectoryRow(Payload):
             "Kind-specific facts: message — outcome, ttftMs, decodeMs, totalMs, inputTokens, "
             "cachedInputTokens, outputTokens, reasoningChars, toolCalls; tool — name, callId, "
             "paths; subagent — agentId, childSessionId, reason, rounds; turn — initiator, "
-            "reason, outcome; compacted — before, after, summaryChars, auto, kept."
+            "reason, outcome; compacted — before, after, summaryChars, auto, kept. "
+            "Since 1.51.0 every context, system and compacted row has data.kind, a stable "
+            "slug, plus that row's values: summary (chars); continued (hookKind, count, "
+            "limit); host_note (chars); forked (fromSessionId, atTurnId); error (code); "
+            "provider_retry (attempt, max — null for unreachable, reason, delaySec, "
+            "waitLeftSec, error); model_changed (provider, model); mode_changed (mode); "
+            "goal (goalId, phase, round, maxRounds, blockedCode, cleared); compaction "
+            "(before, after, summaryChars, auto, kept). Titles stay for older clients."
         ),
     )
 
@@ -5304,12 +5311,63 @@ class TeamTaskUpdate(Payload):
     retries: int = Field(default=0, description="How many times a merge conflict re-queued it.")
 
 
+#: Who kept a turn going (``hook.continue.kind``, 1.51.0).
+HookContinueKind = Literal[
+    "unfinished_work",
+    "verify_gate",
+    "stop_hook",
+    "provider_retry",
+    "overflow",
+    "handback",
+    "budget",
+    "goal",
+    "other",
+]
+
+
 class HookContinue(Payload):
-    """A Stop hook kept the turn going instead of letting it end."""
+    """Something kept the turn going instead of letting it end."""
 
     kind: Literal["hook.continue"] = "hook.continue"
-    reason: str = Field(description="The hook's instruction, handed to the model.")
-    count: int = Field(description="How many times Stop hooks continued this turn so far.")
+    reason: str = Field(
+        description=(
+            "What it said, in English (the instruction or the notice); clients that localise "
+            "build their own line from 'kind', 'count' and 'limit' (1.51.0)."
+        )
+    )
+    count: int | None = Field(
+        default=None,
+        description=(
+            "The producer's own count so far this turn: Stop-hook continuations (stop_hook), "
+            "unfinished-work continuations, verify-gate nudges, the retry attempt "
+            "(provider_retry), budget continuations (budget), empty-answer nudges (other). "
+            "Before 1.51.0 always the Stop-hook count (0 for other producers)."
+        ),
+    )
+    hookKind: HookContinueKind = Field(
+        default="other",
+        serialization_alias="kind",
+        validation_alias="hookKind",
+        description=(
+            "Who kept the turn going, inside the payload as 'kind' (1.51.0; the way "
+            "message.done carries its 'kind'): unfinished_work (the answer listed work it "
+            "could still do), verify_gate (no fresh check after edits, open to-dos, a "
+            "deliverable in tmp/), stop_hook (a Stop hook), provider_retry (a failed model "
+            "call is tried again), overflow (the context overflowed and is summarised), "
+            "handback (a delegated child handed back), budget (the round budget's probe or "
+            "automatic continuation), goal (a goal round), other (anything else: an empty "
+            "answer nudged, a plugin's turn.stopping listener)."
+        ),
+    )
+    limit: int | None = Field(
+        default=None,
+        description=(
+            "The cap 'count' runs up to, when there is one (1.51.0): unfinished-work "
+            "continuations (agent.unfinished_continue), verify-gate nudges, Stop-hook "
+            "continuations, agent.provider_retries (null for a retry of an unreachable "
+            "server, whose limit is time), agent.auto_budget_continuations, 1 for overflow."
+        ),
+    )
 
 
 class ProviderWaiting(Payload):
@@ -5358,6 +5416,16 @@ class StepDone(Payload):
     outputTokens: int = Field(default=0, description="Completion tokens reported.")
     reasoningTokens: int = Field(default=0, description="Thinking tokens (estimated when unsplit).")
     error: str | None = Field(default=None, description="Why the call failed, when it did.")
+    errorCode: str | None = Field(
+        default=None,
+        description=(
+            "The failure's code (1.51.0), the one the turn's 'error' event carries: the "
+            "provider's ProviderError code (internal, timeout, invalid_params, auth_expired, "
+            "image_rejected, model_not_configured, not_found, …), 'internal' for anything "
+            "else, 'interrupted' for a call Stop cut short; null for a call that ended "
+            "normally."
+        ),
+    )
     text: str = Field(
         default="",
         description=(
@@ -5376,9 +5444,33 @@ class StepDone(Payload):
     toolCalls: int = Field(default=0, description="Tool calls the call asked for.")
 
 
+#: Why a goal is blocked (``blockedReason.code``, a closed set since 1.51.0).
+GoalBlockedCode = Literal[
+    "round-limit", "needs-input", "no-credentials", "no-access", "external", "other"
+]
+
+
 class GoalBlockedReason(Payload):
-    code: str = Field(description="Short condition code, e.g. 'round-limit' or 'no-credentials'.")
-    message: str = Field(default="", description="What is needed to go on.")
+    code: GoalBlockedCode = Field(
+        description=(
+            "Condition code, a closed set (1.51.0): 'round-limit' — the round cap was reached "
+            "(set by the core); the rest come from the model's goal_update: 'needs-input' — "
+            "a decision, an answer or an approval from the person; 'no-credentials' — a key, "
+            "a login or a token is missing or refused; 'no-access' — a permission, a file or "
+            "a resource it may not reach; 'external' — a service, a tool or the environment "
+            "outside its control is down or missing; 'other' — anything else (a free-form "
+            "code the model gave is mapped onto this set, 'other' when nothing fits). "
+            "Clients localise by this code."
+        )
+    )
+    message: str = Field(
+        default="",
+        description=(
+            "What is needed to go on, in English as the model (or the core, for round-limit) "
+            "wrote it: a fallback to show when a client has no text for 'code'. The core "
+            "does not translate it."
+        ),
+    )
 
 
 class GoalView(Payload):
@@ -5454,10 +5546,39 @@ class ProviderRetry(Payload):
     """A model call failed transiently and will be tried again (1.37.0)."""
 
     kind: Literal["provider.retry"] = "provider.retry"
-    attempt: int = Field(description="The retry about to run, 1-based.")
-    max: int = Field(description="Retries allowed (agent.provider_retries).")
+    attempt: int = Field(
+        description=(
+            "The retry about to run, 1-based; for 'unreachable', the retries of the "
+            "unreachable server so far in this call (1.51.0; before, the next charged retry)."
+        )
+    )
+    max: int | None = Field(
+        default=None,
+        description=(
+            "Retries allowed (agent.provider_retries); null for an 'unreachable' retry, "
+            "whose limit is time (see waitLeftSec), not a count (1.51.0)."
+        ),
+    )
     delaySec: float = Field(description="Seconds before it runs.")
     error: str = Field(description="Short class of the failure, e.g. ReadTimeout.")
+    reason: Literal["unreachable", "silent", "transient"] = Field(
+        default="transient",
+        description=(
+            "Why (1.51.0): 'unreachable' — the call never reached the server (DNS, refused, "
+            "unreachable, connect timeout) and is retried until "
+            "agent.provider_connect_wait_sec has passed; 'silent' — the server sent no first "
+            "token, or nothing between events, for agent.provider_first_token_sec / "
+            "provider_idle_sec; 'transient' — anything else worth another try (429, 5xx, a "
+            "reset connection, a read timeout)."
+        ),
+    )
+    waitLeftSec: int | None = Field(
+        default=None,
+        description=(
+            "Seconds left of the agent.provider_connect_wait_sec budget for an 'unreachable' "
+            "retry; null for the others (1.51.0)."
+        ),
+    )
 
 
 class AgentChanged(Payload):

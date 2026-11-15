@@ -65,6 +65,8 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 모든 `session.event`는 해당 세션 안에서 단조 증가하는 `seq`를 싣고 있습니다. 연결이 끊긴 클라이언트는 재연결한 뒤 `session.resume(sessionId, afterSeq)`를 호출해 놓친 부분만 정확히 다시 받습니다. 이벤트가 그냥 방송되는 게 아니라 영속되는 이유가 이것입니다.
 
+1.51.0부터는 클라이언트가 영어 문장을 읽어 내던 이벤트에 코드가 함께 실려, 클라이언트가 자기 언어로 문장을 만들 수 있습니다: `provider.retry`에는 `reason`(`unreachable`, `silent`, `transient`)과 `waitLeftSec`이 있고, 한도가 시간일 때 `max`는 null입니다. `hook.continue`에는 `kind`(누가 턴을 이어 갔는지), `count`, `limit`이, `step.done`에는 `errorCode`가 있습니다. 목표의 `blockedReason.code`는 `round-limit`, `needs-input`, `no-credentials`, `no-access`, `external`, `other` 중 하나이고, `session.trajectory`의 context·system·compacted 행에는 `data.kind`가 있습니다. 예전 클라이언트를 위해 영어 문장도 그대로 남으며, 데몬은 그것을 번역하지 않습니다.
+
 ## 오류
 
 오류는 `error.data.code`에 문자열 코드가 담긴 JSON-RPC 오류입니다: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `mcp_auth_failed`, `search_provider_unavailable`, `browser_provider_unavailable`, `fork_after_compaction`, `fork_turn_not_found`, `fork_no_finished_turn`, `fork_child_session`, `fork_running` (`session.fork`, 1.50.0), `steer_slash_command` (`session.steer`, 1.50.0), `goal_not_allowed` (`goal.set`/`goal.resume`, 1.50.0), `internal`.

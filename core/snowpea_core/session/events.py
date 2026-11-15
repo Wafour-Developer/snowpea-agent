@@ -244,17 +244,41 @@ def checkpoint_restored(
     )
 
 
-def hook_continue(reason: str, count: int) -> Event:
-    return _pack(HookContinue(reason=reason, count=count))
+def hook_continue(
+    reason: str,
+    count: int | None,
+    kind: str = "other",
+    limit: int | None = None,
+) -> Event:
+    """Something kept the turn going; ``kind`` says who (1.51.0)."""
+    event_kind, payload = _pack(
+        HookContinue(reason=reason, count=count, hookKind=kind, limit=limit)  # type: ignore[arg-type]
+    )
+    payload["kind"] = payload.pop("hookKind")
+    return event_kind, payload
 
 
 def provider_waiting(since_sec: int, phase: str) -> Event:
     return _pack(ProviderWaiting(sinceSec=since_sec, phase=phase))  # type: ignore[arg-type]
 
 
-def provider_retry(attempt: int, max_retries: int, delay_sec: float, error: str) -> Event:
+def provider_retry(
+    attempt: int,
+    max_retries: int | None,
+    delay_sec: float,
+    error: str,
+    reason: str = "transient",
+    wait_left_sec: int | None = None,
+) -> Event:
     return _pack(
-        ProviderRetry(attempt=attempt, max=max_retries, delaySec=delay_sec, error=error)
+        ProviderRetry(
+            attempt=attempt,
+            max=max_retries,
+            delaySec=delay_sec,
+            error=error,
+            reason=reason,  # type: ignore[arg-type]
+            waitLeftSec=wait_left_sec,
+        )
     )
 
 
@@ -536,9 +560,14 @@ def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     if kind == "message.done" and "kind" in payload:
         message_kind = str(payload["kind"])
         data_in["messageKind"] = message_kind
+    if kind == "hook.continue":
+        # Its own "kind" is who kept the turn going (1.51.0); older events have none.
+        data_in["hookKind"] = str(payload.get("kind") or "other")
     data = model.model_validate(data_in).model_dump(mode="json")
     data.pop("kind", None)
     data.pop("messageKind", None)
+    if kind == "hook.continue":
+        data["kind"] = data.pop("hookKind")
     if kind == "turn.started":
         # Only a goal round carries these (1.50.0); other turns omit them.
         for key in ("goalRound", "goalId"):

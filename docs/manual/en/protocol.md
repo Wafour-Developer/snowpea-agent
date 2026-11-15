@@ -65,6 +65,8 @@ Notifications flow from the daemon to subscribed clients.
 
 Every `session.event` carries a `seq` that increases monotonically within its session. A client that drops its connection reconnects and calls `session.resume(sessionId, afterSeq)` to be re-sent exactly what it missed. That is why events are persisted rather than merely broadcast.
 
+Since 1.51.0 the events a client used to read English text out of carry codes instead, so it can write its own line in its own language: `provider.retry` has `reason` (`unreachable`, `silent`, `transient`) and `waitLeftSec`, with `max` null when the limit is time; `hook.continue` has `kind` (who kept the turn going), `count` and `limit`; `step.done` has `errorCode`; a goal's `blockedReason.code` is one of `round-limit`, `needs-input`, `no-credentials`, `no-access`, `external`, `other`; and `session.trajectory` rows of the context, system and compacted kinds carry `data.kind`. The English text stays alongside for older clients; the daemon does not translate it.
+
 ## Errors
 
 Errors are JSON-RPC errors with a string code in `error.data.code`: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `mcp_auth_failed`, `search_provider_unavailable`, `browser_provider_unavailable`, `fork_after_compaction`, `fork_turn_not_found`, `fork_no_finished_turn`, `fork_child_session`, `fork_running` (`session.fork`, 1.50.0), `steer_slash_command` (`session.steer`, 1.50.0), `goal_not_allowed` (`goal.set`/`goal.resume`, 1.50.0), `internal`.

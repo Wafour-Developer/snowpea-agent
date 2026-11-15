@@ -21,6 +21,7 @@ stale round cannot overwrite a newer decision.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -39,6 +40,46 @@ BLOCKED_STREAK = 3
 MIN_EVIDENCE_CHARS = 20
 
 ROUND_LIMIT = "round-limit"
+
+#: ``blockedReason.code``: a closed set (1.51.0, protocol ``GoalBlockedCode``).
+#: ``round-limit`` is the core's; the model's ``goal_update`` names one of the
+#: rest, and a free-form code is mapped onto them by :func:`blocked_code`.
+BLOCKED_CODES: tuple[str, ...] = (
+    ROUND_LIMIT,
+    "needs-input",
+    "no-credentials",
+    "no-access",
+    "external",
+    "other",
+)
+#: Words in a free-form code, checked in order, and the code they mean.
+_BLOCKED_WORDS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"round|\bcap\b"), ROUND_LIMIT),
+    (re.compile(r"cred|auth|login|token|api.?key|secret|password|sign.?in"), "no-credentials"),
+    (re.compile(r"permission|access|forbidden|denied|sandbox|readonly|read.?only"), "no-access"),
+    (
+        re.compile(r"input|user|human|decision|clarif|question|approv|confirm|choice|answer"),
+        "needs-input",
+    ),
+    (
+        re.compile(
+            r"network|offline|unreachable|server|service|down|outage|unavailable|install|"
+            r"missing|dependen|tool|environment|external|hardware|device|quota|rate.?limit"
+        ),
+        "external",
+    ),
+)
+
+
+def blocked_code(code: Any) -> str:
+    """A model's (or an older goal's) blocking code as one of :data:`BLOCKED_CODES`."""
+    key = re.sub(r"[\s_]+", "-", str(code or "").strip().lower())
+    if key in BLOCKED_CODES:
+        return key
+    for pattern, slug in _BLOCKED_WORDS:
+        if pattern.search(key):
+            return slug
+    return "other"
 
 
 def _now() -> str:
@@ -88,7 +129,7 @@ class Goal:
     def view(self, armed: bool = False) -> dict[str, Any]:
         """The protocol shape (``goal.changed``, ``goal.get``)."""
         blocked = (
-            {"code": self.blocked_code, "message": self.blocked_message or ""}
+            {"code": blocked_code(self.blocked_code), "message": self.blocked_message or ""}
             if self.phase == "blocked" and self.blocked_code
             else None
         )
@@ -253,7 +294,7 @@ def update_from_model(
                 "rounds in a row. Try a different approach in the next round."
             )
         goal.phase = "blocked"
-        goal.blocked_code = key
+        goal.blocked_code = blocked_code(key)
         goal.blocked_message = " ".join(str(message or "").split()) or key
         goal.touch()
         session.goal_armed = False
@@ -266,6 +307,7 @@ def update_from_model(
 
 
 __all__ = [
+    "BLOCKED_CODES",
     "BLOCKED_STREAK",
     "DEFAULT_MAX_ROUNDS",
     "MAX_ROUNDS_CEILING",
@@ -274,6 +316,7 @@ __all__ = [
     "ROUND_LIMIT",
     "Goal",
     "begin_round",
+    "blocked_code",
     "clamp_rounds",
     "clear",
     "due",

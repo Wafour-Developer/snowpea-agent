@@ -1,6 +1,6 @@
 # M17 — Session log v2 and Trajectory (M16 Phase 2)
 
-Status: 2a–2e done 2026-11-14 (protocol 1.44–1.48), completed by the 1.50.0 batch (see the end); 2f deferred to Phases 4–5. Parent plan: [m16-dsh-adoption.md](m16-dsh-adoption.md).
+Status: 2a–2e done 2026-11-14 (protocol 1.44–1.48), completed by the 1.50.0 batch and given structured fields in 1.51.0 (see the end); 2f deferred to Phases 4–5. Parent plan: [m16-dsh-adoption.md](m16-dsh-adoption.md).
 
 ## Decision: additive, not 2.0
 
@@ -124,3 +124,62 @@ Additive; everything below landed in protocol 1.50.0.
   `session.prompt` or `command.run`.
 - **Goals only in a conversation of its own.** `goal.set` and `goal.resume` refuse a delegated
   child (as `/goal` does) and a scheduled run with `goal_not_allowed` (-32602).
+
+## 1.51 — codes next to the English text
+
+Additive (protocol 1.51.0). The TUI, the IDE and the browser client parsed English text out of
+several events; each now carries codes. The English stays for older clients and as the fallback;
+the core does not translate it.
+
+1. **`provider.retry`** gains `reason`: `unreachable` (the call never reached the server — DNS,
+   refused, unreachable, connect timeout — retried until `agent.provider_connect_wait_sec`),
+   `silent` (the first-token or idle silence limit), `transient` (everything else: 429, 5xx, a
+   reset, a read timeout). `max` is `int | null`: null for `unreachable`, whose limit is time
+   (it used to be `max(retries, attempt)`, which read "7/7, 8/8 …"). `waitLeftSec` is the
+   seconds left of the connect-wait budget for `unreachable`, null otherwise. For
+   `unreachable`, `attempt` now counts that call's unreachable retries (1, 2, 3 …); it used to
+   repeat the next charged retry's number.
+2. **`hook.continue`** gains `kind` (in the payload, as `message.done` carries its `kind`; the
+   model field is `hookKind`), `count` (now `int | null`, the producer's own count) and
+   `limit`. `reason` is unchanged. `StopDecision` carries `kind`/`count`/`limit`; a plugin's
+   decision gets its kind from the producer name, `other` for one the core does not know.
+
+   | Emitter | `kind` | `count` / `limit` |
+   |---|---|---|
+   | provider retry notice (`_stream_once`) | `provider_retry` | attempt / `agent.provider_retries`, null when unreachable |
+   | context overflow and opaque-400 summarise (`OVERFLOW_NOTE`) | `overflow` | 1 / 1 |
+   | verify gate (`verify-gate` listener) | `verify_gate` | nudges / `MAX_NUDGES` |
+   | unfinished work (`unfinished-work` listener) | `unfinished_work` | continuations / `agent.unfinished_continue` |
+   | Stop hooks (`stop-hooks` listener) | `stop_hook` | continuations / `MAX_STOP_CONTINUATIONS` |
+   | budget probe answer kept going, budget auto continuation | `budget` | budget continuations / `agent.auto_budget_continuations` |
+   | empty-answer nudge, a plugin listener | `other` | nudges / `EMPTY_RETRIES`; the plugin's own |
+   | (reserved) subagent handback, goal rounds | `handback`, `goal` | — |
+
+   A handback and a goal round start a turn of their own (`turn.started` with `reason`
+   `handback`, or `goalRound`/`goalId`) and emit no `hook.continue` today; their kinds are
+   reserved so a client's switch is complete.
+3. **Trajectory rows** of the context, system and compacted kinds have `data.kind`:
+
+   | `data.kind` | row | values |
+   |---|---|---|
+   | `summary` | context | `chars` |
+   | `continued` | context | `hookKind`, `count`, `limit` |
+   | `host_note` | context | `chars` |
+   | `forked` | context | `fromSessionId`, `atTurnId` |
+   | `error` | system | `code` |
+   | `provider_retry` | system | `attempt`, `max`, `reason`, `delaySec`, `waitLeftSec`, `error` |
+   | `model_changed` | system | `provider`, `model` |
+   | `mode_changed` | system | `mode` |
+   | `goal` | system | `goalId`, `phase`, `round`, `maxRounds`, `blockedCode`, `cleared` |
+   | `compaction` | compacted | `before`, `after`, `summaryChars`, `auto`, `kept` |
+
+   A `hook.continue` stored before 1.51 folds to `hookKind: "other"`; a pre-1.51 retry has
+   `reason: "transient"`.
+4. **Goal `blockedReason.code`** is a closed set: `round-limit` (the core, at the round cap),
+   `needs-input`, `no-credentials`, `no-access`, `external`, `other`. `goal_update` offers the
+   model the five it may name; a free-form code (from an older model or a stored goal) is mapped
+   by its words and becomes `other` when nothing fits. `message` stays the English text.
+5. **`step.done`** gains `errorCode`, the code the turn's `error` event carries: the
+   `ProviderError.code` (`internal`, `timeout`, `invalid_params`, `auth_expired`,
+   `image_rejected`, …), `internal` for any other exception or a stream that ended in error,
+   `interrupted` for a call Stop cut short, null otherwise.

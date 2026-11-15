@@ -976,6 +976,17 @@ def _is_silence_timeout(exc: BaseException) -> bool:
     return bool(re.search(r"timeout|timed out", str(exc), re.IGNORECASE))
 
 
+#: The failure :func:`_stream_once_raw` raises when a silence limit is reached.
+_SILENCE_LIMIT = re.compile(r"the model server sent no (?:first token|idle) for \d+s")
+
+
+def _retry_reason(exc: BaseException) -> str:
+    """``provider.retry.reason`` for a retry that is not ``unreachable`` (1.51.0)."""
+    if getattr(exc, "code", None) == "timeout" and _SILENCE_LIMIT.search(str(exc)):
+        return "silent"
+    return "transient"
+
+
 def _provider_retries(core: Core) -> int:
     try:
         return max(0, int(core.settings.agent.provider_retries))
@@ -1029,6 +1040,7 @@ async def _stream_once(
     started = monotonic()
     silent_failures = 0
     failures = 0  # retries charged to ``provider_retries``
+    connect_retries = 0  # retries of an unreachable server
     backoff_no = 0
     connect_since: float | None = None
     #: Seconds spent on connection failures and their waits, which the step
@@ -1072,7 +1084,9 @@ async def _stream_once(
                     30.0, PROVIDER_RETRY_BASE_SEC * (2**backoff_no), connect_wait - waited
                 )
                 backoff_no += 1
-                attempt = failures + 1
+                connect_retries += 1
+                # Its own count: these retries do not use up provider_retries (1.51.0).
+                attempt = connect_retries
                 notice = (
                     f"The network or the model server is unreachable ({exc}); retrying "
                     f"in {delay:.0f}s, for up to {_duration(connect_wait)} in all."
@@ -1084,7 +1098,9 @@ async def _stream_once(
                     waited,
                     connect_wait,
                 )
-                max_retries = max(retries, attempt)
+                max_retries: int | None = None
+                reason = "unreachable"
+                wait_left: int | None = max(0, round(connect_wait - waited))
             else:
                 if failures >= retries or not transient_provider_error(exc):
                     raise
@@ -1104,6 +1120,8 @@ async def _stream_once(
                 failures += 1
                 attempt = failures
                 max_retries = retries
+                reason = _retry_reason(exc)
+                wait_left = None
                 notice = (
                     f"The model server did not answer ({exc}); retrying "
                     f"{attempt}/{retries} in {delay:.0f}s."
@@ -1117,9 +1135,13 @@ async def _stream_once(
                 )
             await core.hub.emit_event(
                 session.id,
-                events.provider_retry(attempt, max_retries, delay, _error_class(exc)),
+                events.provider_retry(
+                    attempt, max_retries, delay, _error_class(exc), reason, wait_left
+                ),
             )
-            await core.hub.emit_event(session.id, events.hook_continue(notice, attempt))
+            await core.hub.emit_event(
+                session.id, events.hook_continue(notice, attempt, "provider_retry", max_retries)
+            )
             waited_from = monotonic()
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(session.interrupt.wait(), timeout=delay)
@@ -1249,6 +1271,7 @@ async def _stream_once_raw(
         session.id, events.step_started(turn_of_step, step_no, timing.vendor, timing.model)
     )
     step_error: str | None = None
+    step_error_code: str | None = None
     step_numbers: dict[str, int] = {}
     stream = provider.stream(messages, specs, max_tokens=max_tokens, **extra)
     interrupt_watcher = asyncio.ensure_future(session.interrupt.wait())
@@ -1315,6 +1338,10 @@ async def _stream_once_raw(
                     break
     except Exception as exc:
         step_error = str(exc) or type(exc).__name__
+        # The code the turn's ``error`` event will carry (1.51.0).
+        step_error_code = (
+            str(exc.code) if isinstance(exc, ProviderError) and exc.code else errors.INTERNAL
+        )
         raise
     finally:
         if not interrupt_watcher.done():
@@ -1348,6 +1375,7 @@ async def _stream_once_raw(
                         step_no,
                         "error",
                         error=step_error[:500],
+                        errorCode=step_error_code,
                         # What streamed before the failure (1.50.0).
                         text="".join(chunks),
                         reasoning="".join(thought),
@@ -1356,12 +1384,15 @@ async def _stream_once_raw(
                     ),
                 )
     await flush_reasoning()
+    outcome = "interrupted" if attempt.interrupted else (attempt.stop_reason or "end_turn")
     await hub.emit_event(
         session.id,
         events.step_done(
             turn_of_step,
             step_no,
-            "interrupted" if attempt.interrupted else (attempt.stop_reason or "end_turn"),
+            outcome,
+            # A stream that ended in error is the ``internal`` error event above.
+            errorCode={"interrupted": "interrupted", "error": errors.INTERNAL}.get(outcome),
             text="".join(chunks),
             reasoning="".join(thought),
             toolCalls=len(attempt.calls),
@@ -2335,7 +2366,10 @@ async def _drive(
                     await hub.emit_event(
                         session.id,
                         events.hook_continue(
-                            decision.shown or decision.text, budget_continuations
+                            decision.shown or decision.text,
+                            budget_continuations,
+                            "budget",
+                            _auto_continue_limit(core),
                         ),
                     )
                     continue
@@ -2371,6 +2405,8 @@ async def _drive(
                     events.hook_continue(
                         BUDGET_CONTINUE_INSTRUCTION.format(n=config.max_tool_rounds),
                         budget_continuations,
+                        "budget",
+                        _auto_continue_limit(core),
                     ),
                 )
             session.history.append(
@@ -2429,7 +2465,9 @@ async def _drive(
                 # A bare 400 on a long request: the shrunk copy went through, so
                 # it was length. Summarise for real and try the full request again.
                 opaque_retried = True
-                await hub.emit_event(session.id, events.hook_continue(OVERFLOW_NOTE, 1))
+                await hub.emit_event(
+                    session.id, events.hook_continue(OVERFLOW_NOTE, 1, "overflow", 1)
+                )
                 compacted = await compaction.compact_session(core, session, auto=True)
                 if not compacted.compacted:
                     raise
@@ -2445,7 +2483,9 @@ async def _drive(
             else:
                 overflow_retried = True
                 _learn_overflow(core, session, exc, messages)
-                await hub.emit_event(session.id, events.hook_continue(OVERFLOW_NOTE, 1))
+                await hub.emit_event(
+                    session.id, events.hook_continue(OVERFLOW_NOTE, 1, "overflow", 1)
+                )
                 compacted = await compaction.compact_session(core, session, auto=True)
                 if not compacted.compacted:
                     raise
@@ -2476,7 +2516,10 @@ async def _drive(
                         source=history_mod.source("empty-nudge", "notice"),
                     )
                 )
-                await hub.emit_event(session.id, events.hook_continue(EMPTY_NUDGE, empty_retries))
+                await hub.emit_event(
+                    session.id,
+                    events.hook_continue(EMPTY_NUDGE, empty_retries, "other", EMPTY_RETRIES),
+                )
                 continue
             await hub.emit_event(
                 session.id, events.error(errors.EMPTY_RESPONSE, EMPTY_RESPONSE_MESSAGE)
@@ -2508,7 +2551,11 @@ async def _drive(
                     session.id,
                     events.hook_continue(
                         decision.shown or decision.text,
-                        stop_continuations if decision.counts_as_stop_hook else 0,
+                        decision.count
+                        if decision.count is not None
+                        else (stop_continuations if decision.counts_as_stop_hook else 0),
+                        decision.kind,
+                        decision.limit,
                     ),
                 )
                 continue

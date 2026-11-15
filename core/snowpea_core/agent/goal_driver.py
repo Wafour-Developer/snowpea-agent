@@ -139,7 +139,15 @@ TOOLS: tuple[Tool, ...] = (
                     "type": "string",
                     "description": "complete: commands run and their results, files checked.",
                 },
-                "code": {"type": "string", "description": "blocked: a short condition code."},
+                "code": {
+                    "type": "string",
+                    "enum": [code for code in goals.BLOCKED_CODES if code != goals.ROUND_LIMIT],
+                    "description": (
+                        "blocked: needs-input (a decision or answer from the user), "
+                        "no-credentials (a key or login), no-access (a permission or "
+                        "resource), external (a service or tool outside your control), other."
+                    ),
+                },
                 "message": {"type": "string", "description": "blocked: what you need."},
             },
             "required": ["revision", "phase"],

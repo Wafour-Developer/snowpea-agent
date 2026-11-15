@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.50.0` (semver)
+- **Protocol version:** `1.51.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.50.0"
+    "protocolVersion": "1.51.0"
   }
 }
 ```
@@ -1150,7 +1150,7 @@ Remove the goal (1.43.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+| `goal` | `{ armed?: boolean; blockedReason?: { code: "round-limit" \| "needs-input" \| "no-credentials" \| "no-access" \| "external" \| "other"; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
 
 ### `goal.get`
 
@@ -1168,7 +1168,7 @@ Read the session's goal (1.43.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+| `goal` | `{ armed?: boolean; blockedReason?: { code: "round-limit" \| "needs-input" \| "no-credentials" \| "no-access" \| "external" \| "other"; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
 
 ### `goal.pause`
 
@@ -1187,7 +1187,7 @@ Pause and disarm the goal (1.43.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+| `goal` | `{ armed?: boolean; blockedReason?: { code: "round-limit" \| "needs-input" \| "no-credentials" \| "no-access" \| "external" \| "other"; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
 
 ### `goal.resume`
 
@@ -1206,7 +1206,7 @@ Re-arm a paused or blocked goal, optionally with more rounds, and start a round 
 
 | field | type | required | description |
 |---|---|---|---|
-| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+| `goal` | `{ armed?: boolean; blockedReason?: { code: "round-limit" \| "needs-input" \| "no-credentials" \| "no-access" \| "external" \| "other"; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
 
 ### `goal.set`
 
@@ -1227,7 +1227,7 @@ Give the session a goal and arm it; rounds run until goal_update completes or bl
 
 | field | type | required | description |
 |---|---|---|---|
-| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
+| `goal` | `{ armed?: boolean; blockedReason?: { code: "round-limit" \| "needs-input" \| "no-credentials" \| "no-access" \| "external" \| "other"; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null when none. |
 
 ### `host.turnContext`
 
@@ -4219,16 +4219,18 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
-| `goal` | `{ armed?: boolean; blockedReason?: { code: string; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null once cleared. |
+| `goal` | `{ armed?: boolean; blockedReason?: { code: "round-limit" \| "needs-input" \| "no-credentials" \| "no-access" \| "external" \| "other"; message?: string; } \| null; createdAt: string; evidence?: string \| null; id: string; maxRounds: number; objective: string; phase: "active" \| "paused" \| "blocked" \| "complete"; revision: number; rounds?: number; updatedAt: string; } \| null` | no | The goal now; null once cleared. |
 | `kind` | `"goal.changed"` | no |  |
 
 ### kind `hook.continue`
 
 | field | type | required | description |
 |---|---|---|---|
-| `count` | `number` | yes | How many times Stop hooks continued this turn so far. |
+| `count` | `number \| null` | no | The producer's own count so far this turn: Stop-hook continuations (stop_hook), unfinished-work continuations, verify-gate nudges, the retry attempt (provider_retry), budget continuations (budget), empty-answer nudges (other). Before 1.51.0 always the Stop-hook count (0 for other producers). |
+| `hookKind` | `"unfinished_work" \| "verify_gate" \| "stop_hook" \| "provider_retry" \| "overflow" \| "handback" \| "budget" \| "goal" \| "other"` | no | Who kept the turn going, inside the payload as 'kind' (1.51.0; the way message.done carries its 'kind'): unfinished_work (the answer listed work it could still do), verify_gate (no fresh check after edits, open to-dos, a deliverable in tmp/), stop_hook (a Stop hook), provider_retry (a failed model call is tried again), overflow (the context overflowed and is summarised), handback (a delegated child handed back), budget (the round budget's probe or automatic continuation), goal (a goal round), other (anything else: an empty answer nudged, a plugin's turn.stopping listener). |
 | `kind` | `"hook.continue"` | no |  |
-| `reason` | `string` | yes | The hook's instruction, handed to the model. |
+| `limit` | `number \| null` | no | The cap 'count' runs up to, when there is one (1.51.0): unfinished-work continuations (agent.unfinished_continue), verify-gate nudges, Stop-hook continuations, agent.provider_retries (null for a retry of an unreachable server, whose limit is time), agent.auto_budget_continuations, 1 for overflow. |
+| `reason` | `string` | yes | What it said, in English (the instruction or the notice); clients that localise build their own line from 'kind', 'count' and 'limit' (1.51.0). |
 
 ### kind `job.done`
 
@@ -4351,11 +4353,13 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
-| `attempt` | `number` | yes | The retry about to run, 1-based. |
+| `attempt` | `number` | yes | The retry about to run, 1-based; for 'unreachable', the retries of the unreachable server so far in this call (1.51.0; before, the next charged retry). |
 | `delaySec` | `number` | yes | Seconds before it runs. |
 | `error` | `string` | yes | Short class of the failure, e.g. ReadTimeout. |
 | `kind` | `"provider.retry"` | no |  |
-| `max` | `number` | yes | Retries allowed (agent.provider_retries). |
+| `max` | `number \| null` | no | Retries allowed (agent.provider_retries); null for an 'unreachable' retry, whose limit is time (see waitLeftSec), not a count (1.51.0). |
+| `reason` | `"unreachable" \| "silent" \| "transient"` | no | Why (1.51.0): 'unreachable' — the call never reached the server (DNS, refused, unreachable, connect timeout) and is retried until agent.provider_connect_wait_sec has passed; 'silent' — the server sent no first token, or nothing between events, for agent.provider_first_token_sec / provider_idle_sec; 'transient' — anything else worth another try (429, 5xx, a reset connection, a read timeout). |
+| `waitLeftSec` | `number \| null` | no | Seconds left of the agent.provider_connect_wait_sec budget for an 'unreachable' retry; null for the others (1.51.0). |
 
 ### kind `provider.waiting`
 
@@ -4381,6 +4385,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `cachedInputTokens` | `number \| null` | no | Of those, served from cache. |
 | `decodeMs` | `number` | no | Time from the first token to the end, ms. |
 | `error` | `string \| null` | no | Why the call failed, when it did. |
+| `errorCode` | `string \| null` | no | The failure's code (1.51.0), the one the turn's 'error' event carries: the provider's ProviderError code (internal, timeout, invalid_params, auth_expired, image_rejected, model_not_configured, not_found, …), 'internal' for anything else, 'interrupted' for a call Stop cut short; null for a call that ended normally. |
 | `inputTokens` | `number` | no | Prompt tokens the provider reported. |
 | `kind` | `"step.done"` | no |  |
 | `outcome` | `string` | yes | end_turn, tool_use, max_tokens, interrupted, error, … as the call ended. |

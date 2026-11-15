@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.50.0";
+export const PROTOCOL_VERSION = "1.51.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1179,9 +1179,9 @@ export interface GoalClearResult {
     armed?: boolean;
     /** Set when blocked. */
     blockedReason?: {
-      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
-      code: string;
-      /** What is needed to go on. */
+      /** Condition code, a closed set (1.51.0): 'round-limit' — the round cap was reached (set by the core); the rest come from the model's goal_update: 'needs-input' — a decision, an answer or an approval from the person; 'no-credentials' — a key, a login or a token is missing or refused; 'no-access' — a permission, a file or a resource it may not reach; 'external' — a service, a tool or the environment outside its control is down or missing; 'other' — anything else (a free-form code the model gave is mapped onto this set, 'other' when nothing fits). Clients localise by this code. */
+      code: "round-limit" | "needs-input" | "no-credentials" | "no-access" | "external" | "other";
+      /** What is needed to go on, in English as the model (or the core, for round-limit) wrote it: a fallback to show when a client has no text for 'code'. The core does not translate it. */
       message?: string;
     } | null;
     /** UTC ISO-8601. */
@@ -1219,9 +1219,9 @@ export interface GoalGetResult {
     armed?: boolean;
     /** Set when blocked. */
     blockedReason?: {
-      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
-      code: string;
-      /** What is needed to go on. */
+      /** Condition code, a closed set (1.51.0): 'round-limit' — the round cap was reached (set by the core); the rest come from the model's goal_update: 'needs-input' — a decision, an answer or an approval from the person; 'no-credentials' — a key, a login or a token is missing or refused; 'no-access' — a permission, a file or a resource it may not reach; 'external' — a service, a tool or the environment outside its control is down or missing; 'other' — anything else (a free-form code the model gave is mapped onto this set, 'other' when nothing fits). Clients localise by this code. */
+      code: "round-limit" | "needs-input" | "no-credentials" | "no-access" | "external" | "other";
+      /** What is needed to go on, in English as the model (or the core, for round-limit) wrote it: a fallback to show when a client has no text for 'code'. The core does not translate it. */
       message?: string;
     } | null;
     /** UTC ISO-8601. */
@@ -1261,9 +1261,9 @@ export interface GoalPauseResult {
     armed?: boolean;
     /** Set when blocked. */
     blockedReason?: {
-      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
-      code: string;
-      /** What is needed to go on. */
+      /** Condition code, a closed set (1.51.0): 'round-limit' — the round cap was reached (set by the core); the rest come from the model's goal_update: 'needs-input' — a decision, an answer or an approval from the person; 'no-credentials' — a key, a login or a token is missing or refused; 'no-access' — a permission, a file or a resource it may not reach; 'external' — a service, a tool or the environment outside its control is down or missing; 'other' — anything else (a free-form code the model gave is mapped onto this set, 'other' when nothing fits). Clients localise by this code. */
+      code: "round-limit" | "needs-input" | "no-credentials" | "no-access" | "external" | "other";
+      /** What is needed to go on, in English as the model (or the core, for round-limit) wrote it: a fallback to show when a client has no text for 'code'. The core does not translate it. */
       message?: string;
     } | null;
     /** UTC ISO-8601. */
@@ -1303,9 +1303,9 @@ export interface GoalResumeResult {
     armed?: boolean;
     /** Set when blocked. */
     blockedReason?: {
-      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
-      code: string;
-      /** What is needed to go on. */
+      /** Condition code, a closed set (1.51.0): 'round-limit' — the round cap was reached (set by the core); the rest come from the model's goal_update: 'needs-input' — a decision, an answer or an approval from the person; 'no-credentials' — a key, a login or a token is missing or refused; 'no-access' — a permission, a file or a resource it may not reach; 'external' — a service, a tool or the environment outside its control is down or missing; 'other' — anything else (a free-form code the model gave is mapped onto this set, 'other' when nothing fits). Clients localise by this code. */
+      code: "round-limit" | "needs-input" | "no-credentials" | "no-access" | "external" | "other";
+      /** What is needed to go on, in English as the model (or the core, for round-limit) wrote it: a fallback to show when a client has no text for 'code'. The core does not translate it. */
       message?: string;
     } | null;
     /** UTC ISO-8601. */
@@ -1349,9 +1349,9 @@ export interface GoalSetResult {
     armed?: boolean;
     /** Set when blocked. */
     blockedReason?: {
-      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
-      code: string;
-      /** What is needed to go on. */
+      /** Condition code, a closed set (1.51.0): 'round-limit' — the round cap was reached (set by the core); the rest come from the model's goal_update: 'needs-input' — a decision, an answer or an approval from the person; 'no-credentials' — a key, a login or a token is missing or refused; 'no-access' — a permission, a file or a resource it may not reach; 'external' — a service, a tool or the environment outside its control is down or missing; 'other' — anything else (a free-form code the model gave is mapped onto this set, 'other' when nothing fits). Clients localise by this code. */
+      code: "round-limit" | "needs-input" | "no-credentials" | "no-access" | "external" | "other";
+      /** What is needed to go on, in English as the model (or the core, for round-limit) wrote it: a fallback to show when a client has no text for 'code'. The core does not translate it. */
       message?: string;
     } | null;
     /** UTC ISO-8601. */
@@ -3675,7 +3675,7 @@ export interface SessionTrajectoryResult {
   more?: boolean;
   /** Rows in seq order. */
   rows?: ({
-    /** Kind-specific facts: message — outcome, ttftMs, decodeMs, totalMs, inputTokens, cachedInputTokens, outputTokens, reasoningChars, toolCalls; tool — name, callId, paths; subagent — agentId, childSessionId, reason, rounds; turn — initiator, reason, outcome; compacted — before, after, summaryChars, auto, kept. */
+    /** Kind-specific facts: message — outcome, ttftMs, decodeMs, totalMs, inputTokens, cachedInputTokens, outputTokens, reasoningChars, toolCalls; tool — name, callId, paths; subagent — agentId, childSessionId, reason, rounds; turn — initiator, reason, outcome; compacted — before, after, summaryChars, auto, kept. Since 1.51.0 every context, system and compacted row has data.kind, a stable slug, plus that row's values: summary (chars); continued (hookKind, count, limit); host_note (chars); forked (fromSessionId, atTurnId); error (code); provider_retry (attempt, max — null for unreachable, reason, delaySec, waitLeftSec, error); model_changed (provider, model); mode_changed (mode); goal (goalId, phase, round, maxRounds, blockedCode, cleared); compaction (before, after, summaryChars, auto, kept). Titles stay for older clients. */
     data?: Record<string, unknown> | null;
     /** Event that finished it (result, done). */
     endSeq?: number | null;
@@ -6957,9 +6957,9 @@ export interface GoalChangedEventPayload {
     armed?: boolean;
     /** Set when blocked. */
     blockedReason?: {
-      /** Short condition code, e.g. 'round-limit' or 'no-credentials'. */
-      code: string;
-      /** What is needed to go on. */
+      /** Condition code, a closed set (1.51.0): 'round-limit' — the round cap was reached (set by the core); the rest come from the model's goal_update: 'needs-input' — a decision, an answer or an approval from the person; 'no-credentials' — a key, a login or a token is missing or refused; 'no-access' — a permission, a file or a resource it may not reach; 'external' — a service, a tool or the environment outside its control is down or missing; 'other' — anything else (a free-form code the model gave is mapped onto this set, 'other' when nothing fits). Clients localise by this code. */
+      code: "round-limit" | "needs-input" | "no-credentials" | "no-access" | "external" | "other";
+      /** What is needed to go on, in English as the model (or the core, for round-limit) wrote it: a fallback to show when a client has no text for 'code'. The core does not translate it. */
       message?: string;
     } | null;
     /** UTC ISO-8601. */
@@ -6986,10 +6986,14 @@ export interface GoalChangedEventPayload {
 
 /** Payload of `session.event` with kind `hook.continue`. */
 export interface HookContinueEventPayload {
-  /** How many times Stop hooks continued this turn so far. */
-  count: number;
+  /** The producer's own count so far this turn: Stop-hook continuations (stop_hook), unfinished-work continuations, verify-gate nudges, the retry attempt (provider_retry), budget continuations (budget), empty-answer nudges (other). Before 1.51.0 always the Stop-hook count (0 for other producers). */
+  count?: number | null;
+  /** Who kept the turn going, inside the payload as 'kind' (1.51.0; the way message.done carries its 'kind'): unfinished_work (the answer listed work it could still do), verify_gate (no fresh check after edits, open to-dos, a deliverable in tmp/), stop_hook (a Stop hook), provider_retry (a failed model call is tried again), overflow (the context overflowed and is summarised), handback (a delegated child handed back), budget (the round budget's probe or automatic continuation), goal (a goal round), other (anything else: an empty answer nudged, a plugin's turn.stopping listener). */
+  hookKind?: "unfinished_work" | "verify_gate" | "stop_hook" | "provider_retry" | "overflow" | "handback" | "budget" | "goal" | "other";
   kind?: "hook.continue";
-  /** The hook's instruction, handed to the model. */
+  /** The cap 'count' runs up to, when there is one (1.51.0): unfinished-work continuations (agent.unfinished_continue), verify-gate nudges, Stop-hook continuations, agent.provider_retries (null for a retry of an unreachable server, whose limit is time), agent.auto_budget_continuations, 1 for overflow. */
+  limit?: number | null;
+  /** What it said, in English (the instruction or the notice); clients that localise build their own line from 'kind', 'count' and 'limit' (1.51.0). */
   reason: string;
 }
 
@@ -7161,15 +7165,19 @@ export interface PlanUpdatedEventPayload {
 
 /** Payload of `session.event` with kind `provider.retry`. */
 export interface ProviderRetryEventPayload {
-  /** The retry about to run, 1-based. */
+  /** The retry about to run, 1-based; for 'unreachable', the retries of the unreachable server so far in this call (1.51.0; before, the next charged retry). */
   attempt: number;
   /** Seconds before it runs. */
   delaySec: number;
   /** Short class of the failure, e.g. ReadTimeout. */
   error: string;
   kind?: "provider.retry";
-  /** Retries allowed (agent.provider_retries). */
-  max: number;
+  /** Retries allowed (agent.provider_retries); null for an 'unreachable' retry, whose limit is time (see waitLeftSec), not a count (1.51.0). */
+  max?: number | null;
+  /** Why (1.51.0): 'unreachable' — the call never reached the server (DNS, refused, unreachable, connect timeout) and is retried until agent.provider_connect_wait_sec has passed; 'silent' — the server sent no first token, or nothing between events, for agent.provider_first_token_sec / provider_idle_sec; 'transient' — anything else worth another try (429, 5xx, a reset connection, a read timeout). */
+  reason?: "unreachable" | "silent" | "transient";
+  /** Seconds left of the agent.provider_connect_wait_sec budget for an 'unreachable' retry; null for the others (1.51.0). */
+  waitLeftSec?: number | null;
 }
 
 /** Payload of `session.event` with kind `provider.waiting`. */
@@ -7200,6 +7208,8 @@ export interface StepDoneEventPayload {
   decodeMs?: number;
   /** Why the call failed, when it did. */
   error?: string | null;
+  /** The failure's code (1.51.0), the one the turn's 'error' event carries: the provider's ProviderError code (internal, timeout, invalid_params, auth_expired, image_rejected, model_not_configured, not_found, …), 'internal' for anything else, 'interrupted' for a call Stop cut short; null for a call that ended normally. */
+  errorCode?: string | null;
   /** Prompt tokens the provider reported. */
   inputTokens?: number;
   kind?: "step.done";

@@ -17,6 +17,27 @@ Row kinds:
 * ``context`` — something the daemon fed the model (a stop-chain nudge, the host note);
 * ``system`` — errors, retries, model and mode changes.
 
+Every ``context``, ``system`` and ``compacted`` row has ``data.kind``, a stable
+slug, and that row's values (1.51.0; the title is English for older clients):
+
+========================  ==========  ================================================
+``data.kind``             row kind    values
+========================  ==========  ================================================
+``summary``               context     ``chars``
+``continued``             context     ``hookKind``, ``count``, ``limit``
+``host_note``             context     ``chars``
+``forked``                context     ``fromSessionId``, ``atTurnId``
+``error``                 system      ``code``
+``provider_retry``        system      ``attempt``, ``max``, ``reason``, ``delaySec``,
+                                      ``waitLeftSec``, ``error``
+``model_changed``         system      ``provider``, ``model``
+``mode_changed``          system      ``mode``
+``goal``                  system      ``goalId``, ``phase``, ``round``, ``maxRounds``,
+                                      ``blockedCode``, ``cleared``
+``compaction``            compacted   ``before``, ``after``, ``summaryChars``, ``auto``,
+                                      ``kept``
+========================  ==========  ================================================
+
 The fold is incremental: :class:`TrajectoryBuilder` keeps its rows and the last
 ``seq`` it applied, so a later read only folds what was appended since.
 """
@@ -221,6 +242,7 @@ class TrajectoryBuilder:
             # A compaction summary or a system note.
             summary = Row("context", seq, ts, turnId=turn, step=step, title="summary")
             summary.text = _preview(p.get("text"))
+            summary.data = {"kind": "summary", "chars": len(str(p.get("text") or ""))}
             self._add(summary)
             return
         if turn in self._stepped:
@@ -313,44 +335,108 @@ class TrajectoryBuilder:
                 turnId=turn,
                 step=step,
                 title=f"{p.get('before')} → {p.get('after')} tokens",
-                data={k: p.get(k) for k in ("before", "after", "summaryChars", "auto", "kept")},
+                data={
+                    "kind": "compaction",
+                    **{k: p.get(k) for k in ("before", "after", "summaryChars", "auto", "kept")},
+                },
             )
         )
 
     def _hook_continue(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
         row = Row("context", seq, ts, turnId=turn, step=step, title="kept going")
         row.text = _preview(p.get("reason"))
+        row.data = {
+            "kind": "continued",
+            # Who kept it going; events from before 1.51.0 have no kind.
+            "hookKind": p.get("kind") or "other",
+            "count": p.get("count"),
+            "limit": p.get("limit"),
+        }
         self._add(row)
 
     def _context_host(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
         title = f"host note ({p.get('chars')} chars)"
-        self._add(Row("context", seq, ts, turnId=turn, step=step, title=title))
+        row = Row("context", seq, ts, turnId=turn, step=step, title=title)
+        row.data = {"kind": "host_note", "chars": p.get("chars")}
+        self._add(row)
 
-    def _system(self, seq: int, ts: str, turn: Any, step: Any, title: str, text: str = "") -> None:
-        self._add(Row("system", seq, ts, turnId=turn, step=step, title=title, text=_preview(text)))
+    def _system(
+        self,
+        seq: int,
+        ts: str,
+        turn: Any,
+        step: Any,
+        title: str,
+        text: str = "",
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        row = Row("system", seq, ts, turnId=turn, step=step, title=title, text=_preview(text))
+        row.data = dict(data or {})
+        self._add(row)
 
     def _error(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
-        self._system(seq, ts, turn, step, f"error {p.get('code')}", p.get("message") or "")
-
-    def _provider_retry(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
         self._system(
-            seq, ts, turn, step, f"retry {p.get('attempt')}/{p.get('max')}", p.get("error") or ""
+            seq,
+            ts,
+            turn,
+            step,
+            f"error {p.get('code')}",
+            p.get("message") or "",
+            {"kind": "error", "code": p.get("code")},
         )
 
+    def _provider_retry(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
+        limit = p.get("max")
+        title = f"retry {p.get('attempt')}" + (f"/{limit}" if limit is not None else "")
+        data: dict[str, Any] = {"kind": "provider_retry"}
+        data.update(
+            {k: p.get(k) for k in ("attempt", "max", "delaySec", "waitLeftSec", "error")}
+        )
+        data["reason"] = p.get("reason") or "transient"
+        self._system(seq, ts, turn, step, title, p.get("error") or "", data)
+
     def _model_changed(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
-        self._system(seq, ts, turn, step, f"model {p.get('provider')}:{p.get('model')}")
+        self._system(
+            seq,
+            ts,
+            turn,
+            step,
+            f"model {p.get('provider')}:{p.get('model')}",
+            data={"kind": "model_changed", "provider": p.get("provider"), "model": p.get("model")},
+        )
 
     def _mode_changed(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
-        self._system(seq, ts, turn, step, f"mode {p.get('mode')}")
+        self._system(
+            seq,
+            ts,
+            turn,
+            step,
+            f"mode {p.get('mode')}",
+            data={"kind": "mode_changed", "mode": p.get("mode")},
+        )
 
     def _goal_changed(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
         goal = p.get("goal") or {}
         title = f"goal {goal.get('phase')}" if goal else "goal cleared"
-        self._system(seq, ts, turn, step, title, goal.get("objective") or "")
+        blocked = goal.get("blockedReason") or {}
+        data = {
+            "kind": "goal",
+            "goalId": goal.get("id"),
+            "phase": goal.get("phase"),
+            "round": goal.get("rounds"),
+            "maxRounds": goal.get("maxRounds"),
+            "blockedCode": blocked.get("code"),
+            "cleared": not goal,
+        }
+        self._system(seq, ts, turn, step, title, goal.get("objective") or "", data)
 
     def _session_forked(self, seq: int, ts: str, turn: Any, step: Any, p: dict) -> None:
         row = Row("context", seq, ts, title="history above is inherited")
-        row.data = {"fromSessionId": p.get("fromSessionId"), "atTurnId": p.get("atTurnId")}
+        row.data = {
+            "kind": "forked",
+            "fromSessionId": p.get("fromSessionId"),
+            "atTurnId": p.get("atTurnId"),
+        }
         self._add(row)
 
 
