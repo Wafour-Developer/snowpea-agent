@@ -315,6 +315,11 @@ async def test_the_briefing_text_reaches_the_messenger(rig: Rig) -> None:
     assert not [m for m in rig.adapter.sent[before:] if "briefing is ready" in m.text]
     report = next((core.jarvis.folder() / "reports").glob("briefing-*.md"))
     assert "Morning briefing." in report.read_text()
+    # Every wake Jarvis receives is one stable message.user origin: system, no surface.
+    wakes = [t for t, o in jarvis.turn_origins.items() if o == "system"]
+    assert wakes
+    assert all(jarvis.turn_message_origins[t] == {"kind": "system", "surface": None}
+               for t in wakes)
 
     # Off: the briefing stays in the app.
     core.settings.jarvis.notify.messenger = False
@@ -516,3 +521,167 @@ async def test_preset_read_tools_route_auto_and_send_tools_are_secret_send(
     finally:
         await daemon.stop()
 
+
+
+# -- route changes are announced -------------------------------------------------------
+
+
+class _Origin:
+    """An interactive surface: it is asked over approval.request and never answers."""
+
+    client_kind = "ide"
+    client_id = "ide-x"
+    authenticated = True
+    closed = False
+
+    def __init__(self) -> None:
+        self.frames: list[tuple[str, dict[str, Any]]] = []
+        self.on_close: list[Any] = []
+
+    async def notify(self, method: str, params: dict[str, Any]) -> None:
+        self.frames.append((method, params))
+
+    async def call(self, method: str, params: Any = None, **_: Any) -> Any:
+        await asyncio.Event().wait()
+
+    def of(self, method: str) -> list[dict[str, Any]]:
+        return [params for name, params in self.frames if name == method]
+
+
+async def test_route_changes_are_announced_to_the_requests_audience(
+    http: Any, tmp_path: Path
+) -> None:
+    from _support import connect
+
+    from snowpea_core.jarvis.delegation import Caller
+    from snowpea_core.server.protocol import QuestionItem
+
+    rig = await _rig(tmp_path)
+    try:
+        core = rig.core
+        owner = await connect(http, rig.daemon, approval_mode="ignore")
+        other = await connect(http, rig.daemon, approval_mode="ignore")
+        folder = rig.tmp / "work"
+        folder.mkdir()
+        worker = await core.sessions.create(folder, mode="accept")
+        root = str(folder.resolve())
+
+        def changes(client: Any, method: str = "approval.route.changed") -> list[Any]:
+            return client.of_method(method)
+
+        # Waiting before Jarvis mode: routed at enable (jarvis_enabled), to everyone.
+        shared = asyncio.ensure_future(core.approvals.request(
+            worker, "shell", {"command": "touch a.txt"}, unattended=True, tags=("exec",)))
+        question = asyncio.ensure_future(
+            core.questions.ask(worker, [QuestionItem(question="which?", header="q")]))
+        # An interactive one: only its asking connection hears about it.
+        origin = _Origin()
+        attended = await core.sessions.create(folder, mode="accept", origin_conn=origin)
+        interactive = asyncio.ensure_future(core.approvals.request(
+            attended, "shell", {"command": "touch b.txt"}, tags=("exec",)))
+        await _wait(lambda: len(core.approvals.list()) == 1 and core.questions.list()
+                    and core.approvals.count(attended.id))
+        request_id = core.approvals.list()[0].requestId
+        await core.jarvis.enable()
+        first = await _wait(lambda: changes(owner))
+        assert first[0] == {"requestId": request_id, "sessionId": worker.id, "route": "person",
+                            "reason": "jarvis_enabled", "hostToolsFrom": None}
+        assert changes(other) == changes(owner)
+        mine = await _wait(lambda: origin.of("approval.route.changed"))
+        assert mine[0]["sessionId"] == attended.id and mine[0]["reason"] == "jarvis_enabled"
+        assert attended.id not in {c["sessionId"] for c in changes(owner) + changes(other)}
+        interactive.cancel()
+        asked = await _wait(lambda: changes(owner, "question.route.changed"))
+        assert asked[0]["reason"] == "jarvis_enabled" and asked[0]["route"] == "jarvis"
+        assert core.approvals.get(request_id).route == "person"
+
+        # Full delegation: a risky request is Jarvis's; the person types there: paused.
+        core.jarvis.engine.set_grant(
+            "session", worker.id, "full", caller=Caller(kind="connection", surface="ide"))
+        risky = asyncio.ensure_future(core.approvals.request(
+            worker, "shell", {"command": "mkdir out"}, unattended=True, tags=("exec",)))
+        await _wait(lambda: len(core.approvals.list()) == 2)
+        held = next(r for r in core.approvals.list() if r.requestId != request_id)
+        assert held.route == "jarvis"
+        await core.jarvis.person_typed(worker.id, root, "ide")
+        paused = await _wait(lambda: [c for c in changes(owner) if c["reason"] == "paused"])
+        assert paused[0]["requestId"] == held.requestId and paused[0]["route"] == "person"
+        assert core.approvals.get(held.requestId).route == "person"
+        # Jarvis can no longer decide it.
+        jarvis = core.jarvis.session()
+        jarvis.current_turn = "t-w"
+        jarvis.turn_origins["t-w"] = "system"
+        ctx = ToolContext(session=jarvis, core=core, backend=None)  # type: ignore[arg-type]
+        refused = await jarvis.session_tools["approval_decide"].run(
+            ctx, {"requestId": held.requestId, "decision": "allow"})
+        assert not refused.ok
+        # Handed back: routed again, to Jarvis (resumed).
+        core.jarvis.engine.handback(worker.id, caller=Caller(kind="connection", surface="ide"))
+        await core.jarvis.settle()
+        resumed = await _wait(lambda: [c for c in changes(owner) if c["reason"] == "resumed"])
+        assert resumed[0]["route"] == "jarvis"
+        # The grant is revoked before Jarvis decides: its decision is refused, the request
+        # is the person's (refused).
+        for grant in core.jarvis.engine.list_grants():
+            core.jarvis.engine.revoke(grant.id, caller=Caller(kind="connection", surface="ide"))
+        refused = await jarvis.session_tools["approval_decide"].run(
+            ctx, {"requestId": held.requestId, "decision": "allow"})
+        assert not refused.ok
+        refusal = await _wait(lambda: [c for c in changes(owner) if c["reason"] == "refused"])
+        assert refusal[0]["route"] == "person"
+
+        # Off: every route is cleared (jarvis_disabled), the question's too.
+        await core.jarvis.disable()
+        cleared = [c for c in changes(owner) if c["reason"] == "jarvis_disabled"]
+        assert {c["requestId"] for c in cleared} == {request_id, held.requestId}
+        assert all(c["route"] is None for c in cleared)
+        assert [c for c in changes(owner, "question.route.changed")
+                if c["reason"] == "jarvis_disabled"]
+        for request in core.approvals.list():
+            await core.approvals.respond(request.requestId, "deny", by="test")
+        await asyncio.wait_for(asyncio.gather(shared, risky), TIMEOUT)
+        question.cancel()
+        await owner.stop()
+        await other.stop()
+    finally:
+        await rig.daemon.stop()
+
+
+async def test_what_jarvis_leaves_undecided_becomes_the_persons(
+    http: Any, tmp_path: Path
+) -> None:
+    from _support import connect
+
+    from snowpea_core.jarvis.delegation import Caller
+
+    rig = await _rig(tmp_path)
+    try:
+        core = rig.core
+        client = await connect(http, rig.daemon, approval_mode="ignore")
+        await core.jarvis.enable()
+        folder = rig.tmp / "work"
+        folder.mkdir()
+        worker = await core.sessions.create(folder, mode="accept")
+        core.jarvis.engine.set_grant(
+            "session", worker.id, "full", caller=Caller(kind="connection", surface="ide"))
+        task = asyncio.ensure_future(core.approvals.request(
+            worker, "shell", {"command": "mkdir out"}, unattended=True, tags=("exec",)))
+        await _wait(lambda: core.approvals.list())
+        request = core.approvals.list()[0]
+        assert request.route == "jarvis"
+        # Jarvis's wake turn only says "echo ...": the request is the person's after it.
+        declined = await _wait(lambda: [c for c in client.of_method("approval.route.changed")
+                                        if c["reason"] == "declined"])
+        assert declined[0]["requestId"] == request.requestId and declined[0]["route"] == "person"
+        assert core.approvals.get(request.requestId).route == "person"
+        escalation = await _wait(lambda: [e for e in client.of_method("jarvis.escalation")
+                                          if e.get("requestId") == request.requestId])
+        assert escalation[0]["importance"] == "high"
+        # And it reached the person's chat.
+        await _wait(lambda: [m for m in rig.adapter.sent
+                             if request.requestId in "".join(m.button_data())])
+        await core.approvals.respond(request.requestId, "deny", by="test")
+        await asyncio.wait_for(task, TIMEOUT)
+        await client.stop()
+    finally:
+        await rig.daemon.stop()

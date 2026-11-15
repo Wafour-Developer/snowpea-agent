@@ -225,6 +225,7 @@ async def test_never_types_while_an_attached_person_is_typing(env: TmuxEnv) -> N
     with pytest.raises(ExternalError) as caught:
         await env.manager.send("claude", ref["id"], "not now", conn=conn)
     assert caught.value.code == errors.SESSION_BUSY
+    assert caught.value.details == {"reason": "terminal_typing"}
     assert [e for e in fake_log(env.log) if e["kind"] == "prompt"] == []
     channel.server.last_client_activity = real  # type: ignore[method-assign]
     assert (await env.turn(conn, ref, "now"))["payload"]["reason"] == "complete"
@@ -405,6 +406,7 @@ async def test_the_channel_never_types_into_an_open_dialog(tmp_path: Path, socke
             with pytest.raises(ExternalError) as caught:
                 await channel.send("type this into the dialog", "t2")
             assert caught.value.code == errors.SESSION_BUSY
+            assert caught.value.details == {"reason": "terminal_prompt"}
             channel.turn_id = "t1"
             with pytest.raises(ExternalError) as caught:
                 await channel.interrupt()

@@ -1170,6 +1170,14 @@ class GatewayRouter:
             await self._share_pending(method, params)
         elif method in ("approval.resolved", "question.resolved"):
             await self._share_resolved(method, params)
+        elif method in ("approval.route.changed", "question.route.changed"):
+            # Became the person's (budget, pause, Jarvis left it): to their chat, once.
+            if params.get("route") == "person" and params.get("request"):
+                pending = method.replace(".route.changed", ".pending")
+                await self._share_pending(
+                    pending,
+                    {"request": params["request"], "interactive": params.get("interactive")},
+                )
 
     async def _share_pending(self, method: str, params: dict[str, Any]) -> None:
         """Post the active session's new request to each owner chat that wants it."""

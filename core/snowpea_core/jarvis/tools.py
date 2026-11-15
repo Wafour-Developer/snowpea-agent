@@ -799,6 +799,7 @@ async def approval_decide(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             budget_exhausted=service.budget_exhausted(),
         )
     except DecisionRefused as exc:
+        await service.change_route("approval", request_id, "person", "refused")
         raise Refused(f"not yours to decide: {exc}; it waits for the person") from exc
     await core.approvals.respond(request_id, decision, "once", by="jarvis", reason=reason)
     classification = verdict.verdict.classification
@@ -860,6 +861,7 @@ async def question_answer(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             browser_owned=service.browser_host(session) if session is not None else target.browser,
         )
     except DecisionRefused as exc:
+        await service.change_route("question", request_id, "person", "refused")
         raise Refused(f"not yours to answer: {exc}") from exc
     await core.questions.respond(request_id, answers, by="jarvis")
     first = request.questions[0].question if request.questions else "a question"

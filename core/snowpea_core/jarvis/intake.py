@@ -37,6 +37,7 @@ its token usage.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -57,6 +58,9 @@ log = logging.getLogger("snowpea.jarvis.intake")
 
 #: Routed items and delegated-session ends are batched this long before a wake.
 ROUTED_BATCH_SEC = 2.0
+#: How long a wake turn may take to decide what was routed to Jarvis before it
+#: is handed to the person (``declined``).
+WAKE_DECIDE_SEC = 600.0
 #: Other finished/failed turns are coalesced into one notice per window.
 NOTICE_WINDOW_SEC = 30.0
 #: Characters of the last answer a digest keeps.
@@ -257,6 +261,8 @@ class Intake:
         #: request id -> session id, for the ``*.resolved`` observations.
         self._requests: dict[str, str] = {}
         self._routed: list[WakeItem] = []
+        #: Watches of wake turns (:meth:`_after_wake`); cancelled on detach.
+        self._watches: set[asyncio.Task[None]] = set()
         self._routed_due: float | None = None
         self._notices: list[WakeItem] = []
         self._notice_due: float | None = None
@@ -280,6 +286,9 @@ class Intake:
         self._routed.clear()
         self._notices.clear()
         self._routed_due = self._notice_due = self._stall_due = None
+        for task in list(self._watches):
+            task.cancel()
+        self._watches.clear()
 
     async def seed(self) -> None:
         """Rows for what already exists: live sessions, then open stored threads."""
@@ -634,6 +643,7 @@ class Intake:
             item = digest.pending.get(request_id)
             if item is not None:
                 item.route = "person"
+            await service.change_route("approval", request_id, "person", "refused")
             return
         from snowpea_core.jarvis.external import ledger_ids
 
@@ -797,7 +807,19 @@ class Intake:
             await self._to_person(routed, notices)
             return
         text = _wake_text(routed, notices)
-        started = await service.deliver_wake(text)
+        asked = [(item.request_kind or "approval", item.request_id) for item in routed
+                 if item.request_id]
+        listener = None
+        if asked:
+            from snowpea_core.jarvis.service import _TurnReply
+
+            listener = _TurnReply()
+        started = await service.deliver_wake(text, listener=listener)
+        if listener is not None and started:
+            # Not service._soon: settle() must not wait for a whole wake turn.
+            watch = asyncio.ensure_future(self._after_wake(listener, asked))
+            self._watches.add(watch)
+            watch.add_done_callback(self._watches.discard)
         if started is None:
             # No live Jarvis session to tell: the person gets it instead.
             await self._to_person(routed, notices)
@@ -805,6 +827,36 @@ class Intake:
         if started:
             self.budget.count_wake()
         await self._check_budget()
+
+    async def _after_wake(self, listener: Any, asked: list[tuple[str, str]]) -> None:
+        """The wake turn ended: what Jarvis left undecided is the person's (``declined``)."""
+        service = self.service
+        try:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(listener.done.wait(), WAKE_DECIDE_SEC)
+        finally:
+            service.core.hub.unsubscribe(listener)
+        for kind, request_id in asked:
+            entry = service._entry(kind, request_id)
+            if entry is None or entry.request.route != "jarvis":
+                continue
+            await service.change_route(kind, request_id, "person", "declined")
+            session_id = self._requests.get(request_id) or entry.request.sessionId
+            digest = self.digests.get(session_id)
+            if not service.core.settings.jarvis.proactive.needsYou:
+                continue
+            label = service.label(digest) if digest is not None else session_id
+            await service.escalate(
+                reason="jarvis",
+                summary=_one_line(f"{label} needs you: Jarvis left {kind} {request_id} to you",
+                                  120),
+                importance="high",
+                session_id=session_id,
+                project=digest.project if digest is not None else None,
+                title=digest.title if digest is not None else None,
+                request_kind=kind,  # type: ignore[arg-type]
+                request_id=request_id,
+            )
 
     async def _to_person(self, routed: list[WakeItem], notices: list[WakeItem]) -> None:
         """What would have woken Jarvis, escalated to the person (budget spent)."""
@@ -816,6 +868,9 @@ class Intake:
                 if pending is None:
                     continue  # answered meanwhile
                 pending.route = "person"
+                await service.change_route(
+                    item.request_kind or "approval", item.request_id, "person", "budget"
+                )
             await service.escalate(
                 reason=item.reason,
                 summary=_one_line(item.text, 120),

@@ -967,6 +967,8 @@ export interface ExternalClisResult {
     installed: boolean;
     /** Model ids external.create {model} accepts, as the CLI lists them without spending tokens. Filled in the background: empty until the CLI answered (then external.clis.changed goes out); empty when it cannot list them. */
     models?: string[];
+    /** True once the CLI answered the model listing (models may still be empty: it lists none); false while it has not answered yet, or the CLI is not usable. */
+    modelsLoaded?: boolean;
     /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
     modes?: ("default" | "readonly" | "unrestricted")[];
     /** Absolute executable path pinned at discovery. */
@@ -2346,12 +2348,16 @@ export interface JarvisOverviewResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     } | null;
+    /** As SessionJarvisState.grantId. */
+    grantId?: string | null;
     /** For an external session: where its process lives. */
     host?: "none" | "terminal" | "tmux" | "snowpea" | null;
     /** UTC ISO time of its last activity. */
     lastActivityAt?: string | null;
     /** Delegation in force for it; null when not exposed. */
     level?: "staged" | "full" | null;
+    /** As SessionJarvisState.levelScope. */
+    levelScope?: "session" | "project" | "global" | "default" | null;
     /** For an external session snowpea runs (host snowpea or tmux): its mode. */
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** As SessionJarvisState.pausedUntil. */
@@ -7934,6 +7940,20 @@ export interface ApprovalResolvedPayload {
   requestId: string;
 }
 
+/** `approval.route.changed` notification payload. */
+export interface ApprovalRouteChangedPayload {
+  /** As ApprovalPendingNotification.hostToolsFrom. */
+  hostToolsFrom?: string | null;
+  /** jarvis_enabled (it was waiting when Jarvis mode came on and has just been routed), jarvis_disabled (routing ended), paused (the person took the session back or typed in it: Jarvis's requests there are the person's), resumed (handed back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran out), declined (Jarvis's turn ended without deciding it), refused (the engine refused Jarvis's or its own decision, e.g. on a re-check). */
+  reason: "jarvis_enabled" | "jarvis_disabled" | "paused" | "resumed" | "budget" | "declined" | "refused";
+  /** The waiting request. */
+  requestId: string;
+  /** The new route; null when Jarvis mode went off (no routing). */
+  route: "person" | "jarvis" | "auto" | null;
+  /** Its session; 'ext:<cli>:<id>' for an external session's approval. */
+  sessionId: string;
+}
+
 /** `audio.install.progress` notification payload. */
 export interface AudioInstallProgressPayload {
   /** Bytes transferred so far. */
@@ -8006,6 +8026,8 @@ export interface ExternalClisChangedPayload {
     installed: boolean;
     /** Model ids external.create {model} accepts, as the CLI lists them without spending tokens. Filled in the background: empty until the CLI answered (then external.clis.changed goes out); empty when it cannot list them. */
     models?: string[];
+    /** True once the CLI answered the model listing (models may still be empty: it lists none); false while it has not answered yet, or the CLI is not usable. */
+    modelsLoaded?: boolean;
     /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
     modes?: ("default" | "readonly" | "unrestricted")[];
     /** Absolute executable path pinned at discovery. */
@@ -8430,6 +8452,18 @@ export interface QuestionResolvedPayload {
   by: string;
   /** Question that was resolved. */
   requestId: string;
+}
+
+/** `question.route.changed` notification payload. */
+export interface QuestionRouteChangedPayload {
+  /** jarvis_enabled (it was waiting when Jarvis mode came on and has just been routed), jarvis_disabled (routing ended), paused (the person took the session back or typed in it: Jarvis's requests there are the person's), resumed (handed back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran out), declined (Jarvis's turn ended without deciding it), refused (the engine refused Jarvis's or its own decision, e.g. on a re-check). */
+  reason: "jarvis_enabled" | "jarvis_disabled" | "paused" | "resumed" | "budget" | "declined" | "refused";
+  /** The waiting request. */
+  requestId: string;
+  /** The new route; null when Jarvis mode went off (no routing). */
+  route: "person" | "jarvis" | "auto" | null;
+  /** Its session; 'ext:<cli>:<id>' for an external session's approval. */
+  sessionId: string;
 }
 
 /** `session.event` notification payload. */
@@ -9798,6 +9832,7 @@ export type ServerMethod =
 export interface EventMap {
   "approval.pending": ApprovalPendingPayload;
   "approval.resolved": ApprovalResolvedPayload;
+  "approval.route.changed": ApprovalRouteChangedPayload;
   "audio.install.progress": AudioInstallProgressPayload;
   "commands.changed": CommandsChangedPayload;
   "external.clis.changed": ExternalClisChangedPayload;
@@ -9818,6 +9853,7 @@ export interface EventMap {
   "provider.loginProgress": ProviderLoginProgressPayload;
   "question.pending": QuestionPendingPayload;
   "question.resolved": QuestionResolvedPayload;
+  "question.route.changed": QuestionRouteChangedPayload;
   "session.event": SessionEventPayload;
   "sessions.changed": SessionsChangedPayload;
   "settings.changed": SettingsChangedPayload;
@@ -9830,6 +9866,7 @@ export type EventName = keyof EventMap;
 export const EVENT_NAMES: readonly EventName[] = [
   "approval.pending",
   "approval.resolved",
+  "approval.route.changed",
   "audio.install.progress",
   "commands.changed",
   "external.clis.changed",
@@ -9850,6 +9887,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "provider.loginProgress",
   "question.pending",
   "question.resolved",
+  "question.route.changed",
   "session.event",
   "sessions.changed",
   "settings.changed",

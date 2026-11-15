@@ -76,6 +76,9 @@ log = logging.getLogger("snowpea.jarvis")
 JARVIS_NAME = "jarvis"
 #: ``turn.started.reason`` of a turn the intake started.
 WAKE_REASON = "jarvis-intake"
+#: ``message.user.origin.kind`` of every wake Jarvis receives (stable; clients
+#: may render these as quiet lines).
+WAKE_ORIGIN_KIND = "system"
 #: Longest pause of the tick loop when nothing is due (budget recovery, expiry).
 IDLE_TICK_SEC = 15.0
 #: ``importance`` levels the messenger hook receives.
@@ -346,7 +349,7 @@ class JarvisService:
         self._classified.clear()
         if not close_session:
             return
-        self._clear_routes()
+        await self._clear_routes()
         self._registry().detach(JARVIS_NAME)
         if self._session_id is not None:
             with contextlib.suppress(Exception):
@@ -446,10 +449,15 @@ class JarvisService:
         self._tick_wake.set()
 
     # -- waking Jarvis ---------------------------------------------------
-    async def deliver_wake(self, text: str) -> bool | None:
+    async def deliver_wake(self, text: str, *, listener: Any = None) -> bool | None:
         """Hand ``text`` to Jarvis: a new turn (True), a notice to a running one (False).
 
-        ``None`` when there is no live Jarvis session to tell.
+        ``None`` when there is no live Jarvis session to tell.  Every wake (the
+        intake's, a briefing, a scheduled task's hand-over) is a ``[system]``
+        turn: ``turn.started.reason`` :data:`WAKE_REASON`, ``message.user``
+        origin ``{"kind": "system", "surface": null}``.  ``listener`` (a
+        :class:`_TurnReply`) is subscribed to the new turn (not for a notice);
+        the caller unsubscribes it.
         """
         session = self.session()
         if session is None:
@@ -460,14 +468,19 @@ class JarvisService:
             return False
         from snowpea_core.agent import loop as agent_loop
 
-        agent_loop.start_turn(
+        if listener is not None:
+            self.core.hub.subscribe(listener, session.id)
+        turn_id = agent_loop.start_turn(
             self.core,
             session,
             text,
             unattended=True,
             initiator="system",
             reason=WAKE_REASON,
+            origin_kind=WAKE_ORIGIN_KIND,
         )
+        if listener is not None:
+            listener.turn_id = turn_id
         return True
 
     async def wake_for_reply(self, text: str, *, timeout: float) -> tuple[bool | None, str]:
@@ -490,7 +503,8 @@ class JarvisService:
         self.core.hub.subscribe(listener, session.id)
         try:
             listener.turn_id = agent_loop.start_turn(
-                self.core, session, text, unattended=True, initiator="system", reason=WAKE_REASON
+                self.core, session, text, unattended=True, initiator="system",
+                reason=WAKE_REASON, origin_kind=WAKE_ORIGIN_KIND,
             )
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(listener.done.wait(), timeout)
@@ -515,9 +529,10 @@ class JarvisService:
         if self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
-    def _on_pause(self, _target: str, state: PauseState) -> None:
+    def _on_pause(self, target: str, state: PauseState) -> None:
         if self.running:
             self._soon(self.emit_state("paused" if state.paused else "resumed"))
+            self._soon(self._reroute_target(target, paused=state.paused))
 
     def _on_ledger(self, record: dict[str, Any]) -> None:
         """Forward important decisions to the messenger hook (the wire event is the engine's)."""
@@ -658,12 +673,81 @@ class JarvisService:
             self._classified.pop(next(iter(self._classified)))
         return result
 
+    # -- route changes (approval.route.changed / question.route.changed) -----
+    def _entry(self, kind: str, request_id: str) -> Any:
+        queue = self.core.approvals if kind == "approval" else self.core.questions
+        return getattr(queue, "_pending", {}).get(request_id)
+
+    async def change_route(
+        self, kind: str, request_id: str, route: str | None, reason: str
+    ) -> bool:
+        """Set a waiting request's ``route`` and announce it; False when nothing changed.
+
+        The pending request (``approval.list`` / ``question.list``), the
+        intake's view of it and the engine's memory follow; the announcement
+        goes to the original request's audience (see the notification models),
+        and in-process observers (the gateway) hear it too, so a request that
+        became the person's reaches their chat.
+        """
+        entry = self._entry(kind, request_id)
+        if entry is None or entry.request.route == route:
+            return False
+        entry.request = entry.request.model_copy(update={"route": route})
+        if route in (None, "person"):
+            # Not Jarvis's any more: approval_decide's re-check finds no route to Jarvis.
+            self.engine.forget(request_id)
+        intake = self.intake
+        session_id = entry.request.sessionId
+        if intake is not None:
+            digest = intake.digests.get(session_id)
+            item = digest.pending.get(request_id) if digest is not None else None
+            if item is not None and route is not None:
+                item.route = route
+        interactive = getattr(entry, "origin_conn", None) is not None
+        params: dict[str, Any] = {
+            "requestId": request_id,
+            "sessionId": session_id,
+            "route": route,
+            "reason": reason,
+        }
+        method = f"{kind}.route.changed"
+        if kind == "approval":
+            params["hostToolsFrom"] = getattr(entry, "host", None)
+        with contextlib.suppress(Exception):
+            if kind == "approval" and interactive:
+                conn = entry.origin_conn
+                if not getattr(conn, "closed", False):
+                    await conn.notify(method, params)
+            else:
+                await self.core.hub.notify(method, params)
+        tell = getattr(self.core.hub, "tell_observers", None)
+        if tell is not None:
+            with contextlib.suppress(Exception):
+                await tell(
+                    method,
+                    {
+                        **params,
+                        "request": entry.request.model_dump(mode="json"),
+                        "interactive": interactive,
+                    },
+                )
+        return True
+
+    def _session_for(self, request: Any) -> Any:
+        session = self.core.sessions.get(request.sessionId)
+        if session is None and getattr(request, "external", None) is not None:
+            from snowpea_core.jarvis import external as external_sessions
+
+            session = external_sessions.proxy_for_request(self, request)
+        return session
+
     async def route_pending(self) -> None:
         """Route the requests that were already waiting when Jarvis mode came on.
 
         Each goes through the engine as if it had just been asked: ``route``
-        is set on the pending request, and the intake and the gateway are told
-        again (``approval.pending`` / ``question.pending`` to the in-process
+        is set on the pending request (``*.route.changed``, reason
+        ``jarvis_enabled``), and the intake and the gateway are told again
+        (``approval.pending`` / ``question.pending`` to the in-process
         observers), so an ``auto`` one is answered, a ``jarvis`` one wakes
         Jarvis, and a ``person`` one reaches the person's chat once.
         """
@@ -674,16 +758,11 @@ class JarvisService:
             request = entry.request
             if request.route is not None:
                 continue
-            session = self.core.sessions.get(request.sessionId)
-            if session is None and request.external is not None:
-                from snowpea_core.jarvis import external as external_sessions
-
-                session = external_sessions.proxy_for_request(self, request)
             interactive = entry.origin_conn is not None
-            route = self.route_approval(request, session, (), interactive)
+            route = self.route_approval(request, self._session_for(request), (), interactive)
             if route is None:
                 continue
-            entry.request = request.model_copy(update={"route": route})
+            await self.change_route("approval", request.requestId, route, "jarvis_enabled")
             await approvals._tell_observers(
                 "approval.pending",
                 {"request": entry.request.model_dump(mode="json"), "interactive": interactive},
@@ -693,12 +772,12 @@ class JarvisService:
             asked = item.request
             if asked.route is not None:
                 continue
-            session = self.core.sessions.get(asked.sessionId)
             interactive = item.origin_conn is not None
-            route = self.route_question(asked, session, interactive)
+            route = self.route_question(asked, self.core.sessions.get(asked.sessionId),
+                                        interactive)
             if route is None:
                 continue
-            item.request = asked.model_copy(update={"route": route})
+            await self.change_route("question", asked.requestId, route, "jarvis_enabled")
             tell = getattr(questions.hub, "tell_observers", None)
             if tell is not None:
                 await tell(
@@ -706,13 +785,48 @@ class JarvisService:
                     {"request": item.request.model_dump(mode="json"), "interactive": interactive},
                 )
 
-    def _clear_routes(self) -> None:
+    async def _clear_routes(self) -> None:
         """Jarvis mode went off: what still waits is the person's again, unrouted."""
-        for queue in (self.core.approvals, self.core.questions):
+        for kind in ("approval", "question"):
+            queue = self.core.approvals if kind == "approval" else self.core.questions
             for entry in list(getattr(queue, "_pending", {}).values()):
                 if entry.request.route is not None:
-                    entry.request = entry.request.model_copy(update={"route": None})
-                    self.engine.forget(entry.request.requestId)
+                    await self.change_route(kind, entry.request.requestId, None, "jarvis_disabled")
+
+    async def _reroute_target(self, target: str, *, paused: bool) -> None:
+        """A session was paused (its Jarvis requests become the person's) or resumed.
+
+        On resume each waiting request of it is routed again by the engine; one
+        that is Jarvis's (or the engine's) now goes to the intake as if new.
+        """
+        if not self.running or self.intake is None:
+            return
+        for kind in ("approval", "question"):
+            queue = self.core.approvals if kind == "approval" else self.core.questions
+            for entry in list(getattr(queue, "_pending", {}).values()):
+                request = entry.request
+                if request.sessionId != target or request.route is None:
+                    continue
+                if paused:
+                    if request.route == "jarvis":
+                        await self.change_route(kind, request.requestId, "person", "paused")
+                    continue
+                if request.route != "person" or getattr(request, "personOnly", None):
+                    continue
+                session = self._session_for(request)
+                if kind == "approval":
+                    self.engine.forget(request.requestId)
+                    route = self._route_approval(request, session).wire
+                else:
+                    route = self.route_question(request, session, entry.origin_conn is not None)
+                if route in (None, "person"):
+                    continue
+                await self.change_route(kind, request.requestId, route, "resumed")
+                await self.intake.observe(
+                    f"{kind}.pending",
+                    {"request": entry.request.model_dump(mode="json"),
+                     "interactive": entry.origin_conn is not None},
+                )
 
     def routed_approval(self, request: dict[str, Any], session: Any) -> RouteResult:
         """The engine's route for a pending approval (routing it now if it was not)."""

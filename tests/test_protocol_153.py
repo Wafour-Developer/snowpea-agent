@@ -95,6 +95,8 @@ M19_EVENTS = {
     "external.event",
     "external.state",
     "external.clis.changed",
+    "approval.route.changed",
+    "question.route.changed",
 }
 
 

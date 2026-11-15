@@ -78,6 +78,11 @@ START_TIMEOUT_SEC = 15.0
 #: Seconds after a keypress from an attached tmux client during which snowpea
 #: does not type into the pane (the person is typing).
 TYPING_QUIET_SEC = 3.0
+#: ``session_busy`` ``data.reason`` of a refused send into a shared tmux pane: a
+#: permission prompt is open there, the CLI is not idle, or a person typed a moment ago.
+BUSY_TERMINAL_PROMPT = "terminal_prompt"
+BUSY_TERMINAL_BUSY = "terminal_busy"
+BUSY_TERMINAL_TYPING = "terminal_typing"
 #: Window size of a pane snowpea starts.
 WINDOW = ("200", "50")
 _TRUST_MARKERS = ("quick safety check", "trust this folder", "do you trust")
@@ -605,17 +610,19 @@ class ClaudeTmuxChannel(ExternalChannel):
         if status == "waiting":
             raise ExternalError(errors.SESSION_BUSY,
                                 "a permission prompt is open in the terminal; answer it there "
-                                "first")
+                                "first", {"reason": BUSY_TERMINAL_PROMPT})
         if status != "idle":
             raise ExternalError(errors.SESSION_BUSY,
-                                "Claude Code is busy in the terminal; wait for it or interrupt it")
+                                "Claude Code is busy in the terminal; wait for it or interrupt it",
+                                {"reason": BUSY_TERMINAL_BUSY})
         if self.session_name is not None:
             # A person attached to the pane who typed a moment ago is mid-sentence:
             # never type over them (tmux reports each client's last keypress).
             active = await self.server.last_client_activity(self.session_name)
             if active is not None and time.time() - active < TYPING_QUIET_SEC:
                 raise ExternalError(errors.SESSION_BUSY,
-                                    "someone is typing in the terminal; try again in a moment")
+                                    "someone is typing in the terminal; try again in a moment",
+                                    {"reason": BUSY_TERMINAL_TYPING})
         await self._poll()
         self._prompts_before = self.tail.converter.prompts
         self.tail.converter.expect_prompt = text

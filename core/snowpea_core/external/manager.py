@@ -397,6 +397,7 @@ class ExternalManager:
                 ),
                 "modes": list(adapter.capabilities.modes) if adapter is not None else [],
                 "models": [],
+                "modelsLoaded": False,
                 "problems": [],
             }
             if adapter is None:
@@ -420,6 +421,9 @@ class ExternalManager:
                 problems.append("external sessions are turned off (jarvis.external.enabled)")
             row["problems"] = problems
             row["models"] = self._models_now(adapter, found, refresh=refresh)
+            cached = self._models.get(adapter.id)
+            path = found.executable.path if found.executable is not None else None
+            row["modelsLoaded"] = bool(found.usable and cached is not None and cached[1] == path)
             out.append(row)
         return out
 

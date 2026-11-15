@@ -112,6 +112,8 @@ def build_rows(
                 exposed=readable,
                 pausedUntil=state.pausedUntil,
                 takenOver=state.takenOver,
+                levelScope=state.levelScope,
+                grantId=state.grantId,
                 lastActivityAt=digest.last_activity,
                 # A browser-host session hidden by jarvis.exposeBrowser shows its status only.
                 digest=digest.line() if readable else "",

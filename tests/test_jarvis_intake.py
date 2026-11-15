@@ -114,7 +114,7 @@ class Harness:
         self.notes: list[tuple[str, dict[str, Any]]] = []
         self.hooked: list[tuple[str, dict[str, Any]]] = []
 
-        async def deliver(text: str) -> bool:
+        async def deliver(text: str, listener: Any = None) -> bool:
             self.wakes.append(text)
             return True
 

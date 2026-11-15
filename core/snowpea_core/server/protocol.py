@@ -6414,6 +6414,61 @@ class QuestionResolvedNotification(Payload):
     )
 
 
+#: Why a waiting request's ``route`` changed (``approval.route.changed`` /
+#: ``question.route.changed``, 1.53.0).
+RouteChangeReason = Literal[
+    "jarvis_enabled",
+    "jarvis_disabled",
+    "paused",
+    "resumed",
+    "budget",
+    "declined",
+    "refused",
+]
+
+
+class _RouteChanged(Payload):
+    requestId: str = Field(description="The waiting request.")
+    sessionId: str = Field(
+        description="Its session; 'ext:<cli>:<id>' for an external session's approval."
+    )
+    route: ApprovalRoute | None = Field(
+        description="The new route; null when Jarvis mode went off (no routing)."
+    )
+    reason: RouteChangeReason = Field(
+        description=(
+            "jarvis_enabled (it was waiting when Jarvis mode came on and has just been "
+            "routed), jarvis_disabled (routing ended), paused (the person took the session "
+            "back or typed in it: Jarvis's requests there are the person's), resumed (handed "
+            "back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran "
+            "out), declined (Jarvis's turn ended without deciding it), refused (the engine "
+            "refused Jarvis's or its own decision, e.g. on a re-check)."
+        )
+    )
+
+
+class ApprovalRouteChangedNotification(_RouteChanged):
+    """A waiting approval's ``route`` changed (1.53.0, capability ``jarvisDelegation``).
+
+    Sent to the audience of the original request: the asking connection alone
+    for an interactive approval (``approval.request``), every authenticated
+    surface for one in the shared queue (``approval.pending``).  ``approval.list``
+    returns the new route from then on.
+    """
+
+    hostToolsFrom: str | None = Field(
+        default=None, description="As ApprovalPendingNotification.hostToolsFrom."
+    )
+
+
+class QuestionRouteChangedNotification(_RouteChanged):
+    """A waiting question's ``route`` changed (1.53.0, capability ``jarvisDelegation``).
+
+    Daemon-wide, like ``question.pending`` (the asking connection included);
+    ``question.list`` returns the new route from then on.
+    """
+
+
 class QuestionPendingNotification(Payload):
     """A question is waiting; any authenticated surface may see it coming."""
 
@@ -7584,6 +7639,10 @@ class JarvisOverviewRow(Payload):
     )
     pausedUntil: str | None = Field(default=None, description="As SessionJarvisState.pausedUntil.")
     takenOver: bool = Field(default=False, description="As SessionJarvisState.takenOver.")
+    levelScope: Literal["session", "project", "global", "default"] | None = Field(
+        default=None, description="As SessionJarvisState.levelScope."
+    )
+    grantId: str | None = Field(default=None, description="As SessionJarvisState.grantId.")
     lastActivityAt: str | None = Field(
         default=None, description="UTC ISO time of its last activity."
     )
@@ -8080,6 +8139,13 @@ class ExternalCliInfo(Payload):
             "Model ids external.create {model} accepts, as the CLI lists them without "
             "spending tokens. Filled in the background: empty until the CLI answered (then "
             "external.clis.changed goes out); empty when it cannot list them."
+        ),
+    )
+    modelsLoaded: bool = Field(
+        default=False,
+        description=(
+            "True once the CLI answered the model listing (models may still be empty: it "
+            "lists none); false while it has not answered yet, or the CLI is not usable."
         ),
     )
     problems: list[str] = Field(
@@ -9816,6 +9882,9 @@ EVENTS: dict[str, type[BaseModel]] = {
     "approval.resolved": ApprovalResolvedNotification,
     "question.pending": QuestionPendingNotification,
     "question.resolved": QuestionResolvedNotification,
+    # 1.53.0: a waiting request's route changed (Jarvis mode on/off, pause, budget, ...).
+    "approval.route.changed": ApprovalRouteChangedNotification,
+    "question.route.changed": QuestionRouteChangedNotification,
     "job.event": JobEventNotification,
     "gateway.event": GatewayEventNotification,
     "commands.changed": CommandsChangedNotification,
