@@ -1,0 +1,457 @@
+"""snowpea web from another machine: a second, password-protected listener.
+
+The loopback listener hands the page its daemon token in the address
+``snowpea web`` printed.  Another machine cannot be given that address, so
+when ``web.remote.enabled`` is on the daemon also binds ``web.remote.host:port``
+with a much smaller app:
+
+* ``GET /web/...`` — the same static build;
+* ``POST /web/login`` — ``{username, password}`` → a ``snowpea_web`` cookie;
+* ``GET /web/session`` — with that cookie, the daemon token for ``system.hello``;
+* ``POST /web/logout`` — drops the session and closes its sockets;
+* ``GET /ws`` — the JSON-RPC socket, only with a valid cookie and a same-origin
+  ``Origin``; ``system.hello`` still checks the token.
+
+The password lives in ``credentials.json`` as a salted scrypt hash under
+:data:`PASSWORD_KEY`.  Sessions are kept in memory, so a daemon restart logs
+everyone out.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import contextlib
+import hashlib
+import hmac
+import json
+import logging
+import secrets
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any
+
+from aiohttp import web
+
+from snowpea_core.config.credentials import CredentialStore
+from snowpea_core.config.paths import Paths
+from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
+from snowpea_core.server.transport_http import WEB_PATH, web_static
+from snowpea_core.server.transport_ws import (
+    CONNECTIONS_KEY,
+    DISPATCHER_KEY,
+    SOCKETS_KEY,
+    WS_PATH,
+    websocket_handler,
+)
+
+log = logging.getLogger("snowpea.web.remote")
+
+#: ``credentials.json`` key of the password hash (never in settings.json).
+PASSWORD_KEY = "web.remote.passwordHash"
+COOKIE_NAME = "snowpea_web"
+
+SCRYPT_N = 2**15
+SCRYPT_R = 8
+SCRYPT_P = 1
+SALT_BYTES = 16
+#: n=2**15, r=8 needs 32 MiB, exactly hashlib's default ceiling, which it refuses.
+SCRYPT_MAXMEM = 64 * 1024 * 1024
+
+#: Every failed login answers after about this long, right or wrong username.
+FAILURE_DELAY_SEC = 0.3
+RATE_WINDOW_SEC = 300.0
+MAX_FAILURES_PER_IP = 5
+MAX_FAILURES_GLOBAL = 20
+#: A login body is two short strings.
+MAX_BODY_BYTES = 4096
+SWEEP_INTERVAL_SEC = 60.0
+
+#: The built page's own meta CSP, with ``connect-src`` narrowed to this origin.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; frame-src data: blob:; connect-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+)
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+}
+
+
+# ---------------------------------------------------------------------------
+# password hash
+# ---------------------------------------------------------------------------
+
+
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
+
+
+def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
+    return hashlib.scrypt(
+        password.encode("utf-8"), salt=salt, n=n, r=r, p=p, maxmem=SCRYPT_MAXMEM, dklen=32
+    )
+
+
+def hash_password(password: str) -> str:
+    """``scrypt$<n>$<r>$<p>$<salt b64>$<hash b64>``."""
+    salt = secrets.token_bytes(SALT_BYTES)
+    digest = _scrypt(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
+    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${_b64(salt)}${_b64(digest)}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """Constant-time check of ``password`` against :func:`hash_password` output."""
+    try:
+        scheme, n, r, p, salt, digest = stored.split("$")
+        if scheme != "scrypt":
+            return False
+        expected = base64.b64decode(digest)
+        actual = _scrypt(password, base64.b64decode(salt), int(n), int(r), int(p))
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(actual, expected)
+
+
+def stored_hash(paths: Paths) -> str:
+    value = CredentialStore(paths).load().get(PASSWORD_KEY)
+    return value if isinstance(value, str) else ""
+
+
+def set_password(paths: Paths, password: str) -> None:
+    CredentialStore(paths).set(PASSWORD_KEY, hash_password(password))
+
+
+def clear_password(paths: Paths) -> bool:
+    store = CredentialStore(paths)
+    data = store.load()
+    if PASSWORD_KEY not in data:
+        return False
+    del data[PASSWORD_KEY]
+    store.save(data)
+    return True
+
+
+def config_problem(remote: Any, paths: Paths) -> str | None:
+    """Why remote access cannot start, or ``None`` when it can."""
+    if not str(remote.username or "").strip():
+        return "web.remote.username is empty"
+    if not stored_hash(paths):
+        return "no password is set; run `snowpea web password`"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# sessions and rate limits
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Session:
+    username: str
+    expires: float
+    sockets: set[web.WebSocketResponse] = field(default_factory=set)
+
+
+class RemoteAuth:
+    """In-memory login sessions and failure counters for one daemon run."""
+
+    def __init__(self, username: str, session_hours: float, paths: Paths) -> None:
+        self.username = username
+        self.session_sec = max(1.0, float(session_hours) * 3600.0)
+        self.paths = paths
+        self.sessions: dict[str, _Session] = {}
+        self._ip_failures: dict[str, deque[float]] = {}
+        self._global_failures: deque[float] = deque()
+        self.failure_delay = FAILURE_DELAY_SEC
+        self.clock = time.monotonic
+
+    # -- sessions --------------------------------------------------------
+    def open_session(self) -> str:
+        token = secrets.token_urlsafe(32)
+        self.sessions[token] = _Session(self.username, self.clock() + self.session_sec)
+        return token
+
+    def session(self, token: str | None) -> _Session | None:
+        if not token:
+            return None
+        found = self.sessions.get(token)
+        if found is None:
+            return None
+        if found.expires <= self.clock():
+            self.sessions.pop(token, None)
+            return None
+        return found
+
+    async def drop(self, token: str) -> None:
+        found = self.sessions.pop(token, None)
+        if found is not None:
+            await _close_all(found.sockets)
+
+    async def sweep(self) -> None:
+        now = self.clock()
+        for token in [t for t, s in self.sessions.items() if s.expires <= now]:
+            await self.drop(token)
+
+    def active(self) -> int:
+        now = self.clock()
+        return sum(1 for s in self.sessions.values() if s.expires > now)
+
+    # -- rate limits -----------------------------------------------------
+    def _trim(self, queue: deque[float]) -> None:
+        cutoff = self.clock() - RATE_WINDOW_SEC
+        while queue and queue[0] <= cutoff:
+            queue.popleft()
+
+    def retry_after(self, ip: str) -> int:
+        """Seconds until ``ip`` may try again, 0 when it may now."""
+        waits: list[float] = []
+        queue = self._ip_failures.get(ip)
+        if queue is not None:
+            self._trim(queue)
+            if len(queue) >= MAX_FAILURES_PER_IP:
+                waits.append(queue[-MAX_FAILURES_PER_IP] + RATE_WINDOW_SEC - self.clock())
+        self._trim(self._global_failures)
+        if len(self._global_failures) >= MAX_FAILURES_GLOBAL:
+            waits.append(
+                self._global_failures[-MAX_FAILURES_GLOBAL] + RATE_WINDOW_SEC - self.clock()
+            )
+        return max(1, int(max(waits) + 0.999)) if waits else 0
+
+    def record_failure(self, ip: str) -> float:
+        now = self.clock()
+        self._ip_failures.setdefault(ip, deque()).append(now)
+        self._global_failures.append(now)
+        return now
+
+    def forgive(self, ip: str, stamp: float) -> None:
+        """Take back the failure :meth:`record_failure` counted for an attempt that passed."""
+        for queue in (self._ip_failures.get(ip), self._global_failures):
+            with contextlib.suppress(ValueError):
+                if queue is not None:
+                    queue.remove(stamp)
+
+    def check(self, username: str, password: str) -> bool:
+        """Constant-time username and password check; never says which failed."""
+        # Digests first, so not even the length of the username shows in the timing.
+        user_ok = hmac.compare_digest(
+            hashlib.sha256(username.encode("utf-8")).digest(),
+            hashlib.sha256(self.username.encode("utf-8")).digest(),
+        )
+        stored = stored_hash(self.paths)
+        # Hash even with a wrong username or no password so the timing is the same.
+        pass_ok = verify_password(password, stored or hash_placeholder())
+        return user_ok and pass_ok and bool(stored)
+
+
+_PLACEHOLDER: list[str] = []
+
+
+def hash_placeholder() -> str:
+    if not _PLACEHOLDER:
+        _PLACEHOLDER.append(hash_password(secrets.token_urlsafe(16)))
+    return _PLACEHOLDER[0]
+
+
+async def _close_all(sockets: set[web.WebSocketResponse]) -> None:
+    for ws in list(sockets):
+        with contextlib.suppress(Exception):
+            await ws.close(code=4401, message=b"logged out")
+
+
+# ---------------------------------------------------------------------------
+# app
+# ---------------------------------------------------------------------------
+
+AUTH_KEY: web.AppKey[RemoteAuth] = web.AppKey("remote_auth", RemoteAuth)
+TRUST_PROXY_KEY: web.AppKey[bool] = web.AppKey("remote_trust_proxy", bool)
+ORIGINS_KEY: web.AppKey[frozenset[str]] = web.AppKey("remote_origins", frozenset)
+
+
+def _is_https(request: web.Request) -> bool:
+    if request.secure:
+        return True
+    if request.app[TRUST_PROXY_KEY]:
+        proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
+        return proto == "https"
+    return False
+
+
+def _client_ip(request: web.Request) -> str:
+    if request.app[TRUST_PROXY_KEY]:
+        forwarded = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",")]
+        forwarded = [p for p in forwarded if p]
+        if forwarded:
+            # The proxy appends the address it saw; earlier entries are the client's say-so.
+            return forwarded[-1]
+    return str(request.remote or "unknown")
+
+
+def _origin_ok(request: web.Request) -> bool:
+    origin = request.headers.get("Origin", "").rstrip("/")
+    if not origin:
+        return False
+    own = f"{'https' if _is_https(request) else 'http'}://{request.host}"
+    return origin == own or origin in request.app[ORIGINS_KEY]
+
+
+def _json(payload: dict[str, Any], status: int = 200, **headers: str) -> web.Response:
+    return web.json_response(
+        payload, status=status, headers={"Cache-Control": "no-store", **headers}
+    )
+
+
+async def login(request: web.Request) -> web.Response:
+    auth = request.app[AUTH_KEY]
+    ip = _client_ip(request)
+    if request.headers.get("Origin") and not _origin_ok(request):
+        return _json({"ok": False, "error": "bad_origin"}, 403)
+    wait = auth.retry_after(ip)
+    if wait:
+        log.warning("web login refused from %s: too many failures (retry in %ds)", ip, wait)
+        return _json({"ok": False, "error": "rate_limited"}, 429, **{"Retry-After": str(wait)})
+    # Counted at once (no await since the check above), so attempts sent in
+    # parallel cannot all slip under the limit; a good password takes it back.
+    stamp = auth.record_failure(ip)
+    started = time.monotonic()
+    if request.content_type != "application/json":
+        return _json({"ok": False, "error": "bad_request"}, 400)
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        body = None
+    username = body.get("username") if isinstance(body, dict) else None
+    password = body.get("password") if isinstance(body, dict) else None
+    if not isinstance(username, str) or not isinstance(password, str):
+        return _json({"ok": False, "error": "bad_request"}, 400)
+    ok = await asyncio.to_thread(auth.check, username, password)
+    if not ok:
+        log.warning("web login failed from %s", ip)
+        await asyncio.sleep(max(0.0, auth.failure_delay - (time.monotonic() - started)))
+        return _json({"ok": False, "error": "invalid_credentials"}, 401)
+    auth.forgive(ip, stamp)
+    token = auth.open_session()
+    log.info("web login succeeded from %s (user %s)", ip, auth.username)
+    response = _json({"ok": True})
+    response.set_cookie(
+        COOKIE_NAME,
+        token,
+        max_age=int(auth.session_sec),
+        path="/",
+        httponly=True,
+        samesite="Strict",
+        secure=_is_https(request),
+    )
+    return response
+
+
+async def session(request: web.Request) -> web.Response:
+    auth = request.app[AUTH_KEY]
+    found = auth.session(request.cookies.get(COOKIE_NAME))
+    if found is None:
+        return _json({"ok": False, "error": "unauthorized"}, 401)
+    core = request.app[DISPATCHER_KEY].core
+    return _json({"ok": True, "token": core.token, "username": found.username})
+
+
+async def logout(request: web.Request) -> web.Response:
+    if request.headers.get("Origin") and not _origin_ok(request):
+        return _json({"ok": False, "error": "bad_origin"}, 403)
+    auth = request.app[AUTH_KEY]
+    token = request.cookies.get(COOKIE_NAME)
+    if token and auth.session(token) is not None:
+        await auth.drop(token)
+        log.info("web logout from %s", _client_ip(request))
+    response = _json({"ok": True})
+    response.del_cookie(COOKIE_NAME, path="/")
+    return response
+
+
+async def remote_websocket(request: web.Request) -> web.StreamResponse:
+    auth = request.app[AUTH_KEY]
+    found = auth.session(request.cookies.get(COOKIE_NAME))
+    if found is None:
+        return _json({"ok": False, "error": "unauthorized"}, 401)
+    if not _origin_ok(request):
+        log.warning(
+            "web socket refused from %s: origin %r",
+            _client_ip(request),
+            request.headers.get("Origin"),
+        )
+        return _json({"ok": False, "error": "bad_origin"}, 403)
+    return await websocket_handler(request, track=found.sockets)
+
+
+async def remote_web_redirect(_request: web.Request) -> web.Response:
+    raise web.HTTPFound(WEB_PATH)
+
+
+@web.middleware
+async def _security_headers(request: web.Request, handler: Any) -> web.StreamResponse:
+    try:
+        response = await handler(request)
+    except web.HTTPException as exc:
+        exc.headers.update({k: v for k, v in SECURITY_HEADERS.items() if k not in exc.headers})
+        raise
+    if not response.prepared:
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+    return response
+
+
+def create_remote_app(
+    dispatcher: RpcDispatcher,
+    auth: RemoteAuth,
+    *,
+    connections: set[RpcConnection] | None = None,
+    sockets: set[web.WebSocketResponse] | None = None,
+    trust_proxy: bool = False,
+    allowed_origins: list[str] | tuple[str, ...] = (),
+) -> web.Application:
+    """The app the remote listener serves; nothing beyond the page needs."""
+    app = web.Application(client_max_size=MAX_BODY_BYTES, middlewares=[_security_headers])
+    app[DISPATCHER_KEY] = dispatcher
+    # Shared with the loopback app so shutdown closes these sockets too.
+    app[CONNECTIONS_KEY] = connections if connections is not None else set()
+    app[SOCKETS_KEY] = sockets if sockets is not None else set()
+    app[AUTH_KEY] = auth
+    app[TRUST_PROXY_KEY] = bool(trust_proxy)
+    app[ORIGINS_KEY] = frozenset(o.rstrip("/") for o in allowed_origins if o)
+    app.router.add_post(WEB_PATH + "login", login)
+    app.router.add_post(WEB_PATH + "logout", logout)
+    app.router.add_get(WEB_PATH + "session", session)
+    app.router.add_get(WS_PATH, remote_websocket)
+    app.router.add_get("/web", remote_web_redirect)
+    app.router.add_get(WEB_PATH + "{tail:.*}", web_static)
+
+    async def _sweeper(app: web.Application) -> Any:
+        async def loop() -> None:
+            while True:
+                await asyncio.sleep(SWEEP_INTERVAL_SEC)
+                await auth.sweep()
+
+        task = asyncio.ensure_future(loop())
+        yield
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    app.cleanup_ctx.append(_sweeper)
+    return app
+
+
+__all__ = [
+    "COOKIE_NAME",
+    "PASSWORD_KEY",
+    "RemoteAuth",
+    "clear_password",
+    "config_problem",
+    "create_remote_app",
+    "hash_password",
+    "set_password",
+    "stored_hash",
+    "verify_password",
+]

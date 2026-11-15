@@ -211,9 +211,13 @@ snowpea daemon stop
 ```bash
 snowpea web
 snowpea web --no-open
+snowpea web status
+snowpea web password
+snowpea web password --stdin
+snowpea web password --clear
 ```
 
-`web` makes sure the daemon is running, prints the address of [snowpea web](web.md) — the IDE's screen in your browser, served by the daemon — and opens it. The address carries the daemon token; keep it to yourself. `--no-open` only prints it.
+`web` makes sure the daemon is running, prints the address of [snowpea web](web.md) — the IDE's screen in your browser, served by the daemon — and opens it. The address carries the daemon token; keep it to yourself. `--no-open` only prints it. With [remote access](web.md#from-another-machine) on, it also prints the address for other machines. `web status` shows remote access: the address it listens on, the username, whether a password is set and how many sign-ins are open. `web password` sets the remote sign-in password (asked twice; `--stdin` reads one line) and `--clear` removes it; only a scrypt hash is kept, in `credentials.json`.
 
 ### Providers
 

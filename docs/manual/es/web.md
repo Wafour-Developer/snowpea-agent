@@ -7,7 +7,55 @@ snowpea web            # start the daemon if needed, print the address, open it
 snowpea web --no-open  # print the address only
 ```
 
-La dirección tiene la forma `http://127.0.0.1:<port>/web/?token=…`. El token es el del propio daemon (el de `$SNOWPEA_HOME/daemon.json`); la página lo guarda para esa pestaña del navegador y lo quita de la barra de direcciones. Quien tenga el token puede manejar el agente, así que no pegues la dirección en chats ni en tickets. El daemon escucha solo en la dirección de loopback; para usar snowpea web desde otra máquina, abre un túnel del puerto por ssh (`ssh -L <port>:127.0.0.1:<port> host`).
+La dirección tiene la forma `http://127.0.0.1:<port>/web/?token=…`. El token es el del propio daemon (el de `$SNOWPEA_HOME/daemon.json`); la página lo guarda para esa pestaña del navegador y lo quita de la barra de direcciones. Quien tenga el token puede manejar el agente, así que no pegues la dirección en chats ni en tickets. Esta dirección solo funciona en la máquina donde corre el daemon.
+
+## Desde otra máquina
+
+Lo más sencillo sigue siendo un túnel ssh: no escucha nada más y la conexión va cifrada.
+
+```bash
+ssh -L <port>:127.0.0.1:<port> host
+```
+
+Para abrir snowpea web directamente desde otras máquinas —un portátil en la misma red, un teléfono— activa el acceso remoto. Es un segundo listener con usuario y contraseña, aparte del de loopback, que sigue funcionando como siempre.
+
+1. Pon el usuario (y, si quieres, la dirección) en `settings.json`:
+
+   ```json
+   { "web": { "remote": { "enabled": true, "username": "me" } } }
+   ```
+
+2. Define la contraseña. Se pide dos veces y se guarda solo como un hash scrypt con sal en `credentials.json` (modo 0600), nunca en `settings.json`. `--stdin` lee una línea, para scripts, y `--clear` la borra.
+
+   ```bash
+   snowpea web password
+   snowpea web password --stdin
+   snowpea web password --clear
+   ```
+
+3. Reinicia el daemon (`snowpea daemon stop` y luego `snowpea web`). La configuración se lee al arrancar el daemon; uno que ya está en marcha no vuelve a enlazar el puerto.
+
+Entonces `snowpea web` imprime también la dirección para otras máquinas, `http://<dirección LAN de esta máquina>:8787/web/`, que muestra un formulario de inicio de sesión. `snowpea web status` muestra si el acceso remoto está activo, en qué dirección escucha, el usuario, si hay contraseña y cuántas sesiones hay abiertas.
+
+| Ajuste (`web.remote.…`) | Por defecto | Significado |
+|---|---|---|
+| `enabled` | `false` | Arranca el segundo listener. |
+| `host` | `0.0.0.0` | Dirección en la que escucha (`0.0.0.0` son todas las interfaces). |
+| `port` | `8787` | Puerto en el que escucha. |
+| `username` | `""` | La única cuenta que puede iniciar sesión. |
+| `sessionHours` | `12` | Cuánto dura un inicio de sesión. |
+| `allowedOrigins` | `[]` | Orígenes de página adicionales que acepta el WebSocket, p. ej. `https://snowpea.example.com` detrás de un proxy. |
+| `trustProxy` | `false` | Creer `X-Forwarded-Proto` / `X-Forwarded-For` de un proxy inverso que controlas. |
+
+Si el acceso remoto está activado sin usuario o sin contraseña, el daemon arranca solo en loopback, escribe el motivo en su log y `snowpea web` lo dice.
+
+Notas de seguridad:
+
+- **Es HTTP sin cifrar.** La contraseña y todo lo que hagas viajan en claro. Fuera de una red de confianza, ponlo detrás de TLS (un proxy inverso como Caddy o nginx, con `trustProxy: true`) o accede por una VPN o el túnel ssh de arriba.
+- Quien inicia sesión maneja el agente y, con él, la shell y los archivos de esta máquina. Usa una contraseña larga.
+- Cinco intentos fallidos desde una dirección en cinco minutos, o veinte en total, bloquean el inicio de sesión hasta que pasen esos cinco minutos. Los inicios de sesión y los fallos se registran con la dirección del cliente, nunca con la contraseña.
+- La sesión es una cookie (`HttpOnly`, `SameSite=Strict`, `Secure` con HTTPS). Las sesiones viven en la memoria del daemon: reiniciarlo cierra la sesión de todos. Una contraseña nueva vale desde el siguiente inicio de sesión; las sesiones ya abiertas duran hasta que caducan, cierras sesión o el daemon se reinicia.
+- El listener remoto sirve solo la página, el inicio de sesión y el WebSocket —ni `/health`, ni `/version`, ni el esquema— y el WebSocket rechaza páginas de otro origen.
 
 ## La pantalla
 

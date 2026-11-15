@@ -73,8 +73,14 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
     )
 
 
-async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
-    """aiohttp route handler: bridge one socket to the RPC dispatcher."""
+async def websocket_handler(
+    request: web.Request, *, track: set[web.WebSocketResponse] | None = None
+) -> web.WebSocketResponse:
+    """aiohttp route handler: bridge one socket to the RPC dispatcher.
+
+    ``track`` also holds the socket while it is open (the remote listener's
+    login session, so logging out closes it).
+    """
     dispatcher = request.app[DISPATCHER_KEY]
     connections = request.app[CONNECTIONS_KEY]
     sockets = request.app[SOCKETS_KEY]
@@ -82,6 +88,8 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=30.0, max_msg_size=MAX_MESSAGE_BYTES)
     await ws.prepare(request)
     sockets.add(ws)
+    if track is not None:
+        track.add(ws)
 
     async def send(obj: dict[str, Any]) -> None:
         if not ws.closed:
@@ -101,6 +109,8 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     finally:
         connections.discard(conn)
         sockets.discard(ws)
+        if track is not None:
+            track.discard(ws)
         if hub is not None and hasattr(hub, "unsubscribe"):
             hub.unsubscribe(conn)
         await conn.close()

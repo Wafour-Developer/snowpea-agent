@@ -84,3 +84,33 @@ the same rule as for the desktop bundle.
 
 Every step: unit tests (vitest), a scripted screenshot scene in Korean and English, compared
 side by side with the dsh reference where one exists.
+
+## Remote access
+
+Opt-in second listener for using snowpea web from another machine (`web.remote.*` in
+`settings.json`, user guide in `docs/manual/en/web.md`). The loopback listener is unchanged: the
+page still gets `?token=` there, and `/web/session`, `/web/login`, `/web/logout` answer `404` on
+it so the token never leaks through a new path. No JSON-RPC change (protocol stays 1.50.0).
+
+The remote listener (`web.remote.host:port`, default `0.0.0.0:8787`) serves only:
+
+| Request | Answer |
+|---|---|
+| `GET /web/…` | The static build (same files, SPA fallback to `index.html`). |
+| `POST /web/login` `{"username", "password"}` (`Content-Type: application/json`, body ≤ 4 KiB) | `200 {"ok": true}` + `Set-Cookie: snowpea_web=<32-byte random>; HttpOnly; SameSite=Strict; Path=/; Max-Age=<sessionHours>` (`Secure` when the request is HTTPS, or `X-Forwarded-Proto: https` with `trustProxy`). Wrong username or password: `401 {"ok": false, "error": "invalid_credentials"}` after ~300 ms. Locked out (5 failures per IP or 20 in total within 5 min; every attempt that does not sign in counts, malformed ones too): `429 {"ok": false, "error": "rate_limited"}` with `Retry-After: <s>`. Malformed body: `400 {"error": "bad_request"}`; too large: `413`; a cross-origin `Origin`: `403 {"error": "bad_origin"}`. |
+| `GET /web/session` | Valid cookie: `200 {"ok": true, "token": "<daemon token>", "username": "…"}`; otherwise `401 {"ok": false, "error": "unauthorized"}`. Always `Cache-Control: no-store`. |
+| `POST /web/logout` | `200 {"ok": true}`, clears the cookie, drops the session and closes its sockets (code 4401). |
+| `GET /ws` | Upgrade only with a valid cookie (`401` otherwise) and an `Origin` equal to the request's own `scheme://host` or listed in `web.remote.allowedOrigins` (`403` otherwise, also when `Origin` is missing). Then `system.hello` with the token from `/web/session`, as on loopback. |
+
+Anything else is `404` (no `/health`, `/version`, `/protocol.json`). Every response carries
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and a
+CSP equal to the page's meta CSP with `connect-src 'self'` and `frame-ancestors 'none'`.
+
+Client flow: on load, `GET /web/session`; `200` → hello with `token`; `401` → show a sign-in form,
+`POST /web/login`, then `/web/session` again; on `429` show the `Retry-After` wait; a socket closed
+with 4401, or a later `401`, goes back to the form. A `?token=` in the address still wins
+(loopback).
+
+Sessions live in daemon memory (lost on restart) and expire after `sessionHours`; settings apply
+on daemon restart. `snowpea web status` reads the daemon's view from the loopback-only
+`GET /web/remote/status` (`Authorization: Bearer <daemon token>`).
