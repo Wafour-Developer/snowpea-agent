@@ -1,6 +1,6 @@
 # Plugins and skills
 
-snowpea reads the Claude Code plugin layout directly. A plugin written for Claude Code installs and runs here without modification, and a repository that already has a `.claude/` directory works with no changes at all.
+snowpea reads the Claude Code and Codex plugin layouts directly. A plugin written for Claude Code or for Codex installs and runs here without modification, a repository that already has a `.claude/` directory works with no changes at all, and what Claude Code and Codex have installed on this machine shows up by itself.
 
 
 ## What is what
@@ -10,12 +10,30 @@ Three kinds of add-on share this page, and they are not the same thing.
 | Kind | Format | Lives in | Project folder may carry it | Code runs in the daemon |
 |---|---|---|---|---|
 | **Skill** | `SKILL.md` — the open agentskills.io standard shared by Claude Code and Codex | `skills/` in the home or the project | yes | no, it is instructions |
-| **Plugin (Claude Code format)** | a bundle of skills, commands, agents, hooks and MCP servers | `$SNOWPEA_HOME/plugins/` | no, home only | no; its hooks and MCP servers start commands you approved |
+| **Plugin (Claude Code format)** | a bundle of skills, commands, agents, hooks and MCP servers, with `plugin.json` or `.claude-plugin/plugin.json` | `$SNOWPEA_HOME/plugins/` | no, home only | no; its hooks and MCP servers start commands you approved |
+| **Plugin (Codex format)** | the same bundle with `.codex-plugin/plugin.json` (skills, `commands/`, `agents/*.md`, `hooks.json`, `.mcp.json`); app connectors (`.app.json`) are not supported | `$SNOWPEA_HOME/plugins/` | no, home only | no; its hooks and MCP servers start commands you approved |
 | **Extension** (snowpea extension format, Python) | `plugin.py` with `apply(ctx)` | `$SNOWPEA_HOME/extensions/<name>/` | no, home only | yes, Python inside the daemon; trust required |
 
 An extension is modelled on the design of DeepSeek Harness but is not compatible with DeepSeek Harness plugins.
 
-Plugin bundles are read in Claude Code format only. snowpea does not read Codex's own folders (`~/.codex`) or a Codex bundle. A skill written for Codex works when its folder is placed in a snowpea skills location. The project instruction file `AGENTS.md` is read alongside `CLAUDE.md`.
+Every skill, command, agent and plugin records the `format` it was written in — `snowpea`, `claude` or `codex` — and `skill.list`, `skill.read`, `command.list` and `agent.list` carry it (protocol 1.52.0). The project instruction file `AGENTS.md` is read alongside `CLAUDE.md`.
+
+## What is read from Claude Code and Codex
+
+Besides what you install into snowpea, each reload reads what the two other tools have installed on this machine. Those items are read-only here: `skill.read` answers `readOnly: true`, `skill.write` never writes into their folders, and `skill.remove` does not reach them — remove them with the tool that installed them.
+
+| | Claude Code (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) | Codex (`$CODEX_HOME`, else `~/.codex`) |
+|---|---|---|
+| Installed plugins | `plugins/installed_plugins.json`, skipping what `enabledPlugins` in `settings.json` marks false — source `claude-plugin` | `plugins/cache/<marketplace>/<plugin>/<version>/` (the newest version of each), skipping any `[plugins."<plugin>@<marketplace>"] enabled = false` in `config.toml` — source `codex-plugin` |
+| From each plugin | skills, commands, agents | skills, commands, agents; a plugin with app connectors (`.app.json`) is listed with the note `needs Codex apps` and its skills still load |
+| User-level | `skills/`, `agents/*.md`, `commands/*.md` — source `claude-global` | `skills/<name>/` (not Codex's own `skills/.system`), `prompts/*.md` as commands, `agents/*.toml` as agent definitions — source `codex-global` |
+| Project-level | `<project>/.claude/{skills,agents,commands}/` — source `claude-project` | `<project>/.agents/skills/` — source `codex-project` |
+| Not imported | hooks and MCP servers of installed plugins | hooks and MCP servers of installed plugins, `hooks.json`, the `[mcp_servers]` of `config.toml` |
+| Switch | none: read whenever the folder exists | `skills.importCodex` (`true`); `false` reads nothing from Codex |
+
+Hooks and MCP servers are not imported because they run commands on your behalf, and you approved them for Claude Code or Codex, not for snowpea. Install the plugin into snowpea (below) if you want its hooks and servers here too. A Codex agent role (`agents/<name>.toml`) becomes an agent definition this way: `name`, `description` and `model` as they are, `developer_instructions` as the prompt, `model_reasoning_effort` as `thinking` (`none` or `minimal` is off, any other level on), and `sandbox_mode = "read-only"` as `permission: plan`; `nickname_candidates`, `mcp_servers` and the rest have no equivalent and are ignored. An imported agent never takes a built-in role's name (`explore`, `architect`, …): one from a plugin stays reachable as `<plugin>:<name>`, one without a plugin is left out.
+
+When names collide, snowpea's own copy wins over Claude Code's, and Claude Code's over Codex's. One older rule stays: a Claude Code global skill (`~/.claude/skills`) shadows a snowpea global one of the same name. Among Codex's own, a project skill beats a global one, which beats a plugin's.
 
 ## Layout
 
@@ -29,7 +47,7 @@ my-plugin/
   .mcp.json              # MCP servers this plugin brings
 ```
 
-`.claude-plugin/plugin.json` is accepted in place of `plugin.json`. A marketplace repository adds a `marketplace.json` at its root listing `plugins: [{name, source}]`.
+`.claude-plugin/plugin.json` (Claude Code format) or `.codex-plugin/plugin.json` (Codex format) is accepted in place of `plugin.json`; a Codex manifest's `interface.displayName` is shown as the plugin's `title`. `${CLAUDE_PLUGIN_ROOT}`, `${SNOWPEA_PLUGIN_ROOT}` and Codex's `${PLUGIN_ROOT}` all expand to the plugin's directory. A marketplace repository adds a `marketplace.json` at its root (or `.claude-plugin/marketplace.json`) listing `plugins: [{name, source}]`; a Codex marketplace keeps its catalog at `.agents/plugins/marketplace.json`, where `source` is `{"source": "local", "path": "./plugins/<name>"}`.
 
 ## Creating a skill
 
@@ -59,7 +77,9 @@ snowpea skill remove my-plugin
 
 Installing copies the plugin into `$SNOWPEA_HOME/plugins/<name>` and reloads the registry. A reload emits a `commands.changed` notification, so the TUI refreshes its palette without a restart.
 
-Plugins installed in Claude Code are visible automatically: snowpea reads `~/.claude/plugins/installed_plugins.json` on every reload and registers their skills, commands and agents under source `claude-plugin`, skipping any that `enabledPlugins` in `~/.claude/settings.json` marks false. If a plugin or skill with the same name is installed in snowpea, the snowpea copy takes precedence and the Claude copy is skipped.
+A Codex-format folder installs the same way: `snowpea skill install ./cloudflare` copies it to `$SNOWPEA_HOME/plugins/<name>`, named by its `.codex-plugin/plugin.json`, and from there its hooks and `.mcp.json` servers run like any other plugin's.
+
+Plugins installed in Claude Code or in Codex are visible automatically, without installing them here (see [What is read from Claude Code and Codex](#what-is-read-from-claude-code-and-codex)). If a plugin or skill with the same name is installed in snowpea, the snowpea copy takes precedence and the other copy is skipped.
 
 You can also ask the agent inside the TUI. "Find me a pdf skill" makes it call `skill_search`, and it answers with the candidates and the install spec of each one; "install the second one" makes it call `skill_install` with that spec. `skill_list` shows what is already installed and `skill_remove` deletes a plugin. Searching and listing are `read` tools and happen without a prompt; installing and removing are `exec`, so accept mode asks you first and plan mode refuses — the agent cannot install anything you did not approve. An install reloads in place, and the agent tells you which new `/commands`, agents and MCP servers it brought.
 
@@ -70,7 +90,7 @@ snowpea skill search "pdf"
 snowpea skill search "code review" --json
 ```
 
-Two sources are queried together: `claude-marketplace` (the `marketplace.json` of every registered marketplace repository) and the hosted registry at `registry.snowpea.ai` — which is itself a *federation* of other skill hubs, so one call to it can return hits from several places at once. Each hit carries the `source` it actually came from: `local` (the registry's own published skills), `clawhub` (ClawHub), `claude-marketplaces` (GitHub-hosted Claude Code marketplaces the registry mirrors), shown by their human label (e.g. `ClawHub`) in `snowpea skill search`'s output. A hub, or the whole registry, being unreachable contributes nothing rather than failing the search — run `snowpea skill sources` to see which hubs are up.
+Two sources are queried together: `claude-marketplace` (the `marketplace.json` of every registered marketplace repository; a hit from a catalog in Codex's shape is labelled `codex-marketplace`) and the hosted registry at `registry.snowpea.ai` — which is itself a *federation* of other skill hubs, so one call to it can return hits from several places at once. Each hit carries the `source` it actually came from: `local` (the registry's own published skills), `clawhub` (ClawHub), `claude-marketplaces` (GitHub-hosted Claude Code marketplaces the registry mirrors), shown by their human label (e.g. `ClawHub`) in `snowpea skill search`'s output. A hub, or the whole registry, being unreachable contributes nothing rather than failing the search — run `snowpea skill sources` to see which hubs are up.
 
 ```bash
 snowpea skill search "planning" --source registry
@@ -97,7 +117,7 @@ snowpea skill publish ./my-skill                 # zip + validate + upload
 snowpea skill rate ralplan 5 --comment "great"   # 1-5 stars, one per caller
 ```
 
-`skill install` accepts any install spec a search hit hands back. `registry:<id>` (a locally published skill) and `clawhub:<id>` resolve through the registry's own download proxy. `github:<owner>/<repo>[@plugin]` (what the registry hands back for a mirrored Claude Code marketplace item) is cloned directly with `git clone` instead — its registry id is not the same string as this spec, so asking the registry to download it would always 404. A directory inside the repo can be named the way a GitHub URL does — `github:anthropics/skills/skills/docx` installs just that directory under its own name. With no `@plugin` (and no path) the whole repo is cloned; with `@plugin`, only that plugin's directory is installed, resolved from a locally registered marketplace pointed at the same repo or, failing that, straight from the repo's own `marketplace.json` on GitHub. A hit's `id` (shown by `skill search --json`) is also always available if you would rather install a locally-published copy by id directly: `skill install registry:<id>`.
+`skill install` accepts any install spec a search hit hands back. `registry:<id>` (a locally published skill) and `clawhub:<id>` resolve through the registry's own download proxy. `github:<owner>/<repo>[@plugin]` (what the registry hands back for a mirrored Claude Code marketplace item) is cloned directly with `git clone` instead — its registry id is not the same string as this spec, so asking the registry to download it would always 404. A directory inside the repo can be named the way a GitHub URL does — `github:anthropics/skills/skills/docx` installs just that directory under its own name. With no `@plugin` (and no path) the whole repo is cloned; with `@plugin`, only that plugin's directory is installed, resolved from a locally registered marketplace pointed at the same repo or, failing that, straight from the repo's own `.claude-plugin/marketplace.json`, `marketplace.json` or Codex `.agents/plugins/marketplace.json` on GitHub — so `github:openai/plugins@linear` installs one plugin out of Codex's curated repository. `<marketplace>/<plugin>` for a registered marketplace installs only that plugin's directory as well, copied straight from a marketplace checked out on this machine. A hit's `id` (shown by `skill search --json`) is also always available if you would rather install a locally-published copy by id directly: `skill install registry:<id>`.
 
 `publish` reads `<dir>/SKILL.md`, checks its frontmatter locally (`name` must
 match `^[a-z0-9][a-z0-9._-]{1,63}$`, `description` must be 8-500 characters —
@@ -279,19 +299,21 @@ Descriptions are clipped at 60 characters in the index, so write a `description:
 | `indexMaxEntries` | `60` | how many to list before "… and K more" |
 | `protectRecentViews` | `2` | turns of `skill_view` results a compaction leaves whole |
 | `disabled` | `[]` | skills and commands switched off (1.34.0) |
+| `importCodex` | `true` | read what Codex has installed (`$CODEX_HOME`, else `~/.codex`) and a project's `.agents/skills` |
 
 `skills.disabled` (capability `skillToggle`) takes skill or command names, or `<plugin>:<name>` for one plugin's copy. A disabled skill leaves the index, the slash commands and `autoInject`, and `skill_view` refuses it; `skill.list` still lists it with `enabled: false`, and `skill.read` and `skill.remove` still reach it. Changing the list with `settings.set` applies at once, the way a skill reload does: new sessions see the new index, and a running session keeps the index it started with until its next compaction. With the list empty the prompt is byte for byte what it was.
 
 ## Where things are found, and who wins
 
-Roots are scanned in this order, and later wins on a name clash:
+Roots are scanned in this order, and later wins on a name clash — except that what Claude Code's or Codex's own plugins and Codex's folders bring never replaces an entry already loaded:
 
 1. built-ins — `core/snowpea_core/builtin_skills/`
-2. global — `$SNOWPEA_HOME/{skills,agents,commands}/`
-3. plugins — `$SNOWPEA_HOME/plugins/*/`
+2. global — `$SNOWPEA_HOME/{skills,agents,commands}/`, then Claude Code's `~/.claude/{skills,agents,commands}/`
+3. plugins — `$SNOWPEA_HOME/plugins/*/`, then Claude Code's installed plugins
 4. project — `<project>/.claude/{skills,agents,commands}/`, then `<project>/.snowpea/{skills,agents,commands}/`
+5. Codex — `<project>/.agents/skills/`, then `~/.codex/{skills,prompts,agents}`, then Codex's installed plugins
 
-So a project skill overrides a plugin skill of the same name, and a plugin overrides a built-in. The loader records where each one came from, and `skill list` shows it.
+So a project skill overrides a plugin skill of the same name, a plugin overrides a built-in, and nothing from Codex overrides anything from snowpea or Claude Code. The loader records where each one came from, and `skill list` shows it.
 
 A directory holding nothing but a `SKILL.md` **is** one skill, not a bundle. Installing one puts it in `$SNOWPEA_HOME/skills/<name>/` rather than `plugins/`. A bare skill that already sits under `plugins/` keeps working — it is registered as a skill and the log says where it belongs.
 
@@ -300,7 +322,7 @@ A directory holding nothing but a `SKILL.md` **is** one skill, not a bundle. Ins
 Loading happens at three moments, so a `/command` is never one restart away:
 
 - **At daemon start.** The built-ins, `$SNOWPEA_HOME/{skills,agents,commands}`, every installed plugin, and the project directories of every session the daemon still remembers — closed sessions included, up to 50 existing directories. Servers declared in `$SNOWPEA_HOME/.mcp.json` are started here too, so their tools are in `tool.list` before any session opens.
-- **At `session.create` and `session.resume`.** The session's own workdir is scanned again (`<workdir>/.claude` and `<workdir>/.snowpea`) before the first turn, which is what makes a brand-new checkout's skills available immediately. The project's own `.mcp.json` servers start at the same moment.
+- **At `session.create` and `session.resume`.** The session's own workdir is scanned again (`<workdir>/.claude`, `<workdir>/.snowpea` and `<workdir>/.agents/skills`) before the first turn, which is what makes a brand-new checkout's skills available immediately. The project's own `.mcp.json` servers start at the same moment.
 - **After an install, a removal or `/skill create`.** A full reload in place.
 
 Each of those broadcasts `commands.changed`, so the TUI palette and the desktop app update without a restart. `skill.list`, `command.list` and `tool.list` reflect the change as soon as it lands.

@@ -17,6 +17,7 @@ from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     Empty,
+    ItemFormat,
     Ok,
     SkillCreateParams,
     SkillCreateResult,
@@ -47,6 +48,9 @@ from snowpea_core.skills.loader import (
     SOURCE_CLAUDE_GLOBAL,
     SOURCE_CLAUDE_PLUGIN,
     SOURCE_CLAUDE_PROJECT,
+    SOURCE_CODEX_GLOBAL,
+    SOURCE_CODEX_PLUGIN,
+    SOURCE_CODEX_PROJECT,
     SOURCE_GLOBAL,
     SOURCE_PROJECT,
     builtin_root,
@@ -179,11 +183,24 @@ _READ_SCOPE: dict[str, SkillReadScope] = {
     SOURCE_PROJECT: "project",
     SOURCE_CLAUDE_PROJECT: "project",
     SOURCE_CLAUDE_PLUGIN: "plugin",
+    SOURCE_CODEX_GLOBAL: "global",
+    SOURCE_CODEX_PROJECT: "project",
+    SOURCE_CODEX_PLUGIN: "plugin",
 }
 
 #: Sources ``skill.write`` cannot save over: the engine's own skills, a
-#: plugin's, and Claude Code's global ones (a snowpea copy would lose to them).
-_READ_ONLY_SOURCES = frozenset({SOURCE_BUILTIN, SOURCE_CLAUDE_GLOBAL, SOURCE_CLAUDE_PLUGIN})
+#: plugin's, Claude Code's global ones (a snowpea copy would lose to them) and
+#: everything read from Codex (1.52.0) — snowpea never edits Codex's files.
+_READ_ONLY_SOURCES = frozenset(
+    {
+        SOURCE_BUILTIN,
+        SOURCE_CLAUDE_GLOBAL,
+        SOURCE_CLAUDE_PLUGIN,
+        SOURCE_CODEX_GLOBAL,
+        SOURCE_CODEX_PROJECT,
+        SOURCE_CODEX_PLUGIN,
+    }
+)
 
 
 def _read_scope(source: str) -> SkillReadScope:
@@ -472,11 +489,13 @@ async def skill_read_handler(
             {"name": name, "scope": params.scope},
         )
     path, scope, read_only = found
+    fmt: ItemFormat = loader.format_of(path) if loader is not None else "snowpea"
     return SkillReadResult(
         path=str(path),
         content=path.read_text(encoding="utf-8"),
         scope=scope,
         readOnly=read_only,
+        format=fmt,
     )
 
 

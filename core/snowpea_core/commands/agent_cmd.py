@@ -21,6 +21,7 @@ from snowpea_core.agent.definition import (
     discover_definitions,
     generate_definition,
     parse_agent_md,
+    parse_codex_agent_toml,
     validate_name,
     write_definition,
 )
@@ -86,6 +87,13 @@ def _from_loader(core: Core) -> list[AgentDefinition]:
         source = entry.get("source") if isinstance(entry, dict) else getattr(entry, "source", None)
         if not path:
             continue
+        if Path(path).suffix == ".toml":
+            # A Codex agent role: TOML, not markdown with front matter.
+            try:
+                found.append(parse_codex_agent_toml(Path(path), source=str(source or "")))
+            except DefinitionError:
+                continue
+            continue
         try:
             found.append(
                 parse_agent_md(
@@ -147,7 +155,7 @@ def _without_shadowing(
 
     A definition the user wrote for snowpea (global, project, a snowpea plugin)
     may replace a built-in on purpose. One that merely came along with Claude
-    Code may not: a plugin that ships its own ``architect`` used to become
+    Code or Codex may not: a plugin that ships its own ``architect`` used to become
     snowpea's ``architect``, so the default team ran somebody else's prompt
     (and advertised "Opus" on a machine that has no such model). Such a
     definition stays available as ``<plugin>:<name>`` — the spelling Claude Code
@@ -156,7 +164,7 @@ def _without_shadowing(
     plugin's own file, it is not something snowpea writes. With no plugin to
     name it after, the definition is left out.
     """
-    if defn.name not in builtin_names or not defn.source.startswith("claude"):
+    if defn.name not in builtin_names or not defn.source.startswith(("claude", "codex")):
         return defn
     plugin = _claude_plugin_name(defn.path)
     if plugin is None:

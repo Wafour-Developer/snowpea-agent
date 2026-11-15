@@ -43,7 +43,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Final, Literal
 
 log = logging.getLogger("snowpea.skills.marketplace")
 
@@ -53,7 +53,16 @@ SOURCE_CLAUDE = "claude-marketplace"
 #: double or a future API bump must not crash on it) and for the outer
 #: "the whole registry is unreachable" failure.
 SOURCE_REGISTRY = "snowpea-registry"
+#: A hit from a registered marketplace whose catalog is in Codex's shape.
+SOURCE_CODEX = "codex-marketplace"
 SOURCES: tuple[str, ...] = (SOURCE_CLAUDE, SOURCE_REGISTRY)
+
+#: What a bundle was written for: snowpea's own layout, Claude Code's
+#: (``plugin.json`` / ``.claude-plugin/``) or Codex's (``.codex-plugin/``).
+BundleFormat = Literal["snowpea", "claude", "codex"]
+FORMAT_SNOWPEA: Final = "snowpea"
+FORMAT_CLAUDE: Final = "claude"
+FORMAT_CODEX: Final = "codex"
 
 #: ``skill.install oh-my-claudecode`` means this repository.
 SHORTCUTS: dict[str, str] = {
@@ -210,10 +219,11 @@ def _items(payload: Any) -> list[dict[str, Any]]:
 def _hit(item: dict[str, Any], source: str, default_spec: str = "") -> SkillHit:
     name = str(item.get("name") or item.get("id") or "").strip()
     identifier = str(item.get("id") or name).strip()
+    entry_source = item.get("source")
     spec = str(
         item.get("installSpec")
         or item.get("install")
-        or item.get("source")
+        or (entry_source if isinstance(entry_source, str) else "")
         or item.get("repository")
         or item.get("url")
         or default_spec
@@ -256,14 +266,24 @@ async def search_claude_marketplaces(query: str, home: Path | str) -> SourceResu
             log.info("marketplace %s unavailable: %s", market or url, exc)
             result.unavailable.append(f"{SOURCE_CLAUDE} ({market or url}): {_reason(exc)}")
             continue
+        label = SOURCE_CODEX if _is_codex_catalog(payload) else SOURCE_CLAUDE
         for item in _items(payload):
             name = str(item.get("name") or "").strip()
             if not name or not _matches(
                 query, name, str(item.get("description") or ""), *_keywords(item)
             ):
                 continue
-            hits.append(_hit(item, SOURCE_CLAUDE, default_spec=f"{market}/{name}"))
+            hits.append(_hit(item, label, default_spec=f"{market}/{name}"))
     return result
+
+
+def _is_codex_catalog(payload: Any) -> bool:
+    """A Codex catalog has a top-level ``interface`` and per-entry ``policy``."""
+    if not isinstance(payload, dict):
+        return False
+    if isinstance(payload.get("interface"), dict):
+        return True
+    return any(isinstance(item.get("policy"), dict) for item in _items(payload))
 
 
 def _reason(exc: BaseException) -> str:
@@ -381,16 +401,66 @@ async def _clone(url: str, target: Path) -> None:
         raise InstallError(f"git clone {url} failed: {(err or b'').decode('utf-8', 'replace')}")
 
 
+#: Where a bundle's manifest may live, and the format each one marks it as.
+MANIFEST_PATHS: tuple[tuple[str, BundleFormat], ...] = (
+    ("plugin.json", FORMAT_CLAUDE),
+    (".claude-plugin/plugin.json", FORMAT_CLAUDE),
+    (".codex-plugin/plugin.json", FORMAT_CODEX),
+)
+
+
 def read_plugin_json(root: Path) -> dict[str, Any]:
-    """``plugin.json`` from the root or from ``.claude-plugin/``."""
-    for candidate in (root / "plugin.json", root / ".claude-plugin" / "plugin.json"):
+    """``plugin.json`` from the root, ``.claude-plugin/`` or ``.codex-plugin/``."""
+    for relative, _format in MANIFEST_PATHS:
         try:
-            raw = json.loads(candidate.read_text(encoding="utf-8"))
+            raw = json.loads((root / relative).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         if isinstance(raw, dict):
             return raw
     return {}
+
+
+def plugin_format(root: Path) -> BundleFormat:
+    """``codex`` for a ``.codex-plugin/plugin.json`` bundle, ``claude`` for a
+    ``plugin.json`` one (root or ``.claude-plugin/``), else ``snowpea``."""
+    for relative, fmt in MANIFEST_PATHS:
+        if (root / relative).is_file():
+            return fmt
+    return FORMAT_SNOWPEA
+
+
+def plugin_title(manifest: dict[str, Any]) -> str:
+    """A Codex manifest's ``interface.displayName``; empty when it has none."""
+    interface = manifest.get("interface")
+    if isinstance(interface, dict):
+        return str(interface.get("displayName") or "").strip()
+    return ""
+
+
+def needs_codex_apps(root: Path, manifest: dict[str, Any]) -> bool:
+    """True for a Codex plugin that ships app connectors (``.app.json``),
+    which snowpea cannot run: its skills still load, its apps do not."""
+    return bool(manifest.get("apps")) or (root / ".app.json").is_file()
+
+
+def _entry_source(item: dict[str, Any]) -> str:
+    """A catalog entry's ``source`` as one string.
+
+    Claude Code writes a string (``./plugins/x`` or a URL); a Codex catalog
+    (``.agents/plugins/marketplace.json``) writes ``{"source": "local",
+    "path": "./plugins/x"}``, and either may name a ``url`` or a GitHub
+    ``repo`` the same way.
+    """
+    value = item.get("source")
+    if isinstance(value, dict):
+        for key in ("path", "url"):
+            text = str(value.get(key) or "").strip()
+            if text:
+                return text
+        repo = str(value.get("repo") or "").strip()
+        return f"https://github.com/{repo}" if repo else ""
+    return str(value or "").strip()
 
 
 async def resolve_marketplace_entry(spec: str, home: Path | str) -> str | None:
@@ -408,7 +478,7 @@ async def resolve_marketplace_entry(spec: str, home: Path | str) -> str | None:
         for item in _items(payload):
             if str(item.get("name") or "") != plugin:
                 continue
-            source = str(item.get("source") or item.get("url") or "").strip()
+            source = _entry_source(item) or str(item.get("url") or "").strip()
             if not source:
                 return entry.get("repo") or None
             if source.startswith(("http://", "https://", "git@")):
@@ -527,9 +597,16 @@ async def _install_bundle(source: str, plugins_dir: Path, home: Path | str) -> P
     if "/" in spec:
         resolved = await resolve_marketplace_entry(spec, home)
         if resolved:
-            url, _, _subdir = resolved.partition("#")
+            url, _, subdir = resolved.partition("#")
             target = plugins_dir / spec.split("/", 1)[1]
-            await _clone(url, target)
+            inside = subdir.strip() if subdir.strip() not in ("", ".", "./") else None
+            local_repo = Path(url).expanduser()
+            if inside and local_repo.is_dir():
+                # A marketplace checked out on this machine: copy the
+                # plugin's own directory, the way Codex installs from one.
+                _copy_subdir(local_repo, inside, target)
+            else:
+                await _clone_subdir(url, inside, target)
             return target
 
     raise InstallError(
@@ -622,6 +699,7 @@ async def _fallback_install(spec: str, plugins_dir: Path, home: Path | str) -> P
 GITHUB_MARKETPLACE_PATHS: tuple[str, ...] = (
     ".claude-plugin/marketplace.json",
     "marketplace.json",
+    ".agents/plugins/marketplace.json",
 )
 
 
@@ -697,7 +775,7 @@ async def _find_plugin_source(manifest_url: str, plugin: str) -> str | None:
         return None
     for item in _items(payload):
         if str(item.get("name") or "") == plugin:
-            return str(item.get("source") or "").strip() or None
+            return _entry_source(item) or None
     return None
 
 
@@ -711,18 +789,25 @@ async def _clone_subdir(url: str, subdir: str | None, target: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="snowpea-clone-") as tmp:
         checkout = (Path(tmp) / "repo").resolve()
         await _clone(url, checkout)
-        cleaned = subdir.strip("/").replace("\\", "/")
-        if not cleaned or "\x00" in cleaned or any(part == ".." for part in cleaned.split("/")):
-            raise InstallError(f"{url}#{subdir}: unsafe subdirectory")
-        source_dir = (checkout / cleaned).resolve()
-        if source_dir != checkout and checkout not in source_dir.parents:
-            raise InstallError(f"{url}#{subdir}: unsafe subdirectory")
-        if not source_dir.is_dir():
-            raise InstallError(f"{url}#{subdir}: no such directory in the repo")
-        if target.exists():
-            shutil.rmtree(target)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(source_dir, target)
+        _copy_subdir(checkout, subdir, target, label=url)
+
+
+def _copy_subdir(checkout: Path, subdir: str, target: Path, *, label: str = "") -> None:
+    """Copy ``checkout/subdir`` to ``target``, refusing a path that leaves it."""
+    checkout = checkout.resolve()
+    where = f"{label or checkout}#{subdir}"
+    cleaned = subdir.strip().replace("\\", "/").strip("/")
+    if not cleaned or "\x00" in cleaned or any(part == ".." for part in cleaned.split("/")):
+        raise InstallError(f"{where}: unsafe subdirectory")
+    source_dir = (checkout / cleaned).resolve()
+    if source_dir != checkout and checkout not in source_dir.parents:
+        raise InstallError(f"{where}: unsafe subdirectory")
+    if not source_dir.is_dir():
+        raise InstallError(f"{where}: no such directory in the repo")
+    if target.exists():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_dir, target)
 
 
 def _name_from_spec(spec: str) -> str:
@@ -807,7 +892,12 @@ __all__ = [
     "MAX_EXTRACTED_BYTES",
     "SHORTCUTS",
     "SOURCES",
+    "BundleFormat",
+    "FORMAT_CLAUDE",
+    "FORMAT_CODEX",
+    "FORMAT_SNOWPEA",
     "SOURCE_CLAUDE",
+    "SOURCE_CODEX",
     "SOURCE_REGISTRY",
     "SearchReport",
     "SkillHit",
@@ -816,7 +906,10 @@ __all__ = [
     "is_bare_skill",
     "is_git_url",
     "load_marketplaces",
+    "needs_codex_apps",
+    "plugin_format",
     "plugin_name_from",
+    "plugin_title",
     "read_plugin_json",
     "resolve_marketplace_entry",
     "save_marketplaces",

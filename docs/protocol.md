@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.51.0` (semver)
+- **Protocol version:** `1.52.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.51.0"
+    "protocolVersion": "1.52.0"
   }
 }
 ```
@@ -365,7 +365,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `agents` | `({ active?: boolean \| null; agentId?: string \| null; agents?: string[]; bindings?: string[]; channel?: string \| null; channels?: string[]; description?: string; hasGuide?: boolean \| null; jobs?: string[]; kind?: string; name: string; namespace?: string \| null; parentSessionId?: string \| null; path?: string \| null; sessionId?: string \| null; source?: string; stages?: Record<string, string>; status?: string \| null; task?: string \| null; })[]` | no | Defined named agents. |
+| `agents` | `({ active?: boolean \| null; agentId?: string \| null; agents?: string[]; bindings?: string[]; channel?: string \| null; channels?: string[]; description?: string; format?: "snowpea" \| "claude" \| "codex"; hasGuide?: boolean \| null; jobs?: string[]; kind?: string; name: string; namespace?: string \| null; parentSessionId?: string \| null; path?: string \| null; sessionId?: string \| null; source?: string; stages?: Record<string, string>; status?: string \| null; task?: string \| null; })[]` | no | Defined named agents. |
 
 ### `agent.spawn`
 
@@ -784,7 +784,7 @@ List the slash commands available to a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `commands` | `({ argsSchema?: Record<string, unknown>; name: string; source?: string; summary: string; })[]` | no | Available slash commands. |
+| `commands` | `({ argsSchema?: Record<string, unknown>; format?: "snowpea" \| "claude" \| "codex"; name: string; source?: string; summary: string; })[]` | no | Available slash commands. |
 
 ### `command.run`
 
@@ -3270,7 +3270,7 @@ List installed skills.
 
 | field | type | required | description |
 |---|---|---|---|
-| `skills` | `({ downloads?: number; enabled?: boolean; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Installed skills. |
+| `skills` | `({ downloads?: number; enabled?: boolean; format?: "snowpea" \| "claude" \| "codex"; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; note?: string; rating?: number; source?: string; summary?: string; title?: string; })[]` | no | Installed skills. |
 
 ### `skill.read`
 
@@ -3293,8 +3293,9 @@ Read a skill's SKILL.md.
 | field | type | required | description |
 |---|---|---|---|
 | `content` | `string` | yes | Its full text. |
+| `format` | `"snowpea" \| "claude" \| "codex"` | no | The layout it was written for (1.52.0): snowpea, claude (Claude Code format) or codex (Codex format). |
 | `path` | `string` | yes | Where the SKILL.md was found. |
-| `readOnly` | `boolean` | no | True when skill.write cannot save this file (1.33.0): a built-in or plugin skill, or one under Claude Code's own skills directory. |
+| `readOnly` | `boolean` | no | True when skill.write cannot save this file (1.33.0): a built-in or plugin skill, or one under Claude Code's or (1.52.0) Codex's own directories. |
 | `scope` | `"project" \| "global" \| "builtin" \| "plugin"` | yes | 'project' or 'global', or (1.33.0) 'builtin' for a skill that ships with the engine and 'plugin' for one a plugin brings. |
 
 ### `skill.reload`
@@ -3351,7 +3352,7 @@ Search available skills.
 | field | type | required | description |
 |---|---|---|---|
 | `notIncluded` | `({ label: string; reason?: string; })[]` | no | Hubs the registry has deliberately switched off (not failures). Clients should mention them quietly, never as an outage. |
-| `skills` | `({ downloads?: number; enabled?: boolean; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Matching skills. |
+| `skills` | `({ downloads?: number; enabled?: boolean; format?: "snowpea" \| "claude" \| "codex"; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; note?: string; rating?: number; source?: string; summary?: string; title?: string; })[]` | no | Matching skills. |
 | `unavailable` | `string[]` | no | Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. |
 
 ### `skill.write`
@@ -3971,7 +3972,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `commands` | `({ argsSchema?: Record<string, unknown>; name: string; source?: string; summary: string; })[]` | no | The command table as it stands now. |
+| `commands` | `({ argsSchema?: Record<string, unknown>; format?: "snowpea" \| "claude" \| "codex"; name: string; source?: string; summary: string; })[]` | no | The command table as it stands now. |
 | `reason` | `string` | no | Why the table changed. |
 
 ### `gateway.event`

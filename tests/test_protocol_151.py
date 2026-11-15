@@ -32,7 +32,8 @@ CHECKPOINT = "Checkpoint.\n\n## Remaining (next turn)\n1. fix the router\n2. bui
 
 
 def test_the_version() -> None:
-    assert PROTOCOL_VERSION == "1.51.0"
+    # 1.51.0 or any later additive version.
+    assert tuple(int(part) for part in PROTOCOL_VERSION.split(".")) >= (1, 51, 0)
 
 
 # ---------------------------------------------------------------------------

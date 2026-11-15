@@ -737,6 +737,11 @@ class SkillsSettings(_Model):
     #: ``enabled: false``), readable and removable.  ``<plugin>:<name>`` names
     #: one plugin's copy.
     disabled: list[str] = Field(default_factory=list)
+    #: Read what Codex has installed (``$CODEX_HOME``, else ``~/.codex``):
+    #: its plugins, skills, prompts and agent roles, and a project's
+    #: ``.agents/skills``.  Claude Code's tree has no switch: it is read
+    #: whenever it exists.
+    importCodex: bool = True
 
 
 class Settings(_Model):

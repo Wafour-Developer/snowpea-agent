@@ -1,6 +1,6 @@
 # 플러그인과 스킬
 
-snowpea는 Claude Code 플러그인 배치를 그대로 읽습니다. Claude Code용으로 쓰인 플러그인은 수정 없이 여기서 설치되고 돌아가며, 이미 `.claude/` 디렉터리가 있는 저장소는 아무것도 바꾸지 않아도 그대로 동작합니다.
+snowpea는 Claude Code와 Codex의 플러그인 배치를 그대로 읽습니다. Claude Code용이나 Codex용으로 쓰인 플러그인은 수정 없이 여기서 설치되고 돌아가며, 이미 `.claude/` 디렉터리가 있는 저장소는 아무것도 바꾸지 않아도 그대로 동작하고, 이 컴퓨터에 Claude Code와 Codex가 설치해 둔 것도 저절로 보입니다.
 
 ## 무엇이 무엇인가
 
@@ -9,12 +9,30 @@ snowpea는 Claude Code 플러그인 배치를 그대로 읽습니다. Claude Cod
 | 종류 | 형식 | 위치 | 프로젝트 폴더에 둘 수 있나 | 데몬 안에서 코드 실행 |
 |---|---|---|---|---|
 | **스킬** | `SKILL.md` — Claude Code·Codex 공통 공개 표준(agentskills.io) | 홈 또는 프로젝트의 `skills/` | 예 | 아니요, 지시문일 뿐 |
-| **플러그인 (Claude Code 형식)** | 스킬·명령·에이전트·훅·MCP 서버 묶음 | `$SNOWPEA_HOME/plugins/` | 아니요, 홈에만 | 아니요. 훅과 MCP 서버는 승인한 명령을 실행 |
+| **플러그인 (Claude Code 형식)** | `plugin.json` 또는 `.claude-plugin/plugin.json`이 있는 스킬·명령·에이전트·훅·MCP 서버 묶음 | `$SNOWPEA_HOME/plugins/` | 아니요, 홈에만 | 아니요. 훅과 MCP 서버는 승인한 명령을 실행 |
+| **플러그인 (Codex 형식)** | `.codex-plugin/plugin.json`이 있는 같은 묶음(스킬, `commands/`, `agents/*.md`, `hooks.json`, `.mcp.json`). 앱 커넥터(`.app.json`)는 지원하지 않음 | `$SNOWPEA_HOME/plugins/` | 아니요, 홈에만 | 아니요. 훅과 MCP 서버는 승인한 명령을 실행 |
 | **확장** (snowpea 확장 형식, Python) | `apply(ctx)`를 정의한 `plugin.py` | `$SNOWPEA_HOME/extensions/<이름>/` | 아니요, 홈에만 | 예, 데몬 안의 Python. 신뢰 필요 |
 
 확장은 DeepSeek Harness의 설계를 본떴지만 DeepSeek Harness 플러그인과 호환되지 않습니다.
 
-플러그인 묶음은 Claude Code 형식만 읽습니다. snowpea는 Codex 고유 폴더(`~/.codex`)나 Codex 번들은 읽지 않습니다. Codex용으로 쓴 스킬은 그 폴더를 snowpea 스킬 위치에 두면 동작합니다. 프로젝트 지침 파일 `AGENTS.md`는 `CLAUDE.md`와 함께 읽습니다.
+모든 스킬·명령·에이전트·플러그인은 자기가 쓰인 `format` — `snowpea`, `claude`, `codex` — 을 기록하고, `skill.list`, `skill.read`, `command.list`, `agent.list`가 그것을 함께 돌려줍니다(프로토콜 1.52.0). 프로젝트 지침 파일 `AGENTS.md`는 `CLAUDE.md`와 함께 읽습니다.
+
+## Claude Code와 Codex에서 읽어 오는 것
+
+snowpea에 설치한 것 말고도, 재적재할 때마다 다른 두 도구가 이 컴퓨터에 설치해 둔 것을 읽습니다. 이 항목들은 여기서 읽기 전용입니다. `skill.read`는 `readOnly: true`로 답하고, `skill.write`는 그 폴더에 쓰지 않으며, `skill.remove`도 닿지 않습니다 — 지우려면 설치한 도구에서 지우세요.
+
+| | Claude Code (`$CLAUDE_CONFIG_DIR`, 없으면 `~/.claude`) | Codex (`$CODEX_HOME`, 없으면 `~/.codex`) |
+|---|---|---|
+| 설치된 플러그인 | `plugins/installed_plugins.json`. `settings.json`의 `enabledPlugins`가 false로 둔 것은 건너뜀 — 출처 `claude-plugin` | `plugins/cache/<marketplace>/<plugin>/<version>/`(플러그인마다 가장 새 버전). `config.toml`의 `[plugins."<plugin>@<marketplace>"] enabled = false`는 건너뜀 — 출처 `codex-plugin` |
+| 플러그인에서 읽는 것 | 스킬, 명령, 에이전트 | 스킬, 명령, 에이전트. 앱 커넥터(`.app.json`)가 있는 플러그인은 `needs Codex apps` 메모와 함께 목록에 나오고 스킬은 그대로 적재됨 |
+| 사용자 수준 | `skills/`, `agents/*.md`, `commands/*.md` — 출처 `claude-global` | `skills/<name>/`(Codex 자체의 `skills/.system`은 제외), 명령으로 `prompts/*.md`, 에이전트 정의로 `agents/*.toml` — 출처 `codex-global` |
+| 프로젝트 수준 | `<project>/.claude/{skills,agents,commands}/` — 출처 `claude-project` | `<project>/.agents/skills/` — 출처 `codex-project` |
+| 가져오지 않는 것 | 설치된 플러그인의 훅과 MCP 서버 | 설치된 플러그인의 훅과 MCP 서버, `hooks.json`, `config.toml`의 `[mcp_servers]` |
+| 스위치 | 없음: 폴더가 있으면 늘 읽음 | `skills.importCodex`(`true`). `false`이면 Codex에서 아무것도 읽지 않음 |
+
+훅과 MCP 서버를 가져오지 않는 이유는, 그것들이 사용자를 대신해 명령을 실행하고, 사용자는 그것을 snowpea가 아니라 Claude Code나 Codex에 승인했기 때문입니다. 그 훅과 서버도 여기서 쓰고 싶다면 플러그인을 snowpea에 설치하세요(아래). Codex 에이전트 역할(`agents/<name>.toml`)은 이렇게 에이전트 정의가 됩니다: `name`, `description`, `model`은 그대로, `developer_instructions`는 프롬프트로, `model_reasoning_effort`는 `thinking`으로(`none`·`minimal`은 off, 그 밖의 수준은 on), `sandbox_mode = "read-only"`는 `permission: plan`으로. `nickname_candidates`, `mcp_servers` 등 나머지는 대응하는 것이 없어 무시합니다. 가져온 에이전트는 내장 역할(`explore`, `architect`, …)의 이름을 차지하지 않습니다. 플러그인에서 온 것은 `<plugin>:<name>`으로 남고, 플러그인이 없는 것은 빠집니다.
+
+이름이 겹치면 snowpea 자체 복사본이 Claude Code 것을, Claude Code 것이 Codex 것을 이깁니다. 예전 규칙 하나는 그대로입니다: Claude Code 전역 스킬(`~/.claude/skills`)은 같은 이름의 snowpea 전역 스킬을 가립니다. Codex 안에서는 프로젝트 스킬이 전역 스킬을, 전역 스킬이 플러그인의 것을 이깁니다.
 
 ## 배치
 
@@ -28,7 +46,7 @@ my-plugin/
   .mcp.json              # 이 플러그인이 가져오는 MCP 서버
 ```
 
-`plugin.json` 대신 `.claude-plugin/plugin.json`도 받아들입니다. 마켓플레이스 저장소는 루트에 `plugins: [{name, source}]`를 나열하는 `marketplace.json`을 둡니다.
+`plugin.json` 대신 `.claude-plugin/plugin.json`(Claude Code 형식)이나 `.codex-plugin/plugin.json`(Codex 형식)도 받아들입니다. Codex 매니페스트의 `interface.displayName`은 플러그인의 `title`로 보입니다. `${CLAUDE_PLUGIN_ROOT}`, `${SNOWPEA_PLUGIN_ROOT}`, Codex의 `${PLUGIN_ROOT}`는 모두 플러그인 디렉터리로 펼쳐집니다. 마켓플레이스 저장소는 루트(또는 `.claude-plugin/`)에 `plugins: [{name, source}]`를 나열하는 `marketplace.json`을 둡니다. Codex 마켓플레이스는 카탈로그를 `.agents/plugins/marketplace.json`에 두고, `source`는 `{"source": "local", "path": "./plugins/<name>"}` 꼴입니다.
 
 ## 스킬 만들기
 
@@ -58,7 +76,9 @@ snowpea skill remove my-plugin
 
 설치는 플러그인을 `$SNOWPEA_HOME/plugins/<name>`에 복사하고 레지스트리를 재적재합니다. 재적재는 `commands.changed` 알림을 내보내므로, TUI는 재시작 없이 팔레트를 새로 고칩니다.
 
-Plugins installed in Claude Code are visible automatically: Claude Code에 설치된 플러그인은 자동으로 인식됩니다. snowpea는 재적재할 때마다 `~/.claude/plugins/installed_plugins.json`을 스캔하여 스킬·명령·에이전트를 `claude-plugin` 출처로 등록하며, `~/.claude/settings.json`의 `enabledPlugins`에서 false로 지정된 항목은 건너뜁니다. 같은 이름의 플러그인이나 스킬이 snowpea에 이미 설치되어 있다면 snowpea 복사본이 우선하고 Claude 복사본은 건너뜁니다.
+Codex 형식 폴더도 같은 방법으로 설치합니다: `snowpea skill install ./cloudflare`는 그것을 `.codex-plugin/plugin.json`의 이름으로 `$SNOWPEA_HOME/plugins/<name>`에 복사하고, 그때부터 그 훅과 `.mcp.json` 서버는 다른 플러그인과 똑같이 돌아갑니다.
+
+Claude Code나 Codex에 설치된 플러그인은 여기에 설치하지 않아도 자동으로 보입니다([Claude Code와 Codex에서 읽어 오는 것](#claude-code와-codex에서-읽어-오는-것) 참고). 같은 이름의 플러그인이나 스킬이 snowpea에 설치되어 있으면 snowpea 복사본이 우선하고 다른 복사본은 건너뜁니다.
 
 TUI 안에서 에이전트에게 부탁해도 됩니다. "pdf 관련 스킬 찾아줘"라고 하면 `skill_search`를 호출해 후보와 각각의 install spec을 보여주고, "두 번째 거 설치해줘"라고 하면 그 spec으로 `skill_install`을 호출합니다. `skill_list`는 이미 설치된 것을, `skill_remove`는 플러그인 삭제를 담당합니다. 검색과 목록은 `read` 툴이라 묻지 않고 바로 실행되고, 설치와 삭제는 `exec`이라 accept 모드에서는 먼저 물어보고 plan 모드에서는 거부됩니다 — 승인하지 않은 설치는 일어나지 않습니다. 설치하면 그 자리에서 재적재되고, 에이전트가 새로 생긴 `/commands`·에이전트·MCP 서버를 알려줍니다.
 
@@ -69,7 +89,7 @@ snowpea skill search "pdf"
 snowpea skill search "code review" --json
 ```
 
-두 출처가 함께 조회됩니다: `claude-marketplace`(등록된 모든 마켓플레이스 저장소의 `marketplace.json`)와 `registry.snowpea.ai`에 호스팅되는 레지스트리 — 이 레지스트리 자체가 다른 스킬 허브들을 **연합(federate)**하므로, 한 번의 호출로 여러 곳의 결과가 함께 돌아올 수 있습니다. 각 결과는 실제로 나온 `source`를 달고 나옵니다: `local`(레지스트리에 직접 배포된 스킬), `clawhub`(ClawHub), `claude-marketplaces`(레지스트리가 미러링하는 GitHub 기반 Claude Code 마켓플레이스) — `snowpea skill search` 출력에는 사람이 읽을 라벨(예: `ClawHub`)로 보입니다. 한 허브, 또는 레지스트리 전체가 응답하지 않아도 검색 전체가 실패하지 않고 그만큼만 빠집니다 — 어떤 허브가 살아 있는지는 `snowpea skill sources`로 확인하세요.
+두 출처가 함께 조회됩니다: `claude-marketplace`(등록된 모든 마켓플레이스 저장소의 `marketplace.json`. Codex 꼴 카탈로그에서 나온 결과는 `codex-marketplace`로 표시)와 `registry.snowpea.ai`에 호스팅되는 레지스트리 — 이 레지스트리 자체가 다른 스킬 허브들을 **연합(federate)**하므로, 한 번의 호출로 여러 곳의 결과가 함께 돌아올 수 있습니다. 각 결과는 실제로 나온 `source`를 달고 나옵니다: `local`(레지스트리에 직접 배포된 스킬), `clawhub`(ClawHub), `claude-marketplaces`(레지스트리가 미러링하는 GitHub 기반 Claude Code 마켓플레이스) — `snowpea skill search` 출력에는 사람이 읽을 라벨(예: `ClawHub`)로 보입니다. 한 허브, 또는 레지스트리 전체가 응답하지 않아도 검색 전체가 실패하지 않고 그만큼만 빠집니다 — 어떤 허브가 살아 있는지는 `snowpea skill sources`로 확인하세요.
 
 ```bash
 snowpea skill search "planning" --source registry
@@ -95,7 +115,7 @@ snowpea skill publish ./my-skill                 # 압축 + 검증 + 업로드
 snowpea skill rate ralplan 5 --comment "좋아요"   # 1-5점, 호출자당 하나
 ```
 
-`skill install`은 검색 결과가 내놓는 어떤 설치 스펙이든 받아들입니다. `registry:<id>`(로컬에 배포된 스킬)와 `clawhub:<id>`는 레지스트리 자체의 다운로드 프록시로 풀립니다. `github:<owner>/<repo>[@plugin]`(레지스트리가 미러링하는 Claude Code 마켓플레이스 항목에 대해 돌려주는 형태)은 대신 곧바로 `git clone`됩니다 — 이 스펙은 레지스트리 id와 같은 문자열이 아니라서, 레지스트리에 다운로드를 요청하면 항상 404가 나기 때문입니다. GitHub URL처럼 저장소 안의 디렉터리를 지정할 수도 있습니다 — `github:anthropics/skills/skills/docx`는 그 디렉터리만 자기 이름으로 설치합니다. `@plugin`도 경로도 없으면 저장소 전체를 클론하고, `@plugin`이 있으면 그 플러그인의 디렉터리만 설치합니다 — 같은 저장소를 가리키는 로컬에 등록된 마켓플레이스에서, 그마저 없으면 GitHub의 저장소 자체 `marketplace.json`에서 그 위치를 찾습니다. 결과의 `id`(`skill search --json`에 표시됨)를 그대로 쓸 수도 있습니다 — 로컬에 배포된 사본을 id로 바로 설치하려면 `skill install registry:<id>`.
+`skill install`은 검색 결과가 내놓는 어떤 설치 스펙이든 받아들입니다. `registry:<id>`(로컬에 배포된 스킬)와 `clawhub:<id>`는 레지스트리 자체의 다운로드 프록시로 풀립니다. `github:<owner>/<repo>[@plugin]`(레지스트리가 미러링하는 Claude Code 마켓플레이스 항목에 대해 돌려주는 형태)은 대신 곧바로 `git clone`됩니다 — 이 스펙은 레지스트리 id와 같은 문자열이 아니라서, 레지스트리에 다운로드를 요청하면 항상 404가 나기 때문입니다. GitHub URL처럼 저장소 안의 디렉터리를 지정할 수도 있습니다 — `github:anthropics/skills/skills/docx`는 그 디렉터리만 자기 이름으로 설치합니다. `@plugin`도 경로도 없으면 저장소 전체를 클론하고, `@plugin`이 있으면 그 플러그인의 디렉터리만 설치합니다 — 같은 저장소를 가리키는 로컬에 등록된 마켓플레이스에서, 그마저 없으면 GitHub에 있는 저장소 자체의 `.claude-plugin/marketplace.json`, `marketplace.json`, Codex의 `.agents/plugins/marketplace.json`에서 그 위치를 찾습니다 — 그래서 `github:openai/plugins@linear`는 Codex 큐레이션 저장소에서 플러그인 하나만 설치합니다. 등록된 마켓플레이스의 `<marketplace>/<plugin>`도 그 플러그인 디렉터리만 설치하며, 이 컴퓨터에 체크아웃된 마켓플레이스라면 거기서 바로 복사합니다. 결과의 `id`(`skill search --json`에 표시됨)를 그대로 쓸 수도 있습니다 — 로컬에 배포된 사본을 id로 바로 설치하려면 `skill install registry:<id>`.
 
 `publish`는 `<dir>/SKILL.md`를 읽어 프런트매터를 로컬에서 먼저 검사합니다
 (`name`은 `^[a-z0-9][a-z0-9._-]{1,63}$`를 만족해야 하고, `description`은
@@ -276,19 +296,21 @@ RPC(프로토콜 1.33.0)에서 `mcp.add`는 두 가지 답을 따로 받습니�
 | `indexMaxEntries` | `60` | "… and K more"로 접기 전까지 몇 개를 나열할지 |
 | `protectRecentViews` | `2` | 압축이 건드리지 않는 `skill_view` 결과의 턴 수 |
 | `disabled` | `[]` | 꺼 둔 스킬과 명령(1.34.0) |
+| `importCodex` | `true` | Codex가 설치한 것(`$CODEX_HOME`, 없으면 `~/.codex`)과 프로젝트의 `.agents/skills`를 읽음 |
 
 `skills.disabled`(capability `skillToggle`)는 스킬·명령 이름, 또는 한 플러그인의 사본만 가리키는 `<plugin>:<name>`을 받습니다. 꺼진 스킬은 색인·슬래시 명령·`autoInject`에서 빠지고 `skill_view`도 거절합니다. `skill.list`에는 `enabled: false`로 계속 나오고, `skill.read`와 `skill.remove`도 그대로 닿습니다. `settings.set`으로 목록을 바꾸면 스킬 재적재처럼 곧바로 반영됩니다. 새 세션은 새 색인을 보고, 실행 중인 세션은 다음 압축 전까지 시작할 때의 색인을 유지합니다. 목록이 비어 있으면 프롬프트는 바이트 하나까지 예전과 같습니다.
 
 ## 어디서 찾고, 누가 이기는가
 
-루트는 다음 순서로 훑고, 이름이 겹치면 나중 것이 이깁니다.
+루트는 다음 순서로 훑고, 이름이 겹치면 나중 것이 이깁니다. 단 Claude Code·Codex의 설치된 플러그인과 Codex 폴더에서 온 것은 이미 적재된 항목을 바꾸지 않습니다.
 
 1. 내장 — `core/snowpea_core/builtin_skills/`
-2. 전역 — `$SNOWPEA_HOME/{skills,agents,commands}/`
-3. 플러그인 — `$SNOWPEA_HOME/plugins/*/`
+2. 전역 — `$SNOWPEA_HOME/{skills,agents,commands}/`, 그다음 Claude Code의 `~/.claude/{skills,agents,commands}/`
+3. 플러그인 — `$SNOWPEA_HOME/plugins/*/`, 그다음 Claude Code에 설치된 플러그인
 4. 프로젝트 — `<project>/.claude/{skills,agents,commands}/`, 그다음 `<project>/.snowpea/{skills,agents,commands}/`
+5. Codex — `<project>/.agents/skills/`, 그다음 `~/.codex/{skills,prompts,agents}`, 그다음 Codex에 설치된 플러그인
 
-그래서 프로젝트 스킬은 같은 이름의 플러그인 스킬을 덮어쓰고, 플러그인은 내장을 덮어씁니다. 로더는 각각이 어디서 왔는지 기록하고, `skill list`가 그것을 보여줍니다.
+그래서 프로젝트 스킬은 같은 이름의 플러그인 스킬을 덮어쓰고, 플러그인은 내장을 덮어쓰며, Codex에서 온 것은 snowpea나 Claude Code의 어떤 것도 덮어쓰지 않습니다. 로더는 각각이 어디서 왔는지 기록하고, `skill list`가 그것을 보여줍니다.
 
 `SKILL.md` 하나만 든 디렉터리는 번들이 아니라 스킬 **하나**입니다. 그런 소스를 설치하면 `plugins/`가 아니라 `$SNOWPEA_HOME/skills/<name>/`에 들어갑니다. 이미 `plugins/` 아래에 있는 맨 스킬도 그대로 동작합니다 — 스킬로 등록되고, 로그가 원래 있어야 할 자리를 알려줍니다.
 
@@ -297,7 +319,7 @@ RPC(프로토콜 1.33.0)에서 `mcp.add`는 두 가지 답을 따로 받습니�
 적재는 세 시점에 일어나므로, `/command`를 쓰려고 재시작할 일은 없습니다.
 
 - **데몬 시작 시.** 내장, `$SNOWPEA_HOME/{skills,agents,commands}`, 설치된 모든 플러그인, 그리고 데몬이 아직 기억하는 모든 세션의 프로젝트 디렉터리 — 닫힌 세션까지 포함해, 실제로 존재하는 디렉터리 최대 50개. `$SNOWPEA_HOME/.mcp.json`에 선언된 서버도 여기서 시작하므로, 세션을 열기 전에 이미 그 툴이 `tool.list`에 있습니다.
-- **`session.create`와 `session.resume` 시.** 첫 턴 전에 그 세션의 작업 디렉터리(`<workdir>/.claude`, `<workdir>/.snowpea`)를 다시 훑습니다. 새로 받은 체크아웃의 스킬이 곧바로 쓰이는 이유입니다. 프로젝트 자체의 `.mcp.json` 서버도 같은 시점에 시작합니다.
+- **`session.create`와 `session.resume` 시.** 첫 턴 전에 그 세션의 작업 디렉터리(`<workdir>/.claude`, `<workdir>/.snowpea`, `<workdir>/.agents/skills`)를 다시 훑습니다. 새로 받은 체크아웃의 스킬이 곧바로 쓰이는 이유입니다. 프로젝트 자체의 `.mcp.json` 서버도 같은 시점에 시작합니다.
 - **설치·삭제·`/skill create` 뒤.** 그 자리에서 전체 재적재.
 
 각 시점마다 `commands.changed`를 방송하므로 TUI 팔레트와 데스크톱 앱이 재시작 없이 갱신됩니다. `skill.list`·`command.list`·`tool.list`가 즉시 반영합니다.

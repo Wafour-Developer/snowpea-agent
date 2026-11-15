@@ -126,7 +126,8 @@ class AgentDefinition:
     #: Where it was read from, when it came off disk.
     path: Path | None = None
     #: ``builtin`` | ``global`` | ``project`` | ``claude-global`` |
-    #: ``claude-project`` | ``claude-plugin`` | ``plugin:<name>``.
+    #: ``claude-project`` | ``claude-plugin`` | ``codex-global`` |
+    #: ``codex-plugin`` | ``plugin:<name>``.
     source: str = "project"
     _source_key: str | None = None
 
@@ -402,6 +403,46 @@ def parse_agent_text(
         path=path,
         source=source,
         _source_key=source_key,
+    )
+
+
+#: Codex ``model_reasoning_effort`` values that mean "do not think".
+CODEX_NO_EFFORT = frozenset({"none", "minimal"})
+
+
+def parse_codex_agent_toml(path: Path | str, *, source: str = "codex-global") -> AgentDefinition:
+    """Read one Codex agent role (``~/.codex/agents/<name>.toml``).
+
+    ``name``, ``description`` and ``model`` carry over as they are;
+    ``developer_instructions`` is the prompt; ``model_reasoning_effort``
+    becomes ``thinking`` (``none``/``minimal`` off, any other level on);
+    ``sandbox_mode = "read-only"`` becomes ``permission: plan`` — a role may
+    narrow its child's mode, never widen it, so the other sandbox modes
+    inherit.  Everything else (``nickname_candidates``, ``mcp_servers``,
+    ``approval_policy``, provider and tool settings) has no equivalent here
+    and is ignored.
+    """
+    import tomllib
+
+    file_path = Path(path)
+    try:
+        with file_path.open("rb") as handle:
+            meta = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise DefinitionError(f"cannot read Codex agent {file_path}: {exc}") from exc
+    raw_name = str(meta.get("name") or file_path.stem).strip()
+    effort = str(meta.get("model_reasoning_effort") or "").strip().lower()
+    thinking = "inherit" if not effort else ("off" if effort in CODEX_NO_EFFORT else "on")
+    sandbox = str(meta.get("sandbox_mode") or "").strip().lower()
+    return AgentDefinition(
+        name=validate_name(raw_name),
+        description=str(meta.get("description") or ""),
+        model=str(meta.get("model") or "inherit"),
+        permission="plan" if sandbox == "read-only" else "inherit",
+        thinking=thinking,
+        prompt=str(meta.get("developer_instructions") or ""),
+        path=file_path,
+        source=source,
     )
 
 
@@ -685,6 +726,7 @@ __all__ = [
     "builtin_agent_definitions",
     "parse_agent_md",
     "parse_agent_text",
+    "parse_codex_agent_toml",
     "parse_generated_json",
     "render_agent_md",
     "slugify",

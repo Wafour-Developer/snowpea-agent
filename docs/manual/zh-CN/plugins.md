@@ -2,7 +2,7 @@
 
 [English](../en/plugins.md) · [한국어](../ko/plugins.md) · [全部页面](../README.md)
 
-snowpea 直接读取 Claude Code 的插件目录布局。为 Claude Code 写的插件不用改动就能在这里安装并运行，而一个已经有 `.claude/` 目录的仓库则完全不需要任何改动。
+snowpea 直接读取 Claude Code 和 Codex 的插件目录布局。为 Claude Code 或 Codex 写的插件不用改动就能在这里安装并运行，一个已经有 `.claude/` 目录的仓库完全不需要任何改动，而 Claude Code 和 Codex 在这台机器上安装的东西也会自动出现。
 
 ## 各是什么
 
@@ -11,12 +11,30 @@ snowpea 直接读取 Claude Code 的插件目录布局。为 Claude Code 写的�
 | 种类 | 格式 | 位置 | 项目文件夹可否携带 | 代码是否在守护进程内运行 |
 |---|---|---|---|---|
 | **技能（Skill）** | `SKILL.md` —— Claude Code 与 Codex 共用的开放标准（agentskills.io） | 主目录或项目的 `skills/` | 可以 | 否，只是说明 |
-| **插件（Claude Code 格式）** | 技能、命令、agent、hook、MCP server 的打包 | `$SNOWPEA_HOME/plugins/` | 不可以，仅主目录 | 否；其 hook 与 MCP server 启动你已批准的命令 |
+| **插件（Claude Code 格式）** | 带 `plugin.json` 或 `.claude-plugin/plugin.json` 的技能、命令、agent、hook、MCP server 打包 | `$SNOWPEA_HOME/plugins/` | 不可以，仅主目录 | 否；其 hook 与 MCP server 启动你已批准的命令 |
+| **插件（Codex 格式）** | 带 `.codex-plugin/plugin.json` 的同样打包（技能、`commands/`、`agents/*.md`、`hooks.json`、`.mcp.json`）；不支持应用连接器（`.app.json`） | `$SNOWPEA_HOME/plugins/` | 不可以，仅主目录 | 否；其 hook 与 MCP server 启动你已批准的命令 |
 | **扩展**（snowpea 扩展格式，Python） | 定义 `apply(ctx)` 的 `plugin.py` | `$SNOWPEA_HOME/extensions/<名称>/` | 不可以，仅主目录 | 是，守护进程内的 Python；需要信任 |
 
 扩展参照 DeepSeek Harness 的设计，但与 DeepSeek Harness 的插件不兼容。
 
-插件包只按 Claude Code 格式读取。snowpea 不读取 Codex 自己的文件夹（`~/.codex`）或 Codex 包。为 Codex 写的技能，把其文件夹放进 snowpea 的技能位置即可使用。项目指令文件 `AGENTS.md` 与 `CLAUDE.md` 一并读取。
+每个技能、命令、agent 和插件都会记录它所写成的 `format`（`snowpea`、`claude` 或 `codex`），`skill.list`、`skill.read`、`command.list` 和 `agent.list` 会带上它（协议 1.52.0）。项目指令文件 `AGENTS.md` 与 `CLAUDE.md` 一并读取。
+
+## 从 Claude Code 和 Codex 读取的内容
+
+除了安装到 snowpea 里的东西，每次重新加载还会读取另外两个工具在这台机器上安装的东西。这些条目在这里是只读的：`skill.read` 回答 `readOnly: true`，`skill.write` 从不写进它们的文件夹，`skill.remove` 也碰不到它们——请用安装它们的工具删除。
+
+| | Claude Code（`$CLAUDE_CONFIG_DIR`，否则 `~/.claude`） | Codex（`$CODEX_HOME`，否则 `~/.codex`） |
+|---|---|---|
+| 已安装插件 | `plugins/installed_plugins.json`，跳过 `settings.json` 中 `enabledPlugins` 标为 false 的 —— 来源 `claude-plugin` | `plugins/cache/<marketplace>/<plugin>/<version>/`（每个插件的最新版本），跳过 `config.toml` 中 `[plugins."<plugin>@<marketplace>"] enabled = false` 的 —— 来源 `codex-plugin` |
+| 从插件读取 | 技能、命令、agent | 技能、命令、agent；带应用连接器（`.app.json`）的插件会附注 `needs Codex apps` 列出，其技能照常加载 |
+| 用户级 | `skills/`、`agents/*.md`、`commands/*.md` —— 来源 `claude-global` | `skills/<name>/`（不含 Codex 自带的 `skills/.system`）、作为命令的 `prompts/*.md`、作为 agent 定义的 `agents/*.toml` —— 来源 `codex-global` |
+| 项目级 | `<project>/.claude/{skills,agents,commands}/` —— 来源 `claude-project` | `<project>/.agents/skills/` —— 来源 `codex-project` |
+| 不导入 | 已安装插件的 hook 与 MCP server | 已安装插件的 hook 与 MCP server、`hooks.json`、`config.toml` 的 `[mcp_servers]` |
+| 开关 | 无：文件夹存在就读取 | `skills.importCodex`（`true`）；设为 `false` 则不从 Codex 读取任何东西 |
+
+不导入 hook 和 MCP server，是因为它们会代你执行命令，而你批准的是 Claude Code 或 Codex，不是 snowpea。若想在这里也使用，请把插件安装到 snowpea。Codex 的 agent 角色（`agents/<name>.toml`）这样变成 agent 定义：`name`、`description`、`model` 原样保留，`developer_instructions` 作为提示词，`model_reasoning_effort` 变成 `thinking`（`none`、`minimal` 为 off，其他级别为 on），`sandbox_mode = "read-only"` 变成 `permission: plan`；`nickname_candidates`、`mcp_servers` 等没有对应项，会被忽略。导入的 agent 不会占用内置角色（`explore`、`architect` 等）的名字：来自插件的仍可用 `<plugin>:<name>` 调用，没有插件的则被略去。
+
+名字冲突时，snowpea 自己的副本胜过 Claude Code 的，Claude Code 的胜过 Codex 的。保留一条旧规则：Claude Code 的全局技能（`~/.claude/skills`）会遮住同名的 snowpea 全局技能。在 Codex 内部，项目技能胜过全局技能，全局技能胜过插件的。
 
 ## 布局
 
@@ -30,7 +48,7 @@ my-plugin/
   .mcp.json              # MCP servers this plugin brings
 ```
 
-`.claude-plugin/plugin.json` 也可以替代 `plugin.json`。marketplace 仓库会在根目录放一个 `marketplace.json`，其中列出 `plugins: [{name, source}]`。
+`.claude-plugin/plugin.json`（Claude Code 格式）或 `.codex-plugin/plugin.json`（Codex 格式）也可以替代 `plugin.json`；Codex 清单的 `interface.displayName` 显示为插件的 `title`。`${CLAUDE_PLUGIN_ROOT}`、`${SNOWPEA_PLUGIN_ROOT}` 和 Codex 的 `${PLUGIN_ROOT}` 都展开为插件目录。marketplace 仓库会在根目录（或 `.claude-plugin/`）放一个 `marketplace.json`，其中列出 `plugins: [{name, source}]`；Codex 的 marketplace 把目录放在 `.agents/plugins/marketplace.json`，`source` 写作 `{"source": "local", "path": "./plugins/<name>"}`。Codex 格式的文件夹同样可以用 `snowpea skill install ./<文件夹>` 安装到 `$SNOWPEA_HOME/plugins/<name>`，`github:openai/plugins@<plugin>` 会从 Codex 的目录中只安装那一个插件。
 
 ## 安装
 
@@ -132,14 +150,15 @@ snowpea tools list --json
 
 ## 东西在哪里被找到，以及谁赢
 
-各个根目录按这个顺序扫描，名字冲突时后面的赢：
+各个根目录按这个顺序扫描，名字冲突时后面的赢——但来自 Claude Code、Codex 已安装插件以及 Codex 文件夹的条目，从不替换已加载的条目：
 
 1. 内置 —— `core/snowpea_core/builtin_skills/`
-2. 全局 —— `$SNOWPEA_HOME/{skills,agents,commands}/`
-3. 插件 —— `$SNOWPEA_HOME/plugins/*/`
+2. 全局 —— `$SNOWPEA_HOME/{skills,agents,commands}/`，然后是 Claude Code 的 `~/.claude/{skills,agents,commands}/`
+3. 插件 —— `$SNOWPEA_HOME/plugins/*/`，然后是 Claude Code 已安装的插件
 4. 项目 —— `<project>/.claude/{skills,agents,commands}/`，然后是 `<project>/.snowpea/{skills,agents,commands}/`
+5. Codex —— `<project>/.agents/skills/`，然后是 `~/.codex/{skills,prompts,agents}`，然后是 Codex 已安装的插件
 
-所以同名时项目 skill 覆盖插件 skill，插件覆盖内置。加载器会记录每一项来自哪里，`skill list` 会显示出来。
+所以同名时项目 skill 覆盖插件 skill，插件覆盖内置，而来自 Codex 的东西不会覆盖 snowpea 或 Claude Code 的任何东西。加载器会记录每一项来自哪里，`skill list` 会显示出来。
 
 ## 扩展
 

@@ -297,6 +297,7 @@ async def skill_install(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=False, error=str(exc))
 
     claude_plugins = set(getattr(loader, "claude_plugin_names", set()))
+    codex_plugins = set(getattr(loader, "codex_plugin_names", set()))
     plugin_name = ""
     if "@" in spec:
         plugin_name = spec.split("@", 1)[1].strip()
@@ -313,12 +314,19 @@ async def skill_install(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         (plugin_name and plugin_name in claude_plugins)
         or (target_name in claude_plugins)
     )
+    already_in_codex = bool(
+        (plugin_name and plugin_name in codex_plugins) or (target_name in codex_plugins)
+    )
 
     installed = sorted(after["plugins"] - before["plugins"]) or [target_name]
     lines = [f"installed {', '.join(installed)} from {spec} into {target}"]
     if already_in_claude:
         lines.append(
             "already available from Claude Code's plugin cache; installing a snowpea copy anyway"
+        )
+    elif already_in_codex:
+        lines.append(
+            "already available from Codex's plugin cache; installing a snowpea copy anyway"
         )
     gained = _added(before, after)
     lines.extend(gained)

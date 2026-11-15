@@ -30,6 +30,7 @@ def snowpea_home() -> Iterator[Path]:
         # CLAUDE_CONFIG_DIR keeps the developer's real ~/.claude (its plugins,
         # skills, agents) out of every test; a test that wants a Claude tree
         # creates one under its own home, which the loader prefers.
+        # CODEX_HOME does the same for ~/.codex.
         with env_vars(
             SNOWPEA_HOME=str(home),
             SNOWPEA_UPDATE_CHECK="0",
@@ -37,6 +38,7 @@ def snowpea_home() -> Iterator[Path]:
             # Never hold a real sleep inhibitor on the machine running the suite.
             SNOWPEA_KEEP_AWAKE="0",
             CLAUDE_CONFIG_DIR=str(home / "claude-config"),
+            CODEX_HOME=str(home / "codex-home"),
         ):
             yield home
 

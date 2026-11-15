@@ -1,6 +1,8 @@
 """Plugin / skill loader (M6 contract §1).
 
-Search roots, in the order they are scanned — a later root wins a name clash:
+Search roots, in the order they are scanned — a later root wins a name clash,
+except that an imported entry (``claude-plugin`` and every ``codex-*``) never
+replaces one already loaded:
 
 1. built-ins      ``core/snowpea_core/builtin_skills/<name>/SKILL.md``      (``builtin``)
 2. global         ``$SNOWPEA_HOME/{skills,agents,commands}``                (``global``)
@@ -8,16 +10,26 @@ Search roots, in the order they are scanned — a later root wins a name clash:
 4. plugins        ``$SNOWPEA_HOME/plugins/<plugin>/…``                      (``plugin:<name>``)
 5. claude-plugin  ``~/.claude/plugins/cache/…``                             (``claude-plugin``)
 6. project        ``<workdir>/.claude/…`` then ``<workdir>/.snowpea/…``     (``project``)
+7. codex-project  ``<workdir>/.agents/skills/``                             (``codex-project``)
+8. codex-global   ``~/.codex/{skills,prompts,agents/*.toml}``               (``codex-global``)
+9. codex-plugin   ``~/.codex/plugins/cache/<market>/<plugin>/<version>/``   (``codex-plugin``)
 
-Claude Code plugins installed under ``~/.claude/plugins/installed_plugins.json``
-are scanned as ``claude-plugin``. Snowpea-installed plugins and skills with the
-same name win over Claude copies and the duplicate is skipped with a debug log.
-Hooks from Claude plugins are NOT registered (only skills, commands, agents).
+So when names collide: snowpea's own > Claude Code's > Codex's.  Claude Code
+plugins installed under ``~/.claude/plugins/installed_plugins.json`` are
+scanned as ``claude-plugin``; Codex's installed plugins (the newest version
+directory of each, skipping any ``[plugins."<name>@<market>"] enabled =
+false`` in ``config.toml``) as ``codex-plugin``.  ``$CODEX_HOME`` overrides
+``~/.codex`` and ``settings.skills.importCodex`` switches rows 7-9 off.  Hooks
+and MCP servers of imported plugins are NOT registered, nor Codex's own
+``hooks.json`` and ``config.toml`` MCP servers: they run commands the user
+never approved for snowpea.
 
 A *bundle* is any directory that may hold ``skills/<name>/SKILL.md``,
 ``agents/*.md``, ``commands/*.md``, ``hooks/hooks.json`` and ``.mcp.json``; a
 plugin is a bundle with a ``plugin.json`` (in the root or in
-``.claude-plugin/``).  Every user-invocable skill and every ``commands/*.md``
+``.claude-plugin/`` — Claude Code format — or in ``.codex-plugin/`` — Codex
+format).  Every loaded item records that ``format`` (``snowpea``, ``claude``
+or ``codex``).  Every user-invocable skill and every ``commands/*.md``
 becomes a slash command whose ``run`` injects the body — with ``$ARGUMENTS``
 substituted — and starts a normal turn.
 """
@@ -50,6 +62,21 @@ SOURCE_PROJECT = "project"
 SOURCE_CLAUDE_GLOBAL = "claude-global"
 SOURCE_CLAUDE_PROJECT = "claude-project"
 SOURCE_CLAUDE_PLUGIN = "claude-plugin"
+SOURCE_CODEX_GLOBAL = "codex-global"
+SOURCE_CODEX_PROJECT = "codex-project"
+SOURCE_CODEX_PLUGIN = "codex-plugin"
+
+#: Sources that yield to anything already loaded under the same name and never
+#: register hooks or MCP servers: what Claude Code or Codex installed.
+IMPORTED_SOURCES: frozenset[str] = frozenset(
+    {SOURCE_CLAUDE_PLUGIN, SOURCE_CODEX_GLOBAL, SOURCE_CODEX_PROJECT, SOURCE_CODEX_PLUGIN}
+)
+
+#: Project-local Codex skills (``<workdir>/.agents/skills``).
+CODEX_PROJECT_DIR = ".agents"
+
+#: The note a Codex plugin with app connectors (``.app.json``) carries.
+CODEX_APPS_NOTE = "needs Codex apps"
 
 #: Project-local bundles, read in this order (``.snowpea`` wins).
 PROJECT_DIRS: tuple[tuple[str, str], ...] = (
@@ -60,8 +87,9 @@ PROJECT_DIRS: tuple[tuple[str, str], ...] = (
 #: Ceiling on the project directories one scan walks (M15 §B5a).
 MAX_SCANNED_WORKDIRS = 50
 
-#: Placeholders a plugin may use in ``.mcp.json`` and in hook commands.
-ROOT_VARS: tuple[str, ...] = ("CLAUDE_PLUGIN_ROOT", "SNOWPEA_PLUGIN_ROOT")
+#: Placeholders a plugin may use in ``.mcp.json`` and in hook commands
+#: (``PLUGIN_ROOT`` is Codex's spelling).
+ROOT_VARS: tuple[str, ...] = ("CLAUDE_PLUGIN_ROOT", "SNOWPEA_PLUGIN_ROOT", "PLUGIN_ROOT")
 
 #: ``${SNOWPEA_PYTHON}`` in a plugin's ``.mcp.json`` is the interpreter running
 #: the daemon, which is the one that has this project's dependencies.
@@ -95,6 +123,8 @@ class LoadedSkill:
     source: str
     kind: SkillKind = "skill"
     plugin: str = ""
+    #: ``snowpea`` | ``claude`` | ``codex``: the layout it was written for.
+    format: marketplace.BundleFormat = marketplace.FORMAT_SNOWPEA
 
     @property
     def name(self) -> str:
@@ -115,6 +145,7 @@ class LoadedAgent:
     path: Path
     frontmatter: dict[str, Any] = field(default_factory=dict)
     body: str = ""
+    format: marketplace.BundleFormat = marketplace.FORMAT_SNOWPEA
 
 
 @dataclass
@@ -126,6 +157,20 @@ class LoadedPlugin:
     description: str
     root: Path
     source: str
+    format: marketplace.BundleFormat = marketplace.FORMAT_SNOWPEA
+    #: Codex's ``interface.displayName``; empty when the manifest has none.
+    title: str = ""
+    #: What does not work here, e.g. :data:`CODEX_APPS_NOTE`.
+    note: str = ""
+
+
+def source_format(source: str) -> marketplace.BundleFormat:
+    """The format a root's items are in, judged by its source label alone."""
+    if source.startswith("claude"):
+        return marketplace.FORMAT_CLAUDE
+    if source.startswith("codex"):
+        return marketplace.FORMAT_CODEX
+    return marketplace.FORMAT_SNOWPEA
 
 
 @dataclass
@@ -210,6 +255,8 @@ class SkillLoader:
         self._index_groups: dict[str | None, IndexGroups] = {}
         #: Plugin names detected in Claude Code's installed_plugins.json.
         self.claude_plugin_names: set[str] = set()
+        #: Plugin names found in Codex's plugin cache.
+        self.codex_plugin_names: set[str] = set()
         #: mtimes of the skill files and folders the last scan read, so a
         #: plugin updated under a running daemon is picked up (``changed``).
         self._seen: dict[Path, int] = {}
@@ -232,6 +279,26 @@ class SkillLoader:
         if override:
             return Path(override).expanduser()
         return Path.home() / ".claude"
+
+    @property
+    def codex_root(self) -> Path:
+        """Codex's home: ``$CODEX_HOME`` when set, else ``~/.codex``.
+
+        A ``.codex`` directly under the snowpea home is honoured first, the
+        way :attr:`claude_root` honours a ``.claude`` there.
+        """
+        local = self.home / ".codex"
+        if local.is_dir():
+            return local
+        override = os.environ.get("CODEX_HOME")
+        if override:
+            return Path(override).expanduser()
+        return Path.home() / ".codex"
+
+    def codex_import(self) -> bool:
+        """``settings.skills.importCodex``; on unless switched off."""
+        settings = getattr(getattr(self.core, "settings", None), "skills", None)
+        return bool(getattr(settings, "importCodex", True))
 
     @property
     def home(self) -> Path:
@@ -289,6 +356,7 @@ class SkillLoader:
         self.mcp_server_plugins = {}
         self._index_groups = {}
         self.claude_plugin_names = set()
+        self.codex_plugin_names = set()
 
         self._scan_builtins()
         self._scan_bundle(self.home, SOURCE_GLOBAL)
@@ -298,6 +366,13 @@ class SkillLoader:
         for workdir in self.workdirs():
             for name, source in PROJECT_DIRS:
                 self._scan_bundle(workdir / name, source)
+        if self.codex_import():
+            # Last, and every entry yields: a Codex copy never replaces a
+            # snowpea or Claude Code one of the same name.
+            for workdir in self.workdirs():
+                self._scan_codex_project(workdir)
+            self._scan_codex_home()
+            self._scan_codex_plugins()
 
         self._seen = self._stat(self._watched())
         commands = sum(1 for skill in self.skills.values() if skill.doc.user_invocable)
@@ -386,6 +461,7 @@ class SkillLoader:
             manifest = marketplace.read_plugin_json(entry)
             name = str(manifest.get("name") or entry.name)
             source = f"plugin:{name}"
+            fmt = marketplace.plugin_format(entry)
             self.plugins.append(
                 LoadedPlugin(
                     name=name,
@@ -393,9 +469,12 @@ class SkillLoader:
                     description=str(manifest.get("description") or ""),
                     root=entry,
                     source=source,
+                    format=fmt,
+                    title=marketplace.plugin_title(manifest),
+                    note=_apps_note(entry, manifest, fmt),
                 )
             )
-            self._scan_bundle(entry, source, plugin=name)
+            self._scan_bundle(entry, source, plugin=name, fmt=fmt)
 
     def _scan_claude_plugins(self) -> None:
         """Scan plugins installed by Claude Code in ``~/.claude/plugins/``.
@@ -504,6 +583,7 @@ class SkillLoader:
                     description=description,
                     root=install_path,
                     source=SOURCE_CLAUDE_PLUGIN,
+                    format=marketplace.FORMAT_CLAUDE,
                 )
             )
             self._scan_bundle(
@@ -513,21 +593,131 @@ class SkillLoader:
                 load_hooks=False,
             )
 
+    def _scan_codex_project(self, workdir: Path) -> None:
+        """``<workdir>/.agents/skills/<name>/SKILL.md``, the project skills Codex reads."""
+        skills_dir = workdir / CODEX_PROJECT_DIR / "skills"
+        if not skills_dir.is_dir():
+            return
+        for entry in sorted(skills_dir.iterdir()):
+            if not entry.name.startswith("."):
+                self._add_skill_dir(entry, SOURCE_CODEX_PROJECT, fmt=marketplace.FORMAT_CODEX)
+
+    def _scan_codex_home(self) -> None:
+        """Codex's own skills, custom prompts and agent roles.
+
+        ``skills/<name>/SKILL.md`` (not ``skills/.system``, Codex's built-ins),
+        ``prompts/*.md`` as commands, ``agents/*.toml`` as agent definitions.
+        ``hooks.json`` and the ``config.toml`` MCP servers are left alone.
+        """
+        root = self.codex_root
+        fmt: marketplace.BundleFormat = marketplace.FORMAT_CODEX
+        skills_dir = root / "skills"
+        if skills_dir.is_dir():
+            for entry in sorted(skills_dir.iterdir()):
+                if not entry.name.startswith("."):
+                    self._add_skill_dir(entry, SOURCE_CODEX_GLOBAL, fmt=fmt)
+        prompts_dir = root / "prompts"
+        if prompts_dir.is_dir():
+            for entry in sorted(prompts_dir.glob("*.md")):
+                self._add_command_file(entry, SOURCE_CODEX_GLOBAL, fmt=fmt)
+        agents_dir = root / "agents"
+        if agents_dir.is_dir():
+            for entry in sorted(agents_dir.glob("*.toml")):
+                self.register_codex_agent(entry, SOURCE_CODEX_GLOBAL)
+
+    def codex_disabled_plugins(self) -> frozenset[str]:
+        """``<name>@<market>`` ids ``config.toml`` marks ``enabled = false``.
+
+        Only the ``[plugins]`` table is read; nothing else in the file is
+        looked at.  An unreadable file disables nothing.
+        """
+        import tomllib
+
+        try:
+            with (self.codex_root / "config.toml").open("rb") as handle:
+                config = tomllib.load(handle)
+        except (OSError, tomllib.TOMLDecodeError):
+            return frozenset()
+        table = config.get("plugins")
+        if not isinstance(table, dict):
+            return frozenset()
+        return frozenset(
+            str(key)
+            for key, entry in table.items()
+            if isinstance(entry, dict) and entry.get("enabled") is False
+        )
+
+    def _scan_codex_plugins(self) -> None:
+        """Codex's installed plugins: ``plugins/cache/<market>/<plugin>/<version>/``.
+
+        The newest version directory of each plugin is read; one switched off
+        in ``config.toml`` is skipped.  Skills, commands and agents load; the
+        plugin's hooks, ``.mcp.json`` and app connectors do not — a plugin
+        with ``.app.json`` is listed with :data:`CODEX_APPS_NOTE`.
+        """
+        cache = self.codex_root / "plugins" / "cache"
+        if not cache.is_dir():
+            return
+        disabled = self.codex_disabled_plugins()
+        for market in sorted(path for path in cache.iterdir() if path.is_dir()):
+            for plugin_dir in sorted(path for path in market.iterdir() if path.is_dir()):
+                plugin_id = f"{plugin_dir.name}@{market.name}"
+                if plugin_id in disabled:
+                    log.debug("Codex plugin %s skipped: disabled in Codex", plugin_id)
+                    continue
+                root = _newest_version(plugin_dir)
+                if root is None:
+                    continue
+                manifest = marketplace.read_plugin_json(root)
+                name = str(manifest.get("name") or plugin_dir.name)
+                self.codex_plugin_names.update((name, plugin_dir.name))
+                if (
+                    any(existing.name == name for existing in self.plugins)
+                    or (self.plugins_dir / name).is_dir()
+                ):
+                    log.debug("Codex plugin %s skipped: another copy wins", name)
+                    continue
+                if name in self.skills:
+                    log.debug("Codex plugin %s skipped: a skill of that name wins", name)
+                    continue
+                fmt: marketplace.BundleFormat = marketplace.FORMAT_CODEX
+                self.plugins.append(
+                    LoadedPlugin(
+                        name=name,
+                        version=str(manifest.get("version") or root.name),
+                        description=str(manifest.get("description") or ""),
+                        root=root,
+                        source=SOURCE_CODEX_PLUGIN,
+                        format=fmt,
+                        title=marketplace.plugin_title(manifest),
+                        note=_apps_note(root, manifest, fmt),
+                    )
+                )
+                self._scan_bundle(root, SOURCE_CODEX_PLUGIN, plugin=name, load_hooks=False, fmt=fmt)
+
     def _scan_bundle(
-        self, root: Path, source: str, plugin: str = "", load_hooks: bool = True
+        self,
+        root: Path,
+        source: str,
+        plugin: str = "",
+        load_hooks: bool = True,
+        fmt: marketplace.BundleFormat | None = None,
     ) -> None:
         """Read ``skills/``, ``agents/``, ``commands/``, hooks and ``.mcp.json``.
 
-        Hooks from Claude plugins are NOT registered (only skills, commands, agents).
+        Hooks and MCP servers of imported plugins are NOT registered (only
+        skills, commands, agents).  ``fmt`` defaults to what ``source`` says.
         """
         if not root.is_dir():
             return
+        fmt = fmt or source_format(source)
+        imported = source in IMPORTED_SOURCES
         # A bundle that *is* one skill: ``<root>/SKILL.md`` with no skills/
         # directory around it.  ``~/.snowpea/plugins/flux/SKILL.md`` is shaped
         # this way and used to load as nothing at all (M15 §B5c).
         if (root / "SKILL.md").is_file():
-            self._add_skill_dir(root, source, plugin=plugin)
-            if plugin and source != SOURCE_CLAUDE_PLUGIN:
+            self._add_skill_dir(root, source, plugin=plugin, fmt=fmt)
+            if plugin and not imported:
                 log.info(
                     "plugin %s is a bare skill directory (only SKILL.md); it is registered "
                     "as a skill — install it under %s/skills/%s to keep it out of plugins/",
@@ -538,32 +728,51 @@ class SkillLoader:
         skills_dir = root / "skills"
         if skills_dir.is_dir():
             for entry in sorted(skills_dir.iterdir()):
-                self._add_skill_dir(entry, source, plugin=plugin)
+                self._add_skill_dir(entry, source, plugin=plugin, fmt=fmt)
         agents_dir = root / "agents"
         if agents_dir.is_dir():
             for entry in sorted(agents_dir.glob("*.md")):
-                self.register_agent_definition(entry, source)
+                self.register_agent_definition(entry, source, fmt=fmt)
         commands_dir = root / "commands"
         if commands_dir.is_dir():
             for entry in sorted(commands_dir.glob("*.md")):
-                doc = load_skill_md(entry, default_name=entry.stem)
-                if doc is None:
-                    continue
-                doc.name = entry.stem
-                if source == SOURCE_CLAUDE_PLUGIN and doc.name in self.skills:
-                    log.debug("Claude command %s skipped: snowpea copy wins", doc.name)
-                    continue
-                self.skills[doc.name] = LoadedSkill(
-                    doc=doc, source=source, kind="command", plugin=plugin
-                )
+                self._add_command_file(entry, source, plugin=plugin, fmt=fmt)
         if load_hooks:
             for candidate in (root / "hooks" / "hooks.json", root / "hooks.json"):
                 if candidate.is_file():
                     self.hooks.load_file(candidate, plugin=plugin or source, root=root)
-        if plugin and source != SOURCE_CLAUDE_PLUGIN:
+        if plugin and not imported:
             self._read_mcp(root / ".mcp.json", root, plugin)
 
-    def _add_skill_dir(self, entry: Path, source: str, plugin: str = "") -> None:
+    def _add_command_file(
+        self,
+        entry: Path,
+        source: str,
+        plugin: str = "",
+        fmt: marketplace.BundleFormat | None = None,
+    ) -> None:
+        doc = load_skill_md(entry, default_name=entry.stem)
+        if doc is None:
+            return
+        doc.name = entry.stem
+        if source in IMPORTED_SOURCES and doc.name in self.skills:
+            log.debug("%s command %s skipped: another copy wins", source, doc.name)
+            return
+        self.skills[doc.name] = LoadedSkill(
+            doc=doc,
+            source=source,
+            kind="command",
+            plugin=plugin,
+            format=fmt or source_format(source),
+        )
+
+    def _add_skill_dir(
+        self,
+        entry: Path,
+        source: str,
+        plugin: str = "",
+        fmt: marketplace.BundleFormat | None = None,
+    ) -> None:
         if not entry.is_dir():
             return
         path = entry / "SKILL.md"
@@ -572,33 +781,72 @@ class SkillLoader:
         doc = load_skill_md(path, default_name=entry.name)
         if doc is None:
             return
-        if source == SOURCE_CLAUDE_PLUGIN and doc.name in self.skills:
-            log.debug("Claude skill %s skipped: snowpea copy wins", doc.name)
+        if source in IMPORTED_SOURCES and doc.name in self.skills:
+            log.debug("%s skill %s skipped: another copy wins", source, doc.name)
             return
-        self.skills[doc.name] = LoadedSkill(doc=doc, source=source, kind="skill", plugin=plugin)
+        self.skills[doc.name] = LoadedSkill(
+            doc=doc,
+            source=source,
+            kind="skill",
+            plugin=plugin,
+            format=fmt or source_format(source),
+        )
 
     def register_agent_definition(
-        self, path: Path | str, source: str = SOURCE_PROJECT
+        self,
+        path: Path | str,
+        source: str = SOURCE_PROJECT,
+        fmt: marketplace.BundleFormat | None = None,
     ) -> LoadedAgent | None:
         """Parse one ``agents/<name>.md`` and remember its front matter."""
         target = Path(path)
         doc = load_skill_md(target, default_name=target.stem)
         if doc is None:
             return None
-        agent_name = doc.name or target.stem
-        if source == SOURCE_CLAUDE_PLUGIN and any(
-            existing.name == agent_name for existing in self.agents
-        ):
-            log.debug("Claude agent %s skipped: snowpea copy wins", agent_name)
-            return None
         agent = LoadedAgent(
-            name=agent_name,
+            name=doc.name or target.stem,
             description=doc.description,
             source=source,
             path=target,
             frontmatter=dict(doc.frontmatter),
             body=doc.body,
+            format=fmt or source_format(source),
         )
+        return self._add_agent(agent)
+
+    def register_codex_agent(self, path: Path, source: str) -> LoadedAgent | None:
+        """One Codex ``agents/<name>.toml`` role, mapped onto a definition."""
+        from snowpea_core.agent.definition import DefinitionError, parse_codex_agent_toml
+
+        try:
+            defn = parse_codex_agent_toml(path, source=source)
+        except DefinitionError as exc:
+            log.debug("Codex agent %s skipped: %s", path, exc)
+            return None
+        frontmatter: dict[str, Any] = {
+            "name": defn.name,
+            "description": defn.description,
+            "model": defn.model,
+            "permission": defn.permission,
+            "thinking": defn.thinking,
+        }
+        agent = LoadedAgent(
+            name=defn.name,
+            description=defn.description,
+            source=source,
+            path=path,
+            frontmatter=frontmatter,
+            body=defn.prompt,
+            format=marketplace.FORMAT_CODEX,
+        )
+        return self._add_agent(agent)
+
+    def _add_agent(self, agent: LoadedAgent) -> LoadedAgent | None:
+        if agent.source in IMPORTED_SOURCES and any(
+            existing.name == agent.name for existing in self.agents
+        ):
+            log.debug("%s agent %s skipped: another copy wins", agent.source, agent.name)
+            return None
         self.agents = [existing for existing in self.agents if existing.name != agent.name]
         self.agents.append(agent)
         return agent
@@ -659,6 +907,8 @@ class SkillLoader:
             before = len(self.skills), len(self.agents)
             for name, source in PROJECT_DIRS:
                 self._scan_bundle(root / name, source)
+            if self.codex_import():
+                self._scan_codex_project(root)
             self._index_groups = {}
             self._apply_commands()
             report = ReloadReport(
@@ -753,6 +1003,7 @@ class SkillLoader:
                 "properties": {"arguments": {"type": "string", "description": doc.argument_hint}},
             },
             source=skill.source,
+            format=skill.format,
         )
 
     async def _apply_mcp(self) -> list[str]:
@@ -815,8 +1066,8 @@ class SkillLoader:
             if skill.doc.agents and agent not in skill.doc.agents:
                 continue
             group_key = (
-                f"claude-plugin:{skill.plugin}"
-                if skill.source == SOURCE_CLAUDE_PLUGIN and skill.plugin
+                f"{skill.source}:{skill.plugin}"
+                if skill.source in (SOURCE_CLAUDE_PLUGIN, SOURCE_CODEX_PLUGIN) and skill.plugin
                 else skill.source
             )
             buckets.setdefault(group_key, []).append(
@@ -824,16 +1075,21 @@ class SkillLoader:
             )
         plugins = sorted(name for name in buckets if name.startswith("plugin:"))
         claude_plugins = sorted(name for name in buckets if name.startswith("claude-plugin:"))
+        codex_plugins = sorted(name for name in buckets if name.startswith("codex-plugin:"))
         order = [
             SOURCE_PROJECT,
             SOURCE_CLAUDE_PROJECT,
+            SOURCE_CODEX_PROJECT,
             SOURCE_GLOBAL,
             SOURCE_CLAUDE_GLOBAL,
+            SOURCE_CODEX_GLOBAL,
             *plugins,
             *claude_plugins,
+            *codex_plugins,
         ]
-        if SOURCE_CLAUDE_PLUGIN in buckets and SOURCE_CLAUDE_PLUGIN not in order:
-            order.append(SOURCE_CLAUDE_PLUGIN)
+        for imported in (SOURCE_CLAUDE_PLUGIN, SOURCE_CODEX_PLUGIN):
+            if imported in buckets and imported not in order:
+                order.append(imported)
         order.append(SOURCE_BUILTIN)
         for key in sorted(buckets):
             if key not in order:
@@ -866,6 +1122,9 @@ class SkillLoader:
                     summary=plugin.description,
                     source=plugin.source,
                     installed=True,
+                    format=plugin.format,
+                    title=plugin.title,
+                    note=plugin.note,
                 )
             )
         for skill in self.skills.values():
@@ -877,6 +1136,7 @@ class SkillLoader:
                     source=skill.source,
                     installed=True,
                     enabled=self.enabled(skill),
+                    format=skill.format,
                 )
             )
         for agent in self.agents:
@@ -887,9 +1147,27 @@ class SkillLoader:
                     summary=agent.description,
                     source=agent.source,
                     installed=True,
+                    format=agent.format,
                 )
             )
         return out
+
+    def format_of(self, path: Path) -> marketplace.BundleFormat:
+        """``snowpea`` | ``claude`` | ``codex`` for a file ``skill.read`` found."""
+        for plugin in self.plugins:
+            if path.is_relative_to(plugin.root):
+                return plugin.format
+        for skill in self.skills.values():
+            if skill.doc.path == path:
+                return skill.format
+        for agent in self.agents:
+            if agent.path == path:
+                return agent.format
+        if ".claude" in path.parts or path.is_relative_to(self.claude_root):
+            return marketplace.FORMAT_CLAUDE
+        if CODEX_PROJECT_DIR in path.parts or path.is_relative_to(self.codex_root):
+            return marketplace.FORMAT_CODEX
+        return marketplace.FORMAT_SNOWPEA
 
     async def search(self, query: str) -> tuple[SkillInfos, Strings]:
         """Aggregated marketplace search: ``(hits, unreachable sources)``.
@@ -1051,6 +1329,32 @@ class SkillLoader:
         return None
 
 
+def _newest_version(plugin_dir: Path) -> Path | None:
+    """The newest ``<version>`` directory under one cached Codex plugin."""
+    versions = [
+        path for path in plugin_dir.iterdir() if path.is_dir() and not path.name.startswith(".")
+    ]
+    if not versions:
+        return None
+    return max(versions, key=lambda path: (_version_key(path.name), path.name))
+
+
+def _version_key(text: str) -> tuple[int, ...]:
+    """``1.10.2`` -> ``(1, 10, 2)``; anything not numeric counts as 0."""
+    parts: list[int] = []
+    for piece in text.replace("-", ".").split("."):
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+def _apps_note(root: Path, manifest: dict[str, Any], fmt: marketplace.BundleFormat) -> str:
+    """:data:`CODEX_APPS_NOTE` for a Codex plugin that ships app connectors."""
+    if fmt == marketplace.FORMAT_CODEX and marketplace.needs_codex_apps(root, manifest):
+        return CODEX_APPS_NOTE
+    return ""
+
+
 def check_entry_name(name: str) -> str:
     """``name`` when it is one plain path component, else ``ValueError``."""
     if not name or name in (".", "..") or any(bad in name for bad in ("/", "\\", "\0")):
@@ -1095,6 +1399,8 @@ def expand_tree(value: Any, root: Path) -> Any:
 
 __all__ = [
     "INDEX_DESCRIPTION_CHARS",
+    "CODEX_APPS_NOTE",
+    "IMPORTED_SOURCES",
     "INDEX_GROUP_ORDER",
     "MAX_SCANNED_WORKDIRS",
     "PROJECT_DIRS",
@@ -1104,6 +1410,9 @@ __all__ = [
     "SOURCE_CLAUDE_GLOBAL",
     "SOURCE_CLAUDE_PLUGIN",
     "SOURCE_CLAUDE_PROJECT",
+    "SOURCE_CODEX_GLOBAL",
+    "SOURCE_CODEX_PLUGIN",
+    "SOURCE_CODEX_PROJECT",
     "SOURCE_GLOBAL",
     "SOURCE_PROJECT",
     "IndexGroups",
@@ -1116,4 +1425,5 @@ __all__ = [
     "check_entry_name",
     "expand_tree",
     "instruction",
+    "source_format",
 ]

@@ -2,7 +2,7 @@
 
 [English](../en/plugins.md) · [한국어](../ko/plugins.md) · [すべてのページ](../README.md)
 
-snowpea は Claude Code のプラグイン構成をそのまま読みます。Claude Code 向けに書かれたプラグインは修正なしでここにインストールされ動作しますし、すでに `.claude/` ディレクトリがあるリポジトリは何も変えずにそのまま動きます。
+snowpea は Claude Code と Codex のプラグイン構成をそのまま読みます。Claude Code 向けや Codex 向けに書かれたプラグインは修正なしでここにインストールされ動作し、すでに `.claude/` ディレクトリがあるリポジトリは何も変えずにそのまま動き、このマシンに Claude Code と Codex がインストールしたものも自動的に見えます。
 
 ## 何が何か
 
@@ -11,12 +11,30 @@ snowpea は Claude Code のプラグイン構成をそのまま読みます。Cl
 | 種類 | 形式 | 置き場所 | プロジェクトフォルダーに置けるか | デーモン内でコードが動くか |
 |---|---|---|---|---|
 | **スキル** | `SKILL.md` — Claude Code と Codex が共有するオープン標準（agentskills.io） | ホームまたはプロジェクトの `skills/` | はい | いいえ（指示のみ） |
-| **プラグイン（Claude Code 形式）** | スキル・コマンド・エージェント・フック・MCP サーバーのバンドル | `$SNOWPEA_HOME/plugins/` | いいえ（ホームのみ） | いいえ。フックと MCP サーバーは承認したコマンドを起動 |
+| **プラグイン（Claude Code 形式）** | `plugin.json` または `.claude-plugin/plugin.json` を持つスキル・コマンド・エージェント・フック・MCP サーバーのバンドル | `$SNOWPEA_HOME/plugins/` | いいえ（ホームのみ） | いいえ。フックと MCP サーバーは承認したコマンドを起動 |
+| **プラグイン（Codex 形式）** | `.codex-plugin/plugin.json` を持つ同じバンドル（スキル、`commands/`、`agents/*.md`、`hooks.json`、`.mcp.json`）。アプリコネクタ（`.app.json`）は非対応 | `$SNOWPEA_HOME/plugins/` | いいえ（ホームのみ） | いいえ。フックと MCP サーバーは承認したコマンドを起動 |
 | **拡張**（snowpea 拡張形式、Python） | `apply(ctx)` を定義した `plugin.py` | `$SNOWPEA_HOME/extensions/<名前>/` | いいえ（ホームのみ） | はい、デーモン内の Python。信頼が必要 |
 
 拡張は DeepSeek Harness の設計を手本にしていますが、DeepSeek Harness のプラグインとは互換性がありません。
 
-プラグインのバンドルは Claude Code 形式のみ読みます。snowpea は Codex 固有のフォルダー（`~/.codex`）や Codex のバンドルを読みません。Codex 向けに書かれたスキルは、そのフォルダーを snowpea のスキル置き場に置けば動きます。プロジェクトの指示ファイル `AGENTS.md` は `CLAUDE.md` と並んで読まれます。
+すべてのスキル・コマンド・エージェント・プラグインは書かれた `format`（`snowpea`、`claude`、`codex`）を記録し、`skill.list`、`skill.read`、`command.list`、`agent.list` がそれを返します（プロトコル 1.52.0）。プロジェクトの指示ファイル `AGENTS.md` は `CLAUDE.md` と並んで読まれます。
+
+## Claude Code と Codex から読み込むもの
+
+snowpea にインストールしたもののほか、再読み込みのたびに、ほかの 2 つのツールがこのマシンにインストールしたものを読みます。これらはここでは読み取り専用です。`skill.read` は `readOnly: true` を返し、`skill.write` はそのフォルダーに書かず、`skill.remove` も届きません。削除はインストールしたツールで行ってください。
+
+| | Claude Code（`$CLAUDE_CONFIG_DIR`、なければ `~/.claude`） | Codex（`$CODEX_HOME`、なければ `~/.codex`） |
+|---|---|---|
+| インストール済みプラグイン | `plugins/installed_plugins.json`。`settings.json` の `enabledPlugins` が false のものは除く — ソース `claude-plugin` | `plugins/cache/<marketplace>/<plugin>/<version>/`（各プラグインの最新版）。`config.toml` の `[plugins."<plugin>@<marketplace>"] enabled = false` は除く — ソース `codex-plugin` |
+| プラグインから読むもの | スキル、コマンド、エージェント | スキル、コマンド、エージェント。アプリコネクタ（`.app.json`）を持つプラグインは `needs Codex apps` の注記付きで表示され、スキルはそのまま読み込まれる |
+| ユーザーレベル | `skills/`、`agents/*.md`、`commands/*.md` — ソース `claude-global` | `skills/<name>/`（Codex 自身の `skills/.system` は除く）、コマンドとして `prompts/*.md`、エージェント定義として `agents/*.toml` — ソース `codex-global` |
+| プロジェクトレベル | `<project>/.claude/{skills,agents,commands}/` — ソース `claude-project` | `<project>/.agents/skills/` — ソース `codex-project` |
+| 取り込まないもの | インストール済みプラグインのフックと MCP サーバー | インストール済みプラグインのフックと MCP サーバー、`hooks.json`、`config.toml` の `[mcp_servers]` |
+| スイッチ | なし（フォルダーがあれば常に読む） | `skills.importCodex`（`true`）。`false` なら Codex から何も読まない |
+
+フックと MCP サーバーを取り込まないのは、それらがあなたの代わりにコマンドを実行するもので、あなたが承認したのは snowpea ではなく Claude Code や Codex に対してだからです。ここでも使いたい場合は、プラグインを snowpea にインストールしてください。Codex のエージェントロール（`agents/<name>.toml`）は次のようにエージェント定義になります。`name`・`description`・`model` はそのまま、`developer_instructions` はプロンプト、`model_reasoning_effort` は `thinking`（`none`・`minimal` は off、それ以外は on）、`sandbox_mode = "read-only"` は `permission: plan`。`nickname_candidates`、`mcp_servers` などは対応がなく無視されます。取り込んだエージェントが組み込みロール（`explore`、`architect` など）の名前を奪うことはありません。プラグイン由来のものは `<plugin>:<name>` として残り、プラグインのないものは除外されます。
+
+名前が衝突した場合、snowpea 自身のものが Claude Code のものに、Claude Code のものが Codex のものに勝ちます。従来の規則が 1 つ残ります。Claude Code のグローバルスキル（`~/.claude/skills`）は同名の snowpea グローバルスキルを隠します。Codex の中では、プロジェクトのスキルがグローバルに、グローバルがプラグインのものに勝ちます。
 
 ## Layout
 
@@ -30,7 +48,7 @@ my-plugin/
   .mcp.json              # MCP servers this plugin brings
 ```
 
-`plugin.json` の代わりに `.claude-plugin/plugin.json` も受け付けます。マーケットプレイスのリポジトリは、ルートに `plugins: [{name, source}]` を並べた `marketplace.json` を置きます。
+`plugin.json` の代わりに `.claude-plugin/plugin.json`（Claude Code 形式）や `.codex-plugin/plugin.json`（Codex 形式）も受け付けます。Codex のマニフェストの `interface.displayName` はプラグインの `title` として表示されます。`${CLAUDE_PLUGIN_ROOT}`、`${SNOWPEA_PLUGIN_ROOT}`、Codex の `${PLUGIN_ROOT}` はどれもプラグインのディレクトリに展開されます。マーケットプレイスのリポジトリは、ルート（または `.claude-plugin/`）に `plugins: [{name, source}]` を並べた `marketplace.json` を置きます。Codex のマーケットプレイスはカタログを `.agents/plugins/marketplace.json` に置き、`source` は `{"source": "local", "path": "./plugins/<name>"}` の形です。Codex 形式のフォルダーも `snowpea skill install ./<フォルダー>` で `$SNOWPEA_HOME/plugins/<name>` にインストールでき、`github:openai/plugins@<plugin>` は Codex のカタログからそのプラグインだけをインストールします。
 
 ## Installing
 
@@ -132,14 +150,15 @@ snowpea tools list --json
 
 ## Where things are found, and who wins
 
-ルートは次の順にスキャンされ、名前が衝突した場合は後のものが勝ちます。
+ルートは次の順にスキャンされ、名前が衝突した場合は後のものが勝ちます。ただし Claude Code・Codex のインストール済みプラグインと Codex のフォルダーから来たものは、すでに読み込まれた項目を置き換えません。
 
 1. built-ins — `core/snowpea_core/builtin_skills/`
-2. global — `$SNOWPEA_HOME/{skills,agents,commands}/`
-3. plugins — `$SNOWPEA_HOME/plugins/*/`
+2. global — `$SNOWPEA_HOME/{skills,agents,commands}/`、続いて Claude Code の `~/.claude/{skills,agents,commands}/`
+3. plugins — `$SNOWPEA_HOME/plugins/*/`、続いて Claude Code のインストール済みプラグイン
 4. project — `<project>/.claude/{skills,agents,commands}/`、続いて `<project>/.snowpea/{skills,agents,commands}/`
+5. Codex — `<project>/.agents/skills/`、続いて `~/.codex/{skills,prompts,agents}`、続いて Codex のインストール済みプラグイン
 
-つまり、プロジェクトのスキルは同名のプラグインのスキルを上書きし、プラグインはビルトインを上書きします。ローダーはそれぞれの出どころを記録し、`skill list` がそれを表示します。
+つまり、プロジェクトのスキルは同名のプラグインのスキルを上書きし、プラグインはビルトインを上書きし、Codex 由来のものは snowpea や Claude Code のものを上書きしません。ローダーはそれぞれの出どころを記録し、`skill list` がそれを表示します。
 
 ## 拡張
 

@@ -80,7 +80,7 @@ The package is `snowpea_core`, rooted at `core/snowpea_core/`.
 | `memory/` | SQLite FTS5 long-term memory, user profile, retrieval injection |
 | `scheduler/` | cron, interval and natural-language jobs running inside the daemon |
 | `gateway/` | Telegram, Discord and Slack adapters behind one router |
-| `skills/` | the Claude Code plugin loader, `SKILL.md` parsing, hooks, marketplace search |
+| `skills/` | the plugin loader (Claude Code and Codex formats, plus what each tool installed), `SKILL.md` parsing, hooks, marketplace search |
 | `commands/registry.py` | **the only slash-command dispatcher**, merging built-ins, skills and plugin commands into one namespace |
 | `config/` | `SNOWPEA_HOME` and project paths, global settings, project settings, credentials |
 | `setup/` | the wizard, its screens and the option catalogue |
@@ -161,9 +161,10 @@ When the model answers without a tool call, `turn_stopping.CHAIN` decides whethe
 | `$SNOWPEA_HOME/credentials.json` | bot tokens and secrets, mode `0600` |
 | `$SNOWPEA_HOME/state.db` | sessions, events, history, memories, jobs, job runs, team tasks, named agents |
 | `$SNOWPEA_HOME/logs/daemon.log`, `approvals.jsonl` | operational log, and the audit trail of every approval decision |
-| `$SNOWPEA_HOME/plugins/`, `skills/`, `agents/`, `commands/`, `marketplaces.json` | add-ons (skills, plugins in Claude Code format) |
+| `$SNOWPEA_HOME/plugins/`, `skills/`, `agents/`, `commands/`, `marketplaces.json` | add-ons (skills, plugins in Claude Code or Codex format) |
 | `<project>/.snowpea/settings.json` | `defaultMode`, allowlist, backend |
-| `<project>/.snowpea/{skills,agents,commands}/`, `<project>/.claude/…` | project add-ons |
+| `<project>/.snowpea/{skills,agents,commands}/`, `<project>/.claude/…`, `<project>/.agents/skills/` | project add-ons |
+| `~/.claude/…` (`$CLAUDE_CONFIG_DIR`), `~/.codex/…` (`$CODEX_HOME`) | read only: what Claude Code and Codex installed (skills, commands, agents; never their hooks or MCP servers) |
 
 `config/paths.py` honours `SNOWPEA_HOME` everywhere and hard-codes no global path, which is also what lets v0.2 bundle the core inside an Electron app: the core is startable with nothing but an executable path, a port and a token.
 

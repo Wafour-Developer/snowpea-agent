@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
-from snowpea_core.server.protocol import CommandInfo, CommandSource
+from snowpea_core.server.protocol import CommandInfo, CommandSource, ItemFormat
 from snowpea_core.session import events
 from snowpea_core.util.redaction import redact_text
 
@@ -149,6 +149,8 @@ class Command:
     run: CommandRun
     args_schema: dict[str, Any] = field(default_factory=dict)
     source: CommandSource = "builtin"
+    #: ``snowpea`` | ``claude`` | ``codex`` (1.52.0): what a skill command was written for.
+    format: ItemFormat = "snowpea"
 
     def info(self) -> CommandInfo:
         return CommandInfo(
@@ -156,6 +158,7 @@ class Command:
             summary=self.summary,
             argsSchema=self.args_schema,
             source=self.source,
+            format=self.format,
         )
 
 

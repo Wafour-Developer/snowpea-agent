@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.51.0"
+PROTOCOL_VERSION = "1.52.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -86,6 +86,15 @@ TeamTaskState = Literal[
     "failed",
 ]
 SkillKind = Literal["skill", "agent", "command", "plugin"]
+#: The layout a skill, command, agent or plugin was written for (1.52.0):
+#: snowpea's own, Claude Code's (``plugin.json`` / ``.claude-plugin/``) or
+#: Codex's (``.codex-plugin/``, ``~/.codex``).
+ItemFormat = Literal["snowpea", "claude", "codex"]
+
+_FORMAT_DESCRIPTION = (
+    "The layout it was written for (1.52.0): snowpea, claude (Claude Code format) "
+    "or codex (Codex format)."
+)
 SkillScope = Literal["project", "global"]
 SkillEntryKind = Literal["skill", "agent", "command"]
 #: Where ``skill.read`` may look and what it answers (1.33.0): the two writable
@@ -1430,6 +1439,7 @@ class CommandInfo(Payload):
         default_factory=dict, description="JSON Schema for the argument string."
     )
     source: CommandSource = Field(default="builtin", description="Where the command came from.")
+    format: ItemFormat = Field(default="snowpea", description=_FORMAT_DESCRIPTION)
 
 
 class CommandListResult(Payload):
@@ -2891,6 +2901,7 @@ class AgentInfo(Payload):
     description: str = Field(default="", description="What the agent is for.")
     channel: str | None = Field(default=None, description="Gateway channel bound to the agent.")
     source: str = Field(default="user", description="Where the definition came from.")
+    format: ItemFormat = Field(default="snowpea", description=_FORMAT_DESCRIPTION)
     kind: str = Field(
         default="definition",
         description=(
@@ -4455,7 +4466,21 @@ class SkillInfo(Payload):
         default="builtin",
         description=(
             "Where it came from: builtin, global, project, plugin:<name> for an "
-            "installed entry, or the marketplace that offered it."
+            "installed entry; claude-global, claude-project or claude-plugin for one "
+            "read from Claude Code; codex-global, codex-project or codex-plugin "
+            "(1.52.0) for one read from Codex; or the marketplace that offered it."
+        ),
+    )
+    format: ItemFormat = Field(default="snowpea", description=_FORMAT_DESCRIPTION)
+    title: str = Field(
+        default="",
+        description="A plugin's display name (Codex interface.displayName, 1.52.0); may be empty.",
+    )
+    note: str = Field(
+        default="",
+        description=(
+            "What of a plugin does not work here (1.52.0), e.g. 'needs Codex apps' for a "
+            "Codex plugin with app connectors (.app.json): its skills load, its apps do not."
         ),
     )
     installed: bool = Field(default=False, description="True when present locally.")
@@ -4694,9 +4719,10 @@ class SkillReadResult(Payload):
         default=False,
         description=(
             "True when skill.write cannot save this file (1.33.0): a built-in or plugin "
-            "skill, or one under Claude Code's own skills directory."
+            "skill, or one under Claude Code's or (1.52.0) Codex's own directories."
         ),
     )
+    format: ItemFormat = Field(default="snowpea", description=_FORMAT_DESCRIPTION)
 
 
 class SkillWriteParams(Payload):

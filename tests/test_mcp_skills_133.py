@@ -362,6 +362,8 @@ async def test_read_answers_a_plugin_skill_read_only(
             "content": skill_md("kit-skill"),
             "scope": "plugin",
             "readOnly": True,
+            # 1.52.0: a plugin.json bundle is in Claude Code format.
+            "format": "claude",
         }
     finally:
         await client.stop()

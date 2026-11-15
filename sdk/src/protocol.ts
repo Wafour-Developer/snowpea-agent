@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.51.0";
+export const PROTOCOL_VERSION = "1.52.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -162,6 +162,8 @@ export interface AgentListResult {
     channels?: string[];
     /** What the agent is for. */
     description?: string;
+    /** The layout it was written for (1.52.0): snowpea, claude (Claude Code format) or codex (Codex format). */
+    format?: "snowpea" | "claude" | "codex";
     /** For kind='team': true when a team guide file exists for this team. */
     hasGuide?: boolean | null;
     /** For kind='named': ids of the scheduled jobs that run as this agent. */
@@ -710,6 +712,8 @@ export interface CommandListResult {
   commands?: ({
     /** JSON Schema for the argument string. */
     argsSchema?: Record<string, unknown>;
+    /** The layout it was written for (1.52.0): snowpea, claude (Claude Code format) or codex (Codex format). */
+    format?: "snowpea" | "claude" | "codex";
     /** Command name without the leading slash. */
     name: string;
     /** Where the command came from. */
@@ -5562,6 +5566,8 @@ export interface SkillListResult {
     downloads?: number;
     /** False for an installed skill or command settings.skills.disabled names (1.34.0): kept out of the prompt index, the slash commands and auto-injection, but still readable and removable. */
     enabled?: boolean;
+    /** The layout it was written for (1.52.0): snowpea, claude (Claude Code format) or codex (Codex format). */
+    format?: "snowpea" | "claude" | "codex";
     /** Registry id; empty for local entries. */
     id?: string;
     /** What to pass to skill.install to get this entry. */
@@ -5572,12 +5578,16 @@ export interface SkillListResult {
     kind?: "skill" | "agent" | "command" | "plugin";
     /** Skill name. */
     name: string;
+    /** What of a plugin does not work here (1.52.0), e.g. 'needs Codex apps' for a Codex plugin with app connectors (.app.json): its skills load, its apps do not. */
+    note?: string;
     /** Average rating, when the source publishes one; 0 means unrated. */
     rating?: number;
-    /** Where it came from: builtin, global, project, plugin:<name> for an installed entry, or the marketplace that offered it. */
+    /** Where it came from: builtin, global, project, plugin:<name> for an installed entry; claude-global, claude-project or claude-plugin for one read from Claude Code; codex-global, codex-project or codex-plugin (1.52.0) for one read from Codex; or the marketplace that offered it. */
     source?: string;
     /** What the skill does. */
     summary?: string;
+    /** A plugin's display name (Codex interface.displayName, 1.52.0); may be empty. */
+    title?: string;
   })[];
 }
 
@@ -5599,9 +5609,11 @@ export interface SkillReadParams {
 export interface SkillReadResult {
   /** Its full text. */
   content: string;
+  /** The layout it was written for (1.52.0): snowpea, claude (Claude Code format) or codex (Codex format). */
+  format?: "snowpea" | "claude" | "codex";
   /** Where the SKILL.md was found. */
   path: string;
-  /** True when skill.write cannot save this file (1.33.0): a built-in or plugin skill, or one under Claude Code's own skills directory. */
+  /** True when skill.write cannot save this file (1.33.0): a built-in or plugin skill, or one under Claude Code's or (1.52.0) Codex's own directories. */
   readOnly?: boolean;
   /** 'project' or 'global', or (1.33.0) 'builtin' for a skill that ships with the engine and 'plugin' for one a plugin brings. */
   scope: "project" | "global" | "builtin" | "plugin";
@@ -5655,6 +5667,8 @@ export interface SkillSearchResult {
     downloads?: number;
     /** False for an installed skill or command settings.skills.disabled names (1.34.0): kept out of the prompt index, the slash commands and auto-injection, but still readable and removable. */
     enabled?: boolean;
+    /** The layout it was written for (1.52.0): snowpea, claude (Claude Code format) or codex (Codex format). */
+    format?: "snowpea" | "claude" | "codex";
     /** Registry id; empty for local entries. */
     id?: string;
     /** What to pass to skill.install to get this entry. */
@@ -5665,12 +5679,16 @@ export interface SkillSearchResult {
     kind?: "skill" | "agent" | "command" | "plugin";
     /** Skill name. */
     name: string;
+    /** What of a plugin does not work here (1.52.0), e.g. 'needs Codex apps' for a Codex plugin with app connectors (.app.json): its skills load, its apps do not. */
+    note?: string;
     /** Average rating, when the source publishes one; 0 means unrated. */
     rating?: number;
-    /** Where it came from: builtin, global, project, plugin:<name> for an installed entry, or the marketplace that offered it. */
+    /** Where it came from: builtin, global, project, plugin:<name> for an installed entry; claude-global, claude-project or claude-plugin for one read from Claude Code; codex-global, codex-project or codex-plugin (1.52.0) for one read from Codex; or the marketplace that offered it. */
     source?: string;
     /** What the skill does. */
     summary?: string;
+    /** A plugin's display name (Codex interface.displayName, 1.52.0); may be empty. */
+    title?: string;
   })[];
   /** Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. */
   unavailable?: string[];
@@ -6543,6 +6561,8 @@ export interface CommandsChangedPayload {
   commands?: ({
     /** JSON Schema for the argument string. */
     argsSchema?: Record<string, unknown>;
+    /** The layout it was written for (1.52.0): snowpea, claude (Claude Code format) or codex (Codex format). */
+    format?: "snowpea" | "claude" | "codex";
     /** Command name without the leading slash. */
     name: string;
     /** Where the command came from. */

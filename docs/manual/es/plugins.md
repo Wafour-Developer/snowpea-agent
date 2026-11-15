@@ -1,6 +1,6 @@
 # Plugins y skills
 
-snowpea lee directamente la disposición de plugins de Claude Code. Un plugin escrito para Claude Code se instala y funciona aquí sin modificaciones, y un repositorio que ya tiene un directorio `.claude/` funciona sin ningún cambio.
+snowpea lee directamente la disposición de plugins de Claude Code y de Codex. Un plugin escrito para Claude Code o para Codex se instala y funciona aquí sin modificaciones, un repositorio que ya tiene un directorio `.claude/` funciona sin ningún cambio, y lo que Claude Code y Codex instalaron en esta máquina aparece solo.
 
 ## Qué es cada cosa
 
@@ -9,12 +9,30 @@ En esta página conviven tres cosas distintas.
 | Tipo | Formato | Dónde vive | ¿Puede llevarlo la carpeta del proyecto? | ¿Ejecuta código en el daemon? |
 |---|---|---|---|---|
 | **Skill** | `SKILL.md` — el estándar abierto agentskills.io que comparten Claude Code y Codex | `skills/` en la carpeta personal o el proyecto | sí | no, son instrucciones |
-| **Plugin (formato Claude Code)** | paquete de skills, comandos, agentes, hooks y servidores MCP | `$SNOWPEA_HOME/plugins/` | no, solo la carpeta personal | no; sus hooks y servidores MCP lanzan comandos que aprobaste |
+| **Plugin (formato Claude Code)** | paquete de skills, comandos, agentes, hooks y servidores MCP con `plugin.json` o `.claude-plugin/plugin.json` | `$SNOWPEA_HOME/plugins/` | no, solo la carpeta personal | no; sus hooks y servidores MCP lanzan comandos que aprobaste |
+| **Plugin (formato Codex)** | el mismo paquete con `.codex-plugin/plugin.json` (skills, `commands/`, `agents/*.md`, `hooks.json`, `.mcp.json`); los conectores de apps (`.app.json`) no se admiten | `$SNOWPEA_HOME/plugins/` | no, solo la carpeta personal | no; sus hooks y servidores MCP lanzan comandos que aprobaste |
 | **Extensión** (formato de extensión de snowpea, Python) | `plugin.py` con `apply(ctx)` | `$SNOWPEA_HOME/extensions/<nombre>/` | no, solo la carpeta personal | sí, Python dentro del daemon; requiere confianza |
 
 Una extensión se inspira en el diseño de DeepSeek Harness, pero no es compatible con los plugins de DeepSeek Harness.
 
-Los paquetes de plugin se leen solo en formato Claude Code. snowpea no lee las carpetas propias de Codex (`~/.codex`) ni un paquete de Codex. Una skill escrita para Codex funciona si su carpeta se coloca en una ubicación de skills de snowpea. El archivo de instrucciones del proyecto `AGENTS.md` se lee junto con `CLAUDE.md`.
+Cada skill, comando, agente y plugin registra el `format` en que se escribió —`snowpea`, `claude` o `codex`— y `skill.list`, `skill.read`, `command.list` y `agent.list` lo devuelven (protocolo 1.52.0). El archivo de instrucciones del proyecto `AGENTS.md` se lee junto con `CLAUDE.md`.
+
+## Qué se lee de Claude Code y de Codex
+
+Además de lo que instalas en snowpea, cada recarga lee lo que las otras dos herramientas instalaron en esta máquina. Aquí esas entradas son de solo lectura: `skill.read` responde `readOnly: true`, `skill.write` nunca escribe en sus carpetas y `skill.remove` no las alcanza; quítalas con la herramienta que las instaló.
+
+| | Claude Code (`$CLAUDE_CONFIG_DIR`, si no `~/.claude`) | Codex (`$CODEX_HOME`, si no `~/.codex`) |
+|---|---|---|
+| Plugins instalados | `plugins/installed_plugins.json`, omitiendo los que `enabledPlugins` de `settings.json` marca como false — fuente `claude-plugin` | `plugins/cache/<marketplace>/<plugin>/<version>/` (la versión más nueva de cada uno), omitiendo los que tienen `[plugins."<plugin>@<marketplace>"] enabled = false` en `config.toml` — fuente `codex-plugin` |
+| De cada plugin | skills, comandos, agentes | skills, comandos, agentes; un plugin con conectores de apps (`.app.json`) aparece con la nota `needs Codex apps` y sus skills se cargan igual |
+| Nivel de usuario | `skills/`, `agents/*.md`, `commands/*.md` — fuente `claude-global` | `skills/<name>/` (no el `skills/.system` propio de Codex), `prompts/*.md` como comandos, `agents/*.toml` como definiciones de agente — fuente `codex-global` |
+| Nivel de proyecto | `<project>/.claude/{skills,agents,commands}/` — fuente `claude-project` | `<project>/.agents/skills/` — fuente `codex-project` |
+| No se importa | hooks y servidores MCP de los plugins instalados | hooks y servidores MCP de los plugins instalados, `hooks.json`, los `[mcp_servers]` de `config.toml` |
+| Interruptor | ninguno: se lee siempre que la carpeta existe | `skills.importCodex` (`true`); `false` no lee nada de Codex |
+
+Los hooks y servidores MCP no se importan porque ejecutan comandos en tu nombre, y los aprobaste para Claude Code o Codex, no para snowpea. Si los quieres también aquí, instala el plugin en snowpea. Un rol de agente de Codex (`agents/<name>.toml`) se convierte en definición de agente así: `name`, `description` y `model` tal cual, `developer_instructions` como prompt, `model_reasoning_effort` como `thinking` (`none` o `minimal` es off, cualquier otro nivel on) y `sandbox_mode = "read-only"` como `permission: plan`; `nickname_candidates`, `mcp_servers` y el resto no tienen equivalente y se ignoran. Un agente importado nunca toma el nombre de un rol incorporado (`explore`, `architect`, …): el de un plugin sigue disponible como `<plugin>:<name>` y uno sin plugin se omite.
+
+Cuando los nombres chocan, la copia propia de snowpea gana a la de Claude Code, y la de Claude Code a la de Codex. Queda una regla anterior: una skill global de Claude Code (`~/.claude/skills`) oculta una skill global de snowpea con el mismo nombre. Dentro de Codex, una skill de proyecto gana a una global, y una global a la de un plugin.
 
 ## Disposición
 
@@ -28,7 +46,7 @@ my-plugin/
   .mcp.json              # MCP servers this plugin brings
 ```
 
-`.claude-plugin/plugin.json` se acepta en lugar de `plugin.json`. Un repositorio de marketplace añade un `marketplace.json` en su raíz que lista `plugins: [{name, source}]`.
+`.claude-plugin/plugin.json` (formato Claude Code) o `.codex-plugin/plugin.json` (formato Codex) se aceptan en lugar de `plugin.json`; el `interface.displayName` de un manifiesto de Codex se muestra como `title` del plugin. `${CLAUDE_PLUGIN_ROOT}`, `${SNOWPEA_PLUGIN_ROOT}` y el `${PLUGIN_ROOT}` de Codex se expanden al directorio del plugin. Un repositorio de marketplace añade un `marketplace.json` en su raíz (o en `.claude-plugin/`) que lista `plugins: [{name, source}]`; un marketplace de Codex guarda su catálogo en `.agents/plugins/marketplace.json`, donde `source` es `{"source": "local", "path": "./plugins/<name>"}`. Una carpeta en formato Codex se instala igual con `snowpea skill install ./<carpeta>` en `$SNOWPEA_HOME/plugins/<name>`, y `github:openai/plugins@<plugin>` instala solo ese plugin del catálogo de Codex.
 
 ## Instalar
 
@@ -130,14 +148,15 @@ El permiso por defecto es `network` por servidor y puede sobrescribirse en los a
 
 ## Dónde se busca cada cosa, y quién gana
 
-Las raíces se recorren en este orden, y en caso de colisión de nombres gana la última:
+Las raíces se recorren en este orden, y en caso de colisión de nombres gana la última, salvo que lo que traen los plugins instalados de Claude Code o Codex y las carpetas de Codex nunca reemplaza una entrada ya cargada:
 
 1. incorporadas — `core/snowpea_core/builtin_skills/`
-2. globales — `$SNOWPEA_HOME/{skills,agents,commands}/`
-3. plugins — `$SNOWPEA_HOME/plugins/*/`
+2. globales — `$SNOWPEA_HOME/{skills,agents,commands}/`, y luego `~/.claude/{skills,agents,commands}/` de Claude Code
+3. plugins — `$SNOWPEA_HOME/plugins/*/`, y luego los plugins instalados en Claude Code
 4. proyecto — `<project>/.claude/{skills,agents,commands}/`, y luego `<project>/.snowpea/{skills,agents,commands}/`
+5. Codex — `<project>/.agents/skills/`, luego `~/.codex/{skills,prompts,agents}`, luego los plugins instalados en Codex
 
-Así que una skill de proyecto sobrescribe una skill de plugin con el mismo nombre, y un plugin sobrescribe una incorporada. El loader registra de dónde vino cada una, y `skill list` lo muestra.
+Así que una skill de proyecto sobrescribe una skill de plugin con el mismo nombre, un plugin sobrescribe una incorporada, y nada de Codex sobrescribe algo de snowpea o de Claude Code. El loader registra de dónde vino cada una, y `skill list` lo muestra.
 
 ## Extensiones
 

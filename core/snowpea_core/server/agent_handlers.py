@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent import named as named_agents
 from snowpea_core.agent.definition import DefinitionError
@@ -29,6 +29,7 @@ from snowpea_core.server.protocol import (
     AgentSpawnParams,
     AgentSpawnResult,
     Empty,
+    ItemFormat,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 
@@ -110,6 +111,20 @@ def _team_rows(core: Core, workdir: Path, session: Session | None) -> list[Agent
     return rows
 
 
+def _definition_format(loader: Any, source: str) -> ItemFormat:
+    """``snowpea`` | ``claude`` | ``codex`` for a definition row (1.52.0).
+
+    A snowpea-installed plugin's agents take the plugin's own format.
+    """
+    from snowpea_core.skills.loader import source_format
+
+    if source.startswith("plugin:") and loader is not None:
+        for plugin in getattr(loader, "plugins", []):
+            if plugin.source == source:
+                return plugin.format
+    return source_format(source)
+
+
 async def agent_list_handler(conn: RpcConnection, _params: Empty, core: Core) -> AgentListResult:
     """``agent.list`` — definitions on disk, named instances, subagents running now.
 
@@ -128,11 +143,13 @@ async def agent_list_handler(conn: RpcConnection, _params: Empty, core: Core) ->
             if definition.name in allowed
             or (registry is not None and registry.get(definition.name) is not None)
         ]
+    loader = getattr(core, "skills", None)
     agents = [
         AgentInfo(
             name=defn.name,
             description=defn.description,
             source=defn.source,
+            format=_definition_format(loader, defn.source),
             kind=DEFINITION_KIND,
             path=str(defn.path) if defn.path else None,
         )
