@@ -25,6 +25,15 @@ CLI_TITLES: dict[str, str] = {
 BUILTIN_ADAPTERS: list[Callable[[], ExternalAdapter]] = []
 
 
+def _cursor() -> ExternalAdapter:
+    from snowpea_core.external.cursor import CursorAdapter
+
+    return CursorAdapter()
+
+
+BUILTIN_ADAPTERS.append(_cursor)
+
+
 class AdapterRegistry:
     """CLI id -> adapter."""
 
