@@ -196,9 +196,18 @@ def test_cwd_must_be_a_registered_project(tmp_path: Path) -> None:
 
 
 def test_only_a_human_connection_confirms() -> None:
-    for kind in ("ide", "desktop", "tui", "web", "cli"):
+    for kind in ("ide", "desktop", "tui", "web", "cli", "app"):
         assert proc.confirm_person(Conn(kind)).client_kind == kind
-    for conn in (None, Conn("browser"), Conn(None), Conn("ide", authenticated=False)):
+    # The desktop app and the TUI send no clientKind: the delegation engine's rule.
+    assert proc.confirm_person(Conn(None)).client_kind == "local"
+    assert proc.is_human_connection(Conn(None))
+    remote = Conn("web")
+    remote.remote_login = True  # type: ignore[attr-defined]
+    assert proc.is_human_connection(remote)  # a person, who may send...
+    with pytest.raises(ExternalError) as caught:
+        proc.confirm_person(remote)  # ...but not open unrestricted mode
+    assert caught.value.code == errors.JARVIS_PERSON_ONLY
+    for conn in (None, Conn("browser"), Conn("connector"), Conn("ide", authenticated=False)):
         with pytest.raises(ExternalError) as caught:
             proc.confirm_person(conn)
         assert caught.value.code == errors.JARVIS_PERSON_ONLY

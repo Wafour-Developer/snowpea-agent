@@ -991,26 +991,16 @@ class CursorAdapter(ExternalAdapter):
                                forbidden_pairs=self.forbidden_pairs)
         tag = f"cursor-{uuid.uuid4().hex}"
         try:
-            child = await asyncio.create_subprocess_exec(
-                *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL, cwd=tempfile.gettempdir(),
-                env={**proc.scrubbed_env(), TAG_ENV: tag},
-                **({} if proc.IS_WINDOWS else {"start_new_session": True}),
+            code, out = await self.helper_supervisor().run_helper(
+                argv, cwd=tempfile.gettempdir(), env={**proc.scrubbed_env(), TAG_ENV: tag},
+                cli="cursor", timeout=COMMAND_TIMEOUT_SEC,
             )
-        except OSError:
-            return None, ""
-        try:
-            out, _ = await asyncio.wait_for(child.communicate(), COMMAND_TIMEOUT_SEC)
-        except TimeoutError:
-            await kill_pids({child.pid: None}, grace=0.5)
-            with contextlib.suppress(Exception):
-                await child.wait()
-            return None, ""
         finally:
+            # cursor-agent leaves node workers behind outside its group: by marker.
             leftovers = await asyncio.to_thread(tagged_pids, {tag})
             if leftovers:
                 await kill_pids({pid: proc.process_start_time(pid) for pid in leftovers}, 0.5)
-        return child.returncode, out.decode("utf-8", "replace")
+        return code, out.decode("utf-8", "replace")
 
     async def list_models(self, discovery: Discovery | None) -> list[str]:
         """Model ids from ``--list-models`` (no tokens), cached per executable."""

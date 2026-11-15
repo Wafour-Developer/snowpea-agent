@@ -427,8 +427,15 @@ async def test_view_only_while_open_elsewhere_then_takeover(env: Env) -> None:
 # -- unrestricted ------------------------------------------------------------------------
 
 
+def _remote() -> Conn:
+    """A web login on the remote listener: a person, but not for unrestricted mode."""
+    conn = Conn("web")
+    conn.remote_login = True  # type: ignore[attr-defined]
+    return conn
+
+
 async def test_unrestricted_only_from_a_person_with_a_ledger_entry(env: Env) -> None:
-    for conn in (None, Conn("browser"), Conn(None)):
+    for conn in (None, Conn("browser"), Conn("connector"), _remote()):
         with pytest.raises(ExternalError) as caught:
             await env.manager.create("claude", str(env.project), mode="unrestricted", conn=conn)
         assert caught.value.code == errors.JARVIS_PERSON_ONLY

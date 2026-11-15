@@ -800,7 +800,8 @@ class JarvisExternalCliSettings(_Model):
     #: Absolute executable path; ``None`` searches ``PATH``.
     path: str | None = None
     #: Mode a new or continued session gets unless one is chosen; ``None``
-    #: means ``default`` (``readonly`` for cursor, which has no ``default``).
+    #: means the CLI's own default (``readonly`` for cursor).  A mode the CLI
+    #: does not offer (agy has no ``readonly``) falls back to that default.
     #: Only the person sets it; ``unrestricted`` lets the CLI bypass its own
     #: permission prompts and snowpea's.
     defaultMode: Literal["default", "readonly", "unrestricted"] | None = None
@@ -828,9 +829,12 @@ class JarvisExternalSettings(_Model):
                 f"unknown external CLI {', '.join(unknown)}; expected one of "
                 f"{', '.join(EXTERNAL_CLI_IDS)}"
             )
-        cursor = value.get("cursor")
-        if cursor is not None and cursor.defaultMode == "default":
-            raise ValueError("cursor has no 'default' mode; use 'readonly' or 'unrestricted'")
+        agy = value.get("agy")
+        if agy is not None and agy.defaultMode == "readonly":
+            raise ValueError(
+                "agy has no 'readonly' mode (its plan mode still writes files); use 'default' "
+                "or 'unrestricted'"
+            )
         return value
 
 

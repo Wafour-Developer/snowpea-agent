@@ -824,25 +824,14 @@ class ClaudeAdapter(ExternalAdapter):
 
         Only that one key is read; the answer's account fields are discarded.
         """
-        try:
-            child = await asyncio.create_subprocess_exec(
-                path, "auth", "status", "--json",
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-                cwd=tempfile.gettempdir(),
-                env=proc.scrubbed_env(),
-                start_new_session=not proc.IS_WINDOWS,
-            )
-        except OSError:
-            return None
-        try:
-            out, _ = await asyncio.wait_for(child.communicate(), self.auth_timeout)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                child.kill()
-            with contextlib.suppress(Exception):
-                await child.wait()
+        code, out = await self.helper_supervisor().run_helper(
+            [path, "auth", "status", "--json"],
+            cwd=tempfile.gettempdir(),
+            env=proc.scrubbed_env(),
+            cli="claude",
+            timeout=self.auth_timeout,
+        )
+        if code is None:
             return None
         try:
             data = json.loads(out.decode("utf-8", "replace"))
@@ -852,7 +841,7 @@ class ClaudeAdapter(ExternalAdapter):
         del data
         return value if isinstance(value, bool) else None
 
-    def list_models(self, discovery: Discovery | None = None) -> list[str]:
+    async def list_models(self, discovery: Discovery | None = None) -> list[str]:
         """Model names ``--model`` accepts (aliases; a full model id works too)."""
         return list(MODEL_ALIASES)
 

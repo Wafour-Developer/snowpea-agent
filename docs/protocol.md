@@ -152,14 +152,16 @@ Server capabilities advertised in the `system.hello` result:
 | [`extension.list`](#extensionlist) | client → server | Extensions found in $SNOWPEA_HOME/extensions, rescanned on each call (1.49.0, capability 'extensions'). |
 | [`extension.reload`](#extensionreload) | client → server | Unload and load again, picking up edits (1.49.0). |
 | [`external.clis`](#externalclis) | client → server | External sessions (1.53.0, WP5): Claude Code, Codex, agy and Cursor agent on the daemon host: installed, version, path, what works, problems. |
-| [`external.close`](#externalclose) | client → server | External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays. |
-| [`external.create`](#externalcreate) | client → server | External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it. |
-| [`external.interrupt`](#externalinterrupt) | client → server | External sessions (1.53.0, WP6): stop the running turn. |
+| [`external.close`](#externalclose) | client → server | External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays. A screen that only goes away calls external.unwatch instead. |
+| [`external.create`](#externalcreate) | client → server | External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it; the calling connection is subscribed to its external.event stream as with external.open. |
+| [`external.get`](#externalget) | client → server | External sessions (1.53.0): one session's row without opening or reading it (deep links, pop-outs, restored tabs). not_found when the CLI has no such session; outside_root when it is not in a registered project. |
+| [`external.interrupt`](#externalinterrupt) | client → server | External sessions (1.53.0, WP6): stop the running turn. host 'tmux': Escape to the pane while Claude is busy (whoever started the turn; never C-c); host 'terminal': external_view_only; nothing running: ok, no-op. |
 | [`external.list`](#externallist) | client → server | External sessions (1.53.0, WP5/6): one working directory's sessions (or every exposed project's) for the requested CLIs, newest first, paged. |
 | [`external.open`](#externalopen) | client → server | External sessions (1.53.0, WP5/6): subscribe this connection to a session's external.event stream and return the newest page of its timeline; a host 'none' session is continued under snowpea (host 'snowpea'). |
 | [`external.read`](#externalread) | client → server | External sessions (1.53.0, WP5/6): an older page of a session's timeline. |
-| [`external.send`](#externalsend) | client → server | External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. Refused with external_view_only while canSend is false (host 'terminal', or 'tmux' before spike S5). |
+| [`external.send`](#externalsend) | client → server | External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes). |
 | [`external.setMode`](#externalsetmode) | client → server | External sessions (1.53.0, WP6): switch a session to default, readonly or unrestricted; unrestricted only from a human connection. |
+| [`external.unwatch`](#externalunwatch) | client → server | External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok. |
 | [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
 | [`fs.glob`](#fsglob) | client → server | Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never followed; '**' does not enter .git or node_modules. |
 | [`fs.hash`](#fshash) | client → server | SHA-256 of a file, read in a stream (1.40.0). |
@@ -944,13 +946,13 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; path?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
+| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
 
 ### `external.close`
 
 *Direction:* client → server
 
-External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays.
+External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays. A screen that only goes away calls external.unwatch instead.
 
 **Params**
 
@@ -968,7 +970,7 @@ External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubs
 
 *Direction:* client → server
 
-External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it.
+External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it; the calling connection is subscribed to its external.event stream as with external.open.
 
 **Params**
 
@@ -986,11 +988,29 @@ External sessions (1.53.0, WP6): start a new session of a CLI in a registered pr
 |---|---|---|---|
 | `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
 
+### `external.get`
+
+*Direction:* client → server
+
+External sessions (1.53.0): one session's row without opening or reading it (deep links, pop-outs, restored tabs). not_found when the CLI has no such session; outside_root when it is not in a registered project.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | The external session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
+
 ### `external.interrupt`
 
 *Direction:* client → server
 
-External sessions (1.53.0, WP6): stop the running turn.
+External sessions (1.53.0, WP6): stop the running turn. host 'tmux': Escape to the pane while Claude is busy (whoever started the turn; never C-c); host 'terminal': external_view_only; nothing running: ok, no-op.
 
 **Params**
 
@@ -1041,6 +1061,7 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 | `limit` | `number` | no | Newest timeline entries to return. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). |
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Session to open. |
+| `transport` | `"structured" \| "tmux" \| null` | no | 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly) the person answers on any of their surfaces; Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. |
 
 **Result**
 
@@ -1076,7 +1097,7 @@ External sessions (1.53.0, WP5/6): an older page of a session's timeline.
 
 *Direction:* client → server
 
-External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. Refused with external_view_only while canSend is false (host 'terminal', or 'tmux' before spike S5).
+External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes).
 
 **Params**
 
@@ -1109,6 +1130,24 @@ External sessions (1.53.0, WP6): switch a session to default, readonly or unrest
 | field | type | required | description |
 |---|---|---|---|
 | `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
+
+### `external.unwatch`
+
+*Direction:* client → server
+
+External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | The external session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `file.complete`
 
@@ -1728,7 +1767,7 @@ Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external.
 | field | type | required | description |
 |---|---|---|---|
 | `generatedAt` | `string` | yes | UTC ISO time the table was taken. |
-| `rows` | `({ digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
+| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
 
 ### `jarvis.project.alias`
 
@@ -4598,6 +4637,12 @@ Set the sidebar order (1.47.0).
 | `commands` | `({ argsSchema?: Record<string, unknown>; format?: "snowpea" \| "claude" \| "codex"; name: string; source?: string; summary: string; })[]` | no | The command table as it stands now. |
 | `reason` | `string` | no | Why the table changed. |
 
+### `external.clis.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, as external.clis would answer now. |
+
 ### `external.event`
 
 | field | type | required | description |
@@ -4639,10 +4684,11 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `action` | `"read" \| "prompt" \| "steer" \| "interrupt" \| "create" \| "approval" \| "question"` | yes | read (transcript or digest), prompt, steer, interrupt, create (a new session), approval or question (answered one). |
+| `external` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null` | no | The external session, when it was one. |
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (browser host), when it has one. |
 | `id` | `string` | yes | Ledger record id. |
 | `project` | `string \| null` | no | Its project root. |
-| `sessionId` | `string` | yes | Session Jarvis read or instructed. |
+| `sessionId` | `string` | yes | Session Jarvis read or instructed; 'ext:<cli>:<id>' for an external session (see external). |
 | `summary` | `string` | no | One short line: what was read or sent. |
 | `ts` | `string` | yes | UTC ISO time. |
 

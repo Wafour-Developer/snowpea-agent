@@ -97,12 +97,15 @@ async def test_with_no_adapters(daemon: Daemon, http: aiohttp.ClientSession,
 async def test_end_to_end_with_an_adapter(daemon: Daemon, http: aiohttp.ClientSession,
                                           tmp_path: Path) -> None:
     assert daemon.core is not None and daemon.core.external is not None
-    daemon.core.external.registry.register(FakeClaudeAdapter())
+    registry = daemon.core.external.registry
+    for cli in registry.ids():  # never the real CLIs installed here (models are listed)
+        registry.unregister(cli)
+    registry.register(FakeClaudeAdapter())
     project = tmp_path / "proj"
     project.mkdir()
     ide = await _client(http, daemon, "ide")
     other = await _client(http, daemon, "tui")
-    agent = await _client(http, daemon, None)  # no clientKind: not a person
+    agent = await _client(http, daemon, "connector")  # an agent connector: not a person
     try:
         await ide.ok("workspace.add", {"path": str(project)})
         row = {c["id"]: c for c in (await ide.ok("external.clis"))["clis"]}["claude"]

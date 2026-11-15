@@ -68,7 +68,12 @@ from snowpea_core.external.base import (
     Liveness,
     SessionInfo,
 )
-from snowpea_core.external.proc import ExternalError, ExternalProcess, PinnedExecutable
+from snowpea_core.external.proc import (
+    ExternalError,
+    ExternalProcess,
+    PinnedExecutable,
+    ProcessSupervisor,
+)
 from snowpea_core.external.timeline import (
     TimelineBuilder,
     TimelineItem,
@@ -807,26 +812,18 @@ def lock_holders(path: Path) -> set[int]:
 
 
 @contextlib.asynccontextmanager
-async def _acp_helper(executable: PinnedExecutable, cwd: str,
+async def _acp_helper(supervisor: ProcessSupervisor, executable: PinnedExecutable, cwd: str,
                       updates: list[dict[str, Any]] | None = None
                       ) -> AsyncIterator[AcpConnection]:
-    """A short-lived ``agy acp`` for a token-free call (list, load); always stopped."""
+    """A short-lived ``agy acp`` for a token-free call (list, load); always stopped.
+
+    It runs as one of the supervisor's helpers: counted, in its own process
+    group, with a pid file, and stopped at daemon shutdown if still running.
+    """
     argv = proc.build_argv(executable, ["acp"])
-    try:
-        raw = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=proc.scrubbed_env(),
-            **proc._group_kwargs(),
-        )
-    except OSError as exc:
-        raise ExternalError(
-            errors.EXTERNAL_UNAVAILABLE, f"could not start agy: {exc.strerror or exc}"
-        ) from exc
-    process = ExternalProcess(raw, cli="agy", ref=None, supervisor=None, pid_file=None)
+    process = await supervisor.spawn_helper(
+        argv, cwd=cwd, env=proc.scrubbed_env(), cli="agy", stdin=True, stderr=True
+    )
 
     async def collect(update: dict[str, Any]) -> None:
         if updates is not None:
@@ -937,27 +934,14 @@ class AgyAdapter(ExternalAdapter):
         if cached is not None and cached[1] == executable.path and \
                 time.monotonic() - cached[0] < MODELS_TTL_SEC:
             return list(cached[2])
-        try:
-            raw = await asyncio.create_subprocess_exec(
-                *proc.build_argv(executable, ["models"]),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-                cwd=tempfile.gettempdir(),
-                env=proc.scrubbed_env(),
-                **proc._group_kwargs(),
-            )
-        except OSError:
-            return []
-        try:
-            out, _ = await asyncio.wait_for(raw.communicate(), MODELS_TIMEOUT_SEC)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                raw.kill()
-            with contextlib.suppress(Exception):
-                await raw.wait()
-            return []
-        if raw.returncode != 0:
+        code, out = await self.helper_supervisor().run_helper(
+            proc.build_argv(executable, ["models"]),
+            cwd=tempfile.gettempdir(),
+            env=proc.scrubbed_env(),
+            cli="agy",
+            timeout=MODELS_TIMEOUT_SEC,
+        )
+        if code != 0:
             return []
         models: list[str] = []
         for line in out.decode("utf-8", "replace").splitlines():
@@ -985,7 +969,7 @@ class AgyAdapter(ExternalAdapter):
         executable = await self._pinned()
         cwd = cwd_hint if cwd_hint and os.path.isdir(cwd_hint) else tempfile.gettempdir()
         rows: list[dict[str, Any]] = []
-        async with _acp_helper(executable, cwd) as conn:
+        async with _acp_helper(self.helper_supervisor(), executable, cwd) as conn:
             params: dict[str, Any] = {}
             for _page in range(MAX_LIST_PAGES):
                 try:
@@ -1050,7 +1034,7 @@ class AgyAdapter(ExternalAdapter):
         executable = await self._pinned()
         updates: list[dict[str, Any]] = []
         cwd = info.cwd if os.path.isdir(info.cwd) else tempfile.gettempdir()
-        async with _acp_helper(executable, cwd, updates) as conn:
+        async with _acp_helper(self.helper_supervisor(), executable, cwd, updates) as conn:
             try:
                 await conn.request(
                     "session/load",

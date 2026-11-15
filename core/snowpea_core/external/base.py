@@ -56,6 +56,9 @@ class CliCapabilities:
     live_view: bool = False
     tmux: bool = False
     modes: tuple[str, ...] = ALL_MODES
+    #: ``external.send`` during a running turn adds to it instead of answering
+    #: ``session_busy`` (Codex ``turn/steer``).
+    steer: bool = False
 
     def to_wire(self) -> dict[str, Any]:
         return {
@@ -64,6 +67,7 @@ class CliCapabilities:
             "liveView": self.live_view,
             "tmux": self.tmux,
             "modes": list(self.modes),
+            "steer": self.steer,
         }
 
 
@@ -118,6 +122,10 @@ class ApprovalAsk:
     note: str = ""
     diff: str | None = None
     paths: list[str] | None = None
+    #: Only a person may allow it (``ApprovalRequest.personOnly``): never Jarvis,
+    #: never the engine, never an unattended rule.  E.g. adopting a tmux pane the
+    #: person started themselves.
+    person_only: bool = False
 
 
 @dataclass
@@ -215,6 +223,20 @@ class ExternalChannel(ABC):
     async def interrupt(self) -> None:
         """Stop the running turn (the turn still ends through ``turn_finished``)."""
 
+    @property
+    def can_steer(self) -> bool:
+        """:meth:`steer` works now (a turn runs and the CLI takes more input into it)."""
+        return False
+
+    async def steer(self, text: str) -> None:
+        """Add ``text`` to the running turn (``CliCapabilities.steer``).
+
+        Do not emit the prompt: the manager publishes ``message.user`` for it.
+        Raise ``session_busy`` when the CLI no longer takes it (the turn ended or
+        changed); the manager then answers the send with that error.
+        """
+        raise unavailable("this CLI cannot add to a running turn")
+
     async def set_mode(self, mode: str, grant: UnrestrictedGrant | None) -> None:
         """Switch mode from the next turn.
 
@@ -251,6 +273,9 @@ class ExternalAdapter(ABC):
     forbidden_pairs: tuple[tuple[str, str], ...] = ()
     #: The mode used when nobody chose one and the setting is unset.
     builtin_default_mode: str = "default"
+    #: The daemon's supervisor, handed over by the manager; helper processes
+    #: (:meth:`helper_supervisor`) and channels run under it.
+    supervisor: ProcessSupervisor | None = None
 
     # -- discovery ----------------------------------------------------------
     async def discover(self, path_override: str | None = None) -> Discovery:
@@ -273,6 +298,35 @@ class ExternalAdapter(ABC):
             capabilities=self.capabilities,
             problems=problems,
         )
+
+    async def list_models(self, discovery: Discovery | None = None) -> list[str]:
+        """Model ids ``external.create {model}`` accepts, without spending tokens.
+
+        Called in the background (``external.clis`` never waits for it) and
+        cached by the manager; empty when the CLI cannot say.
+        """
+        return []
+
+    def helper_supervisor(self) -> ProcessSupervisor:
+        """Where short-lived helper processes run (:meth:`ProcessSupervisor.run_helper`).
+
+        The daemon's supervisor once the manager bound this adapter; a private
+        one under ``$SNOWPEA_HOME`` otherwise (an adapter used on its own).
+        """
+        if self.supervisor is None:
+            from snowpea_core.config.paths import resolve_home
+
+            self.supervisor = ProcessSupervisor(resolve_home())
+        return self.supervisor
+
+    async def shutdown(self) -> None:
+        """Daemon stop: release what the adapter keeps beyond its channels.
+
+        Called once, after every channel was closed and before the supervisor
+        stops what is left.  The default keeps nothing; Codex stops its shared
+        app-server gracefully here.
+        """
+        return None
 
     def controlled(self, mode: str, discovery: Discovery | None) -> bool:
         """False when snowpea cannot gate what the session runs."""

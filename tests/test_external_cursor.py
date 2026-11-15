@@ -411,7 +411,7 @@ async def test_discovery_and_models(env: Env) -> None:
     row = rows["cursor"]
     assert row["installed"] and row["problems"] == [] and row["defaultMode"] == "readonly"
     assert row["capabilities"] == {"streaming": True, "approvals": "degraded", "liveView": True,
-                                   "tmux": False, "modes": ["default", "readonly",
+                                   "steer": False, "tmux": False, "modes": ["default", "readonly",
                                                             "unrestricted"]}
     found = await env.adapter.discover(str(FAKE_CURSOR))
     assert await env.adapter.list_models(found) == ["auto", "composer-fake"]
@@ -826,3 +826,16 @@ async def test_no_store_means_not_open_anywhere(tmp_path: Path) -> None:
     info = SessionInfo(id="x", cwd=str(tmp_path))
     live = await CursorAdapter(cursor_home=tmp_path).liveness(info, own_pids=set())
     assert live.host == "none" and not live.busy
+
+
+async def test_a_reread_history_does_not_repeat_snowpea_prompts(env: Env) -> None:
+    conn = Conn()
+    ref = await env.create(conn)
+    await env.turn(conn, ref, "first prompt")
+    await env.turn(conn, ref, "second prompt")
+    record = env.manager._records[("cursor", ref["id"])]
+    fresh = await env.adapter.get_session(ref["id"])
+    assert fresh is not None
+    await env.manager._publish(record, await env.adapter.read(fresh))
+    users = [e["payload"]["text"] for e in conn.events() if e["kind"] == "message.user"]
+    assert users == ["first prompt", "second prompt"]

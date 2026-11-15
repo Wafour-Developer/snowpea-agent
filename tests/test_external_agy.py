@@ -655,3 +655,16 @@ def test_session_errors_that_mean_not_signed_in() -> None:
                                                        "hint": "agy acp --login"}
     other = agy_mod._session_error(agy_mod.AcpError(-32602, "session not found"), "load it")
     assert other.details is None and "session not found" in other.message
+
+
+async def test_a_reread_history_does_not_repeat_snowpea_prompts(env: Env) -> None:
+    conn = Conn()
+    ref = (await _create(env, conn))["ref"]
+    await _turn(env, conn, ref, "first prompt")
+    await _turn(env, conn, ref, "second prompt")
+    record = env.manager._records[("agy", ref["id"])]
+    await env.manager.close("agy", ref["id"])  # agy loads (replays) only a free session
+    env.manager._records[("agy", ref["id"])] = record
+    await env.manager._publish(record, await env.adapter.read(record.info))
+    users = [e["payload"]["text"] for e in conn.events() if e["kind"] == "message.user"]
+    assert users == ["first prompt", "second prompt"]

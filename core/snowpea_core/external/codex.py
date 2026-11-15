@@ -50,7 +50,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -1014,16 +1013,20 @@ class CodexChannel(ExternalChannel):
                 self.server.send_quietly(
                     "turn/interrupt", {"threadId": self.session_id, "turnId": started})
 
-    async def steer(self, text: str, *, origin: dict[str, Any] | None = None) -> None:
+    @property
+    def can_steer(self) -> bool:
+        return self.alive and self.turn_open and self.codex_turn is not None
+
+    async def steer(self, text: str) -> None:
         """Add ``text`` to the running turn (``turn/steer {expectedTurnId}``).
 
-        Raises ``session_busy`` when the turn changed under it and
-        ``invalid_params`` when no turn runs.
+        Raises ``session_busy`` when the turn changed or ended under it.  The
+        manager publishes the ``message.user`` for it.
         """
         if not self.alive or self.session_id is None:
             raise unavailable("codex app-server is not running for this thread")
         if not self.turn_open or self.codex_turn is None:
-            raise ExternalError(errors.INVALID_PARAMS, "no turn is running to steer")
+            raise ExternalError(errors.SESSION_BUSY, "no Codex turn is running to add to")
         try:
             await self.server.request(
                 "turn/steer",
@@ -1037,9 +1040,6 @@ class CodexChannel(ExternalChannel):
             raise ExternalError(
                 errors.SESSION_BUSY, "the running Codex turn changed; send it as a new message"
             ) from exc
-        builder = self.host_api.builder
-        builder.user(text, key=f"steer-{uuid.uuid4().hex[:12]}", origin=origin)
-        await self.host_api.emit(builder.drain())
 
     async def interrupt(self) -> None:
         if not self.turn_open:
@@ -1319,7 +1319,8 @@ class CodexAdapter(ExternalAdapter):
     title = "Codex"
     binary = "codex"
     capabilities = CliCapabilities(
-        streaming=True, approvals="bridged", live_view=True, tmux=False, modes=ALL_MODES
+        streaming=True, approvals="bridged", live_view=True, tmux=False, modes=ALL_MODES,
+        steer=True,
     )
     forbidden_args = (
         "--dangerously-bypass-approvals-and-sandbox",
@@ -1364,6 +1365,9 @@ class CodexAdapter(ExternalAdapter):
         """
         if self._supervisor is not None:
             return self._supervisor, dict(self._env or proc.scrubbed_env())
+        if self.supervisor is not None:
+            # Bound by the daemon's manager before any channel ran.
+            return self.supervisor, proc.scrubbed_env()
         if self._own_supervisor is None:
             self._own_supervisor = ProcessSupervisor(resolve_home(), max_processes=1)
         return self._own_supervisor, proc.scrubbed_env()
@@ -1376,8 +1380,14 @@ class CodexAdapter(ExternalAdapter):
         return self.server
 
     async def stop_server(self) -> None:
-        """Stop the shared app-server (tests; the daemon reaps it at shutdown)."""
+        """Stop the shared app-server: stdin closed, so codex releases its locks and exits."""
         await self.server.stop()
+
+    async def shutdown(self) -> None:
+        """Daemon stop: the shared app-server goes gracefully, not by SIGKILL."""
+        await self.stop_server()
+        if self._own_supervisor is not None:
+            await self._own_supervisor.shutdown()
 
     def codex_home(self) -> Path:
         if self.server.codex_home:

@@ -206,8 +206,8 @@ async def test_discovery_without_the_binary(tmp_path: Path) -> None:
     assert not found.installed
 
 
-def test_models_are_the_cli_aliases() -> None:
-    models = ClaudeAdapter().list_models(None)
+async def test_models_are_the_cli_aliases() -> None:
+    models = await ClaudeAdapter().list_models(None)
     assert models == ["fable", "opus", "sonnet", "haiku"]
     for model in models:
         assert proc.validate_model(model) == model
@@ -741,3 +741,16 @@ async def test_idle_close_and_shutdown_leave_no_process(env: Env) -> None:
     assert not any(proc.pid_alive(pid) for pid in pids)
     assert encode_cwd(str(env.project)) in str(claude_mod.transcript_path(str(env.project),
                                                                           ref["id"]))
+
+
+async def test_a_reread_history_does_not_repeat_snowpea_prompts(env: Env) -> None:
+    conn = Conn()
+    ref = await env.create(conn)
+    await env.turn(conn, ref, "first prompt")
+    await env.turn(conn, ref, "second prompt")
+    record = env.manager._records[("claude", ref["id"])]
+    fresh = await env.adapter.get_session(ref["id"])
+    assert fresh is not None
+    await env.manager._publish(record, await env.adapter.read(fresh))
+    users = [e["payload"]["text"] for e in conn.events() if e["kind"] == "message.user"]
+    assert users == ["first prompt", "second prompt"]

@@ -205,7 +205,7 @@ async def test_discovery_version_login_and_capabilities(env: Env) -> None:
     assert row["installed"] and row["version"].startswith("codex-cli 0.167.1")
     assert row["problems"] == []
     assert row["capabilities"] == {"streaming": True, "approvals": "bridged", "liveView": True,
-                                   "tmux": False,
+                                   "steer": True, "tmux": False,
                                    "modes": ["default", "readonly", "unrestricted"]}
     assert row["defaultMode"] == "default"
     # Discovery started the one shared app-server and asked account/read.
@@ -557,16 +557,16 @@ async def test_steer(env: Env) -> None:
     await until(lambda: "message.delta" in conn.kinds())
     channel = env.manager._records[("codex", ref["id"])].channel
     assert isinstance(channel, codex.CodexChannel)
-    await channel.steer("also add tests", origin={"kind": "human", "surface": "ide"})
+    assert channel.can_steer
+    # external.send mid-turn steers (capabilities.steer) instead of session_busy.
+    steered = await env.manager.send(ref["cli"], ref["id"], "also add tests", conn=conn)
+    assert steered["turnId"] == turn
     steer = env.sent("turn/steer")[0]["params"]
     assert steer["expectedTurnId"] == channel.codex_turn
     assert steer["input"][0]["text"] == "also add tests"
     users = [e for e in conn.events() if e["kind"] == "message.user"]
     assert users[-1]["payload"]["text"] == "also add tests" and users[-1]["turnId"] == turn
-    # The manager still refuses a plain send mid-turn.
-    with pytest.raises(ExternalError) as caught:
-        await env.manager.send(ref["cli"], ref["id"], "more", conn=conn)
-    assert caught.value.code == errors.SESSION_BUSY
+    assert users[-1]["payload"]["origin"]["kind"] == "human"
     # A stale turn id is refused by codex: session_busy.
     current, channel.codex_turn = channel.codex_turn, "stale"
     with pytest.raises(ExternalError) as caught:
@@ -574,9 +574,10 @@ async def test_steer(env: Env) -> None:
     assert caught.value.code == errors.SESSION_BUSY
     channel.codex_turn = current
     await until(lambda: any(e["kind"] == "turn.done" for e in conn.events()))
+    assert not channel.can_steer
     with pytest.raises(ExternalError) as caught:
         await channel.steer("nothing runs")
-    assert caught.value.code == errors.INVALID_PARAMS
+    assert caught.value.code == errors.SESSION_BUSY
 
 
 # -- modes and the bypass ---------------------------------------------------------------
@@ -595,7 +596,9 @@ def _bypass_frames(env: Env) -> list[dict[str, Any]]:
 
 
 async def test_unrestricted_only_with_a_grant(env: Env) -> None:
-    for conn in (None, Conn("browser"), Conn(None)):
+    remote = Conn("web")
+    remote.remote_login = True  # type: ignore[attr-defined]
+    for conn in (None, Conn("browser"), remote):
         with pytest.raises(ExternalError) as caught:
             await env.manager.create("codex", str(env.project), mode="unrestricted", conn=conn)
         assert caught.value.code == errors.JARVIS_PERSON_ONLY
@@ -727,8 +730,10 @@ async def test_active_writer_answer_reads_as_view_only(env: Env) -> None:
     env.write_scenario(scenario="second_writer")
     viewer = Conn("tui")
     opened = await env.manager.open("codex", thread["id"], conn=viewer)
-    assert opened["session"]["host"] == "none"
-    assert env.sent("thread/resume")  # it tried, codex said "active writer"
+    # codex said "active writer": shown view only at once, not after a refresh.
+    assert opened["session"]["host"] == "terminal" and opened["readOnly"] is True
+    assert opened["session"]["canSend"] is False
+    assert env.sent("thread/resume")
     with pytest.raises(ExternalError) as caught:
         await env.manager.send("codex", thread["id"], "hi", conn=viewer)
     assert caught.value.code == errors.EXTERNAL_VIEW_ONLY
@@ -993,3 +998,16 @@ async def test_idle_stop_and_a_new_request_do_not_race(env: Env) -> None:
     assert rows == [] and env.adapter.server.alive
     idle = env.adapter.server._idle
     assert idle is not None and not idle.done()  # the new server still stops when idle
+
+
+async def test_a_reread_history_does_not_repeat_snowpea_prompts(env: Env) -> None:
+    conn = Conn()
+    ref = await _create(env, conn)
+    await _turn(env, conn, ref, "first prompt")
+    await _turn(env, conn, ref, "second prompt")
+    record = env.manager._records[("codex", ref["id"])]
+    # A later re-read (a live tail, the catch-up when a terminal closes) brings the
+    # thread's userMessage items back under codex's own item ids.
+    await env.manager._publish(record, await env.adapter.read(record.info))
+    users = [e["payload"]["text"] for e in conn.events() if e["kind"] == "message.user"]
+    assert users == ["first prompt", "second prompt"]

@@ -948,8 +948,10 @@ export interface ExternalClisResult {
       approvals: "bridged" | "degraded";
       /** A session open in another terminal can be followed live (else on refresh). */
       liveView: boolean;
-      /** Modes it offers: cursor has no 'default' (no permission mechanism). */
+      /** Modes it offers. agy has no 'readonly' (its plan mode still writes files); cursor offers readonly (its default), default (edits and sandboxed shell with no prompt: approvals 'degraded') and unrestricted. */
       modes?: ("default" | "readonly" | "unrestricted")[];
+      /** external.send during a running turn adds the text to that turn (Codex turn/steer) instead of answering session_busy; the same turnId comes back. */
+      steer?: boolean;
       /** Replies stream as message.delta while the CLI writes. */
       streaming: boolean;
       /** external.create {transport: 'tmux'} works: Claude Code only, on Linux/macOS with tmux installed (beta). */
@@ -963,6 +965,10 @@ export interface ExternalClisResult {
     id: "claude" | "codex" | "agy" | "cursor";
     /** An executable was found (jarvis.external.clis.<id>.path or PATH). */
     installed: boolean;
+    /** Model ids external.create {model} accepts, as the CLI lists them without spending tokens. Filled in the background: empty until the CLI answered (then external.clis.changed goes out); empty when it cannot list them. */
+    models?: string[];
+    /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
+    modes?: ("default" | "readonly" | "unrestricted")[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
     /** Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'. */
@@ -974,7 +980,7 @@ export interface ExternalClisResult {
   })[];
 }
 
-/** `external.close` params. External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays. */
+/** `external.close` params. External sessions (1.53.0, WP5): stop the process snowpea runs for it and unsubscribe; the CLI's own transcript stays. A screen that only goes away calls external.unwatch instead. */
 export interface ExternalCloseParams {
   /** The external session. */
   ref: {
@@ -991,7 +997,7 @@ export interface ExternalCloseResult {
   ok?: boolean;
 }
 
-/** `external.create` params. External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it. */
+/** `external.create` params. External sessions (1.53.0, WP6): start a new session of a CLI in a registered project root and open it; the calling connection is subscribed to its external.event stream as with external.open. */
 export interface ExternalCreateParams {
   /** Which CLI. */
   cli: "claude" | "codex" | "agy" | "cursor";
@@ -1011,7 +1017,7 @@ export interface ExternalCreateResult {
   session: {
     /** How its permission prompts are answered right now. */
     approvals?: "bridged" | "person" | "degraded" | "none";
-    /** external.send is accepted now: host none, snowpea, or tmux once S5 holds. */
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
@@ -1050,7 +1056,63 @@ export interface ExternalCreateResult {
   };
 }
 
-/** `external.interrupt` params. External sessions (1.53.0, WP6): stop the running turn. */
+/** `external.get` params. External sessions (1.53.0): one session's row without opening or reading it (deep links, pop-outs, restored tabs). not_found when the CLI has no such session; outside_root when it is not in a registered project. */
+export interface ExternalGetParams {
+  /** The external session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+}
+
+/** `external.get` result. */
+export interface ExternalGetResult {
+  /** The session as it is now. */
+  session: {
+    /** How its permission prompts are answered right now. */
+    approvals?: "bridged" | "person" | "degraded" | "none";
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
+    canSend?: boolean;
+    /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
+    controlled?: boolean;
+    /** Working directory the CLI recorded. */
+    cwd: string;
+    /** Where its live process is: none (snowpea can continue it), terminal (view only until that process exits), tmux (view, input into the same pane) or snowpea. */
+    host?: "none" | "terminal" | "tmux" | "snowpea";
+    /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
+    mode?: "default" | "readonly" | "unrestricted" | null;
+    /** Model it last used, when recorded. */
+    model?: string | null;
+    /** Last message, one line. */
+    preview?: string;
+    /** Registered project root containing cwd; null when none. */
+    project?: string | null;
+    /** Which CLI and its session id. */
+    ref: {
+      /** claude, codex, agy or cursor. */
+      cli: "claude" | "codex" | "agy" | "cursor";
+      /** The CLI's own session (thread, chat) id. */
+      id: string;
+    };
+    /** idle, running or error. */
+    status: "idle" | "running" | "error";
+    /** Title the CLI keeps, or the first prompt. */
+    title?: string | null;
+    /** With host 'tmux': where. */
+    tmux?: {
+      /** tmux pane id, e.g. '%3'. */
+      pane: string;
+      /** tmux session name. */
+      session: string;
+    } | null;
+    /** UTC ISO time of its last entry. */
+    updatedAt?: string | null;
+  };
+}
+
+/** `external.interrupt` params. External sessions (1.53.0, WP6): stop the running turn. host 'tmux': Escape to the pane while Claude is busy (whoever started the turn; never C-c); host 'terminal': external_view_only; nothing running: ok, no-op. */
 export interface ExternalInterruptParams {
   /** The external session. */
   ref: {
@@ -1091,7 +1153,7 @@ export interface ExternalListResult {
   sessions?: ({
     /** How its permission prompts are answered right now. */
     approvals?: "bridged" | "person" | "degraded" | "none";
-    /** external.send is accepted now: host none, snowpea, or tmux once S5 holds. */
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
@@ -1143,6 +1205,8 @@ export interface ExternalOpenParams {
     /** The CLI's own session (thread, chat) id. */
     id: string;
   };
+  /** 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly) the person answers on any of their surfaces; Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. */
+  transport?: "structured" | "tmux" | null;
 }
 
 /** `external.open` result. */
@@ -1168,7 +1232,7 @@ export interface ExternalOpenResult {
   session: {
     /** How its permission prompts are answered right now. */
     approvals?: "bridged" | "person" | "degraded" | "none";
-    /** external.send is accepted now: host none, snowpea, or tmux once S5 holds. */
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
@@ -1241,7 +1305,7 @@ export interface ExternalReadResult {
   hasMore?: boolean;
 }
 
-/** `external.send` params. External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. Refused with external_view_only while canSend is false (host 'terminal', or 'tmux' before spike S5). */
+/** `external.send` params. External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event. A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes). */
 export interface ExternalSendParams {
   /** Session to talk to. */
   ref: {
@@ -1279,7 +1343,7 @@ export interface ExternalSetModeResult {
   session: {
     /** How its permission prompts are answered right now. */
     approvals?: "bridged" | "person" | "degraded" | "none";
-    /** external.send is accepted now: host none, snowpea, or tmux once S5 holds. */
+    /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
@@ -1316,6 +1380,23 @@ export interface ExternalSetModeResult {
     /** UTC ISO time of its last entry. */
     updatedAt?: string | null;
   };
+}
+
+/** `external.unwatch` params. External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok. */
+export interface ExternalUnwatchParams {
+  /** The external session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+}
+
+/** `external.unwatch` result. */
+export interface ExternalUnwatchResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
 }
 
 /** `file.complete` params. Complete file and directory paths under a session workdir. */
@@ -2238,6 +2319,10 @@ export interface JarvisOverviewResult {
   generatedAt: string;
   /** Newest activity first. */
   rows?: ({
+    /** For an external session: as ExternalSessionRow.approvals ('person' for a tmux pane: its prompts are answered in the terminal, never by Jarvis). */
+    approvals?: "bridged" | "person" | "degraded" | "none" | null;
+    /** For an external session: as ExternalSessionRow.controlled. False (unrestricted, agy with approvalPolicy auto, cursor outside readonly): snowpea cannot gate what it runs and Jarvis's guarded-class rules do not apply inside it. */
+    controlled?: boolean | null;
     /** One line: what it did last or is waiting for (at most 200 characters). */
     digest?: string;
     /** False for a browser-host session while jarvis.exposeBrowser is off: listed with its status only; Jarvis cannot read its transcript or instruct it. */
@@ -2255,6 +2340,8 @@ export interface JarvisOverviewResult {
     lastActivityAt?: string | null;
     /** Delegation in force for it; null when not exposed. */
     level?: "staged" | "full" | null;
+    /** For an external session snowpea runs (host snowpea or tmux): its mode. */
+    mode?: "default" | "readonly" | "unrestricted" | null;
     /** As SessionJarvisState.pausedUntil. */
     pausedUntil?: string | null;
     /** Approvals waiting (any route). */
@@ -7783,6 +7870,50 @@ export interface CommandsChangedPayload {
   reason?: string;
 }
 
+/** `external.clis.changed` notification payload. */
+export interface ExternalClisChangedPayload {
+  /** All four, as external.clis would answer now. */
+  clis?: ({
+    /** agy only: what the CLI's own settings say, which snowpea cannot change per session — asks (prompts are bridged) or auto (it runs without asking; edit work then needs mode 'unrestricted', confirmed by the person). Null for the others. */
+    approvalPolicy?: "asks" | "auto" | null;
+    /** What works with this version; null when not installed. */
+    capabilities?: {
+      /** bridged: the CLI's permission prompts become snowpea approvals; degraded: edits are auto-allowed and everything else is blocked (Cursor). */
+      approvals: "bridged" | "degraded";
+      /** A session open in another terminal can be followed live (else on refresh). */
+      liveView: boolean;
+      /** Modes it offers. agy has no 'readonly' (its plan mode still writes files); cursor offers readonly (its default), default (edits and sandboxed shell with no prompt: approvals 'degraded') and unrestricted. */
+      modes?: ("default" | "readonly" | "unrestricted")[];
+      /** external.send during a running turn adds the text to that turn (Codex turn/steer) instead of answering session_busy; the same turnId comes back. */
+      steer?: boolean;
+      /** Replies stream as message.delta while the CLI writes. */
+      streaming: boolean;
+      /** external.create {transport: 'tmux'} works: Claude Code only, on Linux/macOS with tmux installed (beta). */
+      tmux?: boolean;
+    } | null;
+    /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person. */
+    defaultMode?: "default" | "readonly" | "unrestricted";
+    /** jarvis.external.clis.<id>.enabled. */
+    enabled?: boolean;
+    /** claude, codex, agy or cursor. */
+    id: "claude" | "codex" | "agy" | "cursor";
+    /** An executable was found (jarvis.external.clis.<id>.path or PATH). */
+    installed: boolean;
+    /** Model ids external.create {model} accepts, as the CLI lists them without spending tokens. Filled in the background: empty until the CLI answered (then external.clis.changed goes out); empty when it cannot list them. */
+    models?: string[];
+    /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
+    modes?: ("default" | "readonly" | "unrestricted")[];
+    /** Absolute executable path pinned at discovery. */
+    path?: string | null;
+    /** Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'. */
+    problems?: string[];
+    /** Display name, e.g. 'Claude Code'. */
+    title: string;
+    /** Its --version, when it answered. */
+    version?: string | null;
+  })[];
+}
+
 /** `external.event` notification payload. */
 export interface ExternalEventPayload {
   /** A session event kind. */
@@ -7856,13 +7987,20 @@ export interface GatewayEventPayload {
 export interface JarvisAccessPayload {
   /** read (transcript or digest), prompt, steer, interrupt, create (a new session), approval or question (answered one). */
   action: "read" | "prompt" | "steer" | "interrupt" | "create" | "approval" | "question";
+  /** The external session, when it was one. */
+  external?: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  } | null;
   /** The session's owning client (browser host), when it has one. */
   hostToolsFrom?: string | null;
   /** Ledger record id. */
   id: string;
   /** Its project root. */
   project?: string | null;
-  /** Session Jarvis read or instructed. */
+  /** Session Jarvis read or instructed; 'ext:<cli>:<id>' for an external session (see external). */
   sessionId: string;
   /** One short line: what was read or sent. */
   summary?: string;
@@ -9169,12 +9307,14 @@ export interface MethodMap {
   "external.clis": { params: ExternalClisParams; result: ExternalClisResult };
   "external.close": { params: ExternalCloseParams; result: ExternalCloseResult };
   "external.create": { params: ExternalCreateParams; result: ExternalCreateResult };
+  "external.get": { params: ExternalGetParams; result: ExternalGetResult };
   "external.interrupt": { params: ExternalInterruptParams; result: ExternalInterruptResult };
   "external.list": { params: ExternalListParams; result: ExternalListResult };
   "external.open": { params: ExternalOpenParams; result: ExternalOpenResult };
   "external.read": { params: ExternalReadParams; result: ExternalReadResult };
   "external.send": { params: ExternalSendParams; result: ExternalSendResult };
   "external.setMode": { params: ExternalSetModeParams; result: ExternalSetModeResult };
+  "external.unwatch": { params: ExternalUnwatchParams; result: ExternalUnwatchResult };
   "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
   "fs.glob": { params: FsGlobParams; result: FsGlobResult };
   "fs.hash": { params: FsHashParams; result: FsHashResult };
@@ -9374,12 +9514,14 @@ export type ClientMethod =
   | "external.clis"
   | "external.close"
   | "external.create"
+  | "external.get"
   | "external.interrupt"
   | "external.list"
   | "external.open"
   | "external.read"
   | "external.send"
   | "external.setMode"
+  | "external.unwatch"
   | "file.complete"
   | "fs.glob"
   | "fs.hash"
@@ -9551,6 +9693,7 @@ export interface EventMap {
   "approval.resolved": ApprovalResolvedPayload;
   "audio.install.progress": AudioInstallProgressPayload;
   "commands.changed": CommandsChangedPayload;
+  "external.clis.changed": ExternalClisChangedPayload;
   "external.event": ExternalEventPayload;
   "external.state": ExternalStatePayload;
   "gateway.event": GatewayEventPayload;
@@ -9582,6 +9725,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "approval.resolved",
   "audio.install.progress",
   "commands.changed",
+  "external.clis.changed",
   "external.event",
   "external.state",
   "gateway.event",

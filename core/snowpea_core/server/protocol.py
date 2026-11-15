@@ -7536,6 +7536,25 @@ class JarvisOverviewRow(Payload):
     host: ExternalHost | None = Field(
         default=None, description="For an external session: where its process lives."
     )
+    mode: ExternalSessionMode | None = Field(
+        default=None,
+        description="For an external session snowpea runs (host snowpea or tmux): its mode.",
+    )
+    controlled: bool | None = Field(
+        default=None,
+        description=(
+            "For an external session: as ExternalSessionRow.controlled. False (unrestricted, "
+            "agy with approvalPolicy auto, cursor outside readonly): snowpea cannot gate what "
+            "it runs and Jarvis's guarded-class rules do not apply inside it."
+        ),
+    )
+    approvals: ExternalApprovals | None = Field(
+        default=None,
+        description=(
+            "For an external session: as ExternalSessionRow.approvals ('person' for a tmux "
+            "pane: its prompts are answered in the terminal, never by Jarvis)."
+        ),
+    )
     pendingApprovals: int = Field(default=0, description="Approvals waiting (any route).")
     pendingQuestions: int = Field(default=0, description="Questions waiting (any route).")
     waitingOnPerson: int = Field(
@@ -7877,7 +7896,15 @@ class JarvisAccessNotification(Payload):
 
     id: str = Field(description="Ledger record id.")
     ts: str = Field(description="UTC ISO time.")
-    sessionId: str = Field(description="Session Jarvis read or instructed.")
+    sessionId: str = Field(
+        description=(
+            "Session Jarvis read or instructed; 'ext:<cli>:<id>' for an external session "
+            "(see external)."
+        )
+    )
+    external: ExternalRef | None = Field(
+        default=None, description="The external session, when it was one."
+    )
     project: str | None = Field(default=None, description="Its project root.")
     hostToolsFrom: str | None = Field(
         default=None,
@@ -7963,7 +7990,18 @@ class ExternalCliCapabilities(Payload):
     )
     modes: list[ExternalSessionMode] = Field(
         default_factory=list,
-        description="Modes it offers: cursor has no 'default' (no permission mechanism).",
+        description=(
+            "Modes it offers. agy has no 'readonly' (its plan mode still writes files); "
+            "cursor offers readonly (its default), default (edits and sandboxed shell with "
+            "no prompt: approvals 'degraded') and unrestricted."
+        ),
+    )
+    steer: bool = Field(
+        default=False,
+        description=(
+            "external.send during a running turn adds the text to that turn (Codex "
+            "turn/steer) instead of answering session_busy; the same turnId comes back."
+        ),
     )
 
 
@@ -7996,6 +8034,21 @@ class ExternalCliInfo(Payload):
         description=(
             "jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets "
             "unless one is chosen ('readonly' for cursor). Set only by the person."
+        ),
+    )
+    modes: list[ExternalSessionMode] = Field(
+        default_factory=list,
+        description=(
+            "Modes this CLI offers, also when it is not installed (as capabilities.modes): "
+            "claude and codex all three, agy default|unrestricted, cursor all three."
+        ),
+    )
+    models: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Model ids external.create {model} accepts, as the CLI lists them without "
+            "spending tokens. Filled in the background: empty until the CLI answered (then "
+            "external.clis.changed goes out); empty when it cannot list them."
         ),
     )
     problems: list[str] = Field(
@@ -8037,7 +8090,7 @@ class ExternalSessionRow(Payload):
     )
     canSend: bool = Field(
         default=True,
-        description="external.send is accepted now: host none, snowpea, or tmux once S5 holds.",
+        description="external.send is accepted now: host none, snowpea, or tmux (pane running).",
     )
     approvals: ExternalApprovals = Field(
         default="none", description="How its permission prompts are answered right now."
@@ -8114,6 +8167,18 @@ class ExternalOpenParams(Payload):
         description=(
             "Mode when this continues a host 'none' session; omitted uses the CLI's "
             "defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only)."
+        ),
+    )
+    transport: Literal["structured", "tmux"] | None = Field(
+        default=None,
+        description=(
+            "'tmux' on a Claude Code session the person runs in a tmux pane of their own "
+            "(listed as host 'terminal'): adopt that pane, so snowpea can type into it (host "
+            "'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', "
+            "personOnly) the person answers on any of their surfaces; Jarvis, the engine and "
+            "unattended rules cannot. Declined or unreachable: the session stays view only. "
+            "'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or "
+            "'structured': as before."
         ),
     )
 
@@ -8200,6 +8265,18 @@ class ExternalSetModeParams(Payload):
 
 class ExternalCreateResult(Payload):
     session: ExternalSessionRow = Field(description="The new session (already opened).")
+
+
+class ExternalGetResult(Payload):
+    session: ExternalSessionRow = Field(description="The session as it is now.")
+
+
+class ExternalClisChangedNotification(Payload):
+    """Daemon-wide (1.53.0): a row of external.clis changed (e.g. its models arrived)."""
+
+    clis: list[ExternalCliInfo] = Field(
+        default_factory=list, description="All four, as external.clis would answer now."
+    )
 
 
 class ExternalEventNotification(Payload):
@@ -9547,8 +9624,12 @@ METHODS: dict[str, RpcMethod] = {
             ExternalSendResult,
             (
                 "External sessions (1.53.0, WP6): send a prompt; the reply streams as "
-                "external.event. Refused with external_view_only while canSend is false (host "
-                "'terminal', or 'tmux' before spike S5)."
+                "external.event. A host 'none' session is continued first in its current mode "
+                "or the CLI's defaultMode ('unrestricted' only for a human connection, else "
+                "jarvis_person_only). During a running turn: added to that turn when "
+                "capabilities.steer (same turnId back), else session_busy. Refused with "
+                "external_view_only while canSend is false (host 'terminal'). A send from a "
+                "human connection pauses Jarvis in that session (jarvis.quietMinutes)."
             ),
         ),
         _m(
@@ -9564,7 +9645,11 @@ METHODS: dict[str, RpcMethod] = {
             "external.interrupt",
             ExternalRefParams,
             Ok,
-            "External sessions (1.53.0, WP6): stop the running turn.",
+            (
+                "External sessions (1.53.0, WP6): stop the running turn. host 'tmux': Escape "
+                "to the pane while Claude is busy (whoever started the turn; never C-c); host "
+                "'terminal': external_view_only; nothing running: ok, no-op."
+            ),
         ),
         _m(
             "external.create",
@@ -9572,7 +9657,8 @@ METHODS: dict[str, RpcMethod] = {
             ExternalCreateResult,
             (
                 "External sessions (1.53.0, WP6): start a new session of a CLI in a registered "
-                "project root and open it."
+                "project root and open it; the calling connection is subscribed to its "
+                "external.event stream as with external.open."
             ),
         ),
         _m(
@@ -9581,7 +9667,28 @@ METHODS: dict[str, RpcMethod] = {
             Ok,
             (
                 "External sessions (1.53.0, WP5): stop the process snowpea runs for it and "
-                "unsubscribe; the CLI's own transcript stays."
+                "unsubscribe; the CLI's own transcript stays. A screen that only goes away "
+                "calls external.unwatch instead."
+            ),
+        ),
+        _m(
+            "external.get",
+            ExternalRefParams,
+            ExternalGetResult,
+            (
+                "External sessions (1.53.0): one session's row without opening or reading it "
+                "(deep links, pop-outs, restored tabs). not_found when the CLI has no such "
+                "session; outside_root when it is not in a registered project."
+            ),
+        ),
+        _m(
+            "external.unwatch",
+            ExternalRefParams,
+            Ok,
+            (
+                "External sessions (1.53.0): stop sending this connection external.event for "
+                "the session; the process keeps running (an idle one is stopped after "
+                "jarvis.external.idleSec). Unknown or never-opened refs: ok."
             ),
         ),
         _m(
@@ -9632,6 +9739,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "jarvis.access": JarvisAccessNotification,
     "external.event": ExternalEventNotification,
     "external.state": ExternalStateNotification,
+    "external.clis.changed": ExternalClisChangedNotification,
 }
 
 CAPABILITIES: list[str] = [
@@ -9933,6 +10041,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "external.interrupt",
         "external.create",
         "external.close",
+        "external.get",
+        "external.unwatch",
     }
 )
 

@@ -21,7 +21,9 @@ Lifecycle of one session (``host``):
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextlib
+import inspect
 import logging
 import time
 import uuid
@@ -41,7 +43,13 @@ from snowpea_core.external.base import (
     LaunchSpec,
     SessionInfo,
 )
-from snowpea_core.external.proc import ExternalError, ProcessSupervisor, UnrestrictedGrant
+from snowpea_core.external.proc import (
+    ExternalError,
+    LedgerHook,
+    PersonConfirmation,
+    ProcessSupervisor,
+    UnrestrictedGrant,
+)
 from snowpea_core.external.registry import CLI_ORDER, CLI_TITLES, AdapterRegistry
 from snowpea_core.external.timeline import TimelineBuilder, TimelineItem
 from snowpea_core.permissions.allowlist import command_of, first_token
@@ -55,10 +63,29 @@ log = logging.getLogger("snowpea.external")
 DISCOVERY_TTL_SEC = 60.0
 #: Timeline entries kept in memory per session.
 MAX_EVENTS = 20_000
+#: Seconds a CLI's model list (``external.clis`` ``models``) is reused.
+MODELS_TTL_SEC = 600.0
+#: Seconds one model listing may take before it is given up (the listing
+#: itself never waits for it).
+MODELS_TIMEOUT_SEC = 60.0
+#: Prompts snowpea sent that a later transcript copy is matched against.
+LIVE_PROMPTS_KEPT = 64
+#: Seconds an adapter's shutdown hook may take at daemon stop.
+ADAPTER_SHUTDOWN_SEC = 10.0
+#: Event kinds observers (Jarvis) are not told about: streaming noise.
+_UNOBSERVED = frozenset({"message.delta", "message.reasoning", "tool.progress"})
 
 RootsFn = Callable[[], Awaitable[list[str]]]
 ExposedFn = Callable[[str], Awaitable[bool]]
 WorkdirFn = Callable[[str], Awaitable[str | None]]
+#: ``observer(row, event)``: one newly published, non-streaming timeline entry
+#: (``ExternalTimelineEvent`` dict) of an external session and its row now.
+#: History read when a session is loaded is not observed.
+Observer = Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]]
+
+
+def _norm(text: Any) -> str:
+    return " ".join(str(text or "").split())
 
 
 def _ref(cli: str, session_id: str) -> dict[str, str]:
@@ -74,16 +101,33 @@ def _origin_for(conn: Any, origin: dict[str, Any] | None) -> dict[str, Any]:
 
 
 class _ProxySession:
-    """What :meth:`ApprovalQueue.request` needs from a session, for ``ext:<cli>:<id>``."""
+    """What :meth:`ApprovalQueue.request` needs from a session, for ``ext:<cli>:<id>``.
+
+    ``external`` and ``project`` let the approval router (the delegation
+    engine) judge it as that external session in its registered project.
+    """
 
     kind = "external"
     origin_conn = None
     host_tools_from = None
     owned_by = None
+    parent_session_id = None
 
-    def __init__(self, cli: str, session_id: str, cwd: str) -> None:
+    def __init__(self, cli: str, session_id: str, cwd: str, project: str | None = None,
+                 title: str | None = None) -> None:
         self.id = f"ext:{cli}:{session_id}"
         self.workdir = Path(cwd)
+        self.external = ExternalRef(cli=cli, id=session_id)  # type: ignore[arg-type]
+        self.project = project
+        self.title = title
+
+
+@dataclass
+class _LivePrompt:
+    """A prompt snowpea typed or sent itself; the CLI's own copy of it is not shown twice."""
+
+    text: str
+    matched: bool = False
 
 
 @dataclass
@@ -109,6 +153,13 @@ class _Record:
     follow_task: asyncio.Task[None] | None = None
     approval_cache: set[tuple[str, str]] = field(default_factory=set)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    #: Keys of the ``message.user`` items the manager published itself.
+    live_keys: set[str] = field(default_factory=set)
+    #: Prompts snowpea sent, oldest first (see :meth:`ExternalManager._duplicate`).
+    live_prompts: collections.deque[_LivePrompt] = field(
+        default_factory=lambda: collections.deque(maxlen=LIVE_PROMPTS_KEPT)
+    )
+    steers: int = 0
 
     @property
     def cli(self) -> str:
@@ -181,6 +232,7 @@ class ExternalManager:
         workdir_of: WorkdirFn | None = None,
         poll_interval: float = 1.0,
         sweep_interval: float = 30.0,
+        ledger: LedgerHook | None = None,
     ) -> None:
         self.home = Path(home)
         self._settings = settings
@@ -198,6 +250,30 @@ class ExternalManager:
         self._watched_conns: set[int] = set()
         self._sweeper: asyncio.Task[None] | None = None
         self._closed = False
+        #: Writes the ledger entry of an unrestricted grant (the delegation
+        #: engine's ledger in the daemon); no write, no grant.
+        self.ledger = ledger
+        #: Told about every new, non-streaming timeline entry (Jarvis's intake).
+        self.observers: list[Observer] = []
+        #: cli -> (monotonic time, executable path, model ids).
+        self._models: dict[str, tuple[float, str | None, list[str]]] = {}
+        self._model_tasks: dict[str, asyncio.Task[None]] = {}
+        self._tasks: set[asyncio.Task[Any]] = set()
+        for cli in self.registry.ids():
+            adapter = self.registry.get(cli)
+            if adapter is not None:
+                self._bind(adapter)
+
+    def _bind(self, adapter: ExternalAdapter) -> ExternalAdapter:
+        """Hand the daemon's supervisor to ``adapter`` (helpers, shared servers)."""
+        if adapter.supervisor is None:
+            adapter.supervisor = self.supervisor
+        return adapter
+
+    def _soon(self, coro: Awaitable[Any]) -> None:
+        task = asyncio.ensure_future(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     # -- settings ---------------------------------------------------------
     def _ext_settings(self) -> Any:
@@ -225,6 +301,19 @@ class ExternalManager:
             mode = adapter.builtin_default_mode
         return mode
 
+    def controlled_default_mode(self, adapter: ExternalAdapter) -> str:
+        """The default mode for a caller that is not a person: never ``unrestricted``.
+
+        The configured ``defaultMode`` when it is not ``unrestricted``, else the
+        CLI's own default.  Jarvis creates and continues sessions in this one.
+        """
+        mode = self.default_mode(adapter)
+        if mode == "unrestricted":
+            mode = adapter.builtin_default_mode
+        if mode == "unrestricted" or mode not in adapter.capabilities.modes:
+            mode = next(m for m in adapter.capabilities.modes if m != "unrestricted")
+        return mode
+
     # -- lifecycle --------------------------------------------------------
     async def start(self) -> None:
         """Clean up after a daemon that died, then start the idle sweep."""
@@ -235,12 +324,16 @@ class ExternalManager:
             self._sweeper = asyncio.ensure_future(self._sweep_loop())
 
     async def shutdown(self) -> None:
-        """Stop every channel and child process (daemon exit)."""
+        """Stop every channel, the adapters' shared processes, then every child (daemon exit)."""
         self._closed = True
         if self._sweeper is not None:
             self._sweeper.cancel()
             await asyncio.gather(self._sweeper, return_exceptions=True)
             self._sweeper = None
+        for task in [*self._model_tasks.values(), *self._tasks]:
+            task.cancel()
+        await asyncio.gather(*self._model_tasks.values(), *self._tasks, return_exceptions=True)
+        self._model_tasks.clear()
         for record in list(self._records.values()):
             await self._stop_follow(record)
             if record.channel is not None:
@@ -249,6 +342,14 @@ class ExternalManager:
                 record.channel = None
             if record.turn_cancel is not None:
                 record.turn_cancel.set()
+        for cli in self.registry.ids():
+            adapter = self.registry.get(cli)
+            if adapter is None:
+                continue
+            try:
+                await asyncio.wait_for(adapter.shutdown(), ADAPTER_SHUTDOWN_SEC)
+            except Exception:  # noqa: BLE001 - the supervisor stops what is left
+                log.warning("%s adapter did not shut down cleanly", cli, exc_info=True)
         await self.supervisor.shutdown()
 
     # -- discovery --------------------------------------------------------
@@ -256,6 +357,7 @@ class ExternalManager:
         adapter = self.registry.get(cli)
         if adapter is None:
             return None
+        self._bind(adapter)
         override = getattr(self._cli_settings(cli), "path", None)
         cached = self._discovery.get(cli)
         now = time.monotonic()
@@ -299,6 +401,8 @@ class ExternalManager:
                     if adapter is not None
                     else ("readonly" if cli == "cursor" else "default")
                 ),
+                "modes": list(adapter.capabilities.modes) if adapter is not None else [],
+                "models": [],
                 "problems": [],
             }
             if adapter is None:
@@ -313,6 +417,7 @@ class ExternalManager:
                 row["version"] = found.executable.version
             if found.capabilities is not None:
                 row["capabilities"] = found.capabilities.to_wire()
+                row["modes"] = list(found.capabilities.modes)
             row["approvalPolicy"] = found.approval_policy
             problems = list(found.problems)
             if not found.installed:
@@ -320,8 +425,78 @@ class ExternalManager:
             if not enabled_all:
                 problems.append("external sessions are turned off (jarvis.external.enabled)")
             row["problems"] = problems
+            row["models"] = self._models_now(adapter, found, refresh=refresh)
             out.append(row)
         return out
+
+    # -- models -----------------------------------------------------------
+    def _models_now(self, adapter: ExternalAdapter, found: Discovery, *, refresh: bool
+                    ) -> list[str]:
+        """The cached model list; a stale or missing one is fetched in the background.
+
+        ``external.clis`` never waits for a CLI to list its models; when the list
+        arrives (or changes) ``external.clis.changed`` goes out.
+        """
+        if not found.usable:
+            return []
+        path = found.executable.path if found.executable is not None else None
+        cached = self._models.get(adapter.id)
+        fresh = (
+            cached is not None
+            and cached[1] == path
+            and time.monotonic() - cached[0] < MODELS_TTL_SEC
+        )
+        if (refresh or not fresh) and not self._closed:
+            running = self._model_tasks.get(adapter.id)
+            if running is None or running.done():
+                self._model_tasks[adapter.id] = asyncio.ensure_future(
+                    self._fetch_models(adapter, found, path)
+                )
+        return list(cached[2]) if cached is not None and cached[1] == path else []
+
+    async def _fetch_models(self, adapter: ExternalAdapter, found: Discovery,
+                            path: str | None) -> None:
+        try:
+            result = adapter.list_models(found)
+            if inspect.isawaitable(result):
+                result = await asyncio.wait_for(result, MODELS_TIMEOUT_SEC)
+            models = [
+                str(model) for model in (result or [])
+                if isinstance(model, str) and proc.MODEL_RE.fullmatch(model)
+                and not proc.is_dangerous(model)
+            ]
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a CLI that cannot list models lists none
+            log.debug("listing %s models failed", adapter.id, exc_info=True)
+            models = []
+        previous = self._models.get(adapter.id)
+        self._models[adapter.id] = (time.monotonic(), path, list(dict.fromkeys(models)))
+        if previous is None or previous[2] != self._models[adapter.id][2]:
+            await self._announce_clis()
+
+    async def models(self, cli: str) -> list[str]:
+        """The model ids of ``cli``, waiting for the listing when none is cached."""
+        adapter, found = await self._usable(cli)
+        cached = self._models.get(cli)
+        path = found.executable.path if found.executable is not None else None
+        if cached is None or cached[1] != path:
+            self._models_now(adapter, found, refresh=False)
+            task = self._model_tasks.get(cli)
+            if task is not None:
+                await asyncio.gather(asyncio.shield(task), return_exceptions=True)
+            cached = self._models.get(cli)
+        return list(cached[2]) if cached is not None else []
+
+    async def _announce_clis(self) -> None:
+        """``external.clis.changed`` (daemon-wide): a CLI row changed (its models arrived)."""
+        if self.hub is None or self._closed:
+            return
+        try:
+            rows = await self.clis()
+            await self.hub.notify("external.clis.changed", {"clis": rows})
+        except Exception:  # noqa: BLE001 - a dead socket must not break the listing
+            log.debug("could not broadcast external.clis.changed", exc_info=True)
 
     async def _usable(self, cli: str) -> tuple[ExternalAdapter, Discovery]:
         """The adapter for ``cli`` when it can run sessions, else ``external_unavailable``."""
@@ -337,6 +512,7 @@ class ExternalManager:
             raise ExternalError(
                 errors.EXTERNAL_UNAVAILABLE, f"{title} is not supported by this snowpea core yet"
             )
+        self._bind(adapter)
         if not bool(getattr(self._cli_settings(cli), "enabled", True)):
             raise ExternalError(
                 errors.EXTERNAL_UNAVAILABLE,
@@ -456,10 +632,46 @@ class ExternalManager:
         )
 
     # -- events -----------------------------------------------------------
-    async def _publish(self, record: _Record, items: Iterable[TimelineItem]) -> None:
-        """Number, keep and send ``external.event`` to the session's subscribers."""
+    def _duplicate(self, record: _Record, item: TimelineItem) -> bool:
+        """A transcript copy of a prompt snowpea itself sent (published already).
+
+        The CLI records every prompt under its own id (a Codex item id, agy's
+        replay index, Claude's record uuid), so a later re-read of the history
+        brings back what snowpea published under its live key.  Such a copy is
+        matched to the oldest prompt snowpea sent that no copy matched yet, by its
+        text; it is dropped, and never read as the person typing.
+        """
+        if item.kind != "message.user" or item.key in record.live_keys:
+            return False
+        text = _norm(item.payload.get("text"))
+        if not text:
+            return False
+        for prompt in record.live_prompts:
+            if not prompt.matched and prompt.text == text:
+                prompt.matched = True
+                return True
+        return False
+
+    def _live_user(self, record: _Record, text: str, *, key: str, turn_id: str,
+                   origin: dict[str, Any]) -> None:
+        """Build the ``message.user`` of a prompt snowpea sends, and remember it."""
+        record.live_keys.add(key)
+        record.live_prompts.append(_LivePrompt(_norm(text)))
+        record.builder.user(text, key=key, turn_id=turn_id, origin=origin)
+
+    async def _publish(self, record: _Record, items: Iterable[TimelineItem], *,
+                       observe: bool = True) -> None:
+        """Number, keep and send ``external.event`` to the session's subscribers.
+
+        ``observe`` is false for the history read when a session is loaded:
+        observers (Jarvis) hear only what happens from then on.
+        """
+        observed: list[dict[str, Any]] = []
         for item in items:
             if item.key in record.keys:
+                continue
+            if self._duplicate(record, item):
+                record.keys.add(item.key)
                 continue
             record.keys.add(item.key)
             record.seq += 1
@@ -476,6 +688,16 @@ class ExternalManager:
                     await conn.notify("external.event", params)
                 except Exception:  # noqa: BLE001 - one dead socket must not stop the rest
                     log.debug("dropping external.event for a closed connection", exc_info=True)
+            if observe and item.kind not in _UNOBSERVED:
+                observed.append(event)
+        if observed and self.observers and record.info.id:
+            row = self._row(record)
+            for event in observed:
+                for observer in list(self.observers):
+                    try:
+                        await observer(row, event)
+                    except Exception:  # noqa: BLE001 - an observer never breaks the session
+                        log.warning("external observer failed", exc_info=True)
 
     def _page(self, record: _Record, before_seq: int | None, limit: int
               ) -> tuple[list[dict[str, Any]], bool]:
@@ -635,7 +857,7 @@ class ExternalManager:
         )
         self._records[key] = record
         try:
-            await self._publish(record, await adapter.read(info))
+            await self._publish(record, await adapter.read(info), observe=False)
         except ExternalError:
             self._records.pop(key, None)
             raise
@@ -647,30 +869,45 @@ class ExternalManager:
             ) from exc
         return record, found
 
-    async def _refresh_host(self, record: _Record) -> None:
-        """Re-check where the process lives (records snowpea does not run)."""
+    async def _refresh_host(self, record: _Record) -> str | None:
+        """Re-check where the process lives (records snowpea does not run).
+
+        Returns the liveness host (``tmux`` for a pane the person runs, which the
+        row shows as ``terminal`` until it is adopted).
+        """
         if record.channel is not None and record.channel.alive:
-            return
+            return None
         live = await record.adapter.liveness(record.info, own_pids=self.supervisor.pids())
         # A pane snowpea did not start is somebody's terminal: view only.
         record.host = "terminal" if live.host in ("terminal", "tmux") else "none"
         if record.host == "terminal":
             record.status = "running" if live.busy else "idle"
+        return live.host
 
     async def open(
         self, cli: str, session_id: str, *, limit: int = 200, mode: str | None = None,
-        conn: Any = None,
+        conn: Any = None, transport: str | None = None,
+        confirmation: PersonConfirmation | None = None,
     ) -> dict[str, Any]:
-        """``external.open``: subscribe and return the newest page; continue a free session."""
+        """``external.open``: subscribe and return the newest page; continue a free session.
+
+        ``transport="tmux"`` on a Claude session the person runs in a tmux pane
+        adopts that pane (after the person allows it, person-only) instead of
+        showing it view only.
+        """
         record, found = await self._load(cli, session_id)
+        if transport not in (None, "structured", "tmux"):
+            raise ExternalError(errors.INVALID_PARAMS, f"unknown transport {transport!r}")
         try:
-            return await self._open(record, found, limit=limit, mode=mode, conn=conn)
+            return await self._open(record, found, limit=limit, mode=mode, conn=conn,
+                                    transport=transport, confirmation=confirmation)
         except ExternalError:
             await self._maybe_forget(record)
             raise
 
     async def _open(
-        self, record: _Record, found: Discovery, *, limit: int, mode: str | None, conn: Any
+        self, record: _Record, found: Discovery, *, limit: int, mode: str | None, conn: Any,
+        transport: str | None = None, confirmation: PersonConfirmation | None = None,
     ) -> dict[str, Any]:
         cli, session_id = record.cli, record.id
         async with record.lock:
@@ -679,16 +916,28 @@ class ExternalManager:
                 if record.channel is not None:
                     record.channel = None
                     record.host = "none"
-                await self._refresh_host(record)
-                if record.host == "none":
+                live_host = await self._refresh_host(record)
+                adopt = transport == "tmux" and live_host == "tmux"
+                if adopt and not (record.adapter.capabilities.tmux and proc.tmux_supported()):
+                    raise ExternalError(
+                        errors.EXTERNAL_UNAVAILABLE,
+                        f"{record.adapter.title} cannot share a tmux terminal on this machine",
+                    )
+                if record.host == "none" or adopt:
                     chosen = proc.validate_mode(mode, record.adapter.capabilities.modes)
                     chosen = chosen or record.mode or self.default_mode(record.adapter)
-                    grant = self._grant_if_unrestricted(record, chosen, conn, "open")
+                    grant = self._grant_if_unrestricted(record, chosen, conn, "open",
+                                                        confirmation=confirmation)
                     try:
-                        await self._start_channel(record, chosen, grant, found, resume=True)
+                        await self._start_channel(
+                            record, chosen, grant, found, resume=True,
+                            transport="tmux" if adopt or transport == "tmux" else "structured",
+                        )
                     except ExternalError as exc:
                         if exc.code in (errors.JARVIS_PERSON_ONLY, errors.INVALID_PARAMS):
                             raise
+                        if adopt:
+                            await self._refresh_host(record)
                         # View it anyway; the next send tries again.
                         record.error = exc.message
                         log.info("could not continue %s %s: %s", cli, session_id, exc.message)
@@ -716,6 +965,42 @@ class ExternalManager:
         events, has_more = self._page(record, before_seq, limit)
         await self._maybe_forget(record)
         return {"events": events, "hasMore": has_more}
+
+    async def get(self, cli: str, session_id: str) -> dict[str, Any]:
+        """``external.get``: one session's row, without opening or reading it.
+
+        For deep links, pop-outs and restored tabs.  A session outside every
+        registered project is refused (``outside_root``) as on open.
+        """
+        adapter, _found = await self._usable(cli)
+        proc.validate_session_id(session_id)
+        record = self._records.get((cli, session_id))
+        if record is not None:
+            return {"session": self._row(record)}
+        info = await adapter.get_session(session_id)
+        if info is None:
+            raise ExternalError(errors.NOT_FOUND, f"no {adapter.title} session {session_id}")
+        roots = await self.roots()
+        proc.validate_cwd(info.cwd, roots)
+        resolved = [str(Path(root).resolve()) for root in roots]
+        return {"session": await self._listed_row(adapter, info, resolved)}
+
+    async def unwatch(self, cli: str, session_id: str, *, conn: Any = None) -> None:
+        """``external.unwatch``: stop sending ``external.event`` to ``conn``; nothing stops.
+
+        A screen that closes calls this (not ``external.close``) so the CLI keeps
+        running; an idle process is stopped by the idle sweep (``idleSec``).
+        """
+        if self.registry.get(cli) is None:
+            raise ExternalError(
+                errors.EXTERNAL_UNAVAILABLE, f"{CLI_TITLES.get(cli, cli)} is not available"
+            )
+        proc.validate_session_id(session_id)
+        record = self._records.get((cli, session_id))
+        if record is None or conn is None:
+            return
+        record.subscribers = [other for other in record.subscribers if other is not conn]
+        await self._maybe_forget(record)
 
     # -- follow (view only) and takeover -------------------------------------
     def _start_follow(self, record: _Record) -> None:
@@ -779,18 +1064,24 @@ class ExternalManager:
     # -- channels ---------------------------------------------------------
     def _grant_if_unrestricted(
         self, record_or_cli: _Record | str, mode: str, conn: Any, action: str,
-        project: str | None = None,
+        project: str | None = None, confirmation: PersonConfirmation | None = None,
     ) -> UnrestrictedGrant | None:
+        """The person's grant for ``unrestricted`` (a ledger entry), or ``jarvis_person_only``.
+
+        ``confirmation`` comes from :func:`proc.person_confirmation_from_gateway`
+        (a messenger's bound person); otherwise ``conn`` must be a person.
+        """
         if mode != "unrestricted":
             return None
-        confirmation = proc.confirm_person(conn)
+        if confirmation is None:
+            confirmation = proc.confirm_person(conn, self._settings())
         if isinstance(record_or_cli, _Record):
             cli, session_id, project = record_or_cli.cli, record_or_cli.id, record_or_cli.project
         else:
             cli, session_id = record_or_cli, None
         return proc.grant_unrestricted(
             confirmation, cli=cli, session_id=session_id, project=project, action=action,
-            home=self.home,
+            home=self.home, ledger=self.ledger,
         )
 
     async def _start_channel(
@@ -812,9 +1103,14 @@ class ExternalManager:
         channel = record.adapter.channel(spec, _Host(self, record))
         try:
             await channel.start()
-        except ExternalError:
+        except ExternalError as exc:
             with contextlib.suppress(Exception):
                 await channel.close()
+            if exc.code == errors.EXTERNAL_VIEW_ONLY and resume:
+                # The CLI says another process holds it ("active writer"): show it
+                # view only right away, and follow it until that process exits.
+                record.host = "terminal"
+                self._start_follow(record)
             raise
         except Exception as exc:  # noqa: BLE001 - an adapter bug is an unavailable CLI
             with contextlib.suppress(Exception):
@@ -846,7 +1142,14 @@ class ExternalManager:
         self, cli: str, session_id: str, text: str, *, conn: Any = None,
         origin: dict[str, Any] | None = None,
     ) -> dict[str, str]:
-        """``external.send``: start a turn; the reply streams as ``external.event``."""
+        """``external.send``: start a turn; the reply streams as ``external.event``.
+
+        A ``host: none`` session is continued first in its current mode, or the
+        CLI's ``defaultMode`` (``unrestricted`` only for a person; anyone else
+        gets ``jarvis_person_only``).  During a running turn a CLI that can steer
+        (``capabilities.steer``) takes the text into that turn; the others answer
+        ``session_busy``.
+        """
         if not text or not text.strip():
             raise ExternalError(errors.INVALID_PARAMS, "empty prompt")
         record, found = await self._load(cli, session_id)
@@ -877,24 +1180,27 @@ class ExternalManager:
                 if mode == "unrestricted":
                     # A takeover in unrestricted mode is a new choice: the person makes it.
                     grant = self._grant_if_unrestricted(record, mode, conn, "open")
-                await self._start_channel(record, mode, grant, found, resume=True)
+                try:
+                    await self._start_channel(record, mode, grant, found, resume=True)
+                except ExternalError:
+                    if record.host != previous_host:
+                        await self._announce(record, None, previous_host)
+                    raise
                 await self._announce(record, None, previous_host)
+            channel = record.channel
+            assert channel is not None
             if record.turn_id is not None:
+                if record.adapter.capabilities.steer and channel.can_steer:
+                    return await self._steer(record, channel, text, conn=conn, origin=origin)
                 raise ExternalError(
                     errors.SESSION_BUSY, "a turn is running in this session; interrupt it first"
                 )
-            channel = record.channel
-            assert channel is not None
             turn_id = f"xt-{uuid.uuid4().hex[:12]}"
             record.turn_id = turn_id
             record.turn_cancel = asyncio.Event()
             record.builder.turn_started(turn_id, text)
-            record.builder.user(
-                text,
-                key=f"{turn_id}:user",
-                turn_id=turn_id,
-                origin=_origin_for(conn, origin),
-            )
+            self._live_user(record, text, key=f"{turn_id}:user", turn_id=turn_id,
+                            origin=_origin_for(conn, origin))
             await self._publish(record, record.builder.drain())
             await self._set(record, status="running")
             record.info.preview = text
@@ -910,6 +1216,29 @@ class ExternalManager:
                 raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "the CLI did not take the prompt"
                                     ) from exc
             return {"turnId": turn_id}
+
+    async def _steer(self, record: _Record, channel: ExternalChannel, text: str, *,
+                     conn: Any, origin: dict[str, Any] | None) -> dict[str, str]:
+        """Add ``text`` to the running turn (``external.send`` on a CLI that steers)."""
+        turn_id = record.turn_id
+        assert turn_id is not None
+        try:
+            await channel.steer(text)
+        except ExternalError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - adapter bug: the turn goes on as it was
+            log.warning("%s steer failed", record.cli, exc_info=True)
+            raise ExternalError(
+                errors.SESSION_BUSY, "the CLI did not take the text into the running turn"
+            ) from exc
+        record.steers += 1
+        self._live_user(record, text, key=f"{turn_id}:steer:{record.steers}", turn_id=turn_id,
+                        origin=_origin_for(conn, origin))
+        await self._publish(record, record.builder.drain())
+        record.info.preview = text
+        record.info.updated_at = utc_now()
+        record.last_activity = time.monotonic()
+        return {"turnId": turn_id}
 
     async def _end_turn(self, record: _Record, reason: str, error: str | None = None) -> None:
         turn_id = record.turn_id
@@ -951,12 +1280,20 @@ class ExternalManager:
         await self._maybe_forget(record)
 
     async def interrupt(self, cli: str, session_id: str) -> None:
-        """``external.interrupt``: stop the running turn (no-op without one)."""
+        """``external.interrupt``: stop the running turn (no-op without one).
+
+        ``host: terminal`` answers ``external_view_only``.  ``host: tmux`` sends
+        Escape to the pane while Claude is busy, whoever started the turn (the
+        person typing in the pane, or snowpea); never ``C-c``.
+        """
         record, _found = await self._load(cli, session_id)
         if record.host == "terminal":
             raise ExternalError(
                 errors.EXTERNAL_VIEW_ONLY, "this session runs in another terminal; stop it there"
             )
+        if record.host == "tmux" and record.channel is not None and record.channel.alive:
+            await record.channel.interrupt()
+            return
         if record.turn_id is None or record.channel is None:
             await self._maybe_forget(record)
             return
@@ -979,11 +1316,16 @@ class ExternalManager:
         """Bridge one CLI prompt into the shared approval queue (``ApprovalRequest.external``)."""
         command = command_of(ask.args or {})
         cache_key = (ask.tool, first_token(command) if command else "")
-        if cache_key in record.approval_cache and (not command or matchable(command)):
+        if (
+            not ask.person_only
+            and cache_key in record.approval_cache
+            and (not command or matchable(command))
+        ):
             return ApprovalAnswer(allow=True, scope="session", by="cache")
         if self.approvals is None:
             return ApprovalAnswer(allow=False, reason="no approval queue", by="none")
-        proxy = _ProxySession(record.cli, record.id, record.info.cwd)
+        proxy = _ProxySession(record.cli, record.id, record.info.cwd, record.project,
+                              record.info.title)
         decision = await self.approvals.request(
             proxy,
             ask.tool,
@@ -997,8 +1339,12 @@ class ExternalManager:
             cacheable=False,
             diff=ask.diff,
             paths=list(ask.paths) if ask.paths else None,
+            person_only=ask.person_only,
             external=ExternalRef(cli=record.cli, id=record.id),  # type: ignore[arg-type]
         )
+        if ask.person_only and decision.allowed and decision.person is None:
+            # Allowed by anything but a person (a cache, a rule): not this one.
+            return ApprovalAnswer(allow=False, reason="only a person may allow this", by="none")
         scope = decision.scope if decision.allowed else "once"
         if decision.allowed and scope != "once" and (not command or matchable(command)):
             record.approval_cache.add(cache_key)
@@ -1011,8 +1357,12 @@ class ExternalManager:
     async def create(
         self, cli: str, project: str, *, model: str | None = None, mode: str | None = None,
         transport: str = "structured", conn: Any = None,
+        confirmation: PersonConfirmation | None = None,
     ) -> dict[str, Any]:
-        """``external.create``: a new session in a registered project, already open."""
+        """``external.create``: a new session in a registered project, already open.
+
+        The creating connection is subscribed (``external.event``) as on open.
+        """
         adapter, found = await self._usable(cli)
         roots = await self.roots()
         cwd = proc.validate_cwd(project, roots)
@@ -1024,7 +1374,8 @@ class ExternalManager:
                 f"{adapter.title} cannot run in a shared tmux terminal on this machine",
             )
         root = proc.project_of(cwd, [str(Path(r).resolve()) for r in roots])
-        grant = self._grant_if_unrestricted(cli, chosen, conn, "create", project=root)
+        grant = self._grant_if_unrestricted(cli, chosen, conn, "create", project=root,
+                                            confirmation=confirmation)
         record = _Record(
             adapter=adapter,
             info=SessionInfo(id="", cwd=cwd, updated_at=utc_now()),
@@ -1049,8 +1400,8 @@ class ExternalManager:
         await self._announce(record, None, "none")
         return {"session": self._row(record)}
 
-    async def set_mode(self, cli: str, session_id: str, mode: str, *, conn: Any = None
-                       ) -> dict[str, Any]:
+    async def set_mode(self, cli: str, session_id: str, mode: str, *, conn: Any = None,
+                       confirmation: PersonConfirmation | None = None) -> dict[str, Any]:
         """``external.setMode``: from the next turn; ``unrestricted`` only from a person."""
         record, _found = await self._load(cli, session_id)
         chosen = proc.validate_mode(mode, record.adapter.capabilities.modes)
@@ -1060,7 +1411,8 @@ class ExternalManager:
                 raise ExternalError(
                     errors.EXTERNAL_VIEW_ONLY, "this session runs in another terminal"
                 )
-            grant = self._grant_if_unrestricted(record, chosen, conn, "setMode")
+            grant = self._grant_if_unrestricted(record, chosen, conn, "setMode",
+                                                confirmation=confirmation)
             if record.channel is not None and record.channel.alive:
                 await record.channel.set_mode(chosen, grant)
             record.mode = chosen

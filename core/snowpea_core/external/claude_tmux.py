@@ -472,12 +472,14 @@ class ClaudeTmuxChannel(ExternalChannel):
                 "this Claude Code session runs in a tmux pane snowpea cannot reach; "
                 "continue it there",
             )
+        # Person-only: never Jarvis, never the engine, never an unattended rule.
         answer = await self.host_api.ask_approval(ApprovalAsk(
             tool="tmux.adopt",
             args={"session": info["session"], "pane": info["pane"]},
             risk="high",
             note=("snowpea will type into this tmux pane, which you started yourself; "
                   "permission prompts stay yours to answer there"),
+            person_only=True,
         ))
         if not answer.allow:
             raise ExternalError(errors.EXTERNAL_VIEW_ONLY,
@@ -619,7 +621,8 @@ class ClaudeTmuxChannel(ExternalChannel):
         raise unavailable("Claude Code did not take the prompt in the terminal; check the pane")
 
     async def interrupt(self) -> None:
-        if self.turn_id is None or self.server is None or self.pane is None:
+        """Escape while Claude is busy, whoever started the turn; nothing otherwise."""
+        if self.server is None or self.pane is None or not self.alive:
             return
         data = self.status()
         status = data.get("status") if data is not None else None

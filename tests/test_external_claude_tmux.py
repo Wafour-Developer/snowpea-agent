@@ -7,6 +7,7 @@ at teardown.  The person's own tmux server is never touched.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -27,6 +28,8 @@ from _claude_support import (
     pinned,
     starts,
     until,
+    user,
+    write_transcript,
 )
 from _external_adapter import FAKE_CLAUDE
 from _support import env_vars
@@ -50,6 +53,7 @@ from snowpea_core.external.proc import ExternalError
 from snowpea_core.external.registry import AdapterRegistry
 from snowpea_core.permissions.approval_queue import ApprovalQueue
 from snowpea_core.server import errors
+from snowpea_core.server.errors import RpcError
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no tmux on Windows"),
@@ -391,3 +395,57 @@ async def test_the_channel_never_types_into_an_open_dialog(tmp_path: Path, socke
     prompts = [e["data"] for e in fake_log(tmp_path / "log") if e["kind"] == "prompt"]
     assert prompts == ["write"]
     assert claude_home().is_dir()
+
+
+async def test_adopting_over_external_open_is_the_persons_call(tmp_path: Path,
+                                                               socket: str) -> None:
+    """external.open {transport: 'tmux'} adopts the person's pane after a person-only ask."""
+    project = (tmp_path / "proj").resolve()
+    project.mkdir()
+    sid = str(uuid.uuid4())
+    settings = Settings.model_validate(
+        {"jarvis": {"external": {"clis": {"claude": {"path": str(FAKE_CLAUDE)}}}}}
+    )
+    hub = Hub()
+    approvals = ApprovalQueue(settings, hub=hub)  # type: ignore[arg-type]
+
+    async def roots() -> list[str]:
+        return [str(project)]
+
+    manager = ExternalManager(
+        home=tmp_path / "home", settings=lambda: settings, hub=hub, approvals=approvals,
+        registry=AdapterRegistry([ClaudeAdapter(tmux_socket="unused-" + uuid.uuid4().hex[:6],
+                                                poll_interval=0.05)]),
+        roots=roots, poll_interval=0.1, sweep_interval=3600,
+    )
+    with env_vars(FAKE_CLI_LOG=str(tmp_path / "fake.log"), FAKE_CLI_SCENARIO=None):
+        write_transcript(str(project), [user("earlier", str(project))], session_id=sid)
+        pane, pid = _person_pane(socket, project, sid)
+        await until(lambda: (claude_mod.read_status(pid) or {}).get("status") == "idle")
+        await manager.start()
+        try:
+            viewer = Conn("tui")
+            opened = await manager.open("claude", sid, conn=viewer)
+            assert opened["session"]["host"] == "terminal" and opened["readOnly"]
+            adopting = asyncio.ensure_future(
+                manager.open("claude", sid, conn=viewer, transport="tmux")
+            )
+            pending = await until(lambda: [p["request"] for m, p in hub.notes
+                                           if m == "approval.pending"])
+            request = pending[-1]
+            assert request["tool"] == "tmux.adopt" and request["personOnly"] is True
+            # Neither Jarvis nor the engine may allow it.
+            for by in ("jarvis", "jarvis:auto"):
+                with pytest.raises(RpcError) as caught:
+                    await approvals.respond(request["requestId"], "allow", by=by)
+                assert caught.value.code == errors.JARVIS_PERSON_ONLY
+            await approvals.respond(request["requestId"], "allow", conn=viewer)
+            adopted = (await adopting)["session"]
+            assert adopted["host"] == "tmux" and adopted["canSend"]
+            assert adopted["approvals"] == "person" and adopted["tmux"]["pane"] == pane
+            # Idle: an interrupt types nothing into the person's pane.
+            await manager.interrupt("claude", sid)
+        finally:
+            await manager.shutdown()
+        # The person's pane outlives snowpea's side.
+        assert proc.pid_alive(pid)

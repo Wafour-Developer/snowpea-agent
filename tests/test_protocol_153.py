@@ -57,6 +57,8 @@ M19_METHODS = {
     "external.setMode",
     "external.create",
     "external.close",
+    "external.get",
+    "external.unwatch",
     "mcp.preset.list",
     "mcp.preset.apply",
 }
@@ -84,6 +86,7 @@ M19_EVENTS = {
     "jarvis.delegation.changed",
     "external.event",
     "external.state",
+    "external.clis.changed",
 }
 
 
@@ -193,7 +196,7 @@ def test_jarvis_settings_defaults_and_validation() -> None:
         {"quietMinutes": 0},
         {"delegation": {"default": "everything"}},
         {"folder": "  "},
-        {"external": {"clis": {"cursor": {"defaultMode": "default"}}}},
+        {"external": {"clis": {"agy": {"defaultMode": "readonly"}}}},
         {"external": {"clis": {"codex": {"defaultMode": "yolo"}}}},
     ):
         with pytest.raises(ValidationError):

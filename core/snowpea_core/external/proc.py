@@ -71,9 +71,12 @@ DANGEROUS_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: Client kinds whose connection is a person at a screen (``system.hello``).
-#: ``browser`` (the browser host) and connections that did not say are not.
-HUMAN_CLIENT_KINDS: frozenset[str] = frozenset({"ide", "desktop", "tui", "cli", "web"})
+#: Client kinds whose connection is a person at a screen (``system.hello``):
+#: one list for the whole daemon, the delegation engine's
+#: (:data:`snowpea_core.jarvis.delegation.HUMAN_CLIENT_KINDS`).  The desktop
+#: app and the TUI send no ``clientKind``; a browser host, the remote
+#: connector and unknown clients are not a person.
+from snowpea_core.jarvis.delegation import HUMAN_CLIENT_KINDS  # noqa: E402
 
 #: Environment variables a CLI child never inherits.  Every ``SNOWPEA_*``
 #: variable (the daemon token, registry and studio keys, test switches) goes,
@@ -105,6 +108,10 @@ MAX_LINE_BYTES = 16 * 1024 * 1024
 KILL_GRACE_SEC = 2.0
 #: Seconds ``--version`` may take.
 VERSION_TIMEOUT_SEC = 10.0
+#: Short-lived helper processes (``agy models``, ``cursor-agent --list-models``,
+#: ``claude auth status``, a token-free ``agy acp`` for a listing) that may run at
+#: once; more wait for a slot.  They do not count against ``maxProcesses``.
+MAX_HELPERS = 6
 
 
 class ExternalError(Exception):
@@ -288,32 +295,84 @@ class PersonConfirmation:
             raise ExternalError(errors.JARVIS_PERSON_ONLY, "only a person may confirm this")
 
 
-def is_human_connection(conn: Any) -> bool:
-    """True for an authenticated, open IDE / desktop / TUI / CLI / web connection."""
+def _open_connection(conn: Any) -> bool:
     return (
         conn is not None
         and bool(getattr(conn, "authenticated", False))
         and not bool(getattr(conn, "closed", False))
-        and getattr(conn, "client_kind", None) in HUMAN_CLIENT_KINDS
     )
 
 
-def confirm_person(conn: Any) -> PersonConfirmation:
+def is_human_connection(conn: Any) -> bool:
+    """True for an authenticated, open connection a person sits behind.
+
+    The same rule as the delegation engine's
+    (:func:`snowpea_core.jarvis.delegation.person_refusal` with
+    :meth:`~snowpea_core.jarvis.delegation.Caller.from_connection`): IDE, web,
+    TUI, CLI, the desktop app and clients that send no ``clientKind``.
+    """
+    from snowpea_core.jarvis.delegation import Caller, person_refusal
+
+    if not _open_connection(conn):
+        return False
+    return person_refusal(Caller.from_connection(conn), None, guarded=False) is None
+
+
+def confirm_person(conn: Any, settings: Any = None) -> PersonConfirmation:
     """A :class:`PersonConfirmation` for ``conn``, or ``jarvis_person_only``.
 
-    In-process callers (Jarvis, schedules, the gateway) pass ``None`` and are
-    refused: they ask the person through a person-only approval instead.
+    The delegation engine's person rule with ``guarded=True``: a remote web
+    login (``RpcConnection.remote_login``) may not open unrestricted mode, as it
+    may not hand guarded classes to Jarvis.  In-process callers (Jarvis,
+    schedules) pass ``None`` and are refused; the gateway mints its own
+    through :func:`person_confirmation_from_gateway`.
     """
-    if not is_human_connection(conn):
+    from snowpea_core.jarvis.delegation import Caller, person_refusal
+
+    if not _open_connection(conn):
         raise ExternalError(
             errors.JARVIS_PERSON_ONLY,
             "only a person at the IDE, web or TUI may choose unrestricted mode",
         )
-    kind = str(getattr(conn, "client_kind", ""))
+    refusal = person_refusal(Caller.from_connection(conn), settings, guarded=True)
+    if refusal is not None:
+        raise ExternalError(
+            errors.JARVIS_PERSON_ONLY, f"only a person may choose unrestricted mode: {refusal}"
+        )
+    kind = str(getattr(conn, "client_kind", None) or "local")
     return PersonConfirmation(
         client_kind=kind,
         client_id=getattr(conn, "client_id", None),
         surface=kind,
+        ts=utc_now(),
+        _mint=_MINT,
+    )
+
+
+def person_confirmation_from_gateway(
+    platform: str, *, bound_person: bool, settings: Any
+) -> PersonConfirmation:
+    """The messenger seam (M19 WP7): a confirmation for the person bound to a chat.
+
+    The gateway calls this only after it checked the approver of the binding
+    (``bound_person``).  Refused (``jarvis_person_only``) for anyone else and
+    while ``jarvis.messenger.allowGrants`` is off — the same rule as a grant
+    confirmed from a messenger.
+    """
+    from snowpea_core.jarvis.delegation import Caller, person_refusal
+
+    name = str(platform or "").strip() or "messenger"
+    refusal = person_refusal(
+        Caller.messenger(name, bound_person=bound_person), settings, guarded=True
+    )
+    if refusal is not None:
+        raise ExternalError(
+            errors.JARVIS_PERSON_ONLY, f"only a person may choose unrestricted mode: {refusal}"
+        )
+    return PersonConfirmation(
+        client_kind="messenger",
+        client_id=name,
+        surface=f"messenger:{name}",
         ts=utc_now(),
         _mint=_MINT,
     )
@@ -336,8 +395,9 @@ class UnrestrictedGrant:
             raise ExternalError(errors.JARVIS_PERSON_ONLY, "unrestricted needs a person's grant")
 
 
-#: ``callback(entry)`` that records one ledger entry (a ``JarvisDecision`` dict).
-LedgerHook = Callable[[dict[str, Any]], None]
+#: ``callback(entry)`` that records one ledger entry (a ``JarvisDecision`` dict);
+#: it may return the id the ledger gave the entry.
+LedgerHook = Callable[[dict[str, Any]], Any]
 _ledger_hook: LedgerHook | None = None
 
 
@@ -370,11 +430,14 @@ def grant_unrestricted(
     project: str | None,
     action: str,
     home: Path,
+    ledger: LedgerHook | None = None,
 ) -> UnrestrictedGrant:
     """Record the person's choice in the ledger and return the grant.
 
-    ``action`` is ``create``, ``open`` or ``setMode``.  The ledger write is
-    part of the grant: if it fails, there is no grant.
+    ``action`` is ``create``, ``open`` or ``setMode``.  ``ledger`` is the
+    daemon's writer (the delegation engine's ledger); without one the hook
+    installed with :func:`set_ledger_hook`, else the default file.  The ledger
+    write is part of the grant: if it fails, there is no grant.
     """
     if not isinstance(confirmation, PersonConfirmation) or confirmation._mint is not _MINT:
         raise ExternalError(errors.JARVIS_PERSON_ONLY, "unrestricted needs a person's grant")
@@ -394,10 +457,11 @@ def grant_unrestricted(
         "decision": action,
         "decidedBy": "person",
         "reason": f"chosen on {confirmation.surface}",
+        "by": confirmation.surface,
     }
-    hook = _ledger_hook or default_ledger(home)
+    hook = ledger or _ledger_hook or default_ledger(home)
     try:
-        hook(entry)
+        written = hook(entry)
     except Exception as exc:  # noqa: BLE001 - no ledger entry, no grant
         log.warning("could not write the unrestricted ledger entry", exc_info=True)
         raise ExternalError(
@@ -409,7 +473,7 @@ def grant_unrestricted(
         project=project,
         action=action,
         confirmation=confirmation,
-        ledger_id=entry_id,
+        ledger_id=written if isinstance(written, str) and written else entry_id,
         _mint=_MINT,
     )
 
@@ -670,8 +734,37 @@ def _signal_pid(pid: int, sig: int) -> None:
         os.kill(pid, sig)
 
 
+def _own_group(pid: int, pgid: int | None) -> int | None:
+    """The process group to signal for ``pid``, or ``None`` when there is none to signal.
+
+    Only a group ``pid`` leads (or the one recorded at spawn for it) is
+    signalled, and never the daemon's own group: a child that was not started
+    in its own session (a helper another tool spawned, a CLI's grandchild)
+    is stopped by pid and tree instead.
+    """
+    if IS_WINDOWS:  # pragma: no cover - Windows only
+        return None
+    current = _safe_getpgid(pid)
+    group = pgid if pgid is not None else current
+    if group is None or group <= 1:
+        return None
+    with contextlib.suppress(OSError):
+        if group == os.getpgrp():
+            return None
+    if pgid is None and group != pid:
+        return None
+    if current is not None and current != group:
+        # The pid left that group (or was reused): its tree is signalled by pid.
+        return None
+    return group
+
+
 async def _kill_tree(pid: int, *, pgid: int | None = None, grace: float = KILL_GRACE_SEC) -> None:
-    """SIGTERM the group and the tree, wait ``grace``, then SIGKILL what is left."""
+    """SIGTERM the group (when ``pid`` has its own), the pid and its tree; then SIGKILL.
+
+    Works whether or not ``pid`` leads a process group: the pid itself and every
+    descendant are always signalled by pid.
+    """
     if IS_WINDOWS:  # pragma: no cover - Windows only
         with contextlib.suppress(OSError, subprocess.SubprocessError):
             await asyncio.to_thread(
@@ -682,20 +775,39 @@ async def _kill_tree(pid: int, *, pgid: int | None = None, grace: float = KILL_G
                 timeout=15,
             )
         return
-    group = pgid if pgid is not None else pid
+    group = _own_group(pid, pgid)
     tree = descendants(pid)
-    _signal_group(group, signal.SIGTERM)
+    if group is not None:
+        _signal_group(group, signal.SIGTERM)
+    _signal_pid(pid, signal.SIGTERM)
     for child in tree:
         _signal_pid(child, signal.SIGTERM)
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline:
-        if not pid_alive(pid) and not any(pid_alive(child) for child in tree):
+        if not _running(pid) and not any(_running(child) for child in tree):
             break
         await asyncio.sleep(0.05)
-    _signal_group(group, signal.SIGKILL)
+    if group is not None:
+        _signal_group(group, signal.SIGKILL)
+    if _running(pid):
+        _signal_pid(pid, signal.SIGKILL)
     for child in tree:
-        if pid_alive(child):
+        if _running(child):
             _signal_pid(child, signal.SIGKILL)
+
+
+def _running(pid: int) -> bool:
+    """Alive and not a zombie waiting for its parent to reap it."""
+    if not pid_alive(pid):
+        return False
+    if sys.platform.startswith("linux"):
+        try:
+            raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        fields = raw[raw.rfind(")") + 2 :].split()
+        return not (fields and fields[0] == "Z")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -889,6 +1001,12 @@ class ProcessSupervisor:
         self._max = max_processes
         self._live: dict[int, ExternalProcess] = {}
         self._reserved = 0
+        #: Helper processes running now (see :meth:`spawn_helper`).
+        self._helpers: dict[int, ExternalProcess] = {}
+        #: Helpers started since this supervisor was made (introspection, tests).
+        self.helpers_started = 0
+        self._helper_slots: asyncio.Semaphore | None = None
+        self._closed = False
 
     @property
     def max_processes(self) -> int:
@@ -900,10 +1018,95 @@ class ProcessSupervisor:
 
     def pids(self) -> set[int]:
         """Pids of the CLI processes this daemon runs (to tell them from the person's)."""
-        return {proc.pid for proc in self._live.values() if proc.alive}
+        found = {proc.pid for proc in self._live.values() if proc.alive}
+        found.update(proc.pid for proc in self._helpers.values() if proc.alive)
+        return found
+
+    def helpers(self) -> list[ExternalProcess]:
+        """Helper processes running now."""
+        return [proc for proc in self._helpers.values() if proc.alive]
 
     def _release(self, proc: ExternalProcess) -> None:
         self._live.pop(proc.pid, None)
+        if self._helpers.get(proc.pid) is proc:
+            self._helpers.pop(proc.pid, None)
+            if self._helper_slots is not None:
+                self._helper_slots.release()
+
+    async def spawn_helper(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: str,
+        env: Mapping[str, str],
+        cli: str,
+        stdin: bool = False,
+        stderr: bool = False,
+    ) -> ExternalProcess:
+        """Start a short-lived helper (no model call) the daemon still owns.
+
+        Not counted against ``maxProcesses`` but bounded by :data:`MAX_HELPERS`
+        (more wait), in its own process group, with a pid file so a daemon that
+        died leaves none behind, and stopped by :meth:`shutdown`.  The caller
+        stops it (``terminate``) or waits for it; either releases the slot.
+        """
+        if self._closed:
+            raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "snowpea is shutting down")
+        if not argv or not os.path.isabs(argv[0]):
+            raise ExternalError(errors.INTERNAL, "external CLI executable is not pinned")
+        if self._helper_slots is None:
+            self._helper_slots = asyncio.Semaphore(MAX_HELPERS)
+        await self._helper_slots.acquire()
+        try:
+            raw = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.PIPE if stdin else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE if stderr else asyncio.subprocess.DEVNULL,
+                cwd=cwd,
+                env=dict(env),
+                **_group_kwargs(),
+            )
+        except OSError as exc:
+            self._helper_slots.release()
+            raise ExternalError(
+                errors.EXTERNAL_UNAVAILABLE, f"could not start {cli}: {exc.strerror or exc}"
+            ) from exc
+        except BaseException:
+            self._helper_slots.release()
+            raise
+        pid_file = self._write_pid_file(raw.pid, cli, "helper")
+        handle = ExternalProcess(raw, cli=cli, ref="helper", supervisor=self, pid_file=pid_file)
+        self._helpers[raw.pid] = handle
+        self.helpers_started += 1
+        return handle
+
+    async def run_helper(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: str,
+        env: Mapping[str, str],
+        cli: str,
+        timeout: float,
+    ) -> tuple[int | None, bytes]:
+        """Run a helper to the end: ``(returncode, stdout)``; ``(None, b"")`` on a timeout.
+
+        A helper that overruns ``timeout`` is stopped with its whole tree.
+        """
+        try:
+            handle = await self.spawn_helper(argv, cwd=cwd, env=env, cli=cli)
+        except ExternalError:
+            return None, b""
+        try:
+            out, _ = await asyncio.wait_for(handle.proc.communicate(), timeout)
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            await handle.terminate(grace=0.5)
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            return None, b""
+        await handle.wait()
+        return handle.returncode, out
 
     async def spawn(
         self,
@@ -916,6 +1119,8 @@ class ProcessSupervisor:
         stdin: bool = True,
     ) -> ExternalProcess:
         """Start ``argv`` (from :func:`build_argv`) in its own process group."""
+        if self._closed:
+            raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "snowpea is shutting down")
         if not argv or not os.path.isabs(argv[0]):
             raise ExternalError(errors.INTERNAL, "external CLI executable is not pinned")
         if len(self.live()) + self._reserved >= self.max_processes:
@@ -1020,10 +1225,12 @@ class ProcessSupervisor:
             _signal_pid(child, signal.SIGKILL)
 
     async def shutdown(self, grace: float = KILL_GRACE_SEC) -> None:
-        """Stop every child this daemon runs, then sweep the pid files."""
-        live = list(self._live.values())
+        """Stop every child and helper this daemon runs, then sweep the pid files."""
+        self._closed = True
+        live = [*self._live.values(), *self._helpers.values()]
         await asyncio.gather(*(proc.terminate(grace) for proc in live), return_exceptions=True)
         self._live.clear()
+        self._helpers.clear()
         self.reap_orphans()
 
 
@@ -1055,6 +1262,7 @@ __all__ = [
     "default_ledger",
     "descendants",
     "grant_unrestricted",
+    "person_confirmation_from_gateway",
     "is_dangerous",
     "is_human_connection",
     "pid_alive",

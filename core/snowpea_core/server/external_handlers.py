@@ -23,6 +23,7 @@ from snowpea_core.server.protocol import (
     ExternalClisResult,
     ExternalCreateParams,
     ExternalCreateResult,
+    ExternalGetResult,
     ExternalListParams,
     ExternalListResult,
     ExternalOpenParams,
@@ -53,6 +54,8 @@ HANDLED_METHODS: tuple[str, ...] = (
     "external.interrupt",
     "external.create",
     "external.close",
+    "external.get",
+    "external.unwatch",
 )
 
 
@@ -99,6 +102,31 @@ def _workdir_fn(core: Core) -> Callable[[str], Awaitable[str | None]]:
     return workdir_of
 
 
+def _ledger_fn(core: Core) -> Callable[[dict[str, Any]], str]:
+    """Unrestricted grants go into the delegation engine's ledger (one ledger per daemon).
+
+    The engine announces each entry as ``jarvis.decision``.  A failed write
+    raises, so no grant is made without its entry.
+    """
+
+    def write(entry: dict[str, Any]) -> str:
+        from snowpea_core.jarvis.delegation import engine_for
+
+        decision = engine_for(core).ledger.record_decision(
+            kind="unrestricted",
+            decided_by="person",
+            summary=str(entry.get("summary") or ""),
+            external=entry.get("external"),
+            project=entry.get("project"),
+            decision=entry.get("decision"),
+            reason=str(entry.get("reason") or ""),
+            importance=str(entry.get("importance") or "high"),
+        )
+        return decision.id
+
+    return write
+
+
 def ensure_manager(core: Core) -> ExternalManager:
     """The daemon's :class:`ExternalManager`, created on first use."""
     manager = getattr(core, "external", None)
@@ -111,6 +139,7 @@ def ensure_manager(core: Core) -> ExternalManager:
             roots=lambda: _roots(core),
             exposed=_exposed,
             workdir_of=_workdir_fn(core),
+            ledger=_ledger_fn(core),
         )
         core.external = manager
     return manager
@@ -153,7 +182,8 @@ async def open_handler(
 ) -> ExternalOpenResult:
     result = await _call(
         ensure_manager(core).open(
-            params.ref.cli, params.ref.id, limit=params.limit, mode=params.mode, conn=conn
+            params.ref.cli, params.ref.id, limit=params.limit, mode=params.mode, conn=conn,
+            transport=params.transport,
         )
     )
     return ExternalOpenResult.model_validate(result)
@@ -216,6 +246,18 @@ async def close_handler(conn: RpcConnection, params: ExternalRefParams, core: Co
     return Ok(ok=True)
 
 
+async def get_handler(
+    _conn: RpcConnection, params: ExternalRefParams, core: Core
+) -> ExternalGetResult:
+    result = await _call(ensure_manager(core).get(params.ref.cli, params.ref.id))
+    return ExternalGetResult.model_validate(result)
+
+
+async def unwatch_handler(conn: RpcConnection, params: ExternalRefParams, core: Core) -> Ok:
+    await _call(ensure_manager(core).unwatch(params.ref.cli, params.ref.id, conn=conn))
+    return Ok(ok=True)
+
+
 def register_external_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("external.clis", clis_handler)
     dispatcher.register("external.list", list_handler)
@@ -226,6 +268,8 @@ def register_external_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("external.interrupt", interrupt_handler)
     dispatcher.register("external.create", create_handler)
     dispatcher.register("external.close", close_handler)
+    dispatcher.register("external.get", get_handler)
+    dispatcher.register("external.unwatch", unwatch_handler)
     return dispatcher
 
 
