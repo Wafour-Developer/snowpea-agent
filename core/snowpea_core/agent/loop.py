@@ -810,6 +810,38 @@ def transient_provider_error(exc: BaseException) -> bool:
     return isinstance(exc, ProviderError) and bool(_TRANSIENT_PROVIDER.search(str(exc)))
 
 
+#: Transport errors raised before a request reached the server: nothing was
+#: sent, so trying again cannot repeat anything.
+_CONNECT_ERROR_NAMES = frozenset({"ConnectError", "ConnectTimeout"})
+#: The same failures as the adapters word them (the wrapped class name is kept
+#: in the text) and as the operating system words a lookup or route failure.
+_CONNECT_FAILURE = re.compile(
+    r"\bConnectError\b|\bConnectTimeout\b|nodename nor servname|name or service not known|"
+    r"temporary failure in name resolution|getaddrinfo failed|network is unreachable|"
+    r"no route to host|connection refused",
+    re.IGNORECASE,
+)
+
+
+def connection_failure(exc: BaseException) -> bool:
+    """True when a provider call failed before it reached the server.
+
+    DNS failure, connection refused or unreachable, connect timeout: what a
+    machine that slept or lost its network sees.  The wrapped exception's type
+    decides when there is one; the text is the fallback.
+    """
+    if not isinstance(exc, ProviderError):
+        return False
+    seen: set[int] = set()
+    cause: BaseException | None = exc.__cause__ or exc.__context__
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        if any(klass.__name__ in _CONNECT_ERROR_NAMES for klass in type(cause).__mro__):
+            return True
+        cause = cause.__cause__ or cause.__context__
+    return bool(_CONNECT_FAILURE.search(str(exc)))
+
+
 #: How often a wait on the model server wakes to look at the clock, and when
 #: and how often it says so (``provider.waiting``, 1.37.0).
 PROVIDER_WAIT_TICK = 5.0
@@ -949,6 +981,21 @@ def _provider_retries(core: Core) -> int:
         return 3
 
 
+def _connect_wait(core: Core) -> float:
+    """Seconds connection failures are retried for; ``0`` counts them as retries."""
+    try:
+        return max(0.0, float(core.settings.agent.provider_connect_wait_sec))
+    except (AttributeError, TypeError, ValueError):
+        return 300.0
+
+
+def _duration(seconds: float) -> str:
+    """``45 s`` / ``5 min`` for a person to read."""
+    if seconds < 120:
+        return f"{seconds:.0f} s"
+    return f"{seconds / 60:.0f} min"
+
+
 async def _stream_once(
     core: Core,
     session: Session,
@@ -966,13 +1013,27 @@ async def _stream_once(
     Backs off 2 s, 4 s, 8 s … (capped at 30 s), stops waiting when the user
     presses Stop, and says on the session that it is retrying. A request the
     server refused (a 400, a bad key) is not retried: it would fail the same way.
+
+    A failure that never reached the server (DNS, refused, unreachable,
+    connect timeout — a machine that slept or lost its network) has its own
+    budget: it is retried with the same backoff until
+    ``agent.provider_connect_wait_sec`` has passed since the first one, without
+    using up ``provider_retries`` or the step budget.
     """
     probing = _unknown_vision_with_images(core, session, messages)
     retries = _provider_retries(core)
+    connect_wait = _connect_wait(core)
     budget = _step_budget(core)
-    started = time.monotonic()
+    started = monotonic()
     silent_failures = 0
-    for attempt_no in range(retries + 1):
+    failures = 0  # retries charged to ``provider_retries``
+    backoff_no = 0
+    connect_since: float | None = None
+    #: Seconds spent on connection failures and their waits, which the step
+    #: budget does not count: the server was never reached.
+    connect_spent = 0.0
+    while True:
+        attempt_started = monotonic()
         try:
             done = await _stream_once_raw(
                 core,
@@ -990,45 +1051,80 @@ async def _stream_once(
                 await image_describe.notify_unseen(core, session, "no_vision_model", "attachment")
             return done
         except ProviderError as exc:
-            if attempt_no >= retries or not transient_provider_error(exc):
-                raise
             if session.interrupt.is_set():
                 raise
-            if _is_silence_timeout(exc):
-                # A server that sat silent for the whole read timeout is not
-                # likely to answer the next try: one more, not three.
-                silent_failures += 1
-            if (silent_failures > 1) or (budget and time.monotonic() - started >= budget):
-                raise ProviderError(
-                    "internal",
-                    f"model server too slow: no answer after "
-                    f"{time.monotonic() - started:.0f}s over {attempt_no + 1} tries ({exc})",
-                ) from exc
-            delay = min(30.0, PROVIDER_RETRY_BASE_SEC * (2**attempt_no))
-            log.warning(
-                "provider call failed (%s); retry %d/%d in %.0fs",
-                exc,
-                attempt_no + 1,
-                retries,
-                delay,
-            )
-            await core.hub.emit_event(
-                session.id,
-                events.provider_retry(attempt_no + 1, retries, delay, _error_class(exc)),
-            )
-            await core.hub.emit_event(
-                session.id,
-                events.hook_continue(
+            now = monotonic()
+            unreachable = connect_wait > 0 and connection_failure(exc)
+            if unreachable:
+                connect_spent += now - attempt_started
+                if connect_since is None:
+                    connect_since = now
+                waited = now - connect_since
+                if waited >= connect_wait:
+                    raise ProviderError(
+                        "internal",
+                        f"the network or the model server was unreachable for "
+                        f"{_duration(waited)} ({exc})",
+                    ) from exc
+                delay = min(
+                    30.0, PROVIDER_RETRY_BASE_SEC * (2**backoff_no), connect_wait - waited
+                )
+                backoff_no += 1
+                attempt = failures + 1
+                notice = (
+                    f"The network or the model server is unreachable ({exc}); retrying "
+                    f"in {delay:.0f}s, for up to {_duration(connect_wait)} in all."
+                )
+                log.warning(
+                    "provider unreachable (%s); retry in %.0fs, %.0fs of %.0fs waited",
+                    exc,
+                    delay,
+                    waited,
+                    connect_wait,
+                )
+                max_retries = max(retries, attempt)
+            else:
+                if failures >= retries or not transient_provider_error(exc):
+                    raise
+                if _is_silence_timeout(exc):
+                    # A server that sat silent for the whole read timeout is not
+                    # likely to answer the next try: one more, not three.
+                    silent_failures += 1
+                spent = now - started - connect_spent
+                if (silent_failures > 1) or (budget and spent >= budget):
+                    raise ProviderError(
+                        "internal",
+                        f"model server too slow: no answer after "
+                        f"{spent:.0f}s over {failures + 1} tries ({exc})",
+                    ) from exc
+                delay = min(30.0, PROVIDER_RETRY_BASE_SEC * (2**backoff_no))
+                backoff_no += 1
+                failures += 1
+                attempt = failures
+                max_retries = retries
+                notice = (
                     f"The model server did not answer ({exc}); retrying "
-                    f"{attempt_no + 1}/{retries} in {delay:.0f}s.",
-                    attempt_no + 1,
-                ),
+                    f"{attempt}/{retries} in {delay:.0f}s."
+                )
+                log.warning(
+                    "provider call failed (%s); retry %d/%d in %.0fs",
+                    exc,
+                    attempt,
+                    retries,
+                    delay,
+                )
+            await core.hub.emit_event(
+                session.id,
+                events.provider_retry(attempt, max_retries, delay, _error_class(exc)),
             )
+            await core.hub.emit_event(session.id, events.hook_continue(notice, attempt))
+            waited_from = monotonic()
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(session.interrupt.wait(), timeout=delay)
+            if unreachable:
+                connect_spent += monotonic() - waited_from
             if session.interrupt.is_set():
                 raise
-    raise AssertionError("unreachable")  # pragma: no cover
 
 
 async def _stream_once_raw(

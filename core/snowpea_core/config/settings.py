@@ -299,6 +299,12 @@ class AgentSettings(_Model):
     #: server too slow".  ``0`` removes the cap.  The first-token and idle
     #: limits stay off by default: a long local prefill is silent by design.
     provider_step_budget_sec: float = Field(default=600, ge=0)
+    #: Seconds a model call that never reached the server (DNS failure,
+    #: connection refused or unreachable, connect timeout) keeps being retried,
+    #: counted from the first such failure.  These retries do not use up
+    #: ``provider_retries`` or the step budget: nothing was sent.  ``0`` counts
+    #: them as ordinary retries.
+    provider_connect_wait_sec: float = Field(default=300, ge=0)
     #: Consecutive rounds with no new call signature or output before stopping.
     no_progress_rounds: int = Field(default=40, ge=0)
     #: Optional wall-clock ceiling for one turn. ``0`` keeps Hermes-like unlimited.

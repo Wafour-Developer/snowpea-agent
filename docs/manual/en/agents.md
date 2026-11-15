@@ -259,6 +259,8 @@ Example `settings.json` (existing `agent.max_tool_rounds` remains supported;
 
 A model call that fails transiently (timeout, connection reset, HTTP 429/5xx) is retried `agent.provider_retries` times (default **3**) with 2 s, 4 s, 8 s backoff before the turn ends with an error; a refused request (HTTP 400, a bad key) is not retried.
 
+A call that never reached the model server — the name did not resolve, the connection was refused, the network was unreachable, the connection timed out — is safe to repeat, because nothing was sent. These failures do not use up `agent.provider_retries`: the call keeps trying with the same backoff (up to 30 s apart) until `agent.provider_connect_wait_sec` (default **300**, five minutes) has passed since the first one. The session says the network or the model server is unreachable while it waits, and Stop ends the wait at once. `0` counts these failures as ordinary retries again.
+
 While a turn runs, the daemon keeps the machine from going to sleep for lack of keyboard or mouse activity, so a long turn is not cut off when the model server is still working and nobody is touching the computer. It uses `caffeinate -i` on macOS, `systemd-inhibit --what=idle` on Linux (when it is installed) and `SetThreadExecutionState` on Windows. It holds only while a turn runs and lets go about 30 seconds after the last one ends. The display still turns off, and closing a laptop's lid still puts it to sleep. To turn it off, set `"daemon": {"keepAwake": false}` in `settings.json`.
 
 ### Turn safeguards
