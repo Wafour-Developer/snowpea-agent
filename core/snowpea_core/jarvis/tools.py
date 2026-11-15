@@ -89,6 +89,11 @@ BUILTIN_TOOLS: frozenset[str] = frozenset(
 
 #: Tool arguments that name a path (checked against hidden projects).
 _PATH_KEYS = ("path", "file_path", "paths", "cwd", "dir", "directory", "root", "workdir")
+#: Built-in tools that read the file system: they may read only Jarvis's own
+#: folder and the exposed projects, and never a secret (``classify.is_secret_path``).
+READ_PATH_TOOLS: frozenset[str] = frozenset(
+    {"read_file", "list_dir", "view_image", "glob", "grep", "git_status", "git_diff", "git_log"}
+)
 
 #: Longest text a session read hands back (characters, before the fence).
 READ_MAX_CHARS = 12_000
@@ -134,6 +139,12 @@ session_interrupt instruct a worker session; session_create starts a new snowpea
 session in a project when the person asks for work, or inside work they delegated.
 - Report: report_write saves a report in your own folder; todo_add, todo_list and \
 todo_done keep the person's to-do list there. save_memory keeps notes in your own memory.
+- External CLI sessions (Claude Code, Codex, agy, Cursor) are named ext:<cli>:<id>. \
+external_list, external_read, external_send and external_interrupt work with them; \
+session_create with cli starts one (mode default or readonly). A session marked \
+UNCONTROLLED (unrestricted, or a CLI that does not ask before it acts) runs without \
+snowpea's approvals: do not hand it work, tell the person. A tmux pane's prompts are \
+answered by the person in the terminal.
 
 Limits (the server enforces them; do not try to work around a refusal)
 - You never change files in projects and never run commands. Project changes are \
@@ -228,6 +239,11 @@ async def _target(service: JarvisService, session_id: str, *, read: bool) -> Tar
     """Resolve ``session_id`` as Jarvis may see it; refuse what it may not."""
     core = service.core
     session_id = str(session_id or "").strip()
+    if session_id.startswith("ext:"):
+        from snowpea_core.jarvis import external
+
+        found, _row = await external.target(service, session_id)
+        return found  # type: ignore[no-any-return]
     unknown = Refused(f"no session {session_id!r} that Jarvis supervises")
     if not session_id or session_id == service.session_id:
         raise unknown if session_id != service.session_id else Refused("that is your own session")
@@ -262,12 +278,15 @@ async def _target(service: JarvisService, session_id: str, *, read: bool) -> Tar
 
 
 async def _access(service: JarvisService, target: Target, action: str, summary: str) -> None:
+    from snowpea_core.jarvis.external import ledger_ids
+
     await service.record_access(
         session_id=target.session_id,
         project=target.project,
         host=target.host,
         action=action,
         summary=summary,
+        external=ledger_ids(target.session_id).get("external"),
     )
 
 
@@ -366,6 +385,8 @@ async def session_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     )
     if not rows:
         return _result("no supervised sessions match", count=0)
+    from snowpea_core.jarvis.overview import external_flags
+
     lines = ["session | project | title | status | waiting | level | last activity | digest"]
     for row in rows:
         level = row.level or "-"
@@ -375,10 +396,14 @@ async def session_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             level += f", the person is working in it until {row.pausedUntil}"
         if not row.exposed:
             level += ", browser: status only"
+        level += external_flags(row).replace(",", ", ")
+        ident = row.sessionId or (
+            f"ext:{row.external.cli}:{row.external.id}" if row.external else "-"
+        )
         lines.append(
             " | ".join(
                 [
-                    row.sessionId or "-",
+                    ident,
                     service.projects.name_of(row.project) if row.project else "-",
                     row.title or "-",
                     row.status,
@@ -648,6 +673,19 @@ async def session_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     _authorized(service, ctx, None, root)
     prompt = _plain(_text(args, "prompt", required=False, limit=PROMPT_MAX_CHARS))
     title = _text(args, "title", required=False, limit=120) or None
+    cli = str(args.get("cli") or "").strip() or None
+    if cli is not None:
+        from snowpea_core.jarvis import external
+
+        return await external.create(
+            service, root, cli,
+            model=_text(args, "model", required=False, limit=128) or None,
+            mode=str(args.get("mode") or "").strip() or None,
+            prompt=prompt, title=title,
+        )
+    if args.get("model") or args.get("mode"):
+        raise Refused("model and mode are for an external CLI session (cli); a snowpea "
+                      "session runs in the project's own mode and model")
     core = service.core
     session = await core.sessions.create(workdir=root, origin_surface="jarvis", origin_conn=None)
     if title:
@@ -702,6 +740,11 @@ async def approval_decide(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         raise Refused("only the person can answer that request")
     target = await _target(service, request.sessionId, read=False)
     session = core.sessions.get(request.sessionId)
+    if session is None and request.external is not None:
+        from types import SimpleNamespace
+
+        session = SimpleNamespace(workdir=target.project or "/", project=target.project,
+                                  id=request.sessionId)
     classified = service.classified(request_id)
     if classified is None:
         classified = service.classify_request(request, session)
@@ -713,6 +756,7 @@ async def approval_decide(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             scope="once",
             request_id=request_id,
             project=project,
+            external=request.external,
             exposed=service.projects.exposed(project),
             budget_exhausted=service.budget_exhausted(),
         )
@@ -721,6 +765,7 @@ async def approval_decide(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     await core.approvals.respond(request_id, decision, "once", by="jarvis", reason=reason)
     classification = verdict.verdict.classification
     importance = "low" if decision == "deny" else _IMPORTANCE.get(classification, "normal")
+    from snowpea_core.jarvis.external import ledger_ids
     from snowpea_core.jarvis.intake import Intake
 
     what = Intake._request_summary("approval", request.model_dump(mode="json"))
@@ -729,7 +774,7 @@ async def approval_decide(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         decided_by="jarvis",
         summary=f"{'allowed' if decision == 'allow' else 'denied'} {what} in "
         f"{target.title or target.session_id}",
-        session_id=request.sessionId,
+        **ledger_ids(request.sessionId),
         project=project,
         request_id=request_id,
         tool=request.tool,
@@ -1123,12 +1168,24 @@ def build_tools(service: JarvisService) -> list[Tool]:
         ),
         _tool(
             "session_create",
-            "Start a new snowpea session in an exposed project, optionally with a first "
-            "message. Only for the person's request or inside delegated work.",
+            "Start a new session in an exposed project, optionally with a first message: a "
+            "snowpea session, or with cli an external CLI session (Claude Code, Codex, agy, "
+            "Cursor). Only for the person's request or inside delegated work.",
             {
                 "project": {"type": "string", "description": "Project name, alias or root."},
                 "prompt": {"type": "string", "description": "First message (plain text)."},
                 "title": {"type": "string"},
+                "cli": {
+                    "type": "string",
+                    "enum": ["claude", "codex", "agy", "cursor"],
+                    "description": "Start an external CLI session instead of a snowpea one.",
+                },
+                "model": {"type": "string", "description": "With cli: the CLI's model id."},
+                "mode": {
+                    "type": "string",
+                    "enum": ["default", "readonly"],
+                    "description": "With cli: its default mode, or readonly where it has one.",
+                },
             },
             ["project"],
             session_create,
@@ -1290,22 +1347,50 @@ def guard_call(
             "changes are made by worker sessions (use session_prompt)"
         )
     workdir = getattr(session, "workdir", None)
-    for raw in _paths_in(args or {}):
+    paths = _paths_in(args or {})
+    if tool_name in READ_PATH_TOOLS and not paths and workdir is not None:
+        paths = [str(workdir)]  # the tool's default: the session's own folder
+    allowed: list[Path] | None = None
+    for raw in paths:
         try:
             path = Path(raw).expanduser()
             if not path.is_absolute() and workdir is not None:
                 path = Path(workdir) / path
+            resolved = Path(os.path.realpath(path))
             hidden = service.path_hidden(path)
         except Exception:  # noqa: BLE001 - an unreadable path is judged by the tool itself
             continue
         if hidden:
             return "that path is in a project hidden from Jarvis"
+        if tool_name not in READ_PATH_TOOLS:
+            continue
+        from snowpea_core.jarvis.classify import is_secret_path
+
+        if is_secret_path(resolved):
+            return "that path holds secrets; Jarvis never reads keys or credentials"
+        if allowed is None:
+            allowed = read_roots(service)
+        if not any(resolved == root or root in resolved.parents for root in allowed):
+            return (
+                "Jarvis reads only its own folder and the exposed projects; that path is "
+                "outside them"
+            )
     return None
+
+
+def read_roots(service: JarvisService) -> list[Path]:
+    """Where the Jarvis session's file-reading tools may look (resolved)."""
+    roots = [Path(os.path.realpath(service.folder()))]
+    for root in service.projects.known_roots():
+        if service.projects.exposed(root):
+            roots.append(Path(os.path.realpath(root)))
+    return roots
 
 
 __all__ = [
     "BUILTIN_TOOLS",
     "JARVIS_PROMPT",
+    "READ_PATH_TOOLS",
     "PROMPT_PREFIX",
     "Refused",
     "TodoBook",
@@ -1315,4 +1400,5 @@ __all__ = [
     "human_turn",
     "install",
     "jail",
+    "read_roots",
 ]

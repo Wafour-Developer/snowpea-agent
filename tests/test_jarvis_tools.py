@@ -136,6 +136,11 @@ async def test_tools_exist_only_on_the_jarvis_session(tmp_path: Path) -> None:
             "todo_add",
             "todo_list",
             "todo_done",
+            # external CLI sessions (hooks.tools)
+            "external_list",
+            "external_read",
+            "external_send",
+            "external_interrupt",
         } == own
         assert all(core.tools.get(name) is None for name in own)
         assert all(core.tools.get(name, worker) is None for name in own)
@@ -156,8 +161,13 @@ async def test_tools_exist_only_on_the_jarvis_session(tmp_path: Path) -> None:
         ):
             assert forbidden not in active
         # No tool takes a mode, model or agent: instructions run in the target's own mode.
+        # session_create's mode/model are for a new external CLI session, and never
+        # 'unrestricted'.
         for tool in jarvis.session_tools.values():
             props = set(tool.input_schema.get("properties", {}))
+            if tool.name == "session_create":
+                assert tool.input_schema["properties"]["mode"]["enum"] == ["default", "readonly"]
+                props -= {"mode", "model"}
             assert not props & {"mode", "model", "agent", "provider", "permission"}
         assert jarvis.system_prompt == jarvis_tools.JARVIS_PROMPT
     finally:

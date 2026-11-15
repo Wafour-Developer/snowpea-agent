@@ -229,6 +229,10 @@ class Claude:
 
     def turn(self, frame: dict) -> None:
         scenario = self.turns.next()
+        # ``tools`` (per turn, like ``turns``): which tool an approval turn asks for.
+        tools = self.cfg.get("tools")
+        self.tool_kind = str(tools[min(self.turns.count, len(tools)) - 1]) if tools \
+            else str(self.cfg.get("tool") or "write")
         self.interrupted.clear()
         text = (frame.get("message") or {}).get("content")
         if isinstance(text, list):
@@ -265,7 +269,11 @@ class Claude:
             outcome = self.tool(message_id, denials)
             if outcome == "interrupted":
                 return self.finish(interrupted=True, denials=denials)
-            reply = "Allowed: wrote note.txt" if outcome == "allow" else "Denied: did not write"
+            if getattr(self, "tool_kind", "write") == "bash":
+                reply = "Allowed: ran it" if outcome == "allow" else "Denied: did not run it"
+            else:
+                reply = ("Allowed: wrote note.txt" if outcome == "allow"
+                         else "Denied: did not write")
             message_id = "msg_" + c.new_id().replace("-", "")[:20]
         else:
             reply = str(self.cfg["reply"])
@@ -298,8 +306,15 @@ class Claude:
     def tool(self, message_id: str, denials: list[dict]) -> str:
         tool_id = "toolu_" + c.new_id().replace("-", "")[:20]
         path = os.path.join(self.cwd, "note.txt")
-        tool_input = {"file_path": path, "content": "hi\n"}
-        self.assistant(message_id, {"type": "tool_use", "id": tool_id, "name": "Write",
+        bash = getattr(self, "tool_kind", "write") == "bash"
+        name = "Bash" if bash else "Write"
+        if bash:
+            # Never executed: the fake only reports what it would have run.
+            tool_input = {"command": str(self.cfg.get("command") or "echo hi"),
+                          "description": "run a command"}
+        else:
+            tool_input = {"file_path": path, "content": "hi\n"}
+        self.assistant(message_id, {"type": "tool_use", "id": tool_id, "name": name,
                                     "input": tool_input})
         decision = "allow"
         message = ""
@@ -311,8 +326,8 @@ class Claude:
                 waiter = c.Waiter()
                 self.pending[rid] = waiter
                 c.write({"type": "control_request", "request_id": rid, "request": {
-                    "subtype": "can_use_tool", "tool_name": "Write", "display_name": "Write",
-                    "input": tool_input, "description": "note.txt",
+                    "subtype": "can_use_tool", "tool_name": name, "display_name": name,
+                    "input": tool_input, "description": "command" if bash else "note.txt",
                     "permission_suggestions": [{"type": "setMode", "mode": "acceptEdits",
                                                 "destination": "session"}],
                     "tool_use_id": tool_id}})
@@ -322,7 +337,10 @@ class Claude:
                     return "interrupted"
                 decision = "allow" if answer.get("behavior") == "allow" else "deny"
                 message = str(answer.get("message") or "Denied")
-        if decision == "allow":
+        if decision == "allow" and bash:
+            result = {"tool_use_id": tool_id, "type": "tool_result", "content": "(not run)"}
+            extra = {}
+        elif decision == "allow":
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("hi\n")
             content = f"File created successfully at: {path}"
@@ -333,7 +351,7 @@ class Claude:
             result = {"tool_use_id": tool_id, "type": "tool_result", "content": message,
                       "is_error": True}
             extra = {}
-            denials.append({"tool_name": "Write", "tool_use_id": tool_id,
+            denials.append({"tool_name": name, "tool_use_id": tool_id,
                             "tool_input": tool_input})
         uid = self.store.record("user", message={"role": "user", "content": [result]},
                                 toolUseResult=extra)

@@ -156,7 +156,22 @@ class ProjectBook:
                 continue
             seen.add(root)
             out.append(root)
+        self._known = list(out)
         return out
+
+    def known_roots(self) -> list[str]:
+        """The project roots as of the last :meth:`roots`, plus what is live now (sync).
+
+        For the Jarvis session's read limits, which run inside the agent loop.
+        """
+        found: set[str] = set(getattr(self, "_known", []) or [])
+        found.update(self._entries)
+        for session in self.core.sessions.all():
+            if getattr(session, "parent_session_id", None):
+                continue
+            with contextlib.suppress(Exception):
+                found.add(canonical(session.workdir))
+        return sorted(found - self._excluded())
 
     # -- names ---------------------------------------------------------
     def name_of(self, root: str) -> str:

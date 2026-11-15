@@ -917,9 +917,13 @@ async def session_set_mode_handler(
     _conn: RpcConnection, params: SessionSetModeParams, core: Core
 ) -> SessionSetModeResult:
     from snowpea_core.session import events
+    from snowpea_core.session.manager import ModePinned
 
     session = _session(core, params.sessionId)
-    mode = await core.sessions.set_mode(session, params.mode, params.autoAfterPlan)
+    try:
+        mode = await core.sessions.set_mode(session, params.mode, params.autoAfterPlan)
+    except ModePinned as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     flag = bool(session.auto_after_plan)
     await core.hub.emit_event(session.id, events.mode_changed(mode, auto_after_plan=flag))
     return SessionSetModeResult(mode=mode, autoAfterPlan=flag)

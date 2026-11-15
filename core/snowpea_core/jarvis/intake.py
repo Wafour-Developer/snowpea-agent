@@ -538,6 +538,11 @@ class Intake:
             return
         service = self.service
         session = service.core.sessions.get(session_id)
+        if session is None and session_id.startswith("ext:"):
+            # An external CLI session: judged in its registered project.
+            from snowpea_core.jarvis.external import proxy_for
+
+            session = proxy_for(digest)
         kind: Literal["approval", "question"] = (
             "approval" if method == "approval.pending" else "question"
         )
@@ -626,11 +631,13 @@ class Intake:
             if item is not None:
                 item.route = "person"
             return
+        from snowpea_core.jarvis.external import ledger_ids
+
         service.record_decision(
             kind="approval",
             decided_by="auto",
             summary=f"allowed {summary} in {label}",
-            session_id=digest.session_id,
+            **ledger_ids(digest.session_id),
             project=digest.project,
             request_id=request_id,
             tool=request.get("tool"),

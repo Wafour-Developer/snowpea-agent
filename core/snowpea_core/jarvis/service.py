@@ -132,6 +132,9 @@ class JarvisService:
         if sessions is not None:
             sessions.summary_extras = self.summary_fields
         overview.register_context_provider()
+        from snowpea_core.jarvis import external as external_sessions
+
+        external_sessions.attach(self)
 
     # -- small reads -----------------------------------------------------
     @property
@@ -294,6 +297,8 @@ class JarvisService:
             log.exception("could not open the Jarvis session")
             return
         await self._apply_session_settings(session)
+        with contextlib.suppress(Exception):
+            await self.projects.roots()  # primes the read limits' project list
         intake = Intake(self)
         self.intake = intake
         await intake.seed()
@@ -538,7 +543,10 @@ class JarvisService:
             request = ApprovalRequest.model_validate(
                 {"risk": "medium", "timeoutSec": 0, "args": {}, **request}
             )
-        project = canonical(session.workdir) if session is not None else None
+        project = None
+        if session is not None:
+            # An external session's proxy carries its registered project root.
+            project = canonical(getattr(session, "project", None) or session.workdir)
         return (
             ClassifyRequest.from_approval(
                 request,
@@ -563,6 +571,10 @@ class JarvisService:
         if not self.running:
             return None
         result = self._route_approval(request, session, tags)
+        if request.external is not None:
+            from snowpea_core.jarvis import external as external_sessions
+
+            external_sessions.note_request(self, session)
         return result.wire
 
     def _route_approval(
@@ -572,12 +584,21 @@ class JarvisService:
         request_id = (
             request.requestId if isinstance(request, ApprovalRequest) else request["requestId"]
         )
+        external = (
+            request.external if isinstance(request, ApprovalRequest) else request.get("external")
+        )
+        person_only = bool(
+            request.personOnly if isinstance(request, ApprovalRequest)
+            else request.get("personOnly")
+        )
         result = self.engine.route(
             classify,
             project=project,
+            external=external,
             exposed=self.projects.exposed(project),
             budget_exhausted=self.budget_exhausted(),
             request_id=request_id,
+            person_only=person_only,
         )
         self._classified[request_id] = (classify, project)
         while len(self._classified) > ROUTED_KEPT:
@@ -648,12 +669,18 @@ class JarvisService:
         host: str | None,
         action: str,
         summary: str,
+        external: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Jarvis read or instructed a session: a ledger line and ``jarvis.access``."""
+        """Jarvis read or instructed a session: a ledger line and ``jarvis.access``.
+
+        For an external session ``session_id`` is ``ext:<cli>:<id>`` and
+        ``external`` its ref.
+        """
         record = self.engine.ledger.append(
             {
                 "type": "access",
                 "sessionId": session_id,
+                "external": external,
                 "project": project,
                 "hostToolsFrom": host,
                 "action": action,
@@ -664,6 +691,7 @@ class JarvisService:
             id=record["id"],
             ts=record["ts"],
             sessionId=session_id,
+            external=external,  # type: ignore[arg-type]
             project=project,
             hostToolsFrom=host,
             action=action,  # type: ignore[arg-type]

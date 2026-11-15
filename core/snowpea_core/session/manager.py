@@ -39,6 +39,10 @@ def _reserved_agent(kind: str, agent: str) -> bool:
 
     return kind == "agent" and agent in RESERVED_NAMES
 
+
+class ModePinned(ValueError):
+    """A session whose mode cannot be switched (the Jarvis session, M19)."""
+
 class SessionManager:
     """Creates, tracks and closes sessions; resolves per-project defaults."""
 
@@ -361,6 +365,15 @@ class SessionManager:
         return session.next_seq()
 
     async def set_mode(
+        self, session: Session, mode: Mode, auto_after_plan: bool | None = None
+    ) -> Mode:
+        if getattr(session, "role", None) == "jarvis" and mode != session.mode:
+            # Jarvis's own session is pinned (M19): its limits are server-side,
+            # but nothing — Jarvis, a prompt, a client — switches its mode.
+            raise ModePinned("Jarvis's session keeps its mode; it cannot be switched")
+        return await self._set_mode(session, mode, auto_after_plan)
+
+    async def _set_mode(
         self, session: Session, mode: Mode, auto_after_plan: bool | None = None
     ) -> Mode:
         """Switch ``session`` to ``mode`` and persist it.

@@ -963,15 +963,21 @@ class DelegationEngine:
         exposed: bool = True,
         budget_exhausted: bool = False,
         request_id: str | None = None,
+        person_only: bool = False,
     ) -> RouteResult:
         """Where an approval goes: ``auto``, ``jarvis`` or ``person``.
 
         ``project`` defaults to the request's ``workdir``.  With a
         ``request_id`` the result is remembered, so :meth:`validate_decision`
         can insist the request was routed to Jarvis in the first place.
+        ``person_only`` (``ApprovalRequest.personOnly``) is always the person's.
         """
-        result = self._route(request, project=project, external=external, exposed=exposed,
-                             budget_exhausted=budget_exhausted)
+        if person_only:
+            result = RouteResult("person", self._verdict(request), self.default_level, None,
+                                 "person-only")
+        else:
+            result = self._route(request, project=project, external=external, exposed=exposed,
+                                 budget_exhausted=budget_exhausted)
         if request_id:
             with self._lock:
                 self._routes[request_id] = result

@@ -77,6 +77,8 @@ def build_rows(
     for digest in list(intake.digests.values()) if intake is not None else []:
         if digest.session_id == service.session_id:
             continue
+        if digest.session_id.startswith("ext:"):
+            continue  # external sessions come from their own source (hooks.overview_sources)
         if not projects.exposed(digest.project):
             continue
         if wanted is not None and digest.project != wanted:
@@ -173,6 +175,7 @@ def render_table(service: JarvisService, rows: list[JarvisOverviewRow], total: i
         )
         if not row.exposed:
             level += ",browser: status only"
+        level += external_flags(row)
         lines.append(
             " | ".join(
                 [
@@ -189,6 +192,22 @@ def render_table(service: JarvisService, rows: list[JarvisOverviewRow], total: i
         )
     lines.append(f'</untrusted nonce="{_NONCE}">')
     return "\n".join(lines)
+
+
+def external_flags(row: JarvisOverviewRow) -> str:
+    """What an external row's level cell adds: where it runs and whether snowpea gates it."""
+    if row.external is None:
+        return ""
+    flags = [f"{row.external.cli} in {row.host or 'none'}"]
+    if row.mode:
+        flags.append(f"mode {row.mode}")
+    if row.controlled is False:
+        flags.append("UNCONTROLLED: snowpea cannot gate what it runs")
+    if row.approvals == "person":
+        flags.append("its prompts are answered by the person in the terminal")
+    elif row.host == "terminal":
+        flags.append("view only: open in the person's terminal")
+    return "," + ",".join(flags)
 
 
 def _render_context(core: Any, session: Any) -> str:
@@ -215,6 +234,7 @@ __all__ = [
     "CONTEXT_NAME",
     "CONTEXT_ROWS",
     "build_rows",
+    "external_flags",
     "order",
     "register_context_provider",
     "render_table",

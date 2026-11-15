@@ -10,7 +10,9 @@ Every fake reads its scenario from the environment:
     ``FAKE_CLI_DELAY`` seconds apart).
 ``FAKE_CLI_SCENARIO_FILE``
     JSON object overriding the above: ``{"scenario", "reply", "delay", "tool",
-    "version", "turns": [scenario per turn, ...]}``.
+    "version", "turns": [scenario per turn, ...]}``.  fake_claude also takes
+    ``"tools": [tool per turn, ...]`` (``write`` or ``bash``) and ``"command"``
+    (what a ``bash`` approval asks to run; never executed).
 ``FAKE_CLI_REPLY``
     The assistant's answer (default ``OK``).
 ``FAKE_CLI_LOG``
