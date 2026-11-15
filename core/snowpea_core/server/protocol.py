@@ -9327,7 +9327,7 @@ METHODS: dict[str, RpcMethod] = {
             JarvisTakeoverParams,
             JarvisPauseResult,
             (
-                "Jarvis mode (1.53.0, WP3): the person takes one session back; Jarvis stops "
+                "Jarvis mode (1.53.0, WP2): the person takes one session back; Jarvis stops "
                 "deciding for it until jarvis.handback or the given minutes."
             ),
         ),
@@ -9336,8 +9336,8 @@ METHODS: dict[str, RpcMethod] = {
             JarvisSessionTarget,
             JarvisPauseResult,
             (
-                "Jarvis mode (1.53.0, WP3): give one session back to Jarvis now, ending a "
-                "takeover or a typing pause."
+                "Jarvis mode (1.53.0, WP2): give one session back to Jarvis now, ending a "
+                "takeover or a typing pause. Human connections only (else jarvis_person_only)."
             ),
         ),
         _m(
@@ -9575,6 +9575,7 @@ CAPABILITIES: list[str] = [
     "lineage",
     "extensions",
     "messageOrigin",
+    "jarvisDelegation",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -9582,12 +9583,10 @@ CAPABILITIES: list[str] = [
 #: package moves its name into :data:`CAPABILITIES`.  Their methods answer
 #: ``not_implemented`` until then.
 PENDING_CAPABILITIES: dict[str, str] = {
-    # jarvis.status/enable/disable/overview/takeover/handback, jarvis.project.*,
-    # jarvis.state, SessionSummary.role/jarvis — M19 WP3 (Jarvis service).
+    # jarvis.status/enable/disable/overview, jarvis.project.*, jarvis.state,
+    # SessionSummary.role/jarvis — M19 WP3 (Jarvis service). takeover/handback
+    # landed with WP2 (their state lives in the delegation store).
     "jarvis": "WP3",
-    # jarvis.ledger, jarvis.delegation.*, jarvis.decision/escalation/
-    # delegation.changed, ApprovalRequest.route — M19 WP2 (delegation engine).
-    "jarvisDelegation": "WP2",
     # external.* (incl. setMode) and ApprovalRequest.external — M19 WP5 (common layer) with
     # the per-CLI adapters of WP6a-d; per-CLI availability is external.clis.
     "externalSessions": "WP5",
@@ -9667,6 +9666,13 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "goal.pause",
         "goal.resume",
         "goal.clear",
+        # M19 WP2 (1.53.0, capability jarvisDelegation).
+        "jarvis.ledger",
+        "jarvis.delegation.list",
+        "jarvis.delegation.set",
+        "jarvis.delegation.revoke",
+        "jarvis.takeover",
+        "jarvis.handback",
         "provider.configure",
         "provider.remove",
         "provider.loginWeb",

@@ -2064,7 +2064,7 @@ export interface JarvisEnableResult {
   sessionId?: string | null;
 }
 
-/** `jarvis.handback` params. Jarvis mode (1.53.0, WP3): give one session back to Jarvis now, ending a takeover or a typing pause. */
+/** `jarvis.handback` params. Jarvis mode (1.53.0, WP2): give one session back to Jarvis now, ending a takeover or a typing pause. Human connections only (else jarvis_person_only). */
 export interface JarvisHandbackParams {
   /** External session. */
   external?: {
@@ -2332,7 +2332,7 @@ export interface JarvisStatusResult {
   sessionId?: string | null;
 }
 
-/** `jarvis.takeover` params. Jarvis mode (1.53.0, WP3): the person takes one session back; Jarvis stops deciding for it until jarvis.handback or the given minutes. */
+/** `jarvis.takeover` params. Jarvis mode (1.53.0, WP2): the person takes one session back; Jarvis stops deciding for it until jarvis.handback or the given minutes. */
 export interface JarvisTakeoverParams {
   /** External session. */
   external?: {

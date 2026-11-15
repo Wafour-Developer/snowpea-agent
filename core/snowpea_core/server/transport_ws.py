@@ -96,6 +96,7 @@ async def websocket_handler(
             await ws.send_json(obj)
 
     conn = RpcConnection(send, peer=str(request.remote or "local"))
+    conn.remote_login = track is not None  # only the remote listener passes ``track``
     connections.add(conn)
     hub = getattr(dispatcher.core, "hub", None)
     try:
