@@ -277,6 +277,12 @@ async def _target(service: JarvisService, session_id: str, *, read: bool) -> Tar
     return Target(session_id, session, project, browser, title, host)
 
 
+def _snowpea_only(target: Target, instead: str) -> Target:
+    if target.session_id.startswith("ext:"):
+        raise Refused(f"that is an external CLI session; use {instead}")
+    return target
+
+
 async def _access(service: JarvisService, target: Target, action: str, summary: str) -> None:
     from snowpea_core.jarvis.external import ledger_ids
 
@@ -419,7 +425,9 @@ async def session_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 async def session_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     service = _service(ctx)
-    target = await _target(service, _text(args, "sessionId"), read=True)
+    target = _snowpea_only(
+        await _target(service, _text(args, "sessionId"), read=True), "external_read"
+    )
     view = str(args.get("view") or "digest")
     if view not in ("digest", "trajectory"):
         raise Refused("view must be 'digest' or 'trajectory'")
@@ -563,7 +571,9 @@ def _start(service: JarvisService, session: Any, text: str, when_busy: str | Non
 
 async def session_prompt(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     service = _service(ctx)
-    target = await _target(service, _text(args, "sessionId"), read=False)
+    target = _snowpea_only(
+        await _target(service, _text(args, "sessionId"), read=False), "external_send"
+    )
     text = _plain(_text(args, "text", limit=PROMPT_MAX_CHARS))
     when_busy = args.get("whenBusy") or None
     if when_busy not in (None, "queue", "steer"):
@@ -592,7 +602,9 @@ async def session_prompt(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 async def session_steer(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     service = _service(ctx)
-    target = await _target(service, _text(args, "sessionId"), read=False)
+    target = _snowpea_only(
+        await _target(service, _text(args, "sessionId"), read=False), "external_send"
+    )
     text = _plain(_text(args, "text", limit=PROMPT_MAX_CHARS))
     _not_paused(service, target.session_id)
     _authorized(service, ctx, target.session_id, target.project)
@@ -621,7 +633,9 @@ async def session_steer(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 async def session_interrupt(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     service = _service(ctx)
-    target = await _target(service, _text(args, "sessionId"), read=False)
+    target = _snowpea_only(
+        await _target(service, _text(args, "sessionId"), read=False), "external_interrupt"
+    )
     _not_paused(service, target.session_id)
     _authorized(service, ctx, target.session_id, target.project)
     session = service.core.sessions.get(target.session_id)

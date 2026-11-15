@@ -247,6 +247,9 @@ async def test_jarvis_tools_for_external_sessions(tmp_path: Path) -> None:
             user = next(e for e in record.events if e["kind"] == "message.user")
             assert user["payload"]["origin"]["kind"] == "jarvis"
             assert user["payload"]["text"].startswith(jarvis_tools.PROMPT_PREFIX)
+            wrong = await _call(core, "session_prompt", {"sessionId": key, "text": "x"},
+                                human=True)
+            assert not wrong.ok and "external_send" in wrong.error
             listed = await _call(core, "external_list", {})
             assert key in listed.output and "<untrusted" in listed.output
             read = await _call(core, "external_read", {"sessionId": key})
