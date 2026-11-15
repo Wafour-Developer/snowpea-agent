@@ -7,7 +7,8 @@ network goes with it and the model call fails until the turn gives up.
 
 :class:`KeepAwake` holds an idle-sleep inhibitor while at least one session
 turn is running — root, delegated, scheduled or a goal round — and lets go a
-little after the last one ends, so back-to-back turns do not flap.  Only idle
+little after the last one ends, so back-to-back turns do not flap.  A turn
+waiting on an approval or a question to the person does not count.  Only idle
 *system* sleep is prevented: the display still sleeps, and closing a laptop's
 lid still sleeps the machine.
 
@@ -275,9 +276,27 @@ class KeepAwake:
         self.release()
 
 
+def _waiting(queue: Any, session_id: str) -> bool:
+    count = getattr(queue, "count", None)
+    return bool(count(session_id)) if count is not None else False
+
+
 def running_turns(core: Any) -> int:
-    """Sessions with a turn in flight, of every kind."""
-    return sum(1 for session in core.sessions.all() if session.current_turn is not None)
+    """Sessions with a turn in flight and working, of every kind.
+
+    A turn blocked on an approval or a question waits for the person, maybe
+    for hours, and does not keep the machine awake; it counts again once the
+    person answers.
+    """
+    approvals = getattr(core, "approvals", None)
+    questions = getattr(core, "questions", None)
+    return sum(
+        1
+        for session in core.sessions.all()
+        if session.current_turn is not None
+        and not _waiting(approvals, session.id)
+        and not _waiting(questions, session.id)
+    )
 
 
 __all__ = ["LINGER_SEC", "KeepAwake", "command_for", "running_turns"]

@@ -6,6 +6,8 @@ import asyncio
 import types
 from typing import Any
 
+import pytest
+
 from snowpea_core.config.settings import Settings
 from snowpea_core.server import keep_awake as ka
 from snowpea_core.server.keep_awake import KeepAwake, command_for, running_turns
@@ -162,8 +164,20 @@ def test_setting_defaults_on() -> None:
 
 
 def _core(*turns: str | None) -> Any:
-    sessions = [types.SimpleNamespace(current_turn=turn) for turn in turns]
+    sessions = [
+        types.SimpleNamespace(id=f"s{i}", current_turn=turn) for i, turn in enumerate(turns)
+    ]
     return types.SimpleNamespace(sessions=types.SimpleNamespace(all=lambda: sessions))
+
+
+class _Waits:
+    """An approval queue or question broker: pending requests per session."""
+
+    def __init__(self) -> None:
+        self.pending: set[str] = set()
+
+    def count(self, session_id: str) -> int:
+        return int(session_id in self.pending)
 
 
 def test_running_turns_counts_every_session() -> None:
@@ -173,7 +187,7 @@ def test_running_turns_counts_every_session() -> None:
 async def test_watcher_follows_turns_and_setting() -> None:
     spawner, clock = Spawner(), Clock()
     awake = make(spawner, clock, linger_sec=0)
-    session = types.SimpleNamespace(current_turn="t1")
+    session = types.SimpleNamespace(id="s1", current_turn="t1")
     core = types.SimpleNamespace(sessions=types.SimpleNamespace(all=lambda: [session]))
     enabled = {"on": True}
     awake.start(lambda: running_turns(core), enabled=lambda: enabled["on"], tick=0.01)
@@ -190,3 +204,37 @@ async def test_watcher_follows_turns_and_setting() -> None:
     finally:
         await awake.stop()
     assert not awake.held
+
+
+@pytest.mark.parametrize("queue", ["approvals", "questions"])
+async def test_a_turn_waiting_on_the_person_releases_and_answering_reacquires(
+    queue: str,
+) -> None:
+    spawner, clock = Spawner(), Clock()
+    awake = make(spawner, clock, linger_sec=30)
+    core = _core("t1")
+    waits = {"approvals": _Waits(), "questions": _Waits()}
+    core.approvals, core.questions = waits["approvals"], waits["questions"]
+    awake.start(lambda: running_turns(core), tick=0.01)
+    try:
+        await asyncio.sleep(0.05)
+        assert awake.held, "a working turn holds it"
+        waits[queue].pending.add("s0")
+        assert running_turns(core) == 0
+        await asyncio.sleep(0.05)
+        assert awake.held, "it lingers first"
+        clock.now += 31
+        await asyncio.sleep(0.05)
+        assert not awake.held, "a turn waiting on the person releases it after the linger"
+        waits[queue].pending.clear()
+        await asyncio.sleep(0.05)
+        assert awake.held and len(spawner.calls) == 2, "answering re-acquires it"
+    finally:
+        await awake.stop()
+
+
+def test_running_turns_skips_only_the_waiting_session() -> None:
+    core = _core("t1", "t2")
+    core.approvals, core.questions = _Waits(), _Waits()
+    core.questions.pending.add("s1")
+    assert running_turns(core) == 1
