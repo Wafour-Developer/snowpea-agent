@@ -1,6 +1,6 @@
 # M18 — snowpea web and the IDE on it (M16 Phases 4–5)
 
-Status: in progress, 2026-11-14. Parent plan: [m16-dsh-adoption.md](m16-dsh-adoption.md).
+Status: Phases 4–5 done 2026-11-15 except M17 2f (delta pruning). Parent plan: [m16-dsh-adoption.md](m16-dsh-adoption.md).
 
 ## One codebase
 
@@ -64,10 +64,10 @@ parser, the HTML sandbox recipe, layout numbers.
 | 4.3 | Frame and left sidebar on the new RPCs | done |
 | 4.4 | Right dock: engine port, tab registry, document preview, files, plan, changes | done; file reads in the browser go through `fs.*` (`src/web/webFs.ts`) |
 | 4.5 | Conversation header, Chat / Trajectory tabs, file references into the dock | done (IDE e486d91) |
-| 4.6 | HTML preview modes | in progress |
-| 5.1 | IDE switches to the new layout; inspector removed; settings move behind the sidebar | layout switched (App.vue mounts the Workbench); terminal/changes tabs in progress |
-| 5.2 | Pop-out windows | open |
-| 5.3 | Clients replay turns from `step.done`; then M17 2f drops stored deltas | open |
+| 4.6 | HTML preview modes | done (static by default, "run scripts" toggle) |
+| 5.1 | IDE switches to the new layout; inspector removed; settings move behind the sidebar | done; terminal and changes are dock tabs, Ctrl/⌘ J toggles the dock, e2e suite on the new layout |
+| 5.2 | Pop-out windows | done (IDE: sidebar "Open in new window", ⧉ on dock tabs; approvals stay in the main window) |
+| 5.3 | Clients replay turns from `step.done`; then M17 2f drops stored deltas | clients done (TUI, IDE, browser); 2f pruning not yet enabled |
 
 ### Shipping the web build
 
