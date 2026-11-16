@@ -4501,7 +4501,7 @@ Re-read settings.json and rebind the daemon's in-memory state.
 |---|---|---|---|
 | `changedKeys` | `string[]` | no | Top-level settings sections that changed, e.g. ['providers']. |
 | `reloaded` | `boolean` | yes | True when settings.json differed from what the daemon held and the in-memory state was rebound; false when it was already current. |
-| `waitingKeys` | `string[]` | no | 1.55.0 (security review 7): security-relevant sections ('security', 'jarvis', 'web.remote') whose value in settings.json on disk differs from what the daemon holds. A change that arrives by file edit while the daemon runs is NOT applied: it waits for a local person (settings.acceptDiskChange). |
+| `waitingKeys` | `string[]` | no | 1.55.0 (security reviews 7 and 8): settings paths that can run programs or widen access ('security', 'jarvis', 'web.remote', 'allowlist', 'mcp.permissions', and every program, endpoint or daemon leaf of the settings table as a dotted path, e.g. 'mcp.servers.foo.command', 'providers.openai.base_url', 'audio.tts.command') whose value in settings.json on disk differs from what the daemon holds. A change that arrives by file edit while the daemon runs is NOT applied: it waits for a local person (settings.acceptDiskChange). |
 
 ### `system.restart`
 
@@ -5424,7 +5424,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `keys` | `string[]` | no | Top-level settings sections that changed, e.g. ['providers']. |
 | `scope` | `"global" \| "project"` | no | Which document was reloaded; "global" for $SNOWPEA_HOME/settings.json. |
-| `waitingKeys` | `string[]` | no | 1.55.0 (security review 7): 'security', 'jarvis' and/or 'web.remote' when settings.json was edited on disk while the daemon runs and that section differs: the edit is not applied until a local person accepts it (settings.acceptDiskChange). Sent with keys possibly empty; an empty list after a non-empty one means nothing waits any more. |
+| `waitingKeys` | `string[]` | no | 1.55.0 (security reviews 7 and 8): the settings paths that can run programs or widen access ('security', 'jarvis', 'web.remote', 'allowlist', 'mcp.permissions', or a dotted program/endpoint/daemon leaf such as 'mcp.servers.foo.command' or 'providers.openai.base_url') when settings.json was edited on disk while the daemon runs and that path differs: the edit is not applied until a local person accepts it (settings.acceptDiskChange). Sent with keys possibly empty; an empty list after a non-empty one means nothing waits any more. |
 
 ### `system.updateProgress`
 

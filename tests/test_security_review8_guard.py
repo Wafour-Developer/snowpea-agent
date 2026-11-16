@@ -429,3 +429,35 @@ def test_the_trust_store_keeps_no_disk_read_after_the_guard(tmp_path: Path) -> N
     for name in ("self.path", "self.marker", "self.legacy"):
         assert f"_read_json({name})" not in source
     assert ".exists()" not in inspect.getsource(TrustStore.read)
+
+
+# -- L7-3, verified: nested projects, the innermost wins -------------------------------------
+
+
+def test_of_two_nested_projects_agents_the_innermost_wins(tmp_path: Path) -> None:
+    """``skills/loader.SkillLoader.agents_for`` (the ``_depth`` comparison): an agent
+    both projects define is the inner one's; commands are pinned by round 7's
+    ``test_an_outer_projects_entries_need_its_trust_inside_a_nested_project``."""
+    from types import SimpleNamespace
+
+    from snowpea_core.config.paths import Paths
+    from snowpea_core.skills.loader import SkillLoader
+
+    home = tmp_path / "home"
+    trust.set_default_home(home)
+    outer = tmp_path / "outer"
+    inner = outer / "pkg" / "inner"
+    for base, text in ((outer, "Outer."), (inner, "Inner.")):
+        path = base / ".snowpea" / "agents" / "helper.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"---\nname: helper\ndescription: d\n---\n\n{text}\n", encoding="utf-8")
+        store = trust.store_for(home)
+        store.set(base, ["agents"], by="ide", digests=store.status(base)["digests"])
+    core = SimpleNamespace(paths=Paths.create(home), settings=Settings())
+    loader = SkillLoader(core, workdirs=[outer, inner])
+    loader.scan()
+    chosen = [agent for agent in loader.agents_for(inner) if agent.project is not None]
+    assert [(agent.name, Path(agent.project)) for agent in chosen] == [
+        ("helper", trust.project_root(inner))]
+    chosen = [agent for agent in loader.agents_for(outer) if agent.project is not None]
+    assert [Path(agent.project) for agent in chosen] == [trust.project_root(outer)]
