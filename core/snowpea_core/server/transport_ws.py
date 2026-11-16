@@ -90,12 +90,21 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
     if hub is not None and hasattr(hub, "register_client"):
         hub.register_client(conn)
     log.info("client %s authenticated (surface %s)", params.clientVersion, conn.surface_id)
+    from snowpea_core.server.person_gate import connection_kind
+
+    # Security review 8, Low: a local person's surface hears at once that
+    # settings.json did not validate (the sections in question run degraded).
+    degraded = (
+        list(getattr(getattr(core, "settings", None), "degraded_sections", list)())
+        if connection_kind(conn) == "person" else []
+    )
     return HelloResult(
         protocolVersion=PROTOCOL_VERSION,
         serverVersion=SERVER_VERSION,
         capabilities=list(CAPABILITIES),
         modelCategories=list(MODEL_CATEGORIES),
         machine=machine_of(core),
+        settingsDegraded=degraded,
     )
 
 
@@ -105,6 +114,7 @@ async def websocket_handler(
     track: set[web.WebSocketResponse] | None = None,
     capability: Callable[[str | None], bool] | None = None,
     alive: Callable[[], bool] | None = None,
+    push_alive: Callable[[], bool] | None = None,
 ) -> web.WebSocketResponse:
     """aiohttp route handler: bridge one socket to the RPC dispatcher.
 
@@ -114,6 +124,9 @@ async def websocket_handler(
     ``alive`` (security review 7, Low 3) says whether that login still stands:
     asked before every frame is dispatched, so an expired login's socket takes
     no further call — it used to keep working until the next sweep (up to 60 s).
+    ``push_alive`` (security review 8, Low): a cheap expiry check asked before
+    every message the daemon pushes, so an expired login also stops RECEIVING
+    session events at once (the socket closes with 4401).
     """
     dispatcher = request.app[DISPATCHER_KEY]
     connections = request.app[CONNECTIONS_KEY]
@@ -126,8 +139,12 @@ async def websocket_handler(
         track.add(ws)
 
     async def send(obj: dict[str, Any]) -> None:
-        if not ws.closed:
-            await ws.send_json(obj)
+        if ws.closed:
+            return
+        if push_alive is not None and not push_alive():
+            await ws.close(code=4401, message=b"logged out")
+            return
+        await ws.send_json(obj)
 
     conn = RpcConnection(send, peer=str(request.remote or "local"))
     conn.remote_login = track is not None  # only the remote listener passes ``track``

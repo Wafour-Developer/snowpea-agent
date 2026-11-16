@@ -387,6 +387,13 @@ class HelloResult(Payload):
         default=None,
         description="The machine this daemon runs on (1.40.0); absent from an older daemon.",
     )
+    settingsDegraded: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0, to a local person's connection only: as system.info settingsDegraded "
+            "(settings.json sections that did not validate); show it when not empty."
+        ),
+    )
 
 
 class LifecycleStatus(Payload):
@@ -450,6 +457,16 @@ class InfoResult(Payload):
         description=(
             "Every authenticated connection, the caller included (1.26.0): an app that "
             "would restart a shared daemon checks that no other client is using it."
+        ),
+    )
+    settingsDegraded: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0: top-level sections of settings.json that did not validate when it was "
+            "read and are NOT what the file says (empty: none). 'security' runs fail-closed "
+            "(the last valid lists, or every preset on with unknownCode 'ask'); 'web' keeps "
+            "remote access off; any other section is at its defaults. The file as it was is "
+            "kept beside it as settings.json.invalid. Show it and offer to fix the file."
         ),
     )
 
@@ -7567,7 +7584,9 @@ class McpEntryFields(Payload):
         default=None,
         description=(
             "Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW "
-            "url server may be added, without any ${VAR} in its fields (jarvis_person_only, "
+            "url server may be added in the global scope (the project .mcp.json is a control "
+            "file: protected, details.reason local_only, for mcp.add, update and remove), "
+            "without any ${VAR} in its fields (jarvis_person_only, "
             "details {reason: 'local_only', what: 'variable'}); the url, headers and oauth "
             "of a SAVED server are a local person's to change (what: 'target') — in mcp.add "
             "with replace, mcp.update, mcp.test with overrides and settings.set "
@@ -9359,6 +9378,28 @@ class McpPresetApplyResult(Payload):
 # --------------------------------------------------------------------------
 
 
+class WebRemoteLeft(Payload):
+    """What remote web logins left on this computer that keeps acting (1.55.0)."""
+
+    jobs: int = Field(
+        default=0, description="Scheduled jobs with createdBy 'remote_login' (as remoteJobs)."
+    )
+    mcpServers: int = Field(
+        default=0,
+        description=(
+            "MCP server entries marked savedBy 'remote_login' (mcp.add, mcp.update, "
+            "settings.set mcp.servers), in the global .mcp.json and settings mcp.servers."
+        ),
+    )
+    skills: int = Field(
+        default=0,
+        description=(
+            "Global skills a remote web login saved (skill.write, skill.create, skill.learn, "
+            "/skill create|learn). Memory entries are not counted (they carry no such mark)."
+        ),
+    )
+
+
 class WebRemoteStatus(Payload):
     """The external web listener as the daemon runs it, and its settings."""
 
@@ -9417,6 +9458,18 @@ class WebRemoteStatus(Payload):
             "settings.set; it applies at once. It stops unattended runs, not the holder of "
             "the link, who still answers each approval."
         ),
+    )
+    remoteLeft: WebRemoteLeft = Field(
+        default_factory=WebRemoteLeft,
+        description=(
+            "1.55.0: what remote web logins left that keeps acting after the login ends: "
+            "jobs, MCP servers and skills marked as theirs. The marks are inside files the "
+            "agent's shell could rewrite: a count, not a guarantee."
+        ),
+    )
+    settingsDegraded: list[str] = Field(
+        default_factory=list,
+        description="1.55.0: as system.info settingsDegraded.",
     )
 
 
@@ -10011,7 +10064,8 @@ METHODS: dict[str, RpcMethod] = {
             "mcp.authorize.complete",
             McpAuthorizeCompleteParams,
             McpAuthorizeCompleteResult,
-            "Finish an mcp.authorize flow with the code the host's own redirect caught.",
+            ("Finish an mcp.authorize flow with the code the host's own redirect caught. Not "
+             "from a remote web login (1.55.0): jarvis_person_only, details.reason local_only."),
         ),
         _m(
             "mcp.deauthorize",
@@ -10337,7 +10391,10 @@ METHODS: dict[str, RpcMethod] = {
             "provider.configure",
             ProviderConfigureParams,
             Ok,
-            "Store settings and credentials for a provider.",
+            ("Store settings and credentials for a provider. From a remote web login (1.55.0) "
+             "no base_url and no credential (api_key, token, an OAuth record; clearing one "
+             "stays open): jarvis_person_only, details {reason: local_only, what: "
+             "'base_url'|'credential'}."),
         ),
         _m(
             "provider.remove",
@@ -10349,7 +10406,8 @@ METHODS: dict[str, RpcMethod] = {
             "provider.loginWeb",
             ProviderLoginWebParams,
             ProviderLoginWebResult,
-            "Start a browser-based login flow for a provider.",
+            ("Start a browser-based login flow for a provider. Not from a remote web login "
+             "(1.55.0): jarvis_person_only, details.reason local_only."),
         ),
         _m(
             "checkpoint.list",
@@ -10731,7 +10789,10 @@ METHODS: dict[str, RpcMethod] = {
             FsWriteResult,
             "Write a whole file through a temp file and an atomic rename, at most 8 MiB "
             "(1.40.0). 'create' never replaces; parents are created inside the roots. "
-            "Errors outside_root, protected, exists, is_dir, too_large.",
+            "Errors outside_root, protected, exists, is_dir, too_large. 1.55.0: the person's "
+            "security lists apply as to the file tools: a blocked path is security_blocked "
+            "(for everyone); a path the tools would ask a person about is protected with "
+            "details.reason local_only for anyone but a local person.",
         ),
         _m(
             "fs.hash",
@@ -11012,8 +11073,9 @@ METHODS: dict[str, RpcMethod] = {
             (
                 "Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection "
                 "is the person, so it applies at once; Jarvis's own proposals never use this "
-                "method but raise a person-only approval. A guarded class needs a local "
-                "connection or a re-authenticated remote one; from a messenger only when "
+                "method but raise a person-only approval. Not from a remote web login (1.55.0: "
+                "jarvis_person_only, details.reason local_only; it may still revoke, take over "
+                "and hand back); from a messenger only when "
                 "jarvis.messenger.allowGrants."
             ),
         ),
@@ -11091,7 +11153,9 @@ METHODS: dict[str, RpcMethod] = {
             "jarvis.briefing.set",
             JarvisBriefingSetParams,
             JarvisBriefing,
-            "Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it.",
+            ("Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. "
+             "A remote web login may only turn it off ({enabled: false}; anything else is "
+             "jarvis_person_only, details {reason: local_only, what: 'briefing'}, 1.55.0)."),
         ),
         _m(
             "project.trust.status",

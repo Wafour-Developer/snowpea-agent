@@ -515,10 +515,17 @@ class Scheduler:
         except asyncio.CancelledError:  # pragma: no cover - shutdown path
             raise
         except Exception as exc:  # noqa: BLE001 - a broken job never kills the loop
-            log.exception("job %s failed", job.id)
-            text = f"{type(exc).__name__}: {exc}"
+            # Security review 8, Low: the text goes to the job's channel and to
+            # every client's job.event — a short classified reason and an id;
+            # the exception (an httpx error can quote a URL with a key) is logged.
+            error_id = errors.new_error_id()
+            log.exception("job %s failed (error id %s)", job.id, error_id)
+            text = f"{errors.failure_class(exc)} (id {error_id})"
         finally:
             self._running.discard(job.id)
+        if status != "ok":
+            # What a failed run says can quote a URL with a key in its query.
+            text = errors.redact_url_queries(text)
         await self.store.finish(
             job.id, scheduled_ts, status, session_id, error=_run_error(status, text)
         )

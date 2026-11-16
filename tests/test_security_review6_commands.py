@@ -118,7 +118,7 @@ GATE: dict[str, str] = {
     "/allowlist remove 3": "ynnynyy",
     "/setup": "ynnynyy",
     "/setup providers": "ynnynyy",
-    "/login openai": "yynynyy",
+    "/login openai": "ynnynyy",  # review 8, M-1: provider.loginWeb's twin (was yynynyy)
     "/mcp": "yynyyyy",
     "/mcp list": "yynyyyy",
     "/mcp add x --url https://mcp.example.com": "yynynyy",

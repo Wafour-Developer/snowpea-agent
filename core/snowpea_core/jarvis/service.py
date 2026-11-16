@@ -80,6 +80,28 @@ WAKE_REASON = "jarvis-intake"
 #: ``message.user.origin.kind`` of every wake Jarvis receives (stable; clients
 #: may render these as quiet lines).
 WAKE_ORIGIN_KIND = "system"
+
+
+def _jarvis_own() -> Any:
+    from snowpea_core.server.person_gate import CallerSnapshot
+
+    return CallerSnapshot(kind="none", caller="jarvis-own", origin="system")
+
+
+#: The cause of a wake nobody outside caused (the intake, Jarvis's own decisions):
+#: an in-process caller (security review 8, M-2).
+JARVIS_OWN: Any = _jarvis_own()
+
+
+def job_cause(job: Any) -> Any:
+    """The cause a scheduled job's wake carries: a remote sign-in's job stays a
+    remote sign-in's (as ``Scheduler._execute`` does for its runs); any other
+    is Jarvis's own (security review 8, M-2)."""
+    if getattr(job, "created_by", None) == "remote_login":
+        from snowpea_core.server.person_gate import CallerSnapshot
+
+        return CallerSnapshot(kind="remote_login", origin="schedule")
+    return JARVIS_OWN
 #: Longest pause of the tick loop when nothing is due (budget recovery, expiry).
 IDLE_TICK_SEC = 15.0
 #: ``importance`` levels the messenger hook receives.
@@ -591,7 +613,8 @@ class JarvisService:
         self._tick_wake.set()
 
     # -- waking Jarvis ---------------------------------------------------
-    async def deliver_wake(self, text: str, *, listener: Any = None) -> bool | None:
+    async def deliver_wake(self, text: str, *, listener: Any = None,
+                           who: Any = None) -> bool | None:
         """Hand ``text`` to Jarvis: a new turn (True), a notice to a running one (False).
 
         ``None`` when there is no live Jarvis session to tell.  Every wake (the
@@ -599,7 +622,9 @@ class JarvisService:
         turn: ``turn.started.reason`` :data:`WAKE_REASON`, ``message.user``
         origin ``{"kind": "system", "surface": null}``.  ``listener`` (a
         :class:`_TurnReply`) is subscribed to the new turn (not for a notice);
-        the caller unsubscribes it.
+        the caller unsubscribes it.  ``who`` (security review 8, M-2): whoever
+        caused the wake — a scheduled job's creator — which the new turn
+        carries; by default Jarvis's own (:data:`JARVIS_OWN`).
         """
         session = self.session()
         if session is None:
@@ -621,12 +646,14 @@ class JarvisService:
             reason=WAKE_REASON,
             origin_kind=WAKE_ORIGIN_KIND,
             show_prompt=True,
+            who=who if who is not None else JARVIS_OWN,
         )
         if listener is not None:
             listener.turn_id = turn_id
         return True
 
-    async def wake_for_reply(self, text: str, *, timeout: float) -> tuple[bool | None, str]:
+    async def wake_for_reply(self, text: str, *, timeout: float,
+                             who: Any = None) -> tuple[bool | None, str]:
         """:meth:`deliver_wake`, then wait for what Jarvis answers in that turn.
 
         ``(delivered, reply)``: ``reply`` is the turn's last assistant message,
@@ -648,6 +675,7 @@ class JarvisService:
             listener.turn_id = agent_loop.start_turn(
                 self.core, session, text, unattended=True, initiator="system",
                 reason=WAKE_REASON, origin_kind=WAKE_ORIGIN_KIND, show_prompt=True,
+                who=who if who is not None else JARVIS_OWN,
             )
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(listener.done.wait(), timeout)

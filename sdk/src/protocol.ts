@@ -118,6 +118,7 @@ export type ErrorDetailReason =
   | "not_bundled_plugin"
   | "person_only"
   | "project_add_only"
+  | "project_settings_invalid"
   | "snowpea_home"
   | "untrusted_project"
   | "untrusted_project_person_only";
@@ -133,6 +134,7 @@ export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>
   not_bundled_plugin: "jarvis_person_only",
   person_only: "jarvis_person_only",
   project_add_only: "invalid_params",
+  project_settings_invalid: "invalid_params",
   snowpea_home: "invalid_params",
   untrusted_project: "external_unavailable",
   untrusted_project_person_only: "external_unavailable",
@@ -1719,7 +1721,7 @@ export interface FsStatResult {
   type: "file" | "dir" | "other";
 }
 
-/** `fs.write` params. Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large. */
+/** `fs.write` params. Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large. 1.55.0: the person's security lists apply as to the file tools: a blocked path is security_blocked (for everyone); a path the tools would ask a person about is protected with details.reason local_only for anyone but a local person. */
 export interface FsWriteParams {
   /** The whole new content, base64; at most 8 MiB decoded. */
   dataBase64: string;
@@ -2073,7 +2075,7 @@ export interface JarvisBriefingGetResult {
   timezone?: string | null;
 }
 
-/** `jarvis.briefing.set` params. Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. */
+/** `jarvis.briefing.set` params. Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. A remote web login may only turn it off ({enabled: false}; anything else is jarvis_person_only, details {reason: local_only, what: 'briefing'}, 1.55.0). */
 export interface JarvisBriefingSetParams {
   /** Omitted keeps the current value. */
   enabled?: boolean | null;
@@ -2156,7 +2158,7 @@ export interface JarvisDelegationRevokeResult {
   revoked: boolean;
 }
 
-/** `jarvis.delegation.set` params. Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is the person, so it applies at once; Jarvis's own proposals never use this method but raise a person-only approval. A guarded class needs a local connection or a re-authenticated remote one; from a messenger only when jarvis.messenger.allowGrants. */
+/** `jarvis.delegation.set` params. Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is the person, so it applies at once; Jarvis's own proposals never use this method but raise a person-only approval. Not from a remote web login (1.55.0: jarvis_person_only, details.reason local_only; it may still revoke, take over and hand back); from a messenger only when jarvis.messenger.allowGrants. */
 export interface JarvisDelegationSetParams {
   /** Guarded classes to hand over; refused (invalid_params) on a global grant. */
   allow?: ("deploy" | "outside_destructive" | "secret_send")[];
@@ -3173,7 +3175,7 @@ export interface McpAddParams {
   toolsInclude?: string[] | null;
   /** Force a transport instead of inferring it. */
   type?: "stdio" | "http" | "sse" | null;
-  /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added, without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
+  /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added in the global scope (the project .mcp.json is a control file: protected, details.reason local_only, for mcp.add, update and remove), without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
   url?: string | null;
   /** Project directory for scope=project. */
   workdir?: string | null;
@@ -3245,7 +3247,7 @@ export interface McpAuthorizeResult {
   url: string;
 }
 
-/** `mcp.authorize.complete` params. Finish an mcp.authorize flow with the code the host's own redirect caught. */
+/** `mcp.authorize.complete` params. Finish an mcp.authorize flow with the code the host's own redirect caught. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only. */
 export interface McpAuthorizeCompleteParams {
   /** The redirect's ?code=. */
   code?: string | null;
@@ -3708,7 +3710,7 @@ export interface McpTestParams {
   type?: "stdio" | "http" | "sse" | null;
   /** Probe with these optional keys cleared, as mcp.update would (1.33.0). */
   unset?: ("args" | "cwd" | "disabled" | "env" | "headers" | "timeoutSec" | "toolTimeoutSec" | "toolsExclude" | "toolsInclude" | "type" | "oauth")[] | null;
-  /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added, without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
+  /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added in the global scope (the project .mcp.json is a control file: protected, details.reason local_only, for mcp.add, update and remove), without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
   url?: string | null;
   /** Project directory for scope=project. */
   workdir?: string | null;
@@ -3791,7 +3793,7 @@ export interface McpUpdateParams {
     toolsInclude?: string[] | null;
     /** Force a transport instead of inferring it. */
     type?: "stdio" | "http" | "sse" | null;
-    /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added, without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
+    /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added in the global scope (the project .mcp.json is a control file: protected, details.reason local_only, for mcp.add, update and remove), without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
     url?: string | null;
   };
   /** Which file to rewrite; omitted, the one that declares it. */
@@ -4326,7 +4328,7 @@ export interface ProjectTrustStatusResult {
   workdir: string;
 }
 
-/** `provider.configure` params. Store settings and credentials for a provider. */
+/** `provider.configure` params. Store settings and credentials for a provider. From a remote web login (1.55.0) no base_url and no credential (api_key, token, an OAuth record; clearing one stays open): jarvis_person_only, details {reason: local_only, what: 'base_url'|'credential'}. */
 export interface ProviderConfigureParams {
   /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
   actor?: "person" | null;
@@ -4380,7 +4382,7 @@ export interface ProviderListResult {
   })[];
 }
 
-/** `provider.loginWeb` params. Start a browser-based login flow for a provider. */
+/** `provider.loginWeb` params. Start a browser-based login flow for a provider. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only. */
 export interface ProviderLoginWebParams {
   /** Browser marker (security review 3): see ActorParams. */
   actor?: "person" | null;
@@ -7922,6 +7924,8 @@ export interface SystemHelloResult {
   protocolVersion: string;
   /** Version of the running daemon. */
   serverVersion: string;
+  /** 1.55.0, to a local person's connection only: as system.info settingsDegraded (settings.json sections that did not validate); show it when not empty. */
+  settingsDegraded?: string[];
 }
 
 /** `system.info` params. Report the daemon's version, pid, port, start time and home. */
@@ -7967,6 +7971,8 @@ export interface SystemInfoResult {
   protocolVersion: string;
   /** True once system.update finished; the daemon runs the old code until restarted. */
   restartRequired?: boolean;
+  /** 1.55.0: top-level sections of settings.json that did not validate when it was read and are NOT what the file says (empty: none). 'security' runs fail-closed (the last valid lists, or every preset on with unknownCode 'ask'); 'web' keeps remote access off; any other section is at its defaults. The file as it was is kept beside it as settings.json.invalid. Show it and offer to fix the file. */
+  settingsDegraded?: string[];
   /** UTC ISO-8601 timestamp of daemon start. */
   startedAt: string;
   /** Daemon version. */
@@ -8521,8 +8527,19 @@ export interface WebRemoteClearPasswordResult {
   port: number;
   /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
   remoteJobs?: number;
+  /** 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. */
+  remoteLeft?: {
+    /** Scheduled jobs with createdBy 'remote_login' (as remoteJobs). */
+    jobs?: number;
+    /** MCP server entries marked savedBy 'remote_login' (mcp.add, mcp.update, settings.set mcp.servers), in the global .mcp.json and settings mcp.servers. */
+    mcpServers?: number;
+    /** Global skills a remote web login saved (skill.write, skill.create, skill.learn, /skill create|learn). Memory entries are not counted (they carry no such mark). */
+    skills?: number;
+  };
   /** Open browser sessions through the listener. */
   sessions?: number;
+  /** 1.55.0: as system.info settingsDegraded. */
+  settingsDegraded?: string[];
   /** Turns running now (a stop or restart would cut their watchers). */
   turnsRunning?: number;
   /** Login name; empty in access-link mode. */
@@ -8571,8 +8588,19 @@ export interface WebRemoteListenResult {
   port: number;
   /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
   remoteJobs?: number;
+  /** 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. */
+  remoteLeft?: {
+    /** Scheduled jobs with createdBy 'remote_login' (as remoteJobs). */
+    jobs?: number;
+    /** MCP server entries marked savedBy 'remote_login' (mcp.add, mcp.update, settings.set mcp.servers), in the global .mcp.json and settings mcp.servers. */
+    mcpServers?: number;
+    /** Global skills a remote web login saved (skill.write, skill.create, skill.learn, /skill create|learn). Memory entries are not counted (they carry no such mark). */
+    skills?: number;
+  };
   /** Open browser sessions through the listener. */
   sessions?: number;
+  /** 1.55.0: as system.info settingsDegraded. */
+  settingsDegraded?: string[];
   /** Turns running now (a stop or restart would cut their watchers). */
   turnsRunning?: number;
   /** Login name; empty in access-link mode. */
@@ -8626,8 +8654,19 @@ export interface WebRemoteSetPasswordResult {
   port: number;
   /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
   remoteJobs?: number;
+  /** 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. */
+  remoteLeft?: {
+    /** Scheduled jobs with createdBy 'remote_login' (as remoteJobs). */
+    jobs?: number;
+    /** MCP server entries marked savedBy 'remote_login' (mcp.add, mcp.update, settings.set mcp.servers), in the global .mcp.json and settings mcp.servers. */
+    mcpServers?: number;
+    /** Global skills a remote web login saved (skill.write, skill.create, skill.learn, /skill create|learn). Memory entries are not counted (they carry no such mark). */
+    skills?: number;
+  };
   /** Open browser sessions through the listener. */
   sessions?: number;
+  /** 1.55.0: as system.info settingsDegraded. */
+  settingsDegraded?: string[];
   /** Turns running now (a stop or restart would cut their watchers). */
   turnsRunning?: number;
   /** Login name; empty in access-link mode. */
@@ -8667,8 +8706,19 @@ export interface WebRemoteStatusResult {
   port: number;
   /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
   remoteJobs?: number;
+  /** 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. */
+  remoteLeft?: {
+    /** Scheduled jobs with createdBy 'remote_login' (as remoteJobs). */
+    jobs?: number;
+    /** MCP server entries marked savedBy 'remote_login' (mcp.add, mcp.update, settings.set mcp.servers), in the global .mcp.json and settings mcp.servers. */
+    mcpServers?: number;
+    /** Global skills a remote web login saved (skill.write, skill.create, skill.learn, /skill create|learn). Memory entries are not counted (they carry no such mark). */
+    skills?: number;
+  };
   /** Open browser sessions through the listener. */
   sessions?: number;
+  /** 1.55.0: as system.info settingsDegraded. */
+  settingsDegraded?: string[];
   /** Turns running now (a stop or restart would cut their watchers). */
   turnsRunning?: number;
   /** Login name; empty in access-link mode. */
@@ -8711,8 +8761,19 @@ export interface WebRemoteStopResult {
   port: number;
   /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
   remoteJobs?: number;
+  /** 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. */
+  remoteLeft?: {
+    /** Scheduled jobs with createdBy 'remote_login' (as remoteJobs). */
+    jobs?: number;
+    /** MCP server entries marked savedBy 'remote_login' (mcp.add, mcp.update, settings.set mcp.servers), in the global .mcp.json and settings mcp.servers. */
+    mcpServers?: number;
+    /** Global skills a remote web login saved (skill.write, skill.create, skill.learn, /skill create|learn). Memory entries are not counted (they carry no such mark). */
+    skills?: number;
+  };
   /** Open browser sessions through the listener. */
   sessions?: number;
+  /** 1.55.0: as system.info settingsDegraded. */
+  settingsDegraded?: string[];
   /** Turns running now (a stop or restart would cut their watchers). */
   turnsRunning?: number;
   /** Login name; empty in access-link mode. */

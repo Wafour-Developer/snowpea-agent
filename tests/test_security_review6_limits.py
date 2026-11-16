@@ -149,8 +149,10 @@ async def test_remote_login_mcp_handlers(core: Core, tmp_path: Path,
                                          no_processes: list[Any]) -> None:
     work = tmp_path / "project"
     work.mkdir()
-    where = {"scope": "project", "workdir": str(work)}
-    path = mcp_config.config_path("project", core.paths.home, work)
+    # Security review 8, M-4: the project .mcp.json is no remote login's at all
+    # (tests/test_security_review8_misc.py); these rules are the global scope's.
+    where = {"scope": "global", "workdir": str(work)}
+    path = mcp_config.config_path("global", core.paths.home, work)
 
     # A server that runs a command: never from a remote login, and nothing is written.
     with pytest.raises(RpcError) as caught:
@@ -316,7 +318,7 @@ REMOTE_PATCHES: list[tuple[dict[str, Any], bool]] = [
     ({"providers": {"openai": {"base_url": "https://elsewhere.example/v1"}}}, False),
     ({"providers": {"openai": {"base_url": None}}}, False),
     ({"providers": {"openai": {"model": "m"}}}, True),
-    ({"providers": {"openai": {"api_key": "k"}}}, True),
+    ({"providers": {"openai": {"api_key": "k"}}}, False),  # review 8, M-1 (was allowed)
     ({"providers": {"default": "openai"}}, True),
     ({"skills": {"registry": {"url": "https://elsewhere.example"}}}, False),
     ({"skills": {"disabled": ["x"]}}, True),
@@ -357,7 +359,7 @@ def test_every_never_key_is_a_key_the_remote_table_would_allow() -> None:
         (REMOTE, {"base_url": None}, True),
         (REMOTE, {"preset": "local", "base_url": "http://10.0.0.5:8000/v1"}, True),
         (REMOTE, {"model": "m"}, False),
-        (REMOTE, {"api_key": "k"}, False),
+        (REMOTE, {"api_key": "k"}, True),  # review 8, M-1 (was allowed)
         (PERSON, {"base_url": "https://elsewhere.example/v1"}, False),
         (_conn("browser", client_id="b-2"), {"base_url": "https://elsewhere.example/v1"}, True),
     ],
@@ -457,7 +459,8 @@ STARTS_A_PROCESS: dict[str, str] = {
     "session.resume": "fixed", "lsp.install": "fixed", "lsp.restart": "fixed",
     "audio.install": "fixed", "audio.speak": "fixed",
     "audio.record.start": "fixed", "audio.record.stop": "fixed",
-    "provider.loginWeb": "fixed", "external.create": "fixed", "external.open": "fixed",
+    "provider.loginWeb": "refused",  # security review 8, M-1 (it was "fixed")
+    "external.create": "fixed", "external.open": "fixed",
     "external.send": "fixed", "checkpoint.restore": "fixed", "checkpoint.diff": "fixed",
     "file.complete": "fixed", "gateway.sync": "fixed", "system.reloadSettings": "fixed",
     "session.prompt": "turn", "session.steer": "turn", "session.continue": "turn",

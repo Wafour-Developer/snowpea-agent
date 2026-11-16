@@ -62,7 +62,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         "team.start", "team.status", "team.guide.list", "team.guide.get",
         "job.schedule", "job.cancel", "job.delete", "job.runNow", "job.update",
         "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
-        "provider.test", "mcp.list", "mcp.catalog", "mcp.authorize.complete",
+        "provider.test", "mcp.list", "mcp.catalog",
         "skill.list", "skill.read", "skill.search",
         "memory.list", "memory.search", "memory.write", "memory.delete", "memory.confirm",
         "lsp.status", "lsp.catalog", "lsp.restart",
@@ -80,11 +80,14 @@ TABLE: dict[str, tuple[str, ...]] = {
         "site.get", "site.list", "site.stats", "site.put", "site.mark", "site.markPart",
         "site.delete", "site.playbook.get", "site.playbook.put", "site.playbook.edit",
         "site.playbook.delete", "site.playbook.mark",
+        # Security review 8, M-1 (was yynyyy): the code of an MCP sign-in stores
+        # the account an owner's server uses — not a remote login's.
+        "mcp.authorize.complete",
     ),
     # Config a remote login may change; a browser only with the marker.
     "yynyny": (
         "settings.set", "system.reloadSettings",
-        "provider.configure", "provider.loginWeb", "provider.remove", "provider.visionReset",
+        "provider.configure", "provider.remove", "provider.visionReset",
         "mcp.add", "mcp.update", "mcp.remove", "mcp.reload", "mcp.authorize",
         "mcp.deauthorize", "mcp.test",
         "skill.create", "skill.learn", "skill.reload", "skill.remove", "skill.write",
@@ -94,7 +97,10 @@ TABLE: dict[str, tuple[str, ...]] = {
     # Security review 7, Low 8: team.guide.delete is the class of team.guide.set
     # (it was yynyyy: a remote login and an unmarked browser call could delete).
     "ynnyny": ("setup.applyDefaults", "permission.allowlist.remove", "team.guide.set",
-               "team.guide.delete"),
+               "team.guide.delete",
+               # Security review 8, M-1 (was yynyny): a provider sign-in is the
+               # account the owner's traffic and billing go to.
+               "provider.loginWeb"),
     # People (local and remote): Jarvis, security lists, project trust status.
     "yynnnn": (
         # Security review 6 (the browser team's source check): no browser calls
@@ -103,7 +109,8 @@ TABLE: dict[str, tuple[str, ...]] = {
         "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
         "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
         "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",
-        "jarvis.delegation.set", "jarvis.handback", "jarvis.briefing.get",
+        "jarvis.handback", "jarvis.briefing.get",
+        # jarvis.briefing.set: a remote login only turns it off (review 8, H8-2).
         "jarvis.briefing.set", "mcp.preset.check",
         "security.get", "security.check", "security.presets.list", "project.trust.status",
     ),
@@ -111,6 +118,9 @@ TABLE: dict[str, tuple[str, ...]] = {
     "ynnnnn": (
         "jarvis.enable", "mcp.preset.apply", "mcp.preset.remove", "external.clis.confirmPath",
         "permission.allowlist.add",
+        # Security review 8, H8-2 (was yynnnn): a grant persists; a remote login
+        # still revokes, takes over and hands back.
+        "jarvis.delegation.set",
         # Security review 6, M-4: binding a messenger chat is a local person's
         # (never a browser since 1.55.0, no longer a remote login either).
         "gateway.bind",

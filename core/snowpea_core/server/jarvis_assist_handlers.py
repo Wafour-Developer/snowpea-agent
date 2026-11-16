@@ -74,6 +74,8 @@ async def briefing_get_handler(
 async def briefing_set_handler(
     _conn: RpcConnection | None, params: JarvisBriefingSetParams, core: Core
 ) -> JarvisBriefing:
+    from snowpea_core.server.person_gate import snapshot
+
     try:
         return await briefing.set_briefing(
             core,
@@ -82,6 +84,8 @@ async def briefing_set_handler(
             instructions=params.instructions,
             timezone=params.timezone,
             sections=list(params.sections) if params.sections is not None else None,
+            # Security review 8, H8-2: a remote login may only turn it off.
+            who=snapshot(_conn),
         )
     except JarvisError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc

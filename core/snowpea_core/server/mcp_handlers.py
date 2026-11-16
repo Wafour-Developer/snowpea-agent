@@ -567,7 +567,7 @@ async def mcp_add_handler(
         )
 
     workdir = workdir_of(core, params.sessionId, params.workdir)
-    _require_project_scope(core, params.scope, workdir)
+    _require_project_scope(core, params.scope, workdir, _conn, "mcp.add")
     try:
         path = mcp_config.config_path(params.scope, core.paths.home, workdir)
     except mcp_config.McpConfigError as exc:
@@ -621,10 +621,22 @@ async def mcp_add_handler(
     )
 
 
-def _require_project_scope(core: Core, scope: str | None, workdir: Path | None) -> None:
+def _require_project_scope(core: Core, scope: str | None, workdir: Path | None,
+                           conn: Any = None, method: str = "mcp") -> None:
     """Security review 7, H-2: with snowpea's own home as the workdir, the
-    "project" ``.mcp.json`` IS the global one — refused for every caller."""
-    if scope == "project" and workdir is not None:
+    "project" ``.mcp.json`` IS the global one — refused for every caller.
+
+    Security review 8, M-4: the project ``.mcp.json`` is a project control file
+    (``fs.write`` of it and project-scope skills are refused to a remote web
+    login): ``protected``, ``details.reason: "local_only"`` for one, whichever
+    way the scope was reached (given, or resolved by ``scope_for``)."""
+    if scope != "project":
+        return
+    from snowpea_core.server.skill_gate import refuse_remote_project
+
+    refuse_remote_project(conn, core, method=method, what="project .mcp.json",
+                          target=Path(workdir) / mcp_config.CONFIG_NAME if workdir else None)
+    if workdir is not None:
         from snowpea_core.server.project_gate import require_project
 
         require_project(core, workdir, dot=False)
@@ -696,7 +708,8 @@ def scope_for(core: Core, name: str, scope: str | None, workdir: Path) -> str:
     return row.scope if row is not None and row.scope in ("project", "global") else "global"
 
 
-def _writable(core: Core, name: str, scope: str, workdir: Path) -> Path:
+def _writable(core: Core, name: str, scope: str, workdir: Path, conn: Any = None,
+              method: str = "mcp") -> Path:
     """The file ``scope`` writes, refusing the read-only scopes (AC-50)."""
     rows = declared(core, workdir)
     row = rows.get(name)
@@ -706,7 +719,7 @@ def _writable(core: Core, name: str, scope: str, workdir: Path) -> Path:
             errors.MCP_READ_ONLY,
             f"'{name}' is declared by the {row.scope} scope{detail} and cannot be edited here",
         )
-    _require_project_scope(core, scope, workdir)
+    _require_project_scope(core, scope, workdir, conn, method)
     try:
         return mcp_config.config_path(scope, core.paths.home, workdir)
     except mcp_config.McpConfigError as exc:
@@ -721,7 +734,7 @@ async def mcp_remove_handler(
                key=("mcp", "servers", params.name))
     workdir = workdir_of(core, params.sessionId, params.workdir)
     scope = scope_for(core, params.name, params.scope, workdir)
-    path = _writable(core, params.name, scope, workdir)
+    path = _writable(core, params.name, scope, workdir, _conn, "mcp.remove")
     before = declared(core, workdir).get(params.name)
     pinned = _project_digest(scope, path)
     if not mcp_config.delete_entry(path, params.name):
@@ -740,7 +753,7 @@ async def mcp_update_handler(
     _guard_read_tag(_conn, params.patch.permission, params.actor, core)
     workdir = workdir_of(core, params.sessionId, params.workdir)
     scope = scope_for(core, params.name, params.scope, workdir)
-    path = _writable(core, params.name, scope, workdir)
+    path = _writable(core, params.name, scope, workdir, _conn, "mcp.update")
     current = mcp_config.read_servers(path).get(params.name)
     if current is None:
         raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not declared in {path}")

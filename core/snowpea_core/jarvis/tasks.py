@@ -292,7 +292,10 @@ async def hand_over(
     when = service.now_iso()
     head = (wake_head or WAKE_HEAD).format(title=title, job=job.id, when=when, report=report)
     wake = f"{head}\n\n{jarvis_tools.fence(source, body)}"
-    delivered = await service.deliver_wake(wake)
+    from snowpea_core.jarvis.service import job_cause
+
+    # Security review 8, M-2: the wake carries the job's creator as its cause.
+    delivered = await service.deliver_wake(wake, who=job_cause(job))
     if delivered is None:
         return f"{title}: saved to {report}; Jarvis is not running to be told"
     return f"{title}: result saved to {report} and handed to Jarvis ({len(body)} characters)"

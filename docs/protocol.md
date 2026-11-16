@@ -181,7 +181,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`fs.list`](#fslist) | client → server | List a directory, recursively up to depth, capped by maxEntries (1.40.0). Symbolic links are listed, never followed. |
 | [`fs.read`](#fsread) | client → server | Read a byte range of a file, at most 8 MiB per call (1.40.0). Errors outside_root, protected, not_found, is_dir, too_large. |
 | [`fs.stat`](#fsstat) | client → server | File metadata inside the session's roots (1.40.0): type, size, mtimeMs, nlink, isLink. Errors outside_root, not_found. |
-| [`fs.write`](#fswrite) | client → server | Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large. |
+| [`fs.write`](#fswrite) | client → server | Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large. 1.55.0: the person's security lists apply as to the file tools: a blocked path is security_blocked (for everyone); a path the tools would ask a person about is protected with details.reason local_only for anyone but a local person. |
 | [`gateway.bind`](#gatewaybind) | client → server | Attach the daemon to a chat platform channel. |
 | [`gateway.list`](#gatewaylist) | client → server | List live gateway bindings. |
 | [`gateway.sync`](#gatewaysync) | client → server | Reconcile the messenger bindings with settings.gateway. |
@@ -193,10 +193,10 @@ Server capabilities advertised in the `system.hello` result:
 | [`goal.set`](#goalset) | client → server | Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). A delegated child or a scheduled run is refused with goal_not_allowed (1.50.0). |
 | [`host.turnContext`](#hostturncontext) | server → client | At turn start, ask the session's host-tools connection for a note for the turn's first model call (1.31.0). Only on a browser connection that sent tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open. |
 | [`jarvis.briefing.get`](#jarvisbriefingget) | client → server | Jarvis mode (1.53.0, WP8): the periodic briefing's settings and next run. |
-| [`jarvis.briefing.set`](#jarvisbriefingset) | client → server | Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. |
+| [`jarvis.briefing.set`](#jarvisbriefingset) | client → server | Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. A remote web login may only turn it off ({enabled: false}; anything else is jarvis_person_only, details {reason: local_only, what: 'briefing'}, 1.55.0). |
 | [`jarvis.delegation.list`](#jarvisdelegationlist) | client → server | Jarvis mode (1.53.0, WP2): delegation grants in force. |
 | [`jarvis.delegation.revoke`](#jarvisdelegationrevoke) | client → server | Jarvis mode (1.53.0, WP2): revoke a grant at once. |
-| [`jarvis.delegation.set`](#jarvisdelegationset) | client → server | Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is the person, so it applies at once; Jarvis's own proposals never use this method but raise a person-only approval. A guarded class needs a local connection or a re-authenticated remote one; from a messenger only when jarvis.messenger.allowGrants. |
+| [`jarvis.delegation.set`](#jarvisdelegationset) | client → server | Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is the person, so it applies at once; Jarvis's own proposals never use this method but raise a person-only approval. Not from a remote web login (1.55.0: jarvis_person_only, details.reason local_only; it may still revoke, take over and hand back); from a messenger only when jarvis.messenger.allowGrants. |
 | [`jarvis.disable`](#jarvisdisable) | client → server | Jarvis mode (1.53.0, WP3): clear jarvis.enabled and park the Jarvis session; everything routes to the person again, messenger bindings get their targets back. |
 | [`jarvis.enable`](#jarvisenable) | client → server | Jarvis mode (1.53.0, WP3): set jarvis.enabled, create or resume the Jarvis session and start supervising every exposed project. Idempotent. |
 | [`jarvis.escalations.dismiss`](#jarvisescalationsdismiss) | client → server | Jarvis mode (1.53.0): dismiss escalations by id (or all); every client is told with jarvis.escalation.dismissed. |
@@ -225,7 +225,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
 | [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
 | [`mcp.authorize`](#mcpauthorize) | client → server | Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0). |
-| [`mcp.authorize.complete`](#mcpauthorizecomplete) | client → server | Finish an mcp.authorize flow with the code the host's own redirect caught. |
+| [`mcp.authorize.complete`](#mcpauthorizecomplete) | client → server | Finish an mcp.authorize flow with the code the host's own redirect caught. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only. |
 | [`mcp.catalog`](#mcpcatalog) | client → server | The curated MCP servers a client can offer as presets. |
 | [`mcp.deauthorize`](#mcpdeauthorize) | client → server | Forget a remote MCP server's stored OAuth tokens (1.34.0). |
 | [`mcp.list`](#mcplist) | client → server | List every configured MCP server with its scope, state and tools. |
@@ -250,9 +250,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`project.trust.revoke`](#projecttrustrevoke) | client → server | Project trust (1.55.0): take scopes back (all when omitted). A local person only. |
 | [`project.trust.set`](#projecttrustset) | client → server | Project trust (1.55.0): trust the project for scopes, pinning every control file as it is now. A local person only. |
 | [`project.trust.status`](#projecttruststatus) | client → server | Project trust (1.55.0): what the project's own files would make snowpea do (hooks, MCP servers, commands with allowed-tools, agents with a permission, prompt overrides, widening settings, defaultMode auto), which are active, and what changed since it was trusted. People (a remote login too). |
-| [`provider.configure`](#providerconfigure) | client → server | Store settings and credentials for a provider. |
+| [`provider.configure`](#providerconfigure) | client → server | Store settings and credentials for a provider. From a remote web login (1.55.0) no base_url and no credential (api_key, token, an OAuth record; clearing one stays open): jarvis_person_only, details {reason: local_only, what: 'base_url'\|'credential'}. |
 | [`provider.list`](#providerlist) | client → server | List chat providers and whether they are configured. |
-| [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. |
+| [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only. |
 | [`provider.models`](#providermodels) | client → server | Ask a vendor's endpoint which models it serves. |
 | [`provider.remove`](#providerremove) | client → server | Forget a configured provider, typically a named local server. |
 | [`provider.test`](#providertest) | client → server | Send one short completion to check a provider and model. |
@@ -1353,7 +1353,7 @@ File metadata inside the session's roots (1.40.0): type, size, mtimeMs, nlink, i
 
 *Direction:* client → server
 
-Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large.
+Write a whole file through a temp file and an atomic rename, at most 8 MiB (1.40.0). 'create' never replaces; parents are created inside the roots. Errors outside_root, protected, exists, is_dir, too_large. 1.55.0: the person's security lists apply as to the file tools: a blocked path is security_blocked (for everyone); a path the tools would ask a person about is protected with details.reason local_only for anyone but a local person.
 
 **Params**
 
@@ -1594,7 +1594,7 @@ _No params (send `{}`)._
 
 *Direction:* client → server
 
-Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it.
+Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. A remote web login may only turn it off ({enabled: false}; anything else is jarvis_person_only, details {reason: local_only, what: 'briefing'}, 1.55.0).
 
 **Params**
 
@@ -1661,7 +1661,7 @@ Jarvis mode (1.53.0, WP2): revoke a grant at once.
 
 *Direction:* client → server
 
-Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is the person, so it applies at once; Jarvis's own proposals never use this method but raise a person-only approval. A guarded class needs a local connection or a re-authenticated remote one; from a messenger only when jarvis.messenger.allowGrants.
+Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is the person, so it applies at once; Jarvis's own proposals never use this method but raise a person-only approval. Not from a remote web login (1.55.0: jarvis_person_only, details.reason local_only; it may still revoke, take over and hand back); from a messenger only when jarvis.messenger.allowGrants.
 
 **Params**
 
@@ -2273,7 +2273,7 @@ Write an MCP server into the project or global .mcp.json and start it.
 | `toolsExclude` | `string[] \| null` | no | Never register these tools of the server. [] clears the filter; null or absent leaves it as saved. |
 | `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. [] clears the filter; null or absent leaves it as saved. |
 | `type` | `"stdio" \| "http" \| "sse" \| null` | no | Force a transport instead of inferring it. |
-| `url` | `string \| null` | no | Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added, without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. |
+| `url` | `string \| null` | no | Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added in the global scope (the project .mcp.json is a control file: protected, details.reason local_only, for mcp.add, update and remove), without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
 
 **Result**
@@ -2322,7 +2322,7 @@ Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0)
 
 *Direction:* client → server
 
-Finish an mcp.authorize flow with the code the host's own redirect caught.
+Finish an mcp.authorize flow with the code the host's own redirect caught. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only.
 
 **Params**
 
@@ -2564,7 +2564,7 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 | `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. [] clears the filter; null or absent leaves it as saved. |
 | `type` | `"stdio" \| "http" \| "sse" \| null` | no | Force a transport instead of inferring it. |
 | `unset` | `("args" \| "cwd" \| "disabled" \| "env" \| "headers" \| "timeoutSec" \| "toolTimeoutSec" \| "toolsExclude" \| "toolsInclude" \| "type" \| "oauth")[] \| null` | no | Probe with these optional keys cleared, as mcp.update would (1.33.0). |
-| `url` | `string \| null` | no | Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added, without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. |
+| `url` | `string \| null` | no | Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added in the global scope (the project .mcp.json is a control file: protected, details.reason local_only, for mcp.add, update and remove), without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
 
 **Result**
@@ -2912,7 +2912,7 @@ Project trust (1.55.0): what the project's own files would make snowpea do (hook
 
 *Direction:* client → server
 
-Store settings and credentials for a provider.
+Store settings and credentials for a provider. From a remote web login (1.55.0) no base_url and no credential (api_key, token, an OAuth record; clearing one stays open): jarvis_person_only, details {reason: local_only, what: 'base_url'\|'credential'}.
 
 **Params**
 
@@ -2948,7 +2948,7 @@ _No params (send `{}`)._
 
 *Direction:* client → server
 
-Start a browser-based login flow for a provider.
+Start a browser-based login flow for a provider. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only.
 
 **Params**
 
@@ -4456,6 +4456,7 @@ Authenticate a connection and agree on the protocol version.
 | `modelCategories` | `("fast" \| "standard" \| "deep" \| "vision")[]` | no | The models.categories slots this daemon routes by (1.33.0, capability 'modelCategories'); empty from an older daemon. |
 | `protocolVersion` | `string` | yes | Protocol semver the daemon speaks. |
 | `serverVersion` | `string` | yes | Version of the running daemon. |
+| `settingsDegraded` | `string[]` | no | 1.55.0, to a local person's connection only: as system.info settingsDegraded (settings.json sections that did not validate); show it when not empty. |
 
 ### `system.info`
 
@@ -4480,6 +4481,7 @@ _No params (send `{}`)._
 | `port` | `number` | yes | TCP port the daemon is listening on (127.0.0.1 only). |
 | `protocolVersion` | `string` | yes | Protocol semver the daemon speaks. |
 | `restartRequired` | `boolean` | no | True once system.update finished; the daemon runs the old code until restarted. |
+| `settingsDegraded` | `string[]` | no | 1.55.0: top-level sections of settings.json that did not validate when it was read and are NOT what the file says (empty: none). 'security' runs fail-closed (the last valid lists, or every preset on with unknownCode 'ask'); 'web' keeps remote access off; any other section is at its defaults. The file as it was is kept beside it as settings.json.invalid. Show it and offer to fix the file. |
 | `startedAt` | `string` | yes | UTC ISO-8601 timestamp of daemon start. |
 | `version` | `string` | yes | Daemon version. |
 
@@ -4868,7 +4870,9 @@ _No params (send `{}`)._
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
 | `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
+| `remoteLeft` | `{ jobs?: number; mcpServers?: number; skills?: number; }` | no | 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
+| `settingsDegraded` | `string[]` | no | 1.55.0: as system.info settingsDegraded. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
 | `warning` | `string \| null` | no | The plain-HTTP warning to show. |
@@ -4905,7 +4909,9 @@ Remote web access (1.54.0): open (or move) the external listener now, without a 
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
 | `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
+| `remoteLeft` | `{ jobs?: number; mcpServers?: number; skills?: number; }` | no | 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
+| `settingsDegraded` | `string[]` | no | 1.55.0: as system.info settingsDegraded. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
 | `warning` | `string \| null` | no | The plain-HTTP warning to show. |
@@ -4956,7 +4962,9 @@ Remote web access (1.54.0): store a password (scrypt hash) — password mode: th
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
 | `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
+| `remoteLeft` | `{ jobs?: number; mcpServers?: number; skills?: number; }` | no | 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
+| `settingsDegraded` | `string[]` | no | 1.55.0: as system.info settingsDegraded. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
 | `warning` | `string \| null` | no | The plain-HTTP warning to show. |
@@ -4988,7 +4996,9 @@ _No params (send `{}`)._
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
 | `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
+| `remoteLeft` | `{ jobs?: number; mcpServers?: number; skills?: number; }` | no | 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
+| `settingsDegraded` | `string[]` | no | 1.55.0: as system.info settingsDegraded. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
 | `warning` | `string \| null` | no | The plain-HTTP warning to show. |
@@ -5022,7 +5032,9 @@ Remote web access (1.54.0): close the external listener; its sessions end.
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
 | `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
+| `remoteLeft` | `{ jobs?: number; mcpServers?: number; skills?: number; }` | no | 1.55.0: what remote web logins left that keeps acting after the login ends: jobs, MCP servers and skills marked as theirs. The marks are inside files the agent's shell could rewrite: a count, not a guarantee. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
+| `settingsDegraded` | `string[]` | no | 1.55.0: as system.info settingsDegraded. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
 | `warning` | `string \| null` | no | The plain-HTTP warning to show. |
@@ -6013,6 +6025,7 @@ Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a 
 | `not_bundled_plugin` | `jarvis_person_only` | skill.install from a browser outside its Settings page, not the bundled plugin; details.why |
 | `person_only` | `jarvis_person_only` | only a person's connection may do this (details.kind says who asked) |
 | `project_add_only` | `invalid_params` | a project's security lists may only add entries; details.removed names the rest |
+| `project_settings_invalid` | `invalid_params` | the project's .snowpea/settings.json on disk does not validate: it is left as it is and not written over with defaults plus the change; fix or remove it first |
 | `snowpea_home` | `invalid_params` | the folder is snowpea's own home (or its .snowpea directory is): not a project, for any caller; details.field names the parameter, details.what is 'home' or 'parent' |
 | `untrusted_project` | `external_unavailable` | first external CLI session in this project: confirm with trust: true; details.project |
 | `untrusted_project_person_only` | `external_unavailable` | a person must open an external session in this project first; details.project |

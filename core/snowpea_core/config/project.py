@@ -57,6 +57,8 @@ def home_problem(workdir: Path | str, home: Path | str | None = None) -> str | N
     home this process would use (``$SNOWPEA_HOME``, else ``~/.snowpea``) — so
     the CLI, which builds no daemon, is covered too.
     """
+    from snowpea_core.util import pathcase
+
     homes = (
         {Path(os.path.realpath(Path(home).expanduser()))} if home is not None else _known_homes()
     )
@@ -67,11 +69,61 @@ def home_problem(workdir: Path | str, home: Path | str | None = None) -> str | N
         dot = Path(os.path.realpath(real / PROJECT_DIR_NAME))
     except (OSError, ValueError):
         return "home"  # a path nobody can resolve is not a project either
-    if not homes.isdisjoint((real, *real.parents)):
+    # Security review 8, H8-3: by identity, not by spelling — on a file system
+    # that ignores case (macOS APFS, Windows) ``/USERS/me`` is ``/Users/me``.
+    if any(pathcase.within(real, found) for found in homes):
         return "home"
-    if not homes.isdisjoint((dot, *dot.parents)):
+    if any(pathcase.within(dot, found) for found in homes):
         return "parent"
     return None
+
+
+class ProjectSettingsUnsafe(ValueError):
+    """A project settings file that must not be written (security review 8, H8-3).
+
+    ``reason``: ``"snowpea_home"`` (the file IS the global ``settings.json``, by
+    identity) or ``"invalid"`` (the file on disk does not validate: writing
+    defaults plus a patch over it would lose what it holds).
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def _invalid_on_disk(path: Path) -> str | None:
+    """Why the project settings file at ``path`` does not load as it is (``None``:
+    it does, or there is none)."""
+    try:
+        if not path.exists():
+            return None
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        return "it cannot be read"
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return "it is not JSON"
+    if not isinstance(raw, dict):
+        return "it is not a JSON object"
+    try:
+        ProjectSettings.model_validate(raw)
+    except ValidationError as exc:
+        fields = sorted({".".join(str(p) for p in error.get("loc", ())) for error in exc.errors()})
+        return "invalid: " + ", ".join(f for f in fields[:4] if f) if fields else "invalid"
+    except RecursionError:
+        return "it is nested too deeply"
+    return None
+
+
+def _is_global_settings(path: Path) -> bool:
+    """``path`` is the global ``settings.json`` of a known home, by identity."""
+    from snowpea_core.util import pathcase
+
+    homes = _known_homes()
+    return any(
+        pathcase.same_file(path, found / PROJECT_SETTINGS_NAME)
+        or pathcase.same_file(path.parent, found)
+        for found in homes
+    )
 
 
 class AllowlistEntry(BaseModel):
@@ -324,8 +376,21 @@ class ProjectSettings(BaseModel):
         review 7, H-2), whichever caller forgot to check.
         """
         if home_problem(workdir) is not None:
-            raise ValueError(NOT_A_PROJECT)
+            raise ProjectSettingsUnsafe("snowpea_home", NOT_A_PROJECT)
         path = self.path_for(workdir)
+        # Security review 8, H8-3: judged again on the file itself, at write
+        # time — whatever spelling or link led here, never the global file.
+        if _is_global_settings(path):
+            raise ProjectSettingsUnsafe("snowpea_home", NOT_A_PROJECT)
+        problem = _invalid_on_disk(path)
+        if problem is not None:
+            # ``load`` reads an invalid file as defaults: writing now would put
+            # defaults plus one change in place of what the file holds.
+            raise ProjectSettingsUnsafe(
+                "invalid",
+                f"{path} is not valid project settings ({problem}); fix or remove it first — "
+                "it was left as it is",
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(self.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
@@ -335,6 +400,7 @@ class ProjectSettings(BaseModel):
 
 __all__ = [
     "NOT_A_PROJECT",
+    "ProjectSettingsUnsafe",
     "home_problem",
     "register_home",
     "PROJECT_DIR_NAME",

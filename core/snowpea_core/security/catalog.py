@@ -633,12 +633,17 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
         description={
             "en": "The system folders (/etc, /boot, /usr, /bin, /sbin, /lib*, /var/lib, "
                   "/System) are never changed; / and your home folder themselves (and every "
-                  "folder above your home) are never deleted, moved or changed recursively.",
+                  "folder above your home) are never deleted, moved or changed recursively. "
+                  "What runs when you log in or open a shell is never changed either: ~/.ssh, "
+                  "shell start-up files (~/.bashrc, ~/.zshrc, ~/.profile …), ~/.config/autostart, "
+                  "~/.config/systemd/user and the LaunchAgents/LaunchDaemons folders.",
             "ko": "시스템 폴더(/etc, /boot, /usr, /bin, /sbin, /lib*, /var/lib, /System)는 바꾸지 "
                   "않고, / 와 홈 폴더 자체(그리고 홈 위의 모든 폴더)는 삭제·이동·재귀 변경하지 "
-                  "않습니다.",
+                  "않습니다. 로그인하거나 셸을 열 때 실행되는 것도 바꾸지 않습니다: "
+                  "~/.ssh, 셸 시작 파일(~/.bashrc, ~/.zshrc, ~/.profile …), ~/.config/autostart, "
+                  "~/.config/systemd/user, LaunchAgents/LaunchDaemons 폴더.",
         },
-        examples=("/", "/etc", "/usr", "/boot", "~"),
+        examples=("/", "/etc", "/usr", "/boot", "~", "~/.bashrc", "~/.ssh"),
         near_misses=("~/projects/app/file.txt", "/tmp/x"),
     ),
     PathPreset(
@@ -705,6 +710,12 @@ def path_preset(preset_id: str) -> PathPreset | None:
 
 _ESSENTIAL_TREES = ("/etc", "/boot", "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64",
                     "/libx32", "/var/lib", "/System", "/private/etc", "/opt/homebrew/Cellar")
+#: What runs at a login or in every new shell (security review 8, M-5): never
+#: written by a tool or by ``fs.write`` while ``essential`` is on.
+_AUTOSTART_HOME = (".ssh", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile",
+                   ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".config/fish/config.fish",
+                   ".config/autostart", ".config/systemd/user", "Library/LaunchAgents")
+_AUTOSTART_SYSTEM = ("/Library/LaunchAgents", "/Library/LaunchDaemons")
 _CREDENTIALS = (".ssh", ".gnupg", ".aws", ".kube", ".docker", ".azure", ".config/gh",
                 ".config/gcloud", ".config/op", ".config/doctl", ".netrc", ".git-credentials",
                 ".npmrc", ".pypirc", ".pgpass", ".password-store", ".local/share/keyrings",
@@ -774,8 +785,11 @@ def path_entries(
     if preset_id == "essential":
         out.append(PathEntry(Path("/"), "write", "self", by, title, shown="/"))
         out.append(PathEntry(_real(user_home), "write", "self", by, title, shown="~"))
-        for raw in _ESSENTIAL_TREES:
+        for raw in (*_ESSENTIAL_TREES, *_AUTOSTART_SYSTEM):
             out.append(PathEntry(Path(raw), "write", "tree", by, title, shown=raw))
+        for name in _AUTOSTART_HOME:
+            out.append(PathEntry(_real(user_home / name), "write", "tree", by, title,
+                                 shown=f"~/{name}"))
     elif preset_id == "credentials":
         for name in _CREDENTIALS:
             out.append(PathEntry(_real(user_home / name), "all", "tree", by, title,

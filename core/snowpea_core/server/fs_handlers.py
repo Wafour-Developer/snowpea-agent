@@ -85,9 +85,10 @@ def _windows_clean(text: str) -> str:
 
 
 def _fold(text: str) -> str:
-    import unicodedata
+    """NFC + casefold: the one folding (``util/pathcase``, security review 8, H8-3)."""
+    from snowpea_core.util.pathcase import fold_text
 
-    return unicodedata.normalize("NFC", text).casefold()
+    return fold_text(text)
 
 
 def _under(child: Path, parent: Path) -> bool:
@@ -623,6 +624,36 @@ def _refuse_control(kind: str, target: Path) -> None:
         )
 
 
+async def _refuse_security(core: Core, kind: str, session_id: str, target: Path) -> None:
+    """``fs.write`` meets the person's security lists like the file tools do
+    (security review 8, M-5): a blocked path is ``security_blocked`` for every
+    caller; what the tools would put to the person (a control-plane file, a
+    path the check cannot see) has no question path over RPC, so it is refused
+    for anyone but a local person (``protected``, ``details.reason:
+    "local_only"``)."""
+    from snowpea_core.security import enforce
+    from snowpea_core.security.check import check_path
+    from snowpea_core.server import settings_gate
+
+    session = core.sessions.get(session_id)
+    workdir = getattr(session, "workdir", None)
+    settings = getattr(core, "settings", None)
+    await enforce.refresh_projects(core)
+    ctx = enforce.context(settings=settings, home=getattr(core.paths, "home", None),
+                          workdir=workdir, projects=enforce.live_projects(core))
+    verdict = check_path(str(target), enforce.lists_for(settings, workdir), ctx, write=True)
+    if verdict.blocked:
+        raise RpcError(errors.SECURITY_BLOCKED, verdict.refusal, verdict.to_wire())
+    if kind != "person" and (verdict.opaque or verdict.reason):
+        raise RpcError(
+            errors.PROTECTED,
+            "this file is one snowpea asks a person about before it is written; that "
+            "question needs a local connection",
+            {**verdict.to_wire(), "check": verdict.reason or "unchecked",
+             "reason": settings_gate.LOCAL_ONLY, "kind": kind},
+        )
+
+
 def _handler(
     work: Callable[[Roots, Any], T], *, write: bool = False,
 ) -> Callable[[RpcConnection, Any, Core], Any]:
@@ -636,6 +667,7 @@ def _handler(
                 # resolved again by the write, after a directory could be swapped).
                 target = roots.no_follow(params.path, secrets=True)
                 _refuse_control(kind, target)
+                await _refuse_security(core, kind, params.sessionId, target)
                 return await asyncio.to_thread(work, roots, params, target)  # type: ignore[call-arg]
             return await asyncio.to_thread(work, roots, params)
         except RpcError:

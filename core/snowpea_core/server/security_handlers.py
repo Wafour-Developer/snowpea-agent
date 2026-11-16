@@ -112,6 +112,12 @@ async def get_handler(
         problems.append(lost)
     # Security review 7, P2: what the tamper guard undid since the daemon started.
     problems.extend(tamper_problems())
+    degraded = getattr(core.settings, "degraded_sections", list)()
+    if "security" in degraded or "*" in degraded:
+        # Security review 8, Low: the lists did not validate and run fail-closed.
+        problems.append(
+            "the security section of settings.json is not valid: every preset is on and "
+            "unknown code asks until it is fixed (the file as it was: settings.json.invalid)")
     waiting = sorted(getattr(core, "settings_waiting", None) or {})
     if waiting:
         problems.append(

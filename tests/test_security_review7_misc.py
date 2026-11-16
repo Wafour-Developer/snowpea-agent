@@ -396,16 +396,15 @@ async def _remote(paths: Paths) -> tuple[TestClient, RemoteAuth]:
 
 
 async def test_the_owner_behind_the_same_nat_still_gets_in(tmp_path: Path) -> None:
-    """Four wrong attempts queued from one address used to make every further
-    attempt from it 429 unchecked — the owner's right password included."""
+    """Security review 8, H8-4 (the decision reverses review 7, Low 2): while one
+    address floods, a right password from THAT address is answered 429 too —
+    the flood costs a bounded queue, never a faster guess — and gets in once
+    the flood has drained."""
     client, auth = await _remote(Paths.create(tmp_path / "home"))
-    waited: list[float] = []
     release = asyncio.Event()
 
-    async def sleep(seconds: float) -> None:
-        waited.append(seconds)
-        if seconds < auth.penalty_max:
-            await release.wait()  # the queued wrong attempts sit in the queue
+    async def sleep(_seconds: float) -> None:
+        await release.wait()  # the queued wrong attempts sit in the queue
 
     auth.sleep = sleep  # type: ignore[assignment]
     login = lambda password: client.post(  # noqa: E731
@@ -413,20 +412,20 @@ async def test_the_owner_behind_the_same_nat_still_gets_in(tmp_path: Path) -> No
     try:
         for _ in range(MAX_FAILURES_PER_IP):
             assert (await login("nope")).status == 401
-        queued = [asyncio.ensure_future(login("nope")) for _ in range(MAX_WAITING_PER_IP)]
+        queued = [asyncio.ensure_future(login("nope")) for _ in range(1 + MAX_WAITING_PER_IP)]
         for _ in range(200):
-            if auth._waiting and sum(auth._waiting.values()) >= MAX_WAITING_PER_IP:
+            if sum(auth._waiting.values()) >= 1 + MAX_WAITING_PER_IP:
                 break
             await asyncio.sleep(0.01)
-        assert sum(auth._waiting.values()) == MAX_WAITING_PER_IP
-        # The queue is full.  The owner, behind the same address, signs in.
+        assert sum(auth._waiting.values()) == 1 + MAX_WAITING_PER_IP
+        # The queue is full: the owner behind the same address is delayed, at once.
         answer = await asyncio.wait_for(login(PASSWORD), 10)
-        assert answer.status == 200, "a right password was refused unchecked"
-        assert waited[-1] == auth.penalty_max  # after the longest wait, not for free
-        # ... and a wrong one past the queue is checked and refused, not let in.
-        assert (await asyncio.wait_for(login("still wrong"), 10)).status == 429
+        assert answer.status == 429 and int(answer.headers["Retry-After"]) >= 1
         release.set()
         assert {(await attempt).status for attempt in queued} == {429}
+        assert auth._waiting == {}
+        # The flood has drained: the right password is checked (after its wait).
+        assert (await asyncio.wait_for(login(PASSWORD), 10)).status == 200
     finally:
         release.set()
         await client.close()

@@ -76,9 +76,12 @@ PENALTY_BASE_SEC = 1.0
 PENALTY_MAX_SEC = 30.0
 #: scrypt checks running at once (each takes 32 MiB and a core for ~0.1 s).
 MAX_PARALLEL_CHECKS = 2
-#: Attempts of one address (one /64) that may wait their turn while it is over
-#: its limit; any beyond are answered 429 unchecked.
+#: Password attempts of one address (one /64) that may wait their turn behind
+#: the one being checked; any beyond are answered 429 unchecked (review 8, H8-4).
 MAX_WAITING_PER_IP = 4
+#: Password attempts that may wait (or be checked) at once, every address
+#: together; any beyond are answered 429 unchecked (review 8, H8-4).
+MAX_WAITING_GLOBAL = 64
 #: A login body is two short strings.
 MAX_BODY_BYTES = 4096
 SWEEP_INTERVAL_SEC = 60.0
@@ -265,6 +268,7 @@ class RemoteAuth:
         self.sleep = asyncio.sleep
         self._check_slots = asyncio.Semaphore(MAX_PARALLEL_CHECKS)
         self._waiting: dict[str, int] = {}
+        self._waiting_total = 0
         self._turns: dict[str, asyncio.Lock] = {}
         self._ip_failures: dict[str, deque[float]] = {}
         self._global_failures: deque[float] = deque()
@@ -432,59 +436,63 @@ class RemoteAuth:
             return 0.0
         return float(min(self.penalty_max, self.penalty_base * 2 ** min(over, 16)))
 
-    async def attempt(self, ip: str, check: Any) -> tuple[bool, int]:
+    async def attempt(self, ip: str, check: Any, *, fast: bool = False) -> tuple[bool, int]:
         """One credential attempt from ``ip`` under the limits: ``(passed, retry_after)``.
 
-        Security review 6, M-3/L-5.  The credential is ALWAYS checked (bar the
-        overflow below), so a right one gets in whatever the buckets say and
-        nobody can lock the person out by failing from elsewhere or by claiming
-        their address through a proxy header.  What the limits cost is time:
-        over the per-address limit the address's attempts go one at a time,
-        each after :meth:`penalty`; while the everyone-together bucket is full
-        every attempt waits the penalty first.  A wrong one over a limit is
-        answered ``retry_after`` > 0 (429), as before.
+        Security review 6, M-3/L-5: within the bounds below the credential is
+        checked, so a right one gets in whatever the buckets say; what the
+        limits cost is time — over a limit an attempt waits :meth:`penalty`
+        first.  A wrong one over a limit is answered ``retry_after`` > 0 (429).
 
-        Security review 7, Low 2: with :data:`MAX_WAITING_PER_IP` attempts of
-        one address queued already, a further one used to be answered 429
-        UNCHECKED — four queued wrong attempts locked out everyone behind that
-        address (an office NAT), the owner's right password included.  It now
-        skips the queue: it waits the longest penalty (:attr:`penalty_max`) and
-        is then checked like any other (password checks stay
-        :data:`MAX_PARALLEL_CHECKS` at a time).  No credential is ever refused
-        unchecked.
+        Security review 8, H8-4 (the bounds): a password check is scrypt, so
+        per address (one /64) at most ONE check is in flight and at most
+        :data:`MAX_WAITING_PER_IP` more wait their turn; in all at most
+        :data:`MAX_WAITING_GLOBAL` attempts wait.  Beyond either an attempt is
+        answered 429 at once, UNCHECKED, and counted against its address.  So a
+        flood costs the daemon a bounded queue — and while it lasts, a right
+        password from the SAME address (or, past the global bound, from
+        anywhere) can be answered 429 too: someone sharing the address can
+        delay a sign-in; nobody can guess faster through it.
+
+        ``fast``: the access link's token — a constant-time compare, no scrypt —
+        never queues and never waits a penalty (it cannot be held up behind
+        password checks); it is still counted and answered 429 over a limit.
         """
         key = rate_key(ip)
         ip_wait = self.retry_after_ip(ip)
         global_wait = self.retry_after_global()
-        delay = self.penalty(ip)
-        overflow = bool(ip_wait) and self._waiting.get(key, 0) >= MAX_WAITING_PER_IP
+        if not fast and (
+            self._waiting.get(key, 0) >= 1 + MAX_WAITING_PER_IP
+            or self._waiting_total >= MAX_WAITING_GLOBAL
+        ):
+            self.record_failure(ip, everyone=False)
+            return False, max(1, self.retry_after(ip))
+        delay = 0.0 if fast else self.penalty(ip)
         # Counted at once (no await since the limits were read), so attempts sent
         # in parallel cannot all slip under a limit; a right credential takes it
         # back.  An address already over its own limit no longer adds to the
         # everyone-together bucket: one address cannot slow everybody down.
         stamp = self.record_failure(ip, everyone=not ip_wait)
         started = time.monotonic()
-        if overflow:
-            await self.sleep(self.penalty_max)
+        if fast:
             passed = bool(await check())
-        elif ip_wait:
+        else:
             self._waiting[key] = self._waiting.get(key, 0) + 1
+            self._waiting_total += 1
             turn = self._turns.setdefault(key, asyncio.Lock())
             try:
                 async with turn:
-                    await self.sleep(delay)
+                    if delay:
+                        await self.sleep(delay)
                     passed = bool(await check())
             finally:
+                self._waiting_total -= 1
                 left = self._waiting.get(key, 1) - 1
                 if left > 0:
                     self._waiting[key] = left
                 else:
                     self._waiting.pop(key, None)
                     self._turns.pop(key, None)
-        else:
-            if delay:
-                await self.sleep(delay)
-            passed = bool(await check())
         if passed:
             self.forgive(ip, stamp)
             return True, 0
@@ -670,8 +678,15 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
         # (not expired, its password or link unchanged) — a clock compare.
         return auth.session(cookie) is not None
 
+    def push_alive() -> bool:
+        # Security review 8, Low: before every pushed message — a dictionary
+        # lookup and a clock compare (the full check stays per frame received).
+        current = auth.sessions.get(cookie or "")
+        return current is not None and current.expires > auth.clock()
+
     return await websocket_handler(request, track=_Track(found.sockets, auth.sockets),
-                                   capability=capability_ok, alive=alive)
+                                   capability=capability_ok, alive=alive,
+                                   push_alive=push_alive)
 
 
 async def remote_web_redirect(request: web.Request) -> web.Response:
@@ -758,8 +773,9 @@ async def remote_page(request: web.Request) -> web.StreamResponse:
     async def check() -> bool:
         return auth.check_token(presented)
 
-    # The limits refuse a wrong token only (review 5 L1, review 6 M-3/L-5).
-    ok, wait = await auth.attempt(ip, check)
+    # The limits refuse a wrong token only (review 5 L1, review 6 M-3/L-5); a
+    # token check never waits behind password checks (review 8, H8-4).
+    ok, wait = await auth.attempt(ip, check, fast=True)
     if not ok:
         log.warning("web access link with a wrong token from %s", ip)
         if wait:

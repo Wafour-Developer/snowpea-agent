@@ -313,7 +313,9 @@ async def test_the_access_link_follows_the_same_rule(paths: Paths) -> None:
             assert page.status == 401
         assert (await client.get("/web/?t=wrong", allow_redirects=False)).status == 429
         good = await client.get(f"/web/?t={token}", allow_redirects=False)
-        assert good.status == 302 and waits.seen == [1.0, 2.0]
+        # Security review 8, H8-4: a token check is a constant-time compare that
+        # never waits (it was [1.0, 2.0]); a wrong one is still counted and 429.
+        assert good.status == 302 and waits.seen == []
     finally:
         await client.close()
 
@@ -342,12 +344,12 @@ async def test_over_its_limit_an_address_is_checked_one_at_a_time(paths: Paths) 
         auth.check = check  # type: ignore[method-assign]
         answers = await asyncio.gather(*(_login(client, "nope") for _ in range(12)))
         assert {a.status for a in answers} == {429}
-        # The queued ones go one at a time; the ones past the queue are checked
-        # too, after the longest wait (security review 7, Low 2: none is answered
-        # unchecked any more) — never more than the two check slots at once.
-        assert running["most"] <= MAX_PARALLEL_CHECKS
-        assert running["calls"] == 12
-        assert auth._waiting == {} and auth._turns == {}
+        # Security review 8, H8-4: one check in flight per address and at most
+        # MAX_WAITING_PER_IP waiting; the rest are answered 429 unchecked (review
+        # 7 checked all twelve, each after the longest wait).
+        assert running["most"] == 1 <= MAX_PARALLEL_CHECKS
+        assert running["calls"] == 1 + web_remote.MAX_WAITING_PER_IP
+        assert auth._waiting == {} and auth._turns == {} and auth._waiting_total == 0
     finally:
         await client.close()
 

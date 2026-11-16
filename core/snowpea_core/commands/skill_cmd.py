@@ -226,6 +226,10 @@ async def learn_skill(
                                         global_=global_, content=document,
                                         target=target / "SKILL.md")
     path = write_skill(session.workdir, name, document, home=home)
+    if who is not None:
+        from snowpea_core.server.skill_gate import mark_saved_by
+
+        mark_saved_by(who, path.parent)  # security review 8, M-3
     await reload_loader(core)
     return path
 
@@ -296,6 +300,7 @@ async def create_skill(ctx: CommandContext, args: str) -> None:
         document = await generate_skill_document(provider, name, description)
         skill_gate.content_refusal(who, ctx.core, method="skill.create", content=document)
         write_skill_document(directory, document, requested_name=name, force=force)
+        skill_gate.mark_saved_by(who, directory)  # security review 8, M-3
     except (PublishError, SkillCreateError) as exc:
         await ctx.say(f"Could not create the skill: {exc}")
         return

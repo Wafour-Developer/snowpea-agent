@@ -243,6 +243,30 @@ def _invalid(conn: Any, exc: ValidationError) -> RpcError:
                     {"problems": problems})
 
 
+def _mark_remote_servers(conn: Any, patch: dict[str, Any], current: dict[str, Any],
+                         merged: dict[str, Any]) -> None:
+    """``savedBy: "remote_login"`` on an MCP server a remote web login ADDS with
+    ``settings.set mcp.servers.<name>`` — the mark ``mcp.add`` sets (security
+    review 8, M-3): it expands no stored credential and is counted by
+    ``web.remote.status.remoteLeft.mcpServers``."""
+    from snowpea_core.server.person_gate import connection_kind
+    from snowpea_core.tools.mcp_client import SAVED_BY_KEY
+
+    if connection_kind(conn) != "remote_login":
+        return
+    mcp = patch.get("mcp")
+    servers = mcp.get("servers") if isinstance(mcp, dict) else None
+    if not isinstance(servers, dict):
+        return
+    saved = (current.get("mcp") or {}).get("servers") or {}
+    merged_servers = (merged.get("mcp") or {}).get("servers") or {}
+    for name, entry in servers.items():
+        if isinstance(entry, dict) and name not in saved and isinstance(
+            merged_servers.get(name), dict
+        ):
+            merged_servers[name][SAVED_BY_KEY] = "remote_login"
+
+
 def _require_workdir(params: SettingsGetParams | SettingsSetParams) -> str:
     if not params.workdir:
         raise RpcError(errors.INVALID_PARAMS, 'workdir is required when scope is "project"')
@@ -303,13 +327,21 @@ async def settings_set_handler(
         from snowpea_core.permissions.allowlist import _project_digest
 
         before = _project_digest(workdir)
-        updated.save(workdir)
+        from snowpea_core.config.project import ProjectSettingsUnsafe
+
+        try:
+            updated.save(workdir)
+        except ProjectSettingsUnsafe as exc:
+            from snowpea_core.server.project_gate import unsafe_write
+
+            raise unsafe_write(exc) from exc
         _person_wrote_project(conn, core, workdir, before)
         return SettingsResult(settings=_mask_secrets(updated.model_dump(mode="json")))
 
     settings_problems(params.patch)
     current_global = core.settings.model_dump(mode="json")
     merged_global = _deep_merge(current_global, params.patch)
+    _mark_remote_servers(conn, params.patch, current_global, merged_global)
     try:
         updated_settings = Settings.model_validate(merged_global)
     except ValidationError as exc:

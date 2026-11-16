@@ -9,6 +9,7 @@ folds both sides through :func:`fold_text` when :data:`FOLD` is set, so
 
 from __future__ import annotations
 
+import os
 import sys
 import unicodedata
 from pathlib import Path
@@ -36,4 +37,26 @@ def path_key(path: Path, fold: bool | None = None) -> Path:
     return fold_path(path) if (FOLD if fold is None else fold) else path
 
 
-__all__ = ["FOLD", "fold_path", "fold_text", "name_key", "path_key"]
+def same_file(a: Path | str, b: Path | str) -> bool:
+    """``a`` and ``b`` are the same file or folder (security review 8, H8-3).
+
+    By identity (``os.path.samefile``: device and inode) when both exist, so a
+    case-insensitive or Unicode-normalising file system (macOS APFS, Windows)
+    cannot pass one folder off as another by its spelling.  When either does
+    not exist yet: the spellings, folded (NFC + casefold) where the file system
+    folds (:data:`FOLD`).
+    """
+    try:
+        return os.path.samefile(a, b)
+    except (OSError, ValueError):
+        return path_key(Path(a)) == path_key(Path(b))
+
+
+def within(path: Path | str, base: Path | str) -> bool:
+    """``path`` is ``base`` or lies inside it: :func:`same_file` on ``path`` and
+    each of its parents against ``base``."""
+    candidate = Path(path)
+    return any(same_file(part, base) for part in (candidate, *candidate.parents))
+
+
+__all__ = ["FOLD", "fold_path", "fold_text", "name_key", "path_key", "same_file", "within"]

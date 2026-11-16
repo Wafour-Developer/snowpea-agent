@@ -236,8 +236,12 @@ def test_a_remote_web_login_may_not_hand_over_guarded_classes(engine: Delegation
     remote = Caller(kind="connection", surface="web", remote=True)
     with pytest.raises(PersonOnly, match="local connection"):
         engine.set_grant("project", PROJECT, "staged", ["secret_send"], caller=remote)
-    grant, _ = engine.set_grant("project", PROJECT, "full", caller=remote)
-    assert grant.level == "full"
+    # Security review 8, H8-2: no grant at all from a remote login (it could set
+    # "full" before); it may still revoke one, which only takes authority away.
+    with pytest.raises(PersonOnly, match="local connection"):
+        engine.set_grant("project", PROJECT, "full", caller=remote)
+    grant, _ = engine.set_grant("project", PROJECT, "full", caller=PERSON)
+    assert engine.revoke(grant.id, caller=remote) is True
 
 
 def test_grants_live_outside_settings(tmp_path: Path, clock: Clock) -> None:
@@ -632,8 +636,13 @@ async def test_handlers_see_a_remote_login(tmp_path: Path) -> None:
             await delegation_set_handler(remote, params, daemon.core)  # type: ignore[arg-type]
         assert caught.value.code == "jarvis_person_only"
         params = JarvisDelegationSetParams(scope="project", target=str(tmp_path), level="full")
-        result = await delegation_set_handler(remote, params, daemon.core)  # type: ignore[arg-type]
-        assert result.grant.grantedBy == "web"
+        # Security review 8, H8-2: no grant from a remote login (it was granted).
+        with pytest.raises(RpcError) as caught:
+            await delegation_set_handler(remote, params, daemon.core)  # type: ignore[arg-type]
+        assert caught.value.code == "jarvis_person_only"
+        local = SimpleNamespace(client_kind="ide", remote_login=False)
+        result = await delegation_set_handler(local, params, daemon.core)  # type: ignore[arg-type]
+        assert result.grant.grantedBy == "ide"
         with pytest.raises(RpcError):
             await delegation_set_handler(None, params, daemon.core)
     finally:

@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import re
 import shlex
-from typing import Literal
+from typing import Any, Literal
 
 from snowpea_core.agent import plan_store
 from snowpea_core.agent.team_pipeline import (
@@ -81,6 +81,19 @@ TEAM_ARGS_SCHEMA = {
     },
     "required": ["task"],
 }
+
+
+async def _saved(ctx: CommandContext, project: Any) -> bool:
+    """Save the project settings, or say why not (security review 8, H8-3: an
+    invalid file on disk is never written over; snowpea's home is no project)."""
+    from snowpea_core.config.project import ProjectSettingsUnsafe
+
+    try:
+        project.save(ctx.session.workdir)
+    except ProjectSettingsUnsafe as exc:
+        await ctx.say(f"team: {exc}")
+        return False
+    return True
 
 
 async def cmd_team(ctx: CommandContext, args: str) -> None:
@@ -422,7 +435,8 @@ async def _configure_team(ctx: CommandContext, words: list[str]) -> None:
         # Back to no team: delegation is unrestricted again and `/team
         # "<task>"` falls back to the global default roster.
         project.agents.activeTeam = None
-        project.save(ctx.session.workdir)
+        if not await _saved(ctx, project):
+            return
         ctx.session.team = None
         ctx.session.team_agents = ()
         await ctx.say("Active team cleared. This project has no team now.")
@@ -453,7 +467,8 @@ async def _configure_team(ctx: CommandContext, words: list[str]) -> None:
         project.agents.teams.pop(name)
         if project.agents.activeTeam == name:
             project.agents.activeTeam = None
-    project.save(ctx.session.workdir)
+    if not await _saved(ctx, project):
+        return
     from snowpea_core.agent.team_config import active_team
 
     selected = active_team(ctx.core.settings, ctx.session.workdir)

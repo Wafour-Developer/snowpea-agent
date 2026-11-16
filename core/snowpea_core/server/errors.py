@@ -142,6 +142,11 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
         "the folder is snowpea's own home (or its .snowpea directory is): not a project, for "
         "any caller; details.field names the parameter, details.what is 'home' or 'parent'",
     ),
+    "project_settings_invalid": (
+        INVALID_PARAMS,
+        "the project's .snowpea/settings.json on disk does not validate: it is left as it is "
+        "and not written over with defaults plus the change; fix or remove it first",
+    ),
     "catch_all": (INVALID_PARAMS, "an allowlist pattern that would match every command"),
     "project_add_only": (
         INVALID_PARAMS,
@@ -270,6 +275,31 @@ def new_error_id() -> str:
 
 def internal_text(error_id: str) -> str:
     return f"internal error (id {error_id})"
+
+
+def failure_class(exc: BaseException) -> str:
+    """A short reason for a failure whose text stays in the log (security review 8):
+    ``timeout``, ``provider error``, ``refused`` or ``internal error``."""
+    import asyncio
+
+    if isinstance(exc, TimeoutError | asyncio.TimeoutError):
+        return "timeout"
+    if isinstance(exc, RpcError | PermissionError):
+        return "refused"
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    modules = {cls.__module__.split(".")[0] for cls in type(exc).__mro__}
+    if "ProviderError" in names or "httpx" in modules or "aiohttp" in modules:
+        return "provider error"
+    return "internal error"
+
+
+def redact_url_queries(text: str) -> str:
+    """``text`` with the query string of every URL in it replaced by ``?…``
+    (a key or a token often rides there)."""
+    import re
+
+    return re.sub(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s?#'\"<>]*)\?[^\s#'\"<>]*", r"\1?…",
+                  str(text))
 
 
 class RpcError(Exception):

@@ -56,4 +56,18 @@ def require_project(core: Any, workdir: Any, *, dot: bool = True, field: str = "
                        {"reason": REASON, "field": field, "what": problem})
 
 
-__all__ = ["REASON", "project_problem", "require_project"]
+#: ``details.reason`` of a project settings file that does not validate and so
+#: is not written over (security review 8, H8-3).
+INVALID_REASON = "project_settings_invalid"
+
+
+def unsafe_write(exc: Exception, field: str = "workdir") -> RpcError:
+    """``ProjectSettings.save``'s refusal as the RPC error a client switches on."""
+    if getattr(exc, "reason", None) == "invalid":
+        return RpcError(errors.INVALID_PARAMS, str(exc),
+                        {"reason": INVALID_REASON, "field": field})
+    return RpcError(errors.INVALID_PARAMS, NOT_A_PROJECT,
+                    {"reason": REASON, "field": field, "what": "home"})
+
+
+__all__ = ["INVALID_REASON", "REASON", "project_problem", "require_project", "unsafe_write"]

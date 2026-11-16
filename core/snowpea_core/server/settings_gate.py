@@ -121,10 +121,19 @@ REMOTE_GATEWAY_FIELDS: tuple[str, ...] = (
 #: refused when the patch sets or deletes it or anything under it
 #: (:func:`matches`); deleting a whole parent (an MCP server, a messenger
 #: block) only takes away and stays allowed.  ``details.reason: "local_only"``.
+#: Fields of a ``providers.<vendor>`` block that are the account it uses: a key,
+#: an OAuth session or the record a browser login leaves (security review 8,
+#: M-1 — a remote login setting one moves the owner's traffic, billing and
+#: logs to its own account, and it survives a rotation of the remote link).
+PROVIDER_CREDENTIAL_FIELDS: tuple[str, ...] = (
+    "api_key", "apiKey", "token", "oauth_token", "refresh_token", "access_token", "id_token",
+    "auth_method", "expires_at", "account_id", "plan_type", "project_id",
+)
 REMOTE_LOGIN_NEVER_KEYS: tuple[Pattern, ...] = (
     *(("mcp", "servers", "*", name) for name in MCP_LAUNCH_FIELDS),
     *(("gateway", "*", name) for name in REMOTE_GATEWAY_FIELDS),
     ("providers", "*", "base_url"),
+    *(("providers", "*", name) for name in PROVIDER_CREDENTIAL_FIELDS),
     ("lsp", "servers"),
     ("audio", "stt", "command"),
     ("audio", "tts", "command"),
@@ -132,6 +141,23 @@ REMOTE_LOGIN_NEVER_KEYS: tuple[Pattern, ...] = (
     ("audio", "recorder"),
     ("skills", "registry"),
 )
+
+
+def _never_by_shape(path: Pattern) -> bool:
+    """``path`` sets an endpoint-shaped field of a free-form block (security review
+    8, H8-1: ``search.credentials.<id>.url`` and the like — a provider posts the
+    owner's key, from settings or the daemon's environment, to that address)."""
+    from snowpea_core.server.settings_leaves import ENDPOINT_SHAPED, endpoint_key
+
+    for block in ENDPOINT_SHAPED:
+        pattern = tuple(block.split("."))
+        if len(path) > len(pattern) and matches(path[:len(pattern)], pattern) and endpoint_key(
+            path[len(pattern)]
+        ):
+            return True
+    return False
+
+
 LOCAL_ONLY = "local_only"
 
 #: ``gateway.<platform>`` fields that say who the bound person is, which bot
@@ -272,11 +298,13 @@ def refuse_closed(conn: Any, what: str) -> None:
 
 
 def remote_login_local_keys(patch: dict[str, Any]) -> list[str]:
-    """Dotted keys of ``patch`` under :data:`REMOTE_LOGIN_NEVER_KEYS`."""
+    """Dotted keys of ``patch`` under :data:`REMOTE_LOGIN_NEVER_KEYS`, and the
+    endpoint-shaped fields of the free-form blocks (:func:`_never_by_shape`)."""
     return [
         ".".join(path)
         for path, _value in leaves(patch)
         if any(matches(path, pattern) for pattern in REMOTE_LOGIN_NEVER_KEYS)
+        or _never_by_shape(path)
     ]
 
 
@@ -761,7 +789,10 @@ CONFIG_METHODS: frozenset[str] = BROWSER_PERSON_METHODS | BROWSER_NEVER_METHODS
 #: mcp.permissions, CLI paths, unrestricted mode, guarded grants).
 REMOTE_LOGIN_METHODS: frozenset[str] = frozenset({
     "settings.set",  # judged key by key against REMOTE_LOGIN_KEYS by its handler
-    "provider.configure", "provider.loginWeb", "provider.remove", "provider.visionReset",
+    # Security review 8, M-1: provider.loginWeb is a local person's (it stores
+    # the account the owner's traffic and billing go to); provider.configure
+    # with a credential is refused by its handler.
+    "provider.configure", "provider.remove", "provider.visionReset",
     "mcp.add", "mcp.update", "mcp.remove", "mcp.reload", "mcp.authorize", "mcp.deauthorize",
     "mcp.test", "skill.create", "skill.learn", "skill.reload", "skill.remove", "skill.write",
     "skill.install", "memory.update", "audio.install", "lsp.install",
@@ -838,7 +869,7 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "job.preview", "job.runs", "job.nextRunForClient",
     # reads of config and the services a person uses
     "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
-    "provider.test", "mcp.list", "mcp.catalog", "mcp.authorize.complete", "skill.list",
+    "provider.test", "mcp.list", "mcp.catalog", "skill.list",
     "skill.read", "skill.search", "memory.list", "memory.search", "memory.write",
     "memory.delete", "memory.confirm", "lsp.status", "lsp.catalog", "lsp.restart",
     "audio.capabilities", "audio.voices", "audio.speak", "audio.transcribe",
@@ -853,8 +884,19 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
     "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
     "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",
-    "jarvis.delegation.set", "jarvis.delegation.revoke", "jarvis.takeover", "jarvis.handback",
+    "jarvis.delegation.revoke", "jarvis.takeover", "jarvis.handback",
+    # jarvis.briefing.set: only {enabled: false} (jarvis_assist_handlers).
     "jarvis.briefing.get", "jarvis.briefing.set", "mcp.preset.list", "mcp.preset.check",
+})
+
+#: Security review 8: what a remote web login may no longer call at all — a
+#: person's at a local connection (``details.reason: "local_only"``,
+#: ``details.what``: the method).  ``provider.loginWeb`` and
+#: ``mcp.authorize.complete`` store the account an owner's provider or MCP
+#: server uses (M-1); ``jarvis.delegation.set`` creates or widens a grant that
+#: persists (H8-2) — revoking, taking over and handing back stay open.
+REMOTE_LOGIN_LOCAL_ONLY: frozenset[str] = frozenset({
+    "provider.loginWeb", "mcp.authorize.complete", "jarvis.delegation.set",
 })
 
 #: What a browser connection may call beyond :data:`BROWSER_PERSON_METHODS`
@@ -920,6 +962,8 @@ def kind_method_refusal(method: str, params: dict[str, Any], conn: Any, core: An
     if kind == "connector":
         allowed = method in CONNECTOR_ALLOWED
     elif kind == "remote_login":
+        if method in REMOTE_LOGIN_LOCAL_ONLY:
+            refuse_local_only(conn, core, f"call {method}", method=method, detail=method)
         allowed = method in REMOTE_LOGIN_ALLOWED
     elif kind == "browser":
         allowed = browser_allowed(method)

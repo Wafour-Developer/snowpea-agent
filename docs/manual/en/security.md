@@ -56,7 +56,7 @@ Protected folders:
 
 | Preset | What it protects | Level |
 |---|---|---|
-| `essential` (on by default) | `/etc`, `/boot`, `/usr`, `/bin`, `/sbin`, `/lib*`, `/var/lib`, `/System` are never changed; `/` and your home folder themselves (and every folder above your home) are never deleted, moved or changed recursively | no changes |
+| `essential` (on by default) | `/etc`, `/boot`, `/usr`, `/bin`, `/sbin`, `/lib*`, `/var/lib`, `/System` are never changed; `/` and your home folder themselves (and every folder above your home) are never deleted, moved or changed recursively; what runs when you log in or open a shell is never changed: `~/.ssh`, the shell start-up files (`~/.bashrc`, `~/.bash_profile`, `~/.bash_login`, `~/.bash_logout`, `~/.profile`, `~/.zshrc`, `~/.zprofile`, `~/.zshenv`, `~/.zlogin`, `~/.config/fish/config.fish`), `~/.config/autostart`, `~/.config/systemd/user`, `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` | no changes |
 | `credentials` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.docker`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, password stores, keyrings | no access |
 | `snowpea-home` | `$SNOWPEA_HOME` (snowpea's plan files stay writable) | no changes |
 | `other-projects` | every project snowpea knows, except the one the session works in | no changes |

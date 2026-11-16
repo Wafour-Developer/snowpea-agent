@@ -606,7 +606,10 @@ BROWSER_PERSON = {"agent", "browser", "gateway", "lsp", "memory", "models",
 REMOTE = BROWSER_PERSON | {"mcp", "approvals", "audio", "ide", "appearance"}
 #: Security review 6 (H-1/M-4): the leaves above that name a program to run or a
 #: messenger's identity are a local person's, whatever the scope (``local_only``).
-REMOTE_LOCAL = {"mcp", "lsp", "gateway"}
+REMOTE_LOCAL = {"mcp", "lsp", "gateway",
+                # Security review 8, H8-1: the sample is ``providers.openai.baseUrl``,
+                # an endpoint-shaped field of a free-form block.
+                "providers"}
 #: Of the leaves above, those in Jarvis's authority chain while it is on: the
 #: messenger binding, the provider and the profile Jarvis runs on.
 AUTHORITY = {"gateway", "providers", "models"}
@@ -661,7 +664,7 @@ def test_settings_gate_every_top_level_key(key: str, kind: str, scope: str,
     deleted = _gate(kind, {top: None}, project=scope == "project", jarvis_on=jarvis_on)
     # ``mcp`` holds local-only keys, so only its ``servers`` are the browser's.
     whole = kind == "person" or (want[0] == "ok" and "." not in key and top != "mcp")
-    if kind == "remote_login" and key in ("lsp", "gateway"):
+    if kind == "remote_login" and key in ("lsp", "gateway", "providers"):
         # Review 6: deleting the whole key only takes away; a remote login still may
         # (unless it is Jarvis's chain while Jarvis is on) — in the global scope:
         # the project scope takes only its allow table's keys (review 7, H-2).
