@@ -65,19 +65,20 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     "external.list": (P, P, P, P),  # non-person: only its own rows
     "external.get": (P, P, N, N),
     "external.read": (P, P, N, N),
-    "external.open": (P, P, P, P),  # trust decides (test below)
-    "external.send": (P, P, N, N),
-    "external.setMode": (P, P, N, N),
-    "external.interrupt": (P, P, N, N),
-    "external.create": (P, P, P, P),  # trust decides (test below)
-    "external.close": (P, P, N, N),
+    # Security review 5, M1: a connector is deny-by-default (reads and streams only).
+    "external.open": (P, P, P, R),  # trust decides (test below)
+    "external.send": (P, P, N, R),
+    "external.setMode": (P, P, N, R),
+    "external.interrupt": (P, P, N, R),
+    "external.create": (P, P, P, R),  # trust decides (test below)
+    "external.close": (P, P, N, R),
     "external.unwatch": (P, P, P, P),
-    "job.schedule": (P, P, P, P),
+    "job.schedule": (P, P, P, R),
     "job.preview": (P, P, P, P),
     "job.list": (P, P, P, P),
-    "job.cancel": (P, P, P, P),
+    "job.cancel": (P, P, P, R),
     "job.runNow": (P, P, R, R),  # on a jarvis-task job
-    "job.delete": (P, P, P, P),
+    "job.delete": (P, P, P, R),
     "job.nextRunForClient": (P, P, P, P),
     "job.update": (P, P, R, R),  # on a jarvis-task job
     "job.runs": (P, P, P, P),
@@ -317,10 +318,13 @@ async def test_external_cli_needs_the_person_to_trust_the_project(
         person = clients["person"]
         await person.ok("workspace.add", {"path": str(project)})
         params = {"cli": "claude", "project": str(project)}
-        for kind in ("remote_login", "browser", "connector"):
+        for kind in ("remote_login", "browser"):
             frame = await clients[kind].call("external.create", {**params, "trust": True})
             assert _code(frame) == "external_unavailable"
             assert frame["error"]["data"]["details"]["reason"] == "untrusted_project_person_only"
+        # Security review 5, M1: a connector starts nothing at all.
+        frame = await clients["connector"].call("external.create", {**params, "trust": True})
+        assert _code(frame) == "jarvis_person_only"
         frame = await person.call("external.create", params)
         assert _code(frame) == "external_unavailable"
         assert frame["error"]["data"]["details"]["reason"] == "untrusted_project"

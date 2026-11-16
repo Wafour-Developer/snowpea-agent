@@ -180,6 +180,10 @@ def _spawn_command(home: Path) -> list[str]:
     return [*base, "--port", "0", "--home", str(home)]
 
 
+#: Variables a CLI reads secrets from that the daemon it starts must not inherit.
+SECRET_ENV_VARS: frozenset[str] = frozenset({"SNOWPEA_WEB_PASSWORD"})
+
+
 def _spawn_daemon(home: Path) -> subprocess.Popen[bytes]:
     """Start a detached daemon whose output lands in ``$SNOWPEA_HOME/logs/daemon.out``."""
     paths = Paths(home=home)
@@ -187,6 +191,9 @@ def _spawn_daemon(home: Path) -> subprocess.Popen[bytes]:
     log_file = paths.logs_dir / "daemon.out"
     command = _spawn_command(home)
     handle = log_file.open("ab")
+    # The remote-access password a CLI may carry in its environment never reaches
+    # the daemon (whose shell tool hands its environment to every command).
+    env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV_VARS}
     try:
         return subprocess.Popen(  # noqa: S603 - command is ours or a test override
             command,
@@ -195,6 +202,7 @@ def _spawn_daemon(home: Path) -> subprocess.Popen[bytes]:
             stdin=subprocess.DEVNULL,
             start_new_session=True,
             cwd=str(home),
+            env=env,
         )
     except OSError as exc:
         handle.close()

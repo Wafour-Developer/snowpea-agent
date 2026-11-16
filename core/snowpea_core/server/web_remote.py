@@ -7,10 +7,14 @@ with a much smaller app:
 
 * ``GET /web/...`` — the same static build;
 * ``POST /web/login`` — ``{username, password}`` → a ``snowpea_web`` cookie;
-* ``GET /web/session`` — with that cookie, the daemon token for ``system.hello``;
+* ``GET /web/session`` — with that cookie, this login's own capability (field
+  ``token``) for ``system.hello``.  Never the daemon token (security review 5,
+  H3): the capability is made per login, is accepted only on this listener's
+  sockets of the same login, and dies with the login (logout, expiry, a
+  password change, a token rotation, the listener stopping);
 * ``POST /web/logout`` — drops the session and closes its sockets;
 * ``GET /ws`` — the JSON-RPC socket, only with a valid cookie and a same-origin
-  ``Origin``; ``system.hello`` still checks the token.
+  ``Origin``; ``system.hello`` there accepts only that login's capability.
 
 The password lives in ``credentials.json`` as a salted scrypt hash under
 :data:`PASSWORD_KEY`.  Sessions are kept in memory, so a daemon restart logs
@@ -197,6 +201,8 @@ class _Session:
     expires: float
     fingerprint: str = ""
     sockets: set[web.WebSocketResponse] = field(default_factory=set)
+    #: What this login's page presents in ``system.hello`` (security review 5, H3).
+    capability: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
 
 
 class RemoteAuth:
@@ -266,6 +272,16 @@ class RemoteAuth:
             return None
         return found
 
+    def capability_ok(self, cookie: str | None, presented: str | None) -> bool:
+        """``presented`` is the live login ``cookie``'s capability (constant time)."""
+        found = self.session(cookie)
+        if found is None or not presented:
+            return False
+        return hmac.compare_digest(
+            hashlib.sha256(found.capability.encode("utf-8")).digest(),
+            hashlib.sha256(presented.encode("utf-8")).digest(),
+        )
+
     async def drop(self, token: str) -> None:
         found = self.sessions.pop(token, None)
         if found is not None:
@@ -293,19 +309,31 @@ class RemoteAuth:
             queue.popleft()
 
     def retry_after(self, ip: str) -> int:
-        """Seconds until ``ip`` may try again, 0 when it may now."""
-        waits: list[float] = []
+        """Seconds until ``ip`` may try again, 0 when it may now (both buckets)."""
+        return max(self.retry_after_ip(ip), self.retry_after_global())
+
+    def retry_after_ip(self, ip: str) -> int:
+        """Seconds until ``ip``'s own failures let it try again (0: now)."""
         queue = self._ip_failures.get(ip)
-        if queue is not None:
-            self._trim(queue)
-            if len(queue) >= MAX_FAILURES_PER_IP:
-                waits.append(queue[-MAX_FAILURES_PER_IP] + RATE_WINDOW_SEC - self.clock())
+        if queue is None:
+            return 0
+        self._trim(queue)
+        if len(queue) < MAX_FAILURES_PER_IP:
+            return 0
+        return max(1, int(queue[-MAX_FAILURES_PER_IP] + RATE_WINDOW_SEC - self.clock() + 0.999))
+
+    def retry_after_global(self) -> int:
+        """Seconds until the everyone-together bucket empties (0: now).
+
+        Security review 5, L1: this bucket only ever refuses a WRONG credential —
+        the credential is checked first, so a flood of failures from elsewhere
+        cannot lock the person out of their own correct link or password.
+        """
         self._trim(self._global_failures)
-        if len(self._global_failures) >= MAX_FAILURES_GLOBAL:
-            waits.append(
-                self._global_failures[-MAX_FAILURES_GLOBAL] + RATE_WINDOW_SEC - self.clock()
-            )
-        return max(1, int(max(waits) + 0.999)) if waits else 0
+        if len(self._global_failures) < MAX_FAILURES_GLOBAL:
+            return 0
+        return max(1, int(self._global_failures[-MAX_FAILURES_GLOBAL] + RATE_WINDOW_SEC
+                          - self.clock() + 0.999))
 
     def record_failure(self, ip: str) -> float:
         now = self.clock()
@@ -395,10 +423,12 @@ async def login(request: web.Request) -> web.Response:
     ip = _client_ip(request)
     if request.headers.get("Origin") and not _origin_ok(request):
         return _json({"ok": False, "error": "bad_origin"}, 403)
-    wait = auth.retry_after(ip)
+    wait = auth.retry_after_ip(ip)
     if wait:
         log.warning("web login refused from %s: too many failures (retry in %ds)", ip, wait)
         return _json({"ok": False, "error": "rate_limited"}, 429, **{"Retry-After": str(wait)})
+    # The global bucket is judged after the check (L1): it refuses wrong passwords only.
+    global_wait = auth.retry_after_global()
     # Counted at once (no await since the check above), so attempts sent in
     # parallel cannot all slip under the limit; a good password takes it back.
     stamp = auth.record_failure(ip)
@@ -417,6 +447,9 @@ async def login(request: web.Request) -> web.Response:
     if not ok:
         log.warning("web login failed from %s", ip)
         await asyncio.sleep(max(0.0, auth.failure_delay - (time.monotonic() - started)))
+        if global_wait:
+            return _json({"ok": False, "error": "rate_limited"}, 429,
+                         **{"Retry-After": str(global_wait)})
         return _json({"ok": False, "error": "invalid_credentials"}, 401)
     auth.forgive(ip, stamp)
     token = auth.open_session()
@@ -439,8 +472,9 @@ async def session(request: web.Request) -> web.Response:
     found = auth.session(request.cookies.get(COOKIE_NAME))
     if found is None:
         return _json({"ok": False, "error": "unauthorized"}, 401)
-    core = request.app[DISPATCHER_KEY].core
-    return _json({"ok": True, "token": core.token, "username": found.username,
+    # ``token`` is this login's capability, never the daemon token (H3); the
+    # field keeps its name so the web page needs no change.
+    return _json({"ok": True, "token": found.capability, "username": found.username,
                   "mode": "password" if auth.password_mode else "token"})
 
 
@@ -469,7 +503,12 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
             request.headers.get("Origin"),
         )
         return _json({"ok": False, "error": "bad_origin"}, 403)
-    return await websocket_handler(request, track=found.sockets)
+    cookie = request.cookies.get(COOKIE_NAME)
+
+    def capability_ok(presented: str | None) -> bool:
+        return auth.capability_ok(cookie, presented)
+
+    return await websocket_handler(request, track=found.sockets, capability=capability_ok)
 
 
 async def remote_web_redirect(request: web.Request) -> web.Response:
@@ -503,15 +542,19 @@ async def remote_page(request: web.Request) -> web.StreamResponse:
     if auth.password_mode:
         raise web.HTTPFound(target)
     ip = _client_ip(request)
-    wait = auth.retry_after(ip)
+    wait = auth.retry_after_ip(ip)
     if wait:
         log.warning("web access link refused from %s: too many failures", ip)
         return _json({"ok": False, "error": "rate_limited"}, 429, **{"Retry-After": str(wait)})
+    global_wait = auth.retry_after_global()  # refuses a wrong token only (L1)
     stamp = auth.record_failure(ip)
     started = time.monotonic()
     if not auth.check_token(presented):
         log.warning("web access link with a wrong token from %s", ip)
         await asyncio.sleep(max(0.0, auth.failure_delay - (time.monotonic() - started)))
+        if global_wait:
+            return _json({"ok": False, "error": "rate_limited"}, 429,
+                         **{"Retry-After": str(global_wait)})
         return _json({"ok": False, "error": "invalid_token"}, 401)
     auth.forgive(ip, stamp)
     session_token = auth.open_session()
@@ -623,7 +666,8 @@ class RemoteListener:
             app = create_remote_app(self.dispatcher, auth, connections=self.connections,
                                     sockets=self.sockets, trust_proxy=trust_proxy,
                                     allowed_origins=allowed_origins)
-            runner = web.AppRunner(app)
+            # No access log (security review 5, M4): the access link's ``?t=`` would land in it.
+            runner = web.AppRunner(app, access_log=None)
             await runner.setup()
             try:
                 await web.TCPSite(runner, host, port).start()

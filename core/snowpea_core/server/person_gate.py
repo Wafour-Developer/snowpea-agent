@@ -33,9 +33,13 @@ def connection_kind(conn: Any) -> ConnectionKind:
 
     if not _open(conn):
         return "none"
+    if bool(getattr(conn, "remote_login", False)):
+        # Security review 5, M3: the remote listener's connections are remote
+        # web logins whatever ``clientKind`` they declared.
+        return "remote_login"
     kind = getattr(conn, "client_kind", None)
     if kind in HUMAN_CLIENT_KINDS:
-        return "remote_login" if bool(getattr(conn, "remote_login", False)) else "person"
+        return "person"
     return "browser" if kind == "browser" else "connector"
 
 
@@ -103,7 +107,15 @@ PERSON_METHODS: dict[str, bool] = {
     "web.remote.setPassword": True,
     "web.remote.clearPassword": True,
     "web.remote.rotateToken": True,
-    # Security review 5, C1: project trust is a local person's (status: people).
+    # Security review 5, M1: what runs code in the daemon or replaces it, and
+    # what a project folder may make snowpea do — a local person's only.
+    "extension.enable": True,
+    "extension.disable": True,
+    "extension.configure": True,
+    "extension.reload": True,
+    "extension.list": True,
+    "system.update": True,
+    "system.restart": True,
     "project.trust.set": True,
     "project.trust.revoke": True,
     "project.trust.status": False,

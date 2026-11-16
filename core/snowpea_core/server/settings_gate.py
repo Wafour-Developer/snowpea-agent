@@ -441,26 +441,149 @@ REMOTE_LOGIN_METHODS: frozenset[str] = frozenset({
 #: token to the browser, which connects as itself).  No config method.
 CONNECTOR_METHODS: frozenset[str] = frozenset()
 
+# ---------------------------------------------------------------------------
+# deny by default (security review 5, M1): every method a non-local-person
+# connection kind may call is listed here; a method in no list is refused.
+# ``tests/test_security_review5_methods.py`` holds the verdict of every
+# registered method for every kind, so a new method fails until it is placed.
+# ---------------------------------------------------------------------------
+
+#: A connector (``snowpea remote up``, and any client kind snowpea does not
+#: know): the handshake, liveness, shutting the daemon down (installers and
+#: launchers use it) and the reads and streams its watchers use — nothing that
+#: starts, changes or configures anything.  ``jarvis.takeover`` and
+#: ``jarvis.delegation.revoke`` only take authority away.
+CONNECTOR_ALLOWED: frozenset[str] = frozenset({
+    "system.hello", "system.info", "system.health", "system.shutdown",
+    "session.list", "session.resume", "session.events", "session.trajectory",
+    "job.list", "job.preview", "job.runs", "job.nextRunForClient",
+    "external.clis", "external.list", "external.get", "external.read", "external.unwatch",
+    "mcp.preset.list", "jarvis.takeover", "jarvis.delegation.revoke",
+})
+
+#: A remote web login: a person operating sessions from another machine, not
+#: re-authenticated.  Sessions, answers, files, Jarvis's day-to-day, the
+#: config methods of :data:`REMOTE_LOGIN_METHODS`; never what widens what runs
+#: unattended or reaches the daemon itself (extensions, updates, restarts,
+#: shutdown, project trust, the remote door, allowlist rules), never a browser
+#: host's runtime (host tools, site memory, its LLM and search helpers).
+REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
+    "system.hello", "system.info", "system.health", "system.checkUpdate",
+    # sessions
+    "session.create", "session.prompt", "session.steer", "session.interrupt", "session.close",
+    "session.list", "session.resume", "session.events", "session.trajectory", "session.rename",
+    "session.setMode", "session.setModel", "session.setEffort", "session.setAgent",
+    "session.setActive", "session.pin", "session.archive", "session.deleteSaved",
+    "session.fork", "session.lineage", "session.compact", "session.continue",
+    "session.notice", "session.artifacts", "session.attachments",
+    "goal.set", "goal.get", "goal.pause", "goal.resume", "goal.clear",
+    "checkpoint.list", "checkpoint.diff", "checkpoint.restore", "checkpoint.delete",
+    "command.list", "command.run", "tool.list", "file.complete", "usage.summary",
+    # answers
+    "approval.list", "approval.respond", "question.list", "question.respond",
+    # files
+    "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "fs.write",
+    "workspace.list", "workspace.add", "workspace.remove", "workspace.rename",
+    "workspace.reorder",
+    # agents, teams, jobs
+    "agent.list", "agent.create", "agent.delete", "agent.spawn", "agent.bindChannel",
+    "team.start", "team.status", "team.guide.list", "team.guide.get", "team.guide.delete",
+    "job.schedule", "job.list", "job.cancel", "job.delete", "job.runNow", "job.update",
+    "job.preview", "job.runs", "job.nextRunForClient",
+    # reads of config and the services a person uses
+    "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
+    "provider.test", "mcp.list", "mcp.catalog", "mcp.authorize.complete", "skill.list",
+    "skill.read", "skill.search", "memory.list", "memory.search", "memory.write",
+    "memory.delete", "memory.confirm", "lsp.status", "lsp.catalog", "lsp.restart",
+    "audio.capabilities", "audio.voices", "audio.speak", "audio.transcribe",
+    "audio.record.start", "audio.record.stop", "gateway.list", "gateway.unbind",
+    "gateway.sync", "permission.allowlist.list",
+    "security.get", "security.check", "security.presets.list", "project.trust.status",
+    # external CLIs (the external manager's own trust and ownership rules apply)
+    "external.clis", "external.list", "external.get", "external.read", "external.open",
+    "external.send", "external.setMode", "external.interrupt", "external.create",
+    "external.close", "external.unwatch",
+    # Jarvis (PERSON_METHODS keeps jarvis.enable a local person's)
+    "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
+    "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
+    "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",
+    "jarvis.delegation.set", "jarvis.delegation.revoke", "jarvis.takeover", "jarvis.handback",
+    "jarvis.briefing.get", "jarvis.briefing.set", "mcp.preset.list", "mcp.preset.check",
+})
+
+#: What a browser connection may call beyond :data:`BROWSER_PERSON_METHODS`
+#: (marker), :data:`BROWSER_HOST_METHODS`, :data:`ANSWER_METHODS` and the
+#: :data:`BROWSER_NEVER_EXEMPT` calls: its own sessions and runtime.  Never
+#: extensions, updates, restarts, project trust or anything person-only.
+BROWSER_OPEN_METHODS: frozenset[str] = frozenset({
+    "system.hello", "system.info", "system.health", "system.shutdown", "system.checkUpdate",
+    "session.create", "session.prompt", "session.steer", "session.interrupt", "session.close",
+    "session.list", "session.resume", "session.events", "session.trajectory", "session.rename",
+    "session.setMode", "session.setModel", "session.setEffort", "session.setAgent",
+    "session.setActive", "session.pin", "session.archive", "session.deleteSaved",
+    "session.fork", "session.lineage", "session.compact", "session.continue",
+    "session.notice", "session.artifacts", "session.attachments", "session.attach",
+    "session.setBrowserProvider", "session.toolContent",
+    "goal.set", "goal.get", "goal.pause", "goal.resume", "goal.clear",
+    "checkpoint.list", "checkpoint.diff", "checkpoint.restore", "checkpoint.delete",
+    "command.list", "tool.list", "tool.unregister", "tool.progress", "turn.outcome",
+    "file.complete", "usage.summary", "approval.list", "question.list", "approval.ask",
+    "approval.evaluate",
+    "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "fs.write", "workspace.list",
+    "agent.list", "agent.create", "agent.delete", "agent.spawn", "agent.bindChannel",
+    "team.start", "team.status", "team.guide.list", "team.guide.get", "team.guide.delete",
+    "job.list", "job.preview", "job.runs", "job.nextRunForClient",
+    "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
+    "provider.test", "mcp.list", "mcp.catalog", "skill.list", "skill.read", "skill.search",
+    "memory.list", "memory.search", "memory.write", "memory.confirm", "memory.ingest",
+    "lsp.status", "lsp.catalog", "lsp.restart", "audio.capabilities", "audio.voices",
+    "audio.speak", "audio.transcribe", "audio.record.start", "audio.record.stop",
+    "gateway.list", "gateway.unbind", "permission.allowlist.list", "llm.sample", "web.search",
+    "site.get", "site.list", "site.stats", "site.playbook.get", "site.playbook.put",
+    "site.playbook.edit", "site.playbook.delete", "site.playbook.mark",
+    "external.clis", "external.list", "external.get", "external.read", "external.open",
+    "external.send", "external.setMode", "external.interrupt", "external.create",
+    "external.close", "external.unwatch",
+})
+
+
+def browser_allowed(method: str) -> bool:
+    """``method`` is in one of the browser tables (else a browser may not call it)."""
+    return (
+        method in BROWSER_OPEN_METHODS
+        or method in BROWSER_PERSON_METHODS
+        or method in BROWSER_HOST_METHODS
+        or method in ANSWER_METHODS
+        or method in BROWSER_NEVER_EXEMPT
+    )
+
 
 def kind_method_refusal(method: str, params: dict[str, Any], conn: Any, core: Any) -> None:
-    """The dispatcher's rule for connectors and remote web logins (security review 4, H4).
+    """The dispatcher's deny-by-default rule for every kind but a local person.
 
-    A connector may call no config-writing method; a remote web login only
-    :data:`REMOTE_LOGIN_METHODS`.  A local person and a browser (judged by
-    :func:`browser_method_refusal`) are not judged here.
+    Security review 4, H4 / review 5, M1: a connector may call only
+    :data:`CONNECTOR_ALLOWED`, a remote web login only
+    :data:`REMOTE_LOGIN_ALLOWED`, a browser only what its tables list
+    (:func:`browser_allowed`; the marker rules are
+    :func:`browser_method_refusal`'s).  A local person is not judged here.
     """
     from snowpea_core.server.person_gate import connection_kind
 
-    if method not in CONFIG_METHODS:
-        return
-    kind = connection_kind(conn)
-    if kind == "connector" and method not in CONNECTOR_METHODS:
-        ledger_settings(core, conn, [method], refused=True, method=method)
-        refuse(conn, f"call {method}")
-    if kind == "remote_login" and method not in REMOTE_LOGIN_METHODS:
-        ledger_settings(core, conn, [method], refused=True, method=method)
-        refuse(conn, f"call {method}")
     del params
+    kind = connection_kind(conn)
+    if kind == "connector":
+        allowed = method in CONNECTOR_ALLOWED
+    elif kind == "remote_login":
+        allowed = method in REMOTE_LOGIN_ALLOWED
+    elif kind == "browser":
+        allowed = browser_allowed(method)
+    else:
+        return
+    if allowed:
+        return
+    if method in CONFIG_METHODS:
+        ledger_settings(core, conn, [method], refused=True, method=method)
+    refuse(conn, f"call {method}")
 
 
 def browser_method_refusal(method: str, params: dict[str, Any], conn: Any, core: Any) -> None:

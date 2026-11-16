@@ -151,8 +151,13 @@ async def test_login_session_logout(paths: Paths, dist: Path) -> None:
         assert "SameSite=Strict" in cookie and "Path=/" in cookie and "Secure" not in cookie
         session = await client.get("/web/session")
         assert session.status == 200 and session.headers["Cache-Control"] == "no-store"
-        assert await session.json() == {"ok": True, "token": "daemon-token", "username": "owner",
-                                       "mode": "password"}
+        body = await session.json()
+        capability = body.pop("token")
+        assert body == {"ok": True, "username": "owner", "mode": "password"}
+        # This login's capability, never the daemon token (security review 5, H3).
+        assert capability != "daemon-token" and len(capability) >= 43
+        again = await (await client.get("/web/session")).json()
+        assert again["token"] == capability  # stable for the life of the login
         assert auth.active() == 1
         out = await client.post("/web/logout")
         assert out.status == 200 and auth.active() == 0
@@ -218,8 +223,11 @@ async def test_global_lockout(paths: Paths) -> None:
             ip = f"10.0.0.{i // 4}"  # four failures each: under the per-IP limit
             bad = await _login(client, password="nope", **{"X-Forwarded-For": ip})
             assert bad.status == 401
-        fresh = await _login(client, **{"X-Forwarded-For": "10.9.9.9"})
-        assert fresh.status == 429 and "Retry-After" in fresh.headers
+        wrong = await _login(client, password="nope", **{"X-Forwarded-For": "10.9.9.9"})
+        assert wrong.status == 429 and "Retry-After" in wrong.headers
+        # Security review 5, L1: the global bucket never refuses the right password.
+        fresh = await _login(client, **{"X-Forwarded-For": "10.9.9.8"})
+        assert fresh.status == 200
     finally:
         await client.close()
 
@@ -501,7 +509,7 @@ async def test_daemon_remote_login_reaches_hello(tmp_path: Path, dist: Path) -> 
                 assert ok.status == 200
             async with http.get(f"{base}/web/session") as session:
                 token = (await session.json())["token"]
-            assert token == daemon.token
+            assert token != daemon.token  # security review 5, H3: a per-login capability
             ws = await http.ws_connect(f"{base}/ws", headers={"Origin": base})
             await ws.send_json(
                 {
