@@ -119,6 +119,7 @@ Server capabilities advertised in the `system.hello` result:
 - `turnOutcome`
 - `update`
 - `visionNotice`
+- `webRemoteControl`
 - `webSearch`
 - `workspaces`
 - `writeOutsideAsks`
@@ -327,6 +328,12 @@ Server capabilities advertised in the `system.hello` result:
 | [`tool.unregister`](#toolunregister) | client → server | Remove some of this connection's host tools. |
 | [`turn.outcome`](#turnoutcome) | client → server | Record whether a turn did what was asked (1.27.0): a browser client, for its own sessions. Stored as a turn.outcome session event. |
 | [`usage.summary`](#usagesummary) | client → server | Token totals from stored usage events, grouped by provider, model, session or day. |
+| [`web.remote.clearPassword`](#webremoteclearpassword) | client → server | Remote web access (1.54.0): remove the password (back to the access link); every open session ends. |
+| [`web.remote.listen`](#webremotelisten) | client → server | Remote web access (1.54.0): open (or move) the external listener now, without a daemon restart; save also writes web.remote.*. Every connection through it is a remote web login. A local person only. |
+| [`web.remote.rotateToken`](#webremoterotatetoken) | client → server | Remote web access (1.54.0): a new web access token; the old link stops working and every open session ends. |
+| [`web.remote.setPassword`](#webremotesetpassword) | client → server | Remote web access (1.54.0): store a password (scrypt hash) — password mode: the login page is required; every open session ends. A local person only. |
+| [`web.remote.status`](#webremotestatus) | client → server | Remote web access (1.54.0): the external listener, its mode, the addresses and the access link. A local person only (never a remote login, browser or connector). |
+| [`web.remote.stop`](#webremotestop) | client → server | Remote web access (1.54.0): close the external listener; its sessions end. |
 | [`web.search`](#websearch) | client → server | Web search for a browser host (1.11.0): the web_search tool's provider chain, settings, caps and timeouts, for the host's own fallback when its search page is blocked. Browser host clients (with a clientId) only; 'unavailable' with details.reason when no provider can answer. Results are untrusted web content. |
 | [`workspace.add`](#workspaceadd) | client → server | Add a project folder (1.47.0). |
 | [`workspace.list`](#workspacelist) | client → server | Project folders in sidebar order, each with its conversation count (1.47.0, capability 'workspaces'). |
@@ -565,6 +572,7 @@ Answer a pending approval and unblock the turn.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| null` | no | The scope that applies to this answer (as ApprovalResolvedNotification.scope); null for a deny or when the request had already been answered. |
 
 ### `audio.capabilities`
 
@@ -1143,6 +1151,7 @@ External sessions (1.53.0, WP6): send a prompt; the reply streams as external.ev
 |---|---|---|---|
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Session to talk to. |
 | `text` | `string` | yes | Prompt text; attachments are not supported in v1. |
+| `trust` | `boolean` | no | As ExternalOpenParams.trust (1.54.0): continuing a host 'none' session starts the CLI, so in a project no person trusted yet the send answers external_unavailable with details.reason 'untrusted_project' (show the confirmation, retry with trust: true) or 'untrusted_project_person_only'. |
 
 **Result**
 
@@ -3230,6 +3239,7 @@ Open a session rooted at a working directory.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | A browser (clientVersion 0.3.0+) sets 'person' when a click created the session with a mode wider than the default (1.54.0). |
 | `agent` | `string \| null` | no | Named agent whose persona to load. |
 | `browserMemory` | `boolean \| null` | no | Recall also searches pages the browser ingested. Default: on when a browser client (clientKind 'browser') creates the session (1.7.0). |
 | `denyExec` | `boolean \| null` | no | When true, refuse exec-tagged tools without prompting (headless CI). |
@@ -3238,7 +3248,7 @@ Open a session rooted at a working directory.
 | `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With agent.replyLanguage 'auto', text the core writes for this session (/init, /ralph and delegated briefs) is in this language before any guess from what the user typed. Ignored when not a language tag. |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
 | `memory` | `boolean \| null` | no | Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Kept with the session across a daemon restart (1.31.0); a delegated child follows its root conversation's. |
-| `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting. |
+| `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting (defaultMode, else 'accept'). A mode wider than that default (plan < accept < auto) needs a person (1.54.0): a local person, a remote web login, or a browser with actor 'person'; else jarvis_person_only with details.reason 'mode_raise'. |
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
 | `originSurface` | `string \| null` | no | Surface that owns approvals for this session (TUI, gateway, ...). |
 | `provider` | `string \| null` | no | Chat provider vendor; defaults to configured. |
@@ -3585,8 +3595,9 @@ Switch a session between plan, accept and auto.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | A browser (0.3.0+) sets 'person' when a click raised the mode (1.54.0). |
 | `autoAfterPlan` | `boolean \| null` | no | With mode 'plan' (1.32.0): true keeps planning but answers every approval 'allow' (a deny stays a deny), and set_mode then offers auto first; false clears it. Omitted keeps it while staying in plan and clears it when plan mode is entered afresh. Any other mode always clears it. |
-| `mode` | `"plan" \| "accept" \| "auto"` | yes | New permission mode. |
+| `mode` | `"plan" \| "accept" \| "auto"` | yes | New permission mode. Raising it (plan < accept < auto) needs a person (1.54.0, security review 4 H2): a local person, a remote web login, or a browser for a session it hosts (or opened) with actor 'person'; never a connector. Else jarvis_person_only with details.reason 'mode_raise'. Lowering is free. |
 | `sessionId` | `string` | yes | Session to change. |
 
 **Result**
@@ -4693,6 +4704,182 @@ Token totals from stored usage events, grouped by provider, model, session or da
 | `outputTokens` | `number` | no | Sum over all rows. |
 | `rows` | `({ calls?: number; inputTokens?: number; key: string; outputTokens?: number; })[]` | no | Totals, largest first. |
 
+### `web.remote.clearPassword`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): remove the password (back to the access link); every open session ends.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
+### `web.remote.listen`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): open (or move) the external listener now, without a daemon restart; save also writes web.remote.*. Every connection through it is a remote web login. A local person only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `host` | `string` | yes | Address to bind (0.0.0.0, a LAN address, ::). |
+| `port` | `number` | yes | Port; 0 picks a free one. |
+| `save` | `boolean` | no | Also write web.remote.{enabled,host,port,username} for the next start. |
+| `username` | `string \| null` | no | Login name for password mode; omitted keeps the configured one. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
+### `web.remote.rotateToken`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): a new web access token; the old link stops working and every open session ends.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The new access link (when listening in token mode). |
+
+### `web.remote.setPassword`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): store a password (scrypt hash) — password mode: the login page is required; every open session ends. A local person only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `password` | `string` | yes | At least 8 characters. |
+| `username` | `string \| null` | no | Set web.remote.username too (saved). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
+### `web.remote.status`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): the external listener, its mode, the addresses and the access link. A local person only (never a remote login, browser or connector).
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
+### `web.remote.stop`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): close the external listener; its sessions end.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `save` | `boolean` | no | Also set web.remote.enabled false. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
 ### `web.search`
 
 *Direction:* client → server
@@ -4820,6 +5007,7 @@ Set the sidebar order (1.47.0).
 | `decision` | `"allow" \| "deny" \| null` | no | The decision that was recorded; null only with outcome 'withdrawn' (1.53.0). |
 | `outcome` | `"withdrawn" \| null` | no | 'withdrawn' (1.53.0, security review 3): the request is no longer this connection's to show — sent only to a browser connection when a request it showed was routed to Jarvis. Nothing was decided; stop showing it. If it is routed back to the person the browser gets approval.pending again. |
 | `requestId` | `string` | yes | Request that was resolved. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| null` | no | The scope actually applied (1.54.0): once, session, project, always or site — after core's rules (a browser's unmarked widening reply, a person-only request, a shell line with no safe rule are kept to 'once'). Null for a deny and with outcome 'withdrawn'. |
 
 ### `approval.route.changed`
 

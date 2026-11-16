@@ -17,25 +17,35 @@ snowpea web --no-open  # print the address only
 ssh -L <port>:127.0.0.1:<port> host
 ```
 
-같은 네트워크의 노트북이나 휴대폰에서 바로 열려면 원격 접속을 켭니다. 사용자 이름과 비밀번호로 보호되는 두 번째 listener이며, 루프백 listener는 지금처럼 그대로 동작합니다.
+같은 네트워크의 노트북이나 휴대폰에서 바로 열려면 `snowpea web`에 주소와 포트를 주면 됩니다. 데몬이 재시작 없이 바로 두 번째 listener를 열고, 루프백 listener는 지금처럼 그대로 동작합니다.
 
-1. `settings.json`에 사용자 이름(원하면 주소도)을 넣습니다.
+```bash
+snowpea web --host 0.0.0.0 --port 8787           # 비밀번호 없이 접속 링크로
+snowpea web --host 0.0.0.0 --port 8787 --save    # 데몬을 다시 시작해도 같은 설정으로
+```
 
-   ```json
-   { "web": { "remote": { "enabled": true, "username": "me" } } }
-   ```
+비밀번호가 없으면 다른 컴퓨터는 출력된 **접속 링크** `http://<이 컴퓨터의 LAN 주소>:8787/web/?t=<토큰>`으로 엽니다. 토큰은 데몬 토큰과 다른, 이 용도만의 256비트 무작위 키이며 `credentials.json`(권한 0600)에 보관됩니다. 첫 방문에서 로그인 쿠키로 바뀌고, 페이지는 토큰이 빠진 같은 주소로 이동하므로 브라우저 기록에 남지 않습니다. 링크를 가진 사람은 이 컴퓨터를 다룰 수 있으니 비밀번호처럼 다루세요.
 
-2. 비밀번호를 정합니다(8자 이상). 두 번 묻고, `settings.json`이 아니라 `credentials.json`(권한 0600)에 salt를 넣은 scrypt 해시로만 저장합니다. `--stdin`은 스크립트용으로 한 줄을 읽고, `--clear`는 비밀번호를 지웁니다.
+```bash
+snowpea web token              # 링크를 다시 출력
+snowpea web token --rotate     # 새 토큰: 이전 링크는 더 이상 열리지 않고 모두 로그아웃
+```
 
-   ```bash
-   snowpea web password
-   snowpea web password --stdin
-   snowpea web password --clear
-   ```
+로그인 화면을 쓰려면 사용자 이름과 비밀번호를 정합니다. 그러면 링크만으로는 열리지 않고 둘 다 묻습니다.
 
-3. 데몬을 다시 시작합니다(`snowpea daemon stop` 후 `snowpea web`). 설정은 데몬이 시작할 때 읽으며, 실행 중인 데몬은 다시 bind하지 않습니다.
+```bash
+snowpea web --host 0.0.0.0 --port 8787 --user me --password-stdin   # stdin에서 한 줄
+SNOWPEA_WEB_PASSWORD=… snowpea web --host 0.0.0.0 --port 8787 --user me
+snowpea web --host 0.0.0.0 --port 8787 --user me --password '…'      # 동작하지만 아래 참고
+snowpea web password             # 나중에 설정하거나 변경(두 번 묻습니다)
+snowpea web password --clear     # 접속 링크 방식으로 돌아가기
+```
 
-그러면 `snowpea web`이 다른 컴퓨터용 주소 `http://<이 컴퓨터의 LAN 주소>:8787/web/`도 출력하고, 그 주소는 로그인 화면을 보여 줍니다. `snowpea web status`는 원격 접속이 켜졌는지, listen 주소, 사용자 이름, 비밀번호 설정 여부, 로그인한 세션 수를 보여 줍니다.
+명령줄의 `--password`도 동작하지만, 셸 기록과 프로세스 목록에 보인다는 경고를 출력합니다. `--password-stdin`이나 `SNOWPEA_WEB_PASSWORD`를 권장합니다. 비밀번호는 `settings.json`이 아니라 `credentials.json`에 salt를 넣은 scrypt 해시로만 저장합니다.
+
+`snowpea web status`는 원격 접속이 켜졌는지, 방식(접속 링크 또는 비밀번호), 주소와 링크, 사용자 이름, 비밀번호 설정 여부, 로그인한 세션 수, 그리고 `settings.json`이 지금 실행 중인 것과 다른지(다음 데몬 시작 때 달라짐, `--save`로 현재 설정을 저장)를 보여 줍니다. 원격 접속 설정 화면이 있는 클라이언트도 같은 내용을 보여 줍니다(원격 로그인으로 연 페이지에서는 읽기 전용).
+
+`settings.json`에 설정하고 데몬을 다시 시작하는 방법도 그대로 쓸 수 있습니다.
 
 | 설정 (`web.remote.…`) | 기본값 | 의미 |
 |---|---|---|
@@ -47,14 +57,15 @@ ssh -L <port>:127.0.0.1:<port> host
 | `allowedOrigins` | `[]` | WebSocket이 추가로 받아 줄 페이지 origin(예: 프록시 뒤의 `https://snowpea.example.com`). |
 | `trustProxy` | `false` | 직접 운영하는 리버스 프록시의 `X-Forwarded-Proto` / `X-Forwarded-For`를 믿습니다. |
 
-원격 접속을 켰는데 사용자 이름이나 비밀번호가 없으면 데몬은 루프백으로만 시작하고, 이유를 로그에 남기며, `snowpea web`도 그 이유를 알려 줍니다.
+비밀번호는 있는데 사용자 이름이 없으면 데몬은 루프백으로만 시작하고, 이유를 로그에 남기며, `snowpea web`도 그 이유를 알려 줍니다.
 
 보안 참고:
 
-- **평문 HTTP입니다.** 비밀번호와 모든 작업이 암호화되지 않은 채 오갑니다. 믿을 수 있는 네트워크 밖이라면 TLS(Caddy, nginx 같은 리버스 프록시와 `trustProxy: true`) 뒤에 두거나 VPN 또는 위의 ssh 터널로 접속하세요.
-- 로그인한 사람은 에이전트를, 그리고 그것을 통해 이 컴퓨터의 셸과 파일을 다룰 수 있습니다. 긴 비밀번호를 쓰세요.
-- 한 주소에서 5분 안에 5번, 또는 전체에서 20번 로그인에 실패하면 그 5분이 끝날 때까지 로그인이 잠깁니다. 로그인 성공과 실패는 클라이언트 주소와 함께 로그에 남고, 비밀번호는 남지 않습니다.
-- 로그인은 쿠키(`HttpOnly`, `SameSite=Strict`, HTTPS에서는 `Secure`)입니다. 세션은 데몬 메모리에만 있어서 데몬을 다시 시작하면 모두 로그아웃됩니다. 비밀번호를 바꾸거나 지우면(`snowpea web password`) 모든 사람이 즉시 로그아웃되고, 그 밖의 세션은 만료되거나 로그아웃할 때까지 유지됩니다.
+- **평문 HTTP입니다.** 접속 링크, 비밀번호, 모든 작업이 암호화되지 않은 채 오갑니다. 믿을 수 있는 네트워크 밖이라면 TLS(Caddy, nginx 같은 리버스 프록시와 `trustProxy: true`) 뒤에 두거나 VPN 또는 위의 ssh 터널로 접속하세요.
+- 로그인한 사람은 에이전트를, 그리고 그것을 통해 이 컴퓨터의 셸과 파일을 다룰 수 있습니다. 긴 비밀번호를 쓰고 링크는 남에게 보이지 마세요.
+- 두 번째 listener로 들어온 연결은 링크든 비밀번호든 모두 **원격 로그인**입니다. 작업(대화, 승인, MCP 서버)에서는 사용자 본인으로 취급하지만 보안 설정에서는 아닙니다. 자비스, 보안 목록, 원격 접속 자체, 데몬, 허용 규칙(allowlist)을 바꾸거나, 외부 세션을 unrestricted로 열거나, CLI 경로를 확인할 수 없습니다. 이런 일은 그 컴퓨터에서 직접 하세요.
+- 한 주소에서 5분 안에 5번, 또는 전체에서 20번 로그인에 실패하면(틀린 비밀번호와 틀린 링크를 함께 셉니다) 그 5분이 끝날 때까지 로그인이 잠깁니다. 로그인 성공과 실패는 클라이언트 주소와 함께 로그에 남고, 비밀번호와 토큰은 남지 않습니다.
+- 로그인은 쿠키(`HttpOnly`, `SameSite=Strict`, HTTPS에서는 `Secure`)입니다. 세션은 데몬 메모리에만 있어서 데몬을 다시 시작하면 모두 로그아웃됩니다. 비밀번호를 바꾸거나 지우거나 토큰을 바꾸면 모든 사람이 즉시 로그아웃되고, 그 밖의 세션은 만료되거나 로그아웃할 때까지 유지됩니다.
 - 세션이 끝난 페이지(만료, 비밀번호 변경, 다른 곳에서 로그아웃)는 로그인 화면으로 돌아갑니다.
 - 원격 listener는 페이지, 로그인, WebSocket만 제공합니다(`/health`, `/version`, 스키마 없음). WebSocket은 다른 origin의 페이지를 거부합니다.
 

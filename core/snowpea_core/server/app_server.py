@@ -144,6 +144,8 @@ class Core:
     named_agents: Any = None
     #: Jarvis mode (M19, ``jarvis.service.JarvisService``); ``Daemon.start`` builds it.
     jarvis: Any = None
+    #: The external web listener (``web_remote.RemoteListener``, 1.54.0); the daemon sets it.
+    web_remote: Any = None
     sessions: SessionManager = field(default_factory=SessionManager)
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     commands: CommandRegistry = field(default_factory=CommandRegistry)
@@ -751,6 +753,10 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.security_handlers import register_security_handlers
 
     register_security_handlers(dispatcher)
+
+    from snowpea_core.server.web_remote_handlers import register_web_remote_handlers
+
+    register_web_remote_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
@@ -783,11 +789,9 @@ class Daemon:
         self._home = home
         self._preissued_token = token
         self._runner: web.AppRunner | None = None
-        self._remote_runner: web.AppRunner | None = None
-        #: The remote web listener's sessions, when it runs.
-        self.remote_auth: Any = None
-        #: What ``snowpea web status`` reports about the remote listener.
-        self.remote_status: dict[str, Any] = {"enabled": False}
+        #: The external web listener (``web_remote.RemoteListener``), opened at
+        #: start from settings or at runtime with ``web.remote.listen``.
+        self.remote_listener: Any = None
         self._advert_task: asyncio.Future[None] | None = None
         self._closed = asyncio.Event()
         self.core: Core | None = None
@@ -1041,51 +1045,53 @@ class Daemon:
         """
         from snowpea_core.server import web_remote
 
+        assert self.app is not None
+        listener = web_remote.RemoteListener(
+            dispatcher, paths, connections=self.app[CONNECTIONS_KEY],
+            sockets=self.app[SOCKETS_KEY],
+        )
+        self.remote_listener = listener
+        if self.core is not None:
+            # web.remote.listen / stop / status reach it through the core.
+            self.core.web_remote = listener
         remote = settings.web.remote
-        status: dict[str, Any] = {
-            "enabled": bool(remote.enabled),
-            "host": remote.host,
-            "port": remote.port,
-            "username": remote.username,
-        }
-        self.remote_status = status
         if not remote.enabled:
             return
-        problem = web_remote.config_problem(remote, paths)
-        if problem is not None:
-            status["error"] = problem
-            log.error("remote web access is enabled but not started: %s", problem)
-            return
-        auth = web_remote.RemoteAuth(remote.username, remote.sessionHours, paths)
-        assert self.app is not None
-        app = web_remote.create_remote_app(
-            dispatcher,
-            auth,
-            connections=self.app[CONNECTIONS_KEY],
-            sockets=self.app[SOCKETS_KEY],
-            trust_proxy=remote.trustProxy,
-            allowed_origins=remote.allowedOrigins,
-        )
-        runner = web.AppRunner(app)
-        await runner.setup()
         try:
-            await web.TCPSite(runner, remote.host, remote.port).start()
-        except OSError as exc:
-            await runner.cleanup()
-            status["error"] = f"could not listen on {remote.host}:{remote.port}: {exc}"
-            log.error("remote web access not started: %s", status["error"])
-            return
-        self._remote_runner = runner
-        self.remote_auth = auth
-        status["port"] = _resolve_port(runner, remote.port)
-        status["listening"] = True
-        log.warning(
-            "remote web access listening on %s:%s (user %s); plain HTTP — put it behind "
-            "TLS or a VPN when it is reachable beyond a trusted network",
-            remote.host,
-            status["port"],
-            remote.username,
-        )
+            await listener.start(
+                host=remote.host, port=remote.port, username=remote.username,
+                session_hours=remote.sessionHours, trust_proxy=remote.trustProxy,
+                allowed_origins=remote.allowedOrigins,
+            )
+        except (OSError, ValueError) as exc:
+            log.error("remote web access is enabled but not started: %s", exc)
+
+    @property
+    def remote_auth(self) -> Any:
+        """The remote listener's sessions, when it runs."""
+        listener = getattr(self, "remote_listener", None)
+        return listener.auth if listener is not None else None
+
+    @property
+    def remote_status(self) -> dict[str, Any]:
+        """What ``GET /web/remote/status`` (older CLIs) reports about the remote listener."""
+        listener = getattr(self, "remote_listener", None)
+        settings = self.core.settings.web.remote if self.core is not None else None
+        status: dict[str, Any] = {
+            "enabled": bool(listener is not None and listener.listening) or bool(
+                settings is not None and settings.enabled),
+            "host": listener.host if listener is not None and listener.listening else (
+                settings.host if settings is not None else ""),
+            "port": listener.port if listener is not None and listener.listening else (
+                settings.port if settings is not None else 0),
+            "username": listener.username if listener is not None and listener.listening
+            else (settings.username if settings is not None else ""),
+        }
+        if listener is not None and listener.listening:
+            status["listening"] = True
+        if listener is not None and listener.error:
+            status["error"] = listener.error
+        return status
 
     def request_shutdown(self, reason: str = "requested") -> None:
         """Ask the daemon to stop; safe to call from a handler."""
@@ -1172,9 +1178,9 @@ class Daemon:
                     await ws.close()
             for conn in list(connections):
                 await conn.close()
-        if self._remote_runner is not None:
-            await self._remote_runner.cleanup()
-            self._remote_runner = None
+        if self.remote_listener is not None:
+            with contextlib.suppress(Exception):
+                await self.remote_listener.stop()
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None

@@ -8966,6 +8966,84 @@ class McpPresetApplyResult(Payload):
 
 
 # --------------------------------------------------------------------------
+# remote web access (1.54.0, capability webRemoteControl)
+# --------------------------------------------------------------------------
+
+
+class WebRemoteStatus(Payload):
+    """The external web listener as the daemon runs it, and its settings."""
+
+    enabled: bool = Field(description="web.remote.enabled: the listener opens at daemon start.")
+    listening: bool = Field(description="The external listener is open now.")
+    host: str = Field(description="Bound address (or the configured one when not listening).")
+    port: int = Field(description="Bound port (or the configured one).")
+    username: str = Field(default="", description="Login name; empty in access-link mode.")
+    passwordSet: bool = Field(description="A password is stored (scrypt hash, credentials.json).")
+    mode: Literal["token", "password"] = Field(
+        description=(
+            "'token': the access link (a web access token in ?t=, traded for a cookie on the "
+            "first request) opens the page; 'password': a username and password are set and "
+            "the login page is required — the link alone is not enough."
+        )
+    )
+    listenUrls: list[str] = Field(
+        default_factory=list,
+        description="Addresses other machines open (http://<lan-ip>:<port>/web/).",
+    )
+    accessUrl: str | None = Field(
+        default=None,
+        description=(
+            "The access link with its token (token mode, listening). Treat it like a password: "
+            "anyone with it drives this machine; rotate it with web.remote.rotateToken."
+        ),
+    )
+    sessions: int = Field(default=0, description="Open browser sessions through the listener.")
+    needsRestart: bool = Field(
+        default=False,
+        description=(
+            "settings.json says otherwise than what runs (enabled/host/port/username): the "
+            "next daemon start will differ. web.remote.listen applies at once and can save."
+        ),
+    )
+    plainHttp: bool = Field(default=True, description="The listener speaks plain HTTP.")
+    warning: str | None = Field(default=None, description="The plain-HTTP warning to show.")
+    error: str | None = Field(default=None, description="Why it is not listening, if it should.")
+    turnsRunning: int = Field(
+        default=0, description="Turns running now (a stop or restart would cut their watchers)."
+    )
+
+
+class WebRemoteListenParams(Payload):
+    host: str = Field(description="Address to bind (0.0.0.0, a LAN address, ::).")
+    port: int = Field(ge=0, le=65535, description="Port; 0 picks a free one.")
+    username: str | None = Field(
+        default=None,
+        description="Login name for password mode; omitted keeps the configured one.",
+    )
+    save: bool = Field(
+        default=False,
+        description="Also write web.remote.{enabled,host,port,username} for the next start.",
+    )
+
+
+class WebRemoteStopParams(Payload):
+    save: bool = Field(default=False, description="Also set web.remote.enabled false.")
+
+
+class WebRemoteSetPasswordParams(Payload):
+    password: str = Field(min_length=8, max_length=1024, description="At least 8 characters.")
+    username: str | None = Field(
+        default=None, description="Set web.remote.username too (saved)."
+    )
+
+
+class WebRemoteTokenResult(Payload):
+    accessUrl: str | None = Field(
+        default=None, description="The new access link (when listening in token mode)."
+    )
+
+
+# --------------------------------------------------------------------------
 # security lists (1.54.0, capability securityLists)
 # --------------------------------------------------------------------------
 
@@ -10343,6 +10421,59 @@ METHODS: dict[str, RpcMethod] = {
             "Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it.",
         ),
         _m(
+            "web.remote.status",
+            Empty,
+            WebRemoteStatus,
+            (
+                "Remote web access (1.54.0): the external listener, its mode, the addresses and "
+                "the access link. A local person only (never a remote login, browser or "
+                "connector)."
+            ),
+        ),
+        _m(
+            "web.remote.listen",
+            WebRemoteListenParams,
+            WebRemoteStatus,
+            (
+                "Remote web access (1.54.0): open (or move) the external listener now, without a "
+                "daemon restart; save also writes web.remote.*. Every connection through it is "
+                "a remote web login. A local person only."
+            ),
+        ),
+        _m(
+            "web.remote.stop",
+            WebRemoteStopParams,
+            WebRemoteStatus,
+            "Remote web access (1.54.0): close the external listener; its sessions end.",
+        ),
+        _m(
+            "web.remote.setPassword",
+            WebRemoteSetPasswordParams,
+            WebRemoteStatus,
+            (
+                "Remote web access (1.54.0): store a password (scrypt hash) — password mode: "
+                "the login page is required; every open session ends. A local person only."
+            ),
+        ),
+        _m(
+            "web.remote.clearPassword",
+            Empty,
+            WebRemoteStatus,
+            (
+                "Remote web access (1.54.0): remove the password (back to the access link); "
+                "every open session ends."
+            ),
+        ),
+        _m(
+            "web.remote.rotateToken",
+            Empty,
+            WebRemoteTokenResult,
+            (
+                "Remote web access (1.54.0): a new web access token; the old link stops working "
+                "and every open session ends."
+            ),
+        ),
+        _m(
             "security.presets.list",
             SecurityPresetsListParams,
             SecurityPresetsListResult,
@@ -10663,6 +10794,8 @@ CAPABILITIES: list[str] = [
     # security.presets.list/get/check, security.blocked, settings security.* and
     # ApprovalRequest.neverDelegable/reason — 1.54.0.
     "securityLists",
+    # web.remote.status/listen/stop/setPassword/clearPassword/rotateToken — 1.54.0.
+    "webRemoteControl",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -10880,6 +11013,13 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "mcp.preset.check",
         "jarvis.briefing.get",
         "jarvis.briefing.set",
+        # 1.54.0 (capability webRemoteControl)
+        "web.remote.status",
+        "web.remote.listen",
+        "web.remote.stop",
+        "web.remote.setPassword",
+        "web.remote.clearPassword",
+        "web.remote.rotateToken",
         # 1.54.0 (capability securityLists)
         "security.presets.list",
         "security.get",

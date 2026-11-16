@@ -151,7 +151,8 @@ async def test_login_session_logout(paths: Paths, dist: Path) -> None:
         assert "SameSite=Strict" in cookie and "Path=/" in cookie and "Secure" not in cookie
         session = await client.get("/web/session")
         assert session.status == 200 and session.headers["Cache-Control"] == "no-store"
-        assert await session.json() == {"ok": True, "token": "daemon-token", "username": "owner"}
+        assert await session.json() == {"ok": True, "token": "daemon-token", "username": "owner",
+                                       "mode": "password"}
         assert auth.active() == 1
         out = await client.post("/web/logout")
         assert out.status == 200 and auth.active() == 0
@@ -440,7 +441,7 @@ async def test_daemon_has_no_second_listener_by_default(tmp_path: Path) -> None:
     daemon = Daemon(port=0, home=home)
     await daemon.start()
     try:
-        assert daemon._remote_runner is None and daemon.remote_auth is None
+        assert not daemon.remote_listener.listening and daemon.remote_auth is None
         assert daemon.remote_status == {
             "enabled": False,
             "host": "0.0.0.0",
@@ -451,29 +452,33 @@ async def test_daemon_has_no_second_listener_by_default(tmp_path: Path) -> None:
         await daemon.stop()
 
 
-@pytest.mark.parametrize("missing", ["username", "password"])
-async def test_daemon_refuses_remote_without_credentials(
-    tmp_path: Path, missing: str, caplog: pytest.LogCaptureFixture
+async def test_daemon_refuses_a_password_without_a_username(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     home = tmp_path / "home"
-    _write_settings(
-        home,
-        {
-            "enabled": True,
-            "host": "127.0.0.1",
-            "port": 0,
-            "username": "" if missing == "username" else "owner",
-        },
-    )
-    if missing == "username":
-        web_remote.set_password(Paths(home=home), PASSWORD)
+    _write_settings(home, {"enabled": True, "host": "127.0.0.1", "port": 0, "username": ""})
+    web_remote.set_password(Paths(home=home), PASSWORD)
     daemon = Daemon(port=0, home=home)
     with caplog.at_level(logging.ERROR, logger="snowpea"):
         await daemon.start()
     try:
-        assert daemon._remote_runner is None
-        assert missing in daemon.remote_status["error"]
+        assert not daemon.remote_listener.listening
+        assert "username" in daemon.remote_status["error"]
         assert any("not started" in r.getMessage() for r in caplog.records)
+    finally:
+        await daemon.stop()
+
+
+async def test_daemon_without_a_password_opens_the_access_link(tmp_path: Path) -> None:
+    """Owner decision 2b: no password needed; the access link (a token of its own)."""
+    home = tmp_path / "home"
+    _write_settings(home, {"enabled": True, "host": "127.0.0.1", "port": 0})
+    daemon = Daemon(port=0, home=home)
+    await daemon.start()
+    try:
+        assert daemon.remote_listener.listening
+        token = web_remote.access_token(Paths(home=home), create=False)
+        assert token and token != daemon.token and len(token) >= 43
     finally:
         await daemon.stop()
 
