@@ -93,11 +93,17 @@ class ProjectSettingsUnsafe(ValueError):
 
 def _invalid_on_disk(path: Path) -> str | None:
     """Why the project settings file at ``path`` does not load as it is (``None``:
-    it does, or there is none)."""
+    it does, or there is none).  Read without following a link (review 9): the
+    bytes judged are the file's own, never what a planted link points at."""
     try:
+        if os.path.islink(path):
+            return "it is a symbolic link"
         if not path.exists():
             return None
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb") as handle:
+            raw = json.loads(handle.read().decode("utf-8"))
     except OSError:
         return "it cannot be read"
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -382,6 +388,12 @@ class ProjectSettings(BaseModel):
         # time — whatever spelling or link led here, never the global file.
         if _is_global_settings(path):
             raise ProjectSettingsUnsafe("snowpea_home", NOT_A_PROJECT)
+        from snowpea_core.util.atomic import refuse_link
+
+        # Security review 9 (merge seam of review 8 A and B): a link at the file
+        # is refused BEFORE anything reads it, not read through by the validity
+        # check and then refused by the writer.
+        refuse_link(path)
         problem = _invalid_on_disk(path)
         if problem is not None:
             # ``load`` reads an invalid file as defaults: writing now would put
