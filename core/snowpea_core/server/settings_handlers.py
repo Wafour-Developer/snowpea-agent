@@ -187,6 +187,22 @@ def _ledger_changes(core: Any, conn: Any, patch: dict[str, Any]) -> None:
         log.warning("could not ledger a Jarvis settings change", exc_info=True)
 
 
+def _person_wrote_project(conn: Any, core: Any, workdir: str, before: str) -> None:
+    """A LOCAL person's write of the project settings keeps its trust when what
+    was there was trusted or held nothing widening (security review 5, C1 c);
+    anyone else's write waits for the person (``project.trust.set``)."""
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(conn) != "person":
+        return
+    try:
+        from snowpea_core.trust.projects import SETTINGS_FILE, store_for
+
+        store_for(core.paths.home).person_wrote(workdir, SETTINGS_FILE, before)
+    except Exception:  # noqa: BLE001 - the settings are saved; trust stays as it was
+        log.warning("could not re-pin the project settings of %s", workdir, exc_info=True)
+
+
 def _require_workdir(params: SettingsGetParams | SettingsSetParams) -> str:
     if not params.workdir:
         raise RpcError(errors.INVALID_PARAMS, 'workdir is required when scope is "project"')
@@ -238,7 +254,11 @@ async def settings_set_handler(
             updated = ProjectSettings.model_validate(merged)
         except ValidationError as exc:
             raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+        from snowpea_core.permissions.allowlist import _project_digest
+
+        before = _project_digest(workdir)
         updated.save(workdir)
+        _person_wrote_project(conn, core, workdir, before)
         return SettingsResult(settings=_mask_secrets(updated.model_dump(mode="json")))
 
     settings_problems(params.patch)

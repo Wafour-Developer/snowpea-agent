@@ -139,10 +139,22 @@ COMMAND_PERSISTS: dict[str, Callable[[str], Persists]] = {
 }
 
 
+#: Where a project's own commands and skills come from (``skills/loader.py``).
+PROJECT_SOURCES: frozenset[str] = frozenset({"project", "claude-project", "codex-project"})
+
+
 def persists(name: str, args: str, source: str = "builtin") -> Persists:
-    """What running ``/name args`` would persist (unknown built-ins: ``person``)."""
+    """What running ``/name args`` would persist (unknown built-ins: ``person``).
+
+    A command from a skill or command file the person installed (global,
+    plugins, Claude Code's and Codex's own) only sends a prompt: ``session``,
+    judged by its tool calls.  A PROJECT's own command is ``person`` for every
+    non-person caller (security review 5, M2): the project folder wrote its
+    body and its ``allowed-tools``, so a browser needs the marker and a
+    connector or an unknown in-process caller may not start it.
+    """
     if source != "builtin":
-        return SESSION  # a skill or command file: a prompt, judged by its tool calls
+        return PERSON if source in PROJECT_SOURCES else SESSION
     judge = COMMAND_PERSISTS.get(name)
     return judge(args) if judge is not None else PERSON
 

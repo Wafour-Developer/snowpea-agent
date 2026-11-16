@@ -44,6 +44,23 @@ SHELL_TARGET = "shell"
 #: (addendum 29). Its pattern matches the resolved path of the file written.
 DIR_TARGET = "dir"
 
+def _project_digest(workdir: Path | str) -> str:
+    """The settings file's digest, or ``missing`` when it holds nothing that widens
+    (then the person's own rule is the only widening content after the write)."""
+    import json
+
+    from snowpea_core.trust.projects import digest_of, settings_widening
+
+    path = ProjectSettings.path_for(workdir)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        raw = None
+    if isinstance(raw, dict) and not settings_widening(raw):
+        return "missing"
+    return digest_of(path)
+
+
 def once_only(args: Any) -> bool:
     """True when a host asked that this call never be remembered (``args.onceOnly``)."""
     return isinstance(args, dict) and args.get("onceOnly") is True
@@ -311,12 +328,33 @@ class Allowlist:
         self.settings = settings
 
     # -- stores --------------------------------------------------------
+    def _person_wrote(self, workdir: Path | str, before: str) -> None:
+        """A rule the person stored (an answer, a typed rule) keeps the project's
+        settings trust (security review 5, C1 c): see ``TrustStore.person_wrote``."""
+        try:
+            from snowpea_core.trust.projects import SETTINGS_FILE, default_store, store_for
+
+            store = store_for(self.paths.home) if self.paths is not None else default_store()
+            store.person_wrote(workdir, SETTINGS_FILE, before)
+        except Exception:  # noqa: BLE001 - the rule is stored; trust stays as it was
+            log.warning("could not re-pin the project settings of %s", workdir, exc_info=True)
+
     def _project_items(self, workdir: Path | str | None) -> list[AllowlistItem]:
         if workdir is None:
             return []
-        project = ProjectSettings.load(workdir)
-        return [
-            AllowlistItem(
+        # Security review 5, H2: an untrusted project file brings no rules, and a
+        # trusted one's shell rules pass the same catch-all check a typed rule
+        # does (a failing rule is dropped and logged).
+        project = ProjectSettings.load_effective(workdir)
+        items: list[AllowlistItem] = []
+        for e in project.allowlist:
+            if e.target == SHELL_TARGET:
+                problem = catch_all_problem(e.pattern)
+                if problem is not None:
+                    log.warning("project allowlist rule %r in %s ignored: %s", e.pattern,
+                                workdir, problem)
+                    continue
+            items.append(AllowlistItem(
                 e.id,
                 e.pattern,
                 e.target,
@@ -324,9 +362,8 @@ class Allowlist:
                 e.origin,
                 getattr(e, "created_at", None),
                 reason_code=getattr(e, "reason_code", None),
-            )
-            for e in project.allowlist
-        ]
+            ))
+        return items
 
     def _global_items(self) -> list[AllowlistItem]:
         return [
@@ -503,9 +540,11 @@ class Allowlist:
         if scope == "project":
             if workdir is None:
                 raise ValueError("a project allowlist entry needs a workdir")
+            before = _project_digest(workdir)
             project = ProjectSettings.load(workdir)
             project.allowlist = [*project.allowlist, entry]
             project.save(workdir)
+            self._person_wrote(workdir, before)
         else:
             self.settings.allowlist = [*self.settings.allowlist, entry]
             self._save_global()
@@ -526,11 +565,13 @@ class Allowlist:
         """
         removed = False
         if workdir is not None:
+            before = _project_digest(workdir)
             project = ProjectSettings.load(workdir)
             kept = [e for e in project.allowlist if e.id != pattern_id]
             if len(kept) != len(project.allowlist):
                 project.allowlist = kept
                 project.save(workdir)
+                self._person_wrote(workdir, before)
                 removed = True
         kept_global = [
             e

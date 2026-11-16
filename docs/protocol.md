@@ -88,6 +88,7 @@ Server capabilities advertised in the `system.hello` result:
 - `onceOnlyScope`
 - `pageActionAlways`
 - `planAutoApprove`
+- `projectTrust`
 - `providerModelsError`
 - `providerStatusEvents`
 - `readOnlyDelegation`
@@ -246,6 +247,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`permission.allowlist.add`](#permissionallowlistadd) | client → server | Promote a pattern from ask to allow. |
 | [`permission.allowlist.list`](#permissionallowlistlist) | client → server | List stored allowlist patterns. |
 | [`permission.allowlist.remove`](#permissionallowlistremove) | client → server | Delete an allowlist pattern by id. |
+| [`project.trust.revoke`](#projecttrustrevoke) | client → server | Project trust (1.55.0): take scopes back (all when omitted). A local person only. |
+| [`project.trust.set`](#projecttrustset) | client → server | Project trust (1.55.0): trust the project for scopes, pinning every control file as it is now. A local person only. |
+| [`project.trust.status`](#projecttruststatus) | client → server | Project trust (1.55.0): what the project's own files would make snowpea do (hooks, MCP servers, commands with allowed-tools, agents with a permission, prompt overrides, widening settings, defaultMode auto), which are active, and what changed since it was trusted. People (a remote login too). |
 | [`provider.configure`](#providerconfigure) | client → server | Store settings and credentials for a provider. |
 | [`provider.list`](#providerlist) | client → server | List chat providers and whether they are configured. |
 | [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. |
@@ -2806,6 +2810,89 @@ Delete an allowlist pattern by id.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `project.trust.revoke`
+
+*Direction:* client → server
+
+Project trust (1.55.0): take scopes back (all when omitted). A local person only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[] \| null` | no | Scopes to take back; omitted: all of them. |
+| `workdir` | `string` | yes | A folder of the project. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `at` | `string \| null` | no | When (UTC ISO). |
+| `by` | `string \| null` | no | Who trusted it (ide, tui, cli, migration). |
+| `changed` | `string[]` | no | Files of a trusted scope that are new or changed since the trust. |
+| `defaultModeAuto` | `boolean` | no | The project file asks for defaultMode auto. |
+| `files` | `({ path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
+| `inactive` | `string[]` | no | Control files not active now (any reason). |
+| `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
+| `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
+| `trusted` | `boolean` | yes | Some scope is trusted. |
+| `workdir` | `string` | yes | The project root (real path). |
+
+### `project.trust.set`
+
+*Direction:* client → server
+
+Project trust (1.55.0): trust the project for scopes, pinning every control file as it is now. A local person only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[] \| null` | no | Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, prompts, settings — not mode (defaultMode: auto from the project file) and not externalCli, which the person names explicitly. Every control file is pinned as it is now. |
+| `workdir` | `string` | yes | A folder of the project (its real path is the key). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `at` | `string \| null` | no | When (UTC ISO). |
+| `by` | `string \| null` | no | Who trusted it (ide, tui, cli, migration). |
+| `changed` | `string[]` | no | Files of a trusted scope that are new or changed since the trust. |
+| `defaultModeAuto` | `boolean` | no | The project file asks for defaultMode auto. |
+| `files` | `({ path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
+| `inactive` | `string[]` | no | Control files not active now (any reason). |
+| `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
+| `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
+| `trusted` | `boolean` | yes | Some scope is trusted. |
+| `workdir` | `string` | yes | The project root (real path). |
+
+### `project.trust.status`
+
+*Direction:* client → server
+
+Project trust (1.55.0): what the project's own files would make snowpea do (hooks, MCP servers, commands with allowed-tools, agents with a permission, prompt overrides, widening settings, defaultMode auto), which are active, and what changed since it was trusted. People (a remote login too).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `workdir` | `string` | yes | A folder of the project (its real path is the key). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `at` | `string \| null` | no | When (UTC ISO). |
+| `by` | `string \| null` | no | Who trusted it (ide, tui, cli, migration). |
+| `changed` | `string[]` | no | Files of a trusted scope that are new or changed since the trust. |
+| `defaultModeAuto` | `boolean` | no | The project file asks for defaultMode auto. |
+| `files` | `({ path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
+| `inactive` | `string[]` | no | Control files not active now (any reason). |
+| `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
+| `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
+| `trusted` | `boolean` | yes | Some scope is trusted. |
+| `workdir` | `string` | yes | The project root (real path). |
+
 ### `provider.configure`
 
 *Direction:* client → server
@@ -4759,7 +4846,7 @@ Remote web access (1.54.0): open (or move) the external listener now, without a 
 | field | type | required | description |
 |---|---|---|---|
 | `host` | `string` | yes | Address to bind (0.0.0.0, a LAN address, ::). |
-| `port` | `number` | yes | Port; 0 picks a free one. |
+| `port` | `number` | yes | Port 0-65535; 0 picks a free one. Failures (1.55.0) carry details {field: 'host'\|'port'\|'username', reason: 'in_use'\|'bad_address'\|'permission'\|'out_of_range'\|'required'}: in_use and permission answer 'unavailable', the others 'invalid_params'. A failed move keeps the listener where it was. |
 | `save` | `boolean` | no | Also write web.remote.{enabled,host,port,username} for the next start. |
 | `username` | `string \| null` | no | Login name for password mode; omitted keeps the configured one. |
 
@@ -5201,6 +5288,16 @@ Set the sidebar order (1.47.0).
 | `scope` | `"project" \| "global" \| "plugin" \| "settings"` | no | Scope the server is declared in. |
 | `state` | `"stopped" \| "starting" \| "ready" \| "error"` | yes | stopped, starting, ready or error. |
 | `toolCount` | `number` | no | Tools the server currently contributes. |
+
+### `project.trust.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `by` | `string \| null` | no |  |
+| `projects` | `string[]` | no | migration: every project trusted as it was. |
+| `reason` | `"set" \| "revoke" \| "migration"` | no |  |
+| `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
+| `workdir` | `string` | no | The project root ('' for the migration). |
 
 ### `provider.loginProgress`
 

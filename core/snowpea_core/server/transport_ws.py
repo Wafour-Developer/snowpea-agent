@@ -8,6 +8,7 @@ JSON-RPC endpoint is ``ws://127.0.0.1:<port>/ws`` (contract §1 note).  One
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import WSMsgType, web
@@ -42,6 +43,8 @@ SOCKETS_KEY: web.AppKey[set[web.WebSocketResponse]] = web.AppKey("sockets", set)
 #: Largest frame a client may send: a prompt carrying five 20 MB attachments
 #: as base64 (~134 MB) fits; a bigger one closes the socket with 1009.
 MAX_MESSAGE_BYTES = 160 * 1024 * 1024
+#: What every connection through the remote listener is, whatever its hello says.
+REMOTE_CLIENT_KIND = "web"
 
 
 async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) -> HelloResult:
@@ -51,8 +54,23 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
             errors.PROTOCOL_INCOMPATIBLE,
             f"client protocol {params.protocolVersion} != server {PROTOCOL_VERSION}",
         )
-    if not token_matches(core.token, params.token):
+    capability = getattr(conn, "remote_capability", None)
+    if getattr(conn, "remote_login", False):
+        # The remote listener (security review 5, H3): only this login's own
+        # capability, never the daemon token, and nothing once the login ended.
+        if capability is None or not capability(params.token):
+            raise RpcError(errors.UNAUTHORIZED, "invalid token")
+    elif not token_matches(core.token, params.token):
         raise RpcError(errors.UNAUTHORIZED, "invalid token")
+    if getattr(conn, "remote_login", False):
+        # Security review 5, M3: on the remote listener the connection is a
+        # remote web login whatever hello declares — never a (legacy) browser
+        # host, a connector or a local app — and its client id is its own
+        # namespace, so it cannot re-bind another client's sessions.
+        updates: dict[str, Any] = {"clientKind": REMOTE_CLIENT_KIND}
+        if params.clientId:
+            updates["clientId"] = f"remote:{params.clientId}"
+        params = params.model_copy(update=updates)
     if conn.authenticated and params.clientKind != conn.client_kind:
         # What a connection is (a person's app, a browser host, the connector)
         # is decided once: a later hello may not turn it into something else.
@@ -82,12 +100,16 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
 
 
 async def websocket_handler(
-    request: web.Request, *, track: set[web.WebSocketResponse] | None = None
+    request: web.Request,
+    *,
+    track: set[web.WebSocketResponse] | None = None,
+    capability: Callable[[str | None], bool] | None = None,
 ) -> web.WebSocketResponse:
     """aiohttp route handler: bridge one socket to the RPC dispatcher.
 
     ``track`` also holds the socket while it is open (the remote listener's
-    login session, so logging out closes it).
+    login session, so logging out closes it); ``capability`` checks what its
+    ``system.hello`` presents (that login's capability, never the daemon token).
     """
     dispatcher = request.app[DISPATCHER_KEY]
     connections = request.app[CONNECTIONS_KEY]
@@ -105,6 +127,7 @@ async def websocket_handler(
 
     conn = RpcConnection(send, peer=str(request.remote or "local"))
     conn.remote_login = track is not None  # only the remote listener passes ``track``
+    conn.remote_capability = capability if conn.remote_login else None
     connections.add(conn)
     hub = getattr(dispatcher.core, "hub", None)
     try:

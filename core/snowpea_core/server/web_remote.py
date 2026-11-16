@@ -7,10 +7,14 @@ with a much smaller app:
 
 * ``GET /web/...`` — the same static build;
 * ``POST /web/login`` — ``{username, password}`` → a ``snowpea_web`` cookie;
-* ``GET /web/session`` — with that cookie, the daemon token for ``system.hello``;
+* ``GET /web/session`` — with that cookie, this login's own capability (field
+  ``token``) for ``system.hello``.  Never the daemon token (security review 5,
+  H3): the capability is made per login, is accepted only on this listener's
+  sockets of the same login, and dies with the login (logout, expiry, a
+  password change, a token rotation, the listener stopping);
 * ``POST /web/logout`` — drops the session and closes its sockets;
 * ``GET /ws`` — the JSON-RPC socket, only with a valid cookie and a same-origin
-  ``Origin``; ``system.hello`` still checks the token.
+  ``Origin``; ``system.hello`` there accepts only that login's capability.
 
 The password lives in ``credentials.json`` as a salted scrypt hash under
 :data:`PASSWORD_KEY`.  Sessions are kept in memory, so a daemon restart logs
@@ -197,6 +201,8 @@ class _Session:
     expires: float
     fingerprint: str = ""
     sockets: set[web.WebSocketResponse] = field(default_factory=set)
+    #: What this login's page presents in ``system.hello`` (security review 5, H3).
+    capability: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
 
 
 class RemoteAuth:
@@ -213,6 +219,10 @@ class RemoteAuth:
         self.clock = time.monotonic
         self._hash_stamp: tuple[int, int, int] | None = None
         self._hash_print = ""
+        #: The listener's proxy and origin options (``None``: the app's keys); kept
+        #: here so ``web.remote.listen`` on the same address updates them in place.
+        self.trust_proxy: bool | None = None
+        self.origins: frozenset[str] | None = None
 
     def _current_fingerprint(self) -> str:
         """Fingerprint of the stored hash and the access token (a change of either ends
@@ -266,6 +276,16 @@ class RemoteAuth:
             return None
         return found
 
+    def capability_ok(self, cookie: str | None, presented: str | None) -> bool:
+        """``presented`` is the live login ``cookie``'s capability (constant time)."""
+        found = self.session(cookie)
+        if found is None or not presented:
+            return False
+        return hmac.compare_digest(
+            hashlib.sha256(found.capability.encode("utf-8")).digest(),
+            hashlib.sha256(presented.encode("utf-8")).digest(),
+        )
+
     async def drop(self, token: str) -> None:
         found = self.sessions.pop(token, None)
         if found is not None:
@@ -293,19 +313,31 @@ class RemoteAuth:
             queue.popleft()
 
     def retry_after(self, ip: str) -> int:
-        """Seconds until ``ip`` may try again, 0 when it may now."""
-        waits: list[float] = []
+        """Seconds until ``ip`` may try again, 0 when it may now (both buckets)."""
+        return max(self.retry_after_ip(ip), self.retry_after_global())
+
+    def retry_after_ip(self, ip: str) -> int:
+        """Seconds until ``ip``'s own failures let it try again (0: now)."""
         queue = self._ip_failures.get(ip)
-        if queue is not None:
-            self._trim(queue)
-            if len(queue) >= MAX_FAILURES_PER_IP:
-                waits.append(queue[-MAX_FAILURES_PER_IP] + RATE_WINDOW_SEC - self.clock())
+        if queue is None:
+            return 0
+        self._trim(queue)
+        if len(queue) < MAX_FAILURES_PER_IP:
+            return 0
+        return max(1, int(queue[-MAX_FAILURES_PER_IP] + RATE_WINDOW_SEC - self.clock() + 0.999))
+
+    def retry_after_global(self) -> int:
+        """Seconds until the everyone-together bucket empties (0: now).
+
+        Security review 5, L1: this bucket only ever refuses a WRONG credential —
+        the credential is checked first, so a flood of failures from elsewhere
+        cannot lock the person out of their own correct link or password.
+        """
         self._trim(self._global_failures)
-        if len(self._global_failures) >= MAX_FAILURES_GLOBAL:
-            waits.append(
-                self._global_failures[-MAX_FAILURES_GLOBAL] + RATE_WINDOW_SEC - self.clock()
-            )
-        return max(1, int(max(waits) + 0.999)) if waits else 0
+        if len(self._global_failures) < MAX_FAILURES_GLOBAL:
+            return 0
+        return max(1, int(self._global_failures[-MAX_FAILURES_GLOBAL] + RATE_WINDOW_SEC
+                          - self.clock() + 0.999))
 
     def record_failure(self, ip: str) -> float:
         now = self.clock()
@@ -357,17 +389,28 @@ TRUST_PROXY_KEY: web.AppKey[bool] = web.AppKey("remote_trust_proxy", bool)
 ORIGINS_KEY: web.AppKey[frozenset[str]] = web.AppKey("remote_origins", frozenset)
 
 
+def _trust_proxy(request: web.Request) -> bool:
+    """The listener's current ``trustProxy`` (kept on its auth so an update in place works)."""
+    value = getattr(request.app[AUTH_KEY], "trust_proxy", None)
+    return bool(request.app[TRUST_PROXY_KEY] if value is None else value)
+
+
+def _origins(request: web.Request) -> frozenset[str]:
+    value = getattr(request.app[AUTH_KEY], "origins", None)
+    return request.app[ORIGINS_KEY] if value is None else value
+
+
 def _is_https(request: web.Request) -> bool:
     if request.secure:
         return True
-    if request.app[TRUST_PROXY_KEY]:
+    if _trust_proxy(request):
         proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
         return proto == "https"
     return False
 
 
 def _client_ip(request: web.Request) -> str:
-    if request.app[TRUST_PROXY_KEY]:
+    if _trust_proxy(request):
         forwarded = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",")]
         forwarded = [p for p in forwarded if p]
         if forwarded:
@@ -381,7 +424,7 @@ def _origin_ok(request: web.Request) -> bool:
     if not origin:
         return False
     own = f"{'https' if _is_https(request) else 'http'}://{request.host}"
-    return origin == own or origin in request.app[ORIGINS_KEY]
+    return origin == own or origin in _origins(request)
 
 
 def _json(payload: dict[str, Any], status: int = 200, **headers: str) -> web.Response:
@@ -395,10 +438,12 @@ async def login(request: web.Request) -> web.Response:
     ip = _client_ip(request)
     if request.headers.get("Origin") and not _origin_ok(request):
         return _json({"ok": False, "error": "bad_origin"}, 403)
-    wait = auth.retry_after(ip)
+    wait = auth.retry_after_ip(ip)
     if wait:
         log.warning("web login refused from %s: too many failures (retry in %ds)", ip, wait)
         return _json({"ok": False, "error": "rate_limited"}, 429, **{"Retry-After": str(wait)})
+    # The global bucket is judged after the check (L1): it refuses wrong passwords only.
+    global_wait = auth.retry_after_global()
     # Counted at once (no await since the check above), so attempts sent in
     # parallel cannot all slip under the limit; a good password takes it back.
     stamp = auth.record_failure(ip)
@@ -417,6 +462,9 @@ async def login(request: web.Request) -> web.Response:
     if not ok:
         log.warning("web login failed from %s", ip)
         await asyncio.sleep(max(0.0, auth.failure_delay - (time.monotonic() - started)))
+        if global_wait:
+            return _json({"ok": False, "error": "rate_limited"}, 429,
+                         **{"Retry-After": str(global_wait)})
         return _json({"ok": False, "error": "invalid_credentials"}, 401)
     auth.forgive(ip, stamp)
     token = auth.open_session()
@@ -439,8 +487,9 @@ async def session(request: web.Request) -> web.Response:
     found = auth.session(request.cookies.get(COOKIE_NAME))
     if found is None:
         return _json({"ok": False, "error": "unauthorized"}, 401)
-    core = request.app[DISPATCHER_KEY].core
-    return _json({"ok": True, "token": core.token, "username": found.username,
+    # ``token`` is this login's capability, never the daemon token (H3); the
+    # field keeps its name so the web page needs no change.
+    return _json({"ok": True, "token": found.capability, "username": found.username,
                   "mode": "password" if auth.password_mode else "token"})
 
 
@@ -469,7 +518,12 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
             request.headers.get("Origin"),
         )
         return _json({"ok": False, "error": "bad_origin"}, 403)
-    return await websocket_handler(request, track=found.sockets)
+    cookie = request.cookies.get(COOKIE_NAME)
+
+    def capability_ok(presented: str | None) -> bool:
+        return auth.capability_ok(cookie, presented)
+
+    return await websocket_handler(request, track=found.sockets, capability=capability_ok)
 
 
 async def remote_web_redirect(request: web.Request) -> web.Response:
@@ -484,6 +538,55 @@ def _without_token(request: web.Request) -> str:
 
     kept = [(k, v) for k, v in request.query.items() if k != TOKEN_PARAM]
     return request.path + (f"?{urlencode(kept)}" if kept else "")
+
+
+_STALE_LINK_TEXT: dict[str, tuple[str, str, str]] = {
+    "en": ("Link expired", "This link no longer works",
+           "The access link was changed or is wrong. Ask the person who runs snowpea for a new "
+           "link."),
+    "ko": ("링크 만료", "이 링크는 더 이상 쓸 수 없습니다",
+           "접속 링크가 바뀌었거나 올바르지 않습니다. snowpea 를 실행하는 분께 새 링크를 "
+           "받으세요."),
+}
+
+
+def _wants_html(request: web.Request) -> bool:
+    return request.method == "GET" and "text/html" in request.headers.get("Accept", "")
+
+
+def _language(request: web.Request) -> str:
+    """``ko`` when Accept-Language prefers Korean over English, else ``en``."""
+    best, best_q = "en", -1.0
+    for part in request.headers.get("Accept-Language", "").split(","):
+        tag, _, rest = part.strip().partition(";")
+        lang = tag.strip().lower().split("-", 1)[0]
+        q = 1.0
+        if rest.strip().startswith("q="):
+            with contextlib.suppress(ValueError):
+                q = float(rest.strip()[2:])
+        if lang in _STALE_LINK_TEXT and q > best_q:
+            best, best_q = lang, q
+    return best
+
+
+def _stale_link_page(request: web.Request) -> web.Response:
+    """A small self-contained page for a stale or wrong access link (status 401)."""
+    import html
+
+    lang = _language(request)
+    title, heading, body = (html.escape(t) for t in _STALE_LINK_TEXT[lang])
+    page = (
+        f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{title}</title><style>body{{font-family:system-ui,sans-serif;margin:0;"
+        "display:flex;min-height:100vh;align-items:center;justify-content:center;"
+        "background:#f6f7f8;color:#222}main{max-width:28rem;padding:2rem;text-align:center}"
+        "h1{font-size:1.3rem}p{line-height:1.5;color:#555}@media(prefers-color-scheme:dark)"
+        "{body{background:#16181a;color:#eee}p{color:#aaa}}</style></head>"
+        f"<body><main><h1>{heading}</h1><p>{body}</p></main></body></html>"
+    )
+    return web.Response(status=401, text=page, content_type="text/html",
+                        headers={"Cache-Control": "no-store"})
 
 
 async def remote_page(request: web.Request) -> web.StreamResponse:
@@ -503,15 +606,22 @@ async def remote_page(request: web.Request) -> web.StreamResponse:
     if auth.password_mode:
         raise web.HTTPFound(target)
     ip = _client_ip(request)
-    wait = auth.retry_after(ip)
+    wait = auth.retry_after_ip(ip)
     if wait:
         log.warning("web access link refused from %s: too many failures", ip)
         return _json({"ok": False, "error": "rate_limited"}, 429, **{"Retry-After": str(wait)})
+    global_wait = auth.retry_after_global()  # refuses a wrong token only (L1)
     stamp = auth.record_failure(ip)
     started = time.monotonic()
     if not auth.check_token(presented):
         log.warning("web access link with a wrong token from %s", ip)
         await asyncio.sleep(max(0.0, auth.failure_delay - (time.monotonic() - started)))
+        if global_wait:
+            return _json({"ok": False, "error": "rate_limited"}, 429,
+                         **{"Retry-After": str(global_wait)})
+        if _wants_html(request):
+            # A person opened a stale or wrong link: a page, never the token or why.
+            return _stale_link_page(request)
         return _json({"ok": False, "error": "invalid_token"}, 401)
     auth.forgive(ip, stamp)
     session_token = auth.open_session()
@@ -582,6 +692,38 @@ PLAIN_HTTP_WARNING = (
 )
 
 
+class ListenError(OSError):
+    """Why the listener could not bind: ``field`` (``host`` | ``port``) and ``reason``
+    (``in_use`` | ``bad_address`` | ``permission`` | ``out_of_range``), for
+    ``web.remote.listen``'s ``error.data.details``."""
+
+    def __init__(self, field: str, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+        self.reason = reason
+
+    def __str__(self) -> str:
+        return str(self.args[0]) if self.args else self.reason
+
+    @classmethod
+    def of(cls, exc: OSError, host: str, port: int) -> ListenError:
+        import errno
+        import socket as socket_module
+
+        text = f"could not listen on {host}:{port}: {exc}"
+        if isinstance(exc, socket_module.gaierror) or exc.errno in (
+            errno.EADDRNOTAVAIL, getattr(errno, "EAFNOSUPPORT", -1), errno.EINVAL,
+        ):
+            return cls("host", "bad_address", text)
+        if exc.errno == errno.EADDRINUSE:
+            return cls("port", "in_use", text)
+        if exc.errno in (errno.EACCES, errno.EPERM):
+            return cls("port", "permission", text)
+        if isinstance(exc, OverflowError):  # pragma: no cover - checked before binding
+            return cls("port", "out_of_range", text)
+        return cls("host", "bad_address", text)
+
+
 class RemoteListener:
     """The external listener, opened and closed at runtime (``web.remote.listen|stop``).
 
@@ -610,27 +752,49 @@ class RemoteListener:
     async def start(self, *, host: str, port: int, username: str = "", session_hours: float = 12,
                     trust_proxy: bool = False, allowed_origins: list[str] | tuple[str, ...] = ()
                     ) -> None:
-        """(Re)bind ``host:port``; :class:`OSError` and :class:`ValueError` say why not."""
+        """(Re)bind ``host:port``; :class:`ListenError` and :class:`ValueError` say why not.
+
+        The new address is bound FIRST and the old listener stopped only once
+        it is (a move that fails leaves remote access where it was, with its
+        sessions).  The address it already listens on (``port`` 0 included)
+        is an update of the options in place: the sessions stay.
+        """
         async with self._lock:
             remote = type("Remote", (), {"username": username})()
             problem = config_problem(remote, self.paths)
             if problem is not None:
                 self.error = problem
                 raise ValueError(problem)
-            await self._stop_locked()
+            if not 0 <= int(port) <= 65535:
+                raise ListenError("port", "out_of_range",
+                                  f"could not listen on {host}:{port}: the port must be 0-65535")
+            origins = frozenset(o.rstrip("/") for o in allowed_origins if o)
+            if self.runner is not None and self.auth is not None and host == self.host \
+                    and port in (0, self.port):
+                auth = self.auth
+                auth.username, self.username = username, username
+                auth.session_sec = max(1.0, float(session_hours) * 3600.0)
+                auth.trust_proxy, auth.origins = bool(trust_proxy), origins
+                self.error = None
+                return
             access_token(self.paths)  # made now, so the link exists before the first visit
             auth = RemoteAuth(username, session_hours, self.paths)
+            auth.trust_proxy, auth.origins = bool(trust_proxy), origins
             app = create_remote_app(self.dispatcher, auth, connections=self.connections,
                                     sockets=self.sockets, trust_proxy=trust_proxy,
                                     allowed_origins=allowed_origins)
-            runner = web.AppRunner(app)
+            # No access log (security review 5, M4): the access link's ``?t=`` would land in it.
+            runner = web.AppRunner(app, access_log=None)
             await runner.setup()
             try:
                 await web.TCPSite(runner, host, port).start()
             except OSError as exc:
                 await runner.cleanup()
-                self.error = f"could not listen on {host}:{port}: {exc}"
-                raise
+                error = ListenError.of(exc, host, port)
+                if self.runner is None:
+                    self.error = str(error)
+                raise error from exc
+            await self._stop_locked()  # the old address, only now that the new one is bound
             self.runner, self.auth = runner, auth
             self.host, self.username, self.error = host, username, None
             self.port = _bound_port(runner, port)

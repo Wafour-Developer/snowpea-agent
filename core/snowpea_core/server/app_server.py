@@ -757,6 +757,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.web_remote_handlers import register_web_remote_handlers
 
     register_web_remote_handlers(dispatcher)
+    from snowpea_core.server.trust_handlers import register_trust_handlers
+
+    register_trust_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
@@ -854,7 +857,8 @@ class Daemon:
 
         dispatcher = build_dispatcher(core)
         self.app = create_app(dispatcher, daemon=self, core=core)
-        runner = web.AppRunner(self.app)
+        # No access log: the local web page's address carries ``?token=`` (security review 5, M4).
+        runner = web.AppRunner(self.app, access_log=None)
         await runner.setup()
         if self._host not in LOOPBACK_HOSTS:
             # Anyone who can reach the port and holds the token drives this
@@ -1255,6 +1259,9 @@ async def run_daemon(
     from snowpea_core.util.no_window import hide_child_consoles
 
     hide_child_consoles()
+    # A daemon started some other way still never hands the remote-access
+    # password variable to the commands its tools run (security review 5).
+    os.environ.pop("SNOWPEA_WEB_PASSWORD", None)
     daemon = Daemon(port=port, home=home, token=token, host=host)
     await daemon.start()
     _install_signal_handlers(daemon)

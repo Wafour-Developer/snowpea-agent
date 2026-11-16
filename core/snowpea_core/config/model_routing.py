@@ -67,7 +67,8 @@ def model_config_for(settings: Settings, workdir: Path | str | None = None) -> M
     agents = dict(settings.agents.models)
     project_default: str | None = None
     if workdir is not None:
-        project = ProjectSettings.load(workdir).models
+        # Untrusted project files may not redirect prompts (security review 5, H2).
+        project = ProjectSettings.load_effective(workdir).models
         profiles.update(project.profiles)
         agents.update(project.agents)
         project_default = project.default

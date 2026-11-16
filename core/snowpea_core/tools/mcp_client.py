@@ -343,8 +343,28 @@ def discover(home: Path | str | None, workdir: Path | str | None) -> dict[str, M
     for base, source in ((home, "global"), (workdir, "project")):
         if base is None:
             continue
+        if source == "project" and not _project_servers_trusted(home, base):
+            continue
         found.update(_read_config(Path(base).expanduser() / CONFIG_NAME, source))
     return found
+
+
+def _project_servers_trusted(home: Path | str | None, workdir: Path | str) -> bool:
+    """A project's ``.mcp.json`` starts servers only with the project's ``mcp`` trust,
+    for the file as it is now (security review 5, C1)."""
+    if not (Path(workdir).expanduser() / CONFIG_NAME).is_file():
+        return True  # nothing to start
+    try:
+        from snowpea_core.trust.projects import default_store, store_for
+
+        store = store_for(home) if home is not None else default_store()
+        if store.active(workdir, "mcp", CONFIG_NAME):
+            return True
+    except Exception:  # noqa: BLE001 - trust fails closed
+        log.warning("could not read project trust for %s", workdir, exc_info=True)
+    log.info("project MCP servers of %s not started: the project is not trusted for them "
+             "(or .mcp.json changed since)", workdir)
+    return False
 
 
 # ---------------------------------------------------------------------------

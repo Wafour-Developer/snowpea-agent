@@ -144,8 +144,9 @@ async def test_end_to_end_with_an_adapter(daemon: Daemon, http: aiohttp.ClientSe
         listed = await ide.ok("external.list", {"cwd": str(project)})
         assert [s["ref"] for s in listed["sessions"]] == [ref]
         mode = await agent.call("external.setMode", {"ref": ref, "mode": "unrestricted"})
-        # The connector does not watch it: it does not exist for it (security review L6).
-        assert _code(mode) == "not_found"
+        # A connector changes nothing at all (security review 5, M1; before that the
+        # session did not exist for it, security review L6).
+        assert _code(mode) == "jarvis_person_only"
         switched = await ide.ok("external.setMode", {"ref": ref, "mode": "unrestricted"})
         assert switched["session"]["controlled"] is False
         ledger = Path(daemon.paths.home) / "jarvis" / "ledger.jsonl"

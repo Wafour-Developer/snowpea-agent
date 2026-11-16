@@ -50,6 +50,7 @@ from snowpea_core.server.protocol import SkillInfo, SkillKind
 from snowpea_core.skills import marketplace
 from snowpea_core.skills.hooks import HookRegistry
 from snowpea_core.skills.skill_md import SkillDoc, load_skill_md
+from snowpea_core.trust import projects as trust_projects
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -125,6 +126,9 @@ class LoadedSkill:
     plugin: str = ""
     #: ``snowpea`` | ``claude`` | ``codex``: the layout it was written for.
     format: marketplace.BundleFormat = marketplace.FORMAT_SNOWPEA
+    #: The project folder a project skill or command came from (its
+    #: ``allowed-tools`` need the project's ``commands`` trust, review 5 M2).
+    project: Path | None = None
 
     @property
     def name(self) -> str:
@@ -365,7 +369,7 @@ class SkillLoader:
         self._scan_claude_plugins()
         for workdir in self.workdirs():
             for name, source in PROJECT_DIRS:
-                self._scan_bundle(workdir / name, source)
+                self._scan_bundle(workdir / name, source, project=workdir)
         if self.codex_import():
             # Last, and every entry yields: a Codex copy never replaces a
             # snowpea or Claude Code one of the same name.
@@ -600,7 +604,8 @@ class SkillLoader:
             return
         for entry in sorted(skills_dir.iterdir()):
             if not entry.name.startswith("."):
-                self._add_skill_dir(entry, SOURCE_CODEX_PROJECT, fmt=marketplace.FORMAT_CODEX)
+                self._add_skill_dir(entry, SOURCE_CODEX_PROJECT, fmt=marketplace.FORMAT_CODEX,
+                                    project=workdir)
 
     def _scan_codex_home(self) -> None:
         """Codex's own skills, custom prompts and agent roles.
@@ -702,11 +707,16 @@ class SkillLoader:
         plugin: str = "",
         load_hooks: bool = True,
         fmt: marketplace.BundleFormat | None = None,
+        project: Path | None = None,
     ) -> None:
         """Read ``skills/``, ``agents/``, ``commands/``, hooks and ``.mcp.json``.
 
         Hooks and MCP servers of imported plugins are NOT registered (only
         skills, commands, agents).  ``fmt`` defaults to what ``source`` says.
+        ``project``: the bundle is that project's own folder (``.snowpea``,
+        ``.claude``): its hooks load only while the person trusts the project
+        for them with the file as it is now, and run only for sessions there
+        (security review 5, C1).
         """
         if not root.is_dir():
             return
@@ -716,7 +726,7 @@ class SkillLoader:
         # directory around it.  ``~/.snowpea/plugins/flux/SKILL.md`` is shaped
         # this way and used to load as nothing at all (M15 §B5c).
         if (root / "SKILL.md").is_file():
-            self._add_skill_dir(root, source, plugin=plugin, fmt=fmt)
+            self._add_skill_dir(root, source, plugin=plugin, fmt=fmt, project=project)
             if plugin and not imported:
                 log.info(
                     "plugin %s is a bare skill directory (only SKILL.md); it is registered "
@@ -728,7 +738,7 @@ class SkillLoader:
         skills_dir = root / "skills"
         if skills_dir.is_dir():
             for entry in sorted(skills_dir.iterdir()):
-                self._add_skill_dir(entry, source, plugin=plugin, fmt=fmt)
+                self._add_skill_dir(entry, source, plugin=plugin, fmt=fmt, project=project)
         agents_dir = root / "agents"
         if agents_dir.is_dir():
             for entry in sorted(agents_dir.glob("*.md")):
@@ -736,11 +746,22 @@ class SkillLoader:
         commands_dir = root / "commands"
         if commands_dir.is_dir():
             for entry in sorted(commands_dir.glob("*.md")):
-                self._add_command_file(entry, source, plugin=plugin, fmt=fmt)
+                self._add_command_file(entry, source, plugin=plugin, fmt=fmt, project=project)
         if load_hooks:
             for candidate in (root / "hooks" / "hooks.json", root / "hooks.json"):
-                if candidate.is_file():
+                if not candidate.is_file():
+                    continue
+                if project is None:
                     self.hooks.load_file(candidate, plugin=plugin or source, root=root)
+                    continue
+                base = trust_projects.project_root(project)
+                rel = os.path.relpath(os.path.realpath(candidate), base).replace(os.sep, "/")
+                if not trust_projects.store_for(self.home).active(base, "hooks", rel):
+                    log.info("hooks of %s not loaded: the project is not trusted for them "
+                             "(or %s changed since)", base, rel)
+                    continue
+                self.hooks.load_file(candidate, plugin=plugin or source, root=root,
+                                     project=base)
         if plugin and not imported:
             self._read_mcp(root / ".mcp.json", root, plugin)
 
@@ -750,6 +771,7 @@ class SkillLoader:
         source: str,
         plugin: str = "",
         fmt: marketplace.BundleFormat | None = None,
+        project: Path | None = None,
     ) -> None:
         doc = load_skill_md(entry, default_name=entry.stem)
         if doc is None:
@@ -764,6 +786,7 @@ class SkillLoader:
             kind="command",
             plugin=plugin,
             format=fmt or source_format(source),
+            project=project,
         )
 
     def _add_skill_dir(
@@ -772,6 +795,7 @@ class SkillLoader:
         source: str,
         plugin: str = "",
         fmt: marketplace.BundleFormat | None = None,
+        project: Path | None = None,
     ) -> None:
         if not entry.is_dir():
             return
@@ -790,6 +814,7 @@ class SkillLoader:
             kind="skill",
             plugin=plugin,
             format=fmt or source_format(source),
+            project=project,
         )
 
     def register_agent_definition(
@@ -906,7 +931,7 @@ class SkillLoader:
                 self.scan()
             before = len(self.skills), len(self.agents)
             for name, source in PROJECT_DIRS:
-                self._scan_bundle(root / name, source)
+                self._scan_bundle(root / name, source, project=root)
             if self.codex_import():
                 self._scan_codex_project(root)
             self._index_groups = {}
@@ -954,6 +979,19 @@ class SkillLoader:
             registry.register(replace(self._command_for(skill, name), name=name))
             self._registered.add(name)
 
+    def _may_pre_approve(self, skill: LoadedSkill) -> bool:
+        """A project skill's ``allowed-tools`` count only with the project's
+        ``commands`` trust, for the file as it is now (security review 5, M2)."""
+        if skill.project is None or skill.doc.path is None:
+            return True
+        base = trust_projects.project_root(skill.project)
+        rel = os.path.relpath(os.path.realpath(skill.doc.path), base).replace(os.sep, "/")
+        if trust_projects.store_for(self.home).active(base, "commands", rel):
+            return True
+        log.info("/%s: allowed-tools not applied, %s is not trusted for commands", skill.name,
+                 base)
+        return False
+
     def _command_for(self, skill: LoadedSkill, command_name: str | None = None) -> Command:
         doc = skill.doc
         command_name = command_name or doc.name
@@ -968,7 +1006,7 @@ class SkillLoader:
             # ``allowed-tools`` pre-approves those tools for the skill's turn,
             # as it does in Claude Code; it does not hide the others.
             previous = getattr(session, "skill_approved_tools", None)
-            if doc.allowed_tools:
+            if doc.allowed_tools and self._may_pre_approve(skill):
                 session.skill_approved_tools = set(doc.allowed_tools)
             ctx.handled_turn = True
             # The transcript keeps the line the user typed; the skill body

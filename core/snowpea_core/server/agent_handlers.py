@@ -201,8 +201,22 @@ async def agent_create_handler(
             errors.INVALID_PARAMS,
             "agent.create needs an open session to locate the project directory",
         )
+    from snowpea_core.session import mode_guard
+    from snowpea_core.session.mode_guard import ModeCaller
+
+    caller = ModeCaller.from_conn(conn)
+    if params.named and mode_guard.refusal(caller, None, "plan", "auto") is not None:
+        # Security review 5, H1: a named agent runs unattended and comes back on
+        # every start — creating one is a person's decision (the mode-raise rule).
+        raise RpcError(errors.JARVIS_PERSON_ONLY,
+                       "only a person may create a named agent (agent.create named: true)",
+                       {"reason": "person_only", "kind": caller.kind})
     try:
         defn = await create_definition(core, session, params.description)
+        if defn.permission in named_agents.MODES:
+            # A definition wider than the project's default is a raise: a person's.
+            mode_guard.check(caller, None, core.sessions.default_mode(session.workdir),
+                             defn.permission)
         if params.name:
             defn = await named_agents.rename_definition(core, session, defn, params.name)
         if params.named:

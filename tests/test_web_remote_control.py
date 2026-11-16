@@ -54,7 +54,9 @@ async def test_the_access_link_trades_the_token_for_a_cookie(tmp_path: Path, dis
         assert cookie["httponly"] and cookie["samesite"] == "Strict"
         session = await client.get("/web/session")
         body = await session.json()
-        assert body["ok"] and body["mode"] == "token" and body["token"] == "daemon-token"
+        assert body["ok"] and body["mode"] == "token"
+        # This login's own capability, never the daemon token (security review 5, H3).
+        assert body["token"] != "daemon-token" and len(body["token"]) >= 43
         assert auth.active() == 1
     finally:
         await client.close()
@@ -169,9 +171,12 @@ async def test_listen_and_stop_at_runtime_without_a_restart(tmp_path: Path, dist
             base = f"http://127.0.0.1:{port}"
             async with http.get(f"{base}/web/?t={token}", allow_redirects=False) as page:
                 assert page.status == 302
+            async with http.get(f"{base}/web/session") as answer:
+                capability = (await answer.json())["token"]
+            assert capability != daemon.token  # security review 5, H3
             ws = await http.ws_connect(f"{base}/ws", headers={"Origin": base})
             await ws.send_json({"jsonrpc": "2.0", "id": 1, "method": "system.hello",
-                                "params": {"token": daemon.token, "clientVersion": "t",
+                                "params": {"token": capability, "clientVersion": "t",
                                            "clientKind": "web",
                                            "protocolVersion": PROTOCOL_VERSION}})
             await ws.receive_json(timeout=10)

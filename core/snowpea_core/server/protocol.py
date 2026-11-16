@@ -9265,7 +9265,14 @@ class WebRemoteStatus(Payload):
 
 class WebRemoteListenParams(Payload):
     host: str = Field(description="Address to bind (0.0.0.0, a LAN address, ::).")
-    port: int = Field(ge=0, le=65535, description="Port; 0 picks a free one.")
+    port: int = Field(
+        description=(
+            "Port 0-65535; 0 picks a free one. Failures (1.55.0) carry details {field: "
+            "'host'|'port'|'username', reason: 'in_use'|'bad_address'|'permission'|"
+            "'out_of_range'|'required'}: in_use and permission answer 'unavailable', the "
+            "others 'invalid_params'. A failed move keeps the listener where it was."
+        )
+    )
     username: str | None = Field(
         default=None,
         description="Login name for password mode; omitted keeps the configured one.",
@@ -9290,6 +9297,93 @@ class WebRemoteSetPasswordParams(Payload):
 class WebRemoteTokenResult(Payload):
     accessUrl: str | None = Field(
         default=None, description="The new access link (when listening in token mode)."
+    )
+
+
+# --------------------------------------------------------------------------
+# project trust (1.55.0, capability projectTrust; security review 5, C1)
+# --------------------------------------------------------------------------
+
+ProjectTrustScope = Literal[
+    "hooks", "mcp", "commands", "agents", "prompts", "settings", "mode", "externalCli"
+]
+ProjectTrustFileState = Literal["active", "untrusted", "new", "changed"]
+
+
+class ProjectTrustParams(Payload):
+    workdir: str = Field(description="A folder of the project (its real path is the key).")
+
+
+class ProjectTrustSetParams(Payload):
+    workdir: str = Field(description="A folder of the project (its real path is the key).")
+    scopes: list[ProjectTrustScope] | None = Field(
+        default=None,
+        description=(
+            "Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, "
+            "prompts, settings — not mode (defaultMode: auto from the project file) and not "
+            "externalCli, which the person names explicitly. Every control file is pinned "
+            "as it is now."
+        ),
+    )
+
+
+class ProjectTrustRevokeParams(Payload):
+    workdir: str = Field(description="A folder of the project.")
+    scopes: list[ProjectTrustScope] | None = Field(
+        default=None, description="Scopes to take back; omitted: all of them."
+    )
+
+
+class ProjectTrustFile(Payload):
+    """One control file of the project (names and a short summary only, never contents)."""
+
+    path: str = Field(description="Relative to the project root.")
+    scope: ProjectTrustScope = Field(description="What it makes snowpea do.")
+    state: ProjectTrustFileState = Field(
+        description=(
+            "active: trusted and unchanged; untrusted: its scope is not trusted; new: added "
+            "since the project was trusted; changed: its content differs from what was trusted."
+        )
+    )
+    summary: str = Field(
+        default="",
+        description="Hook commands' first 200 characters, MCP servers, allowed-tools, …",
+    )
+
+
+class ProjectTrustStatus(Payload):
+    """What a project brings, what of it is active and what changed since trust."""
+
+    workdir: str = Field(description="The project root (real path).")
+    trusted: bool = Field(description="Some scope is trusted.")
+    scopes: list[ProjectTrustScope] = Field(default_factory=list)
+    by: str | None = Field(default=None, description="Who trusted it (ide, tui, cli, migration).")
+    at: str | None = Field(default=None, description="When (UTC ISO).")
+    files: list[ProjectTrustFile] = Field(default_factory=list)
+    inactive: list[str] = Field(
+        default_factory=list, description="Control files not active now (any reason)."
+    )
+    changed: list[str] = Field(
+        default_factory=list,
+        description="Files of a trusted scope that are new or changed since the trust.",
+    )
+    defaultModeAuto: bool = Field(
+        default=False, description="The project file asks for defaultMode auto."
+    )
+    modeActive: bool = Field(
+        default=False, description="…and the mode scope lets it apply (else accept)."
+    )
+
+
+class ProjectTrustChangedNotification(Payload):
+    """``project.trust.changed``: a project's trust changed (to every person's surface)."""
+
+    workdir: str = Field(default="", description="The project root ('' for the migration).")
+    scopes: list[ProjectTrustScope] = Field(default_factory=list)
+    by: str | None = None
+    reason: Literal["set", "revoke", "migration"] = "set"
+    projects: list[str] = Field(
+        default_factory=list, description="migration: every project trusted as it was."
     )
 
 
@@ -10691,6 +10785,32 @@ METHODS: dict[str, RpcMethod] = {
             "Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it.",
         ),
         _m(
+            "project.trust.status",
+            ProjectTrustParams,
+            ProjectTrustStatus,
+            (
+                "Project trust (1.55.0): what the project's own files would make snowpea do "
+                "(hooks, MCP servers, commands with allowed-tools, agents with a permission, "
+                "prompt overrides, widening settings, defaultMode auto), which are active, and "
+                "what changed since it was trusted. People (a remote login too)."
+            ),
+        ),
+        _m(
+            "project.trust.set",
+            ProjectTrustSetParams,
+            ProjectTrustStatus,
+            (
+                "Project trust (1.55.0): trust the project for scopes, pinning every control "
+                "file as it is now. A local person only."
+            ),
+        ),
+        _m(
+            "project.trust.revoke",
+            ProjectTrustRevokeParams,
+            ProjectTrustStatus,
+            "Project trust (1.55.0): take scopes back (all when omitted). A local person only.",
+        ),
+        _m(
             "web.remote.status",
             Empty,
             WebRemoteStatus,
@@ -10965,6 +11085,8 @@ EVENTS: dict[str, type[BaseModel]] = {
     "external.clis.changed": ExternalClisChangedNotification,
     # 1.54.0: a call the security lists refused; to every person's surface.
     "security.blocked": SecurityBlockedNotification,
+    # 1.55.0: a project's trust changed (set, revoke, the one-time migration).
+    "project.trust.changed": ProjectTrustChangedNotification,
 }
 
 CAPABILITIES: list[str] = [
@@ -11079,6 +11201,8 @@ CAPABILITIES: list[str] = [
     # 1.55.0: instant commands beside a running turn (command.result); turn
     # commands queue (command.run whenBusy).
     "commandsBesideTurn",
+    # project.trust.status/set/revoke, project.trust.changed — 1.55.0 (security review 5).
+    "projectTrust",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -11307,6 +11431,10 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "security.presets.list",
         "security.get",
         "security.check",
+        # 1.55.0 (capability projectTrust)
+        "project.trust.status",
+        "project.trust.set",
+        "project.trust.revoke",
     }
 )
 

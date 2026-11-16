@@ -130,6 +130,11 @@ class NamedAgent:
     created_at: str = field(default_factory=utc_now)
     #: Filled in at runtime from the definition file, when there is one.
     description: str = ""
+    #: The mode a person approved at ``agent.create`` (security review 5, H1):
+    #: the definition file may only narrow it on restore, never raise it.
+    #: ``""``: the project's default; ``None``: a row from before this field
+    #: (migrated once, from the definition as it is then).
+    approved_mode: str | None = None
 
     def __post_init__(self) -> None:
         if not self.memory_namespace:
@@ -152,6 +157,7 @@ class NamedAgent:
             json.dumps(self.channel_bindings),
             json.dumps(self.schedule_ids),
             self.created_at,
+            self.approved_mode,
         )
 
     @classmethod
@@ -159,6 +165,7 @@ class NamedAgent:
         bindings = [
             entry for entry in _json_list(row["channel_bindings"]) if isinstance(entry, dict)
         ]
+        approved = row["approved_mode"] if "approved_mode" in row.keys() else None  # noqa: SIM118
         return cls(
             name=row["name"],
             session_id=row["session_id"],
@@ -167,6 +174,7 @@ class NamedAgent:
             channel_bindings=[{str(k): str(v) for k, v in entry.items()} for entry in bindings],
             schedule_ids=[str(item) for item in _json_list(row["schedule_ids"])],
             created_at=row["created_at"],
+            approved_mode=approved if approved in ("", *MODES) else None,
         )
 
 
@@ -181,6 +189,11 @@ class NamedAgentStore:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            columns = {row["name"] for row in self._conn.execute(
+                "PRAGMA table_info(named_agents)")}
+            if "approved_mode" not in columns:
+                # Security review 5, H1: the mode a person approved, kept here.
+                self._conn.execute("ALTER TABLE named_agents ADD COLUMN approved_mode TEXT")
             self._conn.commit()
 
     def upsert(self, agent: NamedAgent) -> None:
@@ -188,7 +201,7 @@ class NamedAgentStore:
             self._conn.execute(
                 "INSERT OR REPLACE INTO named_agents"
                 " (name, definition_path, session_id, memory_namespace, channel_bindings,"
-                "  schedule_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "  schedule_ids, created_at, approved_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 agent.row(),
             )
             self._conn.commit()
@@ -283,13 +296,18 @@ class NamedAgentRegistry:
             raise NamedAgentError(f"the agent name {slug!r} is reserved for Jarvis mode")
         if slug in self._agents:
             raise NamedAgentError(f"a named agent called {slug!r} already exists")
-        session = await self._open_session(slug, definition, workdir=workdir, parent=parent)
+        # What the person approved now (the agent.create handler checked who asks).
+        approved = (definition.permission
+                    if definition is not None and definition.permission in MODES else "")
+        session = await self._open_session(slug, definition, workdir=workdir, parent=parent,
+                                           approved_mode=approved)
         agent = NamedAgent(
             name=slug,
             session_id=session.id,
             memory_namespace=namespace_for(slug),
             definition_path=str(definition.path) if definition and definition.path else None,
             description=definition.description if definition else "",
+            approved_mode=approved,
         )
         self._agents[slug] = agent
         self._require_store().upsert(agent)
@@ -307,8 +325,15 @@ class NamedAgentRegistry:
         workdir: Path | str | None = None,
         session_id: str | None = None,
         parent: Session | None = None,
+        approved_mode: str | None = "",
     ) -> Session:
-        """Open the agent's unattended session, keeping ``session_id`` if given."""
+        """Open the agent's unattended session, keeping ``session_id`` if given.
+
+        Security review 5, H1: the mode is the definition's, never wider than
+        ``approved_mode`` (what the person approved at ``agent.create``, ``""``
+        for the project's default) — a definition rewritten since may narrow it,
+        never raise it.
+        """
         core = self._require_core()
         # A re-opened session keeps the browser host it was created with.
         stored_host: dict[str, Any] = {}
@@ -321,6 +346,14 @@ class NamedAgentRegistry:
         mode = None
         if definition is not None and definition.permission in MODES:
             mode = definition.permission
+        if mode is not None:
+            from snowpea_core.session import mode_guard
+
+            cap = approved_mode or core.sessions.default_mode(resolved)
+            if mode_guard.raises(cap, mode):
+                log.warning("named agent %s: its definition asks for %s, the person approved "
+                            "%s; it runs in %s", name, mode, cap, cap)
+                mode = cap if cap in MODES else None
         definition_model = (
             definition.model
             if definition is not None and definition.model and definition.model != "inherit"
@@ -427,6 +460,7 @@ class NamedAgentRegistry:
             agent.name,
             self._definition_of(agent),
             session_id=agent.session_id,
+            approved_mode=agent.approved_mode or "",
         )
         agent.session_id = session.id
         self._require_store().upsert(agent)
@@ -469,9 +503,15 @@ class NamedAgentRegistry:
                 continue  # its owner restores it, when it is switched on
             definition = self._definition_of(agent)
             agent.description = definition.description if definition else ""
+            if agent.approved_mode is None:
+                # A row from before H1 (security review 5): its mode already ran
+                # from the definition; that mode, as it is now, is what it keeps.
+                agent.approved_mode = (definition.permission if definition is not None
+                                       and definition.permission in MODES else "")
             try:
                 session = await self._open_session(
-                    agent.name, definition, session_id=agent.session_id
+                    agent.name, definition, session_id=agent.session_id,
+                    approved_mode=agent.approved_mode,
                 )
             except Exception:  # noqa: BLE001 - one bad row must not stop the daemon
                 log.exception("could not restore named agent %s", agent.name)

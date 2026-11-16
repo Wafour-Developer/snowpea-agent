@@ -54,27 +54,52 @@ HELD_OPEN_NOTE = (
 log = logging.getLogger("snowpea.exec.local")
 
 
+#: Every project root the daemon knows (live sessions, the sidebar, Jarvis):
+#: set by ``server/trust_handlers.wire_trust``.  Security review 5 (round-4 M3
+#: re-check): a PATH entry inside ANY project, not only the one the command
+#: runs in, is dropped, and no program there is ever trusted as safe.
+_PROJECT_ROOTS: list[Any] = []
+
+
+def set_project_roots(provider: Any) -> None:
+    """``provider()`` answers the known project roots (``None`` clears it)."""
+    _PROJECT_ROOTS[:] = [provider] if provider is not None else []
+
+
+def project_roots(workdir: Path | str | None = None) -> list[Path]:
+    """``workdir`` and every known project root, resolved (never ``/`` itself)."""
+    raw: list[Any] = [workdir] if workdir is not None else []
+    for provider in _PROJECT_ROOTS:
+        with contextlib.suppress(Exception):
+            raw.extend(provider() or ())
+    roots: list[Path] = []
+    for item in raw:
+        with contextlib.suppress(OSError, RuntimeError, ValueError, TypeError):
+            real = Path(item).resolve()
+            if real != Path(real.anchor) and real not in roots:
+                roots.append(real)
+    return roots
+
+
 def sanitized_path(value: str, workdir: Path | str | None) -> str:
-    """``PATH`` without empty or relative entries and without entries inside ``workdir``.
+    """``PATH`` without empty or relative entries and without entries inside a project.
 
     An empty entry, ``.`` or ``bin`` resolve against the folder a command runs
     in: a file the project (or the model) put there would run in place of the
-    program the line names (security review 4, M3).
+    program the line names (security review 4, M3).  Entries inside ``workdir``
+    or any other known project (:func:`project_roots`) are dropped too.
     """
-    root: Path | None = None
-    if workdir is not None:
-        with contextlib.suppress(OSError, RuntimeError, ValueError):
-            root = Path(workdir).resolve()
+    roots = project_roots(workdir)
     kept: list[str] = []
     for entry in value.split(os.pathsep):
         if not entry or not os.path.isabs(entry):
             continue
-        if root is not None:
+        if roots:
             try:
                 real = Path(entry).resolve()
             except (OSError, RuntimeError, ValueError):
                 real = Path(entry)
-            if real == root or root in real.parents:
+            if any(real == root or root in real.parents for root in roots):
                 continue
         if entry not in kept:
             kept.append(entry)

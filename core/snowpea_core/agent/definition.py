@@ -755,6 +755,10 @@ async def complete_text(
     return text
 
 
+#: Permissions a generated definition may carry: the default, or narrower.
+GENERATED_PERMISSIONS: frozenset[str] = frozenset({"inherit", "plan", "accept"})
+
+
 def definition_from_payload(data: dict[str, Any], description: str) -> AgentDefinition:
     """Validate a generator payload into an :class:`AgentDefinition`."""
     raw_name = str(data.get("name") or "").strip()
@@ -777,12 +781,18 @@ def definition_from_payload(data: dict[str, Any], description: str) -> AgentDefi
         max_turns = int(max_turns_raw) if max_turns_raw not in (None, "") else None
     except (TypeError, ValueError):
         max_turns = None
+    # Security review 5, H1: a generated definition never grants more than the
+    # project's default — the model writing it cannot pick a wider mode (a
+    # person who wants one sets it in the file and approves it at agent.create).
+    permission = str(data.get("permission") or "inherit").strip() or "inherit"
+    if permission not in GENERATED_PERMISSIONS:
+        permission = "inherit"
     return AgentDefinition(
         name=name,
         description=str(data.get("description") or description).strip(),
         model=str(data.get("model") or "inherit").strip() or "inherit",
         tools=tools,
-        permission=str(data.get("permission") or "inherit").strip() or "inherit",
+        permission=permission,
         max_turns=max_turns,
         tool_rounds=_positive_int(data.get("tool_rounds")),
         prompt=prompt,

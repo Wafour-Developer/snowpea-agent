@@ -352,6 +352,26 @@ class PermissionPolicy:
     def _home(self) -> Any:
         return getattr(getattr(self.allowlist, "paths", None), "home", None)
 
+    def _guarded(self, tool: Tool, args: dict[str, Any] | None, session: Any) -> bool:
+        """A skill's ``allowed-tools`` never cover a call the classifier rates
+        ``guarded`` or ``never`` (security review 5, M2); unknown counts as guarded.
+        (The security lists' blocked/opaque verdicts are judged before this.)"""
+        try:
+            from snowpea_core.jarvis.classify import ClassifyRequest, classify
+            from snowpea_core.tools.registry import effective_permission
+
+            home = self._home()
+            tag = effective_permission(tool, args, session)
+            verdict = classify(ClassifyRequest(
+                tool=tool.name, args=dict(args or {}), tags=(str(tag),),
+                workdir=getattr(session, "workdir", None),
+                session_id=getattr(session, "id", None),
+                home=str(home) if home else None,
+            ))
+        except Exception:  # noqa: BLE001 - unknown is never pre-approved
+            return True
+        return verdict.classification in ("guarded", "never")
+
     def promote(
         self,
         verdict: str,
@@ -363,7 +383,7 @@ class PermissionPolicy:
         if verdict != "ask" or tool is None:
             return verdict
         approved = getattr(session, "skill_approved_tools", None)
-        if approved and tool.name in approved:
+        if approved and tool.name in approved and not self._guarded(tool, args, session):
             return "allow"
         if self.allowlist is None:
             return verdict

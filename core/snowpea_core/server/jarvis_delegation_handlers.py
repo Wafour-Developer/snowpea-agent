@@ -133,13 +133,28 @@ async def _target(core: Core, params: JarvisSessionTarget) -> tuple[str | None, 
     return session_id, None, project
 
 
-def _exposed(project: str | None) -> bool:
+def _exposed(project: str | None, core: Any = None) -> bool:
+    """The project and every known project above it are exposed (security review M2;
+    the parent walk re-checked in review 5, for when the Jarvis service is not up)."""
     if not project:
         return True
     try:
         from snowpea_core.config.project import ProjectSettings
+        from snowpea_core.external.proc import _wide_root
+        from snowpea_core.security.enforce import live_projects
 
-        return ProjectSettings.exposed(Path(project))
+        target = Path(project)
+        if not ProjectSettings.exposed(target):
+            return False
+        for other in live_projects(core) if core is not None else ():
+            base = Path(other)
+            if base == target or base not in target.parents:
+                continue
+            if _wide_root(base.resolve()):
+                continue
+            if not ProjectSettings.exposed(base):
+                return False
+        return True
     except Exception:  # noqa: BLE001 - fail closed (security review M2)
         return False
 
@@ -150,7 +165,7 @@ def _state(core: Core, session_id: str | None, external: Any, project: str | Non
     if service is not None and session_id is not None:
         return service.session_state(session_id, project)
     return engine_for(core).session_state(
-        session_id, external=external, project=project, exposed=_exposed(project)
+        session_id, external=external, project=project, exposed=_exposed(project, core)
     )
 
 

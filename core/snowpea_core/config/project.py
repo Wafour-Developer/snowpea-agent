@@ -206,6 +206,34 @@ class ProjectSettings(BaseModel):
             return cls()
 
     @classmethod
+    def load_effective(cls, workdir: Path | str) -> ProjectSettings:
+        """What of the file APPLIES (security review 5, H2).
+
+        Without the project's ``settings`` trust (:mod:`snowpea_core.trust`) a
+        project file may only narrow: its allowlist rules, model profiles and
+        routing, and any ``providers``/``mcp``/``hooks`` keys are left out;
+        ``defaultMode`` is clamped by the session manager; ``jarvis.expose:
+        false`` and security-list additions always apply.  Readers use this;
+        writers keep :meth:`load` (so a save never drops what it did not read).
+        """
+        loaded = cls.load(workdir)
+        try:
+            from snowpea_core.trust.projects import settings_trusted
+
+            if settings_trusted(workdir):
+                return loaded
+        except Exception:  # noqa: BLE001 - trust fails closed
+            log.warning("could not read project trust for %s", workdir, exc_info=True)
+        narrowed = loaded.model_copy(deep=True)
+        narrowed.allowlist = []
+        narrowed.models = ProjectModelsSettings()
+        extra = narrowed.__pydantic_extra__
+        if isinstance(extra, dict):
+            for key in ("providers", "mcp", "hooks"):
+                extra.pop(key, None)
+        return narrowed
+
+    @classmethod
     def exposed(cls, workdir: Path | str) -> bool:
         """``jarvis.expose`` for the exposure decision only, failing closed (security review M2).
 

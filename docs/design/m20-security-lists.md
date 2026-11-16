@@ -135,9 +135,17 @@ its own prompts, another terminal).
 
 ### Limits (stated in the manual)
 
-Works for everything that goes through snowpea. Cannot see inside scripts a line runs, inside inline
-code beyond literals, or inside external CLIs that are unrestricted, answer prompts in their own pane,
-or run in another terminal. For hard guarantees: OS-level protection.
+Works for everything that goes through snowpea. Cannot see inside external CLIs that are
+unrestricted, answer prompts in their own pane, or run in another terminal. For hard guarantees:
+OS-level protection.
+
+Security review 5 (H4, `m20-project-trust.md` §6): inline interpreter code and `execute_code` bodies
+are analysed per language (destructive or spawning primitives: literal targets judged like the
+command they stand for, computed ones opaque), and a script file a line runs is read (256 KiB) and
+judged — a shell script line by line, other languages by the same analysis; an unreadable script is
+opaque when it is recent. Still beyond a static check: what a program computes at run time, code it
+fetches later, compiled binaries. The digest of every script read rides on the verdict; an answer is
+not used when the script changed meanwhile.
 
 ## 2. Remote web access at runtime (owner decision 2b)
 

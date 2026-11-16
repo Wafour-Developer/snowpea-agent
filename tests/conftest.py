@@ -48,6 +48,30 @@ def _projects_trusted_for_external_clis(request: pytest.FixtureRequest) -> Itera
 
 
 @pytest.fixture(autouse=True)
+def _projects_trusted_for_their_content(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Test projects' hooks, MCP servers, commands and settings are trusted (review 5, C1).
+
+    The suites written before project trust put hooks, ``.mcp.json``,
+    ``allowed-tools`` and ``defaultMode`` into a tmp project and exercise what
+    they do, not the trust step.  Tests marked ``real_project_trust`` (and the
+    ``real_trust`` ones, which test the external-CLI trust of the same record)
+    see the real rule.  Patched by hand, as ``_projects_trusted_for_external_clis`` is.
+    """
+    if (request.node.get_closest_marker("real_project_trust") is not None
+            or request.node.get_closest_marker("real_trust") is not None):
+        yield
+        return
+    from snowpea_core.trust.projects import TrustStore
+
+    original = TrustStore.active
+    TrustStore.active = lambda self, root, scope, rel=None: True  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        TrustStore.active = original  # type: ignore[method-assign]
+
+
+@pytest.fixture(autouse=True)
 def _tests_may_set_modes_directly(request: pytest.FixtureRequest) -> Iterator[None]:
     """A test that builds a session in a mode calls the manager itself (security review 4).
 
@@ -89,6 +113,9 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers", "real_mode_guard: in-process mode raises are not pre-granted (review 4)"
+    )
+    config.addinivalue_line(
+        "markers", "real_project_trust: project content trust is not pre-granted (review 5)"
     )
 
 

@@ -99,7 +99,10 @@ async def get_handler(
     ]
     effective = {**_wire(merged), "commands": effective_commands(merged),
                  "paths": list({r["path"] + r["by"]: r for r in resolved}.values())}
-    problems = list(stored.problems) + (list(project.problems) if project else [])
+    from snowpea_core.config.settings import SECURITY_PRESET_PROBLEMS
+
+    problems = (list(SECURITY_PRESET_PROBLEMS.values()) + list(stored.problems)
+                + (list(project.problems) if project else []))
     items = list(stored.problem_items) + (list(project.problem_items) if project else [])
     return SecurityGetResult.model_validate({
         **_wire(stored),

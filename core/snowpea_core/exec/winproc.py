@@ -254,7 +254,13 @@ def taskkill_tree(pid: int) -> bool:
     """``taskkill /PID <pid> /T /F`` for exactly ``pid``, with no console window.
 
     Only ever called for a pid this module started and still holds a handle
-    to (see :meth:`ProcessTree.terminate`).
+    to (see :meth:`ProcessTree.terminate`), and only as the LAST resort: a
+    tree in a job is ended with ``TerminateJobObject`` and this runs only when
+    there is no job or ending it failed.  Known limit (security review 5, L3):
+    ``/T`` walks the parent-pid links Windows keeps, which are not cleared when
+    a parent exits, so a process whose stale parent pid happens to equal ours
+    (a reused pid) can be ended too.  The job is the precise mechanism; this is
+    kept only so a tree outside any job still stops.
     """
     try:
         done = subprocess.run(  # noqa: S603 - fixed system binary, a pid we started
