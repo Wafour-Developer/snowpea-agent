@@ -10,6 +10,7 @@ import type { CommandInfo } from "../rpc/sdk.js";
 import { rankCommandMatches } from "../state/slash-completion.js";
 import { SECURITY_REQUIRES_SUMMARY } from "../state/security.js";
 import { WEB_REQUIRES_SUMMARY } from "../state/web-remote.js";
+import { TRUST_REQUIRES_SUMMARY } from "../state/trust.js";
 
 const SURFACE_COMMANDS: CommandInfo[] = [
   {
@@ -66,6 +67,11 @@ const SURFACE_COMMANDS: CommandInfo[] = [
   {
     name: "web",
     summary: "Remote web access: listen for other machines, the access link, password: /web, /web status.",
+    source: "tui",
+  },
+  {
+    name: "trust",
+    summary: "Trust this project's own hooks, MCP servers and commands: /trust, /trust status.",
     source: "tui",
   },
 ];
@@ -131,7 +137,13 @@ function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
         ? {
             ...command,
             summary:
-              command.name === "security" ? SECURITY_REQUIRES_SUMMARY : command.name === "web" ? WEB_REQUIRES_SUMMARY : REQUIRES_CORE_SUMMARY,
+              command.name === "security"
+                ? SECURITY_REQUIRES_SUMMARY
+                : command.name === "web"
+                  ? WEB_REQUIRES_SUMMARY
+                  : command.name === "trust"
+                    ? TRUST_REQUIRES_SUMMARY
+                    : REQUIRES_CORE_SUMMARY,
           }
         : command,
     ),

@@ -143,6 +143,8 @@ export interface TuiClientListeners {
   onExternalClisChanged?: (params: ExternalClisChanged) => void;
   /** A command or path was refused by the security lists (capability `securityLists`). */
   onSecurityBlocked?: (params: unknown) => void;
+  /** A project was trusted or its trust taken back (capability `projectTrust`). */
+  onProjectTrustChanged?: (params: unknown) => void;
 }
 
 export class TuiClient {
@@ -224,6 +226,7 @@ export class TuiClient {
     untypedOn("jarvis.escalation.dismissed", (params) => this.listeners.onJarvisEscalationDismissed?.(params));
     untypedOn("external.clis.changed", (params) => this.listeners.onExternalClisChanged?.(params));
     untypedOn("security.blocked", (params) => this.listeners.onSecurityBlocked?.(params));
+    untypedOn("project.trust.changed", (params) => this.listeners.onProjectTrustChanged?.(params));
     untypedOn("sessions.changed", (params) => this.listeners.onSessionsChanged?.(params));
     untypedOn("settings.changed", (params: any) => {
       void this.loadUiLanguage();

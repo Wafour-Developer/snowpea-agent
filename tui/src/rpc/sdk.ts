@@ -54,6 +54,9 @@ import type {
   SecurityPresetsListResult,
   WebRemoteStatusResult,
   WebRemoteListenParams,
+  ProjectTrustStatusResult,
+  ProjectTrustChangedPayload,
+  CommandResultEventPayload,
 } from "@snowpea/sdk";
 
 export { connect, defaultResolveEndpoint } from "@snowpea/sdk";
@@ -175,3 +178,9 @@ export type SecurityBlocked = SecurityBlockedPayload;
 /** Remote web access (1.54.0, capability `webRemoteControl`): every `web.remote.*` call but rotateToken answers this shape. */
 export type WebRemoteStatus = WebRemoteStatusResult;
 export type WebRemoteListen = WebRemoteListenParams;
+
+/** Project trust (1.55.0, capability `projectTrust`): every `project.trust.*` call answers this shape. */
+export type ProjectTrustStatus = ProjectTrustStatusResult;
+export type ProjectTrustChanged = ProjectTrustChangedPayload;
+/** `command.result` session event (1.55.0, capability `commandsBesideTurn`). */
+export type CommandResultEvent = CommandResultEventPayload;

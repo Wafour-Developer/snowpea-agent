@@ -8,7 +8,13 @@
  * `context_window_too_small` arrive. Pure, so the tests cover every case.
  */
 
+import { uiLanguage } from "../layout/language.js";
 import { sanitizeText } from "../util/sanitize.js";
+
+/** One string in the language the chrome is drawn in (English unless Korean is set). */
+export function say(en: string, ko: string): string {
+  return uiLanguage() === "ko" ? ko : en;
+}
 
 interface RpcErrorShape {
   message?: unknown;
@@ -38,6 +44,61 @@ function messageOf(error: unknown): string {
 export const MODE_RAISE_LINE =
   "The mode was not raised: raising the permission mode needs a person, and core refused this request (jarvis_person_only, mode_raise).";
 
+/** A refusal core attached to an open approval or question (1.55.0 `refused`), or null when there is none. */
+export function refusalOf(raw: unknown): { code: string; message: string; reason: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const message = typeof value["message"] === "string" ? sanitizeText(value["message"]) : "";
+  const code = typeof value["code"] === "string" ? sanitizeText(value["code"]) : "";
+  const reason = typeof value["reason"] === "string" ? sanitizeText(value["reason"]) : "";
+  return code === "" && message === "" && reason === "" ? null : { code, message, reason };
+}
+
+/** What a refused reply says on the still-open prompt: the reason in words (from `reason`), then core's own message. */
+export function refusalWords(refused: { code: string; message: string; reason: string }): string {
+  const lead =
+    refused.reason === "person_only"
+      ? say("Your answer was not accepted: only a person on this machine can decide this.", "답변이 받아들여지지 않았습니다. 이 결정은 이 컴퓨터의 사람만 할 수 있습니다.")
+      : refused.reason === "mode_raise"
+        ? say("Your answer was not accepted: raising the mode needs a person on this machine.", "답변이 받아들여지지 않았습니다. 모드를 올리려면 이 컴퓨터의 사람이 필요합니다.")
+        : say("Your answer was not accepted.", "답변이 받아들여지지 않았습니다.");
+  return refused.message !== "" ? `${lead} ${refused.message}` : lead;
+}
+
+/** `jarvis_person_only` / `local_only`: a remote login (or another non-local kind) may not do this. */
+export function localOnlyLine(details: Record<string, unknown>): string {
+  const what = str(details["what"]);
+  const kind = str(details["kind"]);
+  const who =
+    kind === "remote_login" ? "a remote login" : kind === "browser" ? "a browser host" : kind === "connector" ? "a connector" : "this connection";
+  const whoKo =
+    kind === "remote_login" ? "원격 로그인" : kind === "browser" ? "브라우저 호스트" : kind === "connector" ? "커넥터" : "이 연결";
+  return say(
+    `Only snowpea on this machine can do that${what ? ` (${sanitizeText(what)})` : ""} — not ${who}.`,
+    `이 컴퓨터의 snowpea만 할 수 있습니다${what ? ` (${sanitizeText(what)})` : ""} — ${whoKo}에서는 안 됩니다.`,
+  );
+}
+
+/** `invalid_params` / `global_only`: a project scope tried to set a key only the global settings may hold. */
+export function globalOnlyLine(details: Record<string, unknown>): string {
+  const key = str(details["key"]);
+  return say(
+    `${key ? `${sanitizeText(key)} ` : "That setting "}can only be set for all projects (global), not for one project.`,
+    `${key ? `${sanitizeText(key)} 설정은 ` : "이 설정은 "}프로젝트별이 아니라 전체(전역)로만 바꿀 수 있습니다.`,
+  );
+}
+
+/** An internal error: core keeps the cause in its log under this id. */
+export function internalErrorLine(errorId: string): string {
+  return say(
+    `snowpea hit an internal error (id ${sanitizeText(errorId)}). The details are in the daemon log under that id.`,
+    `snowpea 내부 오류가 났습니다 (id ${sanitizeText(errorId)}). 자세한 내용은 데몬 로그에서 이 id로 찾을 수 있습니다.`,
+  );
+}
+
+export const TRUST_CHANGED_LINE = "The project's files changed after you were shown them. Nothing was trusted. Review them again.";
+export const TRUST_CHANGED_LINE_KO = "보여 드린 뒤 프로젝트 파일이 바뀌었습니다. 아무것도 신뢰하지 않았습니다. 다시 확인해 주세요.";
+
 /**
  * One plain line for a failed call. A code this module does not know keeps the
  * text the TUI always showed (`String(error)`).
@@ -46,9 +107,15 @@ export function rpcErrorText(error: unknown): string {
   const code = rpcCode(error);
   const details = detailsOf(error);
   if (code === "jarvis_person_only") {
-    if (str(details["reason"]) === "mode_raise") return MODE_RAISE_LINE;
+    const reason = str(details["reason"]);
+    if (reason === "mode_raise") return MODE_RAISE_LINE;
+    if (reason === "local_only") return localOnlyLine(details);
     return "Only a person can do that — Jarvis and scripts cannot.";
   }
+  if (code === "invalid_params" && str(details["reason"]) === "global_only") return globalOnlyLine(details);
+  if (code === "trust_changed") return say(TRUST_CHANGED_LINE, TRUST_CHANGED_LINE_KO);
+  const errorId = str(details["errorId"]);
+  if (errorId !== undefined) return internalErrorLine(errorId);
   if (code === "steer_slash_command") {
     return "A slash command cannot be sent as a steer — send it on its own as a prompt.";
   }
@@ -114,6 +181,22 @@ export function hookFailedLine(message: string): string {
   return `${text}  (/skill hooks)`;
 }
 
+/**
+ * The notice for `project_untrusted` (sent once per session): core's own line,
+ * calm, ending "(/trust)". It is not a failed turn.
+ */
+export function projectUntrustedLine(message: string): string {
+  const flat = sanitizeText(message).replace(/\s+/g, " ").trim();
+  const text =
+    flat === ""
+      ? say(
+          "This project's own hooks, MCP servers and commands are switched off until you trust it.",
+          "이 프로젝트의 훅, MCP 서버, 명령은 신뢰하기 전까지 꺼져 있습니다.",
+        )
+      : flat;
+  return /\(\/trust\)\s*$/.test(text) ? text : `${text}  (/trust)`;
+}
+
 /** How the reducer treats a session `error` event. */
 export type SessionErrorView =
   /** A one-off notice in the transcript; the turn is not marked failed. */
@@ -131,6 +214,8 @@ export function sessionErrorView(code: string | undefined, message: string, deta
       return { kind: "error", text: contextWindowShort(message, details), detail: contextWindowLine(message, details) };
     case "security_blocked":
       return { kind: "blocked", text: `Blocked by your security list: ${message}`.trim() };
+    case "project_untrusted":
+      return { kind: "notice", text: projectUntrustedLine(message) };
     default:
       return { kind: "error", text: `${code ?? "error"}: ${message}` };
   }
