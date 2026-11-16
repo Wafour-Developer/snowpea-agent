@@ -128,7 +128,7 @@ async def _row(core: Any, session_id: str, **params: Any) -> SessionSummary:
 
 
 def test_version_and_declared_contract() -> None:
-    assert protocol.PROTOCOL_VERSION == "1.54.0"
+    assert protocol.PROTOCOL_VERSION == "1.55.0"
     assert M19_METHODS <= set(protocol.METHODS)
     # Declared only until their work package lands: the dispatcher's
     # not_implemented stub answers the rest; the external.* family is

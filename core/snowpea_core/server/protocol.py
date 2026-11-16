@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.54.0"
+PROTOCOL_VERSION = "1.55.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -6195,6 +6195,15 @@ class ErrorEvent(Payload):
     kind: Literal["error"] = "error"
     code: str = Field(description="One of the protocol error codes.")
     message: str = Field(description="Human-readable detail.")
+    details: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Machine-readable facts for the code (1.55.0); absent when the code has none. "
+            "hook_failed: {plugin, hook (PreToolUse, PostToolUse or Stop), reason, exitCode "
+            "(-1 = could not start or timed out)}. context_window_too_small: "
+            "{windowTokens, neededTokens}."
+        ),
+    )
 
 
 class AudioSpoken(Payload):
@@ -6628,8 +6637,28 @@ class ApprovalRespondResult(Ok):
     )
 
 
+class RequestRefusal(Payload):
+    """Why the asking connection's own reply to a request did not count (1.55.0)."""
+
+    code: str = Field(description="The error code the reply earned: 'jarvis_person_only'.")
+    reason: str = Field(
+        description=(
+            "As the RPC error's details.reason: 'person_only', or 'mode_raise' for a "
+            "question of kind 'mode'."
+        )
+    )
+    message: str = Field(description="Human-readable detail.")
+
+
 class ApprovalPendingNotification(Payload):
-    """An unattended approval is waiting; any authenticated surface may answer."""
+    """An unattended approval is waiting; any authenticated surface may answer.
+
+    Since 1.55.0 also sent to the asking connection alone, with ``refused``,
+    when its reply to an ``approval.request`` for a ``personOnly`` request was
+    not a person's (a browser reply without ``actor: "person"``, or from a
+    browser that does not host the session): the request stays open, the card
+    should come back, and a person answers it with ``approval.respond``.
+    """
 
     request: ApprovalRequest = Field(description="The request now in the shared queue.")
     hostToolsFrom: str | None = Field(
@@ -6637,6 +6666,13 @@ class ApprovalPendingNotification(Payload):
         description=(
             "The session's owning client (addendum 8). A browser profile shows only "
             "its own cards and those with null."
+        ),
+    )
+    refused: RequestRefusal | None = Field(
+        default=None,
+        description=(
+            "1.55.0: set only on the re-announcement to the asking connection after its "
+            "reply was refused; the request is still open."
         ),
     )
 
@@ -6716,7 +6752,13 @@ class QuestionRouteChangedNotification(_RouteChanged):
 
 
 class QuestionPendingNotification(Payload):
-    """A question is waiting; any authenticated surface may see it coming."""
+    """A question is waiting; any authenticated surface may see it coming.
+
+    Since 1.55.0 also sent to the asking connection alone, with ``refused``,
+    when its reply to a ``question.request`` for a ``personOnly`` question was
+    not a person's: the question stays open with the same ``requestId``, the
+    card should come back, and a person answers it with ``question.respond``.
+    """
 
     request: QuestionRequest = Field(description="The question now in the shared queue.")
     hostToolsFrom: str | None = Field(
@@ -6724,6 +6766,13 @@ class QuestionPendingNotification(Payload):
         description=(
             "The session's owning client (addendum 8). A browser profile shows only "
             "its own cards and those with null."
+        ),
+    )
+    refused: RequestRefusal | None = Field(
+        default=None,
+        description=(
+            "1.55.0: set only on the re-announcement to the asking connection after its "
+            "reply was refused; the question is still open."
         ),
     )
 

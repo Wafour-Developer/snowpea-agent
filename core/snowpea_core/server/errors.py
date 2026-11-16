@@ -94,6 +94,12 @@ EXTERNAL_VIEW_ONLY = "external_view_only"
 EXTERNAL_UNAVAILABLE = "external_unavailable"
 #: 1.54.0: a call refused by the security lists (blocked command or protected path).
 SECURITY_BLOCKED = "security_blocked"
+#: 1.55.0 (``error`` event codes registered with the protocol): a plugin hook
+#: could not run or failed (``details {plugin, hook, reason, exitCode}``);
+#: the model's context window cannot hold snowpea's system prompt and tool
+#: definitions, so the turn ended (``details {windowTokens, neededTokens}``).
+HOOK_FAILED = "hook_failed"
+CONTEXT_WINDOW_TOO_SMALL = "context_window_too_small"
 
 ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,
@@ -139,6 +145,8 @@ ERROR_CODES: tuple[str, ...] = (
     EXTERNAL_VIEW_ONLY,
     EXTERNAL_UNAVAILABLE,
     SECURITY_BLOCKED,
+    HOOK_FAILED,
+    CONTEXT_WINDOW_TOO_SMALL,
 )
 
 # JSON-RPC 2.0 reserved codes.

@@ -669,8 +669,9 @@ _CONTEXT_OVERFLOW = re.compile(
 #: and the tool schemas — so no request can ever fit.  Stable; clients may
 #: localise it.  The message names both numbers ("…window of 4096 tokens…
 #: needs about 9800…"); the raised error carries them as
-#: ``details = {"windowTokens": …, "neededTokens": …}``.
-CONTEXT_WINDOW_TOO_SMALL = "context_window_too_small"
+#: ``details = {"windowTokens": …, "neededTokens": …}``, which the ``error``
+#: event carries as its ``details`` (1.55.0).
+CONTEXT_WINDOW_TOO_SMALL = errors.CONTEXT_WINDOW_TOO_SMALL
 OVERFLOW_NOTE = (
     "The conversation outgrew the model's context window; summarising earlier turns and "
     "trying again."
@@ -2136,7 +2137,11 @@ async def run_turn(
                 content=_redact_command_text(f"Turn failed ({exc.code}): {exc}"),
             )
         )
-        await hub.emit_event(session.id, events.error(exc.code, str(exc)))
+        details = getattr(exc, "details", None)
+        await hub.emit_event(
+            session.id,
+            events.error(exc.code, str(exc), details if isinstance(details, dict) else None),
+        )
         reason = "error"
         await finish_turn(core, session, turn_id, reason)
     except Exception as exc:  # noqa: BLE001 - a bug ends the turn, never the daemon
@@ -3300,10 +3305,55 @@ async def _run_one_call(
             return "denied"
 
     await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
+    # From here on the card is "running" on every surface: whatever happens —
+    # a cancelled task (daemon shutdown, a parallel sibling's interrupt), an
+    # exception in a hook or in the cleanup — the call ends with a tool.result.
+    settled = [False]
+    try:
+        return await _run_started_call(
+            core, session, backend, tool, call, tag, turn_id, settled
+        )
+    except asyncio.CancelledError:
+        if not settled[0]:
+            await _settle_started_call(core, session, call, "cancelled")
+        raise
+    except Exception as exc:  # noqa: BLE001 - a bug after tool.call is a failed call
+        if settled[0]:
+            raise
+        log.exception("tool call %s (%s) failed outside the tool", call.id, call.name)
+        await _settle_started_call(core, session, call, f"{type(exc).__name__}: {exc}")
+        return None
+
+
+async def _settle_started_call(
+    core: Core, session: Session, call: ToolCall, error: str
+) -> None:
+    """The ``tool.result`` (and history entry) of a started call that did not finish."""
+    try:
+        await _fail_call(core, session, call, error)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - best effort while unwinding
+        log.debug("could not settle tool call %s", call.id, exc_info=True)
+
+
+async def _run_started_call(
+    core: Core,
+    session: Session,
+    backend: Any,
+    tool: Tool,
+    call: ToolCall,
+    tag: str,
+    turn_id: str,
+    settled: list[bool],
+) -> str | None:
+    """Run a call whose ``tool.call`` went out; ``settled[0]`` once its result did."""
+    hub = core.hub
     # Plugin hooks (M6 contract §1): PreToolUse may refuse the call with exit 2.
     blocked = await plugin_hooks.pre_tool_use(core, session, call.name, dict(call.arguments))
     if blocked is not None:
         await _fail_call(core, session, call, f"{plugin_hooks.BLOCKED_PREFIX}: {blocked}")
+        settled[0] = True
         return None
     ctx = ToolContext(
         session=session,
@@ -3433,6 +3483,7 @@ async def _run_one_call(
             meta=host_tools_mod.event_meta(result.meta, tool=call.name),
         ),
     )
+    settled[0] = True
     if result.diff:
         await hub.emit_event(
             session.id, events.diff(result.path or "", result.diff, call_id=call.id)

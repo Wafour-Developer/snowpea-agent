@@ -435,8 +435,12 @@ def context_host(turn_id: str, chars: int) -> Event:
     return _pack(ContextHostEvent(turnId=turn_id, chars=chars))
 
 
-def error(code: str, message: str) -> Event:
-    return _pack(ErrorEvent(code=code, message=message))
+def error(code: str, message: str, details: dict[str, Any] | None = None) -> Event:
+    """A turn-level error; ``details`` (1.55.0) is left off the wire when empty."""
+    kind, data = _pack(ErrorEvent(code=code, message=message, details=details or None))
+    if data.get("details") is None:
+        data.pop("details", None)
+    return kind, data
 
 
 def audio_spoken(

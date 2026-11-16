@@ -253,8 +253,40 @@ async def run_hook(
     cwd: Path | str | None = None,
 ) -> tuple[int, str]:
     """Run one hook; returns ``(exit_code, stderr)``.  Never raises."""
-    code, _out, err = await run_hook_output(hook, payload, home=home, cwd=cwd)
+    code, _out, err = await run_hook_output(
+        hook, payload, home=home, cwd=cwd, session_id=str(payload.get("session_id") or "")
+    )
     return code, err
+
+
+#: ``(session_id, hook command)`` whose bare ``python3`` failed to start or
+#: import from PATH on Windows and worked with the core's interpreter: later
+#: runs in that session go straight to the core's interpreter.
+_CORE_PYTHON_FOR: set[tuple[str, str]] = set()
+
+#: A line a Python that started but could not load the hook's packages prints.
+_IMPORT_FAILURE = re.compile(r"^\s*(?:\w+\.)*(?:ImportError|ModuleNotFoundError)\b", re.MULTILINE)
+
+#: cmd.exe's "is not recognized as an internal or external command".
+_NOT_FOUND_EXIT = 9009
+
+
+def _bare_python_on_path(command: str) -> re.Match[str] | None:
+    """The first-word match when ``command`` starts with a bare ``python3``/``python``."""
+    from snowpea_core.exec import winproc
+
+    match = _FIRST_TOKEN.match(command)
+    if match is None:
+        return None
+    program = match.group(1) or match.group(2) or ""
+    return match if program.lower() in winproc.BARE_PYTHON_NAMES else None
+
+
+def _start_or_import_failed(code: int, err: str) -> bool:
+    """True when the PATH Python could not start the hook or load its imports."""
+    if code == _NOT_FOUND_EXIT:
+        return True
+    return code not in (0, BLOCK_EXIT_CODE) and bool(_IMPORT_FAILURE.search(err or ""))
 
 
 async def run_hook_output(
@@ -263,6 +295,7 @@ async def run_hook_output(
     *,
     home: Path | str,
     cwd: Path | str | None = None,
+    session_id: str = "",
 ) -> tuple[int, str, str]:
     """Run one hook; returns ``(exit_code, stdout, stderr)``.  Never raises.
 
@@ -271,12 +304,56 @@ async def run_hook_output(
     and a bare ``python3`` resolves to a usable interpreter
     (:func:`windows_python`); on a timeout the whole tree is ended, and once
     the hook has answered whatever it left behind ends too.
+
+    The Windows interpreter rule prefers a real Python on PATH (the plugin's
+    packages are usually installed there).  When that Python cannot start the
+    hook (exit 9009) or stops on an ``ImportError``/``ModuleNotFoundError``,
+    the hook runs once more with the core's interpreter; if that one does not
+    fail the same way, the session keeps using it for this hook.
     """
+    try:
+        expanded = expand(hook.command, hook.root)
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        session_id = session_id or str(payload.get("session_id") or "")
+        key = (session_id, hook.command)
+        bare = _bare_python_on_path(expanded) if sys.platform == "win32" else None
+        if bare is not None and key in _CORE_PYTHON_FOR:
+            return await _spawn(hook, python_command() + expanded[bare.end() :], body, payload,
+                                home, cwd)
+        command = windows_python(expanded)
+        result = await _spawn(hook, command, body, payload, home, cwd)
+        if bare is None or command != expanded or not _start_or_import_failed(result[0], result[2]):
+            return result
+        # The PATH Python is real but cannot run this hook: try the core's once.
+        retry = await _spawn(hook, python_command() + expanded[bare.end() :], body, payload,
+                             home, cwd)
+        if _start_or_import_failed(retry[0], retry[2]) or retry[0] == HOOK_FAILED:
+            return result
+        _CORE_PYTHON_FOR.add(key)
+        log.info(
+            "hook %r failed with the PATH Python (%s); the core's interpreter works, "
+            "using it for this session", hook.command, failure_reason(result[0], result[2]),
+        )
+        return retry
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a broken hook must never break the turn
+        log.warning("hook %s failed to run: %s", hook.command, exc, exc_info=True)
+        return HOOK_FAILED, "", f"could not run: {type(exc).__name__}: {exc}"
+
+
+async def _spawn(
+    hook: Hook,
+    command: str,
+    body: bytes,
+    payload: dict[str, Any],
+    home: Path | str,
+    cwd: Path | str | None,
+) -> tuple[int, str, str]:
+    """Run ``command`` once for ``hook``; ``(exit_code, stdout, stderr)``.  Never raises."""
     from snowpea_core.exec import winproc
 
     try:
-        command = windows_python(expand(hook.command, hook.root))
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -398,7 +475,8 @@ async def note_failure(core: Any, session: Any, hook: Hook, code: int, err: str)
     try:
         from snowpea_core.session import events
 
-        await hub.emit_event(session_id, events.error(HOOK_FAILED_CODE, message))
+        details = {"plugin": name, "hook": hook.event, "reason": reason, "exitCode": code}
+        await hub.emit_event(session_id, events.error(HOOK_FAILED_CODE, message, details))
     except Exception:  # noqa: BLE001 - telling the surface is best effort
         log.debug("could not surface the hook failure", exc_info=True)
 

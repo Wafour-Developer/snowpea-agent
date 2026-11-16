@@ -71,7 +71,18 @@ Since 1.53.0 every `message.user` event carries `origin` — `{kind, surface}`, 
 
 ## Errors
 
-Errors are JSON-RPC errors with a string code in `error.data.code`: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `mcp_auth_failed`, `search_provider_unavailable`, `browser_provider_unavailable`, `fork_after_compaction`, `fork_turn_not_found`, `fork_no_finished_turn`, `fork_child_session`, `fork_running` (`session.fork`, 1.50.0), `steer_slash_command` (`session.steer`, 1.50.0), `goal_not_allowed` (`goal.set`/`goal.resume`, 1.50.0), `jarvis_disabled`, `jarvis_person_only`, `external_view_only`, `external_unavailable` (Jarvis mode, 1.53.0), `internal`.
+Errors are JSON-RPC errors with a string code in `error.data.code`: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `mcp_auth_failed`, `search_provider_unavailable`, `browser_provider_unavailable`, `fork_after_compaction`, `fork_turn_not_found`, `fork_no_finished_turn`, `fork_child_session`, `fork_running` (`session.fork`, 1.50.0), `steer_slash_command` (`session.steer`, 1.50.0), `goal_not_allowed` (`goal.set`/`goal.resume`, 1.50.0), `jarvis_disabled`, `jarvis_person_only`, `external_view_only`, `external_unavailable` (Jarvis mode, 1.53.0), `security_blocked` (1.54.0), `internal`.
+
+Some codes arrive only as the `code` of an `error` session event, inside a turn. Since 1.55.0 that event may carry `details` with the facts for the code, so a client can write its own message:
+
+| Code | When | `details` |
+| --- | --- | --- |
+| `hook_failed` | A plugin hook could not start, crashed or timed out (shown once per session per hook; the call itself goes on unless the hook is `failClosed`). | `{plugin, hook, reason, exitCode}`: `hook` is `PreToolUse`, `PostToolUse` or `Stop`; `exitCode` is `-1` when the hook could not start or timed out. |
+| `context_window_too_small` | The model's context window cannot hold snowpea's system prompt and tool definitions, so no request can fit; the turn ends with reason `error`. | `{windowTokens, neededTokens}` |
+
+A started tool call always ends with a `tool.result`: when the turn is cancelled under it (daemon shutdown, an interrupt that cancels the task) the result has `ok: false` and `error: "cancelled"`.
+
+A `personOnly` question or approval answered by the asking connection without a person's marker is not dropped: that connection receives `question.pending` / `approval.pending` again with the same request and a `refused` object (`{code: "jarvis_person_only", reason, message}`), and the request stays open for a person to answer.
 
 ## Using the SDK
 

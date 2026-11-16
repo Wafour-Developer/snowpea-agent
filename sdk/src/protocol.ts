@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.54.0";
+export const PROTOCOL_VERSION = "1.55.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -15,6 +15,7 @@ export type ErrorCode =
   | "approval_denied"
   | "approval_timeout"
   | "auth_expired"
+  | "context_window_too_small"
   | "empty_response"
   | "exists"
   | "external_unavailable"
@@ -25,6 +26,7 @@ export type ErrorCode =
   | "fork_running"
   | "fork_turn_not_found"
   | "goal_not_allowed"
+  | "hook_failed"
   | "image_rejected"
   | "internal"
   | "invalid_output"
@@ -59,6 +61,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "approval_denied",
   "approval_timeout",
   "auth_expired",
+  "context_window_too_small",
   "empty_response",
   "exists",
   "external_unavailable",
@@ -69,6 +72,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "fork_running",
   "fork_turn_not_found",
   "goal_not_allowed",
+  "hook_failed",
   "image_rejected",
   "internal",
   "invalid_output",
@@ -8477,6 +8481,15 @@ export interface WorkspaceReorderResult {
 export interface ApprovalPendingPayload {
   /** The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. */
   hostToolsFrom?: string | null;
+  /** 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the request is still open. */
+  refused?: {
+    /** The error code the reply earned: 'jarvis_person_only'. */
+    code: string;
+    /** Human-readable detail. */
+    message: string;
+    /** As the RPC error's details.reason: 'person_only', or 'mode_raise' for a question of kind 'mode'. */
+    reason: string;
+  } | null;
   /** The request now in the shared queue. */
   request: {
     /** Arguments it wants to use. */
@@ -9020,6 +9033,15 @@ export interface ProviderLoginProgressPayload {
 export interface QuestionPendingPayload {
   /** The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. */
   hostToolsFrom?: string | null;
+  /** 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the question is still open. */
+  refused?: {
+    /** The error code the reply earned: 'jarvis_person_only'. */
+    code: string;
+    /** Human-readable detail. */
+    message: string;
+    /** As the RPC error's details.reason: 'person_only', or 'mode_raise' for a question of kind 'mode'. */
+    reason: string;
+  } | null;
   /** The question now in the shared queue. */
   request: {
     /** Set when an external CLI session asks (1.53.0); see ApprovalRequest. */
@@ -9363,6 +9385,8 @@ export interface DiffEventPayload {
 export interface ErrorEventPayload {
   /** One of the protocol error codes. */
   code: string;
+  /** Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (PreToolUse, PostToolUse or Stop), reason, exitCode (-1 = could not start or timed out)}. context_window_too_small: {windowTokens, neededTokens}. */
+  details?: Record<string, unknown> | null;
   kind?: "error";
   /** Human-readable detail. */
   message: string;

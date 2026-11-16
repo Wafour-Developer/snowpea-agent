@@ -191,6 +191,10 @@ The command receives `{event, tool_name, tool_input, session_id, cwd}` as JSON o
 
 `${CLAUDE_PLUGIN_ROOT}`, `${SNOWPEA_PLUGIN_ROOT}` and `${SNOWPEA_PYTHON}` expand inside hook and MCP commands, with or without braces.
 
+**When a hook fails.** A hook that cannot start, exits with an unexpected status or times out does not stop the call (unless it says `"failClosed": true`, which blocks the calls it guards). The session shows it once as an `error` event with code `hook_failed` and `details {plugin, hook, reason, exitCode}`, and `/skill hooks` lists every hook failing now.
+
+**Python hooks on Windows.** A command that starts with a bare `python3` or `python` uses the Python on `PATH` when it is a real interpreter (so the packages you installed for the plugin are there); when there is none, or only the Microsoft Store stub, snowpea's own interpreter runs it. If the `PATH` Python cannot start the hook (exit 9009) or stops on an `ImportError`/`ModuleNotFoundError`, snowpea runs the hook once more with its own interpreter, and if that works it keeps using it for that hook for the rest of the session.
+
 ## MCP servers
 
 `.mcp.json` uses the Claude Code format and is read from `$SNOWPEA_HOME`, from the project directory, and from each installed plugin:

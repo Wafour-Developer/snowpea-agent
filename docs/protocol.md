@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.54.0` (semver)
+- **Protocol version:** `1.55.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.54.0"
+    "protocolVersion": "1.55.0"
   }
 }
 ```
@@ -4997,6 +4997,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
+| `refused` | `{ code: string; message: string; reason: string; } \| null` | no | 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the request is still open. |
 | `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
@@ -5205,6 +5206,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
+| `refused` | `{ code: string; message: string; reason: string; } \| null` | no | 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the question is still open. |
 | `request` | `{ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; kind?: "mode" \| null; neverDelegable?: boolean \| null; personOnly?: boolean \| null; questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; route?: "person" \| "jarvis" \| "auto" \| null; sessionId: string; timeoutSec?: number; }` | yes | The question now in the shared queue. |
 
 ### `question.resolved`
@@ -5391,6 +5393,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `code` | `string` | yes | One of the protocol error codes. |
+| `details` | `Record<string, unknown> \| null` | no | Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (PreToolUse, PostToolUse or Stop), reason, exitCode (-1 = could not start or timed out)}. context_window_too_small: {windowTokens, neededTokens}. |
 | `kind` | `"error"` | no |  |
 | `message` | `string` | yes | Human-readable detail. |
 
@@ -5776,6 +5779,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `approval_denied` | The user denied the approval request. |
 | `approval_timeout` | No approval arrived before `approvals.timeoutSec` elapsed. |
 | `auth_expired` |  |
+| `context_window_too_small` |  |
 | `empty_response` |  |
 | `exists` |  |
 | `external_unavailable` | The external CLI is missing, disabled or an unsupported version (1.53.0). |
@@ -5786,6 +5790,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `fork_running` |  |
 | `fork_turn_not_found` |  |
 | `goal_not_allowed` |  |
+| `hook_failed` |  |
 | `image_rejected` |  |
 | `internal` | Unexpected server-side failure. |
 | `invalid_output` |  |

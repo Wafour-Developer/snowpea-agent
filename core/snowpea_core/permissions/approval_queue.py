@@ -727,8 +727,24 @@ class ApprovalQueue:
                     decision.person = _person_answer(request, entry.origin_conn, "origin",
                                                      self.settings, "allow")
                     decision.scope = "once"
-                except RpcError:
-                    decision = Decision("deny", "once", "not-a-person", errors.APPROVAL_DENIED)
+                except RpcError as exc:
+                    # Not a person's allow (1.55.0): never a silent ignore and no
+                    # longer a silent deny either.  The request stays open and
+                    # moves to the shared queue, so a person's surface can answer
+                    # it with approval.respond; the origin is told why and gets
+                    # the card back (it may still decline).  Else it times out.
+                    log.warning("approval %s: origin allow refused (%s)", request.requestId,
+                                exc.message)
+                    entry.unattended = True
+                    await self._refused_to_origin(entry, exc.message)
+                    if self.hub is not None:
+                        await self.hub.notify(
+                            "approval.pending",
+                            {"request": request.model_dump(mode="json"),
+                             "hostToolsFrom": entry.host},
+                            exclude=entry.origin_conn,
+                        )
+                    return
         except TimeoutError:
             decision = Decision("deny", "once", "timeout", errors.APPROVAL_TIMEOUT)
         except asyncio.CancelledError:
@@ -738,6 +754,23 @@ class ApprovalQueue:
             decision = Decision("deny", "once", "origin-unreachable", errors.APPROVAL_DENIED)
         if not entry.future.done():
             entry.future.set_result(decision)
+
+    async def _refused_to_origin(self, entry: _Pending, message: str) -> None:
+        """Re-announce a still-open request to the origin whose reply was refused (1.55.0)."""
+        params = {
+            "request": entry.request.model_dump(mode="json"),
+            "hostToolsFrom": entry.host,
+            "refused": {
+                "code": errors.JARVIS_PERSON_ONLY,
+                "reason": "person_only",
+                "message": message,
+            },
+        }
+        try:
+            await entry.origin_conn.notify("approval.pending", params)
+        except Exception:  # noqa: BLE001 - a closed origin: the request times out
+            log.debug("could not re-announce approval %s", entry.request.requestId,
+                      exc_info=True)
 
     # -- the answer ----------------------------------------------------
     async def respond(
