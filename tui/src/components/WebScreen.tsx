@@ -38,6 +38,7 @@ import {
   modeLine,
   passwordProblem,
   remoteJobsLine,
+  remoteLeftLine,
   sessionsLine,
   shownLink,
   validateForm,
@@ -46,6 +47,7 @@ import {
   type ListenForm,
   type WebStatus,
 } from "../state/web-remote.js";
+import { degradedLine } from "../state/settings-degraded.js";
 import { RenderedLines } from "./RenderedLines.js";
 
 export interface WebScreenProps {
@@ -419,8 +421,11 @@ export function WebScreen({
     status.listenUrls.slice(0, 3).forEach((url, index) => body.push(...wrap(`url-${index}`, [{ text: "Open  ", dimColor: true }, { text: url, color: "cyan" }], "        ")));
     body.push(...wrap("sessions", [{ text: sessionsLine(status) }]));
   }
+  const degraded = degradedLine(status.settingsDegraded);
   const remoteJobs = remoteJobsLine(status);
   if (remoteJobs) body.push(...wrap("remote-jobs", [{ text: remoteJobs, color: "yellow" }]));
+  const remoteLeft = remoteLeftLine(status);
+  if (remoteLeft) body.push(...wrap("remote-left", [{ text: remoteLeft, color: "yellow" }]));
   body.push(...wrap("mode", [{ text: modeLine(status) }]));
   if (status.listening && status.mode === "token") {
     body.push(
@@ -443,6 +448,7 @@ export function WebScreen({
   const warning: Line[] = [
     ...wrap("warn", [bold("! ", "yellow"), { text: status.warning ?? PLAIN_HTTP_WARNING, color: "yellow" }], "  "),
     ...(diskNotice ? wrap("disk", [bold("! ", "yellow"), { text: diskNotice, color: "yellow" }], "  ") : []),
+    ...(degraded ? wrap("degraded", [bold("! ", "yellow"), { text: degraded, color: "yellow" }], "  ") : []),
   ];
 
   const live: Line[] = [];

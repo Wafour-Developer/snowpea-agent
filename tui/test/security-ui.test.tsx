@@ -458,7 +458,7 @@ describe("the security screen", () => {
     expect(view).toContain("In force now: Blocked commands");
     expect(view).toContain("rm -rf ~  ← Essential safety");
     expect(view).toContain("npm publish  ← your own entry");
-    expect(view).toContain("cannot see inside scripts");
+    expect(view).toContain("does not read what the programs");
     await press(app, TAB);
     view = app.view();
     expect(view).toContain("In force now: Protected folders");

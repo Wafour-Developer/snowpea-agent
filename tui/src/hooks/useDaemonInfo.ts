@@ -9,6 +9,8 @@
 
 import { useEffect, useState } from "react";
 
+import { normalizeDegraded } from "../state/settings-degraded.js";
+
 /** Structural subset of `TuiClient`, so tests can pass a stub. */
 export interface DaemonInfoClient {
   call(method: string, params?: Record<string, unknown>): Promise<any>;
@@ -18,11 +20,13 @@ export interface DaemonInfo {
   pid: number | null;
   /** `will not exit: 1 job`, straight from the lifecycle status. */
   summary: string | null;
+  /** `settingsDegraded` (1.55.0): the settings.json sections core could not read; empty when none. */
+  degraded: string[];
 }
 
 export const DAEMON_INFO_POLL_MS = 30_000;
 
-export const emptyDaemonInfo: DaemonInfo = { pid: null, summary: null };
+export const emptyDaemonInfo: DaemonInfo = { pid: null, summary: null, degraded: [] };
 
 /** Fold a `system.info` result into what the HUD draws. */
 export function fromSystemInfo(result: any): DaemonInfo {
@@ -32,7 +36,7 @@ export function fromSystemInfo(result: any): DaemonInfo {
     typeof lifecycle?.summary === "string" && lifecycle.summary.length > 0
       ? lifecycle.summary
       : null;
-  return { pid, summary };
+  return { pid, summary, degraded: normalizeDegraded(result?.settingsDegraded) };
 }
 
 export function useDaemonInfo(
@@ -52,7 +56,7 @@ export function useDaemonInfo(
           // Keep the object identity when nothing moved, so the HUD's memo
           // holds and a poll does not cost a repaint.
           setInfo((current) =>
-            current.pid === next.pid && current.summary === next.summary ? current : next,
+            current.pid === next.pid && current.summary === next.summary && current.degraded.join("\n") === next.degraded.join("\n") ? current : next,
           );
         })
         .catch(() => {

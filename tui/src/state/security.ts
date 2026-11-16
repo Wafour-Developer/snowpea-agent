@@ -553,7 +553,7 @@ export function statusLines(config: SecurityConfig, catalog: PresetCatalog | nul
     `Protected folders: ${config.protectedPaths.presets.length} presets on (${names(pathOn)}), ${config.protectedPaths.custom.length} of your own`,
     `In force now: ${config.effective.commands.length} command patterns, ${config.effective.paths.length} folders`,
     `${UNKNOWN_CODE_LABEL}: ${config.unknownCode === "allow" ? "allow (runs without asking)" : "ask (put to you)"}. ${OWN_FILES_LINE}`,
-    ...(config.projectAdds > 0 ? [`This project adds ${config.projectAdds} entries of its own (they cannot remove yours).`] : []),
+    ...(config.projectAdds > 0 ? [`This project adds ${config.projectAdds} entries of its own (they do not remove yours).`] : []),
     ...(problemNote(config.problems) ? [`! ${problemNote(config.problems)}`] : []),
     ...config.notices.map((notice) => `! ${notice}`),
     config.writable ? "Change them with /security. They apply to sessions that go through snowpea." : READ_ONLY_LINE,
@@ -572,7 +572,7 @@ export function personOnlyReadOnlyLine(error: unknown): string {
 }
 
 export const SECURITY_LIMITS =
-  "Applies to sessions that go through snowpea. It cannot see inside scripts a command runs.";
+  "Applies to sessions that go through snowpea. It does not read what the programs a command starts load or run in turn.";
 
 // --- drawing -----------------------------------------------------------------------
 

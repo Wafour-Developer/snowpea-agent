@@ -73,6 +73,13 @@ const LOCAL_ONLY_WHAT: Record<string, [string, string]> = {
   command: ["a global command", "전역 명령"],
   builtin_name: ["a name a built-in already uses", "기본 제공 기능이 쓰는 이름"],
   front_matter: ["front matter that widens what it may do", "권한을 넓히는 front matter"],
+  // 1.55.0, security review 8
+  credential: ["saving a key or token", "키나 토큰 저장"],
+  briefing: ["changing the briefing", "브리핑 변경"],
+  settings: ["a setting that sets an address, a program or a key", "주소, 프로그램, 키를 정하는 설정"],
+  "provider.loginWeb": ["signing in to a provider", "공급자 로그인"],
+  "mcp.authorize.complete": ["finishing an MCP sign-in", "MCP 로그인 완료"],
+  "jarvis.delegation.set": ["granting Jarvis rights", "Jarvis에 권한 부여"],
 };
 
 /** `jarvis_person_only` / `local_only`: a remote login (or another non-local kind) may not do this. */
@@ -165,6 +172,9 @@ export function rpcErrorText(error: unknown): string {
   }
   if (code === "security_blocked") {
     return `Blocked by your security list: ${messageOf(error)}`;
+  }
+  if (code === "protected") {
+    return str(details["reason"]) === "local_only" ? localOnlyLine(details) : `That path is protected: ${messageOf(error)}`;
   }
   return sanitizeText(String(error));
 }

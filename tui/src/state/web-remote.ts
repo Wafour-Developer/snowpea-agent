@@ -13,6 +13,7 @@ import type { WebRemoteStatus } from "../rpc/sdk.js";
 import { sanitizeText } from "../util/sanitize.js";
 import { say } from "./errors.js";
 import { rpcErrorFacts } from "./external.js";
+import { degradedLine, normalizeDegraded } from "./settings-degraded.js";
 
 export function webRemoteSupported(capabilities: readonly string[] | undefined): boolean {
   return (capabilities ?? []).includes("webRemoteControl");
@@ -47,6 +48,10 @@ export interface WebStatus {
   turnsRunning: number;
   /** Scheduled jobs a remote login created that still exist (1.55.0); they keep running after the login ends. */
   remoteJobs: number;
+  /** What remote logins left that keeps acting after the login ends (1.55.0): MCP servers and skills marked as theirs. */
+  remoteLeft: { jobs: number; mcpServers: number; skills: number };
+  /** The settings.json sections core could not read (1.55.0); empty when none, "*" is the whole file. */
+  settingsDegraded: string[];
   /** Why it is not listening though it should. */
   error: string | null;
   /** settings.json says otherwise than what runs. */
@@ -62,9 +67,13 @@ export type MaxMode = "plan" | "accept" | "auto";
 
 export const MAX_MODES: readonly MaxMode[] = ["plan", "accept", "auto"];
 
+const count = (value: unknown): number => (typeof value === "number" && value > 0 ? Math.floor(value) : 0);
+
 const text = (value: unknown): string => (typeof value === "string" ? sanitizeText(value) : "");
 
-export function normalizeStatus(raw: Partial<WebRemoteStatus> | null | undefined): WebStatus {
+export function normalizeStatus(given: Partial<WebRemoteStatus> | null | undefined): WebStatus {
+  // `remoteLeft` and `settingsDegraded` are 1.55.0 fields; read them loosely so an older SDK build still compiles.
+  const raw = given as (Partial<WebRemoteStatus> & { remoteLeft?: { jobs?: unknown; mcpServers?: unknown; skills?: unknown } | null; settingsDegraded?: unknown }) | null | undefined;
   const port = typeof raw?.port === "number" && Number.isFinite(raw.port) ? raw.port : 0;
   return {
     enabled: raw?.enabled === true,
@@ -78,7 +87,9 @@ export function normalizeStatus(raw: Partial<WebRemoteStatus> | null | undefined
     accessUrl: typeof raw?.accessUrl === "string" && raw.accessUrl !== "" ? sanitizeText(raw.accessUrl) : null,
     sessions: typeof raw?.sessions === "number" ? raw.sessions : 0,
     turnsRunning: typeof raw?.turnsRunning === "number" ? raw.turnsRunning : 0,
-    remoteJobs: typeof raw?.remoteJobs === "number" && raw.remoteJobs > 0 ? Math.floor(raw.remoteJobs) : 0,
+    remoteJobs: Math.max(count(raw?.remoteJobs), count(raw?.remoteLeft?.jobs)),
+    remoteLeft: { jobs: count(raw?.remoteLeft?.jobs), mcpServers: count(raw?.remoteLeft?.mcpServers), skills: count(raw?.remoteLeft?.skills) },
+    settingsDegraded: normalizeDegraded(raw?.settingsDegraded),
     error: text(raw?.error) || null,
     needsRestart: raw?.needsRestart === true,
     warning: text(raw?.warning) || null,
@@ -157,6 +168,21 @@ export function remoteJobsLine(status: WebStatus): string | null {
   return `${n} scheduled job${n === 1 ? "" : "s"} made from a remote login ${n === 1 ? "keeps" : "keep"} running after that login ends (/schedule).`;
 }
 
+/**
+ * "Remote logins also left 2 MCP servers and 1 skill (counts, not a guarantee)"
+ * (1.55.0), or null when there are none. The marks live in files, so it is a
+ * count and not a promise.
+ */
+export function remoteLeftLine(status: WebStatus): string | null {
+  const { mcpServers, skills } = status.remoteLeft;
+  const parts = [
+    ...(mcpServers > 0 ? [`${mcpServers} MCP server${mcpServers === 1 ? "" : "s"}`] : []),
+    ...(skills > 0 ? [`${skills} skill${skills === 1 ? "" : "s"}`] : []),
+  ];
+  if (parts.length === 0) return null;
+  return `Remote logins also left ${parts.join(" and ")} that keep working after the login ends (a count, not a guarantee).`;
+}
+
 /** The tag a job list shows for a job a remote login created (`createdBy: "remote_login"`); empty otherwise. */
 export const REMOTE_JOB_TAG = "[remote]";
 
@@ -176,6 +202,10 @@ export function summaryLines(status: WebStatus, diskNotice: string | null = null
   }
   const jobs = remoteJobsLine(status);
   if (jobs) lines.push(jobs);
+  const left = remoteLeftLine(status);
+  if (left) lines.push(left);
+  const degraded = degradedLine(status.settingsDegraded);
+  if (degraded) lines.push(`! ${degraded}`);
   lines.push(modeLine(status));
   if (status.listening && status.mode === "token" && status.accessUrl) lines.push(`Access link: ${maskLink(status.accessUrl)}  (reveal it in /web)`);
   if (status.maxMode !== null) lines.push(`${maxModeRow(status.maxMode)}. ${MAX_MODE_EXPLAIN()}`);

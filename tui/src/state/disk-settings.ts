@@ -34,6 +34,15 @@ export const sectionWord = (section: string): string => {
   return known ? say(...known) : section;
 };
 
+const LIST_SHOWN = 3;
+
+/** Names for a list that can be long (dotted paths of program or endpoint settings): the first few, then "and N more". */
+export function compactWords(items: readonly string[]): string {
+  const first = items.slice(0, LIST_SHOWN).map(sectionWord).join(", ");
+  const more = items.length - LIST_SHOWN;
+  return more > 0 ? say(`${first} and ${more} more`, `${first} 외 ${more}개`) : first;
+}
+
 /** The persistent notice: which kinds of setting wait, and the command that deals with them. */
 export const DISK_NOTICE_LINE = (): string =>
   say(
@@ -62,7 +71,7 @@ export const DISK_REQUIRES_LINE = (): string =>
 export function choiceLines(waiting: readonly string[]): string[] {
   return [
     say("settings.json was edited outside snowpea.", "settings.json이 snowpea 밖에서 수정되었습니다."),
-    say(`These sections wait for you: ${waiting.map(sectionWord).join(", ")}.`, `확인을 기다리는 부분: ${waiting.map(sectionWord).join(", ")}.`),
+    say(`These sections wait for you: ${compactWords(waiting)}.`, `확인을 기다리는 부분: ${compactWords(waiting)}.`),
     say("They are not applied until you decide. Everything else already took effect.", "결정하기 전에는 적용되지 않습니다. 나머지 설정은 이미 적용되었습니다."),
     say("a applies what the file says · k keeps the current settings (the file is written back)", "a 파일 내용을 적용 · k 현재 설정 유지 (파일을 되돌려 씁니다)"),
   ];
@@ -70,12 +79,12 @@ export function choiceLines(waiting: readonly string[]): string[] {
 
 /** `settings.acceptDiskChange {accept}` answer in words. */
 export function resultLine(result: { applied?: unknown; discarded?: unknown } | null | undefined): string {
-  const list = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map(sectionWord) : []);
+  const list = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
   const applied = list(result?.applied);
   const discarded = list(result?.discarded);
   const parts = [
-    ...(applied.length > 0 ? [say(`applied from the file: ${applied.join(", ")}`, `파일에서 적용: ${applied.join(", ")}`)] : []),
-    ...(discarded.length > 0 ? [say(`kept the current settings, file written back: ${discarded.join(", ")}`, `현재 설정 유지, 파일을 되돌려 씀: ${discarded.join(", ")}`)] : []),
+    ...(applied.length > 0 ? [say(`applied from the file: ${compactWords(applied)}`, `파일에서 적용: ${compactWords(applied)}`)] : []),
+    ...(discarded.length > 0 ? [say(`kept the current settings, file written back: ${compactWords(discarded)}`, `현재 설정 유지, 파일을 되돌려 씀: ${compactWords(discarded)}`)] : []),
   ];
   return parts.length > 0 ? parts.join(" · ") : say("Nothing was waiting any more.", "더 이상 대기 중인 설정이 없었습니다.");
 }

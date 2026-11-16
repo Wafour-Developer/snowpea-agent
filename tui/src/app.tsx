@@ -57,6 +57,7 @@ import { settingsSubCommands } from "./slash/settings.js";
 import { DiskSettingsScreen } from "./components/DiskSettingsScreen.js";
 import { useDiskSettings, type DiskSettingsHook } from "./hooks/useDiskSettings.js";
 import { DISK_BANNER, sectionNotice } from "./state/disk-settings.js";
+import { DEGRADED_BANNER, degradedLine } from "./state/settings-degraded.js";
 import {
   cliLabel,
   extSessionId,
@@ -543,6 +544,12 @@ function releaseEntries(
   }
   flush();
   return out;
+}
+
+/** The security screens' notice: settings waiting on disk, and a settings.json core could not read. */
+function securityNotice(waiting: readonly string[], degraded: readonly string[]): string | null {
+  const parts = [sectionNotice(waiting, "security"), degradedLine(degraded)].filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 export function App({
@@ -1509,6 +1516,9 @@ export function App({
   const contentWidth = Math.max(1, terminal.columns - 2);
 
   const daemon = useDaemonInfo(client);
+  /** Read by callbacks the screens keep from an earlier render. */
+  const degradedRef = useRef<string[]>([]);
+  degradedRef.current = daemon.degraded;
   const sessionElapsedMs = useElapsed();
   /** Daemon version once it answered; the bundled constant until then. */
   const note = useCallback((text: string) => dispatch({ type: "note", text }), []);
@@ -1534,7 +1544,7 @@ export function App({
     showToast,
     note,
     warn,
-    diskNotice: () => sectionNotice(diskRef.current?.waiting ?? [], "security"),
+    diskNotice: () => securityNotice(diskRef.current?.waiting ?? [], degradedRef.current),
   });
   securityRef.current = security;
   const web = useWebScreen({
@@ -1550,7 +1560,15 @@ export function App({
   const disk = useDiskSettings({ client, warn, note });
   diskRef.current = disk;
   /** The one banner row: an update nudge wins, else the settings that wait on disk. */
-  const topBanner = bannerText(update) ?? (disk.waiting.length > 0 ? DISK_BANNER() : null);
+  const topBanner = bannerText(update) ?? (daemon.degraded.length > 0 ? DEGRADED_BANNER() : null) ?? (disk.waiting.length > 0 ? DISK_BANNER() : null);
+  // Said once in the transcript when core reports a settings.json it could not read.
+  const degradedSaid = useRef(false);
+  const degradedText = degradedLine(daemon.degraded);
+  useEffect(() => {
+    if (degradedText === null || degradedSaid.current) return;
+    degradedSaid.current = true;
+    warn(degradedText);
+  }, [degradedText, warn]);
   const externalWarning = externalOpen ? ungatedWarning(externalOpen.session) : null;
   const externalViewOnly = externalOpen ? viewOnlyReason(externalOpen.session) : null;
 
@@ -3608,7 +3626,7 @@ export function App({
       onReload={security.reload}
       onSetUnknownCode={security.setUnknownCode}
       changeSeq={security.changeSeq}
-      diskNotice={sectionNotice(disk.waiting, "security")}
+      diskNotice={securityNotice(disk.waiting, daemon.degraded)}
       onClose={security.close}
       isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
     />

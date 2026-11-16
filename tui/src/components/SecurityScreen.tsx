@@ -99,7 +99,7 @@ export interface SecurityScreenProps {
 const TAB_TITLE: Record<Tab, string> = { commands: "Blocked commands", paths: "Protected folders" };
 
 const INTRO: Record<Tab, string> = {
-  commands: "These commands are never run: not asked, not approvable, not handed to Jarvis.",
+  commands: "snowpea refuses these commands where it sees them: not asked, not approvable, not handed to Jarvis.",
   paths: "\"no changes\" stops writing, deleting, moving and chmod; \"no access\" stops reading too.",
 };
 
