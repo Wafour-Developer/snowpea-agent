@@ -21,6 +21,7 @@ import {
   OWN_FILES_LINE,
   PATTERN_HELP,
   READ_ONLY_LINE,
+  SECURITY_CLAIM,
   SECURITY_LIMITS,
   UNKNOWN_CODE_ALLOW_CONFIRM,
   unknownCodeMeaning,
@@ -89,6 +90,8 @@ export interface SecurityScreenProps {
   onSetUnknownCode?: (value: UnknownCode) => Promise<SaveResult>;
   /** Counts `settings.changed` events that touched the security settings while the screen is open. */
   changeSeq?: number;
+  /** The line saying security settings wait on disk (`/settings disk`), or null. */
+  diskNotice?: string | null;
   onClose: () => void;
   isActive?: boolean;
 }
@@ -111,6 +114,7 @@ export function SecurityScreen({
   onReload,
   onSetUnknownCode,
   changeSeq = 0,
+  diskNotice = null,
   onClose,
   isActive = true,
 }: SecurityScreenProps): React.ReactElement {
@@ -454,12 +458,15 @@ export function SecurityScreen({
     ...wrapSegments("intro", [{ text: INTRO[tab], dimColor: true }], inner, ""),
     ...wrapSegments("limits", [{ text: SECURITY_LIMITS, dimColor: true }], inner, ""),
     ...wrapSegments("own", [{ text: OWN_FILES_LINE, dimColor: true }], inner, ""),
+    ...wrapSegments("claim", [{ text: SECURITY_CLAIM(), color: "yellow" }], inner, ""),
   ];
   const skipped = problemNote(base.problems);
   const lock: Line[] = [
+    ...(diskNotice ? wrapSegments("disk", [{ text: `! ${diskNotice}`, color: "yellow", bold: true }], inner, "  ") : []),
     ...(readOnly ? wrapSegments("lock", [{ text: readOnly, color: "yellow", bold: true }], inner, "") : []),
     ...(elsewhere ? wrapSegments("elsewhere", [{ text: "The lists changed elsewhere — r to reload (drops your unsaved changes).", color: "yellow", bold: true }], inner, "") : []),
     ...(skipped ? wrapSegments("skipped", [{ text: `! ${skipped}`, color: "yellow" }], inner, "  ") : []),
+    ...base.notices.flatMap((notice, index) => wrapSegments(`notice-${index}`, [{ text: `! ${notice}`, color: "yellow" }], inner, "  ")),
   ];
 
   const foot: Line[] = [];

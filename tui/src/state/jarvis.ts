@@ -737,6 +737,28 @@ export function approvalResolvedNote(
   return null;
 }
 
+/** A high-importance Jarvis notice, as the transcript line that stays (the toast alone would be gone). */
+export function highEscalationLine(summary: string): string {
+  return `Jarvis: ${summary.replace(/\s+/g, " ").trim()}`;
+}
+
+/**
+ * The note for the result of `approval.respond` (1.55.0): a remote web login's
+ * "always" is applied as "session", and the result's `scope` says so. Null when
+ * the applied scope is not narrower than chosen, or when `approval.resolved`
+ * already told it (the chosen scope is taken by whichever comes first).
+ */
+export function respondResultNote(
+  requestId: string,
+  result: { scope?: string | null } | null | undefined,
+  request: ApprovalRequestParams | undefined,
+): string | null {
+  const chosen = takeChosenScope(requestId);
+  if (!scopeNarrowed(chosen, result?.scope)) return null;
+  const words = SCOPE_WORDS[result?.scope as string] ?? `as ${result?.scope}`;
+  return `Allowed ${words} — core kept it narrower than "${chosen}"${request ? ` (${approvalSummary(request)})` : ""}`;
+}
+
 /** The one quiet line a supervised session shows when Jarvis looked at or instructed it. */
 export function accessLine(event: Pick<JarvisAccessEvent, "action" | "summary">): string {
   const verb = event.action === "read" ? "read" : "instructed";

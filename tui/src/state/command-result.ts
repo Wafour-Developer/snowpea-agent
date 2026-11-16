@@ -43,7 +43,12 @@ export const ASIDE_LINES = 6;
 export function commandResultText(payload: Record<string, unknown>): string {
   const command = sanitizeText(typeof payload["command"] === "string" ? payload["command"] : "").trim();
   const ok = payload["ok"] !== false;
-  const body = sanitizeText(typeof payload["text"] === "string" ? payload["text"] : "").replace(/\s+$/, "");
+  const rawBody = sanitizeText(typeof payload["text"] === "string" ? payload["text"] : "").replace(/\s+$/, "");
+  // A command that failed inside carries an id core keeps in its log (1.55.0); the person is shown it.
+  const details = payload["details"];
+  const errorId = details && typeof details === "object" ? (details as Record<string, unknown>)["errorId"] : undefined;
+  const id = typeof errorId === "string" ? sanitizeText(errorId) : "";
+  const body = id !== "" && !rawBody.includes(id) ? `${rawBody === "" ? "internal error" : rawBody} (id ${id})` : rawBody;
   const lines = body === "" ? [] : body.split("\n");
   const shown = lines.slice(0, ASIDE_LINES);
   const hidden = lines.length - shown.length;

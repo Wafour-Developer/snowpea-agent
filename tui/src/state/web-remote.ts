@@ -11,6 +11,7 @@
 
 import type { WebRemoteStatus } from "../rpc/sdk.js";
 import { sanitizeText } from "../util/sanitize.js";
+import { say } from "./errors.js";
 import { rpcErrorFacts } from "./external.js";
 
 export function webRemoteSupported(capabilities: readonly string[] | undefined): boolean {
@@ -50,10 +51,16 @@ export interface WebStatus {
   error: string | null;
   /** settings.json says otherwise than what runs. */
   needsRestart: boolean;
-  /** The warning core sent (the plain-HTTP one), if any. */
+  /** The warning core sent (it begins "Anyone who has the link…"), if any. */
   warning: string | null;
   plainHttp: boolean;
+  /** The widest mode a remote sign-in may use (1.55.0); null when this core does not report it. */
+  maxMode: MaxMode | null;
 }
+
+export type MaxMode = "plan" | "accept" | "auto";
+
+export const MAX_MODES: readonly MaxMode[] = ["plan", "accept", "auto"];
 
 const text = (value: unknown): string => (typeof value === "string" ? sanitizeText(value) : "");
 
@@ -77,8 +84,32 @@ export function normalizeStatus(raw: Partial<WebRemoteStatus> | null | undefined
     warning: text(raw?.warning) || null,
     // Plain HTTP unless core says otherwise: the listener has no TLS of its own.
     plainHttp: raw?.plainHttp !== false,
+    maxMode: raw?.maxMode === "plan" || raw?.maxMode === "accept" || raw?.maxMode === "auto" ? raw.maxMode : null,
   };
 }
+
+// --- the highest mode for remote sign-ins (1.55.0) ---------------------------------------
+
+/** "Highest mode for remote sign-ins: plan / accept / [auto]"; the chosen one in brackets. */
+export function maxModeRow(value: MaxMode): string {
+  const label = say("Highest mode for remote sign-ins", "원격 로그인의 최고 모드");
+  return `${label}: ${MAX_MODES.map((mode) => (mode === value ? `[${mode}]` : mode)).join(" / ")}`;
+}
+
+/** What the limit does and does not do, in one honest sentence. */
+export const MAX_MODE_EXPLAIN = (): string =>
+  say(
+    "It stops unattended runs above that mode; whoever holds the link can still approve each action.",
+    "그 모드를 넘는 무인 실행을 막습니다. 링크를 가진 사람은 여전히 각 동작을 승인할 수 있습니다.",
+  );
+
+/** The next value when the key is pressed: plan, accept, auto, plan… */
+export function nextMaxMode(value: MaxMode): MaxMode {
+  return MAX_MODES[(MAX_MODES.indexOf(value) + 1) % MAX_MODES.length];
+}
+
+/** The `settings.set` patch for the limit; global, by a local person. */
+export const maxModePatch = (value: MaxMode): Record<string, unknown> => ({ web: { remote: { maxMode: value } } });
 
 // --- the access link -------------------------------------------------------------
 
@@ -136,8 +167,9 @@ export function jobTag(createdBy: unknown): string {
 export const RESTART_LINE = "settings.json says otherwise than what runs: the next daemon start will differ. Start with “remember” to keep what runs.";
 
 /** What `/web status` prints (the token stays masked). */
-export function summaryLines(status: WebStatus): string[] {
-  const lines = ["Remote web access", listenLine(status)];
+export function summaryLines(status: WebStatus, diskNotice: string | null = null): string[] {
+  // Core's warning comes first and is always printed (the transcript marks the first line of a note with "!").
+  const lines = [status.warning ?? PLAIN_HTTP_WARNING, ...(diskNotice ? [`! ${diskNotice}`] : []), "Remote web access", listenLine(status)];
   if (status.listening) {
     for (const url of status.listenUrls) lines.push(`Open: ${url}`);
     lines.push(sessionsLine(status));
@@ -146,8 +178,8 @@ export function summaryLines(status: WebStatus): string[] {
   if (jobs) lines.push(jobs);
   lines.push(modeLine(status));
   if (status.listening && status.mode === "token" && status.accessUrl) lines.push(`Access link: ${maskLink(status.accessUrl)}  (reveal it in /web)`);
+  if (status.maxMode !== null) lines.push(`${maxModeRow(status.maxMode)}. ${MAX_MODE_EXPLAIN()}`);
   if (status.needsRestart) lines.push(RESTART_LINE);
-  lines.push(`! ${status.warning ?? PLAIN_HTTP_WARNING}`);
   lines.push("Manage it with /web.");
   return lines;
 }

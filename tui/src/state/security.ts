@@ -12,6 +12,7 @@ import type { SecurityBlocked, SecurityCheck, SecurityCheckDraft, SecurityGet, S
 import { sanitizeText } from "../util/sanitize.js";
 import { fit } from "../layout/fit.js";
 import { wrapLine, type Line, type Segment } from "../layout/transcript.js";
+import { say } from "./errors.js";
 import { rpcErrorFacts } from "./external.js";
 
 // --- view models (what the screen keeps of the contract) ----------------------
@@ -72,6 +73,11 @@ export interface SecurityConfig {
   problems: string[];
   /** The same, structured (1.55.0 `problemItems`); empty from an older core. */
   problemItems: ProblemItem[];
+  /**
+   * Other sentences core puts in `problems` (1.55.0): a lost trust record, a tamper it undid,
+   * settings waiting on disk. Told as core says them, never as "skipped entries".
+   */
+  notices: string[];
   /** What happens to code the check cannot resolve (1.55.0): put to the person, or let through. */
   unknownCode: UnknownCode;
   /** The project's own additions, shown read-only as a count. */
@@ -164,11 +170,17 @@ export function problemItemText(item: ProblemItem): string {
 
 export function normalizeConfig(raw: SecurityGet | null | undefined): SecurityConfig {
   const problemItems = normalizeProblemItems((raw as any)?.problemItems);
+  const sentences = texts((raw as any)?.problems);
+  // A core that sends `problemItems` (even an empty list) says in `problems` more than skipped entries:
+  // a sentence that none of the items' reasons is part of is a notice of its own.
+  const structured = Array.isArray((raw as any)?.problemItems);
+  const notices = structured ? sentences.filter((sentence) => !problemItems.some((item) => sentence.includes(item.reason))) : [];
   return {
     writable: (raw as any)?.writable !== false,
     // The structured form wins; an older core sent only the sentences.
-    problems: problemItems.length > 0 ? problemItems.map(problemItemText) : texts((raw as any)?.problems),
+    problems: problemItems.length > 0 ? problemItems.map(problemItemText) : structured ? [] : sentences,
     problemItems,
+    notices,
     unknownCode: (raw as any)?.unknownCode === "allow" ? "allow" : "ask",
     projectAdds: additions((raw as any)?.project),
     blockedCommands: {
@@ -516,20 +528,34 @@ export function unknownCodePatch(value: UnknownCode): Record<string, unknown> {
   return { security: { unknownCode: value } };
 }
 
+/**
+ * What these lists promise, in core's own honest terms (the manual's first
+ * paragraph): what auto mode means, and what to use for a repository that is
+ * not trusted. Two sentences.
+ */
+export const SECURITY_CLAIM = (): string =>
+  say(
+    "In auto mode the agent runs programs as you; these lists stop the forms snowpea can recognise and it asks about code it cannot read. For a repository you do not trust, use accept mode, where every command and write is yours to approve.",
+    "자동(auto) 모드에서 에이전트는 당신의 권한으로 프로그램을 실행합니다. 이 목록은 snowpea가 알아볼 수 있는 형태를 막고, 읽을 수 없는 코드는 묻습니다. 신뢰하지 않는 저장소에서는 모든 명령과 쓰기를 직접 승인하는 accept 모드를 쓰세요.",
+  );
+
 /** The summary `/security status` prints. */
-export function statusLines(config: SecurityConfig, catalog: PresetCatalog | null): string[] {
+export function statusLines(config: SecurityConfig, catalog: PresetCatalog | null, diskNotice: string | null = null): string[] {
   const title = (id: string, entries: Preset[]) => entries.find((entry) => entry.id === id)?.title ?? id;
   const commandOn = config.blockedCommands.presets.map((id) => title(id, catalog?.commands ?? []));
   const pathOn = config.protectedPaths.presets.map((id) => title(id, catalog?.paths ?? []));
   const names = (items: string[]) => (items.length > 0 ? items.join(", ") : "none");
   return [
     "Security lists",
+    ...(diskNotice ? [`! ${diskNotice}`] : []),
+    SECURITY_CLAIM(),
     `Blocked commands: ${config.blockedCommands.presets.length} presets on (${names(commandOn)}), ${config.blockedCommands.custom.length} of your own`,
     `Protected folders: ${config.protectedPaths.presets.length} presets on (${names(pathOn)}), ${config.protectedPaths.custom.length} of your own`,
     `In force now: ${config.effective.commands.length} command patterns, ${config.effective.paths.length} folders`,
     `${UNKNOWN_CODE_LABEL}: ${config.unknownCode === "allow" ? "allow (runs without asking)" : "ask (put to you)"}. ${OWN_FILES_LINE}`,
     ...(config.projectAdds > 0 ? [`This project adds ${config.projectAdds} entries of its own (they cannot remove yours).`] : []),
     ...(problemNote(config.problems) ? [`! ${problemNote(config.problems)}`] : []),
+    ...config.notices.map((notice) => `! ${notice}`),
     config.writable ? "Change them with /security. They apply to sessions that go through snowpea." : READ_ONLY_LINE,
     ...(config.writable ? [] : ["They apply to sessions that go through snowpea."]),
   ];

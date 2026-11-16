@@ -65,19 +65,54 @@ export function refusalWords(refused: { code: string; message: string; reason: s
   return refused.message !== "" ? `${lead} ${refused.message}` : lead;
 }
 
+/** What a `local_only` refusal names in `details.what` (1.55.0, security review 7), in words. */
+const LOCAL_ONLY_WHAT: Record<string, [string, string]> = {
+  target: ["changing where a saved server connects", "저장된 서버의 접속 대상 변경"],
+  variable: ["a ${VAR} in a server entry", "서버 항목의 ${VAR} 사용"],
+  agent: ["a global agent", "전역 에이전트"],
+  command: ["a global command", "전역 명령"],
+  builtin_name: ["a name a built-in already uses", "기본 제공 기능이 쓰는 이름"],
+  front_matter: ["front matter that widens what it may do", "권한을 넓히는 front matter"],
+};
+
 /** `jarvis_person_only` / `local_only`: a remote login (or another non-local kind) may not do this. */
 export function localOnlyLine(details: Record<string, unknown>): string {
-  const what = str(details["what"]);
+  const rawWhat = str(details["what"]);
+  const known = rawWhat ? LOCAL_ONLY_WHAT[rawWhat] : undefined;
+  const what = known ? say(...known) : rawWhat ? sanitizeText(rawWhat) : undefined;
   const kind = str(details["kind"]);
   const who =
     kind === "remote_login" ? "a remote login" : kind === "browser" ? "a browser host" : kind === "connector" ? "a connector" : "this connection";
   const whoKo =
     kind === "remote_login" ? "원격 로그인" : kind === "browser" ? "브라우저 호스트" : kind === "connector" ? "커넥터" : "이 연결";
   return say(
-    `Only snowpea on this machine can do that${what ? ` (${sanitizeText(what)})` : ""} — not ${who}.`,
-    `이 컴퓨터의 snowpea만 할 수 있습니다${what ? ` (${sanitizeText(what)})` : ""} — ${whoKo}에서는 안 됩니다.`,
+    `Only snowpea on this machine can do that${what ? ` (${what})` : ""} — not ${who}.`,
+    `이 컴퓨터의 snowpea만 할 수 있습니다${what ? ` (${what})` : ""} — ${whoKo}에서는 안 됩니다.`,
   );
 }
+
+/** `jarvis_person_only` / `mode_raise` with `details.max` for a remote sign-in (`web.remote.maxMode`). */
+export function modeLimitLine(max: string): string {
+  const mode = sanitizeText(max);
+  return say(
+    `The mode was not raised: remote sign-ins are limited to ${mode} on this computer (/web). Lower the mode, or raise the limit there.`,
+    `모드를 올리지 않았습니다. 이 컴퓨터에서 원격 로그인은 ${mode}까지로 제한되어 있습니다 (/web). 모드를 낮추거나 그곳에서 제한을 올리세요.`,
+  );
+}
+
+/** `invalid_params` / `snowpea_home`: the folder is snowpea's own home, or holds it; it is no project. */
+export function snowpeaHomeLine(details: Record<string, unknown>): string {
+  const what = str(details["what"]);
+  const inside =
+    what === "parent"
+      ? say("It is the folder that holds snowpea's home (usually your home directory), so it is not a project.", "snowpea 홈을 담고 있는 폴더(보통 홈 디렉터리)라서 프로젝트가 아닙니다.")
+      : say("It is snowpea's own home, or inside it, so it is not a project.", "snowpea 자신의 홈(또는 그 안)이라서 프로젝트가 아닙니다.");
+  return say(`Nothing was written: ${inside} Open snowpea in a project folder.`, `아무것도 쓰지 않았습니다. ${inside} 프로젝트 폴더에서 snowpea를 여세요.`);
+}
+
+/** `jarvis_person_only` with `details.kind: "closed"`: the connection that asked is gone. */
+export const CLOSED_LINE = (): string =>
+  say("The connection that asked has closed; nothing was done.", "요청한 연결이 닫혔습니다. 아무것도 실행되지 않았습니다.");
 
 /** `invalid_params` / `global_only`: a project scope tried to set a key only the global settings may hold. */
 export function globalOnlyLine(details: Record<string, unknown>): string {
@@ -108,10 +143,15 @@ export function rpcErrorText(error: unknown): string {
   const details = detailsOf(error);
   if (code === "jarvis_person_only") {
     const reason = str(details["reason"]);
-    if (reason === "mode_raise") return MODE_RAISE_LINE;
+    if (str(details["kind"]) === "closed") return CLOSED_LINE();
+    if (reason === "mode_raise") {
+      const max = str(details["max"]);
+      return max !== undefined ? modeLimitLine(max) : MODE_RAISE_LINE;
+    }
     if (reason === "local_only") return localOnlyLine(details);
     return "Only a person can do that — Jarvis and scripts cannot.";
   }
+  if (code === "invalid_params" && str(details["reason"]) === "snowpea_home") return snowpeaHomeLine(details);
   if (code === "invalid_params" && str(details["reason"]) === "global_only") return globalOnlyLine(details);
   if (code === "trust_changed") return say(TRUST_CHANGED_LINE, TRUST_CHANGED_LINE_KO);
   const errorId = str(details["errorId"]);
@@ -216,7 +256,11 @@ export function sessionErrorView(code: string | undefined, message: string, deta
       return { kind: "blocked", text: `Blocked by your security list: ${message}`.trim() };
     case "project_untrusted":
       return { kind: "notice", text: projectUntrustedLine(message) };
-    default:
+    default: {
+      // An internal failure carries an id core keeps in its log (1.55.0); show it.
+      const errorId = details && typeof details === "object" ? str((details as Record<string, unknown>)["errorId"]) : undefined;
+      if (errorId !== undefined) return { kind: "error", text: `${code ?? "error"}: internal error (id ${sanitizeText(errorId)})`, detail: internalErrorLine(errorId) };
       return { kind: "error", text: `${code ?? "error"}: ${message}` };
+    }
   }
 }

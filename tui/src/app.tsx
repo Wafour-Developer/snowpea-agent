@@ -53,6 +53,10 @@ import { trustSupported } from "./state/trust.js";
 import { commandResultText, commandsBesideTurnSupported, ranBesideTurn } from "./state/command-result.js";
 import { trustSubCommands } from "./slash/trust.js";
 import { webSubCommands } from "./slash/web.js";
+import { settingsSubCommands } from "./slash/settings.js";
+import { DiskSettingsScreen } from "./components/DiskSettingsScreen.js";
+import { useDiskSettings, type DiskSettingsHook } from "./hooks/useDiskSettings.js";
+import { DISK_BANNER, sectionNotice } from "./state/disk-settings.js";
 import {
   cliLabel,
   extSessionId,
@@ -63,7 +67,7 @@ import {
   viewOnlyReason,
 } from "./state/external.js";
 import { refusalOf, rpcErrorText } from "./state/errors.js";
-import { JARVIS_DECIDING, approvalResolvedNote, personOnlyView, rememberChosenScope, requestLabel, supportOf, takeChosenScope } from "./state/jarvis.js";
+import { JARVIS_DECIDING, approvalResolvedNote, highEscalationLine, respondResultNote, personOnlyView, rememberChosenScope, requestLabel, supportOf, takeChosenScope } from "./state/jarvis.js";
 import {
   bannerText,
   cancel as cancelUpdate,
@@ -773,6 +777,10 @@ export function App({
   const webRef = useRef<WebScreenHook | null>(null);
   /** The project-trust hook, for the same reason. */
   const trustRef = useRef<TrustScreenHook | null>(null);
+  /** Ids of the high-importance Jarvis notices already written to the transcript. */
+  const highEscalationsRef = useRef<Set<string>>(new Set());
+  /** The settings-edited-on-disk hook, for the same reason. */
+  const diskRef = useRef<DiskSettingsHook | null>(null);
 
   const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
   /**
@@ -916,7 +924,16 @@ export function App({
       // The Jarvis and external-session notifications go to their hook.
       onJarvisState: (params) => screensRef.current?.listeners.onJarvisState?.(params),
       onJarvisDecision: (params) => screensRef.current?.listeners.onJarvisDecision?.(params),
-      onJarvisEscalation: (params) => screensRef.current?.listeners.onJarvisEscalation?.(params),
+      onJarvisEscalation: (params) => {
+        screensRef.current?.listeners.onJarvisEscalation?.(params);
+        // High importance (the delegation store being changed from outside, security review 7) is more
+        // than a toast: a red line in the transcript, once per notice.
+        const id = typeof params?.id === "string" ? params.id : "";
+        if (params?.importance === "high" && typeof params.summary === "string" && params.summary !== "" && !highEscalationsRef.current.has(id)) {
+          highEscalationsRef.current.add(id);
+          dispatch({ type: "note", text: highEscalationLine(params.summary), blocked: true });
+        }
+      },
       onJarvisDelegation: (params) => screensRef.current?.listeners.onJarvisDelegation?.(params),
       onQuestionPending: (params) => {
         const refused = refusalOf((params as any)?.refused);
@@ -1054,6 +1071,7 @@ export function App({
         refreshCapabilities();
         securityRef.current?.onSettingsChanged(params);
         webRef.current?.onSettingsChanged(params);
+        diskRef.current?.onSettingsChanged(params);
       },
       // An MCP server moved: the HUD follows the payload at once, and the full
       // list is re-read for the tools it carries. A server that broke is said
@@ -1195,7 +1213,7 @@ export function App({
   // Ink 5 removes F1 from useInput entirely. Read only its raw sequences here.
   useEffect(() => {
     const onData = (data: Buffer | string) => {
-      if (state.pendingQuestion || state.pendingApproval || securityRef.current?.ui || webRef.current?.ui) return;
+      if (state.pendingQuestion || state.pendingApproval || securityRef.current?.ui || webRef.current?.ui || diskRef.current?.open) return;
       if (update.phase === "confirm" || update.phase === "running") return;
       if (["\u001bOP", "\u001b[11~", "\u001b[[A"].includes(data.toString())) {
         setShowHelp(current => !current);
@@ -1477,6 +1495,7 @@ export function App({
       ...securitySubCommands(draft),
       ...webSubCommands(draft),
       ...trustSubCommands(draft),
+      ...settingsSubCommands(draft),
       ...externalSubCommands(draft),
       ...registryRef.current.complete(draft),
     ];
@@ -1502,6 +1521,7 @@ export function App({
     showToast,
     note,
     start: startScreen,
+    diskNotice: () => sectionNotice(diskRef.current?.waiting ?? [], "jarvis"),
   });
   screensRef.current = screens;
   const externalOpen = screens.external;
@@ -1514,12 +1534,23 @@ export function App({
     showToast,
     note,
     warn,
+    diskNotice: () => sectionNotice(diskRef.current?.waiting ?? [], "security"),
   });
   securityRef.current = security;
-  const web = useWebScreen({ client, note, showToast, write: (data) => void stdout.write(data) });
+  const web = useWebScreen({
+    client,
+    note,
+    showToast,
+    write: (data) => void stdout.write(data),
+    diskNotice: () => sectionNotice(diskRef.current?.waiting ?? [], "web.remote"),
+  });
   webRef.current = web;
-  const trust = useTrustScreen({ client, workdir, note, showToast });
+  const trust = useTrustScreen({ client, workdir, note, warn, showToast });
   trustRef.current = trust;
+  const disk = useDiskSettings({ client, warn, note });
+  diskRef.current = disk;
+  /** The one banner row: an update nudge wins, else the settings that wait on disk. */
+  const topBanner = bannerText(update) ?? (disk.waiting.length > 0 ? DISK_BANNER() : null);
   const externalWarning = externalOpen ? ungatedWarning(externalOpen.session) : null;
   const externalViewOnly = externalOpen ? viewOnlyReason(externalOpen.session) : null;
 
@@ -1746,12 +1777,13 @@ export function App({
   /** The hint shares the `↓ 5 more` row when the panel ends in one. */
   const hintRows = hintShares(agentRows) ? 0 : 1;
   const showLogo = !fullscreen;
+  const jarvisDiskNotice = sectionNotice(disk.waiting, "jarvis");
   // Rows the Jarvis panel and the screens' pickers add to the bottom block.
   const jarvisPanelLines = useMemo(
-    () => screens.panel(contentWidth, Math.max(6, Math.min(12, Math.floor(usableRows(terminal.rows) / 3)))),
+    () => screens.panel(contentWidth, Math.max(6, Math.min(12, Math.floor(usableRows(terminal.rows) / 3))), jarvisDiskNotice),
     // `screens.panel` changes with the Jarvis state and the clock.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [screens.panel, contentWidth, terminal.rows],
+    [screens.panel, contentWidth, terminal.rows, jarvisDiskNotice],
   );
   const overlayRows = screenOverlayRows(screens, contentWidth);
   // Core refused the last reply to the prompt on screen and left it open (1.55.0): the reason shows on the prompt.
@@ -2481,6 +2513,10 @@ export function App({
         history?.add(text, workdir);
         return;
       }
+      if (diskRef.current?.handleCommand(text)) {
+        history?.add(text, workdir);
+        return;
+      }
       if (screensNow?.handleCommand(text)) {
         history?.add(text, workdir);
         return;
@@ -2985,8 +3021,14 @@ export function App({
       // A request only a person may settle is settled once, whatever the scope row says.
       const personOnly = state.approvalQueue.find((entry) => entry.requestId === requestId)?.personOnly === true;
       rememberChosenScope(requestId, decision, personOnly ? "once" : scope);
+      const known = knownApprovalsRef.current.find((request) => request.requestId === requestId);
       void client
         .respondApproval(requestId, decision, personOnly ? "once" : scope, reason)
+        .then((result: unknown) => {
+          // Core kept an allow narrower than chosen: the result's scope says what applies.
+          const line = respondResultNote(requestId, result as { scope?: string | null } | null, known);
+          if (line) dispatch({ type: "note", text: line });
+        })
         .catch((error: unknown) => dispatch({ type: "error", message: rpcErrorText(error) }));
     },
     [client, state.approvalQueue],
@@ -3031,7 +3073,8 @@ export function App({
       screens.ui !== null ||
       security.ui !== null ||
       web.ui !== null ||
-      trust.ui !== null
+      trust.ui !== null ||
+      disk.open
     ) {
       return;
     }
@@ -3491,7 +3534,7 @@ export function App({
             setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || disk.open}
         />
       )}
     </>
@@ -3547,7 +3590,7 @@ export function App({
     <HelpPanel
       commands={state.commands}
       width={contentWidth}
-      height={fullscreen ? layout.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
+      height={fullscreen ? layout.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (topBanner ? 3 : 0))}
       isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
       runningSubagents={state.subagents.filter((agent) => agent.status === "running").length}
     />
@@ -3559,12 +3602,13 @@ export function App({
       config={security.ui.config}
       readOnly={security.ui.readOnly}
       width={contentWidth}
-      height={fullscreen ? layout.transcriptRows : Math.max(8, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
+      height={fullscreen ? layout.transcriptRows : Math.max(8, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (topBanner ? 3 : 0))}
       onSave={security.save}
       onCheck={security.check}
       onReload={security.reload}
       onSetUnknownCode={security.setUnknownCode}
       changeSeq={security.changeSeq}
+      diskNotice={sectionNotice(disk.waiting, "security")}
       onClose={security.close}
       isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
     />
@@ -3574,12 +3618,14 @@ export function App({
     <WebScreen
       status={web.ui.status}
       width={contentWidth}
-      height={fullscreen ? layout.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
+      height={fullscreen ? layout.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (topBanner ? 3 : 0))}
       onListen={web.listen}
       onStop={web.stop}
       onRotate={web.rotate}
       onSetPassword={web.setPassword}
       onClearPassword={web.clearPassword}
+      onSetMaxMode={web.setMaxMode}
+      diskNotice={sectionNotice(disk.waiting, "web.remote")}
       onRefresh={web.refresh}
       onCopy={web.copy}
       changeSeq={web.changeSeq}
@@ -3592,12 +3638,24 @@ export function App({
     <TrustScreen
       status={trust.ui.status}
       width={contentWidth}
-      height={fullscreen ? layout.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
+      height={fullscreen ? layout.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (topBanner ? 3 : 0))}
       onTrust={trust.trust}
       onRevoke={trust.revoke}
       onReload={trust.refresh}
       changeSeq={trust.changeSeq}
+      tampered={trust.tampered}
       onClose={trust.close}
+      isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
+    />
+  ) : null;
+
+  const diskNode = disk.open ? (
+    <DiskSettingsScreen
+      waiting={disk.waiting}
+      width={contentWidth}
+      height={fullscreen ? layout.transcriptRows : Math.max(8, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (topBanner ? 3 : 0))}
+      onDecide={disk.decide}
+      onClose={disk.close}
       isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
     />
   ) : null;
@@ -3638,9 +3696,10 @@ export function App({
         columns={layout.columns}
         transcriptRows={layout.transcriptRows}
         lines={viewport.lines}
-        banner={bannerText(update)}
+        banner={topBanner}
+        bannerColor={bannerText(update) === null ? "yellow" : undefined}
         scrollIndicator={scrollIndicator(viewport)}
-        overlay={helpNode ?? trustNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
+        overlay={helpNode ?? diskNode ?? trustNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
           <LaunchBanner
             width={terminal.columns - 2}
             terminalRows={terminal.rows}
@@ -3771,7 +3830,7 @@ export function App({
           oldest rows go, clipped at the top, and the newest stay. Whatever is
           clipped is still live, so it reaches the scrollback whole later. */}
       <Box flexDirection="column" flexShrink={1} overflowY="hidden" justifyContent="flex-end">
-      {showHelp || securityNode || webNode || trustNode ? null : externalNode ? externalNode : openAgent ? (
+      {showHelp || securityNode || webNode || trustNode || diskNode ? null : externalNode ? externalNode : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}
@@ -3800,8 +3859,15 @@ export function App({
 
       <Box flexDirection="column" flexShrink={0}>
       <UpdateBanner update={update} />
+      {bannerText(update) === null && topBanner !== null ? (
+        <Box marginBottom={1}>
+          <Text color="yellow" wrap="truncate-end">{topBanner}</Text>
+        </Box>
+      ) : null}
 
       {helpNode}
+
+      {diskNode}
 
       {securityNode}
 

@@ -23,8 +23,12 @@ import type { Line, Segment } from "../layout/transcript.js";
 import { rpcCode } from "../state/errors.js";
 import { wrapSegments } from "../state/security.js";
 import {
+  MAX_MODE_EXPLAIN,
   MIN_PASSWORD,
   PLAIN_HTTP_WARNING,
+  maxModeRow,
+  nextMaxMode,
+  type MaxMode,
   RESTART_LINE,
   fieldError,
   hidden,
@@ -53,6 +57,10 @@ export interface WebScreenProps {
   onRotate: () => Promise<WebResult>;
   onSetPassword: (password: string, username: string) => Promise<WebResult>;
   onClearPassword: () => Promise<WebResult>;
+  /** Sets the highest mode a remote sign-in may use (`settings.set web.remote.maxMode`). */
+  onSetMaxMode?: (mode: MaxMode) => Promise<WebResult>;
+  /** The line saying remote access settings wait on disk (`/settings disk`), or null. */
+  diskNotice?: string | null;
   onRefresh: () => Promise<WebResult>;
   /** Put the link on the clipboard when the terminal obeys OSC 52. */
   onCopy: (link: string) => CopyResult;
@@ -87,6 +95,8 @@ export function WebScreen({
   onRotate,
   onSetPassword,
   onClearPassword,
+  onSetMaxMode,
+  diskNotice = null,
   onRefresh,
   onCopy,
   changeSeq = 0,
@@ -374,6 +384,18 @@ export function WebScreen({
           return;
         case "y":
           return copyLink();
+        case "m": {
+          if (status.maxMode === null || !onSetMaxMode) return;
+          const next = nextMaxMode(status.maxMode);
+          return act(
+            "Setting the highest mode",
+            () => onSetMaxMode(next),
+            (result) => {
+              applyStatus(result.status);
+              say(`Remote sign-ins are limited to ${result.status.maxMode ?? next} from now on; it applies at once.`, "green");
+            },
+          );
+        }
         case "r":
           return act("Reading the status", onRefresh, (result) => applyStatus(result.status));
         default:
@@ -412,8 +434,16 @@ export function WebScreen({
     );
     if (link) body.push(...wrap("link-keys", [{ text: revealed ? "v hides the token · y copies the link" : "v reveals the token · y copies the link", dimColor: true }]));
   }
+  if (status.maxMode !== null) {
+    body.push(...wrap("max-mode", [{ text: maxModeRow(status.maxMode), bold: true }], "  "));
+    body.push(...wrap("max-mode-why", [{ text: MAX_MODE_EXPLAIN(), dimColor: true }], "  "));
+  }
   if (status.needsRestart) body.push(...wrap("restart", [{ text: RESTART_LINE, color: "yellow" }]));
-  const warning: Line[] = wrap("warn", [bold("! ", "yellow"), { text: status.warning ?? PLAIN_HTTP_WARNING, color: "yellow" }], "  ");
+  // Core's warning sits at the top and is never the one to go: the status below it gives way first.
+  const warning: Line[] = [
+    ...wrap("warn", [bold("! ", "yellow"), { text: status.warning ?? PLAIN_HTTP_WARNING, color: "yellow" }], "  "),
+    ...(diskNotice ? wrap("disk", [bold("! ", "yellow"), { text: diskNotice, color: "yellow" }], "  ") : []),
+  ];
 
   const live: Line[] = [];
   const hintParts: string[] = [];
@@ -471,7 +501,7 @@ export function WebScreen({
   } else if (mode.k === "busy") {
     hintParts.push(`${mode.what}…`);
   } else {
-    hintParts.push("l start / move", ...(status.listening ? ["x stop"] : []), "t new link", "p password", ...(status.passwordSet ? ["c clear password"] : []), "r refresh", "Esc close");
+    hintParts.push("l start / move", ...(status.listening ? ["x stop"] : []), "t new link", "p password", ...(status.passwordSet ? ["c clear password"] : []), ...(status.maxMode !== null && onSetMaxMode ? ["m max mode"] : []), "r refresh", "Esc close");
   }
 
   const foot: Line[] = [];
@@ -487,7 +517,7 @@ export function WebScreen({
     <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={status.listening ? "yellow" : "cyan"} paddingX={1} overflow="hidden">
       <RenderedLines lines={head} />
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        <RenderedLines lines={[...shownBody, ...warning, ...live]} />
+        <RenderedLines lines={[...warning, ...shownBody, ...live]} />
       </Box>
       <RenderedLines lines={foot} />
       <RenderedLines lines={hint} />

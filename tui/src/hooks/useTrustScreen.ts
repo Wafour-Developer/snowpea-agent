@@ -16,6 +16,7 @@ import { parseTrustCommand } from "../slash/trust.js";
 import { rpcCode } from "../state/errors.js";
 import {
   STORE_LOST_LINE,
+  TAMPER_LINE,
   TRUST_REQUIRES_LINE,
   changedFiles,
   concerns,
@@ -41,6 +42,8 @@ export interface TrustDeps {
   workdir: string;
   /** A plain line in the main transcript. */
   note: (text: string) => void;
+  /** A red line in the main transcript. */
+  warn?: (text: string) => void;
   showToast: (text: string) => void;
 }
 
@@ -60,11 +63,14 @@ function errorText(error: unknown): string {
 
 export function useTrustScreen(deps: TrustDeps) {
   const { client, workdir, note, showToast } = deps;
+  const warn = deps.warn ?? note;
   const supported = trustSupported(client.serverCapabilities?.());
   const [ui, setUi] = useState<TrustUi | null>(null);
   const opening = useRef(false);
   /** Counts `project.trust.changed` events that concern this project; an open screen reads the status again. */
   const [changeSeq, setChangeSeq] = useState(0);
+  /** Something outside snowpea tried to change the trust records (`reason: "tamper"`); the open screen says so. */
+  const [tampered, setTampered] = useState(false);
   const openRef = useRef(false);
   openRef.current = ui !== null;
 
@@ -77,6 +83,7 @@ export function useTrustScreen(deps: TrustDeps) {
     try {
       setUi({ status: await read() });
       setChangeSeq(0);
+      setTampered(false);
     } catch (error) {
       note(`${say("Project trust: could not read it", "프로젝트 신뢰: 읽을 수 없습니다")} — ${errorText(error)}`);
     } finally {
@@ -149,9 +156,15 @@ export function useTrustScreen(deps: TrustDeps) {
     (raw: unknown) => {
       const event = normalizeChanged(raw);
       if (event.reason === "store_lost") showToast(STORE_LOST_LINE());
+      if (event.reason === "tamper") {
+        // Nothing about any project's trust changed: a warning, not a trust change.
+        setTampered(true);
+        warn(TAMPER_LINE());
+        return;
+      }
       if (openRef.current && concerns(event, workdir)) setChangeSeq((seq) => seq + 1);
     },
-    [showToast, workdir],
+    [showToast, warn, workdir],
   );
 
   return {
@@ -163,6 +176,7 @@ export function useTrustScreen(deps: TrustDeps) {
     trust,
     revoke,
     changeSeq,
+    tampered,
     onChanged,
   };
 }

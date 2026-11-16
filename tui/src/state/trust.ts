@@ -97,7 +97,17 @@ export interface TrustFileView {
   commands: CommandView[];
 }
 
-export type NotPinnedReason = "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable";
+export type NotPinnedReason =
+  | "computed"
+  | "project-script"
+  | "package-runner"
+  | "module"
+  | "missing"
+  | "too-large"
+  | "too-many"
+  | "unreadable"
+  | "outside-project"
+  | "symlink";
 
 export interface NotPinnedView {
   command: CommandView;
@@ -126,6 +136,8 @@ export interface TrustView {
   digests: Record<string, string>;
   notPinned: NotPinnedView[];
   runs: RunView[];
+  /** What trusting does not cover, in core's sentences (1.55.0); empty from an older core. */
+  limits: string[];
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? sanitizeText(value) : "");
@@ -173,6 +185,7 @@ export function normalizeTrust(raw: Partial<ProjectTrustStatus> | null | undefin
     runs: (Array.isArray(raw?.runs) ? raw.runs : [])
       .map((run: any): RunView => ({ path: text(run?.path), state: state(run?.state), by: texts(run?.by) }))
       .filter((run: RunView) => run.path !== ""),
+    limits: texts((raw as { limits?: unknown } | null | undefined)?.limits),
   };
 }
 
@@ -192,6 +205,8 @@ const REASON_WORDS: Record<NotPinnedReason, [string, string]> = {
   "too-large": ["the file is too large to pin", "파일이 너무 커서 고정할 수 없습니다"],
   "too-many": ["there are too many files to pin", "고정하기엔 파일이 너무 많습니다"],
   unreadable: ["the control file cannot be read", "제어 파일을 읽을 수 없습니다"],
+  "outside-project": ["it runs a file outside the project, which cannot be pinned with it", "프로젝트 밖의 파일을 실행하므로 프로젝트와 함께 고정할 수 없습니다"],
+  symlink: ["it runs a symbolic link, and where the link points can change", "심볼릭 링크를 실행하며 링크가 가리키는 곳은 바뀔 수 있습니다"],
 };
 
 /** The reason in plain words; a value this build does not know is shown as core sent it. */
@@ -374,6 +389,11 @@ export function trustBody(view: TrustView, selected: ReadonlySet<TrustScope>, cu
   return { lines, start, end };
 }
 
+/** What trusting does not cover, in core's own sentences: drawn under the lists, always in view. */
+export function limitLines(view: TrustView, width: number): Line[] {
+  return view.limits.flatMap((limit, at) => wrap(`limit-${at}`, [{ text: "! ", color: "yellow", bold: true }, { text: limit, dimColor: true }], width, "  "));
+}
+
 /** The lines under the title: where, whether it is trusted, and what is waiting. */
 export function trustHeader(view: TrustView, width: number): Line[] {
   const pending = view.files.filter((file) => file.state !== "active").length;
@@ -450,9 +470,16 @@ export interface TrustChanged {
   workdir: string;
   scopes: TrustScope[];
   by: string | null;
-  reason: "set" | "revoke" | "migration" | "store_lost";
+  reason: "set" | "revoke" | "migration" | "store_lost" | "tamper";
   projects: string[];
 }
+
+/** `reason: "tamper"` (1.55.0): something outside snowpea tried to change the trust records; nothing was changed. */
+export const TAMPER_LINE = (): string =>
+  say(
+    "Something outside snowpea tried to change the trust records; nothing was changed.",
+    "snowpea 밖의 무언가가 신뢰 기록을 바꾸려 했습니다. 아무것도 바뀌지 않았습니다.",
+  );
 
 export function normalizeChanged(raw: unknown): TrustChanged {
   const payload = (raw ?? {}) as Record<string, unknown>;
@@ -461,13 +488,15 @@ export function normalizeChanged(raw: unknown): TrustChanged {
     workdir: text(payload["workdir"]),
     scopes: (Array.isArray(payload["scopes"]) ? payload["scopes"] : []).filter(isScope),
     by: text(payload["by"]) || null,
-    reason: reason === "revoke" || reason === "migration" || reason === "store_lost" ? reason : "set",
+    reason: reason === "revoke" || reason === "migration" || reason === "store_lost" || reason === "tamper" ? reason : "set",
     projects: texts(payload["projects"]),
   };
 }
 
 /** Whether a change concerns this project (a migration and a lost store concern all of them). */
 export function concerns(change: TrustChanged, workdir: string): boolean {
+  // A tamper changed nothing: no project's trust moved, so nothing is read again.
+  if (change.reason === "tamper") return false;
   return change.reason === "migration" || change.reason === "store_lost" || change.workdir === "" || change.workdir === workdir;
 }
 

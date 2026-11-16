@@ -23,9 +23,11 @@ import type { Line, Segment } from "../layout/transcript.js";
 import { say } from "../state/errors.js";
 import { scrollInto, wrapSegments } from "../state/security.js";
 import {
+  TAMPER_LINE,
   TRUST_SCOPES,
   changedLines,
   initialSelection,
+  limitLines,
   scopeTitle,
   trustBody,
   trustHeader,
@@ -47,6 +49,8 @@ export interface TrustScreenProps {
   onReload: () => Promise<TrustResult>;
   /** Counts `project.trust.changed` events that concern this project. */
   changeSeq?: number;
+  /** Something outside snowpea tried to change the trust records (`reason: "tamper"`); nothing was changed. */
+  tampered?: boolean;
   onClose: () => void;
   isActive?: boolean;
 }
@@ -59,7 +63,7 @@ interface Note {
   dim?: boolean;
 }
 
-export function TrustScreen({ status: initial, width, height, onTrust, onRevoke, onReload, changeSeq = 0, onClose, isActive = true }: TrustScreenProps): React.ReactElement {
+export function TrustScreen({ status: initial, width, height, onTrust, onRevoke, onReload, changeSeq = 0, tampered = false, onClose, isActive = true }: TrustScreenProps): React.ReactElement {
   const [status, setStatus] = useState<TrustView>(initial);
   const [selected, setSelected] = useState<Set<TrustScope>>(() => initialSelection(initial));
   const [cursor, setCursor] = useState(0);
@@ -202,10 +206,11 @@ export function TrustScreen({ status: initial, width, height, onTrust, onRevoke,
   const gap = Math.max(1, inner - textWidth(titleLeft + titleMid) - textWidth(counter));
   const head: Line[] = [
     { key: "title", segments: [bold(titleLeft, "cyan"), { text: titleMid, dimColor: true }, { text: " ".repeat(gap) + counter, dimColor: true }] },
+    ...(tampered ? wrapSegments("tamper", [{ text: `! ${TAMPER_LINE()}`, color: "yellow", bold: true }], inner, "  ") : []),
     ...trustHeader(status, inner),
   ];
 
-  const foot: Line[] = [];
+  const foot: Line[] = [...limitLines(status, inner)];
   notes.forEach((note, index) => {
     foot.push(...wrapSegments(`note-${index}`, [{ text: note.text, color: note.color, dimColor: note.dim, bold: note.color === "red" }], inner, "  "));
   });

@@ -56,6 +56,7 @@ import {
   panelLines,
   rememberChosenScope,
   requiresLine,
+  respondResultNote,
   sessionLabel,
   statusLines,
   supportOf,
@@ -67,6 +68,7 @@ import {
 } from "../state/jarvis.js";
 import { parseExternalCommand, parseJarvisCommand } from "../slash/jarvis.js";
 import { cliLabel } from "../state/external.js";
+import { wrapSegments } from "../state/security.js";
 
 /** True when the CLI adds a message to a running turn instead of refusing it. */
 export function steerOf(infos: readonly ExternalCliInfo[] | null, cli: string): boolean {
@@ -128,6 +130,8 @@ export interface ScreensDeps {
   note: (text: string) => void;
   /** Open this screen as soon as the daemon has answered (`snowpea jarvis`). */
   start?: "jarvis" | "external";
+  /** The line saying Jarvis settings wait on disk (`/settings disk`), or null. */
+  diskNotice?: () => string | null;
 }
 
 function errorText(error: unknown): string {
@@ -144,7 +148,9 @@ const POLL_BACKGROUND_MS = 15_000;
 const PAGE = 40;
 
 export function useJarvisScreens(deps: ScreensDeps) {
-  const { client, workdir, sessionId, turnActive, resumeSession, showToast, note, start } = deps;
+  const { client, workdir, sessionId, turnActive, resumeSession, showToast, note, start, diskNotice } = deps;
+  const diskNoticeRef = useRef(diskNotice);
+  diskNoticeRef.current = diskNotice;
   const support: Support = supportOf(client.serverCapabilities?.());
   const [jarvis, jarvisDispatch] = useReducer(jarvisReducer, initialJarvis);
   const [external, viewDispatch] = useReducer(viewReducer, null);
@@ -595,7 +601,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
             .call("jarvis.status", {})
             .then((status) => {
               jarvisDispatch({ type: "status", status });
-              note(statusLines(status, Date.now()).join("\n"));
+              const waiting = diskNoticeRef.current?.() ?? null;
+              note([...(waiting ? [`! ${waiting}`] : []), ...statusLines(status, Date.now())].join("\n"));
             })
             .catch((error: unknown) => note(`jarvis.status failed: ${errorText(error)}`));
           break;
@@ -703,6 +710,11 @@ export function useJarvisScreens(deps: ScreensDeps) {
       rememberChosenScope(requestId, decision, scope);
       void client
         .respondApproval(requestId, decision, scope, reason)
+        .then((result: unknown) => {
+          // Core kept an allow narrower than chosen: the result's scope says what applies.
+          const line = respondResultNote(requestId, result as { scope?: string | null } | null, undefined);
+          if (line) note(line);
+        })
         .catch((error: unknown) => note(`approval.respond failed: ${errorText(error)}`));
     },
     [afterAnswer, client, note],
@@ -1178,8 +1190,16 @@ export function useJarvisScreens(deps: ScreensDeps) {
   }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId]);
 
   const panel = useCallback(
-    (width: number, maxRows: number): PanelLine[] =>
-      onJarvisScreen ? panelLines(jarvis, width, maxRows, now) : [],
+    (width: number, maxRows: number, diskNotice: string | null = null): PanelLine[] => {
+      if (!onJarvisScreen) return [];
+      const lines = panelLines(jarvis, width, maxRows, now);
+      // Jarvis settings edited on disk wait for the person: the same line as everywhere, wrapped under the title.
+      if (diskNotice && lines.length > 0) {
+        const wrapped = wrapSegments("disk-notice", [{ text: `! ${diskNotice}`, color: "yellow" }], Math.max(20, width), "  ");
+        return [lines[0], ...wrapped, ...lines.slice(1)];
+      }
+      return lines;
+    },
     [jarvis, now, onJarvisScreen],
   );
 

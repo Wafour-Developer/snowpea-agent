@@ -116,7 +116,7 @@ export interface TuiClientListeners {
   /** The upgrade started by `system.update` moved on (CORE-update). */
   onUpdateProgress?: (params: UpdateProgress) => void;
   /** A setting changed on the daemon; capabilities may have moved with it. */
-  onSettingsChanged?: (params: { keys?: string[] }) => void;
+  onSettingsChanged?: (params: { keys?: string[]; waitingKeys?: string[] }) => void;
   /** An MCP server was added, removed, or changed state (M14 §3). */
   onMcpChanged?: (params: McpChangedPayload) => void;
   /** A question joined the shared queue (1.53.0 shows it in the Jarvis panel). */

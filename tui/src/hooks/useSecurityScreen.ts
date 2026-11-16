@@ -59,6 +59,8 @@ export interface SecurityDeps {
   note: (text: string) => void;
   /** A red line in the main transcript. */
   warn: (text: string) => void;
+  /** The line saying security settings wait on disk (`/settings disk`), or null. */
+  diskNotice?: () => string | null;
 }
 
 function errorText(error: unknown): string {
@@ -67,7 +69,7 @@ function errorText(error: unknown): string {
 }
 
 export function useSecurityScreen(deps: SecurityDeps) {
-  const { client, workdir, sessionId, viewingId, showToast, note, warn } = deps;
+  const { client, workdir, sessionId, viewingId, showToast, note, warn, diskNotice } = deps;
   const supported = securitySupported(client.serverCapabilities?.());
   const [ui, setUi] = useState<SecurityUi | null>(null);
   const [listsSet, setListsSet] = useState(false);
@@ -195,7 +197,7 @@ export function useSecurityScreen(deps: SecurityDeps) {
         void open();
       } else if (command.kind === "status") {
         void Promise.all([loadConfig(), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)])
-          .then(([config, catalog]) => note(statusLines(config, catalog).join("\n")))
+          .then(([config, catalog]) => note(statusLines(config, catalog, diskNotice?.() ?? null).join("\n")))
           .catch((error: unknown) => note(`Security lists: could not read them — ${errorText(error)}`));
       } else {
         void Promise.all([check(command.what, command.text), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)]).then(

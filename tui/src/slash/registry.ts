@@ -74,6 +74,11 @@ const SURFACE_COMMANDS: CommandInfo[] = [
     summary: "Trust this project's own hooks, MCP servers and commands: /trust, /trust status.",
     source: "tui",
   },
+  {
+    name: "settings",
+    summary: "Settings edited in settings.json while snowpea ran: /settings disk applies or discards them.",
+    source: "tui",
+  },
 ];
 
 /** What an older daemon gets in place of the two beta commands' summaries. */
