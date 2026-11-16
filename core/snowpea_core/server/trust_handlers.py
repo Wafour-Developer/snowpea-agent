@@ -98,11 +98,19 @@ def _guard(core: Any, store: TrustStore) -> None:
         tasks.add(task)
         task.add_done_callback(tasks.discard)
 
-    def on_tamper(path: str, happened: str) -> None:
+    def on_tamper(path: str, happened: str, note: dict[str, Any] | None = None) -> None:
+        # Security review 8, L8-1: told once at once, then at most once a minute
+        # with a count; and only what was done is claimed.
+        count = int((note or {}).get("count") or 1)
+        restored = bool((note or {}).get("restored", True))
+        again = f" ({count} times since the last notice)" if count > 1 else ""
+        back = ("the file was put back" if restored else
+                "putting the file back failed, so the file on disk differs until snowpea "
+                "writes it again")
         _TAMPERED.append(
             f"something outside snowpea {happened} the trusted-projects record "
-            f"($SNOWPEA_HOME/trust/{os.path.basename(path)}) while snowpea was running; the "
-            "change was not applied and the record was put back")
+            f"($SNOWPEA_HOME/trust/{os.path.basename(path)}) while snowpea was running{again}; "
+            f"snowpea did not use the change and kept its own copy; {back}")
         del _TAMPERED[:-5]
         try:
             asyncio.get_running_loop()
