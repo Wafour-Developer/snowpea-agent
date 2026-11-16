@@ -3112,6 +3112,13 @@ async def _auto_inject_skills(
             continue
         if callable(enabled) and not enabled(skill):
             continue
+        # Security review 6, M-6: a project's skill comes in only for a session
+        # working in that project, and only with the project's ``commands``
+        # trust for the file as it was loaded.
+        may_inject = getattr(loader, "may_inject", None)
+        if getattr(skill, "project", None) is not None and not (
+                callable(may_inject) and may_inject(skill, getattr(session, "workdir", None))):
+            continue
         hit = first_match(list(doc.auto_inject), text)
         if hit is None:
             continue
@@ -3509,8 +3516,20 @@ async def _run_started_call(
         try:
             if result.ok and result.path:
                 await core.checkpoints.note_after(session, turn_id, result.path)
+            # Security review 6, M-8: what this session wrote or changed stays "the
+            # agent's own" for the security check — a tool's paths, and what the
+            # shell scan found changed — for the whole session and across restarts.
+            from snowpea_core.security import enforce as security_enforce
+
+            if tag in {"write", "config", "outside"}:
+                security_enforce.note_written(core, session, call_paths(dict(call.arguments)))
             if shell_scan:
-                await core.checkpoints.end_shell(session, turn_id, shell_baseline)
+                changed = await core.checkpoints.end_shell(session, turn_id, shell_baseline)
+                security_enforce.note_written(
+                    core, session,
+                    [row["path"] for row in (changed or {}).get("files", [])
+                     if isinstance(row, dict) and row.get("path")],
+                )
         except Exception:  # noqa: BLE001 - checkpoints must never break a tool
             log.warning("could not finish checkpoint observation for %s", call.name, exc_info=True)
     await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))

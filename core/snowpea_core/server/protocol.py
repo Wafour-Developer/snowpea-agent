@@ -2377,7 +2377,13 @@ class ApprovalRequest(Payload):
             "checked against your block list' when the security lists are set and part of "
             "the call cannot be seen (a program only the shell knows, eval of a variable, a "
             "pipe into a shell, a path only the shell knows). Such a request is personOnly, "
-            "routed to the person, never cached or remembered. Null otherwise."
+            "routed to the person, never cached or remembered. Null otherwise. 1.55.0 "
+            "(security review 6) adds two values: 'acts on snowpea's own controls' (the "
+            "line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, "
+            "skills, commands or agents: asked in every mode, whatever the lists and "
+            "settings say) and 'cannot tell what this code changes' (only code the check "
+            "cannot resolve is in the way; security.unknownCode: 'allow' switches this one "
+            "off). note carries the sentence for the person."
         ),
     )
 
@@ -9342,6 +9348,27 @@ ProjectTrustScope = Literal[
     "hooks", "mcp", "commands", "agents", "prompts", "settings", "mode", "externalCli"
 ]
 ProjectTrustFileState = Literal["active", "untrusted", "new", "changed"]
+ProjectTrustNotPinnedReason = Literal[
+    "computed", "project-script", "package-runner", "module", "missing", "too-large",
+    "too-many", "unreadable",
+]
+
+
+class ProjectTrustCommand(Payload):
+    """How a command is shown on the trust card (1.55.0, security review 6)."""
+
+    label: str = Field(default="", description="The hook's event or the server's name.")
+    head: str = Field(
+        description="The whole command when it is short; else its first 120 characters."
+    )
+    tail: str = Field(
+        default="",
+        description=(
+            "Empty for a short command; else its last 60 characters. A card shows head, "
+            "an ellipsis and tail: the end of a command is never hidden."
+        ),
+    )
+    length: int = Field(description="The command's full length in characters.")
 
 
 class ProjectTrustParams(Payload):
@@ -9356,7 +9383,20 @@ class ProjectTrustSetParams(Payload):
             "Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, "
             "prompts, settings — not mode (defaultMode: auto from the project file) and not "
             "externalCli, which the person names explicitly. Every control file is pinned "
-            "as it is now."
+            "as digests says it is."
+        ),
+    )
+    digests: dict[str, str] = Field(
+        description=(
+            "Required (1.55.0, security review 6): project.trust.status's digests object, "
+            "sent back exactly as it was returned — {path relative to the project: "
+            "'sha256:<hex>'} for every control file, every project file one of them runs "
+            "and the project settings file. What is pinned is what the person was shown: "
+            "when the project differs now (a digest differs, a file is on disk that is not "
+            "in digests, a file in digests is gone) nothing is trusted and the call fails "
+            "with trust_changed, details {changed: [path], added: [path], missing: [path]}. "
+            "Read the status again, show it, and send the new digests. {} for a project "
+            "that brings nothing."
         ),
     )
 
@@ -9381,7 +9421,51 @@ class ProjectTrustFile(Payload):
     )
     summary: str = Field(
         default="",
-        description="Hook commands' first 200 characters, MCP servers, allowed-tools, …",
+        description=(
+            "One line: hook commands, MCP servers, allowed-tools, … A long command is its "
+            "head, ' … ', its tail and its length (1.55.0: the end is never cut off)."
+        ),
+    )
+    digest: str = Field(
+        default="",
+        description="'sha256:<hex>' of the file now ('missing' / 'unreadable' otherwise).",
+    )
+    commands: list[ProjectTrustCommand] = Field(
+        default_factory=list,
+        description="The commands it runs (hooks, MCP servers), for a card that shows each.",
+    )
+
+
+class ProjectTrustRun(Payload):
+    """A project file a hook, an MCP server or a skill runs: pinned with it (1.55.0)."""
+
+    path: str = Field(description="Relative to the project root.")
+    digest: str = Field(description="'sha256:<hex>' of the file now.")
+    state: ProjectTrustFileState = Field(
+        description=(
+            "As for a control file. A changed or new one switches off every control file "
+            "in by until the project is trusted again."
+        )
+    )
+    by: list[str] = Field(
+        default_factory=list, description="The control files (paths) that run it."
+    )
+
+
+class ProjectTrustNotPinned(Payload):
+    """A command whose code trust cannot pin (1.55.0): the card should warn about it."""
+
+    source: str = Field(description="The control file (path) the command is in.")
+    command: ProjectTrustCommand = Field(description="The command, as shown.")
+    reason: ProjectTrustNotPinnedReason = Field(
+        description=(
+            "computed: the command holds an expansion or substitution, so what runs is not "
+            "known; project-script: npm/yarn/pnpm run, make, …: the project's own script "
+            "table decides and may change; package-runner: npx/uvx/pipx run: a package "
+            "resolved or fetched when it runs; module: python -m <module>; missing: it "
+            "names a project file that is not there now; too-large / too-many: more than "
+            "can be pinned; unreadable: the control file itself could not be read."
+        )
     )
 
 
@@ -9407,15 +9491,49 @@ class ProjectTrustStatus(Payload):
     modeActive: bool = Field(
         default=False, description="…and the mode scope lets it apply (else accept)."
     )
+    runs: list[ProjectTrustRun] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0 (security review 6): the project files the hooks, MCP servers and "
+            "skills run — path-like words of a hook command or of a server's command and "
+            "args that are files inside the project, and every other file in a skill's "
+            "folder. Trusting pins them too; one that changes needs the project trusted "
+            "again, like any pinned file."
+        ),
+    )
+    notPinned: list[ProjectTrustNotPinned] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0: commands whose code cannot be pinned, each with a reason. Trust still "
+            "covers the command line itself; the card should say that what it runs may "
+            "change without asking again."
+        ),
+    )
+    digests: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send "
+            "it back unchanged as project.trust.set {digests}."
+        ),
+    )
 
 
 class ProjectTrustChangedNotification(Payload):
     """``project.trust.changed``: a project's trust changed (to every person's surface)."""
 
-    workdir: str = Field(default="", description="The project root ('' for the migration).")
+    workdir: str = Field(
+        default="", description="The project root ('' for the migration and for store_lost)."
+    )
     scopes: list[ProjectTrustScope] = Field(default_factory=list)
     by: str | None = None
-    reason: Literal["set", "revoke", "migration"] = "set"
+    reason: Literal["set", "revoke", "migration", "store_lost"] = Field(
+        default="set",
+        description=(
+            "store_lost (1.55.0, security review 6): the trusted-projects record is missing "
+            "or unreadable, so no project is trusted until the person trusts it again; "
+            "security.get.problems carries the sentence."
+        ),
+    )
     projects: list[str] = Field(
         default_factory=list, description="migration: every project trusted as it was."
     )
@@ -9551,6 +9669,19 @@ class SecurityGetResult(SecurityLists):
 
     project: SecurityLists | None = Field(
         default=None, description="What the workdir's .snowpea/settings.json adds; null without."
+    )
+    unknownCode: Literal["ask", "allow"] = Field(
+        default="ask",
+        description=(
+            "security.unknownCode (1.55.0, security review 6): what happens to code the "
+            "check cannot resolve — a write whose target is computed while it runs, code it "
+            "cannot parse, an interpreter fed code it cannot read. 'ask' (default): put to "
+            "the person in every mode (ApprovalRequest.reason 'cannot tell what this code "
+            "changes'). 'allow': let through. Either way snowpea's own control files stay "
+            "protected and every blocked finding stays blocked. Written with settings.set "
+            "{scope: 'global', patch: {security: {unknownCode}}} by a local person only; a "
+            "project scope refuses it (invalid_params, details.reason 'global_only')."
+        ),
     )
     effective: SecurityEffective = Field(default_factory=SecurityEffective)
     writable: bool = Field(

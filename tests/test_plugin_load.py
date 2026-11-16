@@ -382,9 +382,13 @@ async def test_reload_emits_commands_changed(
     await client.stop()
 
 
-async def test_precedence_project_beats_global_beats_builtin(
+async def test_precedence_global_beats_builtin_and_a_project_never_replaces_either(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Security review 6, M-6 reversed the last step of this test: a project's skill
+    used to replace a global one of the same name for the whole daemon.  A project
+    entry now never takes the place of a global, plugin or built-in one; a project
+    skill with a name of its own exists for sessions in that project only."""
     workdir = tmp_path / "project"
     workdir.mkdir()
     builtin = tmp_path / "builtin_skills"
@@ -405,9 +409,13 @@ async def test_precedence_project_beats_global_beats_builtin(
 
     project_skill = workdir / ".snowpea" / "skills" / "clash"
     write_skill(project_skill, "clash", "the project one")
+    write_skill(workdir / ".snowpea" / "skills" / "own", "own", "the project's own")
     await loader.reload()
-    assert loader.skills["clash"].source == "project"
-    assert loader.skills["clash"].description == "the project one"
+    assert loader.skills["clash"].source == "global"
+    assert loader.skills["clash"].description == "the global one"
+    assert loader.find("clash", workdir).source == "global"
+    assert loader.find("own", workdir).source == "project"
+    assert loader.find("own", tmp_path / "another-project") is None
     assert daemon.core.commands.get("clash") is not None
     await client.stop()
 

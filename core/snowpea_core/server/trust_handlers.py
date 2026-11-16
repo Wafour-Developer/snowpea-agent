@@ -37,6 +37,17 @@ UNTRUSTED_CODE = "project_untrusted"
 _TOLD: set[str] = set()
 #: The projects the one-time migration trusted, told with the first notice.
 _MIGRATED: list[str] = []
+#: Why no project is trusted although some were (the record was lost), told with
+#: the first notice and as ``project.trust.changed {reason: "store_lost"}``.
+_STORE_PROBLEM: list[str] = []
+
+
+def store_problem(core: Any) -> str | None:
+    """The trust record's problem, for ``security.get.problems`` and the doctor."""
+    try:
+        return store_of(core).problem()
+    except Exception:  # noqa: BLE001 - a problem line is best effort
+        return None
 
 
 def store_of(core: Any) -> TrustStore:
@@ -58,15 +69,27 @@ def wire_trust(core: Any) -> None:
     set_project_roots(lambda: live_projects(core))
     store = store_of(core)
     if store.migrated():
+        # Security review 6, M-4: the migration ran once and never again.  A record
+        # that is gone or unreadable now means nothing is trusted; say so.
+        problem = store.problem()
+        if problem:
+            _STORE_PROBLEM[:] = [problem]
+            log.warning("project trust: %s", problem)
         return
+    from snowpea_core.config.paths import utc_now
+
+    stamp = utc_now()
     roots: list[str] = []
     session_workdirs = getattr(getattr(core, "store", None), "session_workdirs", None)
     if session_workdirs is not None:
         try:
+            # Only projects whose sessions were created before this upgrade.
+            roots = list(session_workdirs(limit=1000, before=stamp))
+        except TypeError:
             roots = list(session_workdirs(limit=1000))
         except Exception:  # noqa: BLE001 - no history: nothing to migrate
             log.debug("could not list session workdirs for the trust migration", exc_info=True)
-    trusted = store.migrate(roots)
+    trusted = store.migrate(roots, at=stamp)
     if trusted:
         _MIGRATED[:] = trusted
         log.warning(
@@ -101,7 +124,16 @@ def _root(workdir: str) -> Path:
 
 
 async def _after_change(core: Any, root: Path) -> None:
-    """What the change switches on or off: hooks, commands, agents, MCP servers."""
+    """What the change switches on or off: hooks, commands, agents, MCP servers, prompts."""
+    # Security review 6, L-3: a project's prompt override that was read while it
+    # was trusted must not outlive the trust in a cache.
+    try:
+        from snowpea_core.prompts import loader as prompt_loader
+
+        prompt_loader.clear_cache()
+    except Exception:  # noqa: BLE001 - the trust record stands
+        log.debug("could not clear the prompt cache after a trust change", exc_info=True)
+    _STORE_PROBLEM.clear()
     skills = getattr(core, "skills", None)
     if skills is not None and hasattr(skills, "reload"):
         try:
@@ -130,8 +162,17 @@ async def project_trust_set_handler(conn: RpcConnection, params: ProjectTrustSet
     require_person(conn, "trust a project", local=True)
     root = _root(params.workdir)
     by = str(getattr(conn, "client_kind", None) or "local")
+    from snowpea_core.trust.projects import TrustChanged
+
     try:
-        store_of(core).set(root, params.scopes, by=by)
+        # Security review 6, M-5: what is pinned is what the person was shown.
+        store_of(core).set(root, params.scopes, by=by, digests=dict(params.digests))
+    except TrustChanged as exc:
+        raise RpcError(
+            errors.TRUST_CHANGED,
+            "the project's control files are not what you were shown; look at them again",
+            {"changed": exc.changed, "added": exc.added, "missing": exc.missing},
+        ) from exc
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     await _after_change(core, root)
@@ -161,6 +202,12 @@ async def session_notice(core: Any, session_id: str, workdir: Any) -> None:
     _TOLD.add(session_id)
     try:
         line = store_of(core).notice(workdir)
+        if _STORE_PROBLEM:
+            lost = _STORE_PROBLEM[0]
+            _STORE_PROBLEM.clear()
+            lost = f"{lost[:1].upper()}{lost[1:]}."
+            line = f"{lost} {line}" if line else lost
+            await _changed(core, "", {"scopes": []}, reason="store_lost", by=None)
         if _MIGRATED:
             moved = ", ".join(_MIGRATED[:5]) + (" …" if len(_MIGRATED) > 5 else "")
             first = ("snowpea now asks before a project's own hooks, MCP servers, commands, "

@@ -77,9 +77,16 @@ def loader(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SkillLoader:
 # ---------------------------------------------------------------------------
 
 
-def test_index_groups_by_origin_in_a_readable_order(loader: SkillLoader) -> None:
-    groups = loader.index_groups()
+def _workdir(loader: SkillLoader) -> str:
+    """The session's project: a project's skills are listed only for it (review 6, M-6)."""
+    return str(loader.core.sessions.list()[0].workdir)
 
+
+def test_index_groups_by_origin_in_a_readable_order(loader: SkillLoader) -> None:
+    groups = loader.index_groups(None, _workdir(loader))
+
+    # Without a project (or in another one) the project's own skills are not listed.
+    assert "[project]" not in [label for label, _ in loader.index_groups()]
     assert [label for label, _ in groups] == [
         "[project]",
         "[global]",
@@ -98,7 +105,8 @@ def test_the_index_is_cached_until_the_next_scan(loader: SkillLoader) -> None:
 
 def test_the_index_sits_in_the_context_tier_before_the_tool_list(loader: SkillLoader) -> None:
     tools = [ToolSpec(name="read_file", description="Read a file.", input_schema={})]
-    tiers = compose.build_tiers(tools=tools, skill_groups=loader.index_groups())
+    tiers = compose.build_tiers(tools=tools,
+                                skill_groups=loader.index_groups(None, _workdir(loader)))
 
     assert "## Skills" in tiers.context
     assert "## Skills" not in tiers.stable

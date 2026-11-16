@@ -230,7 +230,10 @@ async def test_write_says_whether_the_copy_is_in_effect(
             },
         )
         assert written["path"] == str(daemon.paths.home / "skills" / "same" / "SKILL.md")
-        assert written["active"] is False  # the project copy shadows it there
+        # Security review 6, M-6: a project copy no longer shadows a global skill
+        # of the same name (it used to, for the whole daemon) — the global one is
+        # in effect, and the project copy is the one that is not.
+        assert written["active"] is True
         alone = await client.ok(
             "skill.write", {"name": "same", "content": skill_md("same"), "scope": "global"}
         )
@@ -239,7 +242,12 @@ async def test_write_says_whether_the_copy_is_in_effect(
             "skill.write", {"name": "same", "content": skill_md("same"), "workdir": str(target)}
         )
         assert local["path"] == str(target / ".snowpea" / "skills" / "same" / "SKILL.md")
-        assert local["active"] is True
+        assert local["active"] is False
+        only = await client.ok(
+            "skill.write", {"name": "only-here", "content": skill_md("only-here"),
+                            "workdir": str(target)}
+        )
+        assert only["active"] is True
     finally:
         await client.stop()
 

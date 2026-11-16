@@ -69,9 +69,16 @@ def test_a_fresh_projects_hooks_are_inactive_until_trusted(core: Core, tmp_path:
     assert _loader(core, project).hooks.count() == 0
     status = store_for(core.paths.home).status(project)
     assert not status["trusted"]
+    command = f"touch {tmp_path / 'marker'}"
+    shown = trust.display(command, "PreToolUse")
+    # Review 6 added the digest and the commands' display data to each row; a
+    # long command is shown as head … tail (L-4), so the summary follows that.
+    summary = "PreToolUse: " + shown["head"] + (
+        f" … {shown['tail']} ({shown['length']} characters)" if shown["tail"] else "")
     assert status["files"] == [{"path": ".snowpea/hooks.json", "scope": "hooks",
-                                "state": "untrusted",
-                                "summary": f"PreToolUse: touch {tmp_path / 'marker'}"}]
+                                "state": "untrusted", "summary": summary,
+                                "digest": trust.digest_of(project / ".snowpea" / "hooks.json"),
+                                "commands": [shown]}]
     notice = store_for(core.paths.home).notice(project)
     assert notice is not None and "hooks" in notice and "snowpea project trust" in notice
     store_for(core.paths.home).set(project, None, by="ide")
@@ -390,13 +397,15 @@ async def test_trust_rpc_is_a_local_persons(core: Core, tmp_path: Path) -> None:
 
     project = tmp_path / "proj"
     _hooks_file(project, tmp_path / "marker")
+    # Review 6, M-5: set takes the digests the status showed.
+    shown = await project_trust_status_handler(_conn("ide"),
+                                               ProjectTrustParams(workdir=str(project)), core)
+    params = ProjectTrustSetParams(workdir=str(project), digests=shown.digests)
     for conn in (_conn("web", remote=True), _conn("browser"), _conn("connector")):
         with pytest.raises(RpcError) as caught:
-            await project_trust_set_handler(conn, ProjectTrustSetParams(workdir=str(project)),
-                                            core)
+            await project_trust_set_handler(conn, params, core)
         assert caught.value.code == errors.JARVIS_PERSON_ONLY
-    status = await project_trust_set_handler(_conn("ide"),
-                                             ProjectTrustSetParams(workdir=str(project)), core)
+    status = await project_trust_set_handler(_conn("ide"), params, core)
     assert status.trusted and "hooks" in status.scopes and "mode" not in status.scopes
     assert status.files[0].state == "active"
     read = await project_trust_status_handler(_conn("web", remote=True),

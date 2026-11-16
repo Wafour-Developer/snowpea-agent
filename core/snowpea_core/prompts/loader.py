@@ -70,23 +70,27 @@ def load(name: str, root: Path | None = None) -> str:
     for directory in search_path(root):
         path = directory / relative
         if path.is_file():
-            if directory != PACKAGE_DIR and not _override_trusted(directory.parent.parent,
-                                                                  relative):
-                continue  # a project's override, not trusted as it is now
+            if directory != PACKAGE_DIR:
+                text = _trusted_override(directory.parent.parent, relative)
+                if text is None:
+                    continue  # a project's override, not trusted as it is now
+                return text.strip()
             return path.read_text(encoding="utf-8").strip()
     raise PromptNotFound(f"no prompt named {name!r}")
 
 
-def _override_trusted(project: Path, relative: Path) -> bool:
-    """A project's prompt override counts only with its ``prompts`` trust, for the
-    file as it is now (security review 5, C1 a / L4)."""
+def _trusted_override(project: Path, relative: Path) -> str | None:
+    """A project's prompt override, when its ``prompts`` trust holds for the file as
+    it is now (security review 5, C1 a / L4) — the text of the very bytes that
+    were verified (security review 6, M-2), else ``None``."""
     try:
         from snowpea_core.trust.projects import default_store
 
         rel = (PROJECT_SUBDIR / relative).as_posix()
-        return default_store().active(project, "prompts", rel)
+        data = default_store().read_pinned(project, "prompts", rel)
+        return data.decode("utf-8") if data is not None else None
     except Exception:  # noqa: BLE001 - trust fails closed
-        return False
+        return None
 
 
 def render(name: str, root: Path | None = None, **variables: object) -> str:

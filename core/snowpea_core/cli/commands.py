@@ -230,26 +230,8 @@ async def web_token_command(home: Path | str | None, *, rotate: bool = False) ->
     return EXIT_OK
 
 
-async def project_trust_command(home: Path | str | None, action: str, path: str | None, *,
-                                scopes: list[str] | None = None, as_json: bool = False) -> int:
-    """``snowpea project status|trust|untrust [path] [--scope …]`` (security review 5, C1)."""
-    root = os.path.realpath(os.path.expanduser(path or os.getcwd()))
-    method = {"status": "project.trust.status", "trust": "project.trust.set",
-              "untrust": "project.trust.revoke"}.get(action)
-    if method is None:
-        print(f"unknown action {action!r}: use status, trust or untrust", file=sys.stderr)
-        return 2
-    params: dict[str, Any] = {"workdir": root}
-    if action != "status" and scopes:
-        params["scopes"] = scopes
-    try:
-        status = await _call(home, method, params)
-    except Exception as exc:  # noqa: BLE001 - say why, briefly
-        print(f"snowpea project {action}: {exc}", file=sys.stderr)
-        return 1
-    if as_json:
-        _print_json(status)
-        return 0
+def _print_trust_status(status: dict[str, Any]) -> None:
+    """What a project brings, what it runs and what cannot be pinned, for a person."""
     scopes_now = ", ".join(status.get("scopes") or []) or "none"
     print(f"project:  {status.get('workdir')}")
     print(f"trusted:  {scopes_now}" + (f" (by {status.get('by')}, {status.get('at')})"
@@ -260,8 +242,74 @@ async def project_trust_command(home: Path | str | None, action: str, path: str 
     for item in files:
         print(f"  [{item.get('state')}] {item.get('scope')}: {item.get('path')}"
               + (f" — {item['summary']}" if item.get("summary") else ""))
+    runs = status.get("runs") or []
+    if runs:
+        print("runs (pinned with the files above):")
+    for item in runs:
+        print(f"  [{item.get('state')}] {item.get('path')}  ← {', '.join(item.get('by') or [])}")
+    loose = status.get("notPinned") or []
+    if loose:
+        print("NOT pinned (what these run may change without asking again):")
+    for item in loose:
+        command = item.get("command") or {}
+        shown = str(command.get("head") or "")
+        if command.get("tail"):
+            shown += f" … {command['tail']} ({command.get('length')} characters)"
+        print(f"  {item.get('source')}: {shown} — {item.get('reason')}")
     if status.get("defaultModeAuto") and not status.get("modeActive"):
         print("defaultMode auto in the project file does not apply (trust --scope mode)")
+
+
+async def project_trust_command(home: Path | str | None, action: str, path: str | None, *,
+                                scopes: list[str] | None = None, as_json: bool = False,
+                                assume_yes: bool = False) -> int:
+    """``snowpea project status|trust|untrust [path] [--scope …]`` (security review 5, C1).
+
+    ``trust`` (security review 6, M-5): read the status, show it, ask, then send
+    ``project.trust.set`` with the digests that were shown — so what is pinned is
+    what the person looked at.  ``trust_changed`` means the project changed in
+    between; nothing was trusted.  ``--yes`` skips the question (never the
+    digests); without a terminal and without ``--yes`` nothing is trusted.
+    """
+    root = os.path.realpath(os.path.expanduser(path or os.getcwd()))
+    if action not in ("status", "trust", "untrust"):
+        print(f"unknown action {action!r}: use status, trust or untrust", file=sys.stderr)
+        return 2
+    try:
+        if action == "untrust":
+            params: dict[str, Any] = {"workdir": root}
+            if scopes:
+                params["scopes"] = scopes
+            status = await _call(home, "project.trust.revoke", params)
+        else:
+            status = await _call(home, "project.trust.status", {"workdir": root})
+        if action == "trust":
+            if not as_json:
+                _print_trust_status(status)
+            if not assume_yes:
+                if not sys.stdin.isatty():
+                    print("snowpea project trust: not a terminal; look at the list above and "
+                          "run it again with --yes to trust exactly that", file=sys.stderr)
+                    return 1
+                answer = input("Trust this project as shown? [y/N] ").strip().lower()
+                if answer not in ("y", "yes"):
+                    print("nothing was trusted")
+                    return 1
+            params = {"workdir": root, "digests": status.get("digests") or {}}
+            if scopes:
+                params["scopes"] = scopes
+            status = await _call(home, "project.trust.set", params)
+    except Exception as exc:  # noqa: BLE001 - say why, briefly
+        if getattr(exc, "code", None) == "trust_changed" or "trust_changed" in str(exc):
+            print("snowpea project trust: the project changed while you were looking; "
+                  "nothing was trusted. Run it again and look at the list.", file=sys.stderr)
+            return 1
+        print(f"snowpea project {action}: {exc}", file=sys.stderr)
+        return 1
+    if as_json:
+        _print_json(status)
+        return 0
+    _print_trust_status(status)
     return 0
 
 
@@ -3182,6 +3230,11 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
                 help="one scope (repeatable); trust without it grants all but mode and "
                      "externalCli, untrust without it takes everything back",
             )
+        if name == "trust":
+            action_parser.add_argument(
+                "-y", "--yes", dest="trust_yes", action="store_true",
+                help="do not ask: trust exactly what the status shows now",
+            )
         action_parser.add_argument("--json", dest="sub_json", action="store_true",
                                    help="emit JSON")
 
@@ -3520,6 +3573,7 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         return await project_trust_command(
             home, str(action or "status"), getattr(args, "path", None),
             scopes=getattr(args, "scopes", None), as_json=as_json,
+            assume_yes=bool(getattr(args, "trust_yes", False)),
         )
     if subcommand == "web":
         if action == "password":

@@ -142,6 +142,17 @@ def _remembered(request: ApprovalRequest) -> ApprovalRemember | None:
     )
 
 
+def _local_person(conn: Any) -> bool:
+    """``conn`` is a local person's own connection (not a remote web login, a
+    browser host, a connector or no connection at all)."""
+    try:
+        from snowpea_core.server.person_gate import is_person
+
+        return conn is not None and is_person(conn, local=True)
+    except Exception:  # noqa: BLE001 - unknown is not a local person
+        return False
+
+
 def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = None) -> Decision:
     """Downgrade a remembered answer that would be broader than it looks.
 
@@ -222,6 +233,10 @@ class Decision:
     #: :class:`~snowpea_core.jarvis.delegation.Caller`), so the asker can name
     #: the person as grantor (1.53.0); ``None`` for every other request.
     person: Any = None
+    #: The answer came from a local person's own connection (the app, the TUI):
+    #: only such an answer keeps a project's settings trust when it stores a
+    #: project rule (security review 6, L-2).
+    local_person: bool = False
 
     @property
     def allowed(self) -> bool:
@@ -586,7 +601,7 @@ class ApprovalQueue:
             external=external,
             argsEscaped=True if escaped else None,
             neverDelegable=True if never else None,
-            reason=UNCHECKED_REASON if unchecked else None,
+            reason=(security.reason or UNCHECKED_REASON) if unchecked else None,
         )
         if self.router is not None:
             try:
@@ -752,6 +767,7 @@ class ApprovalQueue:
                 scope=scope,
                 by="origin",
                 reason=str(answer.get("reason") or ""),
+                local_person=_local_person(entry.origin_conn),
             )
             if allowed and request.personOnly:
                 # The origin is asked like anyone else: a person's connection only.
@@ -852,6 +868,7 @@ class ApprovalQueue:
             by=by,
             reason=reason,
             person=person,
+            local_person=_local_person(conn),
         )
         entry.future.set_result(answer)
         # The scope that will apply (``guard_scope`` runs the same rules again
@@ -885,7 +902,8 @@ class ApprovalQueue:
                 )
             )
         if cacheable and decision.allowed and decision.scope in PERSISTING_SCOPES:
-            self._persist(request, decision.scope, workdir, host)
+            self._persist(request, decision.scope, workdir, host,
+                          local_person=decision.local_person)
         self._append_log(request, decision, unattended=unattended)
         if self.hub is not None:
             resolved = {
@@ -900,9 +918,16 @@ class ApprovalQueue:
             await self._tell_observers("approval.resolved", dict(resolved))
 
     def _persist(
-        self, request: ApprovalRequest, scope: str, workdir: Any, host: str | None = None
+        self, request: ApprovalRequest, scope: str, workdir: Any, host: str | None = None,
+        *, local_person: bool = False,
     ) -> None:
-        """Turn a ``project``/``always`` answer into an allowlist entry."""
+        """Turn a ``project``/``always`` answer into an allowlist entry.
+
+        ``local_person``: a local person's own connection answered.  Any other
+        answer (a remote web login, a browser, a messenger, a connector) still
+        stores the rule, but does not re-pin the project's settings trust: the
+        changed file waits for a local person (security review 6, L-2).
+        """
         if self.allowlist is None:
             return
         store = cast(AllowlistScope, PERSISTING_SCOPES[scope])
@@ -954,6 +979,7 @@ class ApprovalQueue:
                 origin=origin,
                 host=host if store == "global" else None,
                 reason_code=reason_code,
+                keeps_trust=local_person,
             )
         except (OSError, ValueError):  # pragma: no cover - a bad store never breaks a turn
             log.warning("could not store allowlist entry %r", pattern, exc_info=True)

@@ -128,7 +128,12 @@ class LoadedSkill:
     format: marketplace.BundleFormat = marketplace.FORMAT_SNOWPEA
     #: The project folder a project skill or command came from (its
     #: ``allowed-tools`` need the project's ``commands`` trust, review 5 M2).
+    #: A project entry is seen only by sessions working in that project, and
+    #: never takes the place of a global, plugin or built-in one (review 6, M-6).
     project: Path | None = None
+    #: ``sha256:<hex>`` of the bytes ``doc`` was parsed from (a project entry):
+    #: trust is checked against what was LOADED, not what is on disk later (M-2).
+    digest: str = ""
 
     @property
     def name(self) -> str:
@@ -150,6 +155,22 @@ class LoadedAgent:
     frontmatter: dict[str, Any] = field(default_factory=dict)
     body: str = ""
     format: marketplace.BundleFormat = marketplace.FORMAT_SNOWPEA
+    #: The project a project's own definition came from (review 6, M-6 / L-1).
+    project: Path | None = None
+
+
+def _inside(workdir: Any, project: Path | None) -> bool:
+    """``workdir`` is ``project`` or a folder inside it (always true without a project)."""
+    if project is None:
+        return True
+    if not workdir:
+        return False
+    try:
+        real = Path(os.path.realpath(os.fspath(workdir)))
+        base = Path(os.path.realpath(os.fspath(project)))
+    except (OSError, TypeError, ValueError):
+        return False
+    return real == base or base in real.parents
 
 
 @dataclass
@@ -256,7 +277,7 @@ class SkillLoader:
         #: :meth:`search` — surfaced by ``skill.search`` as ``notIncluded``.
         self.last_not_included: list[tuple[str, str]] = []
         #: Cached :meth:`index_groups` result, dropped by every scan (M15 §B1).
-        self._index_groups: dict[str | None, IndexGroups] = {}
+        self._index_groups: dict[Any, IndexGroups] = {}
         #: Plugin names detected in Claude Code's installed_plugins.json.
         self.claude_plugin_names: set[str] = set()
         #: Plugin names found in Codex's plugin cache.
@@ -742,7 +763,7 @@ class SkillLoader:
         agents_dir = root / "agents"
         if agents_dir.is_dir():
             for entry in sorted(agents_dir.glob("*.md")):
-                self.register_agent_definition(entry, source, fmt=fmt)
+                self.register_agent_definition(entry, source, fmt=fmt, project=project)
         commands_dir = root / "commands"
         if commands_dir.is_dir():
             for entry in sorted(commands_dir.glob("*.md")):
@@ -756,12 +777,15 @@ class SkillLoader:
                     continue
                 base = trust_projects.project_root(project)
                 rel = os.path.relpath(os.path.realpath(candidate), base).replace(os.sep, "/")
-                if not trust_projects.store_for(self.home).active(base, "hooks", rel):
+                # Security review 6, M-2: the bytes that were verified are the bytes
+                # that are loaded (no second read a rewrite could slip between).
+                data = trust_projects.store_for(self.home).read_pinned(base, "hooks", rel)
+                if data is None:
                     log.info("hooks of %s not loaded: the project is not trusted for them "
-                             "(or %s changed since)", base, rel)
+                             "(or %s, or a script it runs, changed since)", base, rel)
                     continue
                 self.hooks.load_file(candidate, plugin=plugin or source, root=root,
-                                     project=base)
+                                     project=base, data=data, rel=rel)
         if plugin and not imported:
             self._read_mcp(root / ".mcp.json", root, plugin)
 
@@ -773,21 +797,108 @@ class SkillLoader:
         fmt: marketplace.BundleFormat | None = None,
         project: Path | None = None,
     ) -> None:
-        doc = load_skill_md(entry, default_name=entry.stem)
+        doc, digest = self._load_doc(entry, entry.stem)
         if doc is None:
             return
         doc.name = entry.stem
-        if source in IMPORTED_SOURCES and doc.name in self.skills:
+        if source in IMPORTED_SOURCES and self._taken(doc.name, project):
             log.debug("%s command %s skipped: another copy wins", source, doc.name)
             return
-        self.skills[doc.name] = LoadedSkill(
+        self._place(LoadedSkill(
             doc=doc,
             source=source,
             kind="command",
             plugin=plugin,
             format=fmt or source_format(source),
             project=project,
-        )
+            digest=digest,
+        ))
+
+    # -- project entries (security review 6, M-6) ------------------------------
+    @staticmethod
+    def _load_doc(path: Path, default_name: str) -> tuple[SkillDoc | None, str]:
+        """Parse a skill file from bytes read once, with their digest."""
+        from snowpea_core.skills.skill_md import parse_skill_md
+
+        data, digest = trust_projects.read_digest(path)
+        if data is None:
+            return None, digest
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return None, digest
+        return parse_skill_md(text, default_name=default_name, path=path), digest
+
+    def _taken(self, name: str, project: Path | None) -> bool:
+        """An entry of that name is already loaded where ``project``'s would be seen."""
+        return any(skill.name == name and (skill.project is None or skill.project == project)
+                   for skill in self.skills.values())
+
+    def _place(self, skill: LoadedSkill) -> None:
+        """Register ``skill`` under its name.
+
+        A project entry never takes the place of a global, plugin or built-in
+        one of the same name (it is left out, and said so); two projects' entries
+        of one name are both kept, each for its own project.  A non-project
+        entry replaces a project one that was registered first.
+        """
+        name = skill.name
+        current = self.skills.get(name)
+        if skill.project is None:
+            if current is not None and current.project is not None:
+                # Keep the project's copy out of the way of the daemon-wide one.
+                log.info("project %s of %s is hidden by the %s one", current.kind, name,
+                         skill.source)
+            self.skills[name] = skill
+            for key in [k for k, v in self.skills.items()
+                        if v.name == name and v.project is not None]:
+                del self.skills[key]
+            return
+        if current is not None and current.project is None:
+            log.info("project %s %r (%s) is not loaded: a %s one of that name exists and a "
+                     "project entry never replaces it", skill.kind, name, skill.project,
+                     current.source)
+            return
+        key = name if current is None or current.project == skill.project \
+            else f"{name}\x00{skill.project}"
+        self.skills[key] = skill
+
+    def visible(self, skill: LoadedSkill, workdir: Any) -> bool:
+        """``skill`` exists for a session working in ``workdir``: a project entry
+        only inside its own project."""
+        return _inside(workdir, skill.project)
+
+    def find(self, name: str, workdir: Any) -> LoadedSkill | None:
+        """The skill or command ``name`` a session in ``workdir`` gets."""
+        matches = [skill for skill in self.skills.values()
+                   if skill.name == name and self.visible(skill, workdir)]
+        matches.sort(key=lambda skill: skill.project is not None)
+        return matches[0] if matches else None
+
+    def may_inject(self, skill: LoadedSkill, workdir: Any) -> bool:
+        """``skill`` may be brought into a turn unasked (``autoInject``) for a session
+        in ``workdir``: a project skill only in its project, and only with the
+        project's ``commands`` trust for the file as it was loaded."""
+        if not self.visible(skill, workdir):
+            return False
+        return self._may_pre_approve(skill)
+
+    def agents_for(self, workdir: Any) -> list[LoadedAgent]:
+        """The agent definitions a session in ``workdir`` gets: a project's own only
+        inside it, and — with a ``permission`` or a built-in's name — only while
+        the project is trusted for agents (review 6, L-1)."""
+        found: list[LoadedAgent] = []
+        for agent in self.agents:
+            if agent.project is None:
+                found.append(agent)
+                continue
+            if not _inside(workdir, agent.project):
+                continue
+            if trust_projects.agent_definition_active(
+                    agent.project, agent.path, agent.name, agent.frontmatter.get("permission"),
+                    trust_projects.store_for(self.home)):
+                found.append(agent)
+        return found
 
     def _add_skill_dir(
         self,
@@ -802,26 +913,28 @@ class SkillLoader:
         path = entry / "SKILL.md"
         if not path.is_file():
             return
-        doc = load_skill_md(path, default_name=entry.name)
+        doc, digest = self._load_doc(path, entry.name)
         if doc is None:
             return
-        if source in IMPORTED_SOURCES and doc.name in self.skills:
+        if source in IMPORTED_SOURCES and self._taken(doc.name, project):
             log.debug("%s skill %s skipped: another copy wins", source, doc.name)
             return
-        self.skills[doc.name] = LoadedSkill(
+        self._place(LoadedSkill(
             doc=doc,
             source=source,
             kind="skill",
             plugin=plugin,
             format=fmt or source_format(source),
             project=project,
-        )
+            digest=digest,
+        ))
 
     def register_agent_definition(
         self,
         path: Path | str,
         source: str = SOURCE_PROJECT,
         fmt: marketplace.BundleFormat | None = None,
+        project: Path | None = None,
     ) -> LoadedAgent | None:
         """Parse one ``agents/<name>.md`` and remember its front matter."""
         target = Path(path)
@@ -836,6 +949,7 @@ class SkillLoader:
             frontmatter=dict(doc.frontmatter),
             body=doc.body,
             format=fmt or source_format(source),
+            project=project,
         )
         return self._add_agent(agent)
 
@@ -868,11 +982,16 @@ class SkillLoader:
 
     def _add_agent(self, agent: LoadedAgent) -> LoadedAgent | None:
         if agent.source in IMPORTED_SOURCES and any(
-            existing.name == agent.name for existing in self.agents
+            existing.name == agent.name and existing.project in (None, agent.project)
+            for existing in self.agents
         ):
             log.debug("%s agent %s skipped: another copy wins", agent.source, agent.name)
             return None
-        self.agents = [existing for existing in self.agents if existing.name != agent.name]
+        # Security review 6, M-6: a project's definition replaces only its own
+        # project's earlier one — never a global or plugin one, never another
+        # project's (``agents_for`` shows each project its own).
+        self.agents = [existing for existing in self.agents
+                       if existing.name != agent.name or existing.project != agent.project]
         self.agents.append(agent)
         return agent
 
@@ -986,7 +1105,10 @@ class SkillLoader:
             return True
         base = trust_projects.project_root(skill.project)
         rel = os.path.relpath(os.path.realpath(skill.doc.path), base).replace(os.sep, "/")
-        if trust_projects.store_for(self.home).active(base, "commands", rel):
+        # Security review 6, M-2: the pin is compared with the digest of the bytes
+        # this skill was LOADED from — a file put back as pinned after a different
+        # text was loaded does not make that text trusted.
+        if trust_projects.store_for(self.home).pinned_as(base, "commands", rel, skill.digest):
             return True
         log.info("/%s: allowed-tools not applied, %s is not trusted for commands", skill.name,
                  base)
@@ -1003,6 +1125,19 @@ class SkillLoader:
             from snowpea_core.agent import loop as agent_loop
 
             session = ctx.session
+            if skill.project is not None:
+                # Security review 6, M-6: a project's command runs only for a
+                # session working in that project (the command table is one
+                # for the whole daemon; another project's entry of the same
+                # name is found here).
+                own = self.find(doc.name, getattr(session, "workdir", None))
+                if own is None:
+                    await ctx.say(f"/{command_name} belongs to another project "
+                                  f"({skill.project}); it is not available here.")
+                    return
+                if own is not skill:
+                    await self._command_for(own, command_name).run(ctx, args)
+                    return
             # ``allowed-tools`` pre-approves those tools for the skill's turn,
             # as it does in Claude Code; it does not hide the others.
             previous = getattr(session, "skill_approved_tools", None)
@@ -1079,7 +1214,7 @@ class SkillLoader:
             log.debug("could not announce commands.changed", exc_info=True)
 
     # -- queries -------------------------------------------------------
-    def index_groups(self, agent: str | None = None) -> IndexGroups:
+    def index_groups(self, agent: str | None = None, workdir: Any = None) -> IndexGroups:
         """Visible skills for the prompt index, grouped by origin (M15 §B1).
 
         ``[project]`` first, then ``[global]``, then each ``[plugin:<name>]``
@@ -1092,14 +1227,19 @@ class SkillLoader:
         A skill whose frontmatter names ``agents`` is listed only for sessions
         of those agent definitions (``agent``); it stays loadable by name.
         """
-        cached = self._index_groups.get(agent)
+        # Security review 6, M-6: a project's skills are listed only for a session
+        # working in that project (``workdir``); the cache is per project.
+        own = sorted({str(skill.project) for skill in self.skills.values()
+                      if skill.project is not None and _inside(workdir, skill.project)})
+        cache_key = (agent, tuple(own))
+        cached = self._index_groups.get(cache_key)
         if cached is not None:
             return cached
         buckets: dict[str, list[tuple[str, str]]] = {}
         for skill in self.skills.values():
             if skill.kind != "skill" or not skill.doc.user_invocable:
                 continue
-            if not self.enabled(skill):
+            if not self.enabled(skill) or not self.visible(skill, workdir):
                 continue
             if skill.doc.agents and agent not in skill.doc.agents:
                 continue
@@ -1137,7 +1277,7 @@ class SkillLoader:
             for source in order
             if buckets.get(source)
         ]
-        self._index_groups[agent] = groups
+        self._index_groups[cache_key] = groups
         return groups
 
     def list(self, workdir: Path | str | None = None) -> SkillInfos:

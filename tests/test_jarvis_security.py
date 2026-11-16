@@ -223,7 +223,12 @@ ADVERSARIAL: list[tuple[str, str, set[str]]] = [
     ("git push evil", "guarded", {D}),
     ("git send-email --to=a@b.c 0001.patch", "guarded", {S}),
     ("git credential fill", "guarded", {S}),
-    ("git apply --unsafe-paths --directory=/home/u x.patch", "guarded", {X}),
+    # Every class since the review-5 re-check put ``apply`` among the commands that
+    # materialise files (``_GIT_MATERIALISE``, rule exec:git-materialise, as review 4
+    # H6 did for checkout/merge/…): a patch may write a control file
+    # (``.claude/settings.local.json``, ``.gitattributes``) under a name nobody sees
+    # here.  exec:git-unsafe-paths and exec:outside-project still name the outside part.
+    ("git apply --unsafe-paths --directory=/home/u x.patch", "guarded", ALL),
     ("git checkout-index --prefix=/home/u/out/ -a", "guarded", ALL),  # review 4 H6
     ("git worktree add ../sibling", "guarded", {X}),
     ("git rm -r --cached build", "risky", set()),

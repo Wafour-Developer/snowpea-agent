@@ -1669,7 +1669,11 @@ _GIT_HARMLESS_CONFIG = re.compile(
     r"algorithm|mnemonicprefix|noprefix|colormoved)|merge\.(conflictstyle|ff)|pull\.(rebase|ff)|"
     r"push\.(default|autosetupremote)|safe\.directory|i18n\..*|gc\.auto|"
     r"maintenance\.auto|rebase\.autostash|status\..*|column\..*|blame\..*|"
-    r"protocol\.version|http\.version)=",
+    r"protocol\.version|http\.version)="
+    # An editor or pager that is exactly a program that does nothing (``git -c
+    # core.editor=true rebase --continue``): nothing else runs.  Any other value
+    # of these keys is a command line (security review 6: now asked in every mode).
+    r"|^(core\.editor|sequence\.editor)=(true|:)$|^core\.pager=(cat|less|more)?$",
     re.IGNORECASE,
 )
 #: git subcommands that write work-tree files out of history (security review 4, H6).
@@ -2216,7 +2220,10 @@ class _Judge:
         if area is not None:
             self._judge_home_read(path, area, rule, recursive)
             return
-        if self._is_config(path):
+        if self._is_snowpea_config(path):
+            # snowpea's OWN settings only.  The wider control-file notion of review
+            # 5 (a project's hooks, an agent CLI's config) is about WRITES: reading
+            # one is ordinary work, and a credential among them is a secret below.
             self.hits.never_(f"{rule}:snowpea-config")
             if path.name in ("credentials.json", "token", "mcp-oauth.json"):
                 self.hits.guard(SECRET, f"{rule}:snowpea-secret")
@@ -2278,6 +2285,15 @@ class _Judge:
             from snowpea_core.tools.config_guard import is_config_path
 
             return is_config_path(str(path), home=self.ctx.home)
+        except Exception:  # noqa: BLE001 - unknown means it might be
+            return True
+
+    def _is_snowpea_config(self, path: Path) -> bool:
+        """snowpea's own settings and state, not the wider control files (for reads)."""
+        try:
+            from snowpea_core.tools.config_guard import is_snowpea_config_path
+
+            return is_snowpea_config_path(str(path), home=self.ctx.home)
         except Exception:  # noqa: BLE001 - unknown means it might be
             return True
 
@@ -3038,7 +3054,9 @@ class _Judge:
                    or (w.startswith("-f") and not w.startswith("--")) for w in rest):
                 hits.guard_all("exec:opaque:sed-program-file")
             script = " ".join(rest)
-            if re.search(r"(^|[;}\s/])e(\s|$|;)|/e\b|(^|[;\s])w\s|/w\s|"
+            # ``1e id``, ``$e``: the ``e`` command right after an address runs a command
+            # too (found while pinning security review 6).
+            if re.search(r"(^|[;}\s/0-9$!])e(\s|$|;)|/e\b|(^|[;\s])w\s|/w\s|"
                          r"(^|[;{}\n\s0-9$/])[rRwW]\s+\S", script):
                 hits.guard_all("exec:opaque:sed-program")
             return cwd

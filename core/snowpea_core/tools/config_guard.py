@@ -21,6 +21,7 @@ from typing import Any
 
 from snowpea_core.config.paths import resolve_home
 from snowpea_core.server.protocol import PermissionTag
+from snowpea_core.util import pathcase
 
 #: What the approval prompt says when a write is re-tagged.
 CONFIG_NOTE = "modifies snowpea configuration"
@@ -87,6 +88,30 @@ def is_config_path(path: str, *, workdir: Any = None, home: Any = None) -> bool:
     a team worker editing source inside ``.snowpea/worktrees/`` is doing
     ordinary work.
     """
+    if is_snowpea_config_path(path, workdir=workdir, home=home):
+        return True
+    resolved = _resolve(path, workdir) if path.strip() else None
+    if resolved is None:
+        return False
+    # Security review 5, C1 e: a project's hooks, agents, commands, skills,
+    # prompts, plugins, MCP files and the agent CLIs' own config are
+    # configuration too — never written silently in accept or auto.
+    from snowpea_core.trust.projects import control_path
+
+    return control_path(resolved)
+
+
+def is_snowpea_config_path(path: str, *, workdir: Any = None, home: Any = None) -> bool:
+    """snowpea's OWN settings and state only: everything under ``$SNOWPEA_HOME`` but
+    its working areas, and a project's ``.snowpea/settings.json`` /
+    ``credentials.json``.
+
+    The narrower question :func:`is_config_path` starts from.  A READ is judged
+    by this one: reading a project's hooks file or an agent CLI's settings is
+    ordinary work (and a credential among them is caught by the secret rules),
+    while WRITING any control file is configuration (review 5, C1 e).  Names are
+    compared the way the file system compares them (review 6, M-7).
+    """
     if not path.strip():
         return False
     resolved = _resolve(path, workdir)
@@ -96,20 +121,15 @@ def is_config_path(path: str, *, workdir: Any = None, home: Any = None) -> bool:
         snowpea_home = Path(home).expanduser().resolve() if home else resolve_home()
     except (OSError, RuntimeError, ValueError):  # pragma: no cover - unresolvable $HOME
         return False
-    if _under(resolved, snowpea_home):
+    key, base = pathcase.path_key(resolved), pathcase.path_key(snowpea_home)
+    if _under(key, base):
         if _in_session_workspace(resolved, snowpea_home):
             return False
         return not any(
-            _under(resolved, snowpea_home / name) for name in HOME_WORKING_DIRS
+            _under(key, pathcase.path_key(snowpea_home / name)) for name in HOME_WORKING_DIRS
         )
-    if resolved.parent.name == PROJECT_DIR and resolved.name in PROJECT_FILES:
-        return True
-    # Security review 5, C1 e: a project's hooks, agents, commands, skills,
-    # prompts, plugins, MCP files and the agent CLIs' own config are
-    # configuration too — never written silently in accept or auto.
-    from snowpea_core.trust.projects import control_path
-
-    return control_path(resolved)
+    return pathcase.name_key(resolved.parent.name) == PROJECT_DIR and pathcase.name_key(
+        resolved.name) in PROJECT_FILES
 
 
 def home_of(core: Any) -> Any:
@@ -246,13 +266,11 @@ def _secret_path(raw: str, session: Any, core: Any) -> bool:
         return True
     home = home_of(core)
     if home:
-        base = Path(home)
-        secrets_at_home = {
-            (base / "credentials.json").resolve(),
-            (base / "token").resolve(),
-            (base / "mcp-oauth.json").resolve(),
-        }
-        if resolved in secrets_at_home:
+        # The control-plane table names snowpea's secrets (review 6, H-1): the
+        # token, credentials, MCP logins and daemon.json, under any spelling.
+        from snowpea_core.security.control_plane import control_plane_effect
+
+        if control_plane_effect(resolved, "read", home=home) is not None:
             return True
     return _another_sessions_attachment(resolved, session, core)
 
@@ -287,6 +305,7 @@ __all__ = [
     "PROJECT_FILES",
     "home_of",
     "is_config_path",
+    "is_snowpea_config_path",
     "permission_for_read",
     "permission_for_write",
 ]

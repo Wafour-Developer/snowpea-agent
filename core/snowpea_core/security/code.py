@@ -1,21 +1,31 @@
-"""What interpreter code and script files would do, for the security lists (review 5, H4).
+"""What interpreter code and script files would do, for the security lists (review 5, H4;
+review 6, H-3 and M-1).
 
-Pure functions, a table per language, never anything executed.  Two questions:
+Pure functions, never anything executed.  Two questions:
 
-* Inline code (``python -c``, ``node -e``, ``perl -e``, ``ruby -e``, ``php -r``)
-  and ``execute_code`` bodies: :func:`analyse` finds the destructive and
-  process-spawning primitives of that language.  A primitive with a LITERAL
-  target becomes what it stands for — ``shutil.rmtree('/')`` is judged as
-  ``rm -rf /``, ``os.system("…")`` as that shell line — so the presets, the
-  custom patterns and the protected paths judge it like any command.  A
-  destructive or spawning primitive whose argument is not a literal (a
-  variable, a concatenation, an f-string) makes the code ``opaque``: it asks
-  the person in every mode.  Code with none of these is not touched (reading,
-  printing, arithmetic stay allowed).
+* Inline code (``python -c``, ``node -e``, ``perl -e``, ``ruby -e``, ``php -r``,
+  code fed by a here-document) and ``execute_code`` bodies: :func:`analyse`
+  finds the deleting, writing and process-spawning primitives.  A primitive
+  with a LITERAL target becomes what it stands for — ``shutil.rmtree('/')`` is
+  judged as ``rm -rf /``, ``os.system("…")`` as that shell line — so the
+  presets, the custom patterns and the protected paths judge it like any
+  command.  A primitive whose target is not a literal makes the code
+  ``opaque``: it asks the person in every mode.
 * A script FILE a line runs (``bash x.sh``, ``python x.py``, ``./x``,
   ``source x``): :func:`read_script` reads it (size-capped) so the caller can
   judge its text — a shell script line by line with the shell matcher, other
   languages with :func:`analyse`.
+
+Python is read as a syntax tree (:mod:`snowpea_core.security.pycode`).  Node,
+Perl, Ruby and PHP keep a table of calls per language, with the uncertainty
+flipped (review 6): "no finding" means allowed only when nothing uncertain was
+seen.  A call the tables match in the text but not once strings are blanked,
+next to a construct the blanking does not understand (a regex literal, a
+comment, a here-document, a template expression, an unclosed quote), is
+opaque; so is — in JavaScript — a bracketed lookup on ``fs`` / ``child_process``
+/ ``process``, an alias or a renamed destructuring of one of their calls, and
+``require`` / ``import()`` / ``eval`` / ``Function`` of anything but a literal.
+A language with no table cannot be read at all.
 
 The limit, stated honestly: a static check cannot see what a program computes
 at run time (a path built from a network answer, code fetched later, a
@@ -30,10 +40,11 @@ import os
 import re
 import shlex
 import stat
-import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from snowpea_core.security import written
 
 #: Interpreter family (``jarvis.classify._family``) -> the language its code is in.
 LANGUAGES: dict[str, str] = {
@@ -46,8 +57,9 @@ LANGUAGES: dict[str, str] = {
 MAX_SCRIPT_BYTES = 256 * 1024
 #: Most primitives judged in one piece of code.
 MAX_FINDINGS = 64
-#: A script changed this recently (or written by a tool call this daemon
-#: judged) may be the agent's own: unreadable means opaque.
+#: A script changed this recently may be the agent's own even when no record
+#: says so (a file a program wrote).  One criterion of two: every path the
+#: agent is known to have written counts whatever its age (review 6, M-8).
 RECENT_SEC = 600.0
 
 #: What a primitive does: ``delete-tree`` (rm -rf), ``delete`` (rm / rmdir),
@@ -71,49 +83,12 @@ def _r(pattern: str, action: Action, form: str = "auto", needs: str | None = Non
     return _Rule(re.compile(pattern), action, form, re.compile(needs) if needs else None)
 
 
-_PY_OS = r"(?<![\w.])(?:os|_os|posix|nt)\."
-#: Python: the standard library's deleting, moving, writing and spawning calls.
-PYTHON: tuple[_Rule, ...] = (
-    _r(r"(?<![\w.])shutil\.rmtree\s*\(", "delete-tree"),
-    _r(_PY_OS + r"(?:remove|unlink|rmdir|removedirs)\s*\(", "delete"),
-    _r(r"(?<![\w.])shutil\.move\s*\(", "move"),
-    _r(_PY_OS + r"(?:rename|renames|replace)\s*\(", "move"),
-    _r(_PY_OS + r"(?:chmod|lchmod|chown|lchown|truncate)\s*\(", "write"),
-    _r(r"(?<![\w.])shutil\.chown\s*\(", "write"),
-    _r(r"(?<![\w.])shutil\.(?:copyfile|copy|copy2|copytree)\s*\(", "copy"),
-    _r(_PY_OS + r"(?:system|popen)\s*\(", "spawn", "shell"),
-    _r(_PY_OS + r"(?:exec[lv]p?e?|spawn[lv]p?e?|posix_spawnp?)\s*\(", "spawn", "exec"),
-    _r(r"(?<![\w.])subprocess\.(?:run|call|check_call|check_output|Popen|getoutput|"
-       r"getstatusoutput)\s*\(", "spawn"),
-    _r(r"(?<![\w.])(?:pty\.spawn|commands\.getoutput|asyncio\.create_subprocess_(?:shell|exec))"
-       r"\s*\(", "spawn"),
-    _r(r"(?<![\w.])(?:exec|eval|compile)\s*\(", "code"),
-    _r(r"(?<![\w.])__import__\s*\(", "code"),
-    _r(r"(?<![\w.])open\s*\(", "open"),
-)
-#: ``Path("x").unlink()`` and friends (``pathlib``), judged by their receiver.
-_PY_PATHLIB = re.compile(
-    r"\b(?:Path|PurePath|PosixPath|WindowsPath)\s*\(\s*(?P<arg>[^()]*)\)\s*\."
-    r"(?P<name>unlink|rmdir|write_text|write_bytes|rename|replace|chmod|touch|mkdir|"
-    r"symlink_to|hardlink_to)\s*\("
-)
-_PY_RECEIVER_DELETE = re.compile(r"\.(?:unlink|rmdir)\s*\(")
-#: Names a ``from os import …`` brings in bare.
-_PY_FROM_IMPORT = re.compile(r"from\s+(os|shutil|subprocess|pty)\s+import\s+([\w\s,()]+)")
-_PY_IMPORT_AS = re.compile(r"import\s+(os|shutil|subprocess)\s+as\s+(\w+)")
-_PY_BARE: dict[str, tuple[Action, str]] = {
-    "rmtree": ("delete-tree", "auto"), "remove": ("delete", "auto"),
-    "unlink": ("delete", "auto"), "rmdir": ("delete", "auto"),
-    "removedirs": ("delete", "auto"), "move": ("move", "auto"), "rename": ("move", "auto"),
-    "replace": ("move", "auto"), "renames": ("move", "auto"), "system": ("spawn", "shell"),
-    "popen": ("spawn", "shell"), "run": ("spawn", "auto"), "call": ("spawn", "auto"),
-    "check_call": ("spawn", "auto"), "check_output": ("spawn", "auto"),
-    "Popen": ("spawn", "auto"), "getoutput": ("spawn", "shell"), "spawn": ("spawn", "auto"),
-    "chmod": ("write", "auto"), "chown": ("write", "auto"),
-}
+# Python is not in these tables: it is read as a syntax tree
+# (:mod:`snowpea_core.security.pycode`, security review 6, H-3).
 
-_NODE_FS = r"""(?:['"](?:node:)?fs(?:/promises)?['"]|\bfs\.|\bfsp?\b)"""
-_NODE_CP = r"""(?:['"](?:node:)?child_process['"]|\bchild_process\b)"""
+_NODE_FS = r"""(?:['"`](?:node:)?fs(?:/promises)?['"`]|\bfs\.|\bfsp?\b)"""
+_NODE_CP = r"""(?:['"`](?:node:)?child_process['"`]|\bchild_process\b)"""
+_NODE_VM = r"""(?:['"`](?:node:)?vm['"`]|\bvm\.)"""
 #: Node: ``fs`` deletes and writes, ``child_process`` spawns, ``eval``.
 NODE: tuple[_Rule, ...] = (
     _r(r"(?:\.|\b)(?:rmSync|rm|rmdirSync|rmdir)\s*\(", "delete-node", needs=_NODE_FS),
@@ -127,8 +102,35 @@ NODE: tuple[_Rule, ...] = (
     _r(r"(?:\.|\b)(?:execFileSync|execFile|spawnSync|spawn|fork)\s*\(", "spawn", "exec",
        needs=_NODE_CP),
     _r(r"(?<![\w.$])(?:eval|Function)\s*\(", "code"),
-    _r(r"\bprocess\.binding\s*\(", "opaque-call"),
+    _r(r"(?:\.|\b)(?:runInNewContext|runInThisContext|runInContext|compileFunction)\s*\(",
+       "code", needs=_NODE_VM),
+    _r(r"\bprocess\.(?:binding|dlopen|mainModule)\b", "opaque-call"),
 )
+#: The names the ``fs`` / ``child_process`` rules above call.  Any other use of
+#: one — an alias, a renamed destructuring, a bracketed lookup — cannot be
+#: followed by a table and is opaque (security review 6, H-3).
+_NODE_NAMES = (
+    "rmSync", "rm", "rmdirSync", "rmdir", "unlinkSync", "unlink", "renameSync", "rename",
+    "cpSync", "cp", "copyFileSync", "copyFile", "symlinkSync", "linkSync", "writeFileSync",
+    "writeFile", "appendFileSync", "appendFile", "truncateSync", "truncate", "chmodSync",
+    "chmod", "chownSync", "chown", "execSync", "exec", "execFileSync", "execFile", "spawnSync",
+    "spawn", "fork",
+)
+_NODE_NAME = re.compile(r"(?<![\w$])(" + "|".join(_NODE_NAMES) + r")(?![\w$])")
+_NODE_DANGEROUS_MODULE = r"(?:node:)?(?:fs|fs/promises|child_process|os|process|module|vm)"
+#: ``const x = require('fs')`` / ``import x from 'fs'`` / ``import * as x from 'fs'``.
+_NODE_MODULE_ALIAS = re.compile(
+    r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['\"`]"
+    + _NODE_DANGEROUS_MODULE + r"['\"`]\s*\)(?!\s*[.\[])"
+    r"|import\s+(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s+['\"`]"
+    + _NODE_DANGEROUS_MODULE + r"['\"`]")
+#: ``const {a, b: c} = …`` / ``import {a, b as c} from 'x'``: a destructuring pattern.
+_NODE_DESTRUCTURE = re.compile(
+    r"(?:const|let|var)\s*\{([^{}]*)\}\s*=(?!=)|import\s*\{([^{}]*)\}\s*from\b")
+_NODE_REFLECT = re.compile(
+    r"\b(?:globalThis|global|module|process)\s*\[|\bReflect\s*\.|\bprocess\.(?:binding|dlopen|"
+    r"mainModule)\b|\bmodule\.constructor\b|\.constructor\s*\.\s*constructor\b|"
+    r"\b_load\s*\(")
 #: Perl: unlink/rmdir/rmtree, system/exec/backticks/qx, open for writing, rename.
 PERL: tuple[_Rule, ...] = (
     _r(r"\b(?:rmtree|remove_tree)\b\s*\(?", "delete-tree"),
@@ -162,34 +164,80 @@ PHP: tuple[_Rule, ...] = (
 )
 
 RULES: dict[str, tuple[_Rule, ...]] = {
-    "python": PYTHON, "node": NODE, "perl": PERL, "ruby": RUBY, "php": PHP,
+    "node": NODE, "perl": PERL, "ruby": RUBY, "php": PHP,
+}
+#: Languages :func:`analyse` can read at all.
+ANALYSED: frozenset[str] = frozenset({"python", *RULES})
+
+#: Constructs the string masking of the table languages does not understand: a
+#: quote inside one of them can hide a call from the tables (review 6, H-3).
+_RISKY: dict[str, re.Pattern[str]] = {
+    # A regex literal or a comment (``/``), a template expression.
+    "node": re.compile(r"/|\$\{"),
+    # Regex and quote-like operators, comments, here-documents, ``$'`` and ``$"``.
+    "perl": re.compile(r"[/#]|<<|\$['\"`]|\b(?:q|qq|qw|qx|m|s|tr|y)\s*[^\w\s,;=)]|^=\w+",
+                       re.MULTILINE),
+    "ruby": re.compile(r"[/#]|<<|\$['\"`]|%[qQwWiIrxs]?[\[({<|!/]|\?['\"`]|^=begin",
+                       re.MULTILINE),
+    "php": re.compile(r"[/#]|<<<"),
 }
 
 
 @dataclass
 class Finding:
-    """What one piece of code would do, as far as the table sees."""
+    """What one piece of code would do, as far as it can be read."""
 
     #: Commands it stands for (``["rm", "-rf", "/"]``), judged like any command.
     commands: list[list[str]] = field(default_factory=list)
+    #: Commands it spawns from a list of words (``subprocess.run([...])``):
+    #: ``(word, computed)`` each, walked like a shell command whose computed
+    #: words are ``$X``.
+    argv: list[list[tuple[str, bool]]] = field(default_factory=list)
     #: Shell lines it hands to a shell (``os.system("…")``), parsed as lines.
     lines: list[str] = field(default_factory=list)
     #: ``(path, destructive, recursive)`` it writes, deletes or moves.
     writes: list[tuple[str, bool, bool]] = field(default_factory=list)
+    #: Literal paths it opens to read (judged against the secret files).
+    reads: list[str] = field(default_factory=list)
+    #: Path-like literals it names at all (judged against snowpea's control files).
+    mentions: list[str] = field(default_factory=list)
+    #: Modules it imports by name (python) — one the project holds is read too.
+    imports: list[str] = field(default_factory=list)
+    #: Files it loads by a relative path (node ``require('./x')``): read too.
+    requires: list[str] = field(default_factory=list)
     #: Why part of it cannot be seen (``code:delete:non-literal`` …).
     opaque: list[str] = field(default_factory=list)
+    #: Why it always asks a person (``snowpea-code``): never switched off.
+    control: list[str] = field(default_factory=list)
 
     def merge(self, other: Finding) -> None:
         self.commands.extend(other.commands)
+        self.argv.extend(other.argv)
         self.lines.extend(other.lines)
         self.writes.extend(other.writes)
+        self.reads.extend(other.reads)
+        for item in other.mentions:
+            if item not in self.mentions:
+                self.mentions.append(item)
+        for item in other.imports:
+            if item not in self.imports:
+                self.imports.append(item)
+        for item in other.requires:
+            if item not in self.requires:
+                self.requires.append(item)
         for why in other.opaque:
             if why not in self.opaque:
                 self.opaque.append(why)
+        for why in other.control:
+            self._control(why)
 
     def _hide(self, why: str) -> None:
         if why not in self.opaque:
             self.opaque.append(why)
+
+    def _control(self, why: str) -> None:
+        if why not in self.control:
+            self.control.append(why)
 
 
 # ---------------------------------------------------------------------------
@@ -380,38 +428,43 @@ def _strip_comments(code: str, language: str) -> str:
     return "\n".join(kept)
 
 
-def _python_rules(code: str) -> list[_Rule]:
-    rules = list(PYTHON)
-    for module, names in _PY_FROM_IMPORT.findall(code):
-        for name in re.findall(r"\w+", names):
-            if name in _PY_BARE and name != "as":
-                action, form = _PY_BARE[name]
-                if module in ("os", "shutil", "subprocess", "pty"):
-                    rules.append(_r(rf"(?<![\w.]){re.escape(name)}\s*\(", action, form))
-    for module, alias in _PY_IMPORT_AS.findall(code):
-        del module
-        rules.append(_r(rf"(?<![\w.]){re.escape(alias)}\.(?:rmtree|remove|unlink|rmdir|"
-                        r"removedirs)\s*\(", "delete-tree"))
-        rules.append(_r(rf"(?<![\w.]){re.escape(alias)}\.(?:system|popen|run|call|check_call|"
-                        r"check_output|Popen|getoutput|exec\w*|spawn\w*)\s*\(", "spawn"))
-    return rules
+def analyse(code: str, language: str, *, depth: int = 0, path: str | None = None) -> Finding:
+    """What ``code`` in ``language`` would delete, move, write or run.  Never raises.
 
-
-def analyse(code: str, language: str, *, depth: int = 0) -> Finding:
-    """What ``code`` in ``language`` would delete, move, write or run.  Never raises."""
+    Python is read as a syntax tree (:mod:`snowpea_core.security.pycode`);
+    ``path`` is the script file the code came from (``__file__``).  The other
+    languages go through their tables; a language with no table cannot be
+    read at all (``code:language``).  Code past the size or findings bound is
+    opaque rather than half judged.
+    """
     found = Finding()
     try:
-        _analyse(code, language, depth, found)
+        if len(code) > MAX_SCRIPT_BYTES:
+            found._hide("code:too-large")
+        elif language == "python":
+            from snowpea_core.security.pycode import analyse_python
+
+            analyse_python(code, found, depth=depth, path=path)
+            if len(found.commands) + len(found.argv) + len(found.lines) + len(
+                    found.writes) > MAX_FINDINGS:
+                found._hide("code:too-many")
+        elif language in RULES:
+            _analyse(code, language, depth, found)
+        else:
+            found._hide("code:language")
     except Exception:  # noqa: BLE001 - a bug here makes the code unseeable, never allowed
         found._hide("code:internal")
     return found
 
 
-def _mask(text: str, language: str) -> str:
+def _mask(text: str, language: str) -> tuple[str, bool]:
     """``text`` with the inside of every string literal blanked (same length), so a
-    word inside a string (``print("unlink me")``) is never taken for a call."""
+    word inside a string (``print("unlink me")``) is never taken for a call; and
+    whether every string closed on its own line (a quote that did not is either a
+    multi-line string or a quote the masking misread)."""
     out = list(text)
     index = 0
+    balanced = True
     quotes = "\"'" if language != "node" else "\"'`"
     while index < len(text):
         char = text[index]
@@ -425,97 +478,128 @@ def _mask(text: str, language: str) -> str:
                 index = end + 3
                 continue
             j = index + 1
-            while j < len(text) and text[j] != char and text[j] != "\n":
+            # A JS template literal may run over several lines; the others end on theirs.
+            multiline = char == "`"
+            while j < len(text) and text[j] != char and (multiline or text[j] != "\n"):
                 if text[j] == "\\":
                     out[j] = " "
                     j += 1
                     if j < len(text):
-                        out[j] = " "
+                        out[j] = " " if text[j] != "\n" else "\n"
                     j += 1
                     continue
-                out[j] = " "
+                out[j] = " " if text[j] != "\n" else "\n"
                 j += 1
+            if j >= len(text) or text[j] != char:
+                balanced = False
             index = j + 1
             continue
         index += 1
-    return "".join(out)
+    return "".join(out), balanced
 
 
 def _analyse(code: str, language: str, depth: int, found: Finding) -> None:
-    rules = RULES.get(language)
-    if rules is None:
-        return
+    rules = RULES[language]
     text = _strip_comments(code, language)
-    masked = _mask(text, language)
-    if language == "python":
-        rules = tuple(_python_rules(masked))
-        _pathlib(text, found)
+    masked, balanced = _mask(text, language)
+    # Something the tables match in the text as written but not once its strings
+    # are blanked sits inside what the masking took for a string.  That is a
+    # word in a real string — unless the masking misread a quote (in a regex, a
+    # comment, a here-document, a template expression): then it may be a call.
+    hidden = False
     if language in ("perl", "ruby", "php"):
-        _backticks(text, masked, language, found)
+        hidden = _backticks(text, masked, language, found)
     seen = 0
     for rule in rules:
         if rule.needs is not None and not rule.needs.search(text):
             continue
-        for match in rule.pattern.finditer(masked):
+        matches = list(rule.pattern.finditer(masked))
+        if len(rule.pattern.findall(text)) > len(matches):
+            hidden = True
+        for match in matches:
             seen += 1
             if seen > MAX_FINDINGS:
                 found._hide("code:too-many")
                 return
-            if language == "python" and rule.action == "code" and "__import__" in match.group(0):
-                _python_import(text, match.end(), found)
-                continue
             args = _args(text, match.end(), language)
             _judge(rule, args, language, depth, found, text, match)
+    if hidden and (not balanced or _RISKY[language].search(text)):
+        found._hide("code:unparsed")
+    if language == "node":
+        _node_extras(text, masked, found)
+    for literal in _PATH_LITERAL.finditer(text):
+        value = literal.group(2)
+        if len(found.mentions) < MAX_FINDINGS * 4 and value not in found.mentions:
+            found.mentions.append(value)
 
 
-def _python_import(text: str, index: int, found: Finding) -> None:
-    """``__import__("os").system(…)``: the module named by a literal, its call judged."""
-    args = _args(text, index, "python")
-    module = args[0] if args and isinstance(args[0], str) else None
-    if module is None:
-        found._hide("code:import:non-literal")
+#: Path-like string literals (for the control-plane check of what code names).
+_PATH_LITERAL = re.compile(r"(['\"`])([^'\"`\n\\]*(?:/|snowpea)[^'\"`\n\\]*)\1")
+
+
+def _node_extras(text: str, masked: str, found: Finding) -> None:
+    """What no table of calls can follow in JavaScript (security review 6, H-3)."""
+    # ``require(x)`` / ``import(x)`` with anything but one literal.
+    for match in re.finditer(r"(?<![\w$.])(?:require|import)\s*\(", masked):
+        value, end = _string_at(text, match.end(), "node")
+        if value is None or text[_skip_space(text, end):][:1] != ")":
+            found._hide("code:require:non-literal")
+        elif value.startswith(("./", "../", "/")) and not value.endswith(".json") \
+                and value not in found.requires:
+            found.requires.append(value)  # the project's own file: read like a script
+    for match in re.finditer(r"(?:^|[;\n])\s*import\s+(?:[^'\"`;\n]*?\sfrom\s+)?(['\"])(\.{0,2}/"
+                             r"[^'\"\n]*)\1", text):
+        if not match.group(2).endswith(".json") and match.group(2) not in found.requires:
+            found.requires.append(match.group(2))
+    if _NODE_REFLECT.search(masked):
+        found._hide("code:reflect")
+    # A bracketed lookup on a module that carries dangerous calls.
+    aliases = {"process"}
+    for match in _NODE_MODULE_ALIAS.finditer(text):
+        aliases.add(match.group(1) or match.group(2))
+    lookup = re.compile(r"(?<![\w$.])(?:" + "|".join(re.escape(a) for a in sorted(aliases))
+                        + r")\s*(?:\?\.)?\s*\[(?!\s*\d+\s*\])")
+    direct = re.search(r"\brequire\s*\(\s*['\"`]" + _NODE_DANGEROUS_MODULE
+                       + r"['\"`]\s*\)\s*(?:\?\.)?\s*\[", text)
+    if direct or lookup.search(masked):
+        found._hide("code:computed-member")
+    reach = re.search(_NODE_FS, text) or re.search(_NODE_CP, text)
+    if not reach:
         return
-    tail = text[_call_end(text, index):]
-    call = re.match(r"\s*\.\s*(\w+)\s*\(", tail)
-    if call is None:
-        return
-    synthetic = f"{module}.{call.group(1)}({tail[call.end():]}"
-    sub = Finding()
-    _analyse(synthetic, "python", 1, sub)
-    found.merge(sub)
-
-
-def _pathlib(text: str, found: Finding) -> None:
-    for match in _PY_PATHLIB.finditer(text):
-        value, _end = _string_at(match.group("arg"), 0, "python")
-        name = match.group("name")
-        if value is None:
-            if name in ("unlink", "rmdir", "rename", "replace"):
-                found._hide(f"code:{name}:non-literal")
+    if re.search(r"\[\s*(['\"`])(?:" + "|".join(_NODE_NAMES) + r")\1\s*\]", text):
+        found._hide("code:computed-member")
+    # Every other use of a dangerous name must be a call, or a destructuring
+    # that keeps the name; an alias or a rename cannot be followed.
+    plain: list[tuple[int, int]] = []
+    renamed: list[tuple[int, int]] = []
+    for match in _NODE_DESTRUCTURE.finditer(masked):
+        group = 1 if match.group(1) is not None else 2
+        body = match.group(group)
+        keeps = ":" not in body and not re.search(r"\bas\b", body) and "..." not in body
+        (plain if keeps else renamed).append(match.span(group))
+    for match in _NODE_NAME.finditer(masked):
+        at = match.start()
+        if any(start <= at < end for start, end in renamed):
+            found._hide("code:alias")  # ``const {rmSync: r} = require('fs')``
+            return
+        after = masked[match.end():match.end() + 8].lstrip()
+        if after.startswith("(") or any(start <= at < end for start, end in plain):
             continue
-        if name in ("unlink",):
-            found.commands.append(["rm", value])
-            found.writes.append((value, True, False))
-        elif name == "rmdir":
-            found.commands.append(["rmdir", value])
-            found.writes.append((value, True, False))
-        elif name in ("rename", "replace"):
-            found.writes.append((value, True, False))
-        else:
-            found.writes.append((value, False, False))
-    if ("pathlib" in text or "Path(" in text) and not _PY_PATHLIB.search(text):
-        for match in _PY_RECEIVER_DELETE.finditer(text):
-            before = text[max(0, match.start() - 12):match.start()]
-            if not re.search(r"(?:os|shutil)$", before):
-                found._hide("code:unlink:non-literal")
+        if after.startswith(":") and masked[max(0, at - 1):at] != ".":
+            continue  # an option key (``{recursive: true}``), not the function
+        found._hide("code:alias")  # ``const r = fs.rmSync``, ``run(fs.rm)``, ``.bind``…
+        return
 
 
 _BACKTICK = re.compile(r"`([^`]*)`|\bqx\s*([{(\[/|!])")
 _CLOSE = {"{": "}", "(": ")", "[": "]", "/": "/", "|": "|", "!": "!"}
 
 
-def _backticks(text: str, masked: str, language: str, found: Finding) -> None:
-    """Backticks and ``qx{}``/``%x{}`` outside string literals: a shell line."""
+def _backticks(text: str, masked: str, language: str, found: Finding) -> bool:
+    """Backticks and ``qx{}``/``%x{}`` outside string literals: a shell line.
+
+    True when a backtick sits inside what the masking took for a string."""
+    hidden = text.count("`") > masked.count("`")
     for match in _BACKTICK.finditer(masked):
         match = _BACKTICK.match(text, match.start()) or match
         if match.group(1) is not None:
@@ -537,6 +621,7 @@ def _backticks(text: str, masked: str, language: str, found: Finding) -> None:
                 found._hide("code:backticks:non-literal")
             else:
                 found.lines.append(body)
+    return hidden
 
 
 def _judge(rule: _Rule, args: list[str | list[str] | None], language: str, depth: int,
@@ -545,9 +630,6 @@ def _judge(rule: _Rule, args: list[str | list[str] | None], language: str, depth
     first = args[0] if args else None
     if action == "opaque-call":
         found._hide("code:native-binding")
-        return
-    if action == "open":
-        _python_open(args, text, match, found)
         return
     if action == "code":
         if isinstance(first, str) and depth < 3:
@@ -586,29 +668,27 @@ def _judge(rule: _Rule, args: list[str | list[str] | None], language: str, depth
                 found.commands.append(["rm", target])
                 found.writes.append((target, True, False))
         return
+    # Security review 6, M-1: a write or a copy whose target is not a literal
+    # cannot be judged against any path.
     if action == "write":
-        for target in args[:1]:
-            if isinstance(target, str):
-                found.writes.append((target, False, False))
+        if language == "php" and "fopen" in match.group(0):
+            mode = args[1] if len(args) > 1 else None
+            if isinstance(mode, str) and not re.search(r"[wax+c]", mode):
+                return  # opened to read
+        target = first
+        if language in ("perl", "ruby") and re.search(r"chmod|chown", match.group(0)):
+            # ``chmod 0755, "x"``: the mode (and owner) come first, then the files.
+            target = next((a for a in args[1:] if isinstance(a, str)), None)
+        if isinstance(target, str):
+            found.writes.append((target, False, False))
+        else:
+            found._hide("code:write:non-literal")
         return
-    if action == "copy" and len(args) > 1 and isinstance(args[1], str):
-        found.writes.append((args[1], False, True))
-
-
-def _python_open(args: list[str | list[str] | None], text: str, match: re.Match[str],
-                 found: Finding) -> None:
-    """``open(path, "w")`` (or ``mode="a"``): a write of a literal path."""
-    if not args:
-        return
-    mode = args[1] if len(args) > 1 and isinstance(args[1], str) else None
-    if mode is None:
-        keyword = re.search(r"mode\s*=\s*['\"]([^'\"]*)['\"]",
-                            text[match.end():_call_end(text, match.end())])
-        mode = keyword.group(1) if keyword else "r"
-    if not re.search(r"[wax+]", mode):
-        return
-    if isinstance(args[0], str):
-        found.writes.append((args[0], False, False))
+    if action == "copy":
+        if len(args) > 1 and isinstance(args[1], str):
+            found.writes.append((args[1], False, True))
+        else:
+            found._hide("code:copy:non-literal")
 
 
 def _spawn(form: str, args: list[str | list[str] | None], found: Finding) -> None:
@@ -665,33 +745,37 @@ class Script:
     recent: bool
 
 
-_RECENT_WRITES: dict[str, float] = {}
-_RECENT_LOCK = threading.Lock()
+def note_write(path: str | os.PathLike[str], session_id: str | None = None) -> None:
+    """Remember that the agent wrote ``path`` (its script is then the agent's own).
+
+    Kept for the whole session and across daemon restarts
+    (:mod:`snowpea_core.security.written`; security review 6, M-8)."""
+    written.note([os.fspath(path)], session_id)
 
 
-def note_write(path: str | os.PathLike[str]) -> None:
-    """Remember that a tool call was let write ``path`` (its script is then the agent's)."""
+def is_recent(path: str | os.PathLike[str]) -> bool:
+    """``path`` is the agent's own: it wrote it (any time), or it changed just now."""
     try:
-        key = os.path.realpath(os.fspath(path))
+        real = os.path.realpath(os.fspath(path))
+        info = os.stat(real)
     except (OSError, ValueError, TypeError):
-        return
-    with _RECENT_LOCK:
-        _RECENT_WRITES[key] = time.time()
-        if len(_RECENT_WRITES) > 4096:
-            for old in sorted(_RECENT_WRITES, key=_RECENT_WRITES.__getitem__)[:1024]:
-                _RECENT_WRITES.pop(old, None)
-
-
-def _written_by_tools(real: str) -> bool:
-    with _RECENT_LOCK:
-        return real in _RECENT_WRITES
+        return True
+    return (time.time() - max(info.st_mtime, info.st_ctime) < RECENT_SEC) or written.contains(real)
 
 
 _SHEBANG = re.compile(r"^#!\s*(\S+)(?:\s+(\S+))?")
+_SUFFIXES: dict[str, str] = {
+    ".sh": "shell", ".bash": "shell", ".py": "python", ".js": "node", ".mjs": "node",
+    ".cjs": "node", ".pl": "perl", ".rb": "ruby", ".php": "php",
+    # Languages nothing here can read: a recent script in one is opaque.
+    ".lua": "lua", ".r": "r", ".awk": "awk", ".sed": "sed", ".tcl": "tcl", ".jl": "julia",
+    ".ts": "typescript", ".mts": "typescript", ".groovy": "groovy", ".swift": "swift",
+    ".scala": "scala", ".ps1": "powershell", ".fish": "fish", ".applescript": "applescript",
+}
 
 
 def language_of(path: str, text: str | None, default: str) -> str:
-    """The script's language: its ``#!`` line, else ``default``."""
+    """The script's language: its ``#!`` line, else its suffix, else ``default``."""
     if text:
         match = _SHEBANG.match(text)
         if match:
@@ -703,14 +787,19 @@ def language_of(path: str, text: str | None, default: str) -> str:
                 return "shell"
             if program in LANGUAGES:
                 return LANGUAGES[program]
+            if program:
+                return program  # an interpreter with no table (lua, awk, make…)
     suffix = Path(path).suffix.lower()
-    return {".sh": "shell", ".bash": "shell", ".py": "python", ".js": "node", ".mjs": "node",
-            ".cjs": "node", ".pl": "perl", ".rb": "ruby", ".php": "php"}.get(suffix, default)
+    return _SUFFIXES.get(suffix, default)
 
 
 def read_script(raw: str, cwd: Path | None, *, default: str = "shell") -> Script | None:
-    """The script ``raw`` names, read now (``None``: the word is not a file path at all)."""
-    if not raw or "$" in raw or "`" in raw:
+    """The script ``raw`` names, read now (``None``: no file can be named from it).
+
+    ``raw`` is a word as the shell passes it on: a ``$`` or a backtick in it is
+    that character (security review 6, H-2 — such a name used to be skipped).
+    """
+    if not raw:
         return None
     path = Path(os.path.expanduser(raw))
     if not path.is_absolute():
@@ -723,7 +812,7 @@ def read_script(raw: str, cwd: Path | None, *, default: str = "shell") -> Script
     except OSError:
         return Script(str(path), None, language_of(str(path), None, default), "missing", True)
     recent = (time.time() - max(info.st_mtime, info.st_ctime) < RECENT_SEC) or \
-        _written_by_tools(real)
+        written.contains(real)
     if not stat.S_ISREG(info.st_mode):
         return Script(str(path), None, default, "unreadable", recent)
     if info.st_size > MAX_SCRIPT_BYTES:
@@ -765,6 +854,7 @@ __all__ = [
     "analyse",
     "argv_text",
     "digest_now",
+    "is_recent",
     "language_of",
     "note_write",
     "read_script",

@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any
 
 from snowpea_core.config.paths import utc_now
+from snowpea_core.util import pathcase
 
 log = logging.getLogger("snowpea.trust")
 
@@ -72,6 +73,8 @@ DEFAULT_SCOPES: tuple[str, ...] = ("hooks", "mcp", "commands", "agents", "prompt
 
 STORE_DIR = "trust"
 STORE_NAME = "projects.json"
+#: ``{"at": "<utc>", "projects": […]}``: the one-time migration ran (review 6, M-4).
+MARKER_NAME = "migrated.json"
 LEGACY_PATH = ("jarvis", "external-trust.json")
 
 HOOK_FILES: tuple[str, ...] = (".snowpea/hooks.json", ".snowpea/hooks/hooks.json",
@@ -105,76 +108,199 @@ class ControlFile:
     rel: str
     scope: str
     digest: str
-    #: Shown to the person deciding (hook commands' first 200 characters, …).
+    #: Shown to the person deciding (one line; long commands as head … tail).
     summary: str = ""
+    #: The commands it runs, each as :func:`display` data (hooks, MCP servers).
+    commands: tuple[dict[str, Any], ...] = ()
+    #: Project files those commands (or the skill) run, pinned with it (review 6, M-3).
+    runs: tuple[str, ...] = ()
+    #: ``(display data, reason)`` of commands whose code cannot be pinned.
+    not_pinned: tuple[tuple[dict[str, Any], str], ...] = ()
 
 
-def digest_of(path: Path) -> str:
-    """``sha256:<hex>`` of the file, ``missing``, or ``unreadable``."""
+def read_digest(path: Path) -> tuple[bytes | None, str]:
+    """The file's bytes and their digest, read ONCE: ``(bytes, "sha256:<hex>")``, or
+    ``(None, "missing" | "unreadable")``.
+
+    Security review 6, M-2: no cache.  A trust decision hashes what is on disk
+    now (a cache keyed by mtime/size/inode was fooled by a rewrite that kept all
+    three), and a reader that goes on to load the file loads these very bytes.
+    """
     try:
         info = path.stat()
     except OSError:
-        return "missing"
-    key = (str(path), info.st_mtime_ns, info.st_size, info.st_ino)
-    with _DIGEST_LOCK:
-        cached = _DIGESTS.get(str(path))
-        if cached is not None and cached[0] == key:
-            return cached[1]
+        return None, "missing"
     if info.st_size > MAX_FILE_BYTES:
-        return "unreadable"
+        return None, "unreadable"
     try:
         data = path.read_bytes()
     except OSError:
-        return "unreadable"
-    value = "sha256:" + hashlib.sha256(data).hexdigest()
-    with _DIGEST_LOCK:
-        _DIGESTS[str(path)] = (key, value)
-        if len(_DIGESTS) > 4096:
-            _DIGESTS.clear()
-    return value
+        return None, "unreadable"
+    if len(data) > MAX_FILE_BYTES:
+        return None, "unreadable"
+    return data, "sha256:" + hashlib.sha256(data).hexdigest()
 
 
-_DIGESTS: dict[str, tuple[tuple[Any, ...], str]] = {}
-_DIGEST_LOCK = threading.Lock()
+def digest_of(path: Path) -> str:
+    """``sha256:<hex>`` of the file as it is now, ``missing``, or ``unreadable``."""
+    return read_digest(path)[1]
 
 
 def _clip(text: str) -> str:
+    """One line for a summary: the head AND the tail of a long text, with its length
+    (security review 6, L-4: a clipped command must never hide what it ends with)."""
     text = " ".join(str(text).split())
-    return text if len(text) <= SUMMARY_CHARS else text[: SUMMARY_CHARS - 1] + "…"
+    if len(text) <= SUMMARY_CHARS:
+        return text
+    head, tail = display(text)["head"], display(text)["tail"]
+    return f"{head} … {tail} ({len(text)} characters)"
 
 
-def _hook_summary(path: Path) -> str:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
-        return "unreadable hooks file"
+#: Characters of a command shown from its start and from its end.
+HEAD_CHARS = 120
+TAIL_CHARS = 60
+
+
+def display(text: str, label: str = "") -> dict[str, Any]:
+    """How a command is shown on the trust card: ``{label, head, tail, length}``.
+
+    ``head`` is the whole text when it is short (``tail`` empty); a long one is
+    its first :data:`HEAD_CHARS` and its last :data:`TAIL_CHARS` characters.
+    ``length`` is always the full length, so a card can say what it left out.
+    """
+    flat = " ".join(str(text).split())
+    if len(flat) <= HEAD_CHARS + TAIL_CHARS:
+        return {"label": label, "head": flat, "tail": "", "length": len(flat)}
+    return {"label": label, "head": flat[:HEAD_CHARS], "tail": flat[-TAIL_CHARS:],
+            "length": len(flat)}
+
+
+def _hook_commands(raw: Any) -> list[tuple[str, str]]:
+    """``(event, command)`` of every command hook in a parsed hooks file."""
     table = raw.get("hooks") if isinstance(raw, dict) else None
-    commands: list[str] = []
+    commands: list[tuple[str, str]] = []
     if isinstance(table, dict):
         for event, entries in table.items():
             for entry in entries if isinstance(entries, list) else []:
                 specs = entry.get("hooks") if isinstance(entry, dict) else None
                 for spec in specs if isinstance(specs, list) else []:
                     if isinstance(spec, dict) and spec.get("command"):
-                        commands.append(f"{event}: {_clip(str(spec['command']))}")
-    return " | ".join(commands)[:1000] if commands else "no hook commands"
+                        commands.append((str(event), str(spec["command"])))
+    return commands
 
 
-def _mcp_summary(path: Path) -> str:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
-        return "unreadable .mcp.json"
+def _mcp_commands(raw: Any) -> list[tuple[str, str, list[str]]]:
+    """``(server, shown line, argv)`` of every server in a parsed ``.mcp.json``."""
     servers = raw.get("mcpServers") if isinstance(raw, dict) else None
-    rows: list[str] = []
+    rows: list[tuple[str, str, list[str]]] = []
     if isinstance(servers, dict):
         for name, entry in servers.items():
             if not isinstance(entry, dict):
                 continue
-            what = entry.get("url") or " ".join(
-                [str(entry.get("command") or ""), *[str(a) for a in entry.get("args") or []]])
-            rows.append(f"{name}: {_clip(str(what))}")
-    return " | ".join(rows)[:1000] if rows else "no servers"
+            argv = [str(entry.get("command") or ""), *[str(a) for a in entry.get("args") or []
+                                                         if isinstance(a, (str, int, float))]]
+            argv = [word for word in argv if word]
+            rows.append((str(name), str(entry.get("url") or " ".join(argv)), argv))
+    return rows
+
+
+def _json_bytes(data: bytes | None) -> Any:
+    if data is None:
+        return None
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# what a control file runs (security review 6, M-3)
+# ---------------------------------------------------------------------------
+
+#: Why a hook or server command's code is not pinned (``notPinned[].reason``).
+NOT_PINNED_REASONS: tuple[str, ...] = (
+    "computed",        # the command holds an expansion or substitution: what runs is not known
+    "project-script",  # npm/yarn/pnpm run, make…: the project's own script table decides
+    "package-runner",  # npx/uvx/pipx run…: a package fetched or resolved when it runs
+    "module",          # python -m <module>: resolved by the interpreter when it runs
+    "missing",         # it names a project file that is not there now
+    "too-large",       # the file is too large to pin
+    "too-many",        # more files than one control file may pin
+    "unreadable",      # the control file itself could not be read
+)
+_PROJECT_SCRIPT_PROGRAMS: frozenset[str] = frozenset(
+    {"npm", "yarn", "pnpm", "bun", "make", "gmake", "just", "task", "rake", "gradle", "gradlew",
+     "mvn", "mvnw", "cargo", "go", "tox", "nox", "invoke"})
+_PACKAGE_RUNNERS: frozenset[str] = frozenset({"npx", "bunx", "pnpx", "uvx", "pipx", "dlx"})
+_INTERPRETER_NAMES: tuple[str, ...] = ("python", "pypy", "node", "nodejs", "deno", "bun", "bash",
+                                       "sh", "zsh", "dash", "ruby", "perl", "php", "lua")
+#: Most files one control file pins as what it runs.
+MAX_RUNS = 64
+
+
+def _words(command: str) -> list[str] | None:
+    import shlex
+
+    try:
+        return shlex.split(command, comments=False, posix=True)
+    except ValueError:
+        return None
+
+
+def runs_of(base: Path, argv: list[str], *, raw: str, folder: Path) -> tuple[list[str], str | None]:
+    """The project files a command line would run, and why it cannot all be pinned.
+
+    ``argv``: the command's words; ``raw``: the line as written (searched for
+    expansions); ``folder``: where the control file lives (``${CLAUDE_PLUGIN_ROOT}``).
+    Returns project-relative paths of existing regular files inside ``base`` that a
+    word names, and a :data:`NOT_PINNED_REASONS` value or ``None``.
+    """
+    found: list[str] = []
+    reason: str | None = None
+    text = raw
+    for name in ("${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT", "${SNOWPEA_PLUGIN_ROOT}",
+                 "$SNOWPEA_PLUGIN_ROOT"):
+        text = text.replace(name, str(folder))
+    for name in ("${CLAUDE_PROJECT_DIR}", "$CLAUDE_PROJECT_DIR", "${SNOWPEA_PROJECT_DIR}",
+                 "$SNOWPEA_PROJECT_DIR", "${PWD}", "$PWD"):
+        text = text.replace(name, str(base))
+    if "$" in text or "`" in text:
+        reason = "computed"
+    words = [word for word in argv]
+    programs = [os.path.basename(word).lower() for word in words[:3]]
+    if any(program in _PACKAGE_RUNNERS for program in programs[:2]):
+        reason = reason or "package-runner"
+    elif any(program in _PROJECT_SCRIPT_PROGRAMS for program in programs[:1]):
+        reason = reason or "project-script"
+    interpreter = bool(programs) and programs[0].rstrip("0123456789.") in _INTERPRETER_NAMES
+    if interpreter and "-m" in words[1:3]:
+        reason = reason or "module"
+    for index, word in enumerate(words):
+        for name in ("${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT", "${SNOWPEA_PLUGIN_ROOT}",
+                     "$SNOWPEA_PLUGIN_ROOT"):
+            word = word.replace(name, str(folder))
+        for name in ("${CLAUDE_PROJECT_DIR}", "$CLAUDE_PROJECT_DIR", "${SNOWPEA_PROJECT_DIR}",
+                     "$SNOWPEA_PROJECT_DIR", "${PWD}", "$PWD"):
+            word = word.replace(name, str(base))
+        if not word or word.startswith("-") or "$" in word or "`" in word or "://" in word:
+            continue
+        pathlike = "/" in word or "." in os.path.basename(word)
+        if not pathlike and index:
+            continue
+        candidate = Path(os.path.expanduser(word))
+        if not candidate.is_absolute():
+            candidate = base / candidate
+        real = Path(os.path.realpath(candidate))
+        if real != base and base not in real.parents:
+            continue  # not the project's own code
+        try:
+            if real.is_file():
+                found.append(real.relative_to(base).as_posix())
+            elif interpreter and index == 1 and not word.startswith("-"):
+                reason = reason or "missing"  # the script it is told to run is not there
+        except OSError:
+            continue
+    return list(dict.fromkeys(found)), reason
 
 
 def settings_widening(raw: Any) -> list[str]:
@@ -223,35 +349,158 @@ def _glob(root: Path, pattern: str) -> list[Path]:
     return [p for p in found if p.is_file()][:MAX_FILES]
 
 
+def _auto_inject(path: Path) -> list[str]:
+    try:
+        from snowpea_core.skills.skill_md import auto_inject_keywords
+
+        return list(auto_inject_keywords(path.read_text(encoding="utf-8")))
+    except (OSError, UnicodeDecodeError, ImportError):
+        return []
+
+
+def builtin_agent_names() -> frozenset[str]:
+    """Names of the agents snowpea ships (a project definition never takes one's
+    place without the project's ``agents`` trust; review 6, L-1)."""
+    try:
+        from snowpea_core.agent.definition import builtin_agent_definitions
+
+        return frozenset(defn.name for defn in builtin_agent_definitions())
+    except Exception:  # noqa: BLE001 - unknown: nothing counts as built in
+        return frozenset()
+
+
+def agent_definition_active(project: str | os.PathLike[str], path: str | os.PathLike[str],
+                            name: str, permission: Any,
+                            store: TrustStore | None = None) -> bool:
+    """A project's agent definition may be used (review 6, L-1).
+
+    One that carries a ``permission`` of its own, or that would replace a
+    built-in agent, needs the project's ``agents`` trust with the file as
+    pinned.  Any other project definition is a prompt and a tool list: active.
+    """
+    needs = permission not in (None, "", "inherit") or name in builtin_agent_names()
+    if not needs:
+        return True
+    try:
+        base = project_root(project)
+        rel = os.path.relpath(os.path.realpath(os.fspath(path)), base).replace(os.sep, "/")
+        return (store or default_store()).active(base, "agents", rel)
+    except Exception:  # noqa: BLE001 - trust fails closed
+        return False
+
+
+def _skill_files(base: Path, skill_md: Path) -> tuple[list[str], list[tuple[dict[str, Any], str]]]:
+    """Everything else in a skill's folder: the scripts its text tells the model to run."""
+    runs: list[str] = []
+    loose: list[tuple[dict[str, Any], str]] = []
+    try:
+        entries = sorted(p for p in skill_md.parent.rglob("*") if p.is_file() and p != skill_md)
+    except OSError:
+        return runs, loose
+    for path in entries:
+        rel = path.relative_to(base).as_posix()
+        if len(runs) >= MAX_RUNS:
+            loose.append((display(skill_md.parent.name), "too-many"))
+            break
+        try:
+            if path.stat().st_size > MAX_FILE_BYTES:
+                loose.append((display(rel), "too-large"))
+                continue
+        except OSError:
+            continue
+        runs.append(rel)
+    return runs, loose
+
+
 def discover(root: str | os.PathLike[str]) -> list[ControlFile]:
     """Every control file the project at ``root`` holds now, with its scope."""
     base = project_root(root)
     out: list[ControlFile] = []
 
-    def add(path: Path, scope: str, summary: str) -> None:
+    def add(path: Path, scope: str, summary: str, *, digest: str | None = None,
+            commands: list[dict[str, Any]] | None = None, runs: list[str] | None = None,
+            not_pinned: list[tuple[dict[str, Any], str]] | None = None) -> None:
         rel = path.relative_to(base).as_posix()
-        out.append(ControlFile(rel, scope, digest_of(path), summary))
+        out.append(ControlFile(rel, scope, digest or digest_of(path), summary,
+                               tuple(commands or ()), tuple(dict.fromkeys(runs or ())),
+                               tuple(not_pinned or ())))
+
+    def commanded(path: Path, scope: str, rows: list[tuple[str, str, list[str] | None]],
+                  digest: str, empty: str, unreadable: bool) -> None:
+        commands: list[dict[str, Any]] = []
+        runs: list[str] = []
+        loose: list[tuple[dict[str, Any], str]] = []
+        for label, line, argv in rows:
+            shown = display(line, label)
+            commands.append(shown)
+            words = argv if argv is not None else _words(line)
+            if words is None:
+                loose.append((shown, "computed"))
+                continue
+            files, reason = runs_of(base, words, raw=line, folder=path.parent)
+            runs.extend(files)
+            if reason is not None:
+                loose.append((shown, reason))
+        if unreadable:
+            loose.append((display(path.name), "unreadable"))
+        if len(runs) > MAX_RUNS:
+            runs = runs[:MAX_RUNS]
+            loose.append((display(path.name), "too-many"))
+        summary = " | ".join(
+            f"{c['label']}: {c['head']}" + (f" … {c['tail']} ({c['length']} characters)"
+                                           if c["tail"] else "")
+            for c in commands) or empty
+        add(path, scope, summary, digest=digest, commands=commands, runs=runs,
+            not_pinned=loose)
 
     for rel in HOOK_FILES:
         path = base / rel
         if path.is_file():
-            add(path, "hooks", _hook_summary(path))
+            data, digest = read_digest(path)
+            parsed = _json_bytes(data)
+            commanded(path, "hooks", [(event, line, None)
+                                      for event, line in _hook_commands(parsed)],
+                      digest, "no hook commands" if parsed is not None
+                      else "unreadable hooks file", parsed is None)
     if (base / MCP_FILE).is_file():
-        add(base / MCP_FILE, "mcp", _mcp_summary(base / MCP_FILE))
+        data, digest = read_digest(base / MCP_FILE)
+        parsed = _json_bytes(data)
+        commanded(base / MCP_FILE, "mcp",
+                  [(name, line, argv or None) for name, line, argv in _mcp_commands(parsed)],
+                  digest, "no servers" if parsed is not None else "unreadable .mcp.json",
+                  parsed is None)
     for pattern in (".snowpea/commands/*.md", ".claude/commands/*.md",
                     ".snowpea/skills/*/SKILL.md", ".claude/skills/*/SKILL.md",
                     ".agents/skills/*/SKILL.md"):
         for path in _glob(base, pattern):
             meta = _front_matter(path)
             tools = meta.get("allowed-tools") or meta.get("allowed_tools")
-            if tools:
-                shown = ", ".join(tools) if isinstance(tools, list) else str(tools)
-                add(path, "commands", _clip(f"allowed-tools: {shown}"))
+            # Review 6, M-6: a skill that brings itself into a turn (autoInject) is a
+            # control file too, like one that pre-approves tools.
+            inject = _auto_inject(path)
+            if tools or inject:
+                parts = []
+                if tools:
+                    parts.append("allowed-tools: " + (", ".join(tools) if isinstance(tools, list)
+                                                      else str(tools)))
+                if inject:
+                    parts.append("autoInject: " + ", ".join(inject))
+                runs, loose = _skill_files(base, path) if path.name == "SKILL.md" else ([], [])
+                add(path, "commands", _clip("; ".join(parts)), runs=runs, not_pinned=loose)
+    builtin = builtin_agent_names()
     for pattern in (".snowpea/agents/*.md", ".claude/agents/*.md"):
         for path in _glob(base, pattern):
-            permission = _front_matter(path).get("permission")
+            meta = _front_matter(path)
+            permission = meta.get("permission")
+            name = str(meta.get("name") or path.stem)
+            parts = []
             if permission not in (None, "", "inherit"):
-                add(path, "agents", _clip(f"permission: {permission}"))
+                parts.append(f"permission: {permission}")
+            if name in builtin or path.stem in builtin:
+                # Review 6, L-1: it would take a built-in agent's place.
+                parts.append(f"replaces the built-in {name} agent")
+            if parts:
+                add(path, "agents", _clip("; ".join(parts)))
     for path in _glob(base, ".snowpea/prompts/**/*.md"):
         add(path, "prompts", "prompt override")
     settings = base / SETTINGS_FILE
@@ -260,6 +509,41 @@ def discover(root: str | os.PathLike[str]) -> list[ControlFile]:
         if widening:
             add(settings, "settings", _clip(", ".join(widening)))
     return out
+
+
+def pinnable(root: str | os.PathLike[str], controls: list[ControlFile] | None = None,
+             ) -> tuple[dict[str, str], dict[str, list[str]]]:
+    """What trusting the project now would pin: ``{rel: digest}`` of every control
+    file, of every project file one of them runs and of the project settings file;
+    and ``{control rel: [files it runs]}``."""
+    base = project_root(root)
+    files: dict[str, str] = {}
+    runs: dict[str, list[str]] = {}
+    for control in controls if controls is not None else discover(base):
+        if control.digest.startswith("sha256:"):
+            files[control.rel] = control.digest
+        kept: list[str] = []
+        for rel in control.runs:
+            digest = files.get(rel) or digest_of(base / rel)
+            if digest.startswith("sha256:"):
+                files[rel] = digest
+                kept.append(rel)
+        if kept:
+            runs[control.rel] = kept
+    settings = base / SETTINGS_FILE
+    if settings.is_file():
+        digest = digest_of(settings)
+        if digest.startswith("sha256:"):
+            files[SETTINGS_FILE] = digest
+    return files, runs
+
+
+class TrustChanged(Exception):
+    """``project.trust.set``: the project is not what the person was shown (M-5)."""
+
+    def __init__(self, changed: list[str], added: list[str], missing: list[str]) -> None:
+        super().__init__("the project's control files changed since they were shown")
+        self.changed, self.added, self.missing = changed, added, missing
 
 
 def scope_of(rel: str) -> str | None:
@@ -308,7 +592,9 @@ def control_path(path: str | os.PathLike[str]) -> bool:
     ``.snowpea``/``.claude`` folders themselves (a move or copy onto one
     replaces all of it).
     """
-    parts = Path(os.fspath(path)).parts
+    # Security review 6, M-7: ``.Snowpea/Hooks.json`` is the hooks file where the
+    # file system ignores case.
+    parts = tuple(pathcase.name_key(part) for part in Path(os.fspath(path)).parts)
     if not parts:
         return False
     if parts[-1] in (".snowpea", ".claude", ".codex", ".cursor", ".mcp.json"):
@@ -345,28 +631,23 @@ class TrustStore:
     def __init__(self, home: str | os.PathLike[str]) -> None:
         self.home = Path(home)
         self.path = self.home / STORE_DIR / STORE_NAME
+        #: Written once, when the one-time migration ran (security review 6, M-4).
+        self.marker = self.home / STORE_DIR / MARKER_NAME
         self.legacy = self.home.joinpath(*LEGACY_PATH)
         self._lock = threading.RLock()
-        self._cache: tuple[Any, dict[str, Any]] | None = None
 
     # -- reading ---------------------------------------------------------
-    def _stamp(self) -> Any:
-        stamps = []
-        for path in (self.path, self.legacy):
-            try:
-                info = path.stat()
-                stamps.append((info.st_mtime_ns, info.st_size, info.st_ino))
-            except OSError:
-                stamps.append(None)
-        return tuple(stamps)
-
     def read(self) -> dict[str, Any]:
-        """The whole document (``projects`` keyed by root); the legacy file folded in."""
+        """The whole document (``projects`` keyed by root); the legacy file folded in.
+
+        Read from disk every time (review 6, M-2: a trust decision never comes
+        from a cache).  When the migration marker says a record was written and
+        the record is gone or unreadable (:meth:`problem`), nothing is trusted —
+        not even what the legacy external-CLI file says.
+        """
         with self._lock:
-            stamp = self._stamp()
-            if self._cache is not None and self._cache[0] == stamp:
-                return self._cache[1]
             data = _read_json(self.path)
+            lost = not isinstance(data, dict) and self.marker.exists()
             if not isinstance(data, dict):
                 data = {}
             projects = data.get("projects")
@@ -374,6 +655,8 @@ class TrustStore:
                 projects = {}
             data = {**data, "projects": {k: v for k, v in projects.items()
                                          if isinstance(v, dict)}}
+            if lost:
+                return data
             legacy = _read_json(self.legacy)
             rows = legacy.get("projects") if isinstance(legacy, dict) else None
             for key, entry in (rows or {}).items() if isinstance(rows, dict) else ():
@@ -385,8 +668,24 @@ class TrustStore:
                         scopes.append("externalCli")
                         current["scopes"] = scopes
                         current["trusted"] = True
-            self._cache = (stamp, data)
             return data
+
+    def problem(self) -> str | None:
+        """Why no project is trusted although some were (review 6, M-4), else ``None``.
+
+        The marker outlives the record: a record that is missing or does not
+        parse while the marker exists was lost or tampered with.  It fails
+        closed — every project waits for the person again — and says so.
+        """
+        try:
+            if not self.marker.exists():
+                return None
+            if isinstance(_read_json(self.path), dict):
+                return None
+        except OSError:
+            pass
+        return ("the trusted-projects record ($SNOWPEA_HOME/trust/projects.json) is missing or "
+                "unreadable: no project is trusted until you trust it again")
 
     def entry(self, root: str | os.PathLike[str]) -> dict[str, Any] | None:
         found = self.read()["projects"].get(str(project_root(root)))
@@ -403,18 +702,65 @@ class TrustStore:
         Fails closed: an unreadable store, a file not pinned, a changed digest
         are all "not active".
         """
+        if rel is None:
+            if root is None:
+                return False
+            try:
+                entry = self.entry(root)
+                return entry is not None and scope in (entry.get("scopes") or [])
+            except Exception:  # noqa: BLE001 - trust fails closed
+                log.warning("could not read project trust for %s", root, exc_info=True)
+                return False
+        return self.read_pinned(root, scope, rel) is not None
+
+    def read_pinned(self, root: str | os.PathLike[str] | None, scope: str,
+                    rel: str) -> bytes | None:
+        """The bytes of ``rel`` when ``scope`` is trusted for ``root`` and they are the
+        pinned ones — read ONCE, so a caller that loads the file loads exactly what
+        was verified (security review 6, M-2).  ``None``: not active.
+
+        The files ``rel`` runs (its hook scripts, a skill's folder; review 6, M-3)
+        must be as pinned too: one that changed switches the control file off.
+        """
+        if root is None:
+            return None
+        try:
+            entry = self.entry(root)
+            if entry is None or scope not in (entry.get("scopes") or []):
+                return None
+            files = entry.get("files") or {}
+            pinned = files.get(rel)
+            if not isinstance(pinned, str) or not pinned.startswith("sha256:"):
+                return None
+            base = project_root(root)
+            data, digest = read_digest(base / rel)
+            if data is None or digest != pinned:
+                return None
+            for dependent in (entry.get("runs") or {}).get(rel) or []:
+                if not isinstance(dependent, str) or digest_of(base / dependent) != files.get(
+                        dependent):
+                    return None
+            return data
+        except Exception:  # noqa: BLE001 - trust fails closed
+            log.warning("could not read project trust for %s", root, exc_info=True)
+            return None
+
+    def pinned_as(self, root: str | os.PathLike[str] | None, scope: str, rel: str,
+                  digest: str) -> bool:
+        """``scope`` is trusted and ``digest`` (of bytes the caller already loaded) is
+        the pinned digest of ``rel``, with what ``rel`` runs unchanged."""
         if root is None:
             return False
         try:
             entry = self.entry(root)
             if entry is None or scope not in (entry.get("scopes") or []):
                 return False
-            if rel is None:
-                return True
-            pinned = (entry.get("files") or {}).get(rel)
-            if not isinstance(pinned, str) or not pinned.startswith("sha256:"):
+            files = entry.get("files") or {}
+            if not digest.startswith("sha256:") or files.get(rel) != digest:
                 return False
-            return digest_of(project_root(root) / rel) == pinned
+            base = project_root(root)
+            return all(isinstance(dep, str) and digest_of(base / dep) == files.get(dep)
+                       for dep in (entry.get("runs") or {}).get(rel) or [])
         except Exception:  # noqa: BLE001 - trust fails closed
             log.warning("could not read project trust for %s", root, exc_info=True)
             return False
@@ -427,7 +773,12 @@ class TrustStore:
         pinned: dict[str, str] = {k: v for k, v in (entry.get("files") or {}).items()
                                   if isinstance(v, str)}
         files: list[dict[str, Any]] = []
-        for control in discover(base):
+        runs: list[dict[str, Any]] = []
+        not_pinned: list[dict[str, Any]] = []
+        controls = discover(base)
+        digests, _runs = pinnable(base, controls)
+        seen_runs: dict[str, dict[str, Any]] = {}
+        for control in controls:
             state = "active"
             if control.scope not in scopes:
                 state = "untrusted"
@@ -435,8 +786,32 @@ class TrustStore:
                 state = "new"
             elif pinned[control.rel] != control.digest:
                 state = "changed"
+            run_states: list[str] = []
+            for rel in control.runs:
+                digest = digests.get(rel, "unreadable")
+                run_state = "active"
+                if control.scope not in scopes:
+                    run_state = "untrusted"
+                elif rel not in pinned:
+                    run_state = "new"
+                elif pinned[rel] != digest:
+                    run_state = "changed"
+                run_states.append(run_state)
+                row = seen_runs.get(rel)
+                if row is None:
+                    row = seen_runs[rel] = {"path": rel, "digest": digest, "state": run_state,
+                                            "by": []}
+                    runs.append(row)
+                elif run_state != "active":
+                    row["state"] = run_state
+                row["by"].append(control.rel)
+            if state == "active" and any(s != "active" for s in run_states):
+                state = "changed"  # what it runs is not what was trusted
             files.append({"path": control.rel, "scope": control.scope, "state": state,
-                          "summary": control.summary})
+                          "summary": control.summary, "digest": control.digest,
+                          "commands": list(control.commands)})
+            for shown, reason in control.not_pinned:
+                not_pinned.append({"source": control.rel, "command": shown, "reason": reason})
         settings = _read_json(base / SETTINGS_FILE)
         mode_auto = isinstance(settings, dict) and settings.get("defaultMode") == "auto"
         return {
@@ -451,6 +826,9 @@ class TrustStore:
                         and f["scope"] in scopes],
             "defaultModeAuto": mode_auto,
             "modeActive": mode_auto and self.active(base, "mode", SETTINGS_FILE),
+            "runs": runs,
+            "notPinned": not_pinned,
+            "digests": digests,
         }
 
     def notice(self, root: str | os.PathLike[str]) -> str | None:
@@ -484,7 +862,6 @@ class TrustStore:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(data, indent=2, sort_keys=True))
         os.replace(tmp, self.path)
-        self._cache = None
 
     def _mutate(self, root: Path, change: Any) -> dict[str, Any]:
         with self._lock:
@@ -508,20 +885,30 @@ class TrustStore:
             return entry
 
     def set(self, root: str | os.PathLike[str], scopes: Iterable[str] | None = None, *,
-            by: str) -> dict[str, Any]:
+            by: str, digests: dict[str, str] | None = None) -> dict[str, Any]:
         """Trust ``root`` for ``scopes`` (default :data:`DEFAULT_SCOPES` plus what it
-        already has), pinning every control file's current digest."""
+        already has), pinning every control file — and what it runs — as ``digests``
+        says they are.
+
+        ``digests`` is ``status()["digests"]`` as the person saw it (security
+        review 6, M-5).  What is pinned is what was SHOWN: when the disk differs
+        now — a digest changed, a file appeared or went away — nothing is trusted
+        and :class:`TrustChanged` names the paths.  ``None`` (a caller inside
+        core: the migration) pins what is on disk now.
+        """
         base = project_root(root)
         wanted = list(scopes) if scopes is not None else list(DEFAULT_SCOPES)
         unknown = [s for s in wanted if s not in SCOPES]
         if unknown:
             raise ValueError(f"unknown trust scope(s): {', '.join(unknown)}")
-        files = {c.rel: c.digest for c in discover(base) if c.digest.startswith("sha256:")}
-        settings = base / SETTINGS_FILE
-        if settings.is_file():
-            digest = digest_of(settings)
-            if digest.startswith("sha256:"):
-                files[SETTINGS_FILE] = digest
+        files, runs = pinnable(base)
+        if digests is not None:
+            shown = {str(k): str(v) for k, v in digests.items()}
+            changed = sorted(rel for rel in files if rel in shown and shown[rel] != files[rel])
+            added = sorted(rel for rel in files if rel not in shown)
+            missing = sorted(rel for rel in shown if rel not in files)
+            if changed or added or missing:
+                raise TrustChanged(changed, added, missing)
 
         def change(entry: dict[str, Any]) -> None:
             entry["scopes"] = list(dict.fromkeys([*(entry.get("scopes") or []), *wanted]))
@@ -529,6 +916,7 @@ class TrustStore:
                 # Trusting content pins it as it is now; trusting the project for
                 # external CLIs alone leaves snowpea's own pins as they were.
                 entry["files"] = files
+                entry["runs"] = runs
             entry.setdefault("files", {})
             entry["by"] = by
             entry["at"] = utc_now()
@@ -547,6 +935,7 @@ class TrustStore:
             entry["at"] = utc_now()
             if not set(entry["scopes"]) & FILE_SCOPES:
                 entry["files"] = {}
+                entry.pop("runs", None)
 
         return self._mutate(base, change)
 
@@ -582,15 +971,56 @@ class TrustStore:
 
     # -- migration (decision d) ------------------------------------------
     def migrated(self) -> bool:
-        return bool(self.read().get("migrated"))
+        """The one-time migration ran: its marker file exists.
 
-    def migrate(self, roots: Iterable[str | os.PathLike[str]]) -> list[str]:
+        Security review 6, M-4: the marker is its own file, so losing the record
+        does not make the migration run again (and trust every project with a
+        session again).  A record written before the marker existed carries a
+        ``migrated`` key: that counts, and the marker is written from it.
+        """
+        if self.marker.exists():
+            return True
+        old = _read_json(self.path)
+        if isinstance(old, dict) and old.get("migrated"):
+            with self._lock:
+                self._write_marker(str(old.get("migrated")),
+                                   [str(p) for p in old.get("migratedProjects") or []])
+            return True
+        return False
+
+    def migrated_at(self) -> str | None:
+        data = _read_json(self.marker)
+        at = data.get("at") if isinstance(data, dict) else None
+        return str(at) if at else None
+
+    def _write_marker(self, at: str, projects: list[str]) -> None:
+        self.marker.parent.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):
+            os.chmod(self.marker.parent, 0o700)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(self.marker, flags, 0o600)
+        except FileExistsError:
+            return  # written once, never rewritten
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"at": at, "projects": projects}, indent=2))
+
+    def migrate(self, roots: Iterable[str | os.PathLike[str]],
+                at: str | None = None) -> list[str]:
         """First start with project trust: projects that already had sessions keep what
         they bring, pinned as it is now (their hooks already ran); new ones start
-        untrusted.  Runs once; returns the projects trusted this way."""
+        untrusted.  Runs once — the marker is written FIRST, so a crash or a lost
+        record never makes it run twice; returns the projects trusted this way.
+
+        ``roots`` are the projects whose sessions were created before ``at`` (the
+        upgrade's timestamp, now by default): the caller asks the session store
+        for exactly those.
+        """
         with self._lock:
             if self.migrated():
                 return []
+            stamp = at or utc_now()
+            self._write_marker(stamp, [])
             trusted: list[str] = []
             for raw in roots:
                 try:
@@ -605,7 +1035,7 @@ class TrustStore:
                     log.warning("could not migrate the trust of %s", raw, exc_info=True)
             data = json.loads(json.dumps(self.read()))
             data["version"] = 1
-            data["migrated"] = utc_now()
+            data["migrated"] = stamp
             data["migratedProjects"] = trusted
             self._write(data)
             return trusted
@@ -660,9 +1090,14 @@ def store_for(home: str | os.PathLike[str]) -> TrustStore:
 __all__ = [
     "DEFAULT_SCOPES",
     "FILE_SCOPES",
+    "NOT_PINNED_REASONS",
     "SCOPES",
     "ControlFile",
+    "TrustChanged",
     "TrustStore",
+    "display",
+    "pinnable",
+    "read_digest",
     "control_path",
     "default_store",
     "digest_of",
