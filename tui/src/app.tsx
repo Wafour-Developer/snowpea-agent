@@ -37,8 +37,13 @@ import { ScreenOverlays, screenOverlayRows } from "./components/ScreenOverlays.j
 import { JarvisPanel } from "./components/JarvisPanel.js";
 import { ExternalTranscript, externalExtraRows } from "./components/ExternalTranscript.js";
 import { DelegationConfirm, delegationConfirmRows } from "./components/DelegationConfirm.js";
+import { SecurityScreen } from "./components/SecurityScreen.js";
+import { useSecurityScreen, type SecurityScreenHook } from "./hooks/useSecurityScreen.js";
+import { NOT_APPLIED_NOTE, securitySupported } from "./state/security.js";
+import { securitySubCommands } from "./slash/security.js";
 import {
   cliLabel,
+  extSessionId,
   externalNote,
   hostLabel,
   modeLabel as externalModeLabel,
@@ -736,6 +741,8 @@ export function App({
   const questionResolvers = useRef(new Map<string, (response: QuestionResponse) => void>());
   /** The Jarvis and external-session screens, for the listeners bound once per session. */
   const screensRef = useRef<ReturnType<typeof useJarvisScreens> | null>(null);
+  /** The security-lists hook, for the same reason. */
+  const securityRef = useRef<SecurityScreenHook | null>(null);
 
   const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
   /**
@@ -870,6 +877,7 @@ export function App({
     setSurfaceSupport([
       ...(featureSupport.jarvis ? [] : ["jarvis"]),
       ...(featureSupport.external ? [] : ["external"]),
+      ...(securitySupported(client.serverCapabilities?.()) ? [] : ["security"]),
     ]);
 
     client.setListeners({
@@ -893,6 +901,7 @@ export function App({
         dispatch({ type: "question/route", requestId: params.requestId, route: params.route });
         screensRef.current?.listeners.onQuestionRouteChanged?.(params);
       },
+      onSecurityBlocked: (params) => securityRef.current?.onBlocked(params),
       onExternalEvent: (params) => screensRef.current?.listeners.onExternalEvent?.(params),
       onExternalState: (params) => screensRef.current?.listeners.onExternalState?.(params),
       onExternalClisChanged: (params) => screensRef.current?.listeners.onExternalClisChanged?.(params),
@@ -997,7 +1006,10 @@ export function App({
           });
       },
       // Installing a backend or naming a voice is a setting; re-ask.
-      onSettingsChanged: () => refreshCapabilities(),
+      onSettingsChanged: (params) => {
+        refreshCapabilities();
+        securityRef.current?.onSettingsChanged(params);
+      },
       // An MCP server moved: the HUD follows the payload at once, and the full
       // list is re-read for the tools it carries. A server that broke is said
       // once — a flapping server must not fill the transcript with the same
@@ -1135,7 +1147,7 @@ export function App({
   // Ink 5 removes F1 from useInput entirely. Read only its raw sequences here.
   useEffect(() => {
     const onData = (data: Buffer | string) => {
-      if (state.pendingQuestion || state.pendingApproval) return;
+      if (state.pendingQuestion || state.pendingApproval || securityRef.current?.ui) return;
       if (update.phase === "confirm" || update.phase === "running") return;
       if (["\u001bOP", "\u001b[11~", "\u001b[[A"].includes(data.toString())) {
         setShowHelp(current => !current);
@@ -1408,6 +1420,7 @@ export function App({
       ...ttsSubCommands(draft),
       ...voiceSubCommands(draft),
       ...jarvisSubCommands(draft),
+      ...securitySubCommands(draft),
       ...externalSubCommands(draft),
       ...registryRef.current.complete(draft),
     ];
@@ -1436,6 +1449,17 @@ export function App({
   });
   screensRef.current = screens;
   const externalOpen = screens.external;
+  const warn = useCallback((text: string) => dispatch({ type: "note", text, blocked: true }), []);
+  const security = useSecurityScreen({
+    client,
+    workdir,
+    sessionId,
+    viewingId: externalOpen ? extSessionId(externalOpen.ref) : null,
+    showToast,
+    note,
+    warn,
+  });
+  securityRef.current = security;
   const externalWarning = externalOpen ? ungatedWarning(externalOpen.session) : null;
   const externalViewOnly = externalOpen ? viewOnlyReason(externalOpen.session) : null;
 
@@ -1656,10 +1680,10 @@ export function App({
   const showLogo = !fullscreen;
   // Rows the Jarvis panel and the screens' pickers add to the bottom block.
   const jarvisPanelLines = useMemo(
-    () => screens.panel(contentWidth, Math.max(6, Math.min(12, Math.floor(usableRows(terminal.rows) / 3)))),
+    () => screens.panel(contentWidth, Math.max(6, Math.min(12, Math.floor(usableRows(terminal.rows) / 3))), security.listsSet),
     // `screens.panel` changes with the Jarvis state and the clock.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [screens.panel, contentWidth, terminal.rows],
+    [screens.panel, contentWidth, terminal.rows, security.listsSet],
   );
   const overlayRows = screenOverlayRows(screens, contentWidth);
   const approvalLabel = requestLabel(state.pendingApproval, screens.jarvis.rows, sessionId);
@@ -1708,7 +1732,15 @@ export function App({
   // the scrollback and Ink clears the whole terminal on every frame once that
   // region reaches the terminal's height — so the window takes what the status
   // block and the input leave over, and no more.
-  const externalNoteLine = externalOpen ? externalNote(externalOpen.session) : null;
+  // With security lists set, an ungated session says it is not covered by them.
+  const externalNoteLine = externalOpen
+    ? [
+        security.listsSet && ungatedWarning(externalOpen.session) ? NOT_APPLIED_NOTE : null,
+        externalNote(externalOpen.session),
+      ]
+        .filter(Boolean)
+        .join(" · ") || null
+    : null;
   const externalExtra = externalOpen ? externalExtraRows(externalWarning, externalViewOnly, externalNoteLine) : 0;
   const agentWindowRows = Math.max(
     3,
@@ -2356,6 +2388,10 @@ export function App({
       setSkillHint(false);
       // `/jarvis` and `/external` are this surface's own commands (1.53.0, beta).
       const screensNow = screensRef.current;
+      if (securityRef.current?.handleCommand(text)) {
+        history?.add(text, workdir);
+        return;
+      }
       if (screensNow?.handleCommand(text)) {
         history?.add(text, workdir);
         return;
@@ -2886,7 +2922,8 @@ export function App({
       state.pendingApproval ||
       update.phase === "confirm" ||
       modelPicker ||
-      screens.ui !== null
+      screens.ui !== null ||
+      security.ui !== null
     ) {
       return;
     }
@@ -3349,7 +3386,7 @@ export function App({
             setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null}
         />
       )}
     </>
@@ -3411,6 +3448,20 @@ export function App({
     />
   ) : null;
 
+  const securityNode = security.ui ? (
+    <SecurityScreen
+      catalog={security.ui.catalog}
+      config={security.ui.config}
+      readOnly={security.ui.readOnly}
+      width={contentWidth}
+      height={fullscreen ? layout.transcriptRows : Math.max(8, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
+      onSave={security.save}
+      onCheck={security.check}
+      onClose={security.close}
+      isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
+    />
+  ) : null;
+
   const externalNode = externalOpen ? (
     <ExternalTranscript
       title={`${cliLabel(externalOpen.ref.cli)} · ${(externalOpen.session.title ?? "").trim() || externalOpen.ref.id.slice(0, 8)}`}
@@ -3447,7 +3498,7 @@ export function App({
         lines={viewport.lines}
         banner={bannerText(update)}
         scrollIndicator={scrollIndicator(viewport)}
-        overlay={helpNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
+        overlay={helpNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
           <LaunchBanner
             width={terminal.columns - 2}
             terminalRows={terminal.rows}
@@ -3578,7 +3629,7 @@ export function App({
           oldest rows go, clipped at the top, and the newest stay. Whatever is
           clipped is still live, so it reaches the scrollback whole later. */}
       <Box flexDirection="column" flexShrink={1} overflowY="hidden" justifyContent="flex-end">
-      {showHelp ? null : externalNode ? externalNode : openAgent ? (
+      {showHelp || securityNode ? null : externalNode ? externalNode : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}
@@ -3609,6 +3660,8 @@ export function App({
       <UpdateBanner update={update} />
 
       {helpNode}
+
+      {securityNode}
 
       {bottomNode}
 

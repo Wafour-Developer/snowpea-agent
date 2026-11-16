@@ -8,6 +8,7 @@
 import { RECORD_KEY } from "../state/voice.js";
 import type { CommandInfo } from "../rpc/sdk.js";
 import { rankCommandMatches } from "../state/slash-completion.js";
+import { SECURITY_REQUIRES_SUMMARY } from "../state/security.js";
 
 const SURFACE_COMMANDS: CommandInfo[] = [
   {
@@ -49,6 +50,11 @@ const SURFACE_COMMANDS: CommandInfo[] = [
   {
     name: "jarvis",
     summary: "Jarvis mode (beta): /jarvis, /jarvis on|off|back|sessions|waiting|handback|takeover.",
+    source: "tui",
+  },
+  {
+    name: "security",
+    summary: "Blocked commands and protected folders: /security, /security status|check <command>|check-path <path>.",
     source: "tui",
   },
   {
@@ -116,7 +122,7 @@ function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
     ...commands,
     ...SURFACE_COMMANDS.filter((command) => !names.has(command.name)).map((command) =>
       unsupportedSurface.has(command.name)
-        ? { ...command, summary: REQUIRES_CORE_SUMMARY }
+        ? { ...command, summary: command.name === "security" ? SECURITY_REQUIRES_SUMMARY : REQUIRES_CORE_SUMMARY }
         : command,
     ),
   ];

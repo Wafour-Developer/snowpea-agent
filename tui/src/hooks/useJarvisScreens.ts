@@ -1153,7 +1153,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
   }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId]);
 
   const panel = useCallback(
-    (width: number, maxRows: number): PanelLine[] => (onJarvisScreen ? panelLines(jarvis, width, maxRows, now) : []),
+    (width: number, maxRows: number, securityLists = false): PanelLine[] =>
+      onJarvisScreen ? panelLines(jarvis, width, maxRows, now, securityLists) : [],
     [jarvis, now, onJarvisScreen],
   );
 

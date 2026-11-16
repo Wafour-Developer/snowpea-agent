@@ -48,6 +48,8 @@ export interface Message {
   awaitingFold?: boolean;
   /** A provider-retry line: the next retry rewrites it instead of stacking another. */
   retryNotice?: boolean;
+  /** A line about something the security lists refused: drawn in red. */
+  blocked?: boolean;
 }
 
 export type ToolCallState = "running" | "ok" | "error";
@@ -406,7 +408,7 @@ export type Action =
   /** One `mcp.changed` notification, applied without waiting for `mcp.list`. */
   | { type: "mcp/changed"; payload: unknown }
   /** A line this surface wrote itself, e.g. the `/lsp` table. */
-  | { type: "note"; text: string }
+  | { type: "note"; text: string; blocked?: boolean }
   /** `session.prompt` answered: this turn id is the text we just sent. */
   | { type: "prompt/turn"; turnId: string; text: string }
   | {
@@ -1410,6 +1412,7 @@ export function reducer(state: State, action: Action): State {
         role: "system",
         text: action.text,
         streaming: false,
+        ...(action.blocked ? { blocked: true } : {}),
       };
       return {
         ...state,

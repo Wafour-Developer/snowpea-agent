@@ -26,6 +26,7 @@ import type {
 import { fit, spread } from "../layout/fit.js";
 import { textWidth } from "../layout/text-width.js";
 import { cliLabel } from "./external.js";
+import { NOT_APPLIED_NOTE } from "./security.js";
 
 // --- capability gating -------------------------------------------------------
 
@@ -491,6 +492,7 @@ export function panelLines(
   width: number,
   maxRows: number,
   now: number,
+  securityLists = false,
 ): PanelLine[] {
   const lines: PanelLine[] = [];
   const status = state.status;
@@ -532,7 +534,9 @@ export function panelLines(
   );
   // One line saying what an uncontrolled session means for Jarvis, when there is room.
   const uncontrolledNote = rows.some((row) => row.external && row.controlled === false) && sessionRoomBefore >= 3;
-  const sessionRoom = sessionRoomBefore - (uncontrolledNote ? 1 : 0);
+  // With security lists set, the same sessions are not covered by them either.
+  const securityNote = uncontrolledNote && securityLists && sessionRoomBefore >= 4;
+  const sessionRoom = sessionRoomBefore - (uncontrolledNote ? 1 : 0) - (securityNote ? 1 : 0);
   const hasMore = rows.length > sessionRoom;
   const sessionShown = budget(rows.length, hasMore ? Math.max(0, sessionRoom - 1) : sessionRoom);
 
@@ -554,6 +558,9 @@ export function panelLines(
     });
     if (uncontrolledNote) {
       lines.push({ key: "uncontrolled-note", segments: [{ text: fit(UNCONTROLLED_NOTE, w), color: "red" }] });
+    }
+    if (securityNote) {
+      lines.push({ key: "security-note", segments: [{ text: fit(`   ${NOT_APPLIED_NOTE}`, w), color: "red" }] });
     }
     if (hasMore) {
       lines.push({

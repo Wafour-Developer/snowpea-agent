@@ -286,6 +286,14 @@ export function messageLines(message: Message, width = 80): Line[] {
       else segments = inlineSegments(raw);
     }
     const mark = index === 0 ? roleMark(message.role) : { text: "  " };
+    if (message.blocked) {
+      out.push({
+        key,
+        segments: [index === 0 ? { text: "✗ ", color: "red", bold: true } : mark, ...segments.map((segment) => ({ ...segment, color: "red" }))],
+        source: index,
+      });
+      continue;
+    }
     out.push({ key, segments: [mark, ...segments], source: index });
   }
 
