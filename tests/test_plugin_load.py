@@ -224,7 +224,7 @@ async def test_mcp_tool_round_trip_and_pre_tool_hook_marker(
     assert results[0]["payload"]["ok"] is True
     assert "ping-42" in results[0]["payload"]["output"]
 
-    marker = daemon.paths.home / "fixture-hook.marker"
+    marker = daemon.paths.home / "extension-data" / "fixture-hook.marker"
     assert marker.is_file(), "the PreToolUse hook did not run"
     assert marker.read_text(encoding="utf-8").strip() == "mcp__fixture-echo__echo"
     await client.stop()

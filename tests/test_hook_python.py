@@ -23,7 +23,8 @@ FIXTURES = Path(__file__).parent / "fixtures" / "plugins" / "sample-plugin"
 
 def _core(tmp_path: Path, registry: hooks.HookRegistry) -> Any:
     return SimpleNamespace(
-        paths=SimpleNamespace(home=tmp_path),
+        # Review 8, H8-2: the home is not the scratch folder (its root is closed).
+        paths=SimpleNamespace(home=tmp_path / "home"),
         skills=SimpleNamespace(hooks=registry),
     )
 
@@ -127,7 +128,8 @@ async def test_sample_plugin_hook_records_tool_with_snowpea_python(tmp_path: Pat
     )
 
     assert message is None
-    assert (tmp_path / "fixture-hook.marker").read_text(encoding="utf-8") == "write_file"
+    marker = tmp_path / "home" / "extension-data" / "fixture-hook.marker"
+    assert marker.read_text(encoding="utf-8") == "write_file"
 
 
 # ---------------------------------------------------------------------------
