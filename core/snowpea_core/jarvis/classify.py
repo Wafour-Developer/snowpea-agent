@@ -1675,7 +1675,7 @@ _GIT_HARMLESS_CONFIG = re.compile(
 #: git subcommands that write work-tree files out of history (security review 4, H6).
 _GIT_MATERIALISE: frozenset[str] = frozenset(
     {"switch", "checkout", "merge", "rebase", "cherry-pick", "am", "pull", "checkout-index",
-     "revert", "restore"}
+     "revert", "restore", "apply"}  # apply: review 5 re-check (a patch may write control files)
 )
 _GIT_VALUED = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace",
                          "--super-prefix", "--config-env", "--list-cmds", "--attr-source"})
@@ -2593,14 +2593,15 @@ class _Judge:
         import stat as stat_module
 
         try:
-            from snowpea_core.exec.local import sanitized_path
+            from snowpea_core.exec.local import project_roots, sanitized_path
 
             parsed = parse_line(command)
         except Exception:  # noqa: BLE001 - unknown is not trusted
             return False
         workdir = self.ctx.workdir
         search = sanitized_path(os.environ.get("PATH", ""), workdir)
-        roots = [workdir] if workdir is not None else []
+        # Every known project, not only this one (security review 5, round-4 M3).
+        roots = project_roots(workdir)
         for cmd in parsed.commands:
             words = [w for w in cmd.words if not _ASSIGNMENT.match(w)]
             while words and words[0] in RESERVED_WORDS:
