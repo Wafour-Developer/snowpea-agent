@@ -299,6 +299,7 @@ async def test_a_tampered_delegation_store_is_told_as_a_jarvis_escalation(
         await asyncio.sleep(0)
     escalations = [payload for method, payload in sent if method == "jarvis.escalation"]
     assert len(escalations) == 1 and escalations[0]["reason"] == "error"
+    assert escalations[0]["kind"] == "tamper"
     assert "outside snowpea" in escalations[0]["summary"]
     JarvisEscalationNotification.model_validate(escalations[0])
     engine.close()

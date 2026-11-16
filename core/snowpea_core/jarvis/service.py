@@ -1208,8 +1208,12 @@ class JarvisService:
         request_kind: str | None = None,
         request_id: str | None = None,
         guarded_class: str | None = None,
+        kind: str | None = None,
     ) -> dict[str, Any] | None:
-        """Send one ``jarvis.escalation`` (``jarvis.notify.*``); returns its params, or None."""
+        """Send one ``jarvis.escalation`` (``jarvis.notify.*``); returns its params, or None.
+
+        ``kind`` (``"tamper"``) is a machine-readable marker; omitted from the
+        params when not given."""
         notify = self.core.settings.jarvis.notify
         key = (reason, session_id, request_id) if (session_id or request_id) else None
         if key is not None and key in self._escalation_ids:
@@ -1233,7 +1237,10 @@ class JarvisService:
             requestKind=request_kind,  # type: ignore[arg-type]
             requestId=request_id,
             guardedClass=guarded_class,  # type: ignore[arg-type]
+            kind=kind,  # type: ignore[arg-type]
         ).model_dump(mode="json")
+        if params.get("kind") is None:
+            params.pop("kind", None)
         if request_id is None:
             # Not a waiting request: kept open until a person dismisses it.
             self.escalations.add(params)

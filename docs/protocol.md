@@ -1770,7 +1770,7 @@ Jarvis mode (1.53.0): the open escalations that are not a waiting approval or qu
 
 | field | type | required | description |
 |---|---|---|---|
-| `escalations` | `({ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; guardedClass?: "deploy" \| "outside_destructive" \| "secret_send" \| null; id: string; importance?: "low" \| "normal" \| "high" \| "urgent"; project?: string \| null; reason: "guarded" \| "risky" \| "never" \| "question" \| "finished" \| "error" \| "stalled" \| "budget" \| "jarvis"; requestId?: string \| null; requestKind?: "approval" \| "question" \| null; sessionId?: string \| null; summary: string; title?: string \| null; ts: string; })[]` | no | Open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), as they were sent; kept in $SNOWPEA_HOME/jarvis/ so they survive a client reload and a daemon restart until dismissed. |
+| `escalations` | `({ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; guardedClass?: "deploy" \| "outside_destructive" \| "secret_send" \| null; id: string; importance?: "low" \| "normal" \| "high" \| "urgent"; kind?: "tamper" \| null; project?: string \| null; reason: "guarded" \| "risky" \| "never" \| "question" \| "finished" \| "error" \| "stalled" \| "budget" \| "jarvis"; requestId?: string \| null; requestKind?: "approval" \| "question" \| null; sessionId?: string \| null; summary: string; title?: string \| null; ts: string; })[]` | no | Open escalations that are not a waiting approval or question (finished, error, stalled, budget, jarvis), as they were sent; kept in $SNOWPEA_HOME/jarvis/ so they survive a client reload and a daemon restart until dismissed. |
 | `nextBefore` | `string \| null` | no | Cursor for the next page; null at the end. |
 
 ### `jarvis.handback`
@@ -5276,6 +5276,7 @@ Set the sidebar order (1.47.0).
 | `guardedClass` | `"deploy" \| "outside_destructive" \| "secret_send" \| null` | no | With reason 'guarded'. |
 | `id` | `string` | yes | Escalation id (repeats of the same need keep it). |
 | `importance` | `"low" \| "normal" \| "high" \| "urgent"` | no | How prominently to show it: in-app badge always, OS notification from normal (jarvis.notify.os), messenger from high (jarvis.notify.messenger). |
+| `kind` | `"tamper" \| null` | no | 1.55.0 (additive): 'tamper' when something outside snowpea changed Jarvis's delegation rules on disk and snowpea kept its own (reason stays 'error'); a machine-readable marker so clients need not match the wording. Absent from the event otherwise (null in jarvis.escalations.list rows). |
 | `project` | `string \| null` | no | Its project root. |
 | `reason` | `"guarded" \| "risky" \| "never" \| "question" \| "finished" \| "error" \| "stalled" \| "budget" \| "jarvis"` | yes | guarded/risky/never: an approval the engine routed to the person ('never': never delegable, the person may still allow it); question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. |
 | `requestId` | `string \| null` | no | Its id, to answer with approval.respond / question.respond. |
