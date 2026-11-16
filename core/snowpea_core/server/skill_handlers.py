@@ -419,6 +419,9 @@ async def skill_create_handler(
             raise RpcError(errors.SKILL_EXISTS, str(exc), details) from exc
         except PublishError as exc:
             raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+        from snowpea_core.server.skill_gate import mark_saved_by
+
+        mark_saved_by(conn, directory)  # security review 8, M-3
         loader = getattr(core, "skills", None)
         if loader is not None:
             await loader.reload()
@@ -613,6 +616,9 @@ async def skill_write_handler(
             write_skill_document(directory, params.content, requested_name=name, force=True)
         except PublishError as exc:
             raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+        from snowpea_core.server.skill_gate import mark_saved_by
+
+        mark_saved_by(_conn, directory)  # security review 8, M-3
         path = directory / "SKILL.md"
     else:
         if not params.content.strip():

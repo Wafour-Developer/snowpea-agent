@@ -76,6 +76,71 @@ def front_matter_keys(text: str) -> set[str]:
     return keys
 
 
+def name_key(name: str) -> str:
+    """A name as compared with the built-in ones: NFKC, then casefolded."""
+    import unicodedata
+
+    return unicodedata.normalize("NFKC", str(name)).casefold().strip()
+
+
+def refuse_remote_project(conn: Any, core: Any, *, method: str, what: str,
+                          target: Path | None = None) -> None:
+    """A remote web login writes no PROJECT control file (skills, agents,
+    commands, the project ``.mcp.json``): ``protected`` with ``details.reason:
+    "local_only"`` — the rule ``fs.write`` has.  The one helper for
+    ``skill.*`` and ``mcp.add|update|remove {scope: "project"}`` (review 8, M-4)."""
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(conn) != "remote_login":
+        return
+    settings_gate.ledger_settings(core, conn, [f"{method} ({what})"], refused=True,
+                                  method=method)
+    raise RpcError(
+        errors.PROTECTED,
+        "a project control file (hooks, agents, commands, skills, MCP, git hooks and "
+        "config) is written only from a local connection",
+        {"reason": settings_gate.LOCAL_ONLY, "kind": "remote_login",
+         **({"path": str(target)} if target is not None else {})},
+    )
+
+
+#: A file in a skill's folder naming who saved it when that was not a local
+#: person (security review 8, M-3): ``remote_login``.  Counted by
+#: ``web.remote.status.remoteLeft.skills``; a local person's write removes it.
+#: Like ``savedBy`` in an MCP entry, it is a mark — whoever can write the
+#: folder can remove it.
+SAVED_BY_FILE = ".saved-by"
+
+
+def mark_saved_by(who: Any, directory: Path) -> None:
+    """Record (or, for a local person, clear) who saved the skill in ``directory``."""
+    from snowpea_core.server.person_gate import connection_kind
+
+    kind = connection_kind(who)
+    marker = Path(directory) / SAVED_BY_FILE
+    try:
+        if kind == "remote_login":
+            marker.write_text("remote_login\n", encoding="utf-8")
+        elif kind == "person" and marker.is_file():
+            marker.unlink()
+    except OSError:  # the skill is saved; the mark is best effort
+        import logging
+
+        logging.getLogger("snowpea.server.skill_gate").warning(
+            "could not mark %s", directory, exc_info=True)
+
+
+def remote_skills(home: Path) -> int:
+    """Global skills a remote web login saved (:data:`SAVED_BY_FILE`)."""
+    root = Path(home) / "skills"
+    try:
+        return sum(1 for child in root.iterdir()
+                   if (child / SAVED_BY_FILE).is_file() and not child.is_symlink())
+    except OSError:
+        return 0
+
+
 def builtin_names(core: Any) -> set[str]:
     """Names the core itself ships: commands, agent definitions, roles and skills."""
     from pathlib import Path
@@ -115,19 +180,13 @@ def remote_write_refusal(conn: Any, core: Any, *, method: str, kind: str, name: 
     if connection_kind(conn) != "remote_login":
         return
     if not global_:
-        settings_gate.ledger_settings(core, conn, [f"{method} (project {kind})"], refused=True,
-                                      method=method)
-        raise RpcError(
-            errors.PROTECTED,
-            "a project control file (hooks, agents, commands, skills, MCP, git hooks and "
-            "config) is written only from a local connection",
-            {"reason": settings_gate.LOCAL_ONLY, "kind": "remote_login",
-             **({"path": str(target)} if target is not None else {})},
-        )
+        refuse_remote_project(conn, core, method=method, what=f"project {kind}", target=target)
     if kind != "skill":
         settings_gate.refuse_local_only(conn, core, f"{method} of a global {kind}",
                                         method=method, detail=kind)
-    if name in builtin_names(core):
+    # Security review 8, Low: as a case-insensitive file system and a loader
+    # that folds names would see it — "Executor" or a full-width name is "executor".
+    if name_key(name) in {name_key(builtin) for builtin in builtin_names(core)}:
         settings_gate.refuse_local_only(
             conn, core, f"{method} of {name!r}, a name snowpea's own {kind}s use",
             method=method, detail="builtin_name")
@@ -151,5 +210,6 @@ def content_refusal(conn: Any, core: Any, *, method: str, content: str) -> None:
             reason=settings_gate.LOCAL_ONLY, extra={"what": "front_matter", "keys": found})
 
 
-__all__ = ["WIDENING_KEYS", "builtin_names", "content_refusal", "front_matter_keys",
-           "remote_write_refusal"]
+__all__ = ["SAVED_BY_FILE", "WIDENING_KEYS", "builtin_names", "content_refusal",
+           "front_matter_keys", "mark_saved_by", "name_key", "refuse_remote_project",
+           "remote_skills", "remote_write_refusal"]
