@@ -114,15 +114,17 @@ def test_settings_are_never_written_to_a_planted_temp_link(paths: Paths,
     assert oct(paths.settings_json.stat().st_mode & 0o777) == "0o600"
 
 
-def test_a_linked_settings_file_is_not_taken_as_snowpeas(paths: Paths, tmp_path: Path) -> None:
-    elsewhere = tmp_path / "s.json"
-    data = Settings().model_dump(mode="json")
-    data["security"]["unknownCode"] = "allow"
-    elsewhere.write_text(json.dumps(data), encoding="utf-8")
-    paths.settings_json.symlink_to(elsewhere)
-    assert Settings.load(paths).security.unknownCode == "ask"
-    with pytest.raises(UnsafePath):
+def test_a_linked_settings_file_that_leads_nowhere_is_not_taken(paths: Paths,
+                                                               tmp_path: Path) -> None:
+    # Security review 9, F2: a link to the user's own regular file is followed
+    # (tests/test_security_review9.py); a link to nothing or a folder is not.
+    paths.settings_json.symlink_to(tmp_path / "missing.json")
+    assert Settings.load(paths).degraded_sections() == ["*"]
+    from snowpea_core.config.settings import SettingsUnreadable
+
+    with pytest.raises(SettingsUnreadable):
         Settings().save(paths)
+    assert not (tmp_path / "missing.json").exists()
 
 
 def test_project_settings_never_follow_a_planted_link(tmp_path: Path) -> None:
@@ -196,6 +198,9 @@ _CONVERTED = (
     "audio/stt_models.py", "audio/install.py", "server/audio_handlers.py", "audio/tts.py",
     "permissions/approval_queue.py", "security/enforce.py", "machine.py",
     "trust/projects.py", "security/tamper.py", "cli/daemon_client.py",
+    # Security review 9, F4.
+    "server/skill_gate.py", "scheduler/scheduler.py", "jarvis/tools.py",
+    "jarvis/assist_tools.py",
 )
 #: What may stay: a write into the WORKING TREE restoring a checkpoint (the
 #: project's own files, not ``.snowpea``), and a process's stdin.

@@ -36,21 +36,28 @@ from snowpea_core.config.settings import Settings
 log = logging.getLogger("snowpea.config.hot_reload")
 
 #: :func:`stamp` for a file that does not exist.
-MISSING: tuple[int, int] = (-1, -1)
+MISSING: tuple[int, ...] = (-1, -1)
 
 
-def stamp(path: Path | str) -> tuple[int, int]:
-    """``(mtime_ns, size)`` for ``path``; :data:`MISSING` when it is absent.
+def stamp(path: Path | str) -> tuple[int, ...]:
+    """``(mtime_ns, size, inode, link inode, link mtime_ns)`` for ``path``;
+    :data:`MISSING` when it is absent.
 
     One ``os.stat`` per prompt is cheap enough to run unconditionally, and the
     pair catches both a rewrite that keeps the size and one that keeps the
-    timestamp.
+    timestamp.  Security review 9, F2: ``settings.json`` may be a link to the
+    user's own file; the link itself appearing, going or being re-pointed is
+    an edit too (the ``lstat`` half), and so is a new file at the target.
     """
     try:
-        info = os.stat(path)
+        link = os.lstat(path)
     except OSError:
         return MISSING
-    return (info.st_mtime_ns, info.st_size)
+    try:
+        info = os.stat(path)
+    except OSError:  # a link that leads nowhere
+        return (-2, -2, -2, link.st_ino, link.st_mtime_ns)
+    return (info.st_mtime_ns, info.st_size, info.st_ino, link.st_ino, link.st_mtime_ns)
 
 
 def changed_keys(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
@@ -83,22 +90,31 @@ class _Absent:
 
 ABSENT = _Absent()
 
+#: The last part of a pattern that stands for every ENDPOINT-SHAPED field of a
+#: free-form block (``settings_leaves.endpoint_key``), not for any key.
+ENDPOINT_FIELD = "<endpoint>"
+
 
 def gated_patterns() -> list[tuple[str, ...]]:
     """What an edit of the file may not change by itself (review 8, M8-5): the
     sections above and every command, endpoint or authority leaf of the
-    settings-leaf table, as path patterns (``*``: any key; ``[]``: a list)."""
-    from snowpea_core.server.settings_leaves import COMMAND_LIKE
+    settings-leaf table, as path patterns (``*``: any key; ``[]``: a list).
+    Security review 9, F1: and every endpoint-shaped field of the free-form
+    blocks (``settings_leaves.ENDPOINT_SHAPED``, last part :data:`ENDPOINT_FIELD`)."""
+    from snowpea_core.server.settings_leaves import COMMAND_LIKE, ENDPOINT_SHAPED
 
     patterns = [tuple(name.split(".")) for name in (*GATED_SECTIONS, *AUTHORITY_SECTIONS)]
     patterns += [tuple(leaf.split(".")) for leaf, (kind, _who) in COMMAND_LIKE.items()
                  if kind in GATED_KINDS]
+    patterns += [(*block.split("."), ENDPOINT_FIELD) for block in ENDPOINT_SHAPED]
     return patterns
 
 
 def _units(pattern: tuple[str, ...], documents: tuple[dict[str, Any], ...]) -> set[str]:
     """The concrete dotted paths ``pattern`` names in either document.  A list
     (``[]``) is one unit; a key holding a dot stops the expansion there."""
+    from snowpea_core.server.settings_leaves import endpoint_key
+
     found: set[str] = set()
 
     def walk(prefix: tuple[str, ...], rest: tuple[str, ...]) -> None:
@@ -106,7 +122,7 @@ def _units(pattern: tuple[str, ...], documents: tuple[dict[str, Any], ...]) -> s
             if prefix:
                 found.add(".".join(prefix))
             return
-        if rest[0] != "*":
+        if rest[0] not in ("*", ENDPOINT_FIELD):
             walk((*prefix, rest[0]), rest[1:])
             return
         keys: set[str] = set()
@@ -114,6 +130,8 @@ def _units(pattern: tuple[str, ...], documents: tuple[dict[str, Any], ...]) -> s
             node = _get(document, ".".join(prefix)) if prefix else document
             if isinstance(node, dict):
                 keys |= {str(key) for key in node}
+        if rest[0] == ENDPOINT_FIELD:
+            keys = {key for key in keys if endpoint_key(key)}
         if any("." in key for key in keys):
             found.add(".".join(prefix))
             return

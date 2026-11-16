@@ -145,36 +145,55 @@ async def _turn_done(core: Any, ref: dict[str, str], turn: str) -> None:
 # -- routing, overview, tools ----------------------------------------------------------
 
 
+async def _step(what: str, awaitable: Any, timeout: float = 60.0) -> Any:
+    """``awaitable`` with a bound: a stuck step fails here by name instead of
+    hanging until the suite's 120 s timeout (which names no line)."""
+    try:
+        return await asyncio.wait_for(awaitable, timeout)
+    except TimeoutError as exc:
+        raise AssertionError(f"{what} did not finish within {timeout:.0f}s") from exc
+
+
 async def test_external_approvals_are_routed_by_the_engine(tmp_path: Path) -> None:
+    # Load-sensitive before review 9: the second send could reach the session
+    # while the first (denied) turn was still ending — the approval is gone
+    # from the list before the CLI's result arrives — and was answered
+    # session_busy (or steered into that turn).  Each turn is now awaited to
+    # its end, the waits are generous, and every daemon call is bounded.
     with env_vars(**_scenario(tmp_path, scenario="approval")):
         daemon = await _daemon(tmp_path)
         try:
             core = daemon.core
             root = await _project(core, tmp_path / "proj")
             manager = core.external
-            row = (await manager.create("claude", root))["session"]
+            row = (await _step("external.create", manager.create("claude", root)))["session"]
             ref, key = row["ref"], _key(row)
             # Staged (the default): a write in the project is the person's.
-            await manager.send("claude", ref["id"], "write the note",
-                               origin={"kind": "jarvis", "surface": "jarvis"})
-            request = (await _wait(lambda: core.approvals.list(key)))[0]
+            first = (await _step("the first send", manager.send(
+                "claude", ref["id"], "write the note",
+                origin={"kind": "jarvis", "surface": "jarvis"})))["turnId"]
+            request = (await _wait(lambda: core.approvals.list(key), 30))[0]
             assert request.route == "person" and request.external.id == ref["id"]
-            refused = await _call(core, "approval_decide",
-                                  {"requestId": request.requestId, "decision": "allow"})
+            refused = await _step("approval_decide (refused)", _call(
+                core, "approval_decide", {"requestId": request.requestId, "decision": "allow"}))
             assert not refused.ok and "not yours to decide" in refused.error
             overview = [r for r in core.jarvis.overview_rows() if r.external is not None]
             assert overview[0].pendingApprovals == 1 and overview[0].status == "awaiting_approval"
             assert overview[0].waitingOnPerson == 1 and overview[0].host == "snowpea"
-            await core.approvals.respond(request.requestId, "deny", conn=Person())
-            await _wait(lambda: not core.approvals.list(key))
+            await _step("the person's deny",
+                        core.approvals.respond(request.requestId, "deny", conn=Person()))
+            await _wait(lambda: not core.approvals.list(key), 30)
+            await _turn_done(core, ref, first)  # the denied turn has ended
             # A full grant on the project: the next one is Jarvis's, once.
             core.jarvis.engine.set_grant("project", root, "full", [], caller=PERSON)
-            turn = (await manager.send("claude", ref["id"], "write it now",
-                                       origin={"kind": "jarvis", "surface": "jarvis"}))["turnId"]
-            request = (await _wait(lambda: core.approvals.list(key)))[0]
+            turn = (await _step("the second send", manager.send(
+                "claude", ref["id"], "write it now",
+                origin={"kind": "jarvis", "surface": "jarvis"})))["turnId"]
+            assert turn != first
+            request = (await _wait(lambda: core.approvals.list(key), 30))[0]
             assert request.route == "jarvis"
-            allowed = await _call(core, "approval_decide",
-                                  {"requestId": request.requestId, "decision": "allow"})
+            allowed = await _step("approval_decide (allowed)", _call(
+                core, "approval_decide", {"requestId": request.requestId, "decision": "allow"}))
             assert allowed.ok, allowed.error
             await _turn_done(core, ref, turn)
             assert (Path(root) / "note.txt").read_text() == "hi\n"

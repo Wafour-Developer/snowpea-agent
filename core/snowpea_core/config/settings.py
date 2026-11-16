@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import stat
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,6 +26,7 @@ from pydantic import (
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.project import AllowlistEntry, ModelProfile, normalise_teams
+from snowpea_core.server.errors import INVALID_PARAMS, RpcError
 from snowpea_core.util.atomic import UnsafePath, read_owned, write_atomic
 
 log = logging.getLogger("snowpea.settings")
@@ -106,14 +108,70 @@ def _load_without_invalid_sections(
     return cls(), []
 
 
-def _keep_invalid_copy(path: Path) -> Path | None:
-    """Copy a settings file that does not validate to ``settings.json.invalid`` (0600)."""
+def _keep_invalid_copy(path: Path, source: Path | None = None) -> Path | None:
+    """Copy a settings file that does not validate to ``settings.json.invalid`` (0600)
+    beside ``path``; ``source`` is the file read (a linked file's target)."""
     target = path.with_name(path.name + ".invalid")
     try:
-        write_atomic(target, read_owned(path))
+        write_atomic(target, read_owned(source or path))
     except OSError:
         return None
     return target
+
+
+def settings_file(paths: Paths) -> Path:
+    """The file ``settings.json`` is read from and written to (security review 9, F2).
+
+    ``$SNOWPEA_HOME/settings.json`` itself, or — when it is a symbolic link (stow,
+    chezmoi, home-manager) — the file it resolves to, resolved now, provided that
+    is a regular file owned by the user.  A link to anything else (a folder, a
+    file of another user, nothing, a loop) raises :class:`UnsafePath`.  The
+    caller still opens the result without following a link (``read_owned``,
+    ``write_atomic``), so a swap after this check is refused, not followed.
+    """
+    path = paths.settings_json
+    if not os.path.islink(path):
+        return path
+    try:
+        target = Path(os.path.realpath(path, strict=True))
+        info = os.lstat(target)
+    except (OSError, RuntimeError) as exc:
+        raise UnsafePath(f"{path} is a symbolic link that does not lead to a file; replace "
+                         "the link with the file itself") from exc
+    geteuid = getattr(os, "geteuid", None)
+    if not stat.S_ISREG(info.st_mode) or (geteuid is not None and info.st_uid != geteuid()):
+        raise UnsafePath(f"{path} is a symbolic link to {target}, which is not a regular file "
+                         "of yours; snowpea does not use it (replace the link with the file "
+                         "itself)")
+    return target
+
+
+class SettingsUnreadable(RpcError):
+    """``settings.json`` could not be read as a whole (security review 9, F3): snowpea
+    does not write over it until the person fixes it.  An ``invalid_params`` error
+    with ``details.reason: "settings_unreadable"`` for every RPC caller."""
+
+    def __init__(self, path: Path) -> None:
+        invalid = path.with_name(path.name + ".invalid")
+        message = (f"{path} could not be read, so snowpea runs on defaults and does not "
+                   f"write over it; fix the file (the copy as it was: {invalid}), then "
+                   "restart the daemon or reload its settings, and try again")
+        super().__init__(INVALID_PARAMS, message,
+                         {"reason": "settings_unreadable", "path": str(path),
+                          "invalid": str(invalid)})
+
+
+def _unreadable_on_disk(paths: Paths) -> bool:
+    """``settings.json`` exists but is not a JSON object snowpea may read."""
+    if not os.path.lexists(paths.settings_json):
+        return False
+    try:
+        raw = json.loads(read_owned(settings_file(paths)).decode("utf-8"))
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        return True
+    return not isinstance(raw, dict)
 
 
 def _drop_unresolvable_model_refs(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -1181,24 +1239,19 @@ class Settings(_Model):
     def mark_degraded(self, sections: list[str], *, close: bool = True) -> Settings:
         """Record ``sections`` as degraded and (``close``) make the gated ones fail CLOSED.
 
-        ``security``: every blocked-command and protected-path preset on and
-        ``unknownCode: "ask"`` (a reload keeps the daemon's last valid lists:
+        ``security``: the lists a fresh install has (the default presets) and
+        ``unknownCode: "ask"`` — security review 9, F3: not every preset, which
+        stopped ordinary work (a reload keeps the daemon's last valid lists:
         ``hot_reload.hold_back``, which is why it records only).  ``web``:
         remote access off.  ``"*"`` (the file could not be read as an object)
-        counts as both.
+        counts as both, and :meth:`save` refuses to write over the file.
         """
         self._degraded = sorted(set(sections))
         if not close:
             return self
         every = "*" in sections
         if every or "security" in sections:
-            from snowpea_core.security.catalog import COMMAND_PRESET_IDS, PATH_PRESET_IDS
-
-            self.security = SecuritySettings.model_validate({
-                "blockedCommands": {"presets": list(COMMAND_PRESET_IDS)},
-                "protectedPaths": {"presets": list(PATH_PRESET_IDS)},
-                "unknownCode": "ask",
-            })
+            self.security = SecuritySettings(unknownCode="ask")
         if every or "web" in sections:
             self.web.remote.enabled = False
         return self
@@ -1214,21 +1267,26 @@ class Settings(_Model):
         path = paths.settings_json
         if not os.path.lexists(path):
             return cls()
+        source = path
         try:
-            # Security review 8, H8-2: a linked file, or one that is not the
-            # user's, is not taken as snowpea's settings.
-            raw = json.loads(read_owned(path).decode("utf-8"))
+            # Security review 8, H8-2: a file that is not the user's is not taken
+            # as snowpea's settings.  Review 9, F2: a link to the user's own
+            # regular file is followed (once, then read without following).
+            source = settings_file(paths)
+            raw = json.loads(read_owned(source).decode("utf-8"))
         except UnsafePath as exc:
-            log.error("%s; snowpea uses the default settings until it is a plain file: the "
-                      "security lists fail closed and remote access stays off", exc)
+            log.error("%s; snowpea uses the default settings and does not write over it "
+                      "until it is fixed: the default security lists apply with unknown code "
+                      "asking, and remote access stays off", exc)
             return cls().mark_degraded(["*"])
         except (OSError, ValueError):
             raw = None
         if not isinstance(raw, dict):
-            kept = _keep_invalid_copy(path)
+            kept = _keep_invalid_copy(path, source)
             log.error("%s cannot be read as settings: every section is at its defaults, the "
-                      "security lists fail closed and remote access stays off%s", path,
-                      f" (the file as it was: {kept})" if kept else "")
+                      "default security lists apply with unknown code asking, remote access "
+                      "stays off, and snowpea does not write over the file until it is "
+                      "fixed%s", path, f" (the file as it was: {kept})" if kept else "")
             return cls().mark_degraded(["*"])
         try:
             settings = cls.model_validate(raw)
@@ -1261,7 +1319,7 @@ class Settings(_Model):
                 # go back to their defaults, the rest is kept, the file as it
                 # was is copied beside it, and the log says which.
                 repaired, sections = _load_without_invalid_sections(cls, raw, failure)
-                kept = _keep_invalid_copy(path)
+                kept = _keep_invalid_copy(path, source)
                 log.error(
                     "%s is not valid: using defaults for %s%s; the rest is kept. Fix the "
                     "file or set the values again",
@@ -1273,8 +1331,8 @@ class Settings(_Model):
                 # person's own lists and the remote door fail CLOSED.
                 repaired.mark_degraded(sections or ["*"])
                 if "security" in sections or not sections:
-                    log.error("the security section is not valid: every preset is on and "
-                              "unknown code asks until it is fixed")
+                    log.error("the security section is not valid: the default lists apply "
+                              "and unknown code asks until it is fixed")
             settings = repaired
         # Existing installations predate teams. Loading their settings is the
         # first-setup migration point; explicit empty/disabled teams can still
@@ -1315,11 +1373,26 @@ class Settings(_Model):
         the temp file *before* the rename so the secret is never visible at
         the final path under a wider umask, and re-applied afterwards so an
         existing world-readable file is tightened too.
+
+        Security review 9: a ``settings.json`` that links to the user's own file
+        is written by replacing THAT file (:func:`settings_file`; the link stays
+        a link, the target keeps its mode).  While the whole file is unreadable
+        (loaded as ``"*"``, or not a JSON object on disk now) nothing is written:
+        :class:`SettingsUnreadable`.
         """
+        if "*" in self._degraded or _unreadable_on_disk(paths):
+            raise SettingsUnreadable(paths.settings_json)
         paths.ensure()
+        target = settings_file(paths)
+        mode = FILE_MODE
+        if target != paths.settings_json:
+            try:
+                mode = stat.S_IMODE(os.lstat(target).st_mode)
+            except OSError:
+                mode = FILE_MODE
         # Security review 8, H8-2: random temp name, never through a link.
-        write_atomic(paths.settings_json,
-                     json.dumps(self.model_dump(mode="json"), indent=2) + "\n")
+        write_atomic(target, json.dumps(self.model_dump(mode="json"), indent=2) + "\n",
+                     mode=mode)
 
 
 __all__ = [

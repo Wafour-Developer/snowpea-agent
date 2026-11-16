@@ -177,7 +177,7 @@ class Core:
     update_check_task: Any = None
     #: ``(mtime_ns, size)`` of ``settings.json`` as of the last load or save;
     #: :meth:`settings_file_changed` compares against it (CORE-settings-reload).
-    settings_stamp: tuple[int, int] = hot_reload.MISSING
+    settings_stamp: tuple[int, ...] = hot_reload.MISSING
     #: ``{section: value on disk}`` of the security-relevant sections that were
     #: edited in ``settings.json`` while the daemon runs and wait for a local
     #: person (security review 7, P2; :meth:`reload_settings`).
@@ -258,6 +258,10 @@ class Core:
             audit(self.paths.home, {"kind": "settings-waiting", "path": "settings.json",
                                     "sections": sorted(waiting)})
         if not keys:
+            if self.settings.degraded_sections() != fresh.degraded_sections():
+                # Security review 9, F3: a file fixed back to what is held (or broken
+                # into it) still clears (or records) the degraded state.
+                self.settings.mark_degraded(fresh.degraded_sections(), close=False)
             if told:
                 await self.notify_settings_changed([])
             return False, []
@@ -944,6 +948,22 @@ class Daemon:
         self._lock = acquire_home_lock(paths.home)
         _configure_logging(paths)
         settings = Settings.load(paths)
+        degraded = settings.degraded_sections()
+        if degraded:
+            # Security review 9, F3: one line a person sees at start.
+            every = "*" in degraded
+            notes = [text for wanted, text in (
+                ("security", "the default security lists apply and unknown code asks"),
+                ("web", "remote access stays off"),
+            ) if every or wanted in degraded]
+            line = (f"snowpea: {paths.settings_json} "
+                    + ("could not be read: every section is at its defaults and snowpea "
+                       "does not write over the file until you fix it" if every else
+                       f"is not valid in {', '.join(degraded)}: those sections are at their "
+                       "defaults")
+                    + "".join(f"; {note}" for note in notes))
+            log.error("%s", line)
+            print(line, file=sys.stderr, flush=True)
         if self._preissued_token:
             write_token(paths, self._preissued_token)
         token = ensure_token(paths)

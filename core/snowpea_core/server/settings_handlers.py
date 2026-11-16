@@ -339,6 +339,12 @@ async def settings_set_handler(
         return SettingsResult(settings=_mask_secrets(updated.model_dump(mode="json")))
 
     settings_problems(params.patch)
+    if "*" in getattr(core.settings, "degraded_sections", list)():
+        # Security review 9, F3: the person's unreadable file is not replaced by
+        # the defaults plus this patch; it is fixed, then reloaded.
+        from snowpea_core.config.settings import SettingsUnreadable
+
+        raise SettingsUnreadable(core.paths.settings_json)
     current_global = core.settings.model_dump(mode="json")
     merged_global = _deep_merge(current_global, params.patch)
     _mark_remote_servers(conn, params.patch, current_global, merged_global)

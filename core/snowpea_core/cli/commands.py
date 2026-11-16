@@ -1518,6 +1518,7 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
     ``--login <vendor>`` is an alias for ``snowpea provider login <vendor>``
     and never runs the wizard.
     """
+    from snowpea_core.config.settings import SettingsUnreadable
     from snowpea_core.setup import wizard
 
     login_vendor = getattr(args, "login", None)
@@ -1551,6 +1552,8 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
         )
     except wizard.SetupError as exc:
         return _fail(str(exc), EXIT_USAGE)
+    except SettingsUnreadable as exc:  # security review 9, F3
+        return _fail(exc.message, EXIT_USAGE)
 
     if getattr(result, "cancelled", False):
         print("setup cancelled — nothing written")
@@ -1704,6 +1707,12 @@ async def daemon_status(home: Path | str | None = None, *, as_json: bool = False
     for name in ("sessions", "jobs", "gateway_bindings", "named_agents"):
         print(f"{name:<12} {counters.get(name, 0)}")
     print(f"{'messengers':<12} {_messenger_line(bindings)}")
+    degraded = list(result.get("settingsDegraded") or [])
+    if degraded:  # security review 9, F3
+        print(f"{'settings':<12} "
+              + ("settings.json could not be read: defaults are in use and it is not "
+                 "written over until you fix it" if "*" in degraded else
+                 f"not valid in {', '.join(degraded)}: those sections are at their defaults"))
     if lifecycle:
         remaining = lifecycle.get("secondsUntilExit")
         remaining_text = "-" if remaining is None else f"{float(remaining):.0f}s"

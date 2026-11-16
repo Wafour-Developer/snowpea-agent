@@ -531,6 +531,16 @@ Tests interleave a foreign write at an exact seam (after the look, after the dae
 
 A tool connection then gets a tool's rights (no `project.trust.*`, no `jarvis.delegation.*`, no settings writes, no local-only methods), and the token alone stops being the person. Kept from round 6: a nonce confirmation on a person's surface for local-only RPCs.
 
+### Review 9 (2026-11-17): the release gate
+
+Protocol stays 1.55.0; the wire changes are additive (`details.reason: "settings_unreadable"`, more names in `waitingKeys`).
+
+- **F1 — endpoint-shaped fields wait.** `hot_reload.gated_patterns()` also yields every `settings_leaves.ENDPOINT_SHAPED` block with the field filter `endpoint_key` (`<block>.<endpoint>`), so a hand edit of `search.credentials.<p>.url`, `browser.credentials.<id>.FIRECRAWL_URL`, `providers.<v>.endpoint` or `gateway.<p>.proxy` waits for a local person under its dotted path; other fields of those blocks (API keys) still reload at once. A test fails when a block is not covered.
+- **F2 — a linked `settings.json`.** `settings.settings_file()` resolves a link once; a regular file owned by the user is read (`read_owned`, no-follow) and written in place (`write_atomic` beside the target, the target's mode kept, the link stays). Anything else (folder, foreign owner, dangling, loop) is refused as before. `control_plane.settings_target()` resolves the link at every check: the target is `settings.json` for shell, code, file tools (`config`), `fs.*` and Jarvis's reads. `hot_reload.stamp` includes the link's own `lstat`, so a re-pointed link is a disk edit. Credentials, token, daemon.json, mcp-oauth, trust and delegation files stay strict; a linked `credentials.json` is named with its fix in the log and in `security.get.problems`.
+- **F3 — degraded is the defaults, and nothing is written over.** A degraded `security` section is the fresh-install lists with `unknownCode: "ask"` (not every preset); `web` keeps remote access off. While the whole file is unreadable (`"*"`) `Settings.save` (any caller) and `settings.set` raise `SettingsUnreadable` (`invalid_params`, `details.reason: "settings_unreadable"`, the file and its `.invalid` copy named); a reload of a fixed file clears the state even when its values equal what is held. The daemon prints one line at start; `snowpea daemon status` repeats it.
+- **F4.** The `.saved-by` marker, the jobs log and Jarvis's report, task and to-do writers go through `util/atomic`; the source scan covers them.
+- **Not changed:** the global sign-in bound (the manual now says it refuses a right password too during a flood), the `essential` preset's shell rc and autostart entries, refusing hook/plugin writes into the home root (the refusal names `extension-data/`). `jarvis/delegation.db` is created with `journal_mode=MEMORY` (rollback, never WAL), so no upgrade path is needed.
+
 ## D. Work packages
 
 Spikes come first, half a day each, run by opus, and each produces a recorded fixture transcript.

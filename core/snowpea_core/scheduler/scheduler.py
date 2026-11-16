@@ -757,8 +757,10 @@ class Scheduler:
         line = f"{iso(utc_now())} {job.id} [{channel}] {text.strip()}\n"
         try:
             self.core.paths.ensure()
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(line)
+            # Security review 9, F4: owner-only, never through a link.
+            from snowpea_core.util.atomic import append_text
+
+            append_text(path, line)
         except OSError:  # pragma: no cover - the log must never break a run
             log.warning("could not append to %s", path, exc_info=True)
 

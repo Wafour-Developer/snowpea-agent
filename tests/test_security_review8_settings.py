@@ -32,7 +32,6 @@ from snowpea_core.config import project as project_config
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.project import ProjectSettings, ProjectSettingsUnsafe, home_problem
 from snowpea_core.config.settings import Settings
-from snowpea_core.security.catalog import COMMAND_PRESET_IDS, PATH_PRESET_IDS
 from snowpea_core.server import errors, settings_gate, settings_handlers
 from snowpea_core.server import settings_leaves as leaves
 from snowpea_core.server.app_server import Core, provider_configure_handler
@@ -422,8 +421,9 @@ def test_an_invalid_security_section_fails_closed(tmp_path: Path) -> None:
     loaded = _load(tmp_path, json.dumps({"security": {"blockedCommands": "everything"},
                                          "agent": {"busy": "queue"}}))
     assert loaded.degraded_sections() == ["security"]
-    assert loaded.security.blockedCommands.presets == list(COMMAND_PRESET_IDS)
-    assert loaded.security.protectedPaths.presets == list(PATH_PRESET_IDS)
+    # Security review 9, F3: the lists a fresh install has, not every preset.
+    assert loaded.security.blockedCommands.presets == ["essential"]
+    assert loaded.security.protectedPaths.presets == ["essential"]
     assert loaded.security.unknownCode == "ask"
     assert loaded.agent.busy == "queue"  # the rest is kept
 
@@ -438,7 +438,7 @@ def test_an_invalid_web_section_keeps_remote_access_off(tmp_path: Path) -> None:
 def test_an_unreadable_file_is_every_section(tmp_path: Path, text: str) -> None:
     loaded = _load(tmp_path, text)
     assert loaded.degraded_sections() == ["*"]
-    assert loaded.security.blockedCommands.presets == list(COMMAND_PRESET_IDS)
+    assert loaded.security.blockedCommands.presets == ["essential"]
     assert loaded.web.remote.enabled is False
     assert (tmp_path / "home" / "settings.json.invalid").read_text("utf-8") == text
 

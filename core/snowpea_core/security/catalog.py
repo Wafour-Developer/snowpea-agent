@@ -632,14 +632,16 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
         title={"en": "Essential", "ko": "필수"},
         description={
             "en": "The system folders (/etc, /boot, /usr, /bin, /sbin, /lib*, /var/lib, "
-                  "/System) are never changed; / and your home folder themselves (and every "
-                  "folder above your home) are never deleted, moved or changed recursively. "
-                  "What runs when you log in or open a shell is never changed either: ~/.ssh, "
+                  "/System) are never changed by a call snowpea reads; / and your home folder "
+                  "themselves (and every folder above your home) are never deleted, moved or "
+                  "changed recursively by one. What runs when you log in or open a shell is "
+                  "never changed by one either: ~/.ssh, "
                   "shell start-up files (~/.bashrc, ~/.zshrc, ~/.profile …), ~/.config/autostart, "
                   "~/.config/systemd/user and the LaunchAgents/LaunchDaemons folders.",
-            "ko": "시스템 폴더(/etc, /boot, /usr, /bin, /sbin, /lib*, /var/lib, /System)는 바꾸지 "
-                  "않고, / 와 홈 폴더 자체(그리고 홈 위의 모든 폴더)는 삭제·이동·재귀 변경하지 "
-                  "않습니다. 로그인하거나 셸을 열 때 실행되는 것도 바꾸지 않습니다: "
+            "ko": "시스템 폴더(/etc, /boot, /usr, /bin, /sbin, /lib*, /var/lib, /System)는 "
+                  "snowpea 가 읽는 호출로는 바꾸지 않고, / 와 홈 폴더 자체(그리고 홈 위의 모든 "
+                  "폴더)는 그런 호출로 삭제·이동·재귀 변경하지 않습니다. 로그인하거나 셸을 열 때 "
+                  "실행되는 것도 그런 호출로 바꾸지 않습니다: "
                   "~/.ssh, 셸 시작 파일(~/.bashrc, ~/.zshrc, ~/.profile …), ~/.config/autostart, "
                   "~/.config/systemd/user, LaunchAgents/LaunchDaemons 폴더.",
         },

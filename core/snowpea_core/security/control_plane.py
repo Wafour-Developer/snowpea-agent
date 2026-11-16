@@ -239,7 +239,8 @@ def unlisted(parts: tuple[str, ...], *, fold: bool | None = None) -> ControlEntr
     if not parts or entry_for(parts[:1], fold=fold) is not None or working(parts[0], fold=fold):
         return None
     return ControlEntry(parts[0], "write",
-                        "a file in snowpea's own folder that is not working state")
+                        "a file in snowpea's own folder that is not working state; a hook, "
+                        "plugin or extension keeps its files in $SNOWPEA_HOME/extension-data/")
 
 
 def entries_below(parts: tuple[str, ...], *, fold: bool | None = None) -> list[ControlEntry]:
@@ -274,6 +275,45 @@ def homes(home: str | os.PathLike[str] | None,
             if form not in found:
                 found.append(form)
     return found
+
+
+#: The parts of ``settings.json`` under the home (a linked target is judged as it).
+SETTINGS_PARTS: tuple[str, ...] = ("settings.json",)
+
+
+def settings_target(home: str | os.PathLike[str] | None) -> Path | None:
+    """Security review 9, F2: the file ``<home>/settings.json`` resolves to when it
+    is a symbolic link (snowpea reads and writes that file), else ``None``.
+
+    Resolved at every check, so a link re-pointed while the daemon runs is
+    judged where it points now.  The one helper the shell, code and file-tool
+    checks and ``fs.*`` use to treat that target exactly like ``settings.json``.
+    """
+    if not home:
+        return None
+    try:
+        link = Path(os.path.expanduser(os.fspath(home))) / SETTINGS_PARTS[0]
+        if not os.path.islink(link):
+            return None
+        return Path(os.path.realpath(link))
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return None
+
+
+def is_settings_target(path: str | os.PathLike[str], home: str | os.PathLike[str] | None,
+                       *, fold: bool | None = None) -> bool:
+    """``path`` (absolute) is, as written or resolved, the linked target of
+    ``<home>/settings.json`` (:func:`settings_target`)."""
+    target = settings_target(home)
+    if target is None:
+        return False
+    try:
+        text = os.fspath(path)
+        forms = {Path(os.path.normpath(text)), Path(os.path.realpath(text))}
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return False
+    key = pathcase.path_key(target, fold)
+    return any(pathcase.path_key(form, fold) == key for form in forms)
 
 
 def shown(entry_home: Path, parts: tuple[str, ...]) -> str:
@@ -324,6 +364,11 @@ def control_plane_effect(
             if hit is not None:
                 parts = _relative(form, base, None) or ()
                 return ControlEffect(hit[0], hit[1], str(base), shown(base, parts))
+        # Review 9, F2: the file a linked settings.json points at is settings.json.
+        if any(is_settings_target(form, base) for form in forms):
+            hit = judge_parts(SETTINGS_PARTS, access)
+            if hit is not None:
+                return ControlEffect(hit[0], hit[1], str(base), shown(base, SETTINGS_PARTS))
     # Security review 7, L7-2: the logins of external CLIs in the user's home are
     # secrets by the same table (never read or written through ``fs.*`` either).
     for form in forms:
@@ -391,6 +436,8 @@ __all__ = [
     "entry_for",
     "homes",
     "is_secret",
+    "is_settings_target",
+    "settings_target",
     "judge_parts",
     "secret_files",
 ]

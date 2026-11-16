@@ -1110,13 +1110,13 @@ def jail(folder: Path, relative: str) -> Path:
 
 
 def _write_text(path: Path, text: str, *, append: bool) -> None:
-    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
-    flags |= getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags, 0o600)
-    try:
-        os.write(fd, text.encode("utf-8"))
-    finally:
-        os.close(fd)
+    """Security review 9, F4: the one no-follow writer (``util/atomic``), owner-only."""
+    from snowpea_core.util.atomic import append_text, write_atomic
+
+    if append:
+        append_text(path, text)
+    else:
+        write_atomic(path, text)
 
 
 async def report_write(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -1159,9 +1159,9 @@ class TodoBook:
 
     def save(self, items: list[dict[str, Any]]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = jail(self.path.parent, "todos.json.tmp")
-        _write_text(tmp, json.dumps({"todos": items}, ensure_ascii=False, indent=2), append=False)
-        os.replace(tmp, self.path)
+        # Security review 9, F4: a random temp name beside it, never a link.
+        _write_text(self.path, json.dumps({"todos": items}, ensure_ascii=False, indent=2),
+                    append=False)
 
 
 _REPEATS = {"daily": 1, "weekly": 7, "monthly": 0}
@@ -1491,11 +1491,14 @@ def build_tools(service: JarvisService) -> list[Tool]:
 
 
 def _secret_listing(service: JarvisService, path: Path) -> bool:
-    """``path`` (resolved) is a credential or lies in ``$SNOWPEA_HOME``."""
+    """``path`` (resolved) is a credential or lies in ``$SNOWPEA_HOME`` (or is the
+    file a linked ``settings.json`` points at: security review 9, F2)."""
     from snowpea_core.jarvis.classify import is_secret_path
+    from snowpea_core.security.control_plane import is_settings_target
 
     home = Path(os.path.realpath(service.core.paths.home))
-    return is_secret_path(path) or path == home or home in path.parents
+    return (is_secret_path(path) or path == home or home in path.parents
+            or is_settings_target(path, service.core.paths.home))
 
 
 #: ``path:line:`` at the start of a grep result line.

@@ -624,9 +624,16 @@ def _control_hit(shape: _Shape, effect: sh.Effect,
     write = effect.kind == "write"
     fold = _FOLD_CASE
     key = _fold(home) if fold else home
+    settings_parts = control_plane.SETTINGS_PARTS
     if shape.pattern is None:
         access = "read" if not write else ("delete" if effect.destructive else "write")
         for path in shape.concrete:
+            # Security review 9, F2: the file a linked settings.json points at.
+            if control_plane.is_settings_target(path, home, fold=fold):
+                hit = control_plane.judge_parts(settings_parts, access,
+                                                recursive=effect.recursive, fold=fold)
+                if hit is not None:
+                    return hit[0], hit[1], control_plane.shown(home, settings_parts)
             folded = _fold(path) if fold else path
             if _under(folded, key):
                 parts = path.parts[len(home.parts):]
@@ -643,6 +650,14 @@ def _control_hit(shape: _Shape, effect: sh.Effect,
                     return "ask", _HOME_ITSELF, "$SNOWPEA_HOME"
         return None
     pattern = [_fold_text(p) for p in shape.pattern] if fold else shape.pattern
+    linked = control_plane.settings_target(home)
+    if linked is not None and write:
+        relations = _relations(pattern, shape.open_end,
+                               _glob_parts(str(_fold(linked) if fold else linked)))
+        entry = control_plane.entry_for(settings_parts, fold=fold)
+        if entry is not None and ("equal" in relations or (
+                "ancestor" in relations and effect.destructive and effect.program != "git")):
+            return "blocked", entry, control_plane.shown(home, settings_parts)
     inside = shape.base is not None and _under(_fold(shape.base) if fold else shape.base, key)
     home_parts = _glob_parts(str(key))
     for entry in control_plane.CONTROL:
