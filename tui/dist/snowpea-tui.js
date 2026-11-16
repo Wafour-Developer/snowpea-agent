@@ -432,7 +432,7 @@ var require_react_development = __commonJS({
             }
           }
         }
-        function printWarning(level, format, args) {
+        function printWarning(level2, format, args) {
           {
             var ReactDebugCurrentFrame2 = ReactSharedInternals.ReactDebugCurrentFrame;
             var stack = ReactDebugCurrentFrame2.getStackAddendum();
@@ -444,7 +444,7 @@ var require_react_development = __commonJS({
               return String(item);
             });
             argsWithFormat.unshift("Warning: " + format);
-            Function.prototype.apply.call(console[level], console, argsWithFormat);
+            Function.prototype.apply.call(console[level2], console, argsWithFormat);
           }
         }
         var didWarnStateUpdateForUnmountedComponent = {};
@@ -932,8 +932,8 @@ var require_react_development = __commonJS({
         }
         var didWarnAboutMaps = false;
         var userProvidedKeyEscapeRegex = /\/+/g;
-        function escapeUserProvidedKey(text2) {
-          return text2.replace(userProvidedKeyEscapeRegex, "$&/");
+        function escapeUserProvidedKey(text6) {
+          return text6.replace(userProvidedKeyEscapeRegex, "$&/");
         }
         function getElementKey(element, index) {
           if (typeof element === "object" && element !== null && element.key != null) {
@@ -1043,9 +1043,9 @@ var require_react_development = __commonJS({
             return children;
           }
           var result = [];
-          var count2 = 0;
+          var count3 = 0;
           mapIntoArray(children, result, "", "", function(child) {
-            return func.call(context, child, count2++);
+            return func.call(context, child, count3++);
           });
           return result;
         }
@@ -1372,19 +1372,19 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState20(initialState2) {
+        function useState33(initialState2) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState2);
         }
-        function useReducer2(reducer2, initialArg, init) {
+        function useReducer3(reducer2, initialArg, init) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useReducer(reducer2, initialArg, init);
         }
-        function useRef5(initialValue) {
+        function useRef14(initialValue) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
-        function useEffect12(create2, deps) {
+        function useEffect20(create2, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useEffect(create2, deps);
         }
@@ -1396,11 +1396,11 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useLayoutEffect(create2, deps);
         }
-        function useCallback2(callback, deps) {
+        function useCallback7(callback, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useCallback(callback, deps);
         }
-        function useMemo6(create2, deps) {
+        function useMemo7(create2, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useMemo(create2, deps);
         }
@@ -2163,19 +2163,19 @@ var require_react_development = __commonJS({
         exports.memo = memo;
         exports.startTransition = startTransition;
         exports.unstable_act = act;
-        exports.useCallback = useCallback2;
+        exports.useCallback = useCallback7;
         exports.useContext = useContext7;
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
-        exports.useEffect = useEffect12;
+        exports.useEffect = useEffect20;
         exports.useId = useId;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect3;
-        exports.useMemo = useMemo6;
-        exports.useReducer = useReducer2;
-        exports.useRef = useRef5;
-        exports.useState = useState20;
+        exports.useMemo = useMemo7;
+        exports.useReducer = useReducer3;
+        exports.useRef = useRef14;
+        exports.useState = useState33;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -7867,9 +7867,9 @@ var require_react_reconciler_development = __commonJS({
       module.exports = function $$$reconciler($$$hostConfig) {
         var exports2 = {};
         "use strict";
-        var React28 = require_react();
+        var React38 = require_react();
         var Scheduler = require_scheduler();
-        var ReactSharedInternals = React28.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React38.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         var suppressWarning = false;
         function setSuppressWarning(newSuppressWarning) {
           {
@@ -7896,7 +7896,7 @@ var require_react_reconciler_development = __commonJS({
             }
           }
         }
-        function printWarning(level, format, args) {
+        function printWarning(level2, format, args) {
           {
             var ReactDebugCurrentFrame2 = ReactSharedInternals.ReactDebugCurrentFrame;
             var stack = ReactDebugCurrentFrame2.getStackAddendum();
@@ -7908,7 +7908,7 @@ var require_react_reconciler_development = __commonJS({
               return String(item);
             });
             argsWithFormat.unshift("Warning: " + format);
-            Function.prototype.apply.call(console[level], console, argsWithFormat);
+            Function.prototype.apply.call(console[level2], console, argsWithFormat);
           }
         }
         var assign = Object.assign;
@@ -7933,7 +7933,7 @@ var require_react_reconciler_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment10 = 7;
+        var Fragment11 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -8073,7 +8073,7 @@ var require_react_reconciler_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment10:
+            case Fragment11:
               return "Fragment";
             case HostComponent:
               return type;
@@ -10171,8 +10171,8 @@ var require_react_reconciler_development = __commonJS({
             pushTreeId(workInProgress2, numberOfForks, slotIndex);
           }
         }
-        function getBitLength(number) {
-          return 32 - clz32(number);
+        function getBitLength(number2) {
+          return 32 - clz32(number2);
         }
         function getLeadingBit(id) {
           return 1 << getBitLength(id) - 1;
@@ -10323,8 +10323,8 @@ var require_react_reconciler_development = __commonJS({
                     didNotFindHydratableInstanceWithinContainer(parentContainer, type, props);
                     break;
                   case HostText:
-                    var text2 = fiber.pendingProps;
-                    didNotFindHydratableTextInstanceWithinContainer(parentContainer, text2);
+                    var text6 = fiber.pendingProps;
+                    didNotFindHydratableTextInstanceWithinContainer(parentContainer, text6);
                     break;
                   case SuspenseComponent:
                     didNotFindHydratableSuspenseInstanceWithinContainer(parentContainer);
@@ -10415,8 +10415,8 @@ var require_react_reconciler_development = __commonJS({
               return false;
             }
             case HostText: {
-              var text2 = fiber.pendingProps;
-              var textInstance = canHydrateTextInstance(nextInstance, text2);
+              var text6 = fiber.pendingProps;
+              var textInstance = canHydrateTextInstance(nextInstance, text6);
               if (textInstance !== null) {
                 fiber.stateNode = textInstance;
                 hydrationParentFiber = fiber;
@@ -11207,7 +11207,7 @@ var require_react_reconciler_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current3, fragment, lanes, key) {
-            if (current3 === null || current3.tag !== Fragment10) {
+            if (current3 === null || current3.tag !== Fragment11) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -11610,7 +11610,7 @@ var require_react_reconciler_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment10) {
+                  if (child.tag === Fragment11) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -12509,9 +12509,9 @@ var require_react_reconciler_development = __commonJS({
           var node = row;
           while (node !== null) {
             if (node.tag === SuspenseComponent) {
-              var state = node.memoizedState;
-              if (state !== null) {
-                var dehydrated = state.dehydrated;
+              var state2 = node.memoizedState;
+              if (state2 !== null) {
+                var dehydrated = state2.dehydrated;
                 if (dehydrated === null || isSuspenseInstancePending(dehydrated) || isSuspenseInstanceFallback(dehydrated)) {
                   return node;
                 }
@@ -12855,8 +12855,8 @@ var require_react_reconciler_development = __commonJS({
             stores: null
           };
         }
-        function basicStateReducer(state, action) {
-          return typeof action === "function" ? action(state) : action;
+        function basicStateReducer(state2, action) {
+          return typeof action === "function" ? action(state2) : action;
         }
         function mountReducer(reducer2, initialArg, init) {
           var hook = mountWorkInProgressHook();
@@ -14843,10 +14843,10 @@ var require_react_reconciler_development = __commonJS({
               }
             }
           }
-          var state = workInProgress2.memoizedState = instance.state !== null && instance.state !== void 0 ? instance.state : null;
+          var state2 = workInProgress2.memoizedState = instance.state !== null && instance.state !== void 0 ? instance.state : null;
           adoptClassInstance(workInProgress2, instance);
           {
-            if (typeof ctor.getDerivedStateFromProps === "function" && state === null) {
+            if (typeof ctor.getDerivedStateFromProps === "function" && state2 === null) {
               var componentName = getComponentNameFromType(ctor) || "Component";
               if (!didWarnAboutUninitializedState.has(componentName)) {
                 didWarnAboutUninitializedState.add(componentName);
@@ -15769,8 +15769,8 @@ var require_react_reconciler_development = __commonJS({
                 var _instance = workInProgress2.stateNode;
                 var ctor = workInProgress2.type;
                 var tempInstance = new ctor(workInProgress2.memoizedProps, _instance.context);
-                var state = tempInstance.state;
-                _instance.updater.enqueueSetState(_instance, state, null);
+                var state2 = tempInstance.state;
+                _instance.updater.enqueueSetState(_instance, state2, null);
                 break;
               }
               case true: {
@@ -16545,8 +16545,8 @@ var require_react_reconciler_development = __commonJS({
           var node = firstChild;
           while (node !== null) {
             if (node.tag === SuspenseComponent) {
-              var state = node.memoizedState;
-              if (state !== null) {
+              var state2 = node.memoizedState;
+              if (state2 !== null) {
                 scheduleSuspenseWorkOnFiber(node, renderLanes2, workInProgress2);
               }
             } else if (node.tag === SuspenseListComponent) {
@@ -16975,9 +16975,9 @@ var require_react_reconciler_development = __commonJS({
               }
               break;
             case SuspenseComponent: {
-              var state = workInProgress2.memoizedState;
-              if (state !== null) {
-                if (state.dehydrated !== null) {
+              var state2 = workInProgress2.memoizedState;
+              if (state2 !== null) {
+                if (state2.dehydrated !== null) {
                   pushSuspenseContext(workInProgress2, setDefaultShallowSuspenseContext(suspenseStackCursor.current));
                   workInProgress2.flags |= DidCapture;
                   return null;
@@ -17101,7 +17101,7 @@ var require_react_reconciler_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current3, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment10:
+            case Fragment11:
               return updateFragment(current3, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current3, workInProgress2, renderLanes2);
@@ -17243,8 +17243,8 @@ var require_react_reconciler_development = __commonJS({
               } else if (node.tag === HostText) {
                 var _instance = node.stateNode;
                 if (needsVisibilityToggle && isHidden2) {
-                  var text2 = node.memoizedProps;
-                  _instance = cloneHiddenTextInstance(_instance, text2, node);
+                  var text6 = node.memoizedProps;
+                  _instance = cloneHiddenTextInstance(_instance, text6, node);
                 }
                 appendInitialChild(parent, _instance);
               } else if (node.tag === HostPortal) ;
@@ -17287,8 +17287,8 @@ var require_react_reconciler_development = __commonJS({
               } else if (node.tag === HostText) {
                 var _instance2 = node.stateNode;
                 if (needsVisibilityToggle && isHidden2) {
-                  var text2 = node.memoizedProps;
-                  _instance2 = cloneHiddenTextInstance(_instance2, text2, node);
+                  var text6 = node.memoizedProps;
+                  _instance2 = cloneHiddenTextInstance(_instance2, text6, node);
                 }
                 appendChildToContainerChildSet(containerChildSet, _instance2);
               } else if (node.tag === HostPortal) ;
@@ -17538,7 +17538,7 @@ var require_react_reconciler_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment10:
+            case Fragment11:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -19868,10 +19868,10 @@ var require_react_reconciler_development = __commonJS({
             value: role
           };
         }
-        function createTextSelector(text2) {
+        function createTextSelector(text6) {
           return {
             $$typeof: TEXT_TYPE,
-            value: text2
+            value: text6
           };
         }
         function createTestNameSelector(id) {
@@ -22306,7 +22306,7 @@ var require_react_reconciler_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode, lanes, key) {
-          var fiber = createFiber(Fragment10, elements, key, mode);
+          var fiber = createFiber(Fragment11, elements, key, mode);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -27290,7 +27290,7 @@ var require_react_jsx_runtime_development = __commonJS({
     if (process.env.NODE_ENV !== "production") {
       (function() {
         "use strict";
-        var React28 = require_react();
+        var React38 = require_react();
         var REACT_ELEMENT_TYPE = Symbol.for("react.element");
         var REACT_PORTAL_TYPE = Symbol.for("react.portal");
         var REACT_FRAGMENT_TYPE = Symbol.for("react.fragment");
@@ -27316,7 +27316,7 @@ var require_react_jsx_runtime_development = __commonJS({
           }
           return null;
         }
-        var ReactSharedInternals = React28.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React38.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         function error(format) {
           {
             {
@@ -27327,7 +27327,7 @@ var require_react_jsx_runtime_development = __commonJS({
             }
           }
         }
-        function printWarning(level, format, args) {
+        function printWarning(level2, format, args) {
           {
             var ReactDebugCurrentFrame2 = ReactSharedInternals.ReactDebugCurrentFrame;
             var stack = ReactDebugCurrentFrame2.getStackAddendum();
@@ -27339,7 +27339,7 @@ var require_react_jsx_runtime_development = __commonJS({
               return String(item);
             });
             argsWithFormat.unshift("Warning: " + format);
-            Function.prototype.apply.call(console[level], console, argsWithFormat);
+            Function.prototype.apply.call(console[level2], console, argsWithFormat);
           }
         }
         var enableScopeAPI = false;
@@ -28166,11 +28166,11 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx36 = jsxWithValidationDynamic;
-        var jsxs29 = jsxWithValidationStatic;
+        var jsx48 = jsxWithValidationDynamic;
+        var jsxs39 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx36;
-        exports.jsxs = jsxs29;
+        exports.jsx = jsx48;
+        exports.jsxs = jsxs39;
       })();
     }
   }
@@ -28401,10 +28401,10 @@ var cursorMove = (x, y) => {
   }
   return returnValue;
 };
-var cursorUp = (count2 = 1) => ESC + count2 + "A";
-var cursorDown = (count2 = 1) => ESC + count2 + "B";
-var cursorForward = (count2 = 1) => ESC + count2 + "C";
-var cursorBackward = (count2 = 1) => ESC + count2 + "D";
+var cursorUp = (count3 = 1) => ESC + count3 + "A";
+var cursorDown = (count3 = 1) => ESC + count3 + "B";
+var cursorForward = (count3 = 1) => ESC + count3 + "C";
+var cursorBackward = (count3 = 1) => ESC + count3 + "D";
 var cursorLeft = ESC + "G";
 var cursorSavePosition = isTerminalApp ? "\x1B7" : ESC + "s";
 var cursorRestorePosition = isTerminalApp ? "\x1B8" : ESC + "u";
@@ -28413,12 +28413,12 @@ var cursorNextLine = ESC + "E";
 var cursorPrevLine = ESC + "F";
 var cursorHide = ESC + "?25l";
 var cursorShow = ESC + "?25h";
-var eraseLines = (count2) => {
+var eraseLines = (count3) => {
   let clear = "";
-  for (let i = 0; i < count2; i++) {
-    clear += eraseLine + (i < count2 - 1 ? cursorUp() : "");
+  for (let i = 0; i < count3; i++) {
+    clear += eraseLine + (i < count3 - 1 ? cursorUp() : "");
   }
-  if (count2) {
+  if (count3) {
     clear += cursorLeft;
   }
   return clear;
@@ -28453,12 +28453,12 @@ var enterAlternativeScreen = ESC + "?1049h";
 var exitAlternativeScreen = ESC + "?1049l";
 var beginSynchronizedOutput = ESC + "?2026h";
 var endSynchronizedOutput = ESC + "?2026l";
-var synchronizedOutput = (text2) => beginSynchronizedOutput + text2 + endSynchronizedOutput;
+var synchronizedOutput = (text6) => beginSynchronizedOutput + text6 + endSynchronizedOutput;
 var beep = BEL;
-var link = (text2, url) => {
+var link = (text6, url) => {
   const openLink = wrapOsc(`${OSC}8${SEP}${SEP}${url}${BEL}`);
   const closeLink = wrapOsc(`${OSC}8${SEP}${SEP}${BEL}`);
-  return openLink + text2 + closeLink;
+  return openLink + text6 + closeLink;
 };
 var image = (data, options = {}) => {
   let returnValue = `${OSC}1337;File=inline=1`;
@@ -30294,20 +30294,20 @@ function widestLine(string) {
 
 // ../node_modules/ink/build/measure-text.js
 var cache = {};
-var measureText = (text2) => {
-  if (text2.length === 0) {
+var measureText = (text6) => {
+  if (text6.length === 0) {
     return {
       width: 0,
       height: 0
     };
   }
-  const cachedDimensions = cache[text2];
+  const cachedDimensions = cache[text6];
   if (cachedDimensions) {
     return cachedDimensions;
   }
-  const width = widestLine(text2);
-  const height = text2.split("\n").length;
-  cache[text2] = { width, height };
+  const width = widestLine(text6);
+  const height = text6.split("\n").length;
+  cache[text6] = { width, height };
   return { width, height };
 };
 var measure_text_default = measureText;
@@ -30383,17 +30383,17 @@ var backgroundColorNames = Object.keys(styles.bgColor);
 var colorNames = [...foregroundColorNames, ...backgroundColorNames];
 function assembleStyles() {
   const codes = /* @__PURE__ */ new Map();
-  for (const [groupName, group] of Object.entries(styles)) {
-    for (const [styleName, style] of Object.entries(group)) {
+  for (const [groupName, group2] of Object.entries(styles)) {
+    for (const [styleName, style] of Object.entries(group2)) {
       styles[styleName] = {
         open: `\x1B[${style[0]}m`,
         close: `\x1B[${style[1]}m`
       };
-      group[styleName] = styles[styleName];
+      group2[styleName] = styles[styleName];
       codes.set(style[0], style[1]);
     }
     Object.defineProperty(styles, groupName, {
-      value: group,
+      value: group2,
       enumerable: false
     });
   }
@@ -30773,15 +30773,15 @@ function getIndexOfNearestSpace(string, wantedIndex, shouldSearchRight) {
   }
   return wantedIndex;
 }
-function cliTruncate(text2, columns, options = {}) {
+function cliTruncate(text6, columns, options = {}) {
   const {
     position = "end",
     space = false,
     preferTruncationOnSpace = false
   } = options;
   let { truncationCharacter = "\u2026" } = options;
-  if (typeof text2 !== "string") {
-    throw new TypeError(`Expected \`input\` to be a string, got ${typeof text2}`);
+  if (typeof text6 !== "string") {
+    throw new TypeError(`Expected \`input\` to be a string, got ${typeof text6}`);
   }
   if (typeof columns !== "number") {
     throw new TypeError(`Expected \`columns\` to be a number, got ${typeof columns}`);
@@ -30792,19 +30792,19 @@ function cliTruncate(text2, columns, options = {}) {
   if (columns === 1) {
     return truncationCharacter;
   }
-  const length = stringWidth(text2);
+  const length = stringWidth(text6);
   if (length <= columns) {
-    return text2;
+    return text6;
   }
   if (position === "start") {
     if (preferTruncationOnSpace) {
-      const nearestSpace = getIndexOfNearestSpace(text2, length - columns + 1, true);
-      return truncationCharacter + sliceAnsi(text2, nearestSpace, length).trim();
+      const nearestSpace = getIndexOfNearestSpace(text6, length - columns + 1, true);
+      return truncationCharacter + sliceAnsi(text6, nearestSpace, length).trim();
     }
     if (space === true) {
       truncationCharacter += " ";
     }
-    return truncationCharacter + sliceAnsi(text2, length - columns + stringWidth(truncationCharacter), length);
+    return truncationCharacter + sliceAnsi(text6, length - columns + stringWidth(truncationCharacter), length);
   }
   if (position === "middle") {
     if (space === true) {
@@ -30812,36 +30812,36 @@ function cliTruncate(text2, columns, options = {}) {
     }
     const half = Math.floor(columns / 2);
     if (preferTruncationOnSpace) {
-      const spaceNearFirstBreakPoint = getIndexOfNearestSpace(text2, half);
-      const spaceNearSecondBreakPoint = getIndexOfNearestSpace(text2, length - (columns - half) + 1, true);
-      return sliceAnsi(text2, 0, spaceNearFirstBreakPoint) + truncationCharacter + sliceAnsi(text2, spaceNearSecondBreakPoint, length).trim();
+      const spaceNearFirstBreakPoint = getIndexOfNearestSpace(text6, half);
+      const spaceNearSecondBreakPoint = getIndexOfNearestSpace(text6, length - (columns - half) + 1, true);
+      return sliceAnsi(text6, 0, spaceNearFirstBreakPoint) + truncationCharacter + sliceAnsi(text6, spaceNearSecondBreakPoint, length).trim();
     }
-    return sliceAnsi(text2, 0, half) + truncationCharacter + sliceAnsi(text2, length - (columns - half) + stringWidth(truncationCharacter), length);
+    return sliceAnsi(text6, 0, half) + truncationCharacter + sliceAnsi(text6, length - (columns - half) + stringWidth(truncationCharacter), length);
   }
   if (position === "end") {
     if (preferTruncationOnSpace) {
-      const nearestSpace = getIndexOfNearestSpace(text2, columns - 1);
-      return sliceAnsi(text2, 0, nearestSpace) + truncationCharacter;
+      const nearestSpace = getIndexOfNearestSpace(text6, columns - 1);
+      return sliceAnsi(text6, 0, nearestSpace) + truncationCharacter;
     }
     if (space === true) {
       truncationCharacter = ` ${truncationCharacter}`;
     }
-    return sliceAnsi(text2, 0, columns - stringWidth(truncationCharacter)) + truncationCharacter;
+    return sliceAnsi(text6, 0, columns - stringWidth(truncationCharacter)) + truncationCharacter;
   }
   throw new Error(`Expected \`options.position\` to be either \`start\`, \`middle\` or \`end\`, got ${position}`);
 }
 
 // ../node_modules/ink/build/wrap-text.js
 var cache2 = {};
-var wrapText = (text2, maxWidth, wrapType) => {
-  const cacheKey = text2 + String(maxWidth) + String(wrapType);
+var wrapText = (text6, maxWidth, wrapType) => {
+  const cacheKey = text6 + String(maxWidth) + String(wrapType);
   const cachedText = cache2[cacheKey];
   if (cachedText) {
     return cachedText;
   }
-  let wrappedText = text2;
+  let wrappedText = text6;
   if (wrapType === "wrap") {
-    wrappedText = wrapAnsi(text2, maxWidth, {
+    wrappedText = wrapAnsi(text6, maxWidth, {
       trim: false,
       hard: true
     });
@@ -30854,7 +30854,7 @@ var wrapText = (text2, maxWidth, wrapType) => {
     if (wrapType === "truncate-start") {
       position = "start";
     }
-    wrappedText = cliTruncate(text2, maxWidth, { position });
+    wrappedText = cliTruncate(text6, maxWidth, { position });
   }
   cache2[cacheKey] = wrappedText;
   return wrappedText;
@@ -30863,7 +30863,7 @@ var wrap_text_default = wrapText;
 
 // ../node_modules/ink/build/squash-text-nodes.js
 var squashTextNodes = (node) => {
-  let text2 = "";
+  let text6 = "";
   for (let index = 0; index < node.childNodes.length; index++) {
     const childNode = node.childNodes[index];
     if (childNode === void 0) {
@@ -30880,9 +30880,9 @@ var squashTextNodes = (node) => {
         nodeText = childNode.internal_transform(nodeText, index);
       }
     }
-    text2 += nodeText;
+    text6 += nodeText;
   }
-  return text2;
+  return text6;
 };
 var squash_text_nodes_default = squashTextNodes;
 
@@ -30954,20 +30954,20 @@ var setAttribute = (node, key, value) => {
 var setStyle = (node, style) => {
   node.style = style;
 };
-var createTextNode = (text2) => {
+var createTextNode = (text6) => {
   const node = {
     nodeName: "#text",
-    nodeValue: text2,
+    nodeValue: text6,
     yogaNode: void 0,
     parentNode: void 0,
     style: {}
   };
-  setTextNodeValue(node, text2);
+  setTextNodeValue(node, text6);
   return node;
 };
 var measureTextNode = function(node, width) {
-  const text2 = node.nodeName === "#text" ? node.nodeValue : squash_text_nodes_default(node);
-  const dimensions = measure_text_default(text2);
+  const text6 = node.nodeName === "#text" ? node.nodeValue : squash_text_nodes_default(node);
+  const dimensions = measure_text_default(text6);
   if (dimensions.width <= width) {
     return dimensions;
   }
@@ -30975,7 +30975,7 @@ var measureTextNode = function(node, width) {
     return dimensions;
   }
   const textWrap = node.style?.textWrap ?? "wrap";
-  const wrappedText = wrap_text_default(text2, width, textWrap);
+  const wrappedText = wrap_text_default(text6, width, textWrap);
   return measure_text_default(wrappedText);
 };
 var findClosestYogaNode = (node) => {
@@ -30988,11 +30988,11 @@ var markNodeAsDirty = (node) => {
   const yogaNode = findClosestYogaNode(node);
   yogaNode?.markDirty();
 };
-var setTextNodeValue = (node, text2) => {
-  if (typeof text2 !== "string") {
-    text2 = String(text2);
+var setTextNodeValue = (node, text6) => {
+  if (typeof text6 !== "string") {
+    text6 = String(text6);
   }
-  node.nodeValue = text2;
+  node.nodeValue = text6;
   markNodeAsDirty(node);
 };
 
@@ -31326,19 +31326,19 @@ var reconciler_default = (0, import_react_reconciler.default)({
     }
     return node;
   },
-  createTextInstance(text2, _root, hostContext) {
+  createTextInstance(text6, _root, hostContext) {
     if (!hostContext.isInsideText) {
-      throw new Error(`Text string "${text2}" must be rendered inside <Text> component`);
+      throw new Error(`Text string "${text6}" must be rendered inside <Text> component`);
     }
-    return createTextNode(text2);
+    return createTextNode(text6);
   },
   resetTextContent() {
   },
   hideTextInstance(node) {
     setTextNodeValue(node, "");
   },
-  unhideTextInstance(node, text2) {
-    setTextNodeValue(node, text2);
+  unhideTextInstance(node, text6) {
+    setTextNodeValue(node, text6);
   },
   getPublicInstance: (instance) => instance,
   hideInstance(node) {
@@ -31424,7 +31424,7 @@ var reconciler_default = (0, import_react_reconciler.default)({
 });
 
 // ../node_modules/indent-string/index.js
-function indentString(string, count2 = 1, options = {}) {
+function indentString(string, count3 = 1, options = {}) {
   const {
     indent = " ",
     includeEmptyLines = false
@@ -31434,14 +31434,14 @@ function indentString(string, count2 = 1, options = {}) {
       `Expected \`input\` to be a \`string\`, got \`${typeof string}\``
     );
   }
-  if (typeof count2 !== "number") {
+  if (typeof count3 !== "number") {
     throw new TypeError(
-      `Expected \`count\` to be a \`number\`, got \`${typeof count2}\``
+      `Expected \`count\` to be a \`number\`, got \`${typeof count3}\``
     );
   }
-  if (count2 < 0) {
+  if (count3 < 0) {
     throw new RangeError(
-      `Expected \`count\` to be at least 0, got \`${count2}\``
+      `Expected \`count\` to be at least 0, got \`${count3}\``
     );
   }
   if (typeof indent !== "string") {
@@ -31449,11 +31449,11 @@ function indentString(string, count2 = 1, options = {}) {
       `Expected \`options.indent\` to be a \`string\`, got \`${typeof indent}\``
     );
   }
-  if (count2 === 0) {
+  if (count3 === 0) {
     return string;
   }
   const regex2 = includeEmptyLines ? /^/gm : /^(?!\s*$)/gm;
-  return string.replace(regex2, indent.repeat(count2));
+  return string.replace(regex2, indent.repeat(count3));
 }
 
 // ../node_modules/ink/build/get-max-width.js
@@ -31536,17 +31536,17 @@ var backgroundColorNames2 = Object.keys(styles3.bgColor);
 var colorNames2 = [...foregroundColorNames2, ...backgroundColorNames2];
 function assembleStyles2() {
   const codes = /* @__PURE__ */ new Map();
-  for (const [groupName, group] of Object.entries(styles3)) {
-    for (const [styleName, style] of Object.entries(group)) {
+  for (const [groupName, group2] of Object.entries(styles3)) {
+    for (const [styleName, style] of Object.entries(group2)) {
       styles3[styleName] = {
         open: `\x1B[${style[0]}m`,
         close: `\x1B[${style[1]}m`
       };
-      group[styleName] = styles3[styleName];
+      group2[styleName] = styles3[styleName];
       codes.set(style[0], style[1]);
     }
     Object.defineProperty(styles3, groupName, {
-      value: group,
+      value: group2,
       enumerable: false
     });
   }
@@ -31679,15 +31679,15 @@ function envForceColor() {
     return env2.FORCE_COLOR.length === 0 ? 1 : Math.min(Number.parseInt(env2.FORCE_COLOR, 10), 3);
   }
 }
-function translateLevel(level) {
-  if (level === 0) {
+function translateLevel(level2) {
+  if (level2 === 0) {
     return false;
   }
   return {
-    level,
+    level: level2,
     hasBasic: true,
-    has256: level >= 2,
-    has16m: level >= 3
+    has256: level2 >= 2,
+    has16m: level2 >= 3
   };
 }
 function _supportsColor(haveStream, { streamIsTTY, sniffFlags = true } = {}) {
@@ -31771,11 +31771,11 @@ function _supportsColor(haveStream, { streamIsTTY, sniffFlags = true } = {}) {
   return min;
 }
 function createSupportsColor(stream, options = {}) {
-  const level = _supportsColor(stream, {
+  const level2 = _supportsColor(stream, {
     streamIsTTY: stream && stream.isTTY,
     ...options
   });
-  return translateLevel(level);
+  return translateLevel(level2);
 }
 var supportsColor = {
   stdout: createSupportsColor({ isTTY: tty.isatty(1) }),
@@ -31858,18 +31858,18 @@ styles4.visible = {
     return builder;
   }
 };
-var getModelAnsi = (model, level, type, ...arguments_) => {
+var getModelAnsi = (model, level2, type, ...arguments_) => {
   if (model === "rgb") {
-    if (level === "ansi16m") {
+    if (level2 === "ansi16m") {
       return ansi_styles_default2[type].ansi16m(...arguments_);
     }
-    if (level === "ansi256") {
+    if (level2 === "ansi256") {
       return ansi_styles_default2[type].ansi256(ansi_styles_default2.rgbToAnsi256(...arguments_));
     }
     return ansi_styles_default2[type].ansi(ansi_styles_default2.rgbToAnsi(...arguments_));
   }
   if (model === "hex") {
-    return getModelAnsi("rgb", level, type, ...ansi_styles_default2.hexToRgb(...arguments_));
+    return getModelAnsi("rgb", level2, type, ...ansi_styles_default2.hexToRgb(...arguments_));
   }
   return ansi_styles_default2[type][model](...arguments_);
 };
@@ -31877,9 +31877,9 @@ var usedModels = ["rgb", "hex", "ansi256"];
 for (const model of usedModels) {
   styles4[model] = {
     get() {
-      const { level } = this;
+      const { level: level2 } = this;
       return function(...arguments_) {
-        const styler = createStyler(getModelAnsi(model, levelMapping[level], "color", ...arguments_), ansi_styles_default2.color.close, this[STYLER]);
+        const styler = createStyler(getModelAnsi(model, levelMapping[level2], "color", ...arguments_), ansi_styles_default2.color.close, this[STYLER]);
         return createBuilder(this, styler, this[IS_EMPTY]);
       };
     }
@@ -31887,9 +31887,9 @@ for (const model of usedModels) {
   const bgModel = "bg" + model[0].toUpperCase() + model.slice(1);
   styles4[bgModel] = {
     get() {
-      const { level } = this;
+      const { level: level2 } = this;
       return function(...arguments_) {
-        const styler = createStyler(getModelAnsi(model, levelMapping[level], "bgColor", ...arguments_), ansi_styles_default2.bgColor.close, this[STYLER]);
+        const styler = createStyler(getModelAnsi(model, levelMapping[level2], "bgColor", ...arguments_), ansi_styles_default2.bgColor.close, this[STYLER]);
         return createBuilder(this, styler, this[IS_EMPTY]);
       };
     }
@@ -31903,8 +31903,8 @@ var proto = Object.defineProperties(() => {
     get() {
       return this[GENERATOR].level;
     },
-    set(level) {
-      this[GENERATOR].level = level;
+    set(level2) {
+      this[GENERATOR].level = level2;
     }
   }
 });
@@ -31966,39 +31966,39 @@ var ansiRegex2 = /^ansi256\(\s?(\d+)\s?\)$/;
 var isNamedColor = (color) => {
   return color in source_default;
 };
-var colorize = (str, color, type) => {
+var colorize = (str2, color, type) => {
   if (!color) {
-    return str;
+    return str2;
   }
   if (isNamedColor(color)) {
     if (type === "foreground") {
-      return source_default[color](str);
+      return source_default[color](str2);
     }
     const methodName = `bg${color[0].toUpperCase() + color.slice(1)}`;
-    return source_default[methodName](str);
+    return source_default[methodName](str2);
   }
   if (color.startsWith("#")) {
-    return type === "foreground" ? source_default.hex(color)(str) : source_default.bgHex(color)(str);
+    return type === "foreground" ? source_default.hex(color)(str2) : source_default.bgHex(color)(str2);
   }
   if (color.startsWith("ansi256")) {
     const matches = ansiRegex2.exec(color);
     if (!matches) {
-      return str;
+      return str2;
     }
     const value = Number(matches[1]);
-    return type === "foreground" ? source_default.ansi256(value)(str) : source_default.bgAnsi256(value)(str);
+    return type === "foreground" ? source_default.ansi256(value)(str2) : source_default.bgAnsi256(value)(str2);
   }
   if (color.startsWith("rgb")) {
     const matches = rgbRegex.exec(color);
     if (!matches) {
-      return str;
+      return str2;
     }
     const firstValue = Number(matches[1]);
     const secondValue = Number(matches[2]);
     const thirdValue = Number(matches[3]);
-    return type === "foreground" ? source_default.rgb(firstValue, secondValue, thirdValue)(str) : source_default.bgRgb(firstValue, secondValue, thirdValue)(str);
+    return type === "foreground" ? source_default.rgb(firstValue, secondValue, thirdValue)(str2) : source_default.bgRgb(firstValue, secondValue, thirdValue)(str2);
   }
-  return str;
+  return str2;
 };
 var colorize_default = colorize;
 
@@ -32064,14 +32064,14 @@ var renderBorder = (x, y, node, output) => {
 var render_border_default = renderBorder;
 
 // ../node_modules/ink/build/render-node-to-output.js
-var applyPaddingToText = (node, text2) => {
+var applyPaddingToText = (node, text6) => {
   const yogaNode = node.childNodes[0]?.yogaNode;
   if (yogaNode) {
     const offsetX = yogaNode.getComputedLeft();
     const offsetY = yogaNode.getComputedTop();
-    text2 = "\n".repeat(offsetY) + indentString(text2, offsetX);
+    text6 = "\n".repeat(offsetY) + indentString(text6, offsetX);
   }
-  return text2;
+  return text6;
 };
 var renderNodeToOutput = (node, output, options) => {
   const { offsetX = 0, offsetY = 0, transformers = [], skipStaticElements } = options;
@@ -32090,16 +32090,16 @@ var renderNodeToOutput = (node, output, options) => {
       newTransformers = [node.internal_transform, ...transformers];
     }
     if (node.nodeName === "ink-text") {
-      let text2 = squash_text_nodes_default(node);
-      if (text2.length > 0) {
-        const currentWidth = widestLine(text2);
+      let text6 = squash_text_nodes_default(node);
+      if (text6.length > 0) {
+        const currentWidth = widestLine(text6);
         const maxWidth = get_max_width_default(yogaNode);
         if (currentWidth > maxWidth) {
           const textWrap = node.style.textWrap ?? "wrap";
-          text2 = wrap_text_default(text2, maxWidth, textWrap);
+          text6 = wrap_text_default(text6, maxWidth, textWrap);
         }
-        text2 = applyPaddingToText(node, text2);
-        output.write(x, y, text2, { transformers: newTransformers });
+        text6 = applyPaddingToText(node, text6);
+        output.write(x, y, text6, { transformers: newTransformers });
       }
       return;
     }
@@ -32382,9 +32382,9 @@ function styledCharsToString(chars) {
 }
 
 // ../node_modules/@alcalzone/ansi-tokenize/build/tokenize.js
-function findNumberIndex2(str) {
-  for (let index = 0; index < str.length; index++) {
-    const charCode = str.charCodeAt(index);
+function findNumberIndex2(str2) {
+  for (let index = 0; index < str2.length; index++) {
+    const charCode = str2.charCodeAt(index);
     if (charCode >= 48 && charCode <= 57) {
       return index;
     }
@@ -32414,14 +32414,14 @@ function parseAnsiCode2(string, offset) {
     return string.slice(0, endIndex + 1);
   }
 }
-function tokenize2(str, endChar = Number.POSITIVE_INFINITY) {
+function tokenize2(str2, endChar = Number.POSITIVE_INFINITY) {
   const ret = [];
   let index = 0;
   let visible = 0;
-  while (index < str.length) {
-    const codePoint = str.codePointAt(index);
+  while (index < str2.length) {
+    const codePoint = str2.codePointAt(index);
     if (ESCAPES4.has(codePoint)) {
-      const code = parseLinkCode(str, index) || parseAnsiCode2(str, index);
+      const code = parseLinkCode(str2, index) || parseAnsiCode2(str2, index);
       if (code) {
         ret.push({
           type: "ansi",
@@ -32458,16 +32458,16 @@ var Output = class {
     this.width = width;
     this.height = height;
   }
-  write(x, y, text2, options) {
+  write(x, y, text6, options) {
     const { transformers } = options;
-    if (!text2) {
+    if (!text6) {
       return;
     }
     this.operations.push({
       type: "write",
       x,
       y,
-      text: text2,
+      text: text6,
       transformers
     });
   }
@@ -32505,15 +32505,15 @@ var Output = class {
         clips.pop();
       }
       if (operation.type === "write") {
-        const { text: text2, transformers } = operation;
+        const { text: text6, transformers } = operation;
         let { x, y } = operation;
-        let lines = text2.split("\n");
+        let lines = text6.split("\n");
         const clip2 = clips.at(-1);
         if (clip2) {
           const clipHorizontally = typeof clip2?.x1 === "number" && typeof clip2?.x2 === "number";
           const clipVertically = typeof clip2?.y1 === "number" && typeof clip2?.y2 === "number";
           if (clipHorizontally) {
-            const width = widestLine(text2);
+            const width = widestLine(text6);
             if (x + width < clip2.x1 || x > clip2.x2) {
               continue;
             }
@@ -32669,12 +32669,12 @@ var create = (stream, { showCursor = false } = {}) => {
   let previousLineCount = 0;
   let previousOutput = "";
   let hasHiddenCursor = false;
-  const render2 = (str) => {
+  const render2 = (str2) => {
     if (!showCursor && !hasHiddenCursor) {
       cli_cursor_default.hide();
       hasHiddenCursor = true;
     }
-    const output = str + "\n";
+    const output = str2 + "\n";
     if (output === previousOutput) {
       return;
     }
@@ -32841,7 +32841,7 @@ var Box_default = Box;
 
 // ../node_modules/ink/build/components/Text.js
 var import_react7 = __toESM(require_react(), 1);
-function Text({ color, backgroundColor, dimColor = false, bold = false, italic = false, underline = false, strikethrough = false, inverse = false, wrap = "wrap", children }) {
+function Text({ color, backgroundColor, dimColor = false, bold = false, italic = false, underline = false, strikethrough = false, inverse = false, wrap: wrap2 = "wrap", children }) {
   if (children === void 0 || children === null) {
     return null;
   }
@@ -32872,7 +32872,7 @@ function Text({ color, backgroundColor, dimColor = false, bold = false, italic =
     }
     return children2;
   };
-  return import_react7.default.createElement("ink-text", { style: { flexGrow: 0, flexShrink: 1, flexDirection: "row", textWrap: wrap }, internal_transform: transform }, children);
+  return import_react7.default.createElement("ink-text", { style: { flexGrow: 0, flexShrink: 1, flexDirection: "row", textWrap: wrap2 }, internal_transform: transform }, children);
 }
 
 // ../node_modules/ink/build/components/ErrorOverview.js
@@ -33225,24 +33225,24 @@ var App = class extends import_react9.PureComponent {
       })
     }));
   };
-  findNextFocusable = (state) => {
-    const activeIndex = state.focusables.findIndex((focusable) => {
-      return focusable.id === state.activeFocusId;
+  findNextFocusable = (state2) => {
+    const activeIndex = state2.focusables.findIndex((focusable) => {
+      return focusable.id === state2.activeFocusId;
     });
-    for (let index = activeIndex + 1; index < state.focusables.length; index++) {
-      const focusable = state.focusables[index];
+    for (let index = activeIndex + 1; index < state2.focusables.length; index++) {
+      const focusable = state2.focusables[index];
       if (focusable?.isActive) {
         return focusable.id;
       }
     }
     return void 0;
   };
-  findPreviousFocusable = (state) => {
-    const activeIndex = state.focusables.findIndex((focusable) => {
-      return focusable.id === state.activeFocusId;
+  findPreviousFocusable = (state2) => {
+    const activeIndex = state2.focusables.findIndex((focusable) => {
+      return focusable.id === state2.activeFocusId;
     });
     for (let index = activeIndex - 1; index >= 0; index--) {
-      const focusable = state.focusables[index];
+      const focusable = state2.focusables[index];
       if (focusable?.isActive) {
         return focusable.id;
       }
@@ -33828,10 +33828,10 @@ import { homedir as homedir2 } from "node:os";
 import { basename as basename2, isAbsolute, join as join2, resolve } from "node:path";
 
 // src/app.tsx
-var import_react45 = __toESM(require_react(), 1);
+var import_react60 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.52.0";
+var PROTOCOL_VERSION = "1.55.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -33843,10 +33843,10 @@ var RpcError = class extends Error {
   rpcCode;
   code;
   data;
-  constructor(rpcCode, message, data) {
+  constructor(rpcCode2, message, data) {
     super(message);
     this.name = "RpcError";
-    this.rpcCode = rpcCode;
+    this.rpcCode = rpcCode2;
     this.data = data;
     const bag = data;
     this.code = bag && typeof bag.code === "string" ? bag.code : void 0;
@@ -34370,6 +34370,778 @@ async function connect(options) {
   return client;
 }
 
+// src/layout/text-width.ts
+var segmenter2 = new Intl.Segmenter(void 0, { granularity: "grapheme" });
+function graphemes(text6) {
+  return Array.from(segmenter2.segment(text6), ({ segment, index }) => ({
+    text: segment,
+    index,
+    width: graphemeWidth(segment)
+  }));
+}
+function graphemeWidth(text6) {
+  if (/^[\p{Mark}\p{Control}\p{Format}]+$/u.test(text6)) return 0;
+  if (new RegExp("\\p{Emoji_Presentation}|\\p{Regional_Indicator}|\\uFE0F|\\u20E3", "u").test(text6)) return 2;
+  const code = text6.codePointAt(0) ?? 0;
+  if (code >= 4352 && (code <= 4447 || code === 9001 || code === 9002 || code >= 11904 && code <= 42191 && code !== 12351 || code >= 44032 && code <= 55203 || code >= 63744 && code <= 64255 || code >= 65040 && code <= 65049 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 131072 && code <= 262141)) return 2;
+  return 1;
+}
+function textWidth(text6) {
+  return graphemes(text6).reduce((sum, part) => sum + part.width, 0);
+}
+
+// src/layout/fit.ts
+function fit(text6, width) {
+  if (width <= 0) return "";
+  const flat = text6.replace(/[\r\n\t]+/g, " ");
+  if (textWidth(flat) <= width) return flat;
+  if (width === 1) return "\u2026";
+  let used = 0;
+  let out = "";
+  for (const part of graphemes(flat)) {
+    if (used + part.width > width - 1) break;
+    out += part.text;
+    used += part.width;
+  }
+  return `${out}\u2026`;
+}
+function wrapWords(text6, width, maxLines) {
+  const rows = [];
+  let row = "";
+  const words = text6.replace(/[\r\n\t]+/g, " ").split(" ").filter(Boolean);
+  for (let index = 0; index < words.length; index += 1) {
+    const next = row ? `${row} ${words[index]}` : words[index];
+    if (textWidth(next) <= width) {
+      row = next;
+      continue;
+    }
+    if (rows.length === maxLines - 1) {
+      return [...rows, fit([row, ...words.slice(index)].filter(Boolean).join(" "), width)];
+    }
+    if (row) rows.push(row);
+    row = textWidth(words[index]) <= width ? words[index] : fit(words[index], width);
+  }
+  if (row) rows.push(row);
+  return rows;
+}
+function padEnd(text6, width) {
+  const gap = width - textWidth(text6);
+  return gap > 0 ? text6 + " ".repeat(gap) : text6;
+}
+function spread(left2, right2, width) {
+  const rightWidth = textWidth(right2);
+  if (rightWidth === 0) return fit(left2, width);
+  if (rightWidth >= width - 4) return fit(right2, width);
+  const room = width - rightWidth - 1;
+  return `${padEnd(fit(left2, room), room)} ${right2}`;
+}
+
+// src/state/agent-tag.ts
+var EXTERNAL_COLOR = "#d2691e";
+var BROWSER_COLOR = "#5b7cfa";
+var CLI_LABELS = {
+  claude: "Claude Code",
+  codex: "Codex",
+  agy: "agy",
+  cursor: "Cursor"
+};
+var CLI_TAGS = { claude: "cc", codex: "cx", agy: "ag", cursor: "cu" };
+function cliName(cli) {
+  return CLI_LABELS[cli] ?? cli;
+}
+var SNOWPEA = { kind: "snowpea", tag: "", label: "Snowpea" };
+var ORDER = ["snowpea", "claude", "codex", "agy", "cursor", "ext", "web"];
+function agentOfExternal(cli) {
+  const known = cli ? CLI_TAGS[cli] : void 0;
+  if (cli && known) {
+    return { kind: cli, tag: `[${known}]`, label: CLI_LABELS[cli], color: EXTERNAL_COLOR };
+  }
+  return { kind: "ext", tag: "[ext]", label: cli ? cli : "External", color: EXTERNAL_COLOR };
+}
+function agentOfSession(row) {
+  if (row && (typeof row.hostToolsFrom === "string" && row.hostToolsFrom.length > 0 || typeof row.browserProvider === "string" && row.browserProvider.length > 0 || row.originSurface === "browser")) {
+    return { kind: "web", tag: "[web]", label: "Browser", color: BROWSER_COLOR };
+  }
+  return SNOWPEA;
+}
+function agentOfKind(kind) {
+  if (kind === "snowpea") return SNOWPEA;
+  if (kind === "web") return agentOfSession({ browserProvider: "host" });
+  if (kind === "ext") return agentOfExternal(null);
+  return agentOfExternal(kind);
+}
+function tagColumnWidth(identities) {
+  return identities.reduce((widest, identity) => Math.max(widest, textWidth(identity.tag)), 0);
+}
+function tagCell(identity, column) {
+  return identity.tag + " ".repeat(Math.max(0, column - textWidth(identity.tag)));
+}
+function kindsPresent(identities) {
+  const seen = new Set(identities.map((identity) => identity.kind));
+  return ORDER.filter((kind) => seen.has(kind));
+}
+function legendLine(identities, width) {
+  const parts = kindsPresent(identities).filter((kind) => kind !== "snowpea").map((kind) => {
+    const identity = agentOfKind(kind);
+    return `${identity.tag} ${kind === "ext" ? "Other CLI" : identity.label}`;
+  });
+  return parts.length === 0 ? null : fit(parts.join("  "), width);
+}
+function filterChoices(identities) {
+  const kinds = kindsPresent(identities);
+  return kinds.length <= 1 ? ["all"] : ["all", ...kinds];
+}
+function nextFilter(current2, identities) {
+  const choices = filterChoices(identities);
+  const at = choices.indexOf(current2);
+  return choices[(at + 1) % choices.length] ?? "all";
+}
+function filterLabel(filter) {
+  return filter === "all" ? "all" : filter === "ext" ? "other CLI" : agentOfKind(filter).label.toLowerCase();
+}
+
+// src/components/SessionPicker.tsx
+var import_react22 = __toESM(require_react(), 1);
+
+// src/layout/palette.ts
+var LAVENDER = { r: 221, g: 214, b: 254 };
+var VIOLET = { r: 167, g: 139, b: 250 };
+var DEEP_VIOLET = { r: 124, g: 58, b: 237 };
+var BASIC_RAMP = ["magentaBright", "magenta", "blue"];
+function colorMode(env3, isTTY) {
+  if (env3.NO_COLOR !== void 0 && env3.NO_COLOR !== "") return "none";
+  if (!isTTY) return "none";
+  const colorTerm = (env3.COLORTERM ?? "").toLowerCase();
+  if (colorTerm.includes("truecolor") || colorTerm.includes("24bit")) return "truecolor";
+  if ((env3.TERM ?? "").includes("direct")) return "truecolor";
+  return "basic";
+}
+function mix(from, to, amount) {
+  const at = Math.min(1, Math.max(0, amount));
+  return {
+    r: Math.round(from.r + (to.r - from.r) * at),
+    g: Math.round(from.g + (to.g - from.g) * at),
+    b: Math.round(from.b + (to.b - from.b) * at)
+  };
+}
+function toHex({ r, g, b }) {
+  return `#${[r, g, b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+function gradientAt(position) {
+  const at = Math.min(1, Math.max(0, position));
+  return at <= 0.5 ? mix(LAVENDER, VIOLET, at * 2) : mix(VIOLET, DEEP_VIOLET, (at - 0.5) * 2);
+}
+function gradientColors(rows, mode) {
+  const count3 = Math.max(1, Math.floor(rows));
+  if (mode === "none") return new Array(count3).fill(void 0);
+  if (mode === "basic") {
+    return Array.from({ length: count3 }, (_, row) => {
+      const index = Math.min(
+        BASIC_RAMP.length - 1,
+        Math.floor(row / Math.max(1, count3 - 1) * BASIC_RAMP.length)
+      );
+      return BASIC_RAMP[index];
+    });
+  }
+  return Array.from(
+    { length: count3 },
+    (_, row) => toHex(gradientAt(count3 === 1 ? 0 : row / (count3 - 1)))
+  );
+}
+function accentColor(mode) {
+  if (mode === "truecolor") return toHex(VIOLET);
+  if (mode === "basic") return "magentaBright";
+  return "magenta";
+}
+function accentDimColor(mode) {
+  if (mode === "truecolor") return toHex(DEEP_VIOLET);
+  return "magenta";
+}
+function inputBackgroundColor(mode, env3 = process.env) {
+  const override = (env3.SNOWPEA_TUI_INPUT_BG ?? "").trim();
+  if (override) return override.toLowerCase() === "none" ? void 0 : override;
+  if (mode === "none") return void 0;
+  const background = Number((env3.COLORFGBG ?? "").split(";").pop());
+  const light = background === 7 || background === 15;
+  if (mode === "truecolor") return light ? "#ece9f3" : "#26232e";
+  return light ? "white" : "blackBright";
+}
+var testColorMode = null;
+var cachedMode = null;
+var cachedAccent = null;
+var cachedAccentDim = null;
+var cachedInputBackground = null;
+function resolvedColorMode() {
+  if (testColorMode !== null) return testColorMode;
+  if (cachedMode === null) {
+    cachedMode = colorMode(process.env, Boolean(process.stdout?.isTTY));
+  }
+  return cachedMode;
+}
+function currentAccent() {
+  if (cachedAccent === null) cachedAccent = accentColor(resolvedColorMode());
+  return cachedAccent;
+}
+function currentAccentDim() {
+  if (cachedAccentDim === null) cachedAccentDim = accentDimColor(resolvedColorMode());
+  return cachedAccentDim;
+}
+function currentInputBackground() {
+  if (cachedInputBackground === null) {
+    cachedInputBackground = inputBackgroundColor(resolvedColorMode());
+  }
+  return cachedInputBackground;
+}
+
+// src/input/mouse.ts
+var REPORT = /(?:\u001b)?(\[?<)?(\d+);(\d+);(\d+)([Mm])/g;
+function mouseReports(input) {
+  if (!/^(?:(?:\u001b)?(?:\[?<)?\d+;\d+;\d+[Mm])+$/.test(input)) return [];
+  const reports = [];
+  for (const match of input.matchAll(REPORT)) {
+    const button = Number(match[2]);
+    const col = Number(match[3]);
+    const row = Number(match[4]);
+    if (!match[1] && button < 64) return [];
+    if (button < 0 || col < 1 || row < 1) continue;
+    reports.push({ button, col, row, press: match[5] === "M" });
+  }
+  return reports;
+}
+function panelRowAt(row, layout2) {
+  const y = Math.floor(row);
+  if (!Number.isFinite(y) || y < 1) return null;
+  const totalRows = Math.max(1, Math.floor(layout2.totalRows));
+  const bottomRows2 = Math.max(0, Math.floor(layout2.bottomRows));
+  const panelRows = Math.max(0, Math.floor(layout2.panelRows));
+  if (panelRows < 1) return null;
+  const top = totalRows - bottomRows2 - panelRows + 1;
+  const bottom = top + panelRows - 1;
+  if (y < Math.max(1, top) || y > bottom) return null;
+  const index = y - top;
+  return index >= 0 && index < panelRows ? index : null;
+}
+
+// src/hooks/useChoiceKeys.ts
+var PAGE_STEP = 10;
+function useChoiceKeys(options) {
+  const {
+    count: count3,
+    index,
+    onIndex,
+    onEnter,
+    onCancel,
+    onToggle,
+    multi = false,
+    onDigit,
+    digitLimit,
+    digits = true,
+    onLeft,
+    onRight,
+    onTab,
+    onShiftTab,
+    shortcuts,
+    vim = true,
+    onKey,
+    isActive = true
+  } = options;
+  use_input_default(
+    (input, key) => {
+      if (mouseReports(input).length > 0) return;
+      if (onKey?.(input, key)) return;
+      if (key.escape) {
+        onCancel?.();
+        return;
+      }
+      if (key.tab && key.shift) {
+        if (onShiftTab) onShiftTab();
+        return;
+      }
+      if (key.tab) {
+        if (onTab) onTab();
+        return;
+      }
+      if (key.leftArrow) {
+        onLeft?.();
+        return;
+      }
+      if (key.rightArrow) {
+        onRight?.();
+        return;
+      }
+      const typed = input.toLowerCase();
+      const shortcut = shortcuts?.[typed];
+      if (shortcut) {
+        shortcut();
+        return;
+      }
+      if (count3 > 0) {
+        if (key.upArrow || vim && typed === "k") {
+          onIndex((index + count3 - 1) % count3);
+          return;
+        }
+        if (key.downArrow || vim && typed === "j") {
+          onIndex((index + 1) % count3);
+          return;
+        }
+        if (key.pageDown) {
+          onIndex(Math.min(count3 - 1, index + PAGE_STEP));
+          return;
+        }
+        if (key.pageUp) {
+          onIndex(Math.max(0, index - PAGE_STEP));
+          return;
+        }
+      }
+      if (input === " ") {
+        if (multi) onToggle?.(index);
+        return;
+      }
+      if (key.return) {
+        onEnter?.(index);
+        return;
+      }
+      if (digits && /^[1-9]$/.test(input)) {
+        const target = Number(input) - 1;
+        const limit = digitLimit ?? count3;
+        if (target < limit) {
+          if (onDigit) onDigit(target);
+          else {
+            onIndex(target);
+            if (multi) onToggle?.(target);
+          }
+        }
+        return;
+      }
+    },
+    { isActive }
+  );
+}
+function choiceHint(options) {
+  const {
+    multi = false,
+    tabs = false,
+    digits = true,
+    enter = "confirm",
+    extra = [],
+    cancel: cancel2 = "cancel"
+  } = options;
+  return [
+    "\u2191\u2193 move",
+    multi ? "Space toggle" : null,
+    `Enter ${enter}`,
+    digits ? multi ? "1-9 toggle" : "1-9 pick" : null,
+    tabs ? "\u2190\u2192 tabs" : null,
+    ...extra,
+    `Esc ${cancel2}`
+  ].filter(Boolean).join(" \xB7 ");
+}
+
+// src/state/history.ts
+var MAX_HISTORY = 500;
+var HISTORY_FILE = "tui-history.jsonl";
+var SESSIONS_FILE = "tui-sessions.json";
+function recordOfListRow(row) {
+  const title = typeof row?.title === "string" ? row.title.trim() : "";
+  return {
+    sessionId: String(row?.sessionId),
+    workdir: String(row?.workdir),
+    firstPrompt: title || (typeof row?.lastPrompt === "string" ? row.lastPrompt : ""),
+    at: Date.parse(String(row?.lastActivityAt)) || Date.parse(String(row?.createdAt)) || 0,
+    kind: typeof row?.kind === "string" ? row.kind : "chat",
+    parentSessionId: typeof row?.parentSessionId === "string" ? row.parentSessionId : void 0,
+    agentFields: {
+      hostToolsFrom: row?.hostToolsFrom,
+      browserProvider: row?.browserProvider,
+      originSurface: row?.originSurface
+    }
+  };
+}
+function sessionKindPrefix(kind, parentSessionId) {
+  const parent = parentSessionId ? ` ${parentSessionId.slice(0, 8)}` : "";
+  if (kind === "scheduled") return `\u25D4${parent} `;
+  if (kind === "subagent") return `\u21B3${parent} `;
+  if (kind === "agent") return "\u25C6 ";
+  return "";
+}
+function resumeRows(entries, workdir) {
+  const kept = entries.filter(
+    (entry) => entry.kind !== "subagent" && entry.firstPrompt.trim().length > 0
+  );
+  if (!workdir) return kept;
+  const here = kept.filter((entry) => entry.workdir === workdir);
+  const elsewhere = kept.filter((entry) => entry.workdir !== workdir);
+  return [...here, ...elsewhere];
+}
+function resumeView(rows, workdir, showElsewhere) {
+  if (!workdir) return { rows, hiddenElsewhere: 0 };
+  const here = rows.filter((entry) => entry.workdir === workdir);
+  const elsewhere = rows.length - here.length;
+  if (showElsewhere || here.length === 0) return { rows, hiddenElsewhere: 0 };
+  return { rows: here, hiddenElsewhere: elsewhere };
+}
+function stateDir(env3, home2) {
+  return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home2}/.snowpea`;
+}
+function parseHistory(contents) {
+  if (!contents) return [];
+  const out = [];
+  for (const line of contents.split("\n")) {
+    if (line.trim().length === 0) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (typeof entry.text === "string" && entry.text.length > 0) {
+        out.push({
+          text: entry.text,
+          at: typeof entry.at === "number" ? entry.at : 0,
+          workdir: typeof entry.workdir === "string" ? entry.workdir : ""
+        });
+      }
+    } catch {
+    }
+  }
+  return out;
+}
+var TuiHistory = class {
+  constructor(store, dir) {
+    this.store = store;
+    this.dir = dir;
+  }
+  entries = [];
+  /** Read the history from disk. Safe to call before anything exists. */
+  load() {
+    this.entries = parseHistory(this.store.read(this.store.join(this.dir, HISTORY_FILE)));
+    return this.entries;
+  }
+  /** The prompts, oldest first. */
+  prompts() {
+    return this.entries.map((entry) => entry.text);
+  }
+  /**
+   * Add one prompt and write the file back.
+   *
+   * A prompt repeated straight away is not recorded twice: walking back through
+   * a history full of the same line is the thing that makes history useless.
+   */
+  add(text6, workdir, now = Date.now()) {
+    const trimmed = text6.trim();
+    if (trimmed.length === 0) return;
+    if (this.entries[this.entries.length - 1]?.text === trimmed) return;
+    this.entries.push({ text: trimmed, at: now, workdir });
+    if (this.entries.length > MAX_HISTORY) {
+      this.entries = this.entries.slice(this.entries.length - MAX_HISTORY);
+    }
+    try {
+      this.store.write(
+        this.store.join(this.dir, HISTORY_FILE),
+        `${this.entries.map((entry) => JSON.stringify(entry)).join("\n")}
+`
+      );
+    } catch {
+    }
+  }
+};
+function parseSessions(contents) {
+  if (!contents) return {};
+  try {
+    const parsed = JSON.parse(contents);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+var SessionMemory = class {
+  constructor(store, dir) {
+    this.store = store;
+    this.dir = dir;
+  }
+  records = {};
+  load() {
+    this.records = parseSessions(this.store.read(this.store.join(this.dir, SESSIONS_FILE)));
+    return this.records;
+  }
+  /** What was last open in this directory, if anything. */
+  last(workdir) {
+    return this.records[workdir] ?? null;
+  }
+  /** Remember this session as the directory's most recent one. */
+  remember(record) {
+    this.records[record.workdir] = record;
+    try {
+      this.store.write(
+        this.store.join(this.dir, SESSIONS_FILE),
+        `${JSON.stringify(this.records, null, 2)}
+`
+      );
+    } catch {
+    }
+  }
+};
+function priorSession(sessions, workdir, currentSessionId) {
+  const candidates = sessions.filter((entry) => entry.workdir === workdir && entry.sessionId !== currentSessionId).map((entry) => ({
+    sessionId: entry.sessionId,
+    workdir: entry.workdir,
+    firstPrompt: "",
+    at: entry.createdAt ? Date.parse(entry.createdAt) || 0 : 0
+  })).sort((a, b) => b.at - a.at);
+  return candidates[0] ?? null;
+}
+function offerSession(local, live) {
+  if (!live) return local;
+  if (!local || local.sessionId !== live.sessionId) return live;
+  return { ...live, firstPrompt: local.firstPrompt, at: Math.max(live.at, local.at) };
+}
+function relativeTime(then, now = Date.now()) {
+  const seconds = Math.max(0, Math.round((now - then) / 1e3));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "yesterday" : `${days}d ago`;
+}
+
+// src/state/session-picker.ts
+function recordIdentity(record) {
+  return agentOfSession(record.agentFields);
+}
+function lastSegment(path) {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+function sessionItems(records, workdir) {
+  return records.map((record) => ({
+    key: `s:${record.sessionId}`,
+    identity: recordIdentity(record),
+    title: `${sessionKindPrefix(record.kind, record.parentSessionId)}${record.firstPrompt.trim() || "(no prompt)"}`,
+    at: record.at,
+    id: record.sessionId.slice(0, 8),
+    elsewhere: workdir && record.workdir !== workdir ? lastSegment(record.workdir) : void 0,
+    session: record
+  }));
+}
+function externalItems(rows) {
+  return rows.map((row) => ({
+    key: `e:${row.ref.cli}:${row.ref.id}`,
+    identity: agentOfExternal(row.ref.cli),
+    title: (row.title ?? "").trim() || (row.preview ?? "").trim() || row.ref.id.slice(0, 8),
+    at: Date.parse(String(row.updatedAt ?? "")) || 0,
+    id: row.ref.id.slice(0, 8),
+    external: row
+  }));
+}
+function pickerItems(records, externals, workdir, showElsewhere) {
+  const view = resumeView([...records], workdir, showElsewhere);
+  const mine = sessionItems(view.rows, workdir);
+  const here = [...mine.filter((item) => !item.elsewhere), ...externalItems(externals)];
+  const sorted = here.map((item, order) => ({ item, order })).sort((a, b) => b.item.at - a.item.at || a.order - b.order).map((entry) => entry.item);
+  return { items: [...sorted, ...mine.filter((item) => item.elsewhere)], hiddenElsewhere: view.hiddenElsewhere };
+}
+function applyFilter(items, filter) {
+  return filter === "all" ? [...items] : items.filter((item) => item.identity.kind === filter);
+}
+function itemText(item, width, now = Date.now()) {
+  const where = item.elsewhere ? `[${item.elsewhere}] ` : "";
+  const age = item.at > 0 ? relativeTime(item.at, now) : "";
+  const right2 = width >= 52 && age ? `${item.id} \xB7 ${age}` : age || item.id;
+  return spread(`${where}${item.title}`, right2, width);
+}
+function externalToggleLabel(on) {
+  return on ? "external sessions: shown (e hides)" : "external sessions: hidden (e shows)";
+}
+
+// src/components/ChoiceList.tsx
+var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+function otherRowIndex(options, allowOther) {
+  return allowOther ? options.length : -1;
+}
+function windowStart(index, total, size) {
+  if (total <= size) return 0;
+  return Math.max(0, Math.min(index - size + 2, total - size));
+}
+function ChoiceList({
+  options,
+  selectedIndex,
+  checked,
+  multi = false,
+  radio = false,
+  numbered = false,
+  allowOther = false,
+  otherLabel = "Other\u2026",
+  otherText = null,
+  color = "cyan",
+  windowSize,
+  descriptionMode = "block",
+  hint,
+  showPreview = true
+}) {
+  const size = windowSize ?? options.length;
+  const start = windowStart(selectedIndex, options.length, Math.max(size, 1));
+  const shown = options.slice(start, start + Math.max(size, 1));
+  const hiddenAbove = start;
+  const hiddenBelow = Math.max(0, options.length - (start + shown.length));
+  const preview = showPreview ? options[selectedIndex]?.preview ?? "" : "";
+  const other = otherRowIndex(options, allowOther);
+  const row = (option, index) => {
+    const here = index === selectedIndex;
+    const held = checked?.has(index) ?? false;
+    const mark = multi ? held ? "[x] " : "[ ] " : radio ? held ? "\u25CF " : "\u25CB " : "";
+    const number2 = numbered ? `${index + 1}. ` : "";
+    const rowColor2 = option.danger ? "red" : here ? color : option.color;
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: here ? option.danger ? "red" : color : void 0, bold: here, children: here ? "\u276F " : "  " }),
+        option.tag ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: option.tagColor, bold: true, wrap: "truncate-end", children: option.tag }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Box_default, { flexShrink: descriptionMode === "inline" ? 0 : 1, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          Text,
+          {
+            inverse: here,
+            bold: here || option.bold,
+            color: rowColor2,
+            dimColor: !here && !held && !option.danger && !option.color,
+            wrap: "truncate-end",
+            children: ` ${number2}${mark}${option.label} `
+          }
+        ) }),
+        option.shortcut ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, children: `  (${option.shortcut})` }) : null,
+        option.description && descriptionMode === "inline" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  ${option.description}` }) : null,
+        option.badge ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: option.badgeColor ?? color, children: `  ${option.badge}` }) : null
+      ] }),
+      option.description && descriptionMode === "block" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `      ${option.description}` }) : null
+    ] }, `${index}-${option.label}`);
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
+        hiddenAbove > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, children: `   \u2191 ${hiddenAbove} more` }) : null,
+        shown.map((option, offset) => row(option, start + offset)),
+        hiddenBelow > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, children: `   \u2193 ${hiddenBelow} more` }) : null,
+        allowOther ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: selectedIndex === other ? color : void 0, bold: selectedIndex === other, children: selectedIndex === other ? "\u276F " : "  " }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            Text,
+            {
+              inverse: selectedIndex === other,
+              color: selectedIndex === other ? color : void 0,
+              dimColor: selectedIndex !== other && !otherText,
+              children: ` ${otherText ? `\u25CF ${otherText}` : otherLabel} `
+            }
+          )
+        ] }) : null
+      ] }),
+      preview ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        Box_default,
+        {
+          flexDirection: "column",
+          marginLeft: 2,
+          borderStyle: "single",
+          borderColor: "gray",
+          paddingX: 1,
+          children: preview.split("\n").map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `preview-${index}`))
+        }
+      ) : null
+    ] }),
+    hint === null || hint === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, children: hint })
+  ] });
+}
+
+// src/components/SessionPicker.tsx
+var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
+var SESSION_PICKER_CHROME_ROWS = 3;
+function SessionPicker({
+  records,
+  externals,
+  externalsLoading = false,
+  externalsError = null,
+  includeExternal,
+  onToggleExternal,
+  workdir,
+  showElsewhere,
+  onRevealElsewhere,
+  onOpenSession,
+  onOpenExternal,
+  onCancel,
+  width,
+  windowSize,
+  now = Date.now()
+}) {
+  const [filter, setFilter] = (0, import_react22.useState)("all");
+  const [index, setIndex] = (0, import_react22.useState)(0);
+  const view = pickerItems(records, includeExternal ? externals : [], workdir, showElsewhere);
+  const identities = view.items.map((item) => item.identity);
+  const active = filterChoices(identities).includes(filter) ? filter : "all";
+  const shown = applyFilter(view.items, active);
+  const column = tagColumnWidth(shown.map((item) => item.identity));
+  const textWidth2 = Math.max(16, width - 6 - (column > 0 ? column : 0));
+  const options = shown.map((item) => ({
+    tag: column > 0 ? tagCell(item.identity, column) : void 0,
+    tagColor: item.identity.color,
+    label: itemText(item, textWidth2, now)
+  }));
+  const revealAt = options.length;
+  if (active === "all" && view.hiddenElsewhere > 0) {
+    options.push({ label: `\u25B8 Sessions from other directories (${view.hiddenElsewhere})\u2026` });
+  }
+  const cancelAt = options.length;
+  options.push({ label: "Cancel" });
+  (0, import_react22.useEffect)(() => {
+    setIndex((at) => Math.min(at, options.length - 1));
+  }, [options.length]);
+  const choose = (at) => {
+    if (at === cancelAt) return onCancel();
+    if (at === revealAt && at < cancelAt) return onRevealElsewhere();
+    const item = shown[at];
+    if (!item) return;
+    if (item.external) onOpenExternal(item.external);
+    else if (item.session) onOpenSession(item.session.sessionId);
+  };
+  useChoiceKeys({
+    count: options.length,
+    index,
+    onIndex: setIndex,
+    onEnter: choose,
+    onCancel,
+    onDigit: setIndex,
+    digitLimit: shown.length,
+    shortcuts: {
+      e: onToggleExternal,
+      f: () => {
+        setFilter(nextFilter(active, identities));
+        setIndex(0);
+      }
+    },
+    vim: false
+  });
+  const legend = legendLine(shown.map((item) => item.identity), width - 2);
+  const header = [
+    `filter: ${filterLabel(active)}`,
+    externalsLoading ? "external sessions: loading\u2026" : externalsError ? `external: ${externalsError}` : externalToggleLabel(includeExternal)
+  ].join(" \xB7 ");
+  const canFilter = filterChoices(identities).length > 1;
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: fit(header, width - 2) }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      ChoiceList,
+      {
+        options,
+        selectedIndex: index,
+        color: currentAccent(),
+        windowSize,
+        hint: null
+      }
+    ),
+    legend ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: legend }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: fit(
+      choiceHint({
+        enter: "resume",
+        cancel: "cancel",
+        extra: ["e external", canFilter ? "f filter" : ""]
+      }),
+      width - 2
+    ) })
+  ] });
+}
+
 // src/state/voice.ts
 var RECORD_KEY = typeof process !== "undefined" && process.platform === "darwin" ? "Ctrl+T" : "Ctrl+Space";
 var noAudio = {
@@ -34398,72 +35170,72 @@ function reasonFor(capabilities, name, fallback) {
   const reason = capabilities.reasons?.[name];
   return reason && reason.length > 0 ? reason : fallback;
 }
-function toggleVoiceInput(state, capabilities, { localRecorder = false } = {}) {
-  if (state.input) {
-    return { state: { ...state, input: false, recording: false, startedAt: null }, message: "voice input off", ok: true };
+function toggleVoiceInput(state2, capabilities, { localRecorder = false } = {}) {
+  if (state2.input) {
+    return { state: { ...state2, input: false, recording: false, startedAt: null }, message: "voice input off", ok: true };
   }
   if (!capabilities.stt) {
     return {
-      state,
+      state: state2,
       message: `voice input needs speech-to-text: ${reasonFor(capabilities, "stt", "the daemon reports none")}`,
       ok: false
     };
   }
   if (!capabilities.record && !localRecorder) {
     return {
-      state,
+      state: state2,
       message: `voice input needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
       ok: false
     };
   }
   const backend = capabilities.sttProvider ? ` (${capabilities.sttProvider})` : "";
   return {
-    state: { ...state, input: true },
+    state: { ...state2, input: true },
     message: `voice input on${backend} \xB7 ${RECORD_KEY} to record`,
     ok: true
   };
 }
-function setTts(state, capabilities, on, { localPlayer = false } = {}) {
-  if (!on) return { state: { ...state, tts: false }, message: "speech off", ok: true };
+function setTts(state2, capabilities, on, { localPlayer = false } = {}) {
+  if (!on) return { state: { ...state2, tts: false }, message: "speech off", ok: true };
   if (!capabilities.tts) {
     return {
-      state,
+      state: state2,
       message: `speech needs text-to-speech: ${reasonFor(capabilities, "tts", "the daemon reports none")}`,
       ok: false
     };
   }
   if (!capabilities.play && !localPlayer) {
     return {
-      state,
+      state: state2,
       message: `speech needs an output device: ${reasonFor(capabilities, "play", "the daemon cannot play audio")}`,
       ok: false
     };
   }
   const backend = capabilities.ttsProvider ? ` (${capabilities.ttsProvider})` : "";
-  return { state: { ...state, tts: true }, message: `speech on${backend}`, ok: true };
+  return { state: { ...state2, tts: true }, message: `speech on${backend}`, ok: true };
 }
-function startRecording(state, capabilities, now, { localRecorder = false } = {}) {
-  if (state.recording) return { state, message: "already recording", ok: false };
+function startRecording(state2, capabilities, now, { localRecorder = false } = {}) {
+  if (state2.recording) return { state: state2, message: "already recording", ok: false };
   if (!capabilities.record && !localRecorder) {
     return {
-      state,
+      state: state2,
       message: `recording needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
       ok: false
     };
   }
   return {
-    state: { ...state, input: true, recording: true, startedAt: now },
+    state: { ...state2, input: true, recording: true, startedAt: now },
     message: `recording \xB7 ${RECORD_KEY} to stop`,
     ok: true
   };
 }
-function stopRecording(state, now) {
-  if (!state.recording) {
-    return { state, message: "not recording", ok: false, elapsedMs: 0 };
+function stopRecording(state2, now) {
+  if (!state2.recording) {
+    return { state: state2, message: "not recording", ok: false, elapsedMs: 0 };
   }
-  const elapsedMs = state.startedAt === null ? 0 : Math.max(0, now - state.startedAt);
+  const elapsedMs = state2.startedAt === null ? 0 : Math.max(0, now - state2.startedAt);
   return {
-    state: { ...state, recording: false, startedAt: null },
+    state: { ...state2, recording: false, startedAt: null },
     message: "transcribing\u2026",
     ok: true,
     elapsedMs
@@ -34515,651 +35287,30 @@ function shouldShowSlashPalette(draft, completions) {
   });
 }
 
-// src/slash/registry.ts
-var SURFACE_COMMANDS = [
-  {
-    name: "new",
-    summary: "Open a fresh session in this directory (/session new); /resume brings the old one back.",
-    source: "tui"
-  },
-  {
-    name: "resume",
-    summary: "Resume the last session in this directory, or /resume <sessionId>.",
-    source: "tui"
-  },
-  {
-    name: "session",
-    summary: "Open a new session or delete saved ones: /session new | delete <id> | clear [--all].",
-    source: "tui"
-  },
-  {
-    name: "sessions",
-    summary: "List saved sessions and choose one to resume.",
-    source: "tui"
-  },
-  {
-    name: "voice",
-    summary: `Voice input: /voice toggles, /voice on|off; then ${RECORD_KEY} (or /rec) records.`,
-    source: "tui"
-  },
-  { name: "rec", summary: "Start or stop a recording.", source: "tui" },
-  {
-    name: "tts",
-    summary: "Spoken replies: /tts on|off, /tts voices, /tts voice <id> [lang].",
-    source: "tui"
-  },
-  {
-    name: "mouse",
-    summary: "Mouse on|off: click \u25EF rows to open an agent (Shift+drag selects while on).",
-    source: "tui"
+// src/util/sanitize.ts
+var ESCAPES5 = /(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)?|(?:\x1b[PX^_]|[\x90\x98\x9e\x9f])[^\x1b\x9c]*(?:\x1b\\|\x9c)?|(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]?|\x1b[ -/]*[0-~]?/g;
+var CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
+var BIDI = /[‪-‮⁦-⁩]/g;
+var ANY = /[\x00-\x08\x0b-\x1f\x7f-\x9f‪-‮⁦-⁩]/;
+function sanitizeText(text6) {
+  if (!ANY.test(text6)) return text6;
+  return text6.replace(/\r\n/g, "\n").replace(ESCAPES5, "").replace(CONTROLS, "").replace(BIDI, "");
+}
+function sanitizeDeep(value, depth = 0) {
+  if (typeof value === "string") return sanitizeText(value);
+  if (value === null || typeof value !== "object" || depth > 64) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeDeep(item, depth + 1));
   }
-];
-var TTS_ACTIONS = [
-  { action: "on", summary: "Read every finished reply aloud." },
-  { action: "off", summary: "Stop reading replies." },
-  { action: "voices", summary: "List the pinned engine's voices." },
-  { action: "voice", summary: "/tts voice <id> [lang] \u2014 pick a voice." }
-];
-function ttsSubCommands(draft) {
-  return subCommands(draft, "tts", TTS_ACTIONS);
-}
-var VOICE_ACTIONS = [
-  { action: "on", summary: `Arm voice input; ${RECORD_KEY} records.` },
-  { action: "off", summary: "Disarm voice input." }
-];
-function voiceSubCommands(draft) {
-  return subCommands(draft, "voice", VOICE_ACTIONS);
-}
-function subCommands(draft, command, actions) {
-  const match = new RegExp(`^\\/${command}(?:\\s+([^\\s]*))?$`).exec(draft);
-  if (!match) return [];
-  const typed = match[1] ?? "";
-  if (typed === "" && /\s$/.test(draft)) return [];
-  return actions.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({ name: `${command} ${entry.action}`, summary: entry.summary, source: "tui" }));
-}
-function withSurfaceCommands(commands) {
-  const names = new Set(commands.map((command) => command.name));
-  return [...commands, ...SURFACE_COMMANDS.filter((command) => !names.has(command.name))];
-}
-function parse(input) {
-  if (!input.startsWith("/")) return null;
-  const body = input.slice(1);
-  const match = /^([^\s]+)\s*([\s\S]*)$/.exec(body);
-  if (!match) return null;
-  const name = match[1];
-  if (name.length === 0) return null;
-  return { name, args: match[2] ?? "" };
-}
-var SlashRegistry = class {
-  constructor(client, sessionId = null) {
-    this.client = client;
-    this.sessionId = sessionId;
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    out[sanitizeText(key)] = sanitizeDeep(item, depth + 1);
   }
-  commands = [];
-  /** Fetch the command table from the daemon. Also used by `refresh()`. */
-  async load() {
-    const params = this.sessionId ? { sessionId: this.sessionId } : {};
-    const result = await this.client.call("command.list", params);
-    const commands = Array.isArray(result?.commands) ? result.commands : [];
-    this.commands = withSurfaceCommands(commands);
-    return this.commands;
-  }
-  /**
-   * Re-fetch after anything that can change the server-side table
-   * (`skill.reload`, plugin install, or a `commands.changed` event).
-   */
-  refresh() {
-    return this.load();
-  }
-  list() {
-    return this.commands;
-  }
-  /** Autocomplete candidates for a typed prefix, with or without the slash. */
-  complete(prefix) {
-    const body = prefix.startsWith("/") ? prefix.slice(1) : prefix;
-    if (body.includes(" ")) return [];
-    const needle = body.split(/\s/)[0] ?? "";
-    if (needle.length === 0) return this.commands;
-    return rankCommandMatches(this.commands, needle);
-  }
-  /**
-   * Run a `/...` line. Returns null when the input is not a slash command, so
-   * the caller falls back to `session.prompt`.
-   */
-  async dispatch(input) {
-    const parsed = parse(input);
-    if (!parsed) return null;
-    return await this.client.call("command.run", {
-      sessionId: this.sessionId,
-      name: parsed.name,
-      args: parsed.args
-    });
-  }
-};
-
-// src/state/update.ts
-var initialUpdateState = {
-  phase: "idle",
-  current: "",
-  latest: "",
-  message: "",
-  dismissed: false
-};
-function fromCheck(state, check) {
-  const current2 = check.current ?? state.current;
-  const latest = check.latest ?? state.latest;
-  if (state.phase === "running" || state.phase === "done" || state.phase === "confirm") {
-    return { ...state, current: current2, latest };
-  }
-  if (!check.available || check.error) {
-    const stale = state.phase === "available" && !check.error && !check.available;
-    return { ...state, phase: stale ? "idle" : state.phase, current: current2, latest };
-  }
-  return { ...state, phase: state.dismissed ? "idle" : "available", current: current2, latest };
-}
-function confirm(state) {
-  if (state.phase === "running" || state.phase === "done") return state;
-  return { ...state, phase: "confirm", dismissed: false };
-}
-function cancel(state) {
-  if (state.phase === "running" || state.phase === "done") return state;
-  return { ...state, phase: "idle", dismissed: true };
-}
-function progress(state, phase, message) {
-  const next = phase === "started" ? "running" : phase;
-  return { ...state, phase: next, message };
-}
-function bannerText(state) {
-  switch (state.phase) {
-    case "available":
-      return `\u2B06 Update available v${state.latest} (current v${state.current}) \u2014 press U or type /update`;
-    case "confirm":
-      return state.latest && state.current ? `\u2B06 Update to v${state.latest} from v${state.current}? [y/N]` : "\u2B06 Check for an update and install it? [y/N]";
-    case "running":
-      return `\u2B06 ${state.message || `Updating to v${state.latest}\u2026`}`;
-    case "done":
-      return `\u2B06 Updated to v${state.latest} \u2014 restarting\u2026`;
-    case "failed":
-      return `\u2B06 Update failed: ${state.message || "see the update log"}`;
-    default:
-      return null;
-  }
-}
-
-// src/layout/language.ts
-var UI_LANGUAGES = ["en", "ko", "ja", "zh"];
-var DEFAULT = "en";
-var current = DEFAULT;
-function asUiLanguage(tag) {
-  const key = String(tag ?? "").trim().toLowerCase().replace("_", "-").split("-")[0];
-  return UI_LANGUAGES.includes(key) ? key : DEFAULT;
-}
-function uiLanguage() {
-  return current;
-}
-function setUiLanguage(tag) {
-  current = asUiLanguage(tag);
-  return current;
-}
-function detectLanguage(text2) {
-  if (!text2) return DEFAULT;
-  let kana = 0;
-  let han = 0;
-  for (const character of text2) {
-    const code = character.codePointAt(0) ?? 0;
-    if (code >= 44032 && code <= 55203 || code >= 4352 && code <= 4607 || code >= 12592 && code <= 12687) {
-      return "ko";
-    }
-    if (code >= 12352 && code <= 12447 || code >= 12448 && code <= 12543 || code >= 65382 && code <= 65437) {
-      kana += 1;
-    } else if (code >= 19968 && code <= 40959 || code >= 13312 && code <= 19903 || code >= 63744 && code <= 64255) {
-      han += 1;
-    }
-  }
-  if (kana > 0) return "ja";
-  if (han > 0) return "zh";
-  return DEFAULT;
-}
-
-// src/state/mcp.ts
-var STATES = ["stopped", "starting", "ready", "error"];
-var SCOPES = ["project", "global", "plugin", "settings"];
-function text(value) {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-function strings(value) {
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
-}
-function tools(value) {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((row) => {
-    const entry = row ?? {};
-    const name = typeof entry.name === "string" ? entry.name : "";
-    if (name.length === 0) return [];
-    return [{ name, description: typeof entry.description === "string" ? entry.description : "" }];
-  });
-}
-function readMcpList(result) {
-  const rows = result?.servers;
-  if (!Array.isArray(rows)) return [];
-  return rows.flatMap((row) => {
-    const value = row ?? {};
-    const name = typeof value.name === "string" ? value.name : "";
-    if (name.length === 0) return [];
-    const found = tools(value.tools);
-    return [
-      {
-        name,
-        scope: SCOPES.includes(value.scope) ? value.scope : "project",
-        transport: value.transport === "http" || value.transport === "sse" ? value.transport : "stdio",
-        state: STATES.includes(value.state) ? value.state : "stopped",
-        command: text(value.command),
-        url: text(value.url),
-        args: strings(value.args),
-        envKeys: strings(value.envKeys),
-        headerKeys: strings(value.headerKeys),
-        disabled: value.disabled === true,
-        error: text(value.error),
-        toolCount: typeof value.toolCount === "number" ? value.toolCount : found.length,
-        tools: found,
-        toolsInclude: strings(value.toolsInclude),
-        plugin: text(value.plugin)
-      }
-    ];
-  });
-}
-function readMcpCatalog(result) {
-  const rows = result?.entries;
-  if (!Array.isArray(rows)) return [];
-  return rows.flatMap((row) => {
-    const value = row ?? {};
-    const id = typeof value.id === "string" ? value.id : "";
-    if (id.length === 0) return [];
-    return [
-      {
-        id,
-        label: typeof value.label === "string" ? value.label : id,
-        description: typeof value.description === "string" ? value.description : "",
-        transport: value.transport === "http" || value.transport === "sse" ? value.transport : "stdio",
-        entry: value.entry ?? {},
-        needs: strings(value.needs)
-      }
-    ];
-  });
-}
-function applyMcpChange(rows, payload) {
-  const value = payload ?? {};
-  const name = typeof value.name === "string" ? value.name : "";
-  if (name.length === 0) return rows;
-  if (value.removed === true) return rows.filter((row) => row.name !== name);
-  const state = STATES.includes(value.state) ? value.state : "stopped";
-  const toolCount = typeof value.toolCount === "number" ? value.toolCount : void 0;
-  const scope = SCOPES.includes(value.scope) ? value.scope : void 0;
-  const error = text(value.error);
-  const known = rows.find((row) => row.name === name);
-  if (!known) {
-    return [
-      ...rows,
-      {
-        name,
-        scope: scope ?? "project",
-        transport: "stdio",
-        state,
-        command: null,
-        url: null,
-        args: [],
-        envKeys: [],
-        headerKeys: [],
-        disabled: false,
-        error,
-        toolCount: toolCount ?? 0,
-        tools: [],
-        toolsInclude: [],
-        plugin: null
-      }
-    ];
-  }
-  return rows.map(
-    (row) => row.name === name ? { ...row, state, error, scope: scope ?? row.scope, toolCount: toolCount ?? row.toolCount } : row
-  );
-}
-function mcpLabel(rows) {
-  const counted = rows.filter((row) => !row.disabled);
-  if (counted.length === 0) return null;
-  const ready = counted.filter((row) => row.state === "ready").length;
-  return `mcp ${ready}/${counted.length}`;
-}
-function mcpColor(rows) {
-  return rows.some((row) => row.state === "error") ? "red" : void 0;
-}
-var MCP_ACTIONS = [
-  { action: "list", summary: "Every configured server: scope, transport, state, tools." },
-  { action: "add", summary: "Add a server; with no arguments this opens a form." },
-  { action: "add-json", summary: "Add a raw .mcp.json entry, verbatim." },
-  { action: "catalog", summary: "The curated presets --preset accepts." },
-  { action: "get", summary: "One server in full, with its tools.", takesName: true },
-  { action: "test", summary: "Start it, list its tools, report the error.", takesName: true },
-  { action: "configure", summary: "Choose which of its tools are registered.", takesName: true },
-  { action: "enable", summary: "Start this entry again.", takesName: true },
-  { action: "disable", summary: "Keep the entry but stop starting it.", takesName: true },
-  { action: "remove", summary: "Delete the entry and stop the server.", takesName: true },
-  { action: "reload", summary: "Restart one server, or re-read every declaration." }
-];
-var MCP_NAME_ACTIONS = MCP_ACTIONS.filter(
-  (entry) => entry.takesName
-).map((entry) => entry.action);
-function scopeTag(row) {
-  const state = row.disabled ? "disabled" : row.state;
-  return `${row.scope} \xB7 ${state} \xB7 ${row.toolCount} tool${row.toolCount === 1 ? "" : "s"}`;
-}
-function mcpSubCommands(draft, servers = [], catalog = []) {
-  const preset = /^\/mcp\s+add\s+.*--preset(?:=|\s+)([^\s]*)$/.exec(draft);
-  if (preset) {
-    const typed2 = preset[1] ?? "";
-    const head = draft.slice(1, draft.length - typed2.length);
-    return catalog.filter((entry) => entry.id.startsWith(typed2)).map((entry) => ({
-      name: `${head}${entry.id}`,
-      summary: entry.description || entry.label,
-      source: "core"
-    }));
-  }
-  const named = /^\/mcp\s+([a-z-]+)\s+([^\s-][^\s]*|)$/.exec(draft);
-  if (named && MCP_NAME_ACTIONS.includes(named[1])) {
-    const typed2 = named[2] ?? "";
-    return servers.filter((row) => row.name.startsWith(typed2)).map((row) => ({
-      name: `mcp ${named[1]} ${row.name}`,
-      summary: scopeTag(row),
-      source: "core"
-    }));
-  }
-  const match = /^\/mcp(?:\s+([^\s]*))?$/.exec(draft);
-  if (!match) return [];
-  const typed = match[1] ?? "";
-  return MCP_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
-    name: `mcp ${entry.action}`,
-    summary: entry.summary,
-    source: "core"
-  }));
-}
-function isBareMcpAdd(text2) {
-  return /^\/mcp\s+add\s*$/.test(text2.trim());
-}
-function isBareMcpCatalog(text2) {
-  return /^\/mcp\s+catalog\s*$/.test(text2.trim());
-}
-function parseMcpConfigure(text2) {
-  const match = /^\/mcp\s+configure\s+([A-Za-z0-9_-]{1,64})\s*$/.exec(text2.trim());
-  return match ? match[1] : null;
-}
-function isValidMcpName(name) {
-  return /^[a-zA-Z0-9_-]{1,64}$/.test(name.trim());
-}
-function splitArgs(line) {
-  const out = [];
-  let current2 = "";
-  let quote = null;
-  let started = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    if (char === "\\" && quote !== "'" && i + 1 < line.length) {
-      current2 += line[i + 1];
-      started = true;
-      i += 1;
-      continue;
-    }
-    if (quote) {
-      if (char === quote) quote = null;
-      else current2 += char;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      started = true;
-      continue;
-    }
-    if (/\s/.test(char)) {
-      if (started) out.push(current2);
-      current2 = "";
-      started = false;
-      continue;
-    }
-    current2 += char;
-    started = true;
-  }
-  if (started) out.push(current2);
   return out;
-}
-function parseAssignment(line) {
-  const index = line.indexOf("=");
-  if (index <= 0) return null;
-  const key = line.slice(0, index).trim();
-  if (key.length === 0) return null;
-  return { key, value: line.slice(index + 1) };
-}
-var MASK = "\u2022\u2022\u2022";
-function maskAssignment(key) {
-  return `${key}=${MASK}`;
-}
-function emptyDraft() {
-  return { name: "", transport: "stdio", commandLine: "", url: "", env: [], headers: [], scope: "project" };
-}
-function draftFromCatalog(entry) {
-  const raw = entry.entry ?? {};
-  const command = typeof raw.command === "string" ? raw.command : "";
-  const args = strings(raw.args);
-  const url = typeof raw.url === "string" ? raw.url : "";
-  return {
-    name: entry.id,
-    transport: url ? "url" : "stdio",
-    commandLine: [command, ...args].filter(Boolean).join(" "),
-    url,
-    env: entry.needs.map((key) => ({ key, value: "" })),
-    headers: [],
-    scope: "project"
-  };
-}
-function draftParams(draft) {
-  const pairs = (entries) => Object.fromEntries(entries.map((entry) => [entry.key, entry.value]));
-  if (draft.transport === "url") {
-    return {
-      name: draft.name.trim(),
-      url: draft.url.trim(),
-      headers: pairs(draft.headers),
-      scope: draft.scope
-    };
-  }
-  const argv = splitArgs(draft.commandLine);
-  return {
-    name: draft.name.trim(),
-    command: argv[0] ?? "",
-    args: argv.slice(1),
-    env: pairs(draft.env),
-    scope: draft.scope
-  };
-}
-function readMcpProbe(result) {
-  const value = result ?? {};
-  return {
-    ok: value.ok === true,
-    tools: tools(value.tools),
-    error: text(value.error)
-  };
-}
-function isUnsafeError(error) {
-  return error !== null && /mcp_unsafe/i.test(error);
-}
-function probeSummary(probe) {
-  const names = probe.tools.map((tool) => tool.name);
-  const head = `Connected \u2014 ${names.length} tool${names.length === 1 ? "" : "s"}`;
-  if (names.length === 0) return head;
-  const shown = names.slice(0, 8).join(", ");
-  return `${head}: ${shown}${names.length > 8 ? ", \u2026" : ""}`;
-}
-
-// src/layout/palette.ts
-var LAVENDER = { r: 221, g: 214, b: 254 };
-var VIOLET = { r: 167, g: 139, b: 250 };
-var DEEP_VIOLET = { r: 124, g: 58, b: 237 };
-var BASIC_RAMP = ["magentaBright", "magenta", "blue"];
-function colorMode(env3, isTTY) {
-  if (env3.NO_COLOR !== void 0 && env3.NO_COLOR !== "") return "none";
-  if (!isTTY) return "none";
-  const colorTerm = (env3.COLORTERM ?? "").toLowerCase();
-  if (colorTerm.includes("truecolor") || colorTerm.includes("24bit")) return "truecolor";
-  if ((env3.TERM ?? "").includes("direct")) return "truecolor";
-  return "basic";
-}
-function mix(from, to, amount) {
-  const at = Math.min(1, Math.max(0, amount));
-  return {
-    r: Math.round(from.r + (to.r - from.r) * at),
-    g: Math.round(from.g + (to.g - from.g) * at),
-    b: Math.round(from.b + (to.b - from.b) * at)
-  };
-}
-function toHex({ r, g, b }) {
-  return `#${[r, g, b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
-}
-function gradientAt(position) {
-  const at = Math.min(1, Math.max(0, position));
-  return at <= 0.5 ? mix(LAVENDER, VIOLET, at * 2) : mix(VIOLET, DEEP_VIOLET, (at - 0.5) * 2);
-}
-function gradientColors(rows, mode) {
-  const count2 = Math.max(1, Math.floor(rows));
-  if (mode === "none") return new Array(count2).fill(void 0);
-  if (mode === "basic") {
-    return Array.from({ length: count2 }, (_, row) => {
-      const index = Math.min(
-        BASIC_RAMP.length - 1,
-        Math.floor(row / Math.max(1, count2 - 1) * BASIC_RAMP.length)
-      );
-      return BASIC_RAMP[index];
-    });
-  }
-  return Array.from(
-    { length: count2 },
-    (_, row) => toHex(gradientAt(count2 === 1 ? 0 : row / (count2 - 1)))
-  );
-}
-function accentColor(mode) {
-  if (mode === "truecolor") return toHex(VIOLET);
-  if (mode === "basic") return "magentaBright";
-  return "magenta";
-}
-function accentDimColor(mode) {
-  if (mode === "truecolor") return toHex(DEEP_VIOLET);
-  return "magenta";
-}
-function inputBackgroundColor(mode, env3 = process.env) {
-  const override = (env3.SNOWPEA_TUI_INPUT_BG ?? "").trim();
-  if (override) return override.toLowerCase() === "none" ? void 0 : override;
-  if (mode === "none") return void 0;
-  const background = Number((env3.COLORFGBG ?? "").split(";").pop());
-  const light = background === 7 || background === 15;
-  if (mode === "truecolor") return light ? "#ece9f3" : "#26232e";
-  return light ? "white" : "blackBright";
-}
-var testColorMode = null;
-var cachedMode = null;
-var cachedAccent = null;
-var cachedAccentDim = null;
-var cachedInputBackground = null;
-function resolvedColorMode() {
-  if (testColorMode !== null) return testColorMode;
-  if (cachedMode === null) {
-    cachedMode = colorMode(process.env, Boolean(process.stdout?.isTTY));
-  }
-  return cachedMode;
-}
-function currentAccent() {
-  if (cachedAccent === null) cachedAccent = accentColor(resolvedColorMode());
-  return cachedAccent;
-}
-function currentAccentDim() {
-  if (cachedAccentDim === null) cachedAccentDim = accentDimColor(resolvedColorMode());
-  return cachedAccentDim;
-}
-function currentInputBackground() {
-  if (cachedInputBackground === null) {
-    cachedInputBackground = inputBackgroundColor(resolvedColorMode());
-  }
-  return cachedInputBackground;
-}
-
-// src/layout/bottom.ts
-var CONTEXT_WARN_PERCENT = 70;
-var CONTEXT_ALERT_PERCENT = 80;
-var CONTEXT_CRITICAL_PERCENT = 85;
-var MODE_CHIP = {
-  auto: "\u23F5\u23F5 auto mode on",
-  accept: "\u25B6 accept mode",
-  plan: "\u23F8 plan mode"
-};
-function modeColor(mode) {
-  if (mode === "plan") return "cyan";
-  if (mode === "accept") return currentAccent();
-  return "yellow";
-}
-var MODE_PARTS = {
-  auto: { prefix: "\u23F5\u23F5 ", word: "auto", suffix: " mode on" },
-  accept: { prefix: "\u25B6 ", word: "accept", suffix: " mode" },
-  plan: { prefix: "\u23F8 ", word: "plan", suffix: " mode" }
-};
-function contextColor(percent) {
-  if (percent === null) return void 0;
-  if (percent >= CONTEXT_CRITICAL_PERCENT) return "red";
-  if (percent >= CONTEXT_WARN_PERCENT) return "yellow";
-  return void 0;
-}
-function contextSegment(context) {
-  if (!context) return null;
-  const estimated = context.estimated ? "~" : "";
-  const used = `${estimated}${formatTokens(context.used)}`;
-  if (!context.window || context.window <= 0) {
-    return { text: `ctx ${used} used`, dimColor: true };
-  }
-  const percent = context.percent ?? context.used / context.window * 100;
-  const color = contextColor(percent);
-  return {
-    text: `ctx ${Math.round(percent)}% (${used}/${formatTokens(context.window)})`,
-    color,
-    dimColor: color === void 0,
-    bold: percent >= CONTEXT_CRITICAL_PERCENT
-  };
-}
-function contextWarning(context) {
-  if (!context || !context.window || context.window <= 0) return null;
-  const percent = context.percent ?? context.used / context.window * 100;
-  if (percent < CONTEXT_ALERT_PERCENT) return null;
-  return {
-    text: `[!!] context ${Math.round(percent)}% \u2014 /compact to free space`,
-    color: percent >= CONTEXT_CRITICAL_PERCENT ? "red" : "yellow",
-    bold: percent >= CONTEXT_CRITICAL_PERCENT
-  };
-}
-function summaryLine({ mode, shells, agents }) {
-  const chip = MODE_PARTS[mode];
-  const tail = [" \xB7 \u21E7Tab change mode \xB7 Ctrl+P plan"];
-  if (shells > 0) tail.push(` \xB7 ${shells} ${shells === 1 ? "shell" : "shells"}`);
-  if (agents > 0) tail.push(` \xB7 \u2190 ${agents} ${agents === 1 ? "agent" : "agents"}`);
-  const text2 = `${MODE_CHIP[mode]}${tail.join("")}`;
-  const segments = [
-    { text: chip.prefix, dimColor: true },
-    { text: chip.word, color: modeColor(mode) },
-    { text: chip.suffix, dimColor: true },
-    { text: tail.join(""), dimColor: true }
-  ];
-  return { text: text2, segments };
-}
-function compactionDivider(before, after, width) {
-  const label = ` compacted (${formatTokens(before)} \u2192 ${formatTokens(after)} tokens) `;
-  const room = Math.max(0, Math.floor(width) - label.length);
-  const left2 = Math.floor(room / 2);
-  return `${"\u2500".repeat(left2)}${label}${"\u2500".repeat(room - left2)}`;
 }
 
 // src/state/lsp.ts
-var STATES2 = ["starting", "ready", "broken", "stopped"];
+var STATES = ["starting", "ready", "broken", "stopped"];
 function readLspStatus(result) {
   const rows = result?.servers;
   if (!Array.isArray(rows)) return [];
@@ -35167,12 +35318,12 @@ function readLspStatus(result) {
     const value = row ?? {};
     const id = typeof value.id === "string" ? value.id : "";
     if (id.length === 0) return [];
-    const state = STATES2.includes(value.state) ? value.state : "stopped";
+    const state2 = STATES.includes(value.state) ? value.state : "stopped";
     return [
       {
         id,
         root: typeof value.root === "string" ? value.root : "",
-        state,
+        state: state2,
         languageId: typeof value.languageId === "string" ? value.languageId : "",
         pid: typeof value.pid === "number" ? value.pid : null,
         reason: typeof value.reason === "string" && value.reason !== "" ? value.reason : null
@@ -35229,18 +35380,931 @@ function lspTable(all, workdir) {
   return [`language servers (${ready} ready${tail})`, ...rows].join("\n") + elsewhere;
 }
 function diagnosticLineColor(line) {
-  const text2 = line.trimStart();
-  if (text2.startsWith("ERROR")) return "red";
-  if (text2.startsWith("WARNING")) return "yellow";
+  const text6 = line.trimStart();
+  if (text6.startsWith("ERROR")) return "red";
+  if (text6.startsWith("WARNING")) return "yellow";
   return void 0;
 }
 function diagnosticsBadge(diagnostics) {
   if (!diagnostics || diagnostics.count <= 0) return null;
-  return `\u26A0 ${diagnostics.count}`;
+  return `\u25B2 ${diagnostics.count}`;
 }
 function diagnosticsColor(diagnostics) {
   if (!diagnostics || diagnostics.count <= 0) return void 0;
   return diagnostics.errors > 0 ? "red" : "yellow";
+}
+
+// src/layout/transcript.ts
+var TOOL_OUTPUT_LINES = 12;
+var COLLAPSED_ERROR_LINES = 3;
+var DIFF_LINES = 40;
+function roleMark(role) {
+  switch (role) {
+    case "user":
+      return { text: "\u203A ", color: currentAccent(), bold: true };
+    case "assistant":
+      return { text: "\u25C6 ", color: currentAccent(), bold: true };
+    case "system":
+      return { text: "! ", color: "yellow", bold: true };
+    // An aside from the surface itself, e.g. a replayed turn's `✓ Done` line: no
+    // speaker, so no marker and no attention-seeking colour.
+    default:
+      return { text: "", dimColor: true };
+  }
+}
+var TOOL_MARK = {
+  running: { text: "\u25CC ", color: "yellow" },
+  ok: { text: "\u2713 ", color: "green" },
+  error: { text: "\u2717 ", color: "red" }
+};
+function plainLength(segments) {
+  let total = 0;
+  for (const segment of segments) total += textWidth(segment.text);
+  return total;
+}
+function lineText(line) {
+  return line.segments.map((segment) => segment.text).join("");
+}
+function sliceSegments(segments, start, end2) {
+  const out = [];
+  let cursor = 0;
+  for (const segment of segments) {
+    const segStart = cursor;
+    const segEnd = cursor + segment.text.length;
+    cursor = segEnd;
+    if (segEnd <= start) continue;
+    if (segStart >= end2) break;
+    const text6 = segment.text.slice(Math.max(0, start - segStart), Math.min(segment.text.length, end2 - segStart));
+    if (text6.length > 0) out.push({ ...segment, text: text6 });
+  }
+  return out;
+}
+function wrapLine(line, width, indent = "") {
+  if (width <= 0 || plainLength(line.segments) <= width) return [line];
+  const text6 = lineText(line);
+  const parts = graphemes(text6);
+  const out = [];
+  let start = 0;
+  while (start < parts.length) {
+    const prefix = out.length === 0 ? "" : indent;
+    const room = Math.max(1, width - textWidth(prefix));
+    let end2 = start;
+    let used = 0;
+    while (end2 < parts.length && used + parts[end2].width <= room) {
+      used += parts[end2].width;
+      end2 += 1;
+    }
+    if (end2 === start) end2 += 1;
+    if (end2 < parts.length) {
+      let space = end2;
+      while (space > start && parts[space]?.text !== " ") space -= 1;
+      if (space > start) end2 = space;
+    }
+    const segments = sliceSegments(line.segments, parts[start].index, parts[end2]?.index ?? text6.length);
+    out.push({
+      key: `${line.key}-w${out.length}`,
+      segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments,
+      ...line.source !== void 0 ? { source: line.source } : {}
+    });
+    start = end2;
+    while (parts[start]?.text === " ") start += 1;
+  }
+  return out;
+}
+function inlineSegments(text6) {
+  const parts = [];
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(text6)) !== null) {
+    if (match.index > last) parts.push({ text: text6.slice(last, match.index) });
+    const token = match[0];
+    if (token.startsWith("`")) parts.push({ text: token.slice(1, -1), color: "cyan" });
+    else if (token.startsWith("**")) parts.push({ text: token.slice(2, -2), bold: true });
+    else parts.push({ text: token.slice(1, -1), italic: true });
+    last = match.index + token.length;
+  }
+  if (last < text6.length) parts.push({ text: text6.slice(last) });
+  return parts.length > 0 ? parts : [{ text: text6 }];
+}
+function tableCells(raw) {
+  const text6 = raw.trim();
+  if (!text6.includes("|")) return null;
+  const cells2 = [];
+  let cell = "";
+  let ticks = 0;
+  for (let i = 0; i < text6.length; i += 1) {
+    if (text6[i] === "\\" && text6[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+    } else if (text6[i] === "`") {
+      let end2 = i + 1;
+      while (text6[end2] === "`") end2 += 1;
+      const count3 = end2 - i;
+      if (ticks === 0) ticks = count3;
+      else if (ticks === count3) ticks = 0;
+      cell += text6.slice(i, end2);
+      i = end2 - 1;
+    } else if (text6[i] === "|" && ticks === 0) {
+      cells2.push(cell.trim());
+      cell = "";
+    } else cell += text6[i];
+  }
+  cells2.push(cell.trim());
+  if (text6.startsWith("|")) cells2.shift();
+  if (text6.endsWith("|") && cells2.at(-1) === "") cells2.pop();
+  return cells2.length > 0 ? cells2 : null;
+}
+function tableAt(source, start, width, id) {
+  const header = tableCells(source[start]);
+  const divider = tableCells(source[start + 1] ?? "");
+  if (!header || !divider || header.length !== divider.length || !divider.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
+  const rows = [header];
+  let end2 = start + 2;
+  while (end2 < source.length) {
+    const row = tableCells(source[end2]);
+    if (!row || row.length !== header.length) break;
+    rows.push(row);
+    end2 += 1;
+  }
+  const styled = rows.map((row) => row.map(inlineSegments));
+  const widths = header.map((_, col) => Math.max(2, ...styled.map((row) => plainLength(row[col]))));
+  const lines = [];
+  const add = (segments) => lines.push({ key: `${id}-table${start}-${lines.length}`, segments });
+  if (header.length * 5 + 1 > width) {
+    styled.forEach((row, rowIndex) => {
+      if (rowIndex === 0) return;
+      row.forEach((cell, col) => {
+        const entry = { key: `${id}-table${start}-${rowIndex}-${col}`, segments: [
+          ...styled[0][col].map((segment) => ({ ...segment, bold: true })),
+          { text: ": " },
+          ...cell
+        ] };
+        lines.push(...wrapLine(entry, width));
+      });
+    });
+    if (lines.length === 0) add(styled[0].flatMap((cell, col) => col ? [{ text: " / " }, ...cell] : cell));
+    return { lines, end: end2 };
+  }
+  while (widths.reduce((sum, value) => sum + value, 0) + header.length * 3 + 1 > width) {
+    const largest = widths.indexOf(Math.max(...widths));
+    widths[largest] -= 1;
+  }
+  const border = (left2, middle, right2) => add([{
+    text: left2 + widths.map((size) => "\u2500".repeat(size + 2)).join(middle) + right2,
+    dimColor: true
+  }]);
+  border("\u250C", "\u252C", "\u2510");
+  styled.forEach((row, rowIndex) => {
+    const cells2 = row.map((segments, col) => wrapLine({ key: "cell", segments }, widths[col]));
+    const height = Math.max(...cells2.map((cell) => cell.length));
+    for (let line = 0; line < height; line += 1) {
+      const segments = [{ text: "\u2502 ", dimColor: true }];
+      cells2.forEach((cell, col) => {
+        const content = cell[line]?.segments ?? [];
+        const padding = Math.max(0, widths[col] - plainLength(content));
+        const right2 = divider[col].endsWith(":");
+        const left2 = right2 ? divider[col].startsWith(":") ? Math.floor(padding / 2) : padding : 0;
+        segments.push(
+          { text: " ".repeat(left2) },
+          ...content.map((segment) => rowIndex === 0 ? { ...segment, bold: true } : segment),
+          { text: " ".repeat(padding - left2) },
+          { text: col === cells2.length - 1 ? " \u2502" : " \u2502 ", dimColor: true }
+        );
+      });
+      add(segments);
+    }
+    if (rowIndex === 0) border("\u251C", "\u253C", "\u2524");
+  });
+  border("\u2514", "\u2534", "\u2518");
+  return { lines, end: end2 };
+}
+function messageSource(message) {
+  const text6 = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
+  return (message.streaming ? `${text6}\u2026` : text6).split("\n");
+}
+function messageLines(message, width = 80) {
+  const out = [];
+  const source = messageSource(message);
+  let inFence = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const raw = source[index];
+    if (!inFence) {
+      const table = tableAt(source, index, Math.max(1, width - 2), message.id);
+      if (table) {
+        table.lines.forEach((line, row) => out.push({
+          ...line,
+          source: index,
+          segments: [index === 0 && row === 0 ? roleMark(message.role) : { text: "  " }, ...line.segments]
+        }));
+        index = table.end - 1;
+        continue;
+      }
+    }
+    const key = `${message.id}-l${index}`;
+    let segments;
+    if (raw.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      segments = [{ text: raw, dimColor: true }];
+    } else if (inFence) {
+      segments = [{ text: raw, color: "cyan" }];
+    } else {
+      const heading = /^(#{1,6})\s+(.*)$/.exec(raw);
+      const bullet = /^(\s*)[-*]\s+(.*)$/.exec(raw);
+      if (heading) segments = [{ text: heading[2], bold: true, color: "yellow" }];
+      else if (bullet)
+        segments = [{ text: bullet[1] }, { text: "\u2022 ", color: "magenta" }, ...inlineSegments(bullet[2])];
+      else segments = inlineSegments(raw);
+    }
+    const mark = index === 0 ? roleMark(message.role) : { text: "  " };
+    if (message.side && !message.blocked) {
+      out.push({
+        key,
+        segments: [index === 0 ? { text: "\u21B3 ", color: "cyan" } : { text: "  " }, ...segments.map((segment) => ({ ...segment, dimColor: true }))],
+        source: index
+      });
+      continue;
+    }
+    if (message.blocked) {
+      out.push({
+        key,
+        segments: [index === 0 ? { text: "\u2717 ", color: "red", bold: true } : mark, ...segments.map((segment) => ({ ...segment, color: "red" }))],
+        source: index
+      });
+      continue;
+    }
+    out.push({ key, segments: [mark, ...segments], source: index });
+  }
+  return out;
+}
+function waitingText(note) {
+  return note.trim() === "" ? "waiting\u2026" : `waiting: ${note.trim()}`;
+}
+function summarizeArgs(args, max = 60) {
+  const joined = Object.entries(args).map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`).join(" ");
+  return joined.length > max ? `${joined.slice(0, max - 1)}\u2026` : joined;
+}
+function visibleToolBodyLines(call, expanded, maxLines = TOOL_OUTPUT_LINES) {
+  const body = call.error ?? call.output ?? "";
+  const all = body.length > 0 ? body.replace(/\n+$/, "").split("\n") : [];
+  if (expanded) return { shown: all.slice(0, maxLines), total: all.length };
+  if (call.state === "error" && all.length > 0) {
+    return { shown: all.slice(0, COLLAPSED_ERROR_LINES), total: all.length };
+  }
+  const live = call.progress?.length ?? 0;
+  if (call.state === "ok" && live > 0 && all.length > 0) {
+    return { shown: all.slice(-live), total: all.length, kept: true };
+  }
+  return { shown: [], total: all.length };
+}
+function toolLineCount(shown, total, kept) {
+  if (kept) return shown < total ? ` (last ${shown} of ${total} lines)` : "";
+  return shown === 0 && total > 0 ? ` (${total} lines)` : "";
+}
+function toolCallLines(call, expanded) {
+  const { shown, total: allLength, kept } = visibleToolBodyLines(call, expanded);
+  const hidden2 = kept ? 0 : allLength - shown.length;
+  const head = [
+    TOOL_MARK[call.state] ?? TOOL_MARK.running,
+    { text: call.name, bold: true },
+    { text: ` ${summarizeArgs(call.args)}`, dimColor: true }
+  ];
+  const count3 = expanded ? "" : toolLineCount(shown.length, allLength, kept);
+  if (count3) head.push({ text: count3, dimColor: true });
+  const out = [{ key: `${call.callId}-h`, segments: head }];
+  if (call.state === "running" && call.waiting) {
+    out.push({ key: `${call.callId}-wait`, segments: [{ text: `  ${waitingText(call.waiting.note)}`, color: "yellow", dimColor: true }] });
+  }
+  if (call.state === "running") {
+    (call.progress ?? []).forEach((line, index) => {
+      out.push({
+        key: `${call.callId}-p${index}`,
+        segments: [{
+          text: `  ${line.text}`,
+          dimColor: line.stream === "stdout",
+          color: line.stream === "stderr" ? "yellow" : void 0
+        }]
+      });
+    });
+    if ((call.progress ?? []).length > 0 && call.progressTruncated) {
+      out.push({ key: `${call.callId}-ptrunc`, segments: [{ text: "  \u2026 truncated", dimColor: true }] });
+    }
+  }
+  shown.forEach((line, index) => {
+    const severity = diagnosticLineColor(line);
+    out.push({
+      key: `${call.callId}-o${index}`,
+      segments: [
+        {
+          text: `  ${line}`,
+          dimColor: !call.error && severity === void 0,
+          color: call.error ? "red" : severity
+        }
+      ]
+    });
+  });
+  if (hidden2 > 0 && shown.length > 0) {
+    out.push({ key: `${call.callId}-more`, segments: [{ text: `  \u2026 ${hidden2} more lines`, dimColor: true }] });
+  }
+  return out;
+}
+function diffLineColor(line) {
+  if (line.startsWith("+++") || line.startsWith("---")) return "cyan";
+  if (line.startsWith("@@")) return "magenta";
+  if (line.startsWith("+")) return "green";
+  if (line.startsWith("-")) return "red";
+  return void 0;
+}
+function diffLines(diff2) {
+  const all = diff2.patch.split("\n");
+  const shown = all.slice(0, DIFF_LINES);
+  const hidden2 = all.length - shown.length;
+  const out = [
+    { key: `${diff2.id}-h`, segments: [{ text: `\xB1 ${diff2.path}`, bold: true, color: "yellow" }] }
+  ];
+  shown.forEach(
+    (line, index) => out.push({ key: `${diff2.id}-d${index}`, segments: [{ text: line, color: diffLineColor(line) }] })
+  );
+  if (hidden2 > 0) {
+    out.push({ key: `${diff2.id}-more`, segments: [{ text: `\u2026 ${hidden2} more diff lines`, dimColor: true }] });
+  }
+  return out;
+}
+
+// src/layout/language.ts
+var UI_LANGUAGES = ["en", "ko", "ja", "zh"];
+var DEFAULT = "en";
+var current = DEFAULT;
+function asUiLanguage(tag) {
+  const key = String(tag ?? "").trim().toLowerCase().replace("_", "-").split("-")[0];
+  return UI_LANGUAGES.includes(key) ? key : DEFAULT;
+}
+function uiLanguage() {
+  return current;
+}
+function setUiLanguage(tag) {
+  current = asUiLanguage(tag);
+  return current;
+}
+function detectLanguage(text6) {
+  if (!text6) return DEFAULT;
+  let kana = 0;
+  let han = 0;
+  for (const character of text6) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code >= 44032 && code <= 55203 || code >= 4352 && code <= 4607 || code >= 12592 && code <= 12687) {
+      return "ko";
+    }
+    if (code >= 12352 && code <= 12447 || code >= 12448 && code <= 12543 || code >= 65382 && code <= 65437) {
+      kana += 1;
+    } else if (code >= 19968 && code <= 40959 || code >= 13312 && code <= 19903 || code >= 63744 && code <= 64255) {
+      han += 1;
+    }
+  }
+  if (kana > 0) return "ja";
+  if (han > 0) return "zh";
+  return DEFAULT;
+}
+
+// src/state/errors.ts
+function say(en, ko) {
+  return uiLanguage() === "ko" ? ko : en;
+}
+function detailsOf(error) {
+  const details = error?.data?.details;
+  return details && typeof details === "object" && !Array.isArray(details) ? details : {};
+}
+var str = (value) => typeof value === "string" && value !== "" ? value : void 0;
+function rpcCode(error) {
+  const raw = error;
+  return str(raw?.data?.code) ?? str(raw?.code);
+}
+function messageOf(error) {
+  const raw = error?.message;
+  return sanitizeText(typeof raw === "string" ? raw : String(error));
+}
+var MODE_RAISE_LINE = "The mode was not raised: raising the permission mode needs a person, and core refused this request (jarvis_person_only, mode_raise).";
+function refusalOf(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw;
+  const message = typeof value["message"] === "string" ? sanitizeText(value["message"]) : "";
+  const code = typeof value["code"] === "string" ? sanitizeText(value["code"]) : "";
+  const reason = typeof value["reason"] === "string" ? sanitizeText(value["reason"]) : "";
+  return code === "" && message === "" && reason === "" ? null : { code, message, reason };
+}
+function refusalWords(refused) {
+  const lead = refused.reason === "person_only" ? say("Your answer was not accepted: only a person on this machine can decide this.", "\uB2F5\uBCC0\uC774 \uBC1B\uC544\uB4E4\uC5EC\uC9C0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC774 \uACB0\uC815\uC740 \uC774 \uCEF4\uD4E8\uD130\uC758 \uC0AC\uB78C\uB9CC \uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.") : refused.reason === "mode_raise" ? say("Your answer was not accepted: raising the mode needs a person on this machine.", "\uB2F5\uBCC0\uC774 \uBC1B\uC544\uB4E4\uC5EC\uC9C0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAA8\uB4DC\uB97C \uC62C\uB9AC\uB824\uBA74 \uC774 \uCEF4\uD4E8\uD130\uC758 \uC0AC\uB78C\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.") : say("Your answer was not accepted.", "\uB2F5\uBCC0\uC774 \uBC1B\uC544\uB4E4\uC5EC\uC9C0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+  return refused.message !== "" ? `${lead} ${refused.message}` : lead;
+}
+var LOCAL_ONLY_WHAT = {
+  target: ["changing where a saved server connects", "\uC800\uC7A5\uB41C \uC11C\uBC84\uC758 \uC811\uC18D \uB300\uC0C1 \uBCC0\uACBD"],
+  variable: ["a ${VAR} in a server entry", "\uC11C\uBC84 \uD56D\uBAA9\uC758 ${VAR} \uC0AC\uC6A9"],
+  agent: ["a global agent", "\uC804\uC5ED \uC5D0\uC774\uC804\uD2B8"],
+  command: ["a global command", "\uC804\uC5ED \uBA85\uB839"],
+  builtin_name: ["a name a built-in already uses", "\uAE30\uBCF8 \uC81C\uACF5 \uAE30\uB2A5\uC774 \uC4F0\uB294 \uC774\uB984"],
+  front_matter: ["front matter that widens what it may do", "\uAD8C\uD55C\uC744 \uB113\uD788\uB294 front matter"],
+  // 1.55.0, security review 8
+  credential: ["saving a key or token", "\uD0A4\uB098 \uD1A0\uD070 \uC800\uC7A5"],
+  briefing: ["changing the briefing", "\uBE0C\uB9AC\uD551 \uBCC0\uACBD"],
+  settings: ["a setting that sets an address, a program or a key", "\uC8FC\uC18C, \uD504\uB85C\uADF8\uB7A8, \uD0A4\uB97C \uC815\uD558\uB294 \uC124\uC815"],
+  "provider.loginWeb": ["signing in to a provider", "\uACF5\uAE09\uC790 \uB85C\uADF8\uC778"],
+  "mcp.authorize.complete": ["finishing an MCP sign-in", "MCP \uB85C\uADF8\uC778 \uC644\uB8CC"],
+  "jarvis.delegation.set": ["granting Jarvis rights", "Jarvis\uC5D0 \uAD8C\uD55C \uBD80\uC5EC"]
+};
+function localOnlyLine(details) {
+  const rawWhat = str(details["what"]);
+  const known = rawWhat ? LOCAL_ONLY_WHAT[rawWhat] : void 0;
+  const what = known ? say(...known) : rawWhat ? sanitizeText(rawWhat) : void 0;
+  const kind = str(details["kind"]);
+  const who = kind === "remote_login" ? "a remote login" : kind === "browser" ? "a browser host" : kind === "connector" ? "a connector" : "this connection";
+  const whoKo = kind === "remote_login" ? "\uC6D0\uACA9 \uB85C\uADF8\uC778" : kind === "browser" ? "\uBE0C\uB77C\uC6B0\uC800 \uD638\uC2A4\uD2B8" : kind === "connector" ? "\uCEE4\uB125\uD130" : "\uC774 \uC5F0\uACB0";
+  return say(
+    `Only snowpea on this machine can do that${what ? ` (${what})` : ""} \u2014 not ${who}.`,
+    `\uC774 \uCEF4\uD4E8\uD130\uC758 snowpea\uB9CC \uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4${what ? ` (${what})` : ""} \u2014 ${whoKo}\uC5D0\uC11C\uB294 \uC548 \uB429\uB2C8\uB2E4.`
+  );
+}
+function modeLimitLine(max) {
+  const mode = sanitizeText(max);
+  return say(
+    `The mode was not raised: remote sign-ins are limited to ${mode} on this computer (/web). Lower the mode, or raise the limit there.`,
+    `\uBAA8\uB4DC\uB97C \uC62C\uB9AC\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC774 \uCEF4\uD4E8\uD130\uC5D0\uC11C \uC6D0\uACA9 \uB85C\uADF8\uC778\uC740 ${mode}\uAE4C\uC9C0\uB85C \uC81C\uD55C\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4 (/web). \uBAA8\uB4DC\uB97C \uB0AE\uCD94\uAC70\uB098 \uADF8\uACF3\uC5D0\uC11C \uC81C\uD55C\uC744 \uC62C\uB9AC\uC138\uC694.`
+  );
+}
+function snowpeaHomeLine(details) {
+  const what = str(details["what"]);
+  const inside = what === "parent" ? say("It is the folder that holds snowpea's home (usually your home directory), so it is not a project.", "snowpea \uD648\uC744 \uB2F4\uACE0 \uC788\uB294 \uD3F4\uB354(\uBCF4\uD1B5 \uD648 \uB514\uB809\uD130\uB9AC)\uB77C\uC11C \uD504\uB85C\uC81D\uD2B8\uAC00 \uC544\uB2D9\uB2C8\uB2E4.") : say("It is snowpea's own home, or inside it, so it is not a project.", "snowpea \uC790\uC2E0\uC758 \uD648(\uB610\uB294 \uADF8 \uC548)\uC774\uB77C\uC11C \uD504\uB85C\uC81D\uD2B8\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
+  return say(`Nothing was written: ${inside} Open snowpea in a project folder.`, `\uC544\uBB34\uAC83\uB3C4 \uC4F0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. ${inside} \uD504\uB85C\uC81D\uD2B8 \uD3F4\uB354\uC5D0\uC11C snowpea\uB97C \uC5EC\uC138\uC694.`);
+}
+var CLOSED_LINE = () => say("The connection that asked has closed; nothing was done.", "\uC694\uCCAD\uD55C \uC5F0\uACB0\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4. \uC544\uBB34\uAC83\uB3C4 \uC2E4\uD589\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+function globalOnlyLine(details) {
+  const key = str(details["key"]);
+  return say(
+    `${key ? `${sanitizeText(key)} ` : "That setting "}can only be set for all projects (global), not for one project.`,
+    `${key ? `${sanitizeText(key)} \uC124\uC815\uC740 ` : "\uC774 \uC124\uC815\uC740 "}\uD504\uB85C\uC81D\uD2B8\uBCC4\uC774 \uC544\uB2C8\uB77C \uC804\uCCB4(\uC804\uC5ED)\uB85C\uB9CC \uBC14\uAFC0 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`
+  );
+}
+function isSettingsUnreadable(error) {
+  return rpcCode(error) === "invalid_params" && str(detailsOf(error)["reason"]) === "settings_unreadable";
+}
+function settingsUnreadableLine(error) {
+  const copy = str(detailsOf(error)["invalid"]);
+  const where = copy ? ` (a copy of it as it was: ${sanitizeText(copy)})` : "";
+  const whereKo = copy ? ` (\uC6D0\uB798 \uC0C1\uD0DC\uC758 \uBCF5\uC0AC\uBCF8: ${sanitizeText(copy)})` : "";
+  return say(
+    `snowpea could not read settings.json, so it does not write over it. Fix the file${where}, then reload settings.`,
+    `snowpea\uAC00 settings.json\uC744 \uC77D\uC9C0 \uBABB\uD574\uC11C \uADF8 \uC704\uC5D0 \uC4F0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD30C\uC77C\uC744 \uACE0\uCE5C \uB4A4${whereKo} \uC124\uC815\uC744 \uB2E4\uC2DC \uBD88\uB7EC\uC624\uC138\uC694.`
+  );
+}
+function internalErrorLine(errorId) {
+  return say(
+    `snowpea hit an internal error (id ${sanitizeText(errorId)}). The details are in the daemon log under that id.`,
+    `snowpea \uB0B4\uBD80 \uC624\uB958\uAC00 \uB0AC\uC2B5\uB2C8\uB2E4 (id ${sanitizeText(errorId)}). \uC790\uC138\uD55C \uB0B4\uC6A9\uC740 \uB370\uBAAC \uB85C\uADF8\uC5D0\uC11C \uC774 id\uB85C \uCC3E\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`
+  );
+}
+var TRUST_CHANGED_LINE = "The project's files changed after you were shown them. Nothing was trusted. Review them again.";
+var TRUST_CHANGED_LINE_KO = "\uBCF4\uC5EC \uB4DC\uB9B0 \uB4A4 \uD504\uB85C\uC81D\uD2B8 \uD30C\uC77C\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC544\uBB34\uAC83\uB3C4 \uC2E0\uB8B0\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uD655\uC778\uD574 \uC8FC\uC138\uC694.";
+function rpcErrorText(error) {
+  const code = rpcCode(error);
+  const details = detailsOf(error);
+  if (code === "jarvis_person_only") {
+    const reason = str(details["reason"]);
+    if (str(details["kind"]) === "closed") return CLOSED_LINE();
+    if (reason === "mode_raise") {
+      const max = str(details["max"]);
+      return max !== void 0 ? modeLimitLine(max) : MODE_RAISE_LINE;
+    }
+    if (reason === "local_only") return localOnlyLine(details);
+    return "Only a person can do that \u2014 Jarvis and scripts cannot.";
+  }
+  if (code === "invalid_params" && str(details["reason"]) === "snowpea_home") return snowpeaHomeLine(details);
+  if (isSettingsUnreadable(error)) return settingsUnreadableLine(error);
+  if (code === "invalid_params" && str(details["reason"]) === "global_only") return globalOnlyLine(details);
+  if (code === "trust_changed") return say(TRUST_CHANGED_LINE, TRUST_CHANGED_LINE_KO);
+  const errorId = str(details["errorId"]);
+  if (errorId !== void 0) return internalErrorLine(errorId);
+  if (code === "steer_slash_command") {
+    return "A slash command cannot be sent as a steer \u2014 send it on its own as a prompt.";
+  }
+  if (code === "invalid_params" && str(details["reason"]) === "catch_all") {
+    const why = messageOf(error).replace(/^bad allowlist pattern:\s*/i, "");
+    return `A rule must name a program \u2014 ${why}`;
+  }
+  if (code === "security_blocked") {
+    return `Blocked by your security list: ${messageOf(error)}`;
+  }
+  if (code === "protected") {
+    return str(details["reason"]) === "local_only" ? localOnlyLine(details) : `That path is protected: ${messageOf(error)}`;
+  }
+  return sanitizeText(String(error));
+}
+var number = (value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : void 0;
+var group = (value) => value.toLocaleString("en-US");
+function contextNumbers(message, details) {
+  const given = details && typeof details === "object" ? details : {};
+  let window2 = number(given["windowTokens"]);
+  let needed = number(given["neededTokens"]);
+  if (window2 === void 0) {
+    const found = /window is (\d[\d,]*) tokens/i.exec(message);
+    if (found) window2 = number(Number(found[1].replace(/,/g, "")));
+  }
+  if (needed === void 0) {
+    const found = /need(?:s)? about (\d[\d,]*)/i.exec(message);
+    if (found) needed = number(Number(found[1].replace(/,/g, "")));
+  }
+  return { window: window2, needed };
+}
+function contextWindowShort(message, details) {
+  const { window: window2, needed } = contextNumbers(message, details);
+  const figures = window2 !== void 0 && needed !== void 0 ? `${group(window2)} tokens, needs about ${group(needed)}` : window2 !== void 0 ? `${group(window2)} tokens` : "";
+  return `context_window_too_small${figures ? `: window ${figures}` : ""}`;
+}
+function contextWindowLine(message, details) {
+  const { window: window2, needed } = contextNumbers(message, details);
+  const numbers = window2 !== void 0 && needed !== void 0 ? `The model's context window is ${group(window2)} tokens, but snowpea's system prompt and tool definitions alone need about ${group(needed)}.` : window2 !== void 0 ? `The model's context window is only ${group(window2)} tokens \u2014 too small for snowpea's system prompt and tool definitions.` : "The model's context window is too small for snowpea's system prompt and tool definitions.";
+  return `${numbers} Use a model or server setting with a larger context window; asking again will not help.`;
+}
+function hookFailedLine(message) {
+  const flat = sanitizeText(message).replace(/\s+/g, " ").trim();
+  const text6 = flat === "" ? "a plugin guard hook is not running" : flat;
+  return `${text6}  (/skill hooks)`;
+}
+function projectUntrustedLine(message) {
+  const flat = sanitizeText(message).replace(/\s+/g, " ").trim();
+  const text6 = flat === "" ? say(
+    "This project's own hooks, MCP servers and commands are switched off until you trust it.",
+    "\uC774 \uD504\uB85C\uC81D\uD2B8\uC758 \uD6C5, MCP \uC11C\uBC84, \uBA85\uB839\uC740 \uC2E0\uB8B0\uD558\uAE30 \uC804\uAE4C\uC9C0 \uAEBC\uC838 \uC788\uC2B5\uB2C8\uB2E4."
+  ) : flat;
+  return /\(\/trust\)\s*$/.test(text6) ? text6 : `${text6}  (/trust)`;
+}
+function sessionErrorView(code, message, details) {
+  switch (code) {
+    case "hook_failed":
+      return { kind: "notice", text: hookFailedLine(message) };
+    case "context_window_too_small":
+      return { kind: "error", text: contextWindowShort(message, details), detail: contextWindowLine(message, details) };
+    case "security_blocked":
+      return { kind: "blocked", text: `Blocked by your security list: ${message}`.trim() };
+    case "project_untrusted":
+      return { kind: "notice", text: projectUntrustedLine(message) };
+    default: {
+      const errorId = details && typeof details === "object" ? str(details["errorId"]) : void 0;
+      if (errorId !== void 0) return { kind: "error", text: `${code ?? "error"}: internal error (id ${sanitizeText(errorId)})`, detail: internalErrorLine(errorId) };
+      return { kind: "error", text: `${code ?? "error"}: ${message}` };
+    }
+  }
+}
+
+// src/state/mcp.ts
+var STATES2 = ["stopped", "starting", "ready", "error"];
+var SCOPES = ["project", "global", "plugin", "settings"];
+function text(value) {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+function strings(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function tools(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    const entry = row ?? {};
+    const name = typeof entry.name === "string" ? entry.name : "";
+    if (name.length === 0) return [];
+    return [{ name, description: typeof entry.description === "string" ? entry.description : "" }];
+  });
+}
+function readMcpList(result) {
+  const rows = result?.servers;
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    const value = row ?? {};
+    const name = typeof value.name === "string" ? value.name : "";
+    if (name.length === 0) return [];
+    const found = tools(value.tools);
+    return [
+      {
+        name,
+        scope: SCOPES.includes(value.scope) ? value.scope : "project",
+        transport: value.transport === "http" || value.transport === "sse" ? value.transport : "stdio",
+        state: STATES2.includes(value.state) ? value.state : "stopped",
+        command: text(value.command),
+        url: text(value.url),
+        args: strings(value.args),
+        envKeys: strings(value.envKeys),
+        headerKeys: strings(value.headerKeys),
+        disabled: value.disabled === true,
+        error: text(value.error),
+        toolCount: typeof value.toolCount === "number" ? value.toolCount : found.length,
+        tools: found,
+        toolsInclude: strings(value.toolsInclude),
+        plugin: text(value.plugin)
+      }
+    ];
+  });
+}
+function readMcpCatalog(result) {
+  const rows = result?.entries;
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    const value = row ?? {};
+    const id = typeof value.id === "string" ? value.id : "";
+    if (id.length === 0) return [];
+    return [
+      {
+        id,
+        label: typeof value.label === "string" ? value.label : id,
+        description: typeof value.description === "string" ? value.description : "",
+        transport: value.transport === "http" || value.transport === "sse" ? value.transport : "stdio",
+        entry: value.entry ?? {},
+        needs: strings(value.needs)
+      }
+    ];
+  });
+}
+function applyMcpChange(rows, payload) {
+  const value = payload ?? {};
+  const name = typeof value.name === "string" ? value.name : "";
+  if (name.length === 0) return rows;
+  if (value.removed === true) return rows.filter((row) => row.name !== name);
+  const state2 = STATES2.includes(value.state) ? value.state : "stopped";
+  const toolCount = typeof value.toolCount === "number" ? value.toolCount : void 0;
+  const scope = SCOPES.includes(value.scope) ? value.scope : void 0;
+  const error = text(value.error);
+  const known = rows.find((row) => row.name === name);
+  if (!known) {
+    return [
+      ...rows,
+      {
+        name,
+        scope: scope ?? "project",
+        transport: "stdio",
+        state: state2,
+        command: null,
+        url: null,
+        args: [],
+        envKeys: [],
+        headerKeys: [],
+        disabled: false,
+        error,
+        toolCount: toolCount ?? 0,
+        tools: [],
+        toolsInclude: [],
+        plugin: null
+      }
+    ];
+  }
+  return rows.map(
+    (row) => row.name === name ? { ...row, state: state2, error, scope: scope ?? row.scope, toolCount: toolCount ?? row.toolCount } : row
+  );
+}
+function mcpLabel(rows) {
+  const counted = rows.filter((row) => !row.disabled);
+  if (counted.length === 0) return null;
+  const ready = counted.filter((row) => row.state === "ready").length;
+  return `mcp ${ready}/${counted.length}`;
+}
+function mcpColor(rows) {
+  return rows.some((row) => row.state === "error") ? "red" : void 0;
+}
+var MCP_ACTIONS = [
+  { action: "list", summary: "Every configured server: scope, transport, state, tools." },
+  { action: "add", summary: "Add a server; with no arguments this opens a form." },
+  { action: "add-json", summary: "Add a raw .mcp.json entry, verbatim." },
+  { action: "catalog", summary: "The curated presets --preset accepts." },
+  { action: "get", summary: "One server in full, with its tools.", takesName: true },
+  { action: "test", summary: "Start it, list its tools, report the error.", takesName: true },
+  { action: "configure", summary: "Choose which of its tools are registered.", takesName: true },
+  { action: "enable", summary: "Start this entry again.", takesName: true },
+  { action: "disable", summary: "Keep the entry but stop starting it.", takesName: true },
+  { action: "remove", summary: "Delete the entry and stop the server.", takesName: true },
+  { action: "reload", summary: "Restart one server, or re-read every declaration." }
+];
+var MCP_NAME_ACTIONS = MCP_ACTIONS.filter(
+  (entry) => entry.takesName
+).map((entry) => entry.action);
+function scopeTag(row) {
+  const state2 = row.disabled ? "disabled" : row.state;
+  return `${row.scope} \xB7 ${state2} \xB7 ${row.toolCount} tool${row.toolCount === 1 ? "" : "s"}`;
+}
+function mcpSubCommands(draft, servers = [], catalog = []) {
+  const preset2 = /^\/mcp\s+add\s+.*--preset(?:=|\s+)([^\s]*)$/.exec(draft);
+  if (preset2) {
+    const typed2 = preset2[1] ?? "";
+    const head = draft.slice(1, draft.length - typed2.length);
+    return catalog.filter((entry) => entry.id.startsWith(typed2)).map((entry) => ({
+      name: `${head}${entry.id}`,
+      summary: entry.description || entry.label,
+      source: "core"
+    }));
+  }
+  const named = /^\/mcp\s+([a-z-]+)\s+([^\s-][^\s]*|)$/.exec(draft);
+  if (named && MCP_NAME_ACTIONS.includes(named[1])) {
+    const typed2 = named[2] ?? "";
+    return servers.filter((row) => row.name.startsWith(typed2)).map((row) => ({
+      name: `mcp ${named[1]} ${row.name}`,
+      summary: scopeTag(row),
+      source: "core"
+    }));
+  }
+  const match = /^\/mcp(?:\s+([^\s]*))?$/.exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  return MCP_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
+    name: `mcp ${entry.action}`,
+    summary: entry.summary,
+    source: "core"
+  }));
+}
+function isBareMcpAdd(text6) {
+  return /^\/mcp\s+add\s*$/.test(text6.trim());
+}
+function isBareMcpCatalog(text6) {
+  return /^\/mcp\s+catalog\s*$/.test(text6.trim());
+}
+function parseMcpConfigure(text6) {
+  const match = /^\/mcp\s+configure\s+([A-Za-z0-9_-]{1,64})\s*$/.exec(text6.trim());
+  return match ? match[1] : null;
+}
+function isValidMcpName(name) {
+  return /^[a-zA-Z0-9_-]{1,64}$/.test(name.trim());
+}
+function splitArgs(line) {
+  const out = [];
+  let current2 = "";
+  let quote = null;
+  let started = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === "\\" && quote !== "'" && i + 1 < line.length) {
+      current2 += line[i + 1];
+      started = true;
+      i += 1;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      else current2 += char;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (started) out.push(current2);
+      current2 = "";
+      started = false;
+      continue;
+    }
+    current2 += char;
+    started = true;
+  }
+  if (started) out.push(current2);
+  return out;
+}
+function parseAssignment(line) {
+  const index = line.indexOf("=");
+  if (index <= 0) return null;
+  const key = line.slice(0, index).trim();
+  if (key.length === 0) return null;
+  return { key, value: line.slice(index + 1) };
+}
+var MASK = "\u2022\u2022\u2022";
+function maskAssignment(key) {
+  return `${key}=${MASK}`;
+}
+function emptyDraft() {
+  return { name: "", transport: "stdio", commandLine: "", url: "", env: [], headers: [], scope: "project" };
+}
+function draftFromCatalog(entry) {
+  const raw = entry.entry ?? {};
+  const command2 = typeof raw.command === "string" ? raw.command : "";
+  const args = strings(raw.args);
+  const url = typeof raw.url === "string" ? raw.url : "";
+  return {
+    name: entry.id,
+    transport: url ? "url" : "stdio",
+    commandLine: [command2, ...args].filter(Boolean).join(" "),
+    url,
+    env: entry.needs.map((key) => ({ key, value: "" })),
+    headers: [],
+    scope: "project"
+  };
+}
+function draftParams(draft) {
+  const pairs = (entries) => Object.fromEntries(entries.map((entry) => [entry.key, entry.value]));
+  if (draft.transport === "url") {
+    return {
+      name: draft.name.trim(),
+      url: draft.url.trim(),
+      headers: pairs(draft.headers),
+      scope: draft.scope
+    };
+  }
+  const argv = splitArgs(draft.commandLine);
+  return {
+    name: draft.name.trim(),
+    command: argv[0] ?? "",
+    args: argv.slice(1),
+    env: pairs(draft.env),
+    scope: draft.scope
+  };
+}
+function readMcpProbe(result) {
+  const value = result ?? {};
+  return {
+    ok: value.ok === true,
+    tools: tools(value.tools),
+    error: text(value.error)
+  };
+}
+function isUnsafeError(error) {
+  return error !== null && /mcp_unsafe/i.test(error);
+}
+function probeSummary(probe) {
+  const names = probe.tools.map((tool) => tool.name);
+  const head = `Connected \u2014 ${names.length} tool${names.length === 1 ? "" : "s"}`;
+  if (names.length === 0) return head;
+  const shown = names.slice(0, 8).join(", ");
+  return `${head}: ${shown}${names.length > 8 ? ", \u2026" : ""}`;
+}
+
+// src/layout/bottom.ts
+var CONTEXT_WARN_PERCENT = 70;
+var CONTEXT_ALERT_PERCENT = 80;
+var CONTEXT_CRITICAL_PERCENT = 85;
+var MODE_CHIP = {
+  auto: "\u23F5\u23F5 auto mode on",
+  accept: "\u23F5 accept mode",
+  plan: "\u2016 plan mode"
+};
+function modeColor(mode) {
+  if (mode === "plan") return "cyan";
+  if (mode === "accept") return currentAccent();
+  return "yellow";
+}
+var MODE_PARTS = {
+  auto: { prefix: "\u23F5\u23F5 ", word: "auto", suffix: " mode on" },
+  accept: { prefix: "\u23F5 ", word: "accept", suffix: " mode" },
+  plan: { prefix: "\u2016 ", word: "plan", suffix: " mode" }
+};
+function contextColor(percent) {
+  if (percent === null) return void 0;
+  if (percent >= CONTEXT_CRITICAL_PERCENT) return "red";
+  if (percent >= CONTEXT_WARN_PERCENT) return "yellow";
+  return void 0;
+}
+function contextSegment(context) {
+  if (!context) return null;
+  const estimated = context.estimated ? "~" : "";
+  const used = `${estimated}${formatTokens(context.used)}`;
+  if (!context.window || context.window <= 0) {
+    return { text: `ctx ${used} used`, dimColor: true };
+  }
+  const percent = context.percent ?? context.used / context.window * 100;
+  const color = contextColor(percent);
+  return {
+    text: `ctx ${Math.round(percent)}% (${used}/${formatTokens(context.window)})`,
+    color,
+    dimColor: color === void 0,
+    bold: percent >= CONTEXT_CRITICAL_PERCENT
+  };
+}
+function autoCompactSegment(context) {
+  const at = context?.autoCompactAt;
+  if (!context || typeof at !== "number" || !(at > 0)) return null;
+  const where = context.window && context.window > 0 ? `${Math.round(at / context.window * 100)}%` : formatTokens(at);
+  return { text: `auto-compact at ${where}`, dimColor: true };
+}
+function contextWarning(context) {
+  if (!context || !context.window || context.window <= 0) return null;
+  const percent = context.percent ?? context.used / context.window * 100;
+  if (percent < CONTEXT_ALERT_PERCENT) return null;
+  return {
+    text: `[!!] context ${Math.round(percent)}% \u2014 /compact to free space`,
+    color: percent >= CONTEXT_CRITICAL_PERCENT ? "red" : "yellow",
+    bold: percent >= CONTEXT_CRITICAL_PERCENT
+  };
+}
+function summaryLine({ mode, shells, agents }) {
+  const chip = MODE_PARTS[mode];
+  const tail = [" \xB7 \u21E7Tab change mode \xB7 Ctrl+P plan"];
+  if (shells > 0) tail.push(` \xB7 ${shells} ${shells === 1 ? "shell" : "shells"}`);
+  if (agents > 0) tail.push(` \xB7 \u2190 ${agents} ${agents === 1 ? "agent" : "agents"}`);
+  const text6 = `${MODE_CHIP[mode]}${tail.join("")}`;
+  const segments = [
+    { text: chip.prefix, dimColor: true },
+    { text: chip.word, color: modeColor(mode) },
+    { text: chip.suffix, dimColor: true },
+    { text: tail.join(""), dimColor: true }
+  ];
+  return { text: text6, segments };
+}
+function compactionDivider(before, after, width, reason) {
+  const label = reason === "overflow" ? ` compacted: request too long (${formatTokens(before)} \u2192 ${formatTokens(after)} tokens) ` : ` compacted (${formatTokens(before)} \u2192 ${formatTokens(after)} tokens) `;
+  const room = Math.max(0, Math.floor(width) - label.length);
+  const left2 = Math.floor(room / 2);
+  return `${"\u2500".repeat(left2)}${label}${"\u2500".repeat(room - left2)}`;
 }
 
 // src/layout/hud.ts
@@ -35270,11 +36334,11 @@ function shortSessionId(sessionId) {
   return sessionId.length <= 8 ? sessionId : sessionId.slice(0, 8);
 }
 var WORKDIR_WIDTH = 28;
-function formatTokens(count2) {
-  if (!Number.isFinite(count2) || count2 <= 0) return "0";
-  if (count2 < 1e3) return String(Math.round(count2));
-  if (count2 < 1e6) return `${(count2 / 1e3).toFixed(1)}k`;
-  return `${(count2 / 1e6).toFixed(1)}M`;
+function formatTokens(count3) {
+  if (!Number.isFinite(count3) || count3 <= 0) return "0";
+  if (count3 < 1e3) return String(Math.round(count3));
+  if (count3 < 1e6) return `${(count3 / 1e3).toFixed(1)}k`;
+  return `${(count3 / 1e6).toFixed(1)}M`;
 }
 function formatElapsed(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1e3));
@@ -35324,7 +36388,7 @@ function buildHudSegments(input) {
   if (input.effort) {
     segments.push({
       key: "effort",
-      text: `\u2699 ${input.effort}`,
+      text: `\u25C8 ${input.effort}`,
       dimColor: true,
       priority: 4
     });
@@ -35341,6 +36405,10 @@ function buildHudSegments(input) {
   const context = contextSegment(input.context ?? null);
   if (context) {
     segments.push({ key: "ctx", ...context, priority: 1 });
+  }
+  const autoCompact = autoCompactSegment(input.context ?? null);
+  if (autoCompact) {
+    segments.push({ key: "ctxAuto", ...autoCompact, priority: 7 });
   }
   segments.push({
     key: "tokens",
@@ -35390,6 +36458,9 @@ function buildHudSegments(input) {
       priority: 8
     });
   }
+  if (input.agentTag) {
+    segments.push({ key: "agent", text: input.agentTag, color: input.agentColor, bold: true, priority: 2 });
+  }
   segments.push({
     key: "session",
     text: input.sessionId ? `session: ${shortSessionId(input.sessionId)} \xB7 ${formatElapsed(input.sessionMs)}` : `session: ${formatElapsed(input.sessionMs)}`,
@@ -35405,17 +36476,35 @@ function buildHudSegments(input) {
       priority: 7
     });
   }
+  if (input.externalWarning) {
+    segments.push({
+      key: "external-warning",
+      text: `\u25B2 ${input.externalWarning}`,
+      color: "red",
+      bold: true,
+      priority: 0
+    });
+  }
+  if (input.jarvis) {
+    segments.push({
+      key: "jarvis",
+      text: `\u25C6 ${input.jarvis}`,
+      color: "magenta",
+      bold: true,
+      priority: 1
+    });
+  }
   if (input.pendingApprovals > 0) {
     segments.push({
       key: "approvals",
-      text: `\u26A0 ${input.pendingApprovals} approval${input.pendingApprovals === 1 ? "" : "s"}`,
+      text: `\u25B2 ${input.pendingApprovals} approval${input.pendingApprovals === 1 ? "" : "s"}`,
       color: "yellow",
       bold: true,
       priority: 1
     });
   }
   if (input.runningCommand) {
-    segments.push({ key: "command", text: `\u25B6 ${input.runningCommand}`, color: "yellow", priority: 2 });
+    segments.push({ key: "command", text: `\u23F5 ${input.runningCommand}`, color: "yellow", priority: 2 });
   } else if (input.turnActive) {
     segments.push({ key: "command", text: "Esc stops \xB7 type what to change", dimColor: true, priority: 3 });
   }
@@ -35491,9 +36580,9 @@ function shortEngine(name) {
 }
 
 // src/state/working.ts
-var SPINNER_FRAMES = ["\u2722", "\u2733", "\u2736", "\u273B", "\u273D"];
+var SPINNER_FRAMES = ["\u2722", "\u2731", "\u2736", "\u273B", "\u273D"];
 var SPINNER_INTERVAL_MS = 200;
-var PAUSED_GLYPH = "\u23F8";
+var PAUSED_GLYPH = "\u2016";
 function firstArg(args, keys) {
   for (const key of keys) {
     const value = args[key];
@@ -35506,16 +36595,16 @@ function basename(path) {
   const at = Math.max(cut.lastIndexOf("/"), cut.lastIndexOf("\\"));
   return at === -1 ? cut : cut.slice(at + 1);
 }
-function clip(text2, max) {
-  const flat = text2.replace(/\s+/g, " ").trim();
+function clip(text6, max) {
+  const flat = text6.replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, Math.max(1, max - 1))}\u2026`;
 }
 function toolLabel(call) {
   const name = call.name.toLowerCase();
   const args = call.args ?? {};
   if (/(^|_)(bash|shell|exec|run|terminal)/.test(name)) {
-    const command = firstArg(args, ["command", "cmd", "script"]);
-    return command ? `Running shell: ${clip(command, 40)}` : "Running shell";
+    const command2 = firstArg(args, ["command", "cmd", "script"]);
+    return command2 ? `Running shell: ${clip(command2, 40)}` : "Running shell";
   }
   if (/(^|_)(read|cat|open|view)/.test(name)) {
     const path = firstArg(args, ["path", "file", "file_path", "filename"]);
@@ -35549,14 +36638,14 @@ function resultNoun(call) {
   if (/(^|_)(delegate|agent|task)/.test(name)) return "delegate's report";
   return `${clip(call.name, 24)} result`;
 }
-function derivePhase(state, { runningCommand = null } = {}) {
-  if (state.pendingApproval || state.approvalQueue.length > 0) return { kind: "approval" };
-  if (state.compacting) return { kind: "compacting", reason: state.compacting.reason };
-  if (!state.turnActive) return { kind: "idle" };
-  const running = state.toolCalls.filter((call) => call.state === "running");
+function derivePhase(state2, { runningCommand = null } = {}) {
+  if (state2.pendingApproval || state2.approvalQueue.length > 0) return { kind: "approval" };
+  if (state2.compacting) return { kind: "compacting", reason: state2.compacting.reason };
+  if (!state2.turnActive) return { kind: "idle" };
+  const running = state2.toolCalls.filter((call) => call.state === "running");
   const last = running[running.length - 1];
   if (last) return { kind: "tool", label: toolLabel(last) };
-  const agents = state.subagents.filter((agent) => agent.status === "running");
+  const agents = state2.subagents.filter((agent) => agent.status === "running");
   if (agents.length > 0) {
     return {
       kind: "subagents",
@@ -35568,11 +36657,11 @@ function derivePhase(state, { runningCommand = null } = {}) {
     };
   }
   if (runningCommand) return { kind: "command", name: runningCommand };
-  const since = state.turnStartedAt ?? 0;
-  const lastCall = state.toolCalls.filter((call) => (call.startedAt ?? Number.POSITIVE_INFINITY) >= since).pop();
-  const after = lastCall ? resultNoun(lastCall) : state.subagents.some((agent) => agent.status !== "running" && agent.startedAt >= since) ? "delegate's report" : void 0;
-  if (state.reasoningChars > 0) {
-    return after ? { kind: "reasoning", chars: state.reasoningChars, after } : { kind: "reasoning", chars: state.reasoningChars };
+  const since = state2.turnStartedAt ?? 0;
+  const lastCall = state2.toolCalls.filter((call) => (call.startedAt ?? Number.POSITIVE_INFINITY) >= since).pop();
+  const after = lastCall ? resultNoun(lastCall) : state2.subagents.some((agent) => agent.status !== "running" && agent.startedAt >= since) ? "delegate's report" : void 0;
+  if (state2.reasoningChars > 0) {
+    return after ? { kind: "reasoning", chars: state2.reasoningChars, after } : { kind: "reasoning", chars: state2.reasoningChars };
   }
   return after ? { kind: "thinking", after } : { kind: "thinking" };
 }
@@ -35608,7 +36697,7 @@ function workingLine(input) {
     outputTokens: (input.outputTokens ?? 0) + phase.outputTokens
   }) : formatStats(input);
   if (phase.kind === "compacting") {
-    return `${spinner} ${phase.reason === "auto" ? "Compacting (auto)" : "Compacting"}\u2026`;
+    return `${spinner} ${phase.reason === "auto" ? "Compacting (auto)" : phase.reason === "overflow" ? "Compacting (the request was too long)" : "Compacting"}\u2026`;
   }
   if (phase.kind === "tool") return `${spinner} ${phase.label}\u2026 ${stats}`;
   if (phase.kind === "subagents") {
@@ -35622,8 +36711,8 @@ function workingLine(input) {
   }
   return `${spinner} ${phase.after ? `Reviewing the ${phase.after}` : "Thinking"}\u2026 ${stats}`;
 }
-function queuedLabel(count2) {
-  return `\u23F3 ${count2} queued`;
+function queuedLabel(count3) {
+  return `\u25F7 ${count3} queued`;
 }
 function replayTurnSummaryLine(ok, elapsedMs, reason, error) {
   return withStopReason(replayHead(ok, elapsedMs), reason, error);
@@ -35659,6 +36748,57 @@ function turnSummaryLine({
   return withStopReason(parts.join(" \xB7 "), reason, error);
 }
 
+// src/state/person-only.ts
+var ALWAYS_ASKS = "always asks you";
+function alwaysAsksYou(request) {
+  return request?.personOnly === true || request?.neverDelegable === true || request?.kind === "mode";
+}
+function alwaysAsksReason(request) {
+  const reason = typeof request?.reason === "string" ? request.reason.trim() : "";
+  return reason === "" ? null : reason;
+}
+
+// src/state/command-result.ts
+function commandsBesideTurnSupported(capabilities) {
+  return (capabilities ?? []).includes("commandsBesideTurn");
+}
+function ranBesideTurn(result) {
+  return result?.besideTurn === true;
+}
+function appliesFromWords(appliesFrom) {
+  switch (appliesFrom) {
+    case "next_tool_call":
+      return say("applies from the next tool call", "\uB2E4\uC74C \uB3C4\uAD6C \uD638\uCD9C\uBD80\uD130 \uC801\uC6A9");
+    case "next_request":
+      return say("applies from the next request", "\uB2E4\uC74C \uC694\uCCAD\uBD80\uD130 \uC801\uC6A9");
+    case "next_turn":
+      return say("applies from the next turn", "\uB2E4\uC74C \uD134\uBD80\uD130 \uC801\uC6A9");
+    case "now":
+      return say("applies now", "\uBC14\uB85C \uC801\uC6A9");
+    default:
+      return null;
+  }
+}
+var ASIDE_LINES = 6;
+function commandResultText(payload) {
+  const command2 = sanitizeText(typeof payload["command"] === "string" ? payload["command"] : "").trim();
+  const ok = payload["ok"] !== false;
+  const rawBody = sanitizeText(typeof payload["text"] === "string" ? payload["text"] : "").replace(/\s+$/, "");
+  const details = payload["details"];
+  const errorId = details && typeof details === "object" ? details["errorId"] : void 0;
+  const id = typeof errorId === "string" ? sanitizeText(errorId) : "";
+  const body = id !== "" && !rawBody.includes(id) ? `${rawBody === "" ? "internal error" : rawBody} (id ${id})` : rawBody;
+  const lines = body === "" ? [] : body.split("\n");
+  const shown = lines.slice(0, ASIDE_LINES);
+  const hidden2 = lines.length - shown.length;
+  const applies = ok ? appliesFromWords(payload["appliesFrom"]) : null;
+  const head = `${ok ? "" : "\u2717 "}${command2 || say("command", "\uBA85\uB839")}`;
+  const first = shown[0] ?? "";
+  const out = [`${head}${first ? ` \u2014 ${first}` : ""}${applies ? ` (${applies})` : ""}`, ...shown.slice(1).map((line) => `  ${line}`)];
+  if (hidden2 > 0) out.push(say(`  \u2026 ${hidden2} more line${hidden2 === 1 ? "" : "s"}`, `  \u2026 ${hidden2}\uC904 \uB354`));
+  return out.join("\n");
+}
+
 // src/state/store.ts
 var PROGRESS_TAIL = 8;
 var initialState = {
@@ -35677,7 +36817,10 @@ var initialState = {
   toolCalls: [],
   diffs: [],
   timeline: [],
+  refusals: {},
   pendingApproval: null,
+  heldApprovals: [],
+  heldQuestions: [],
   approvalQueue: [],
   pendingQuestion: null,
   commands: [],
@@ -35720,20 +36863,20 @@ function isCreation(patch) {
   if (body.length === 0) return false;
   return body.every((line) => line.startsWith("+"));
 }
-function pushTimeline(state, item) {
-  return [...state.timeline, item];
+function pushTimeline(state2, item) {
+  return [...state2.timeline, item];
 }
-function appendDelta(state, text2) {
-  const last = state.messages[state.messages.length - 1];
+function appendDelta(state2, text6) {
+  const last = state2.messages[state2.messages.length - 1];
   if (last && last.role === "assistant" && last.streaming) {
-    const messages = state.messages.slice(0, -1).concat({ ...last, text: last.text + text2 });
-    return { ...state, messages };
+    const messages = state2.messages.slice(0, -1).concat({ ...last, text: last.text + text6 });
+    return { ...state2, messages };
   }
-  const message = { id: nextId("msg"), role: "assistant", text: text2, streaming: true };
+  const message = { id: nextId("msg"), role: "assistant", text: text6, streaming: true };
   return {
-    ...state,
-    messages: [...state.messages, message],
-    timeline: pushTimeline(state, { kind: "message", id: message.id })
+    ...state2,
+    messages: [...state2.messages, message],
+    timeline: pushTimeline(state2, { kind: "message", id: message.id })
   };
 }
 function outputLimitNote(truncated, continuations) {
@@ -35749,9 +36892,9 @@ function providerRetryLine(payload) {
   const max = int(payload.max);
   const delay = int(payload.delaySec);
   const left2 = int(payload.waitLeftSec);
-  const count2 = attempt !== null && max !== null ? `${attempt}/${max}` : attempt !== null ? String(attempt) : "";
+  const count3 = attempt !== null && max !== null ? `${attempt}/${max}` : attempt !== null ? String(attempt) : "";
   const inDelay = delay !== null ? ` in ${delay}s` : "";
-  const retry = `retry${count2 ? ` ${count2}` : ""}${inDelay}`;
+  const retry = `retry${count3 ? ` ${count3}` : ""}${inDelay}`;
   switch (payload.reason) {
     case "unreachable": {
       const tries = attempt !== null ? `attempt ${attempt}` : "";
@@ -35786,66 +36929,66 @@ function hookContinueLine(payload) {
   if (kind === "provider_retry") return null;
   if (!kind) return reason || null;
   const label = CONTINUE_LABELS[kind] ?? "";
-  const count2 = int(payload.count);
+  const count3 = int(payload.count);
   const limit = int(payload.limit);
-  const counter3 = count2 !== null && count2 > 0 ? limit !== null ? `${count2}/${limit}` : String(count2) : "";
+  const counter3 = count3 !== null && count3 > 0 ? limit !== null ? `${count3}/${limit}` : String(count3) : "";
   const tag = [label, counter3].filter(Boolean).join(" ");
   if (kind === "overflow") return `\u21BB continuing (${label})`;
   const head = `\u21BB continuing${tag ? ` (${tag})` : ""}`;
   return reason ? `${head}: ${reason}` : head;
 }
-function withLimitNote(state, payload) {
+function withLimitNote(state2, payload) {
   const note = outputLimitNote(
     Boolean(payload.truncated),
     Number(payload.continuations ?? 0)
   );
-  if (!note) return state;
+  if (!note) return state2;
   const message = { id: nextId("msg"), role: "system", text: note, streaming: false };
   return {
-    ...state,
-    messages: [...state.messages, message],
-    timeline: pushTimeline(state, { kind: "message", id: message.id })
+    ...state2,
+    messages: [...state2.messages, message],
+    timeline: pushTimeline(state2, { kind: "message", id: message.id })
   };
 }
-function planForReview(state, payload) {
-  const text2 = typeof payload.text === "string" ? payload.text : "";
-  if (!text2.trim()) return state;
-  const message = { id: nextId("msg"), role: "assistant", text: text2, streaming: false };
-  const timeline = [...state.timeline];
+function planForReview(state2, payload) {
+  const text6 = typeof payload.text === "string" ? payload.text : "";
+  if (!text6.trim()) return state2;
+  const message = { id: nextId("msg"), role: "assistant", text: text6, streaming: false };
+  const timeline = [...state2.timeline];
   let at = timeline.findIndex((item) => {
     if (item.kind === "tool") {
-      const call = state.toolCalls.find((entry) => entry.callId === item.id);
+      const call = state2.toolCalls.find((entry) => entry.callId === item.id);
       return call?.state === "running";
     }
     if (item.kind === "message") {
-      const open = state.messages.find((entry) => entry.id === item.id);
+      const open = state2.messages.find((entry) => entry.id === item.id);
       return Boolean(open?.streaming || open?.awaitingFold);
     }
     return false;
   });
   if (at === -1) at = timeline.length;
   timeline.splice(at, 0, { kind: "message", id: message.id });
-  return { ...state, messages: [...state.messages, message], timeline };
+  return { ...state2, messages: [...state2.messages, message], timeline };
 }
-function finishMessage(state, payload) {
-  let text2 = typeof payload.text === "string" ? payload.text : void 0;
+function finishMessage(state2, payload) {
+  let text6 = typeof payload.text === "string" ? payload.text : void 0;
   const payloadKind = String(payload.kind ?? payload.messageKind ?? "");
   if (payloadKind === "interrupted" && uiLanguage() === "ko") {
-    text2 = "\uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC744 \uBC14\uAFC0\uC9C0 \uC54C\uB824\uC8FC\uC138\uC694 \u2014 \uB2E4\uC74C \uBA54\uC2DC\uC9C0\uAC00 \uC774 \uC138\uC158\uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.";
+    text6 = "\uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC744 \uBC14\uAFC0\uC9C0 \uC54C\uB824\uC8FC\uC138\uC694 \u2014 \uB2E4\uC74C \uBA54\uC2DC\uC9C0\uAC00 \uC774 \uC138\uC158\uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.";
   }
   const role = payloadKind === "interrupted" ? "note" : typeof payload.role === "string" ? payload.role : "assistant";
-  const last = state.messages[state.messages.length - 1];
+  const last = state2.messages[state2.messages.length - 1];
   if (last && last.streaming && last.role === role) {
-    const messages = state.messages.slice(0, -1).concat({ ...last, text: text2 ?? last.text, streaming: false });
-    return withLimitNote({ ...state, messages }, payload);
+    const messages = state2.messages.slice(0, -1).concat({ ...last, text: text6 ?? last.text, streaming: false });
+    return withLimitNote({ ...state2, messages }, payload);
   }
-  if (text2 === void 0) return state;
-  const message = { id: nextId("msg"), role, text: text2, streaming: false };
+  if (text6 === void 0) return state2;
+  const message = { id: nextId("msg"), role, text: text6, streaming: false };
   return withLimitNote(
     {
-      ...state,
-      messages: [...state.messages, message],
-      timeline: pushTimeline(state, { kind: "message", id: message.id })
+      ...state2,
+      messages: [...state2.messages, message],
+      timeline: pushTimeline(state2, { kind: "message", id: message.id })
     },
     payload
   );
@@ -35856,10 +36999,10 @@ function settleRunningCalls(toolCalls, why) {
     (call) => call.state === "running" ? { ...call, state: "error", error: call.error ?? why } : call
   );
 }
-function flushDeferred(state) {
-  if (state.deferredPrompts.length === 0) return state;
-  let next = { ...state, deferredPrompts: [] };
-  for (const message of state.deferredPrompts) {
+function flushDeferred(state2) {
+  if (state2.deferredPrompts.length === 0) return state2;
+  let next = { ...state2, deferredPrompts: [] };
+  for (const message of state2.deferredPrompts) {
     next = {
       ...next,
       messages: [...next.messages, message],
@@ -35868,11 +37011,12 @@ function flushDeferred(state) {
   }
   return next;
 }
-function waitingPrompts(state) {
-  if (state.deferredPrompts.length === 0) return state.queued;
-  const rows = state.queued.slice();
+function waitingPrompts(state2) {
+  if (state2.deferredPrompts.length === 0) return state2.queued;
+  const rows = state2.queued.slice();
   const extra = [];
-  for (const message of state.deferredPrompts) {
+  for (const message of state2.deferredPrompts) {
+    if (message.side) continue;
     let at = rows.findIndex((entry) => entry.text === message.text);
     if (at === -1) at = rows.findIndex((entry) => entry.text === "");
     if (at !== -1) {
@@ -35882,17 +37026,17 @@ function waitingPrompts(state) {
     extra.push({
       turnId: message.id,
       text: message.text,
-      position: state.queued.length + extra.length + 1
+      position: state2.queued.length + extra.length + 1
     });
   }
-  return extra.length > 0 ? [...state.queued, ...extra] : state.queued;
+  return extra.length > 0 ? [...state2.queued, ...extra] : state2.queued;
 }
-function patchSubagent(state, agentId, patch) {
-  const index = state.subagents.findIndex((entry) => entry.agentId === agentId);
-  if (index === -1) return state;
-  const subagents = state.subagents.slice();
+function patchSubagent(state2, agentId, patch) {
+  const index = state2.subagents.findIndex((entry) => entry.agentId === agentId);
+  if (index === -1) return state2;
+  const subagents = state2.subagents.slice();
   subagents[index] = patch(subagents[index]);
-  return { ...state, subagents };
+  return { ...state2, subagents };
 }
 function settleFolds(messages) {
   if (!messages.some((m) => m.awaitingFold)) return messages;
@@ -35905,32 +37049,54 @@ function settleFolds(messages) {
 function parseSkillExpansion(payload) {
   const raw = payload.expansion;
   if (!raw || typeof raw !== "object") return void 0;
-  const text2 = raw.text;
-  if (typeof text2 !== "string") return void 0;
+  const text6 = raw.text;
+  if (typeof text6 !== "string") return void 0;
   return {
     kind: "skill",
     name: String(raw.name ?? ""),
-    chars: text2.length,
-    lines: text2.split("\n").length
+    chars: text6.length,
+    lines: text6.split("\n").length
   };
 }
-function applySessionEvent(state, event, options = {}) {
+function wakeLine(text6, label) {
+  const lines = text6.replace(/\n+$/, "").split("\n");
+  const first = (lines.find((line) => line.trim() !== "") ?? "").trim();
+  const headline = first === "" || /^<\/?untrusted/.test(first) ? "" : first;
+  const shown = Array.from(headline).length > 100 ? `${Array.from(headline).slice(0, 99).join("")}\u2026` : headline;
+  const count3 = lines.length > 1 ? ` (${lines.length} lines)` : "";
+  return `${shown ? `${label}: ${shown}` : `${label} message`}${count3}`;
+}
+function applySessionEvent(state2, event, options = {}) {
   const payload = event.payload ?? {};
-  if (typeof event.seq === "number" && state.lastSeq > 0 && event.seq <= state.lastSeq) {
-    return state;
+  if (typeof event.seq === "number" && state2.lastSeq > 0 && event.seq <= state2.lastSeq) {
+    return state2;
   }
-  let base = typeof event.seq === "number" && event.seq > state.lastSeq ? { ...state, lastSeq: event.seq } : state;
+  let base = typeof event.seq === "number" && event.seq > state2.lastSeq ? { ...state2, lastSeq: event.seq } : state2;
   switch (event.kind) {
     // The prompt that opened the turn. Live, this surface drew it already; on a
     // replay it is the only record of what was asked.
     case "message.user": {
-      const text2 = String(payload.text ?? "");
+      const text6 = String(payload.text ?? "");
+      const originKind = payload.origin?.kind;
+      if (originKind === "system" || originKind === "jarvis") {
+        const message2 = {
+          id: nextId("msg"),
+          role: "system",
+          text: wakeLine(text6, originKind === "jarvis" ? "Jarvis" : "wake"),
+          streaming: false
+        };
+        return {
+          ...base,
+          messages: [...base.messages, message2],
+          timeline: pushTimeline(base, { kind: "message", id: message2.id })
+        };
+      }
       const expansion = parseSkillExpansion(payload);
       const attachExpansion = (messages) => {
         if (!expansion) return null;
         for (let index = messages.length - 1; index >= 0; index -= 1) {
           const entry = messages[index];
-          if (entry.role === "user" && entry.text === text2 && !entry.expansion) {
+          if (entry.role === "user" && entry.text === text6 && !entry.expansion) {
             const next = messages.slice();
             const { awaitingFold: _, ...rest } = entry;
             next[index] = { ...rest, expansion };
@@ -35939,7 +37105,7 @@ function applySessionEvent(state, event, options = {}) {
         }
         return null;
       };
-      const echo = base.pendingEchoes.indexOf(text2);
+      const echo = base.pendingEchoes.indexOf(text6);
       if (echo !== -1) {
         const pendingEchoes = base.pendingEchoes.slice();
         pendingEchoes.splice(echo, 1);
@@ -35949,7 +37115,7 @@ function applySessionEvent(state, event, options = {}) {
       const merged = attachExpansion(base.messages);
       if (merged) return { ...base, messages: settleFolds(merged) };
       const slashEcho = base.messages.findIndex(
-        (entry) => entry.role === "user" && entry.text === text2 && entry.awaitingFold
+        (entry) => entry.role === "user" && entry.text === text6 && entry.awaitingFold
       );
       if (slashEcho !== -1) {
         const messages = base.messages.slice();
@@ -35961,7 +37127,7 @@ function applySessionEvent(state, event, options = {}) {
       const message = {
         id: nextId("msg"),
         role: "user",
-        text: text2,
+        text: text6,
         streaming: false,
         attachments: files.length > 0 ? files : void 0,
         expansion
@@ -35973,12 +37139,12 @@ function applySessionEvent(state, event, options = {}) {
       };
     }
     case "message.delta": {
-      const text2 = String(payload.text ?? "");
+      const text6 = String(payload.text ?? "");
       const settled = { ...base, messages: settleFolds(base.messages) };
       return {
-        ...appendDelta(settled, text2),
-        streamedChars: base.streamedChars + text2.length,
-        stepStreamed: base.stepStreamed + text2.length
+        ...appendDelta(settled, text6),
+        streamedChars: base.streamedChars + text6.length,
+        stepStreamed: base.stepStreamed + text6.length
       };
     }
     // One model call. Live (and in a full replay) its text already arrived as
@@ -35987,10 +37153,10 @@ function applySessionEvent(state, event, options = {}) {
     case "step.started":
       return { ...base, stepStreamed: 0 };
     case "step.done": {
-      const text2 = typeof payload.text === "string" ? payload.text : "";
-      if (base.stepStreamed > 0 || !text2) return { ...base, stepStreamed: 0 };
+      const text6 = typeof payload.text === "string" ? payload.text : "";
+      if (base.stepStreamed > 0 || !text6) return { ...base, stepStreamed: 0 };
       const settled = { ...base, messages: settleFolds(base.messages) };
-      return { ...appendDelta(settled, text2), stepStreamed: 0 };
+      return { ...appendDelta(settled, text6), stepStreamed: 0 };
     }
     // Thinking, not an answer: counted for the working line, never appended.
     case "message.reasoning":
@@ -36141,16 +37307,25 @@ function applySessionEvent(state, event, options = {}) {
       const rawWindow = payload.window ?? payload.windowTokens ?? null;
       const window2 = rawWindow === null || rawWindow === void 0 ? null : Number(rawWindow);
       const percent = payload.percent === null || payload.percent === void 0 ? window2 && window2 > 0 ? used / window2 * 100 : null : Number(payload.percent);
+      const autoAt = payload.autoCompactAt;
       return {
         ...base,
-        context: { used, window: window2, percent, estimated: payload.estimated === true }
+        context: {
+          used,
+          window: window2,
+          percent,
+          estimated: payload.estimated === true,
+          // 1.55.0: null when auto-compaction is off or the window is unknown; absent from an older core.
+          autoCompactAt: typeof autoAt === "number" && Number.isFinite(autoAt) && autoAt > 0 ? autoAt : null
+        }
       };
     }
     case "compaction": {
       const entry = {
         id: nextId("compaction"),
         before: Number(payload.before ?? payload.from ?? 0),
-        after: Number(payload.after ?? payload.to ?? 0)
+        after: Number(payload.after ?? payload.to ?? 0),
+        ...payload.reason === "overflow" || payload.reason === "auto" || payload.reason === "manual" ? { reason: payload.reason } : {}
       };
       return {
         ...base,
@@ -36174,12 +37349,34 @@ function applySessionEvent(state, event, options = {}) {
       teamTasks[index] = entry;
       return { ...base, teamTasks };
     }
-    case "error":
+    case "error": {
+      const view = sessionErrorView(
+        typeof payload.code === "string" ? payload.code : void 0,
+        typeof payload.message === "string" ? payload.message : "",
+        payload.details
+      );
+      if (view.kind !== "error") {
+        const message = {
+          id: nextId("msg"),
+          role: "system",
+          text: view.text,
+          streaming: false,
+          ...view.kind === "blocked" ? { blocked: true } : {}
+        };
+        return {
+          ...base,
+          messages: [...base.messages, message],
+          timeline: pushTimeline(base, { kind: "message", id: message.id })
+        };
+      }
+      const detail = view.detail ? { id: nextId("msg"), role: "system", text: view.detail, streaming: false, blocked: true } : null;
       return {
         ...base,
-        errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`],
-        lastTurnError: `${payload.code ?? "error"}: ${payload.message ?? ""}`
+        errors: [...base.errors, view.text],
+        lastTurnError: view.text,
+        ...detail ? { messages: [...base.messages, detail], timeline: pushTimeline(base, { kind: "message", id: detail.id }) } : {}
       };
+    }
     // A language server published for a file this session touched. Only the
     // counts arrive: the text of every diagnostic is already in the tool result
     // the model saw.
@@ -36207,7 +37404,7 @@ function applySessionEvent(state, event, options = {}) {
       const turnId = started.turnId ?? "";
       const waited = typeof started.queued === "boolean" ? started.queued : base.queued.some((entry) => entry.turnId === turnId);
       const stamped = Date.parse(typeof event.ts === "string" ? event.ts : "");
-      const text2 = started.prompt ?? "";
+      const text6 = started.prompt ?? "";
       return {
         ...base,
         turnActive: true,
@@ -36215,7 +37412,7 @@ function applySessionEvent(state, event, options = {}) {
         turnWaited: waited,
         lastTurnReason: null,
         lastTurnError: null,
-        promptTexts: text2.length > 0 && turnId.length > 0 ? { ...base.promptTexts, [turnId]: text2 } : base.promptTexts,
+        promptTexts: text6.length > 0 && turnId.length > 0 ? { ...base.promptTexts, [turnId]: text6 } : base.promptTexts,
         queued: base.queued.filter((entry) => entry.turnId !== turnId)
       };
     }
@@ -36226,14 +37423,18 @@ function applySessionEvent(state, event, options = {}) {
       if (index === -1) return base;
       const stream = progressed.stream === "stderr" ? "stderr" : "stdout";
       const arriving = (progressed.chunk ?? "").split("\n").filter((line) => line.length > 0);
-      if (arriving.length === 0 && progressed.truncated !== true) return base;
+      const heldNote = base.toolCalls[index].waiting;
+      const waiting = progressed.state === "waiting" ? typeof progressed.note === "string" && heldNote?.note === progressed.note ? heldNote : { note: typeof progressed.note === "string" ? progressed.note : "" } : progressed.state === "running" ? void 0 : base.toolCalls[index].waiting;
+      const waitingChanged = waiting !== base.toolCalls[index].waiting;
+      if (arriving.length === 0 && progressed.truncated !== true && !waitingChanged) return base;
       const call = base.toolCalls[index];
-      const progress2 = [...call.progress ?? [], ...arriving.map((text2) => ({ text: text2, stream }))];
+      const progress2 = [...call.progress ?? [], ...arriving.map((text6) => ({ text: text6, stream }))];
       const toolCalls = base.toolCalls.slice();
       toolCalls[index] = {
         ...call,
         progress: progress2.slice(-PROGRESS_TAIL),
-        progressTruncated: call.progressTruncated || progressed.truncated === true
+        progressTruncated: call.progressTruncated || progressed.truncated === true,
+        waiting
       };
       return { ...base, toolCalls };
     }
@@ -36250,15 +37451,15 @@ function applySessionEvent(state, event, options = {}) {
       };
     }
     case "provider.retry": {
-      const text2 = providerRetryLine(payload);
-      if (!text2) return base;
+      const text6 = providerRetryLine(payload);
+      if (!text6) return base;
       const last = base.messages.at(-1);
       if (last?.retryNotice) {
         const messages = base.messages.slice();
-        messages[messages.length - 1] = { ...last, text: text2 };
+        messages[messages.length - 1] = { ...last, text: text6 };
         return { ...base, messages };
       }
-      const message = { id: nextId("msg"), role: "system", text: text2, streaming: false, retryNotice: true };
+      const message = { id: nextId("msg"), role: "system", text: text6, streaming: false, retryNotice: true };
       return {
         ...base,
         messages: [...base.messages, message],
@@ -36266,9 +37467,30 @@ function applySessionEvent(state, event, options = {}) {
       };
     }
     case "hook.continue": {
-      const text2 = hookContinueLine(payload);
-      if (!text2) return base;
-      const message = { id: nextId("msg"), role: "system", text: text2, streaming: false };
+      const text6 = hookContinueLine(payload);
+      if (!text6) return base;
+      const message = { id: nextId("msg"), role: "system", text: text6, streaming: false };
+      return {
+        ...base,
+        messages: [...base.messages, message],
+        timeline: pushTimeline(base, { kind: "message", id: message.id })
+      };
+    }
+    // An instant command that ran beside the running turn (1.55.0). It is an
+    // aside: no turn starts, nothing is queued and the stream is not touched.
+    // Mid-answer it waits for the open message to close, like a typed prompt.
+    case "command.result": {
+      const message = {
+        id: nextId("msg"),
+        role: "system",
+        text: commandResultText(payload),
+        streaming: false,
+        side: true,
+        ...payload.ok === false ? { blocked: true } : {}
+      };
+      if (base.messages.some((m) => m.streaming)) {
+        return { ...base, deferredPrompts: [...base.deferredPrompts, message] };
+      }
       return {
         ...base,
         messages: [...base.messages, message],
@@ -36285,8 +37507,8 @@ function applySessionEvent(state, event, options = {}) {
         queued[index] = { ...queued[index], position };
         return { ...base, queued };
       }
-      const text2 = base.promptTexts[turnId] ?? "";
-      return { ...base, queued: [...base.queued, { turnId, text: text2, position }] };
+      const text6 = base.promptTexts[turnId] ?? "";
+      return { ...base, queued: [...base.queued, { turnId, text: text6, position }] };
     }
     case "turn.dequeued": {
       const turnId = String(payload.turnId ?? "");
@@ -36333,9 +37555,9 @@ function applySessionEvent(state, event, options = {}) {
       return base;
   }
 }
-function replayEvents(state, events) {
+function replayEvents(state2, events) {
   let turnStartedAt = null;
-  let next = state;
+  let next = state2;
   for (const event of events) {
     if (turnStartedAt === null && typeof event.ts === "string") turnStartedAt = event.ts;
     next = applySessionEvent(next, event, { replay: true, turnStartedAt });
@@ -36343,69 +37565,75 @@ function replayEvents(state, events) {
   }
   return next;
 }
-function nextAutoAfterPlan(state, mode, flag) {
+function nextAutoAfterPlan(state2, mode, flag) {
   if (mode !== "plan") return false;
   if (flag !== void 0) return flag;
-  return state.mode === "plan" ? state.autoAfterPlan : false;
+  return state2.mode === "plan" ? state2.autoAfterPlan : false;
 }
-function reducer(state, action) {
+function withoutKey(map, key) {
+  if (!(key in map)) return map;
+  const { [key]: _gone, ...rest } = map;
+  return rest;
+}
+function reducer(state2, action) {
   switch (action.type) {
     case "session/reset":
-      return { ...initialState, status: state.status, sessionId: action.sessionId };
+      return { ...initialState, status: state2.status, sessionId: action.sessionId };
     case "session/ready":
       return {
-        ...state,
+        ...state2,
         sessionId: action.sessionId,
         mode: action.mode,
         // Another session's flag is not this one's; a resume says if it is set.
         autoAfterPlan: false,
-        provider: action.provider ?? state.provider,
-        model: action.model ?? state.model,
-        delegation: action.delegation ?? state.delegation
+        provider: action.provider ?? state2.provider,
+        model: action.model ?? state2.model,
+        delegation: action.delegation ?? state2.delegation
       };
     case "delegation":
-      return { ...state, delegation: action.on };
+      return { ...state2, delegation: action.on };
     case "status":
-      return { ...state, status: action.status };
+      return { ...state2, status: action.status };
     case "mode":
       return {
-        ...state,
+        ...state2,
         mode: action.mode,
-        autoAfterPlan: nextAutoAfterPlan(state, action.mode, action.autoAfterPlan)
+        autoAfterPlan: nextAutoAfterPlan(state2, action.mode, action.autoAfterPlan)
       };
     case "commands":
-      return { ...state, commands: action.commands };
+      return { ...state2, commands: action.commands };
     case "tools":
-      return { ...state, toolCount: action.count };
+      return { ...state2, toolCount: action.count };
     case "lsp/status":
-      return { ...state, lsp: action.servers };
+      return { ...state2, lsp: action.servers };
     case "mcp/list":
-      return { ...state, mcp: action.servers };
+      return { ...state2, mcp: action.servers };
     case "mcp/changed":
-      return { ...state, mcp: applyMcpChange(state.mcp, action.payload) };
+      return { ...state2, mcp: applyMcpChange(state2.mcp, action.payload) };
     case "note": {
       const message = {
         id: nextId("msg"),
         role: "system",
         text: action.text,
-        streaming: false
+        streaming: false,
+        ...action.blocked ? { blocked: true } : {}
       };
       return {
-        ...state,
-        messages: [...state.messages, message],
-        timeline: pushTimeline(state, { kind: "message", id: message.id })
+        ...state2,
+        messages: [...state2.messages, message],
+        timeline: pushTimeline(state2, { kind: "message", id: message.id })
       };
     }
     case "prompt/turn": {
-      const promptTexts = { ...state.promptTexts, [action.turnId]: action.text };
-      const index = state.queued.findIndex((entry) => entry.turnId === action.turnId);
-      if (index === -1) return { ...state, promptTexts };
-      const queued = state.queued.slice();
+      const promptTexts = { ...state2.promptTexts, [action.turnId]: action.text };
+      const index = state2.queued.findIndex((entry) => entry.turnId === action.turnId);
+      if (index === -1) return { ...state2, promptTexts };
+      const queued = state2.queued.slice();
       queued[index] = { ...queued[index], text: action.text };
-      return { ...state, queued, promptTexts };
+      return { ...state2, queued, promptTexts };
     }
     case "errors/clear":
-      return state.errors.length === 0 ? state : { ...state, errors: [] };
+      return state2.errors.length === 0 ? state2 : { ...state2, errors: [] };
     case "user/message": {
       const message = {
         id: nextId("msg"),
@@ -36415,83 +37643,6255 @@ function reducer(state, action) {
         attachments: action.attachments?.length ? action.attachments : void 0,
         ...action.text.startsWith("/") ? { awaitingFold: true } : {}
       };
-      const pendingEchoes = action.expectEvent === false ? state.pendingEchoes : [...state.pendingEchoes, action.text];
-      if (state.messages.some((m) => m.streaming)) {
+      const pendingEchoes = action.expectEvent === false ? state2.pendingEchoes : [...state2.pendingEchoes, action.text];
+      if (state2.messages.some((m) => m.streaming)) {
         return {
-          ...state,
+          ...state2,
           pendingEchoes,
-          deferredPrompts: [...state.deferredPrompts, message],
+          deferredPrompts: [...state2.deferredPrompts, message],
           reasoningChars: 0,
           streamedChars: 0
         };
       }
       return {
-        ...state,
+        ...state2,
         pendingEchoes,
-        messages: [...state.messages, message],
-        timeline: pushTimeline(state, { kind: "message", id: message.id }),
+        messages: [...state2.messages, message],
+        timeline: pushTimeline(state2, { kind: "message", id: message.id }),
         turnActive: true,
         reasoningChars: 0,
         streamedChars: 0
       };
     }
     case "session/event":
-      return applySessionEvent(state, action.event);
+      return applySessionEvent(state2, action.event);
     case "session/replay":
-      return replayEvents(state, action.events);
+      return replayEvents(state2, action.events);
     case "session/reconnected": {
-      const messages = state.messages.map((m) => m.streaming ? { ...m, streaming: false } : m);
+      const messages = state2.messages.map((m) => m.streaming ? { ...m, streaming: false } : m);
       return {
-        ...flushDeferred({ ...state, messages }),
+        ...flushDeferred({ ...state2, messages }),
         // The daemon that was running these calls is gone; their results
         // are not coming.
-        toolCalls: settleRunningCalls(state.toolCalls, "stopped: the daemon restarted"),
+        toolCalls: settleRunningCalls(state2.toolCalls, "stopped: the daemon restarted"),
         turnActive: false,
         turnStartedAt: null,
         turnWaited: false
       };
     }
     case "child/replay": {
-      const current2 = state.children[action.sessionId] ?? initialState;
+      const current2 = state2.children[action.sessionId] ?? initialState;
       const next = replayEvents(current2, action.events);
-      if (next === current2) return state;
-      return { ...state, children: { ...state.children, [action.sessionId]: next } };
+      if (next === current2) return state2;
+      return { ...state2, children: { ...state2.children, [action.sessionId]: next } };
     }
     case "child/event": {
-      const current2 = state.children[action.sessionId] ?? initialState;
+      const current2 = state2.children[action.sessionId] ?? initialState;
       const next = applySessionEvent(current2, action.event);
-      if (next === current2) return state;
-      return { ...state, children: { ...state.children, [action.sessionId]: next } };
+      if (next === current2) return state2;
+      return { ...state2, children: { ...state2.children, [action.sessionId]: next } };
     }
-    case "approval/request":
-      return { ...state, pendingApproval: { ...action.request, source: "interactive" } };
+    case "approval/request": {
+      if (action.request.route === "jarvis" && !alwaysAsksYou(action.request)) {
+        const rest = state2.heldApprovals.filter((r) => r.requestId !== action.request.requestId);
+        return { ...state2, heldApprovals: [...rest, { ...action.request, source: "interactive" }] };
+      }
+      return { ...state2, pendingApproval: { ...action.request, source: "interactive" } };
+    }
     case "approval/list": {
-      const pendingId = state.pendingApproval?.requestId;
+      const fallen = state2.heldApprovals.flatMap((held) => {
+        const now = action.requests.find((r) => r.requestId === held.requestId);
+        return now && now.route !== "jarvis" ? [{ ...held, ...now, source: "interactive" }] : [];
+      });
+      const heldIds = new Set(state2.heldApprovals.map((r) => r.requestId));
+      const stillHeld = state2.heldApprovals.filter(
+        (held) => !fallen.some((f) => f.requestId === held.requestId)
+      );
+      const promoted = state2.pendingApproval ? [] : fallen.slice(0, 1);
+      const pending = state2.pendingApproval ?? promoted[0] ?? null;
       return {
-        ...state,
-        approvalQueue: action.requests.filter((r) => r.requestId !== pendingId).map((r) => ({ ...r, source: "queue" }))
+        ...state2,
+        pendingApproval: pending,
+        heldApprovals: stillHeld,
+        approvalQueue: [
+          ...action.requests.filter((r) => r.requestId !== pending?.requestId).filter((r) => !heldIds.has(r.requestId) || fallen.some((f) => f.requestId === r.requestId)).map((r) => ({ ...r, source: "queue" }))
+        ]
       };
+    }
+    case "approval/route": {
+      const { requestId, route } = action;
+      const held = state2.heldApprovals.find((r) => r.requestId === requestId);
+      const pending = state2.pendingApproval?.requestId === requestId ? state2.pendingApproval : null;
+      const queued = state2.approvalQueue.some((r) => r.requestId === requestId);
+      const retag = (r) => r.requestId === requestId ? { ...r, route } : r;
+      if (route === "jarvis") {
+        if (pending && !alwaysAsksYou(pending)) {
+          return {
+            ...state2,
+            pendingApproval: null,
+            heldApprovals: [...state2.heldApprovals.filter((r) => r.requestId !== requestId), { ...pending, route }]
+          };
+        }
+        return {
+          ...state2,
+          pendingApproval: state2.pendingApproval ? retag(state2.pendingApproval) : null,
+          heldApprovals: state2.heldApprovals.map(retag),
+          approvalQueue: state2.approvalQueue.map(retag)
+        };
+      }
+      if (held) {
+        const entry = { ...held, route };
+        const rest = state2.heldApprovals.filter((r) => r.requestId !== requestId);
+        return state2.pendingApproval ? { ...state2, heldApprovals: rest, approvalQueue: [...state2.approvalQueue, { ...entry, source: "queue" }] } : { ...state2, heldApprovals: rest, pendingApproval: entry };
+      }
+      if (!pending && !queued) return state2;
+      return {
+        ...state2,
+        pendingApproval: state2.pendingApproval ? retag(state2.pendingApproval) : null,
+        approvalQueue: state2.approvalQueue.map(retag)
+      };
+    }
+    case "question/route": {
+      const { requestId, route } = action;
+      const held = state2.heldQuestions.find((r) => r.requestId === requestId);
+      const pending = state2.pendingQuestion?.requestId === requestId ? state2.pendingQuestion : null;
+      if (route === "jarvis") {
+        if (!pending || alwaysAsksYou(pending)) return state2;
+        return {
+          ...state2,
+          pendingQuestion: null,
+          heldQuestions: [...state2.heldQuestions.filter((r) => r.requestId !== requestId), { ...pending, route }]
+        };
+      }
+      if (held) {
+        const rest = state2.heldQuestions.filter((r) => r.requestId !== requestId);
+        return state2.pendingQuestion ? { ...state2, heldQuestions: state2.heldQuestions.map((r) => r.requestId === requestId ? { ...r, route } : r) } : { ...state2, heldQuestions: rest, pendingQuestion: { ...held, route } };
+      }
+      return pending ? { ...state2, pendingQuestion: { ...pending, route } } : state2;
+    }
+    case "refusal": {
+      if (action.refused === null) {
+        if (!(action.requestId in state2.refusals)) return state2;
+        const { [action.requestId]: _gone, ...rest } = state2.refusals;
+        return { ...state2, refusals: rest };
+      }
+      return { ...state2, refusals: { ...state2.refusals, [action.requestId]: action.refused } };
     }
     case "approval/resolved":
       return {
-        ...state,
-        pendingApproval: state.pendingApproval?.requestId === action.requestId ? null : state.pendingApproval,
-        approvalQueue: state.approvalQueue.filter((r) => r.requestId !== action.requestId)
+        ...state2,
+        refusals: withoutKey(state2.refusals, action.requestId),
+        pendingApproval: state2.pendingApproval?.requestId === action.requestId ? null : state2.pendingApproval,
+        approvalQueue: state2.approvalQueue.filter((r) => r.requestId !== action.requestId),
+        heldApprovals: state2.heldApprovals.filter((r) => r.requestId !== action.requestId)
       };
     case "question/request":
-      return { ...state, pendingQuestion: action.request };
-    case "question/resolved":
+      if (action.request.route === "jarvis" && !alwaysAsksYou(action.request)) {
+        const rest = state2.heldQuestions.filter((r) => r.requestId !== action.request.requestId);
+        return { ...state2, heldQuestions: [...rest, action.request] };
+      }
+      return { ...state2, pendingQuestion: action.request };
+    case "question/list": {
+      const fallen = state2.heldQuestions.filter(
+        (held) => action.requests.some((r) => r.requestId === held.requestId && r.route !== "jarvis")
+      );
+      if (fallen.length === 0) return state2;
+      const take = state2.pendingQuestion ? null : fallen[0];
       return {
-        ...state,
-        pendingQuestion: state.pendingQuestion?.requestId === action.requestId ? null : state.pendingQuestion
+        ...state2,
+        pendingQuestion: state2.pendingQuestion ?? take,
+        heldQuestions: state2.heldQuestions.filter((held) => held.requestId !== take?.requestId)
       };
+    }
+    case "question/resolved": {
+      const pending = state2.pendingQuestion?.requestId === action.requestId ? null : state2.pendingQuestion;
+      const held = state2.heldQuestions.filter((r) => r.requestId !== action.requestId);
+      const next = pending ? void 0 : held.find((r) => r.route !== "jarvis");
+      return {
+        ...state2,
+        refusals: withoutKey(state2.refusals, action.requestId),
+        pendingQuestion: pending ?? next ?? null,
+        heldQuestions: held.filter((r) => r !== next)
+      };
+    }
     case "error":
-      return { ...state, errors: [...state.errors, action.message] };
+      return { ...state2, errors: [...state2.errors, action.message] };
     default:
-      return state;
+      return state2;
   }
 }
 var APPROVAL_SCOPES = ["once", "session", "project", "always"];
+
+// src/state/external.ts
+var EXTERNAL_CLIS = ["claude", "codex", "agy", "cursor"];
+function cliLabel(cli) {
+  return cliName(cli);
+}
+function sameRef(a, b) {
+  return a.cli === b.cli && a.id === b.id;
+}
+function extSessionId(ref) {
+  return `ext:${ref.cli}:${ref.id}`;
+}
+function hostLabel(session) {
+  switch (session.host) {
+    case "terminal":
+      return "other terminal";
+    case "tmux":
+      return session.tmux ? `tmux ${session.tmux.session}` : "tmux";
+    case "snowpea":
+      return "opened by snowpea";
+    default:
+      return "not open";
+  }
+}
+function viewOnlyReason(session) {
+  if (session.canSend !== false) return null;
+  if (session.host === "terminal") {
+    return session.ref?.cli === "claude" ? "Open in another terminal \u2014 view only \xB7 t types into its tmux pane \xB7 or wait until it exits" : "Open in another terminal \u2014 view only until that process exits.";
+  }
+  if (session.host === "tmux") {
+    const where = session.tmux ? ` (${session.tmux.session} ${session.tmux.pane})` : "";
+    return `Running in a tmux pane${where} \u2014 view only here.`;
+  }
+  return "This session is view only.";
+}
+function externalNote(session) {
+  if (session.approvals !== "person" || session.canSend === false) return null;
+  return "tmux pane \u2014 answer permission prompts in the terminal; snowpea types only while you are not";
+}
+function interruptRefusal(session) {
+  if (session.host !== "terminal") return null;
+  return "This session runs in another terminal \u2014 stop it there. Esc again leaves the screen.";
+}
+function modeLabel2(mode) {
+  switch (mode) {
+    case "readonly":
+      return "read-only";
+    case "unrestricted":
+      return "UNRESTRICTED";
+    default:
+      return "default";
+  }
+}
+function ungatedWarning(session) {
+  if (session.mode === "unrestricted") {
+    return `UNRESTRICTED \u2014 snowpea does not control what this ${cliLabel(session.ref.cli)} session runs`;
+  }
+  if (session.controlled === false) {
+    return `not gated \u2014 ${cliLabel(session.ref.cli)} runs without snowpea's approvals`;
+  }
+  return null;
+}
+var UNRESTRICTED_WORD = "unrestricted";
+function unrestrictedPrompt(input) {
+  return [
+    `Switch ${cliLabel(input.cli)}${input.title ? ` "${input.title}"` : ""} to UNRESTRICTED mode?`,
+    `Folder: ${input.cwd}`,
+    "snowpea does not control what this session runs: no approvals are asked, and",
+    "Jarvis's guarded-class rules do not apply inside it. This is recorded.",
+    `Type "${UNRESTRICTED_WORD}" and press Enter to confirm, Esc to cancel.`
+  ];
+}
+function confirmsUnrestricted(typed) {
+  return typed.trim().toLowerCase() === UNRESTRICTED_WORD;
+}
+function modesFor(info) {
+  const listed = info?.modes?.length ? info.modes : info?.capabilities?.modes;
+  const modes = listed && listed.length > 0 ? [...listed] : info?.id === "agy" ? ["default", "unrestricted"] : ["default", "readonly", "unrestricted"];
+  const first = info?.defaultMode;
+  if (first && modes.includes(first)) return [first, ...modes.filter((mode) => mode !== first)];
+  return modes;
+}
+function usable(info) {
+  return info.installed && info.enabled !== false;
+}
+function pendingPathLine(info) {
+  if (!info.pendingPath) return null;
+  return `${cliLabel(info.id)}: path not confirmed \u2014 confirm in Settings or with /external confirm-path ${info.id}`;
+}
+function pendingPathLines(infos, width) {
+  const lines = infos.map(pendingPathLine).filter((line) => line !== null);
+  if (lines.length === 0) return [];
+  if (lines.length === 1) return wrapWords(lines[0], width, PENDING_PATH_ROWS);
+  return lines.slice(0, PENDING_PATH_ROWS).map((line) => fit(line, width));
+}
+var PENDING_PATH_ROWS = 2;
+function modelsNote(info) {
+  if (!info || (info.models ?? []).length > 0) return null;
+  if (info.modelsLoaded === void 0) return null;
+  return info.modelsLoaded ? "no model list" : "loading models\u2026";
+}
+function confirmPathPrompt(info) {
+  const path = Array.from(String(info.pendingPath ?? ""));
+  const chunks = [];
+  for (let at = 0; at < path.length; at += CONFIRM_PATH_CHUNK) chunks.push(path.slice(at, at + CONFIRM_PATH_CHUNK).join(""));
+  return [`Allow snowpea to run this ${cliLabel(info.id)} executable?`, ...chunks];
+}
+var CONFIRM_PATH_CHUNK = 50;
+function unavailableReason(info) {
+  if (info.pendingPath) return "path not confirmed \u2014 /external confirm-path " + info.id;
+  if (!info.installed) return "not installed";
+  if (info.enabled === false) return "turned off in settings";
+  return (info.problems ?? [])[0] ?? "";
+}
+function statusWord(row) {
+  if (row.status === "running") return "running";
+  if (row.status === "error") return "error";
+  return "idle";
+}
+function searchRows(rows, query) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [...rows];
+  return rows.filter((row) => {
+    const hay = [
+      cliLabel(row.ref.cli),
+      row.ref.cli,
+      row.title ?? "",
+      row.preview ?? "",
+      row.cwd,
+      row.project ?? "",
+      row.model ?? "",
+      row.ref.id
+    ].join(" ").toLowerCase();
+    return words.every((word) => hay.includes(word));
+  });
+}
+function pickerLabel(row, width, showFolder) {
+  const title = (row.title ?? "").trim() || (row.preview ?? "").trim() || row.ref.id.slice(0, 8);
+  const folder = showFolder ? ` (${row.cwd.split(/[\\/]/).filter(Boolean).pop() ?? row.cwd})` : "";
+  const bits = [statusWord(row), hostLabel(row)];
+  if (row.canSend === false) bits.push("view only");
+  if (row.mode === "unrestricted") bits.push("UNRESTRICTED");
+  return spread(`${agentOfExternal(row.ref.cli).tag} ${title}${folder}`, bits.join(" \xB7 "), width);
+}
+function toSessionEvent(ref, event) {
+  const payload = { ...event.payload ?? {} };
+  if (event.turnId && payload["turnId"] === void 0) payload["turnId"] = event.turnId;
+  return { sessionId: extSessionId(ref), seq: event.seq, kind: event.kind, ts: event.ts, payload };
+}
+var MAX_KEPT_EVENTS = 4e3;
+function byseq(events) {
+  const seen = /* @__PURE__ */ new Map();
+  for (const event of events) seen.set(event.seq, event);
+  return [...seen.values()].sort((a, b) => a.seq - b.seq);
+}
+function fold(ref, events, base) {
+  const converted = events.map((event) => toSessionEvent(ref, event));
+  return reducer(base, { type: "session/replay", events: converted });
+}
+function openExternal(session, events, hasMore) {
+  const ordered = byseq(events);
+  const base = { ...initialState, sessionId: extSessionId(session.ref), status: "connected" };
+  return {
+    ref: session.ref,
+    session,
+    state: fold(session.ref, ordered, base),
+    events: ordered.slice(-MAX_KEPT_EVENTS),
+    hasMore,
+    loadingOlder: false,
+    notice: null,
+    error: null
+  };
+}
+function flipNotice(before, after) {
+  if (before.host !== "tmux" && after.host === "tmux" && after.canSend !== false) {
+    return "snowpea types into the tmux pane now \u2014 answer permission prompts there.";
+  }
+  if (before.canSend === false && after.canSend !== false) {
+    return "The other terminal closed \u2014 you can send from here now.";
+  }
+  if (before.canSend !== false && after.canSend === false) {
+    return after.host === "terminal" ? "Another terminal opened this session \u2014 view only until it exits." : "This session is view only now.";
+  }
+  if (before.mode !== after.mode && after.mode === "unrestricted") {
+    return "Mode is now UNRESTRICTED.";
+  }
+  return null;
+}
+function externalReducer(view, action) {
+  switch (action.type) {
+    case "opened":
+      return openExternal(action.session, action.events, action.hasMore);
+    case "older": {
+      const events = byseq([...action.events, ...view.events]).slice(-MAX_KEPT_EVENTS);
+      const base = { ...initialState, sessionId: view.state.sessionId, status: "connected" };
+      return { ...view, events, hasMore: action.hasMore, loadingOlder: false, state: fold(view.ref, events, base) };
+    }
+    case "loadingOlder":
+      return { ...view, loadingOlder: action.on };
+    case "event": {
+      if (!sameRef(action.event.ref, view.ref)) return view;
+      const known = view.events[view.events.length - 1]?.seq ?? 0;
+      if (action.event.seq <= known) return view;
+      const entry = {
+        kind: action.event.kind,
+        payload: action.event.payload,
+        seq: action.event.seq,
+        ts: action.event.ts,
+        turnId: action.event.turnId ?? null
+      };
+      const state2 = reducer(view.state, {
+        type: "session/event",
+        event: toSessionEvent(view.ref, entry)
+      });
+      let next = state2;
+      if (entry.kind === "turn.done") {
+        const reason = String(entry.payload?.["reason"] ?? "complete");
+        if (reason !== "complete" && reason !== "stopped") {
+          next = reducer(next, { type: "note", text: `turn ended: ${reason}` });
+        }
+      }
+      return { ...view, state: next, events: [...view.events, entry].slice(-MAX_KEPT_EVENTS) };
+    }
+    case "state": {
+      if (!sameRef(action.payload.ref, view.ref)) return view;
+      const p = action.payload;
+      const session = {
+        ...view.session,
+        status: p.status,
+        host: p.host,
+        canSend: p.canSend,
+        approvals: p.approvals,
+        controlled: p.controlled ?? view.session.controlled,
+        mode: p.mode ?? view.session.mode,
+        title: p.title ?? view.session.title,
+        tmux: p.tmux ?? null
+      };
+      let state2 = view.state;
+      let error = view.error;
+      const diedMidTurn = p.status === "error" && view.state.turnActive;
+      if (p.status === "error") {
+        error = p.error ?? "the session stopped";
+        if (view.session.status !== "error" || diedMidTurn) {
+          state2 = reducer(state2, {
+            type: "session/event",
+            event: {
+              sessionId: state2.sessionId ?? "",
+              seq: state2.lastSeq + 1,
+              kind: "turn.done",
+              ts: (/* @__PURE__ */ new Date()).toISOString(),
+              payload: { reason: "error" }
+            }
+          });
+          state2 = reducer(state2, {
+            type: "note",
+            text: `${cliLabel(session.ref.cli)} stopped${diedMidTurn ? " mid-turn" : ""}: ${error}. Send a message to continue.`
+          });
+        }
+      } else if (view.session.status === "error") {
+        error = null;
+      }
+      return { ...view, session, state: state2, error, notice: flipNotice(view.session, session) ?? view.notice };
+    }
+    case "session":
+      return { ...view, session: action.session };
+    case "sent":
+      return { ...view, state: reducer(view.state, { type: "user/message", text: action.text }) };
+    case "interrupted":
+      return view;
+    case "note":
+      return { ...view, state: reducer(view.state, { type: "note", text: action.text }) };
+    case "failed": {
+      const failed = reducer(view.state, { type: "error", message: action.message });
+      const settled = reducer(failed, {
+        type: "session/event",
+        event: {
+          sessionId: failed.sessionId ?? "",
+          seq: failed.lastSeq + 1,
+          kind: "turn.done",
+          ts: (/* @__PURE__ */ new Date()).toISOString(),
+          payload: { reason: "error" }
+        }
+      });
+      return { ...view, state: settled };
+    }
+    case "notice/clear":
+      return view.notice === null ? view : { ...view, notice: null };
+    default:
+      return view;
+  }
+}
+function rpcErrorFacts(error) {
+  const raw = error;
+  const text6 = (value) => typeof value === "string" && value ? value : void 0;
+  const details = raw?.data?.details ?? {};
+  return {
+    code: text6(raw?.data?.code) ?? text6(raw?.code),
+    reason: text6(details["reason"]),
+    project: text6(details["project"]),
+    kind: text6(details["kind"])
+  };
+}
+function isUntrustedProject(error) {
+  const facts = rpcErrorFacts(error);
+  return facts.code === "external_unavailable" && facts.reason === "untrusted_project";
+}
+function personOnlyLine(error) {
+  switch (rpcErrorFacts(error).kind) {
+    case "remote_login":
+      return "Only a local snowpea can do that \u2014 a remote login cannot. Use the TUI, the IDE or the local web page.";
+    case "browser":
+    case "connector":
+      return "A browser host or connector cannot do that \u2014 only a person at this machine can.";
+    default:
+      return "Only a person can do that \u2014 Jarvis and scripts cannot.";
+  }
+}
+function trustPrompt(project) {
+  return [
+    "This CLI will load this project's own settings and hooks.",
+    `Open external sessions in ${tailPath(project, 40)}?`
+  ];
+}
+function tailPath(path, max) {
+  const chars = Array.from(path);
+  return chars.length <= max ? path : `\u2026${chars.slice(chars.length - (max - 1)).join("")}`;
+}
+var BUSY_REASONS = {
+  terminal_prompt: "A permission prompt is open in the terminal \u2014 answer it there, then send again.",
+  terminal_busy: "Claude Code is busy in that terminal \u2014 send again when it is idle.",
+  terminal_typing: "Someone is typing in that tmux pane \u2014 send again in a few seconds."
+};
+function describeExternalError(error, cli, kind = "send") {
+  const raw = error;
+  const facts = rpcErrorFacts(error);
+  const code = facts.code;
+  const message = raw?.message ?? String(error);
+  switch (code) {
+    case "external_unavailable":
+      if (facts.reason === "untrusted_project_person_only") {
+        return "This project is not trusted for external CLIs yet, and only you can allow it \u2014 open an external session there from the TUI or the IDE first.";
+      }
+      if (facts.reason === "untrusted_project") {
+        return "This project is not trusted for external CLIs yet \u2014 confirm it to continue.";
+      }
+      return `${cli ? cliLabel(cli) : "That CLI"} is not available: ${message}`;
+    case "external_view_only":
+      if (kind === "interrupt") {
+        return "This session runs in another terminal \u2014 stop it there; snowpea cannot interrupt it.";
+      }
+      if (kind === "adopt") return "Typing into that tmux pane was not allowed \u2014 the session stays view only.";
+      return "This session is open in another terminal \u2014 view only until it exits.";
+    case "session_busy":
+      if (facts.reason && BUSY_REASONS[facts.reason]) return BUSY_REASONS[facts.reason];
+      return message && message !== "session_busy" ? message : "The session is busy \u2014 wait for the turn to end.";
+    case "jarvis_person_only":
+      return personOnlyLine(error);
+    case "jarvis_disabled":
+      return "Jarvis mode is off \u2014 /jarvis on";
+    case "not_found":
+      return "That session does not exist (anymore).";
+    case "outside_root":
+      return "That session is not in a registered project.";
+    default:
+      return message;
+  }
+}
+
+// src/state/security.ts
+function securitySupported(capabilities) {
+  return (capabilities ?? []).includes("securityLists");
+}
+var SECURITY_REQUIRES_LINE = "Security lists: requires a newer core \u2014 this daemon is older. Run /update.";
+var SECURITY_REQUIRES_SUMMARY = "requires a newer core \u2014 this daemon is older (/update)";
+var text2 = (value) => typeof value === "string" ? sanitizeText(value) : "";
+var texts = (value) => Array.isArray(value) ? value.map(text2).filter((item) => item !== "") : [];
+var level = (value) => value === "all" ? "all" : "write";
+function preset(raw) {
+  return {
+    id: text2(raw?.id),
+    title: text2(raw?.title) || text2(raw?.id),
+    description: text2(raw?.description),
+    examples: texts(raw?.examples),
+    default: raw?.default === true
+  };
+}
+function normalizeCatalog(raw) {
+  return {
+    commands: (Array.isArray(raw?.commands) ? raw.commands : []).map(preset).filter((entry) => entry.id !== ""),
+    paths: (Array.isArray(raw?.paths) ? raw.paths : []).map((entry) => ({ ...preset(entry), level: level(entry?.level), paths: texts(entry?.paths) })).filter((entry) => entry.id !== ""),
+    locale: text2(raw?.locale)
+  };
+}
+function additions(raw) {
+  if (!raw || typeof raw !== "object") return 0;
+  return (raw.blockedCommands?.presets?.length ?? 0) + (raw.blockedCommands?.custom?.length ?? 0) + (raw.protectedPaths?.presets?.length ?? 0) + (raw.protectedPaths?.custom?.length ?? 0);
+}
+function normalizeProblemItems(value) {
+  return (Array.isArray(value) ? value : []).map((item) => ({
+    list: item?.list === "commands" || item?.list === "paths" ? item.list : null,
+    entry: typeof item?.entry === "string" && item.entry !== "" ? sanitizeText(item.entry) : null,
+    reason: text2(item?.reason)
+  })).filter((item) => item.reason !== "");
+}
+function problemItemText(item) {
+  const what = item.list === "commands" ? "blocked command" : item.list === "paths" ? "protected path" : "entry";
+  return `${what}${item.entry ? ` ${JSON.stringify(item.entry)}` : ""}: ${item.reason}`;
+}
+function normalizeConfig(raw) {
+  const problemItems = normalizeProblemItems(raw?.problemItems);
+  const sentences = texts(raw?.problems);
+  const structured = Array.isArray(raw?.problemItems);
+  const fileNotice = (sentence) => /credentials\.json/i.test(sentence) && /symbolic link/i.test(sentence);
+  const notices = structured ? sentences.filter((sentence) => !problemItems.some((item) => sentence.includes(item.reason))) : sentences.filter(fileNotice);
+  return {
+    writable: raw?.writable !== false,
+    // The structured form wins; an older core sent only the sentences.
+    problems: problemItems.length > 0 ? problemItems.map(problemItemText) : structured ? [] : sentences.filter((sentence) => !fileNotice(sentence)),
+    problemItems,
+    notices,
+    unknownCode: raw?.unknownCode === "allow" ? "allow" : "ask",
+    projectAdds: additions(raw?.project),
+    blockedCommands: {
+      presets: texts(raw?.blockedCommands?.presets),
+      custom: texts(raw?.blockedCommands?.custom)
+    },
+    protectedPaths: {
+      presets: texts(raw?.protectedPaths?.presets),
+      custom: (Array.isArray(raw?.protectedPaths?.custom) ? raw.protectedPaths.custom : []).map((entry) => ({ path: text2(entry?.path), level: level(entry?.level) })).filter((entry) => entry.path !== "")
+    },
+    effective: {
+      commands: (Array.isArray(raw?.effective?.commands) ? raw.effective.commands : []).map((entry) => ({ pattern: text2(entry?.pattern), by: text2(entry?.by) })).filter((entry) => entry.pattern !== ""),
+      paths: (Array.isArray(raw?.effective?.paths) ? raw.effective.paths : []).map(
+        (entry) => ({
+          path: text2(entry?.path),
+          level: level(entry?.level),
+          by: text2(entry?.by),
+          scope: entry?.scope === "self" ? "self" : "tree",
+          exempt: texts(entry?.exempt)
+        })
+      ).filter((entry) => entry.path !== "")
+    }
+  };
+}
+function normalizeVerdict(raw) {
+  const reason = text2(raw?.reason);
+  const blocked = raw?.blocked === true;
+  return {
+    blocked,
+    // A blocked verdict is never also opaque.
+    opaque: !blocked && raw?.opaque === true,
+    by: typeof raw?.by === "string" && raw.by !== "" ? sanitizeText(raw.by) : null,
+    why: text2(raw?.why) || reason,
+    ...raw?.level === "write" || raw?.level === "all" ? { level: raw.level } : {},
+    ...typeof raw?.match === "string" && raw.match !== "" ? { match: sanitizeText(raw.match) } : {}
+  };
+}
+function normalizeBlocked(raw) {
+  return { sessionId: text2(raw?.sessionId), tool: text2(raw?.tool), summary: text2(raw?.summary), by: text2(raw?.by) };
+}
+function listsAreSet(config) {
+  return config !== null && (config.effective.commands.length > 0 || config.effective.paths.length > 0);
+}
+function listsOf(config) {
+  return {
+    commandPresets: [...config.blockedCommands.presets],
+    commandCustom: [...config.blockedCommands.custom],
+    pathPresets: [...config.protectedPaths.presets],
+    pathCustom: config.protectedPaths.custom.map((entry) => ({ ...entry }))
+  };
+}
+function sameLists(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function settingsPatch(lists) {
+  return {
+    security: {
+      blockedCommands: { presets: lists.commandPresets, custom: lists.commandCustom },
+      protectedPaths: { presets: lists.pathPresets, custom: lists.pathCustom }
+    }
+  };
+}
+var LEVEL_LABEL = { write: "no changes", all: "no access" };
+function nextLevel(current2) {
+  return current2 === "write" ? "all" : "write";
+}
+function tabRows(tab2, catalog, lists) {
+  const chosen = tab2 === "commands" ? lists.commandPresets : lists.pathPresets;
+  const entries = tab2 === "commands" ? catalog.commands : catalog.paths;
+  const rows = entries.map((entry) => ({
+    kind: "preset",
+    id: entry.id,
+    title: entry.title,
+    description: entry.description,
+    examples: tab2 === "paths" && (entry.paths?.length ?? 0) > 0 ? entry.paths : entry.examples,
+    on: chosen.includes(entry.id),
+    isDefault: entry.default,
+    level: entry.level,
+    known: true
+  }));
+  for (const id of chosen) {
+    if (!entries.some((entry) => entry.id === id)) {
+      rows.push({ kind: "preset", id, title: id, description: "not in this core's catalog", examples: [], on: true, isDefault: false, known: false });
+    }
+  }
+  if (tab2 === "commands") {
+    lists.commandCustom.forEach((pattern, index) => rows.push({ kind: "custom", index, text: pattern }));
+  } else {
+    lists.pathCustom.forEach((entry, index) => rows.push({ kind: "custom", index, text: entry.path, level: entry.level }));
+  }
+  return rows;
+}
+function togglePreset(lists, tab2, id) {
+  const key = tab2 === "commands" ? "commandPresets" : "pathPresets";
+  const current2 = lists[key];
+  return { ...lists, [key]: current2.includes(id) ? current2.filter((entry) => entry !== id) : [...current2, id] };
+}
+function addCustom(lists, tab2, value) {
+  return tab2 === "commands" ? { ...lists, commandCustom: [...lists.commandCustom, value] } : { ...lists, pathCustom: [...lists.pathCustom, { path: value, level: "write" }] };
+}
+function editCustom(lists, tab2, index, value) {
+  return tab2 === "commands" ? { ...lists, commandCustom: lists.commandCustom.map((entry, at) => at === index ? value : entry) } : { ...lists, pathCustom: lists.pathCustom.map((entry, at) => at === index ? { ...entry, path: value } : entry) };
+}
+function removeCustom(lists, tab2, index) {
+  return tab2 === "commands" ? { ...lists, commandCustom: lists.commandCustom.filter((_, at) => at !== index) } : { ...lists, pathCustom: lists.pathCustom.filter((_, at) => at !== index) };
+}
+function cycleLevel(lists, index) {
+  return { ...lists, pathCustom: lists.pathCustom.map((entry, at) => at === index ? { ...entry, level: nextLevel(entry.level) } : entry) };
+}
+function hasCustom(lists, tab2, value, except = -1) {
+  const wanted = value.trim();
+  const entries = tab2 === "commands" ? lists.commandCustom : lists.pathCustom.map((entry) => entry.path);
+  return entries.some((entry, at) => at !== except && entry.trim() === wanted);
+}
+function tabEmpty(tab2, lists) {
+  return tab2 === "commands" ? lists.commandPresets.length === 0 && lists.commandCustom.length === 0 : lists.pathPresets.length === 0 && lists.pathCustom.length === 0;
+}
+var NOUN = { commands: "blocked", paths: "protected" };
+function weakening(tab2, catalog, before, after, what) {
+  const key = tab2 === "commands" ? "commandPresets" : "pathPresets";
+  const entries = tab2 === "commands" ? catalog.commands : catalog.paths;
+  const dropped = before[key].filter((id) => !after[key].includes(id));
+  const loses = dropped.map((id) => entries.find((entry) => entry.id === id)).filter((entry) => entry !== void 0);
+  const lines = [];
+  for (const entry of loses.filter((one) => one.default)) {
+    const sample = (tab2 === "paths" && entry.paths?.length ? entry.paths : entry.examples).slice(0, 3).join(", ");
+    lines.push(`"${entry.title}" is a default list. ${sample ? `${sample} ` : "These "}will no longer be ${NOUN[tab2]}.`);
+  }
+  if (lines.length === 0 && tabEmpty(tab2, after) && !tabEmpty(tab2, before)) {
+    const gone = what ?? loses.map((entry) => entry.title).join(", ");
+    lines.push(`${gone ? `${gone} will no longer be ${NOUN[tab2]}. ` : ""}Nothing in this list would be ${NOUN[tab2]} any more.`);
+  }
+  return lines.length > 0 ? lines.join(" ") : null;
+}
+function byLabel(by, catalog) {
+  if (by === null || by === "") return "your list";
+  if (by === "custom") return "your own entry";
+  if (by === "security") return "the security lists' own protection";
+  const at = by.indexOf(":");
+  const kind = at > 0 ? by.slice(0, at) : "";
+  const id = at > 0 ? by.slice(at + 1) : by;
+  const pool = kind === "commands" ? catalog?.commands : kind === "paths" ? catalog?.paths : [...catalog?.commands ?? [], ...catalog?.paths ?? []];
+  const found = (pool ?? []).find((entry) => entry.id === id);
+  return found ? found.title : kind === "commands" || kind === "paths" ? id : by;
+}
+var NOTHING_RUN = "Nothing was run \u2014 the text was only checked against your lists.";
+var OPAQUE_LINE = "cannot be checked against your list; snowpea will ask you";
+function verdictLine(verdict, catalog) {
+  if (verdict.blocked) {
+    const level2 = verdict.level ? ` (${LEVEL_LABEL[verdict.level]})` : "";
+    const hit = verdict.match ? ` [${verdict.match}]` : "";
+    return { text: `BLOCKED by ${byLabel(verdict.by, catalog)}${level2}${hit}: ${verdict.why}`, kind: "blocked", blocked: true };
+  }
+  if (verdict.opaque) {
+    return { text: `OPAQUE \u2014 ${OPAQUE_LINE}${verdict.why ? ` (${verdict.why})` : ""}`, kind: "opaque", blocked: false };
+  }
+  return { text: verdict.why ? `not blocked \u2014 ${verdict.why}` : "not blocked", kind: "ok", blocked: false };
+}
+function draftOf(lists) {
+  return {
+    blockedCommands: { presets: lists.commandPresets, custom: lists.commandCustom },
+    protectedPaths: { presets: lists.pathPresets, custom: lists.pathCustom.map((entry) => ({ path: entry.path, level: entry.level })) }
+  };
+}
+var PROBLEM = /^(blocked command|protected path) (?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"): ([\s\S]*)$/;
+var unescapePython = (value) => value.replace(/\\(.)/g, "$1");
+function saveProblems(error) {
+  const raw = error;
+  const entries = [];
+  const others = [];
+  const items = normalizeProblemItems(raw?.data?.details?.problemItems);
+  if (items.length > 0) {
+    for (const item of items) {
+      if (item.list !== null && item.entry !== null) entries.push({ tab: item.list, text: item.entry, reason: item.reason });
+      else others.push(problemItemText(item));
+    }
+    return { entries, others };
+  }
+  const listed = raw?.data?.details?.problems;
+  const lines = Array.isArray(listed) && listed.length > 0 ? texts(listed) : [text2(raw?.message ?? String(error))];
+  for (const line of lines) {
+    const match = PROBLEM.exec(line);
+    if (!match) {
+      others.push(line);
+      continue;
+    }
+    entries.push({
+      tab: match[1] === "blocked command" ? "commands" : "paths",
+      text: unescapePython(match[2] ?? match[3] ?? ""),
+      reason: match[4]
+    });
+  }
+  return { entries, others };
+}
+function problemNote(problems) {
+  if (problems.length === 0) return null;
+  const first = problems[0];
+  return problems.length === 1 ? `core skipped an unusable entry: ${first}` : `core skipped ${problems.length} unusable entries, e.g. ${first}`;
+}
+var PATTERN_HELP = [
+  { kind: "head", text: "Custom command patterns" },
+  { kind: "line", text: "One pattern per entry. It is matched against every command a line would run: through sudo, env, xargs, find -exec, inside sh -c '\u2026', on both sides of pipes and &&." },
+  { kind: "line", text: "The first word is the program, by its name (/usr/bin/rm is rm). It may use wildcards (mkfs*) but cannot be only a wildcard." },
+  { kind: "line", text: "Options (words starting with -) must all be present, in any order. -rf means -r and -f, however written. --force also matches --forc and --force=\u2026" },
+  { kind: "line", text: "Other words must appear in the same order, not necessarily next to each other. * is any one word. A word starting with / or ~ is a path, compared after resolving it." },
+  { kind: "line", text: "re:<regex> matches the command's text (its words joined by spaces). A regex that matches an empty command is refused." },
+  { kind: "head", text: "Examples" },
+  { kind: "example", text: "rm -rf               blocks rm -rf x, rm -r -f x, sudo rm --recursive --force x" },
+  { kind: "example", text: "git push --force     blocks git push -f; not --force-with-lease" },
+  { kind: "example", text: "docker * prune       blocks docker system prune, docker image prune -a" },
+  { kind: "example", text: "mkfs*                blocks mkfs.ext4 /dev/sdb1" },
+  { kind: "example", text: "re:^ssh .*prod       blocks ssh deploy@prod.example" },
+  { kind: "head", text: "Protected folders" },
+  { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." }
+];
+var UNKNOWN_CODE_LABEL = "Code snowpea can't tell about";
+var OWN_FILES_LINE = "snowpea's own files stay protected either way, and anything on your block lists stays blocked.";
+function unknownCodeSegments(value) {
+  const pick = (one) => one === value ? { text: `[${one}]`, bold: true, color: one === "allow" ? "yellow" : "green" } : { text: one, dimColor: true };
+  return [{ text: `${UNKNOWN_CODE_LABEL}: ` }, pick("ask"), { text: " / " }, pick("allow")];
+}
+function unknownCodeMeaning(value) {
+  return value === "ask" ? "ask: code it cannot read (a computed target, a script it cannot follow) is put to you in every mode." : "allow: such code runs without asking. Control-plane asks and blocked findings still apply.";
+}
+var UNKNOWN_CODE_ALLOW_CONFIRM = [
+  "Let code snowpea can't tell about run without asking?",
+  "A write whose target is computed while it runs, or a script it cannot follow, will no longer ask you. Blocked commands and protected folders still apply.",
+  "Allow it? (y/n)"
+];
+function unknownCodePatch(value) {
+  return { security: { unknownCode: value } };
+}
+var SECURITY_CLAIM = () => say(
+  "In auto mode the agent runs programs as you; these lists stop the forms snowpea can recognise and it asks about code it cannot read. For a repository you do not trust, use accept mode, where every command and write is yours to approve.",
+  "\uC790\uB3D9(auto) \uBAA8\uB4DC\uC5D0\uC11C \uC5D0\uC774\uC804\uD2B8\uB294 \uB2F9\uC2E0\uC758 \uAD8C\uD55C\uC73C\uB85C \uD504\uB85C\uADF8\uB7A8\uC744 \uC2E4\uD589\uD569\uB2C8\uB2E4. \uC774 \uBAA9\uB85D\uC740 snowpea\uAC00 \uC54C\uC544\uBCFC \uC218 \uC788\uB294 \uD615\uD0DC\uB97C \uB9C9\uACE0, \uC77D\uC744 \uC218 \uC5C6\uB294 \uCF54\uB4DC\uB294 \uBB3B\uC2B5\uB2C8\uB2E4. \uC2E0\uB8B0\uD558\uC9C0 \uC54A\uB294 \uC800\uC7A5\uC18C\uC5D0\uC11C\uB294 \uBAA8\uB4E0 \uBA85\uB839\uACFC \uC4F0\uAE30\uB97C \uC9C1\uC811 \uC2B9\uC778\uD558\uB294 accept \uBAA8\uB4DC\uB97C \uC4F0\uC138\uC694."
+);
+function statusLines(config, catalog, diskNotice = null) {
+  const title = (id, entries) => entries.find((entry) => entry.id === id)?.title ?? id;
+  const commandOn = config.blockedCommands.presets.map((id) => title(id, catalog?.commands ?? []));
+  const pathOn = config.protectedPaths.presets.map((id) => title(id, catalog?.paths ?? []));
+  const names = (items) => items.length > 0 ? items.join(", ") : "none";
+  return [
+    "Security lists",
+    ...diskNotice ? [`! ${diskNotice}`] : [],
+    SECURITY_CLAIM(),
+    `Blocked commands: ${config.blockedCommands.presets.length} presets on (${names(commandOn)}), ${config.blockedCommands.custom.length} of your own`,
+    `Protected folders: ${config.protectedPaths.presets.length} presets on (${names(pathOn)}), ${config.protectedPaths.custom.length} of your own`,
+    `In force now: ${config.effective.commands.length} command patterns, ${config.effective.paths.length} folders`,
+    `${UNKNOWN_CODE_LABEL}: ${config.unknownCode === "allow" ? "allow (runs without asking)" : "ask (put to you)"}. ${OWN_FILES_LINE}`,
+    ...config.projectAdds > 0 ? [`This project adds ${config.projectAdds} entries of its own (they do not remove yours).`] : [],
+    ...problemNote(config.problems) ? [`! ${problemNote(config.problems)}`] : [],
+    ...config.notices.map((notice) => `! ${notice}`),
+    config.writable ? "Change them with /security. They apply to sessions that go through snowpea." : READ_ONLY_LINE,
+    ...config.writable ? [] : ["They apply to sessions that go through snowpea."]
+  ];
+}
+var READ_ONLY_LINE = "Read-only: only a person on a local connection (this TUI, the IDE, the CLI, the local web page) can change these lists.";
+function personOnlyReadOnlyLine(error) {
+  const kind = rpcErrorFacts(error).kind;
+  if (kind === "remote_login") return "Read-only: only a local snowpea can change these lists, not a remote login.";
+  if (kind === "browser" || kind === "connector") return "Read-only: a browser host or connector cannot change these lists.";
+  return "Read-only: only a person on this machine can change these lists.";
+}
+var SECURITY_LIMITS = "Applies to sessions that go through snowpea. It does not read what the programs a command starts load or run in turn.";
+function wrapSegments(key, segments, width, indent = "    ") {
+  return wrapLine({ key, segments }, Math.max(8, width), indent);
+}
+function bodyLines(rows, cursor, width, problems = /* @__PURE__ */ new Map()) {
+  const lines = [];
+  let start = 0;
+  let end2 = 0;
+  rows.forEach((row, index) => {
+    const here = index === cursor;
+    const from = lines.length;
+    const pointer = { text: here ? "\u203A " : "  ", color: "cyan", bold: true };
+    if (row.kind === "preset") {
+      const mark = { text: row.on ? "[x] " : "[ ] ", color: row.on ? "green" : void 0, bold: here };
+      const segments = [pointer, mark, { text: row.title, bold: true }];
+      if (row.level) segments.push({ text: ` (${LEVEL_LABEL[row.level]})`, color: row.level === "all" ? "red" : "yellow" });
+      if (row.description) segments.push({ text: ` \u2014 ${row.description}`, dimColor: !here });
+      lines.push(...wrapSegments(`row-${index}`, segments, width, "      "));
+      if (here && row.examples.length > 0) {
+        const label = row.level ? "Folders: " : "Examples: ";
+        lines.push(...wrapSegments(`detail-${index}`, [{ text: "      " }, { text: label, dimColor: true }, { text: row.examples.join(", "), color: "cyan" }], width, "        "));
+      }
+    } else {
+      const segments = [pointer, { text: "\u2022 ", color: "magenta" }, { text: row.text, bold: here }];
+      if (row.level) segments.push({ text: `  (${LEVEL_LABEL[row.level]})`, color: row.level === "all" ? "red" : "yellow" });
+      lines.push(...wrapSegments(`row-${index}`, segments, width, "      "));
+      const problem = problems.get(row.text);
+      if (problem) lines.push(...wrapSegments(`problem-${index}`, [{ text: "      \u2717 ", color: "red", bold: true }, { text: problem, color: "red" }], width, "        "));
+    }
+    if (here) {
+      start = from;
+      end2 = lines.length;
+    }
+  });
+  if (rows.length === 0) lines.push({ key: "none", segments: [{ text: "Nothing here yet.", dimColor: true }] });
+  return { lines, start, end: end2 };
+}
+function effectiveLines(tab2, config, catalog, width) {
+  const lines = [];
+  if (tab2 === "commands") {
+    config.effective.commands.forEach((entry, index) => {
+      lines.push(
+        ...wrapSegments(`eff-${index}`, [{ text: "  " }, { text: entry.pattern, color: "cyan" }, { text: `  \u2190 ${byLabel(entry.by, catalog)}`, dimColor: true }], width, "      ")
+      );
+    });
+  } else {
+    config.effective.paths.forEach((entry, index) => {
+      lines.push(
+        ...wrapSegments(
+          `eff-${index}`,
+          [
+            { text: "  " },
+            { text: entry.path, color: "cyan" },
+            { text: ` (${LEVEL_LABEL[entry.level]})`, color: entry.level === "all" ? "red" : "yellow" },
+            ...entry.scope === "self" ? [{ text: " \xB7 the folder itself only", dimColor: true }] : [],
+            ...entry.exempt.length > 0 ? [{ text: ` \xB7 except ${entry.exempt.join(", ")}`, dimColor: true }] : [],
+            { text: `  \u2190 ${byLabel(entry.by, catalog)}`, dimColor: true }
+          ],
+          width,
+          "      "
+        )
+      );
+    });
+  }
+  if (lines.length === 0) lines.push({ key: "eff-none", segments: [{ text: "  Nothing is in force in this list.", dimColor: true }] });
+  return lines;
+}
+function scrollInto(top, start, end2, height, total) {
+  let next = top;
+  if (end2 - start >= height) next = start;
+  else if (end2 > next + height) next = end2 - height;
+  else if (start < next) next = start;
+  return Math.max(0, Math.min(next, Math.max(0, total - height)));
+}
+function blockedToast(event, here = false) {
+  return `Security list blocked ${fit(event.summary, 48)}${here ? "" : " in another session"} (/security)`;
+}
+function blockedLine(event) {
+  return `Blocked by your security list: ${event.summary} (/security)`;
+}
+var NOT_APPLIED_NOTE = "security lists do not apply to this session";
+
+// src/state/settings-degraded.ts
+function normalizeDegraded(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item) => typeof item === "string" && item !== "").map((item) => sanitizeText(item));
+}
+var SHOWN = 3;
+function sectionsWords(sections) {
+  if (sections.includes("*")) return say("the whole file", "\uD30C\uC77C \uC804\uCCB4");
+  const first = sections.slice(0, SHOWN).join(", ");
+  const more = sections.length - SHOWN;
+  return more > 0 ? say(`${first} and ${more} more`, `${first} \uC678 ${more}\uAC1C`) : first;
+}
+function degradedLine(sections) {
+  if (sections.length === 0) return null;
+  const what = sectionsWords(sections);
+  return say(
+    `settings.json: snowpea could not read ${what}; safe defaults are in use`,
+    `settings.json: snowpea\uAC00 ${what}\uC744(\uB97C) \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC548\uC804\uD55C \uAE30\uBCF8\uAC12\uC744 \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4`
+  );
+}
+var DEGRADED_BANNER = () => say("! settings.json has a problem: safe defaults in use", "! settings.json\uC5D0 \uBB38\uC81C \uC788\uC74C: \uC548\uC804\uD55C \uAE30\uBCF8\uAC12 \uC0AC\uC6A9 \uC911");
+
+// src/state/web-remote.ts
+function webRemoteSupported(capabilities) {
+  return (capabilities ?? []).includes("webRemoteControl");
+}
+var WEB_REQUIRES_LINE = "Remote web access: requires a newer core \u2014 this daemon is older. Run /update.";
+var WEB_REQUIRES_SUMMARY = "requires a newer core \u2014 this daemon is older (/update)";
+var PLAIN_HTTP_WARNING = "Plain HTTP: the link, the password and everything you do travel unencrypted. Off a network you trust, use TLS (a reverse proxy), a VPN or an ssh tunnel.";
+var MIN_PASSWORD = 8;
+var MAX_MODES = ["plan", "accept", "auto"];
+var count = (value) => typeof value === "number" && value > 0 ? Math.floor(value) : 0;
+var text3 = (value) => typeof value === "string" ? sanitizeText(value) : "";
+function normalizeStatus(given) {
+  const raw = given;
+  const port = typeof raw?.port === "number" && Number.isFinite(raw.port) ? raw.port : 0;
+  return {
+    enabled: raw?.enabled === true,
+    listening: raw?.listening === true,
+    host: text3(raw?.host),
+    port,
+    mode: raw?.mode === "password" ? "password" : "token",
+    passwordSet: raw?.passwordSet === true,
+    username: text3(raw?.username),
+    listenUrls: (Array.isArray(raw?.listenUrls) ? raw.listenUrls : []).map(text3).filter((url) => url !== ""),
+    accessUrl: typeof raw?.accessUrl === "string" && raw.accessUrl !== "" ? sanitizeText(raw.accessUrl) : null,
+    sessions: typeof raw?.sessions === "number" ? raw.sessions : 0,
+    turnsRunning: typeof raw?.turnsRunning === "number" ? raw.turnsRunning : 0,
+    remoteJobs: Math.max(count(raw?.remoteJobs), count(raw?.remoteLeft?.jobs)),
+    remoteLeft: { jobs: count(raw?.remoteLeft?.jobs), mcpServers: count(raw?.remoteLeft?.mcpServers), skills: count(raw?.remoteLeft?.skills) },
+    settingsDegraded: normalizeDegraded(raw?.settingsDegraded),
+    error: text3(raw?.error) || null,
+    needsRestart: raw?.needsRestart === true,
+    warning: text3(raw?.warning) || null,
+    // Plain HTTP unless core says otherwise: the listener has no TLS of its own.
+    plainHttp: raw?.plainHttp !== false,
+    maxMode: raw?.maxMode === "plan" || raw?.maxMode === "accept" || raw?.maxMode === "auto" ? raw.maxMode : null
+  };
+}
+function maxModeRow(value) {
+  const label = say("Highest mode for remote sign-ins", "\uC6D0\uACA9 \uB85C\uADF8\uC778\uC758 \uCD5C\uACE0 \uBAA8\uB4DC");
+  return `${label}: ${MAX_MODES.map((mode) => mode === value ? `[${mode}]` : mode).join(" / ")}`;
+}
+var MAX_MODE_EXPLAIN = () => say(
+  "It stops unattended runs above that mode; whoever holds the link can still approve each action.",
+  "\uADF8 \uBAA8\uB4DC\uB97C \uB118\uB294 \uBB34\uC778 \uC2E4\uD589\uC744 \uB9C9\uC2B5\uB2C8\uB2E4. \uB9C1\uD06C\uB97C \uAC00\uC9C4 \uC0AC\uB78C\uC740 \uC5EC\uC804\uD788 \uAC01 \uB3D9\uC791\uC744 \uC2B9\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."
+);
+function nextMaxMode(value) {
+  return MAX_MODES[(MAX_MODES.indexOf(value) + 1) % MAX_MODES.length];
+}
+var maxModePatch = (value) => ({ web: { remote: { maxMode: value } } });
+var TOKEN = /([?&]t=)[^&#\s]+/;
+var MASK2 = "********";
+function maskLink(link2) {
+  return link2.replace(TOKEN, `$1${MASK2}`);
+}
+function shownLink(link2, revealed) {
+  return revealed ? link2 : maskLink(link2);
+}
+function listenLine(status) {
+  if (status.listening) return `Listening on ${status.host}:${status.port}`;
+  const why = status.error ? ` \u2014 ${status.error}` : status.enabled ? " \u2014 it should be on, but it is not" : "";
+  return `Not listening${why}`;
+}
+function modeLine(status) {
+  if (status.mode === "password") {
+    return `Sign-in: username and password${status.username ? ` (user ${status.username})` : " (no username set \u2014 it listens on this machine only)"}`;
+  }
+  return `Sign-in: access link${status.passwordSet ? " (a password is stored but not in use)" : ", no password"}`;
+}
+function sessionsLine(status) {
+  const people = `${status.sessions} signed in`;
+  return status.turnsRunning > 0 ? `${people} \xB7 ${status.turnsRunning} turn${status.turnsRunning === 1 ? "" : "s"} running` : people;
+}
+function remoteJobsLine(status) {
+  if (status.remoteJobs <= 0) return null;
+  const n = status.remoteJobs;
+  return `${n} scheduled job${n === 1 ? "" : "s"} made from a remote login ${n === 1 ? "keeps" : "keep"} running after that login ends (/schedule).`;
+}
+function remoteLeftLine(status) {
+  const { mcpServers, skills } = status.remoteLeft;
+  const parts = [
+    ...mcpServers > 0 ? [`${mcpServers} MCP server${mcpServers === 1 ? "" : "s"}`] : [],
+    ...skills > 0 ? [`${skills} skill${skills === 1 ? "" : "s"}`] : []
+  ];
+  if (parts.length === 0) return null;
+  return `Remote logins also left ${parts.join(" and ")} that keep working after the login ends (a count, not a guarantee).`;
+}
+var RESTART_LINE = "settings.json says otherwise than what runs: the next daemon start will differ. Start with \u201Cremember\u201D to keep what runs.";
+function summaryLines(status, diskNotice = null) {
+  const lines = [status.warning ?? PLAIN_HTTP_WARNING, ...diskNotice ? [`! ${diskNotice}`] : [], "Remote web access", listenLine(status)];
+  if (status.listening) {
+    for (const url of status.listenUrls) lines.push(`Open: ${url}`);
+    lines.push(sessionsLine(status));
+  }
+  const jobs = remoteJobsLine(status);
+  if (jobs) lines.push(jobs);
+  const left2 = remoteLeftLine(status);
+  if (left2) lines.push(left2);
+  const degraded = degradedLine(status.settingsDegraded);
+  if (degraded) lines.push(`! ${degraded}`);
+  lines.push(modeLine(status));
+  if (status.listening && status.mode === "token" && status.accessUrl) lines.push(`Access link: ${maskLink(status.accessUrl)}  (reveal it in /web)`);
+  if (status.maxMode !== null) lines.push(`${maxModeRow(status.maxMode)}. ${MAX_MODE_EXPLAIN()}`);
+  if (status.needsRestart) lines.push(RESTART_LINE);
+  lines.push("Manage it with /web.");
+  return lines;
+}
+function initialForm(status) {
+  return {
+    host: status?.host || "0.0.0.0",
+    port: String(status && status.port > 0 ? status.port : 8787),
+    username: status?.username ?? "",
+    remember: status?.enabled === true
+  };
+}
+function validateForm(form) {
+  const errors = {};
+  if (form.host.trim() === "") errors.host = "Type an address to listen on, e.g. 0.0.0.0 (every interface).";
+  else if (/\s/.test(form.host.trim())) errors.host = "An address has no spaces.";
+  const port = form.port.trim();
+  if (!/^\d+$/.test(port) || Number(port) > 65535) errors.port = "A port is a number from 0 to 65535 (0 picks a free one).";
+  return errors;
+}
+function listenParams(form) {
+  const username = form.username.trim();
+  return { host: form.host.trim(), port: Number(form.port.trim()), save: form.remember, ...username !== "" ? { username } : {} };
+}
+var REASON_FIELD = {
+  in_use: "port",
+  permission: "port",
+  out_of_range: "port",
+  bad_address: "host",
+  required: "username"
+};
+function fieldError(error) {
+  const raw = error;
+  const message = sanitizeText(typeof raw?.message === "string" ? raw.message : String(error));
+  const details = raw?.data?.details && typeof raw.data.details === "object" ? raw.data.details : {};
+  const named = [details["field"], details["param"]].find((value) => typeof value === "string");
+  if (named === "host" || named === "port" || named === "username") return { field: named, message };
+  const byReason = REASON_FIELD[String(details["reason"] ?? "")];
+  if (byReason) return { field: byReason, message };
+  if (/in use|EADDRINUSE|already|\bport\b/i.test(message)) return { field: "port", message };
+  if (/\buser(name)?\b/i.test(message)) return { field: "username", message };
+  if (/address|host|resolve|bind|assign|invalid|unreachable/i.test(message)) return { field: "host", message };
+  return { field: null, message };
+}
+function passwordProblem(first, second) {
+  if (Array.from(first).length < MIN_PASSWORD) return `A password needs at least ${MIN_PASSWORD} characters.`;
+  if (first !== second) return "The two entries differ \u2014 start again.";
+  return null;
+}
+function hidden(value) {
+  return "*".repeat(Array.from(value).length);
+}
+function localPersonOnlyLine(error) {
+  const kind = rpcErrorFacts(error).kind;
+  if (kind === "remote_login") return "Remote access can only be seen and changed from a local snowpea, not from a remote login.";
+  return "Only a person on this machine can see or change remote access (the TUI, the IDE or the CLI there).";
+}
+function osc52Supported(env3) {
+  if (env3["SNOWPEA_OSC52"] === "0") return false;
+  if (env3["SNOWPEA_OSC52"] === "1") return true;
+  if (env3["TMUX"] || env3["STY"]) return false;
+  const program = env3["TERM_PROGRAM"] ?? "";
+  const term = env3["TERM"] ?? "";
+  return ["iTerm.app", "WezTerm", "ghostty"].includes(program) || /kitty|alacritty|foot|wezterm|ghostty/i.test(term) || Boolean(env3["KITTY_WINDOW_ID"]) || Boolean(env3["WT_SESSION"]);
+}
+function osc52Sequence(value) {
+  return `\x1B]52;c;${Buffer.from(value, "utf8").toString("base64")}\x07`;
+}
+
+// src/state/trust.ts
+function trustSupported(capabilities) {
+  return (capabilities ?? []).includes("projectTrust");
+}
+var TRUST_REQUIRES_LINE = "Project trust: requires a newer core \u2014 this daemon is older. Run /update.";
+var TRUST_REQUIRES_SUMMARY = "requires a newer core \u2014 this daemon is older (/update)";
+var TRUST_SCOPES = ["hooks", "mcp", "commands", "agents", "prompts", "settings", "mode", "externalCli"];
+var DEFAULT_TRUST_SCOPES = ["hooks", "mcp", "commands", "agents", "prompts", "settings"];
+var SCOPE_TITLE = {
+  hooks: ["Hooks", "\uD6C5"],
+  mcp: ["MCP servers", "MCP \uC11C\uBC84"],
+  commands: ["Commands and skills", "\uBA85\uB839\uACFC \uC2A4\uD0AC"],
+  agents: ["Agents", "\uC5D0\uC774\uC804\uD2B8"],
+  prompts: ["Prompt overrides", "\uD504\uB86C\uD504\uD2B8 \uB36E\uC5B4\uC4F0\uAE30"],
+  settings: ["Project settings", "\uD504\uB85C\uC81D\uD2B8 \uC124\uC815"],
+  mode: ["Automatic mode", "\uC790\uB3D9 \uBAA8\uB4DC"],
+  externalCli: ["External CLI sessions", "\uC678\uBD80 CLI \uC138\uC158"]
+};
+var SCOPE_WHAT = {
+  hooks: ["run the commands the project's hooks name", "\uD504\uB85C\uC81D\uD2B8 \uD6C5\uC774 \uC815\uD55C \uBA85\uB839\uC744 \uC2E4\uD589"],
+  mcp: ["start the project's MCP servers", "\uD504\uB85C\uC81D\uD2B8\uC758 MCP \uC11C\uBC84\uB97C \uC2DC\uC791"],
+  commands: ["let project commands and skills use the tools they ask for", "\uD504\uB85C\uC81D\uD2B8 \uBA85\uB839\uACFC \uC2A4\uD0AC\uC774 \uC694\uCCAD\uD55C \uB3C4\uAD6C\uB97C \uC4F0\uAC8C \uD568"],
+  agents: ["let project agents carry a permission", "\uD504\uB85C\uC81D\uD2B8 \uC5D0\uC774\uC804\uD2B8\uAC00 \uAD8C\uD55C\uC744 \uAC16\uAC8C \uD568"],
+  prompts: ["use the project's prompt overrides", "\uD504\uB85C\uC81D\uD2B8\uC758 \uD504\uB86C\uD504\uD2B8 \uB36E\uC5B4\uC4F0\uAE30\uB97C \uC0AC\uC6A9"],
+  settings: ["apply the project's widening settings (allowlist, models, providers)", "\uD504\uB85C\uC81D\uD2B8\uC758 \uD655\uC7A5 \uC124\uC815(\uD5C8\uC6A9 \uBAA9\uB85D, \uBAA8\uB378, \uC81C\uACF5\uC790)\uC744 \uC801\uC6A9"],
+  mode: ["let the project start sessions in auto mode", "\uD504\uB85C\uC81D\uD2B8\uAC00 \uC138\uC158\uC744 \uC790\uB3D9 \uBAA8\uB4DC\uB85C \uC2DC\uC791\uD558\uAC8C \uD568"],
+  externalCli: ["let external CLI sessions open here without asking", "\uC678\uBD80 CLI \uC138\uC158\uC744 \uBB3B\uC9C0 \uC54A\uACE0 \uC5EC\uAE30\uC11C \uC5F4\uAC8C \uD568"]
+};
+var SCOPE_OFF_NOTE = {
+  mode: [
+    "Off by default: it lets the project file start sessions with no approvals at all. Turn it on only if you mean that.",
+    "\uAE30\uBCF8\uAC12\uC740 \uAEBC\uC9D0: \uD504\uB85C\uC81D\uD2B8 \uD30C\uC77C\uC774 \uC2B9\uC778 \uC5C6\uC774 \uC138\uC158\uC744 \uC2DC\uC791\uD560 \uC218 \uC788\uAC8C \uB429\uB2C8\uB2E4. \uC758\uB3C4\uD55C \uACBD\uC6B0\uC5D0\uB9CC \uCF1C\uC138\uC694."
+  ],
+  externalCli: [
+    "Off by default: external CLIs (Claude Code, Codex, \u2026) then open here without the first-time question.",
+    "\uAE30\uBCF8\uAC12\uC740 \uAEBC\uC9D0: \uC678\uBD80 CLI(Claude Code, Codex \uB4F1)\uAC00 \uCC98\uC74C \uBB3B\uB294 \uC9C8\uBB38 \uC5C6\uC774 \uC5F4\uB9BD\uB2C8\uB2E4."
+  ]
+};
+var scopeTitle = (scope) => say(...SCOPE_TITLE[scope]);
+var scopeWhat = (scope) => say(...SCOPE_WHAT[scope]);
+var isScope = (value) => typeof value === "string" && TRUST_SCOPES.includes(value);
+var text4 = (value) => typeof value === "string" ? sanitizeText(value) : "";
+var texts2 = (value) => Array.isArray(value) ? value.map(text4).filter((item) => item !== "") : [];
+var state = (value) => value === "active" || value === "new" || value === "changed" ? value : "untrusted";
+function command(raw) {
+  const head = text4(raw?.head);
+  if (head === "" && text4(raw?.tail) === "") return null;
+  const length = typeof raw?.length === "number" && Number.isFinite(raw.length) ? raw.length : Array.from(head + text4(raw?.tail)).length;
+  return { head, tail: text4(raw?.tail), length, label: text4(raw?.label) };
+}
+function normalizeTrust(raw) {
+  const digests = {};
+  const given = raw?.digests;
+  if (given && typeof given === "object" && !Array.isArray(given)) {
+    for (const [path, digest] of Object.entries(given)) if (typeof digest === "string") digests[path] = digest;
+  }
+  return {
+    workdir: text4(raw?.workdir),
+    trusted: raw?.trusted === true,
+    scopes: (Array.isArray(raw?.scopes) ? raw.scopes : []).filter(isScope),
+    by: text4(raw?.by) || null,
+    at: text4(raw?.at) || null,
+    files: (Array.isArray(raw?.files) ? raw.files : []).map(
+      (file) => ({
+        path: text4(file?.path),
+        scope: isScope(file?.scope) ? file.scope : "settings",
+        state: state(file?.state),
+        summary: text4(file?.summary),
+        commands: (Array.isArray(file?.commands) ? file.commands : []).map(command).filter((one) => one !== null)
+      })
+    ).filter((file) => file.path !== ""),
+    inactive: texts2(raw?.inactive),
+    changed: texts2(raw?.changed),
+    defaultModeAuto: raw?.defaultModeAuto === true,
+    modeActive: raw?.modeActive === true,
+    digests,
+    notPinned: (Array.isArray(raw?.notPinned) ? raw.notPinned : []).map((entry) => ({ command: command(entry?.command), reason: text4(entry?.reason), source: text4(entry?.source) })).filter((entry) => entry.command !== null),
+    runs: (Array.isArray(raw?.runs) ? raw.runs : []).map((run) => ({ path: text4(run?.path), state: state(run?.state), by: texts2(run?.by) })).filter((run) => run.path !== ""),
+    limits: texts2(raw?.limits)
+  };
+}
+function initialSelection(view) {
+  return /* @__PURE__ */ new Set([...DEFAULT_TRUST_SCOPES, ...view.scopes]);
+}
+var REASON_WORDS = {
+  computed: ["the command builds what it runs while it runs", "\uBA85\uB839\uC774 \uC2E4\uD589 \uC911\uC5D0 \uC2E4\uD589\uD560 \uB0B4\uC6A9\uC744 \uB9CC\uB4ED\uB2C8\uB2E4"],
+  "project-script": ["it runs the project's own script (npm run, make, \u2026), which can change", "\uD504\uB85C\uC81D\uD2B8 \uC790\uCCB4 \uC2A4\uD06C\uB9BD\uD2B8(npm run, make \uB4F1)\uB97C \uC2E4\uD589\uD558\uBA70 \uBC14\uB014 \uC218 \uC788\uC2B5\uB2C8\uB2E4"],
+  "package-runner": ["it fetches or resolves a package when it runs (npx, uvx, \u2026)", "\uC2E4\uD589\uD560 \uB54C \uD328\uD0A4\uC9C0\uB97C \uBC1B\uC544 \uC635\uB2C8\uB2E4(npx, uvx \uB4F1)"],
+  module: ["it runs a Python module (python -m), and the module can change", "Python \uBAA8\uB4C8(python -m)\uC744 \uC2E4\uD589\uD558\uBA70 \uBAA8\uB4C8\uC740 \uBC14\uB014 \uC218 \uC788\uC2B5\uB2C8\uB2E4"],
+  missing: ["it names a project file that is not there", "\uD504\uB85C\uC81D\uD2B8\uC5D0 \uC5C6\uB294 \uD30C\uC77C\uC744 \uAC00\uB9AC\uD0B5\uB2C8\uB2E4"],
+  "too-large": ["the file is too large to pin", "\uD30C\uC77C\uC774 \uB108\uBB34 \uCEE4\uC11C \uACE0\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4"],
+  "too-many": ["there are too many files to pin", "\uACE0\uC815\uD558\uAE30\uC5D4 \uD30C\uC77C\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4"],
+  unreadable: ["the control file cannot be read", "\uC81C\uC5B4 \uD30C\uC77C\uC744 \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4"],
+  "outside-project": ["it runs a file outside the project, which cannot be pinned with it", "\uD504\uB85C\uC81D\uD2B8 \uBC16\uC758 \uD30C\uC77C\uC744 \uC2E4\uD589\uD558\uBBC0\uB85C \uD504\uB85C\uC81D\uD2B8\uC640 \uD568\uAED8 \uACE0\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4"],
+  symlink: ["it runs a symbolic link, and where the link points can change", "\uC2EC\uBCFC\uB9AD \uB9C1\uD06C\uB97C \uC2E4\uD589\uD558\uBA70 \uB9C1\uD06C\uAC00 \uAC00\uB9AC\uD0A4\uB294 \uACF3\uC740 \uBC14\uB014 \uC218 \uC788\uC2B5\uB2C8\uB2E4"]
+};
+function reasonWords(reason) {
+  const known = REASON_WORDS[reason];
+  return known ? say(...known) : reason;
+}
+var NOT_PINNED_WARNING = () => say(
+  "Trusting pins these command lines, not what they run: it can change later without asking you again.",
+  "\uC2E0\uB8B0\uD558\uBA74 \uC774 \uBA85\uB839\uC904\uC740 \uACE0\uC815\uB418\uC9C0\uB9CC \uADF8\uAC83\uC774 \uC2E4\uD589\uD558\uB294 \uB0B4\uC6A9\uC740 \uACE0\uC815\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB098\uC911\uC5D0 \uB2E4\uC2DC \uBB3B\uC9C0 \uC54A\uACE0 \uBC14\uB014 \uC218 \uC788\uC2B5\uB2C8\uB2E4."
+);
+var STATE_WORD = {
+  active: ["active", "\uC0AC\uC6A9 \uC911"],
+  untrusted: ["untrusted", "\uC2E0\uB8B0 \uC548 \uD568"],
+  new: ["new", "\uC0C8 \uD30C\uC77C"],
+  changed: ["changed", "\uBC14\uB01C"]
+};
+var stateWord = (value) => say(...STATE_WORD[value]);
+var STATE_COLOR = { active: "green", untrusted: "yellow", new: "yellow", changed: "red" };
+function commandText(one) {
+  const body = one.tail === "" ? one.head : `${one.head} \u2026 ${one.tail}`;
+  const chars = one.tail === "" ? "" : ` (${one.length} ${say("characters", "\uC790")})`;
+  return `${body}${chars}`;
+}
+function statusLine(view) {
+  const name = view.workdir.split(/[\\/]/).filter(Boolean).pop() ?? view.workdir;
+  const pending = view.files.filter((file) => file.state !== "active").length;
+  if (!view.trusted) {
+    return say(
+      `Project ${name}: not trusted \u2014 ${view.files.length} control file${view.files.length === 1 ? " waits" : "s wait"} for you (/trust)`,
+      `\uD504\uB85C\uC81D\uD2B8 ${name}: \uC2E0\uB8B0\uD558\uC9C0 \uC54A\uC74C \u2014 \uC81C\uC5B4 \uD30C\uC77C ${view.files.length}\uAC1C\uAC00 \uD655\uC778\uC744 \uAE30\uB2E4\uB9BD\uB2C8\uB2E4 (/trust)`
+    );
+  }
+  const scopes = view.scopes.map(scopeTitle).join(", ");
+  const tail = pending > 0 ? say(` \xB7 ${pending} to review (/trust)`, ` \xB7 \uD655\uC778\uD560 \uD30C\uC77C ${pending}\uAC1C (/trust)`) : "";
+  return say(`Project ${name}: trusted for ${scopes}${tail}`, `\uD504\uB85C\uC81D\uD2B8 ${name}: \uC2E0\uB8B0\uD568 \u2014 ${scopes}${tail}`);
+}
+function trustRows(view) {
+  const rows = TRUST_SCOPES.filter(
+    (scope) => scope === "mode" || scope === "externalCli" || view.files.some((file) => file.scope === scope)
+  ).map((scope) => ({ kind: "scope", scope }));
+  if (view.runs.length > 0) rows.push({ kind: "runs" });
+  if (view.notPinned.length > 0) rows.push({ kind: "notPinned" });
+  return rows;
+}
+var wrap = (key, segments, width, indent = "    ") => wrapSegments(key, segments, width, indent);
+function commandLines(key, one, width, lead) {
+  const label = one.label ? `${one.label}: ` : "";
+  return wrap(key, [{ text: lead }, { text: label, dimColor: true }, { text: commandText(one), color: "cyan" }], width, `${lead}  `);
+}
+function scopeBlock(view, scope, key, width) {
+  const files = view.files.filter((file) => file.scope === scope);
+  const lines = [];
+  const off = SCOPE_OFF_NOTE[scope];
+  if (off && !view.scopes.includes(scope)) lines.push(...wrap(`${key}-off`, [{ text: "    " }, { text: say(...off), color: "yellow" }], width, "      "));
+  if (scope === "mode" && view.defaultModeAuto) {
+    lines.push(
+      ...wrap(
+        `${key}-auto`,
+        [{ text: "    " }, { text: view.modeActive ? say("The project file asks for auto mode, and it applies.", "\uD504\uB85C\uC81D\uD2B8 \uD30C\uC77C\uC774 \uC790\uB3D9 \uBAA8\uB4DC\uB97C \uC694\uCCAD\uD588\uACE0 \uC801\uC6A9\uB429\uB2C8\uB2E4.") : say("The project file asks for auto mode; it is held at accept until you trust this.", "\uD504\uB85C\uC81D\uD2B8 \uD30C\uC77C\uC774 \uC790\uB3D9 \uBAA8\uB4DC\uB97C \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4. \uC2E0\uB8B0\uD558\uAE30 \uC804\uAE4C\uC9C0\uB294 accept\uB85C \uC81C\uD55C\uB429\uB2C8\uB2E4."), color: "yellow" }],
+        width,
+        "      "
+      )
+    );
+  }
+  if (files.length === 0 && scope !== "mode" && scope !== "externalCli") {
+    lines.push({ key: `${key}-none`, segments: [{ text: "    " }, { text: say("no files", "\uD30C\uC77C \uC5C6\uC74C"), dimColor: true }] });
+  }
+  files.forEach((file, index) => {
+    const fkey = `${key}-f${index}`;
+    lines.push(
+      ...wrap(fkey, [{ text: "    " }, { text: file.path, bold: true }, { text: `  ${stateWord(file.state)}`, color: STATE_COLOR[file.state], bold: file.state !== "active" }], width, "      ")
+    );
+    if (file.commands.length > 0) {
+      file.commands.forEach((one, at) => lines.push(...commandLines(`${fkey}-c${at}`, one, width, "      ")));
+    } else if (file.summary !== "") {
+      lines.push(...wrap(`${fkey}-s`, [{ text: "      " }, { text: file.summary, dimColor: true }], width, "        "));
+    }
+  });
+  return lines;
+}
+function trustBody(view, selected, cursor, width) {
+  const rows = trustRows(view);
+  const lines = [];
+  let start = 0;
+  let end2 = 0;
+  rows.forEach((row, index) => {
+    const here = index === cursor;
+    const from = lines.length;
+    const pointer = { text: here ? "\u203A " : "  ", color: "cyan", bold: true };
+    const key = `row-${index}`;
+    if (row.kind === "scope") {
+      const on = selected.has(row.scope);
+      const count3 = view.files.filter((file) => file.scope === row.scope).length;
+      const trusted = view.scopes.includes(row.scope);
+      lines.push(
+        ...wrap(
+          key,
+          [
+            pointer,
+            { text: on ? "[x] " : "[ ] ", color: on ? "green" : void 0, bold: here },
+            { text: scopeTitle(row.scope), bold: true },
+            ...count3 > 0 ? [{ text: ` (${count3})`, dimColor: true }] : [],
+            ...trusted ? [{ text: `  ${say("trusted", "\uC2E0\uB8B0\uD568")}`, color: "green" }] : [],
+            { text: ` \u2014 ${scopeWhat(row.scope)}`, dimColor: !here }
+          ],
+          width,
+          "      "
+        )
+      );
+      lines.push(...scopeBlock(view, row.scope, key, width));
+    } else if (row.kind === "runs") {
+      lines.push(
+        ...wrap(key, [pointer, { text: say("Files they run", "\uC2E4\uD589\uB418\uB294 \uD30C\uC77C"), bold: true }, { text: ` (${view.runs.length}) \u2014 ${say("pinned with the project", "\uD504\uB85C\uC81D\uD2B8\uC640 \uD568\uAED8 \uACE0\uC815")}`, dimColor: !here }], width, "      ")
+      );
+      view.runs.forEach((run, at) => {
+        lines.push(
+          ...wrap(
+            `${key}-r${at}`,
+            [{ text: "    " }, { text: run.path }, { text: `  ${stateWord(run.state)}`, color: STATE_COLOR[run.state] }, ...run.by.length > 0 ? [{ text: `  \u2190 ${run.by.join(", ")}`, dimColor: true }] : []],
+            width,
+            "      "
+          )
+        );
+      });
+    } else {
+      lines.push(
+        ...wrap(key, [pointer, { text: say("Not pinned", "\uACE0\uC815\uB418\uC9C0 \uC54A\uC74C"), bold: true, color: "yellow" }, { text: ` (${view.notPinned.length})`, color: "yellow" }], width, "      ")
+      );
+      lines.push(...wrap(`${key}-warn`, [{ text: "    ! ", color: "yellow", bold: true }, { text: NOT_PINNED_WARNING(), color: "yellow" }], width, "      "));
+      view.notPinned.forEach((entry, at) => {
+        lines.push(...commandLines(`${key}-n${at}`, entry.command, width, "    "));
+        lines.push(
+          ...wrap(`${key}-n${at}-why`, [{ text: "      " }, { text: reasonWords(entry.reason), color: "yellow" }, { text: entry.source ? `  (${entry.source})` : "", dimColor: true }], width, "        ")
+        );
+      });
+    }
+    if (here) {
+      start = from;
+      end2 = lines.length;
+    }
+  });
+  if (rows.length === 0) lines.push({ key: "none", segments: [{ text: say("This project brings no control files.", "\uC774 \uD504\uB85C\uC81D\uD2B8\uC5D0\uB294 \uC81C\uC5B4 \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."), dimColor: true }] });
+  return { lines, start, end: end2 };
+}
+function limitLines(view, width) {
+  return view.limits.flatMap((limit, at) => wrap(`limit-${at}`, [{ text: "! ", color: "yellow", bold: true }, { text: limit, dimColor: true }], width, "  "));
+}
+function trustHeader(view, width) {
+  const pending = view.files.filter((file) => file.state !== "active").length;
+  const lines = [
+    ...wrap("where", [{ text: view.workdir, color: "cyan" }], width, ""),
+    ...wrap(
+      "state",
+      [
+        view.trusted ? { text: say(`Trusted for ${view.scopes.map(scopeTitle).join(", ")}${view.by ? ` (by ${view.by})` : ""}.`, `\uC2E0\uB8B0\uD568: ${view.scopes.map(scopeTitle).join(", ")}${view.by ? ` (${view.by})` : ""}.`), color: "green" } : { text: say("Not trusted: its own control files are off.", "\uC2E0\uB8B0\uD558\uC9C0 \uC54A\uC74C: \uC81C\uC5B4 \uD30C\uC77C\uC740 \uAEBC\uC838 \uC788\uC2B5\uB2C8\uB2E4."), color: "yellow" },
+        ...pending > 0 ? [{ text: say(`  ${pending} file${pending === 1 ? "" : "s"} to review.`, `  \uD655\uC778\uD560 \uD30C\uC77C ${pending}\uAC1C.`), color: "yellow" }] : []
+      ],
+      width,
+      ""
+    )
+  ];
+  if (view.notPinned.length > 0) {
+    lines.push(
+      ...wrap(
+        "np",
+        [{ text: say(`! ${view.notPinned.length} command${view.notPinned.length === 1 ? "" : "s"} cannot be pinned (see "Not pinned").`, `! \uACE0\uC815\uD560 \uC218 \uC5C6\uB294 \uBA85\uB839 ${view.notPinned.length}\uAC1C ("\uACE0\uC815\uB418\uC9C0 \uC54A\uC74C" \uCC38\uACE0).`), color: "yellow" }],
+        width,
+        "  "
+      )
+    );
+  }
+  return lines;
+}
+function setParams(view, selected) {
+  return { workdir: view.workdir, scopes: TRUST_SCOPES.filter((scope) => selected.has(scope)), digests: { ...view.digests } };
+}
+function changedFiles(error) {
+  const details = error?.data?.details ?? {};
+  return { changed: texts2(details["changed"]), added: texts2(details["added"]), missing: texts2(details["missing"]) };
+}
+function changedLines(files) {
+  const parts = [];
+  if (files.changed.length > 0) parts.push(say(`changed: ${files.changed.join(", ")}`, `\uBC14\uB010 \uD30C\uC77C: ${files.changed.join(", ")}`));
+  if (files.added.length > 0) parts.push(say(`new: ${files.added.join(", ")}`, `\uC0C8 \uD30C\uC77C: ${files.added.join(", ")}`));
+  if (files.missing.length > 0) parts.push(say(`gone: ${files.missing.join(", ")}`, `\uC0AC\uB77C\uC9C4 \uD30C\uC77C: ${files.missing.join(", ")}`));
+  return [
+    say("The project's files changed after you were shown them. Nothing was trusted.", "\uBCF4\uC5EC \uB4DC\uB9B0 \uB4A4 \uD504\uB85C\uC81D\uD2B8 \uD30C\uC77C\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC544\uBB34\uAC83\uB3C4 \uC2E0\uB8B0\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4."),
+    ...parts.length > 0 ? [parts.join(" \xB7 ")] : [],
+    say("The list below is reloaded. Read it, then press t again.", "\uC544\uB798 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uBD88\uB7EC\uC654\uC2B5\uB2C8\uB2E4. \uC77D\uC5B4 \uBCF8 \uB4A4 t\uB97C \uB2E4\uC2DC \uB204\uB974\uC138\uC694.")
+  ];
+}
+function trustRefusalLine(error) {
+  const facts = rpcErrorFacts(error);
+  const kind = facts.kind;
+  if (kind === "remote_login") return say("Only snowpea on this machine can change project trust, not a remote login.", "\uD504\uB85C\uC81D\uD2B8 \uC2E0\uB8B0\uB294 \uC774 \uCEF4\uD4E8\uD130\uC758 snowpea\uB9CC \uBC14\uAFC0 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC6D0\uACA9 \uB85C\uADF8\uC778\uC740 \uC548 \uB429\uB2C8\uB2E4.");
+  if (kind === "browser" || kind === "connector") return say("A browser host or connector cannot change project trust.", "\uBE0C\uB77C\uC6B0\uC800 \uD638\uC2A4\uD2B8\uB098 \uCEE4\uB125\uD130\uB294 \uD504\uB85C\uC81D\uD2B8 \uC2E0\uB8B0\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  return say("Only a person on this machine can change project trust \u2014 not Jarvis or a script.", "\uD504\uB85C\uC81D\uD2B8 \uC2E0\uB8B0\uB294 \uC774 \uCEF4\uD4E8\uD130\uC758 \uC0AC\uB78C\uB9CC \uBC14\uAFC0 \uC218 \uC788\uC2B5\uB2C8\uB2E4. Jarvis\uB098 \uC2A4\uD06C\uB9BD\uD2B8\uB294 \uC548 \uB429\uB2C8\uB2E4.");
+}
+var TAMPER_LINE = () => say(
+  "Something outside snowpea tried to change the trust records; nothing was changed.",
+  "snowpea \uBC16\uC758 \uBB34\uC5B8\uAC00\uAC00 \uC2E0\uB8B0 \uAE30\uB85D\uC744 \uBC14\uAFB8\uB824 \uD588\uC2B5\uB2C8\uB2E4. \uC544\uBB34\uAC83\uB3C4 \uBC14\uB00C\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4."
+);
+function normalizeChanged(raw) {
+  const payload = raw ?? {};
+  const reason = payload["reason"];
+  return {
+    workdir: text4(payload["workdir"]),
+    scopes: (Array.isArray(payload["scopes"]) ? payload["scopes"] : []).filter(isScope),
+    by: text4(payload["by"]) || null,
+    reason: reason === "revoke" || reason === "migration" || reason === "store_lost" || reason === "tamper" ? reason : "set",
+    projects: texts2(payload["projects"])
+  };
+}
+function concerns(change, workdir) {
+  if (change.reason === "tamper") return false;
+  return change.reason === "migration" || change.reason === "store_lost" || change.workdir === "" || change.workdir === workdir;
+}
+var STORE_LOST_LINE = () => say(
+  "snowpea lost its record of trusted projects: no project is trusted until you trust it again (/trust).",
+  "\uC2E0\uB8B0\uD55C \uD504\uB85C\uC81D\uD2B8 \uAE30\uB85D\uC774 \uC0AC\uB77C\uC84C\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2E0\uB8B0\uD558\uAE30 \uC804\uAE4C\uC9C0 \uC5B4\uB5A4 \uD504\uB85C\uC81D\uD2B8\uB3C4 \uC2E0\uB8B0\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 (/trust)."
+);
+
+// src/slash/registry.ts
+var SURFACE_COMMANDS = [
+  {
+    name: "new",
+    summary: "Open a fresh session in this directory (/session new); /resume brings the old one back.",
+    source: "tui"
+  },
+  {
+    name: "resume",
+    summary: "Resume the last session in this directory, or /resume <sessionId>.",
+    source: "tui"
+  },
+  {
+    name: "session",
+    summary: "Open a new session or delete saved ones: /session new | delete <id> | clear [--all].",
+    source: "tui"
+  },
+  {
+    name: "sessions",
+    summary: "List saved sessions and choose one to resume.",
+    source: "tui"
+  },
+  {
+    name: "voice",
+    summary: `Voice input: /voice toggles, /voice on|off; then ${RECORD_KEY} (or /rec) records.`,
+    source: "tui"
+  },
+  { name: "rec", summary: "Start or stop a recording.", source: "tui" },
+  {
+    name: "tts",
+    summary: "Spoken replies: /tts on|off, /tts voices, /tts voice <id> [lang].",
+    source: "tui"
+  },
+  {
+    name: "mouse",
+    summary: "Mouse on|off: click \u25EF rows to open an agent (Shift+drag selects while on).",
+    source: "tui"
+  },
+  {
+    name: "jarvis",
+    summary: "Jarvis mode (beta): /jarvis, /jarvis on|off|back|sessions|waiting|handback|takeover.",
+    source: "tui"
+  },
+  {
+    name: "security",
+    summary: "Blocked commands and protected folders: /security, /security status|check <command>|check-path <path>.",
+    source: "tui"
+  },
+  {
+    name: "external",
+    summary: "Claude Code, Codex, agy and Cursor sessions (beta): pick one, or /external new.",
+    source: "tui"
+  },
+  {
+    name: "web",
+    summary: "Remote web access: listen for other machines, the access link, password: /web, /web status.",
+    source: "tui"
+  },
+  {
+    name: "trust",
+    summary: "Trust this project's own hooks, MCP servers and commands: /trust, /trust status.",
+    source: "tui"
+  },
+  {
+    name: "settings",
+    summary: "Settings edited in settings.json while snowpea ran: /settings disk applies or discards them.",
+    source: "tui"
+  }
+];
+var REQUIRES_CORE_SUMMARY = "requires core 1.53 \u2014 this daemon is older (/update)";
+var unsupportedSurface = /* @__PURE__ */ new Set();
+function setSurfaceSupport(unsupported) {
+  unsupportedSurface = new Set(unsupported);
+}
+var TTS_ACTIONS = [
+  { action: "on", summary: "Read every finished reply aloud." },
+  { action: "off", summary: "Stop reading replies." },
+  { action: "voices", summary: "List the pinned engine's voices." },
+  { action: "voice", summary: "/tts voice <id> [lang] \u2014 pick a voice." }
+];
+function ttsSubCommands(draft) {
+  return subCommands(draft, "tts", TTS_ACTIONS);
+}
+var VOICE_ACTIONS = [
+  { action: "on", summary: `Arm voice input; ${RECORD_KEY} records.` },
+  { action: "off", summary: "Disarm voice input." }
+];
+function voiceSubCommands(draft) {
+  return subCommands(draft, "voice", VOICE_ACTIONS);
+}
+function subCommands(draft, command2, actions) {
+  const match = new RegExp(`^\\/${command2}(?:\\s+([^\\s]*))?$`).exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return actions.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({ name: `${command2} ${entry.action}`, summary: entry.summary, source: "tui" }));
+}
+function withSurfaceCommands(commands) {
+  const names = new Set(commands.map((command2) => command2.name));
+  return [
+    ...commands,
+    ...SURFACE_COMMANDS.filter((command2) => !names.has(command2.name)).map(
+      (command2) => unsupportedSurface.has(command2.name) ? {
+        ...command2,
+        summary: command2.name === "security" ? SECURITY_REQUIRES_SUMMARY : command2.name === "web" ? WEB_REQUIRES_SUMMARY : command2.name === "trust" ? TRUST_REQUIRES_SUMMARY : REQUIRES_CORE_SUMMARY
+      } : command2
+    )
+  ];
+}
+function parse(input) {
+  if (!input.startsWith("/")) return null;
+  const body = input.slice(1);
+  const match = /^([^\s]+)\s*([\s\S]*)$/.exec(body);
+  if (!match) return null;
+  const name = match[1];
+  if (name.length === 0) return null;
+  return { name, args: match[2] ?? "" };
+}
+var SlashRegistry = class {
+  constructor(client, sessionId = null) {
+    this.client = client;
+    this.sessionId = sessionId;
+  }
+  commands = [];
+  /** Fetch the command table from the daemon. Also used by `refresh()`. */
+  async load() {
+    const params = this.sessionId ? { sessionId: this.sessionId } : {};
+    const result = await this.client.call("command.list", params);
+    const commands = Array.isArray(result?.commands) ? result.commands : [];
+    this.commands = withSurfaceCommands(commands);
+    return this.commands;
+  }
+  /**
+   * Re-fetch after anything that can change the server-side table
+   * (`skill.reload`, plugin install, or a `commands.changed` event).
+   */
+  refresh() {
+    return this.load();
+  }
+  list() {
+    return this.commands;
+  }
+  /** Autocomplete candidates for a typed prefix, with or without the slash. */
+  complete(prefix) {
+    const body = prefix.startsWith("/") ? prefix.slice(1) : prefix;
+    if (body.includes(" ")) return [];
+    const needle = body.split(/\s/)[0] ?? "";
+    if (needle.length === 0) return this.commands;
+    return rankCommandMatches(this.commands, needle);
+  }
+  /**
+   * Run a `/...` line. Returns null when the input is not a slash command, so
+   * the caller falls back to `session.prompt`.
+   */
+  async dispatch(input) {
+    const parsed = parse(input);
+    if (!parsed) return null;
+    return await this.client.call("command.run", {
+      sessionId: this.sessionId,
+      name: parsed.name,
+      args: parsed.args
+    });
+  }
+};
+
+// src/slash/jarvis.ts
+var JARVIS_USAGE = "/jarvis [on|off|status|back|sessions|waiting|open <n>|dismiss [n|all]|handback [n]|takeover [n] [minutes]]";
+var JARVIS_ACTIONS = [
+  { action: "on", summary: "Turn Jarvis mode on (beta): one session supervises the others." },
+  { action: "off", summary: "Turn Jarvis mode off; every request goes to you again." },
+  { action: "status", summary: "Show whether Jarvis is running, its model and budget." },
+  { action: "back", summary: "Return to the session you came from." },
+  { action: "sessions", summary: "Pick a supervised session to open." },
+  { action: "waiting", summary: "Answer what is waiting for you, from any session." },
+  { action: "open", summary: "/jarvis open <n> \u2014 open the nth supervised session." },
+  { action: "dismiss", summary: "Dismiss Jarvis's notices: /jarvis dismiss [n|all]." },
+  { action: "handback", summary: "Give this session back to Jarvis now." },
+  { action: "takeover", summary: "Take this session back from Jarvis: /jarvis takeover [minutes]." }
+];
+function parseJarvisCommand(line) {
+  const match = /^\/jarvis(?:\s+(.*))?$/.exec(line.trim());
+  if (!match) return null;
+  const words = (match[1] ?? "").trim().split(/\s+/).filter(Boolean);
+  const [action, ...rest] = words;
+  switch (action) {
+    case void 0:
+      return { kind: "enter" };
+    case "on":
+    case "off":
+    case "status":
+    case "back":
+    case "sessions":
+    case "waiting":
+      return rest.length === 0 ? { kind: action } : { kind: "invalid", usage: JARVIS_USAGE };
+    case "list":
+      return { kind: "sessions" };
+    case "open":
+      return rest.length === 1 ? { kind: "open", target: rest[0] } : { kind: "invalid", usage: JARVIS_USAGE };
+    case "dismiss": {
+      if (rest.length === 0 || rest.length === 1 && rest[0] === "all") return { kind: "dismiss", target: "all" };
+      return rest.length === 1 && /^\d+$/.test(rest[0]) && Number(rest[0]) > 0 ? { kind: "dismiss", target: Number(rest[0]) } : { kind: "invalid", usage: JARVIS_USAGE };
+    }
+    case "handback":
+      return rest.length <= 1 ? { kind: "handback", target: rest[0] ?? null } : { kind: "invalid", usage: JARVIS_USAGE };
+    case "takeover": {
+      const numbers = rest.filter((word) => /^\d+$/.test(word));
+      if (rest.length > 2 || numbers.length !== rest.length) {
+        return { kind: "invalid", usage: JARVIS_USAGE };
+      }
+      if (rest.length === 0) return { kind: "takeover", target: null, minutes: null };
+      if (rest.length === 1) return { kind: "takeover", target: null, minutes: Number(rest[0]) };
+      return { kind: "takeover", target: rest[0], minutes: Number(rest[1]) };
+    }
+    default:
+      return { kind: "invalid", usage: JARVIS_USAGE };
+  }
+}
+var EXTERNAL_USAGE = "/external [new|open <cli>:<id>|close|stop|adopt|mode default|readonly|unrestricted|more|confirm-path <cli>]";
+var EXTERNAL_ACTIONS = [
+  { action: "new", summary: "Start a new Claude Code, Codex, agy or Cursor session." },
+  { action: "open", summary: "/external open <cli>:<id> \u2014 open a session by its handle." },
+  { action: "close", summary: "Leave the open external session; it keeps running." },
+  { action: "stop", summary: "Stop the process snowpea runs for the open session (the transcript stays)." },
+  { action: "adopt", summary: "Let snowpea type into the tmux pane this Claude Code session runs in." },
+  { action: "mode", summary: "/external mode default|readonly|unrestricted \u2014 switch the open session." },
+  { action: "more", summary: "Load earlier messages of the open session." },
+  { action: "confirm-path", summary: "/external confirm-path <cli> \u2014 allow snowpea to run a CLI path you configured." }
+];
+function parseExternalCommand(line) {
+  const match = /^\/external(?:\s+(.*))?$/.exec(line.trim());
+  if (!match) return null;
+  const [action, ...rest] = (match[1] ?? "").trim().split(/\s+/).filter(Boolean);
+  switch (action) {
+    case void 0:
+      return { kind: "picker" };
+    case "new":
+    case "close":
+    case "stop":
+    case "adopt":
+    case "more":
+      return rest.length === 0 ? { kind: action } : { kind: "invalid", usage: EXTERNAL_USAGE };
+    case "open": {
+      const ref = rest.length === 1 ? /^(claude|codex|agy|cursor):(\S+)$/.exec(rest[0]) : null;
+      return ref ? { kind: "open", ref: { cli: ref[1], id: ref[2] } } : { kind: "invalid", usage: EXTERNAL_USAGE };
+    }
+    case "confirm-path":
+      return rest.length === 1 && /^(claude|codex|agy|cursor)$/.test(rest[0]) ? { kind: "confirmPath", cli: rest[0] } : { kind: "invalid", usage: EXTERNAL_USAGE };
+    case "mode":
+      return rest.length === 1 && ["default", "readonly", "unrestricted"].includes(rest[0]) ? { kind: "mode", mode: rest[0] } : { kind: "invalid", usage: EXTERNAL_USAGE };
+    default:
+      return { kind: "invalid", usage: EXTERNAL_USAGE };
+  }
+}
+function subCommands2(draft, command2, actions) {
+  const match = new RegExp(`^\\/${command2}(?:\\s+([^\\s]*))?$`).exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return actions.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({ name: `${command2} ${entry.action}`, summary: entry.summary, source: "tui" }));
+}
+function jarvisSubCommands(draft) {
+  return subCommands2(draft, "jarvis", JARVIS_ACTIONS);
+}
+function externalSubCommands(draft) {
+  return subCommands2(draft, "external", EXTERNAL_ACTIONS);
+}
+
+// src/hooks/useJarvisScreens.ts
+var import_react24 = __toESM(require_react(), 1);
+
+// src/hooks/useClock.ts
+var import_react23 = __toESM(require_react(), 1);
+var CLOCK_TICK_MS = 1e3;
+function useClock(active, tickMs = CLOCK_TICK_MS, now = Date.now) {
+  const [stamp, setStamp] = (0, import_react23.useState)(() => now());
+  (0, import_react23.useEffect)(() => {
+    if (!active) return;
+    setStamp(now());
+    const timer = setInterval(() => setStamp(now()), tickMs);
+    return () => clearInterval(timer);
+  }, [active, tickMs, now]);
+  return stamp;
+}
+
+// src/state/jarvis.ts
+function supportOf(capabilities) {
+  const caps = new Set(capabilities ?? []);
+  return {
+    jarvis: caps.has("jarvis"),
+    delegation: caps.has("jarvisDelegation"),
+    external: caps.has("externalSessions")
+  };
+}
+function requiresLine(feature) {
+  const what = feature === "jarvis" ? "Jarvis mode (beta)" : "External CLI sessions (beta)";
+  return `${what} requires core 1.53 \u2014 this daemon is older. Run /update.`;
+}
+var MAX_DECISIONS = 12;
+var MAX_ESCALATIONS = 20;
+var initialJarvis = {
+  status: null,
+  rows: [],
+  requests: [],
+  waiting: [],
+  deciding: 0,
+  decisions: [],
+  escalations: [],
+  sessionStates: {},
+  notice: null,
+  loadedAt: null
+};
+function newestFirst(entries) {
+  return [...entries].sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts)).slice(0, MAX_DECISIONS);
+}
+function jarvisReducer(state2, action) {
+  switch (action.type) {
+    case "reset":
+      return initialJarvis;
+    case "status":
+      return action.status.enabled ? { ...state2, status: action.status } : { ...initialJarvis, status: action.status };
+    case "overview":
+      return { ...state2, rows: action.rows, loadedAt: action.at };
+    case "waiting":
+      return withRequests(state2, [
+        ...action.approvals.map((request) => waitingFrom("approval", request, state2.rows)),
+        ...action.questions.map((request) => waitingFrom("question", request, state2.rows))
+      ]);
+    case "pending": {
+      const item = waitingFrom(action.kind, action.request, state2.rows);
+      return withRequests(state2, [...state2.requests.filter((known) => known.requestId !== item.requestId), item]);
+    }
+    case "route": {
+      if (!state2.requests.some((item) => item.requestId === action.requestId)) return state2;
+      return withRequests(
+        state2,
+        state2.requests.map(
+          (item) => item.requestId === action.requestId ? { ...item, request: { ...item.request, route: action.route } } : item
+        )
+      );
+    }
+    case "decisions":
+      return { ...state2, decisions: newestFirst(action.entries) };
+    case "event/state":
+      return jarvisReducer(state2, { type: "status", status: action.payload.status });
+    case "event/decision": {
+      const entry = action.payload.entry;
+      const rest = state2.decisions.filter((known) => known.id !== entry.id);
+      return { ...state2, decisions: newestFirst([entry, ...rest]) };
+    }
+    case "event/escalation": {
+      const known = state2.escalations.some((entry) => entry.id === action.payload.id);
+      if (known) return state2;
+      const importance = action.payload.importance ?? "normal";
+      const kept = isNotice(action.payload);
+      return {
+        ...state2,
+        escalations: kept ? [action.payload, ...state2.escalations].slice(0, MAX_ESCALATIONS) : state2.escalations,
+        // Low-importance news stays in the panel; the rest also gets a toast.
+        notice: importance === "low" ? state2.notice : `Jarvis: ${action.payload.summary}`
+      };
+    }
+    case "escalations":
+      return { ...state2, escalations: action.entries.slice(0, MAX_ESCALATIONS) };
+    case "event/dismissed": {
+      const gone = new Set(action.payload.ids);
+      if (!state2.escalations.some((entry) => gone.has(entry.id))) return state2;
+      return { ...state2, escalations: state2.escalations.filter((entry) => !gone.has(entry.id)) };
+    }
+    case "sessionStates":
+      return { ...state2, sessionStates: action.states };
+    case "sessionState": {
+      const next = { ...state2.sessionStates };
+      if (action.state) next[action.sessionId] = action.state;
+      else delete next[action.sessionId];
+      return { ...state2, sessionStates: next };
+    }
+    case "event/delegation":
+      return { ...state2, notice: `Jarvis delegation ${action.payload.reason}` };
+    case "resolved":
+      return withRequests(
+        state2,
+        state2.requests.filter((item) => item.requestId !== action.requestId)
+      );
+    case "notice/clear":
+      return state2.notice === null ? state2 : { ...state2, notice: null };
+    default:
+      return state2;
+  }
+}
+function withRequests(state2, requests) {
+  return {
+    ...state2,
+    requests,
+    waiting: requests.filter((item) => needsPerson(item.request)),
+    deciding: requests.filter((item) => routeOf(item.request) === "jarvis" && !alwaysAsksYou(item.request)).length
+  };
+}
+var NOTICE_REASONS = /* @__PURE__ */ new Set(["finished", "error", "stalled", "budget", "jarvis"]);
+function isNotice(escalation) {
+  return NOTICE_REASONS.has(escalation.reason);
+}
+function routeOf(request) {
+  return request.route ?? null;
+}
+function needsPerson(request) {
+  if (alwaysAsksYou(request)) return true;
+  const route = routeOf(request);
+  return route === null || route === "person";
+}
+function rowFor(rows, sessionId, external) {
+  return rows.find(
+    (row) => external ? row.external?.cli === external.cli && row.external.id === external.id : row.sessionId === sessionId
+  );
+}
+function baseName(path) {
+  if (!path) return "";
+  const trimmed = path.replace(/[\\/]+$/, "");
+  return trimmed.split(/[\\/]/).pop() || trimmed;
+}
+function rowAgent(row) {
+  return row.external ? agentOfExternal(row.external.cli) : agentOfSession(row);
+}
+function sessionName(row) {
+  const where = baseName(row.project);
+  const title = (row.title ?? "").trim();
+  const name = title && where ? `${where} \xB7 ${title}` : title || where;
+  if (row.external) return name || row.external.id.slice(0, 8);
+  return name || (row.sessionId ?? "").slice(0, 8) || "session";
+}
+function sessionLabel(row) {
+  const tag = rowAgent(row).tag;
+  return tag ? `${tag} ${sessionName(row)}` : sessionName(row);
+}
+function externalOfRequest(request) {
+  if (request.external) return { cli: request.external.cli, id: request.external.id };
+  const match = /^ext:([a-z]+):(.+)$/.exec(request.sessionId ?? "");
+  return match ? { cli: match[1], id: match[2] } : null;
+}
+function waitingFrom(kind, request, rows) {
+  const external = externalOfRequest(request);
+  const row = rowFor(rows, request.sessionId, external);
+  const label = row ? sessionLabel(row) : external ? `${agentOfExternal(external.cli).tag} ${external.id.slice(0, 8)}` : (request.sessionId ?? "").slice(0, 8);
+  return {
+    requestId: request.requestId,
+    kind,
+    sessionId: request.sessionId,
+    external,
+    label,
+    summary: kind === "approval" ? approvalSummary(request) : questionSummary(request),
+    alwaysAsks: alwaysAsksYou(request),
+    request
+  };
+}
+function requestLabel(request, rows, currentSessionId) {
+  if (!request) return null;
+  const external = externalOfRequest(request);
+  if (!external && (!request.sessionId || request.sessionId === currentSessionId)) return null;
+  return waitingFrom("approval", request, rows).label;
+}
+function approvalSummary(request) {
+  const args = request.args ?? {};
+  const command2 = args["command"];
+  const detail = typeof command2 === "string" && command2 ? command2 : typeof args["path"] === "string" ? args["path"] : "";
+  return detail ? `${request.tool}: ${detail}` : request.tool;
+}
+function questionSummary(request) {
+  const first = request.questions?.[0]?.question ?? "";
+  return first ? `asks: ${first}` : "asks a question";
+}
+function formatRemaining(until, now) {
+  if (!until) return null;
+  const ms = Date.parse(until) - now;
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  if (ms < 6e4) return "<1 min";
+  const minutes = Math.ceil(ms / 6e4);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+function hostChip(host) {
+  switch (host) {
+    case "terminal":
+      return "other terminal";
+    case "tmux":
+      return "tmux";
+    case "snowpea":
+      return "snowpea";
+    case "none":
+      return "not open";
+    default:
+      return null;
+  }
+}
+function rowStatus(row, now) {
+  const waiting = row.waitingOnPerson ?? 0;
+  const left2 = formatRemaining(row.pausedUntil, now);
+  if (waiting > 0) return { glyph: "!", color: "yellow", text: `waits for you (${waiting})` };
+  if (row.takenOver) return { glyph: "\u25C9", color: "cyan", text: "yours" };
+  if (left2) return { glyph: "\u2016", color: "cyan", text: `paused ${left2}` };
+  switch (row.status) {
+    case "running":
+      return { glyph: "\u25CF", color: "green", text: "running" };
+    case "awaiting_approval":
+    case "awaiting_question":
+      return { glyph: "\u25D0", color: "yellow", text: "Jarvis deciding" };
+    case "error":
+      return { glyph: "\u2717", color: "red", text: "error" };
+    default:
+      return { glyph: "\u25EF", color: void 0, text: "idle" };
+  }
+}
+var UNCONTROLLED_NOTE = "   UNCONTROLLED: Jarvis can read but not instruct";
+function rowChips(row, width) {
+  const chips = [];
+  if (row.exposed === false) chips.push("hidden from Jarvis");
+  if (row.external) {
+    if (row.controlled === false) chips.push("UNCONTROLLED");
+    else if (row.mode === "readonly") chips.push("read-only");
+    chips.push(hostChip(row.host) ?? "external");
+    if (row.approvals === "person") chips.push("you answer");
+  }
+  if (row.securityListsApply === false) chips.push("no security lists");
+  if (row.level && width >= 44) chips.push(row.level);
+  return chips;
+}
+function fitChips(parts, max) {
+  const kept = [...parts];
+  while (kept.length > 1 && textWidth(kept.join(" \xB7 ")) > max) kept.pop();
+  return kept.join(" \xB7 ");
+}
+var NOTICE_GLYPH = {
+  finished: "\u2713",
+  error: "\u2717",
+  stalled: "\u2026",
+  budget: "$",
+  jarvis: "\u25C6"
+};
+function isTamperNotice(entry) {
+  if (entry.kind === "tamper") return true;
+  return typeof entry.id === "string" && entry.id.startsWith("je-tamper-");
+}
+function noticeColor(entry) {
+  if (isTamperNotice(entry)) return "yellow";
+  if (entry.reason === "error") return "red";
+  if (entry.reason === "budget" || entry.reason === "stalled") return "yellow";
+  return void 0;
+}
+function noticeLine(entry) {
+  const name = (entry.title ?? "").trim() || baseName(entry.project) || (entry.sessionId ?? "").slice(0, 8);
+  const who = entry.external ? `${agentOfExternal(entry.external.cli).tag} ${name}`.trim() : name;
+  const glyph = isTamperNotice(entry) ? "!" : NOTICE_GLYPH[entry.reason] ?? "\u2022";
+  const head = `${glyph} ${who ? `${who} \u2014 ` : ""}`;
+  return `${head}${entry.summary}`;
+}
+function budget(total, room) {
+  return Math.max(0, Math.min(total, room));
+}
+function tagSegments(text6, external, color) {
+  const identity = !external ? null : "kind" in external ? external : agentOfExternal(external.cli);
+  const at = identity && identity.tag ? text6.indexOf(identity.tag) : -1;
+  if (!identity || at < 0) return [{ text: text6, color }];
+  const end2 = at + identity.tag.length;
+  return [
+    ...at > 0 ? [{ text: text6.slice(0, at), color }] : [],
+    { text: identity.tag, color: identity.color, bold: true },
+    ...end2 < text6.length ? [{ text: text6.slice(end2), color }] : []
+  ];
+}
+function panelLines(state2, width, maxRows, now) {
+  const lines = [];
+  const status = state2.status;
+  const w = Math.max(20, width);
+  const level2 = status?.delegationDefault ?? "staged";
+  const headParts = [status?.running ? "running" : "stopped", `default ${level2}`];
+  if (status?.model) headParts.push(status.model);
+  if (state2.deciding > 0) headParts.push(`deciding ${state2.deciding}`);
+  if (status?.budget?.exhausted) headParts.push("budget used up");
+  lines.push({
+    key: "head",
+    segments: [
+      { text: "\u25C6 Jarvis", color: "magenta", bold: true },
+      { text: fit(` \xB7 ${headParts.join(" \xB7 ")}`, w - 8), dimColor: true }
+    ]
+  });
+  for (const problem of status?.problems ?? []) {
+    if (lines.length >= maxRows) break;
+    lines.push({ key: `problem-${problem}`, segments: [{ text: fit(`! ${problem}`, w), color: "yellow" }] });
+  }
+  const rows = state2.rows;
+  const waiting = state2.waiting;
+  const decisions = state2.decisions;
+  const notices = state2.escalations;
+  let room = Math.max(0, maxRows - lines.length);
+  const waitingShown = budget(waiting.length, Math.min(waiting.length, Math.max(1, Math.floor(room / 3))));
+  const decisionShown = budget(decisions.length, Math.min(decisions.length, Math.max(0, Math.floor(room / 4))));
+  const waitingRows = waiting.length > 0 ? 1 + waitingShown + (waiting.length > waitingShown ? 1 : 0) : 0;
+  const decisionRows = decisions.length > 0 && decisionShown > 0 ? 1 + decisionShown : 0;
+  const noticeShown = budget(notices.length, Math.min(notices.length, Math.max(0, Math.floor(room / 4))));
+  const noticeRows = noticeShown > 0 ? 1 + noticeShown + (notices.length > noticeShown ? 1 : 0) : 0;
+  const sessionRoomBefore = Math.max(
+    0,
+    room - waitingRows - decisionRows - noticeRows - (rows.length > 0 ? 1 : 0)
+  );
+  const uncontrolledNote = rows.some((row) => row.external && row.controlled === false) && sessionRoomBefore >= 3;
+  const securityNote = rows.some((row) => row.securityListsApply === false) && sessionRoomBefore >= (uncontrolledNote ? 4 : 3);
+  const sessionRoom = sessionRoomBefore - (uncontrolledNote ? 1 : 0) - (securityNote ? 1 : 0);
+  const hasMore = rows.length > sessionRoom;
+  const sessionShown = budget(rows.length, hasMore ? Math.max(0, sessionRoom - 1) : sessionRoom);
+  if (rows.length === 0) {
+    lines.push({ key: "none", segments: [{ text: fit("No supervised sessions yet.", w), dimColor: true }] });
+  } else if (sessionShown > 0) {
+    lines.push({
+      key: "sessions-title",
+      segments: [{ text: fit(`Sessions (${rows.length}) \xB7 /jarvis open <n>`, w), dimColor: true }]
+    });
+    rows.slice(0, sessionShown).forEach((row, index) => {
+      const st = rowStatus(row, now);
+      const chips = rowChips(row, w);
+      const right2 = fitChips([st.text, ...chips], Math.max(12, w - 24));
+      const left2 = `${String(index + 1).padStart(2)} ${st.glyph} ${sessionLabel(row)}`;
+      const color = row.controlled === false && st.color !== "yellow" ? "red" : st.color;
+      lines.push({ key: `row-${index}`, segments: tagSegments(spread(left2, right2, w), rowAgent(row), color) });
+    });
+    if (uncontrolledNote) {
+      lines.push({ key: "uncontrolled-note", segments: [{ text: fit(UNCONTROLLED_NOTE, w), color: "red" }] });
+    }
+    if (securityNote) {
+      lines.push({ key: "security-note", segments: [{ text: fit(`   ${NOT_APPLIED_NOTE}`, w), color: "red" }] });
+    }
+    if (hasMore) {
+      lines.push({
+        key: "sessions-more",
+        segments: [{ text: fit(`   \u2026 ${rows.length - sessionShown} more (/jarvis sessions)`, w), dimColor: true }]
+      });
+    }
+  }
+  if (waiting.length > 0) {
+    lines.push({
+      key: "waiting-title",
+      segments: [
+        { text: fit(`Waiting for you (${waiting.length}) \xB7 Ctrl+W answers`, w), color: "yellow", bold: true }
+      ]
+    });
+    waiting.slice(0, waitingShown).forEach((item, index) => {
+      const mark = item.kind === "approval" ? "!" : "?";
+      const asks = item.alwaysAsks ? `[${ALWAYS_ASKS}] ` : "";
+      lines.push({
+        key: `wait-${index}`,
+        segments: tagSegments(fit(` ${mark} ${item.label} \u2014 ${asks}${item.summary}`, w), item.external, "yellow")
+      });
+    });
+    if (waiting.length > waitingShown) {
+      lines.push({
+        key: "waiting-more",
+        segments: [{ text: fit(`   \u2026 ${waiting.length - waitingShown} more`, w), dimColor: true }]
+      });
+    }
+  }
+  if (noticeRows > 0) {
+    lines.push({
+      key: "notices-title",
+      segments: [{ text: fit(`Notices (${notices.length}) \xB7 /jarvis dismiss`, w), dimColor: true }]
+    });
+    notices.slice(0, noticeShown).forEach((entry, index) => {
+      lines.push({
+        key: `notice-${index}`,
+        segments: tagSegments(fit(` ${index + 1}. ${noticeLine(entry)}`, w), entry.external, noticeColor(entry))
+      });
+    });
+    if (notices.length > noticeShown) {
+      lines.push({
+        key: "notices-more",
+        segments: [{ text: fit(`   \u2026 ${notices.length - noticeShown} more`, w), dimColor: true }]
+      });
+    }
+  }
+  if (decisionRows > 0) {
+    lines.push({ key: "decisions-title", segments: [{ text: fit("Recent decisions", w), dimColor: true }] });
+    decisions.slice(0, decisionShown).forEach((entry, index) => {
+      lines.push({
+        key: `decision-${index}`,
+        segments: [{ text: fit(` ${decisionLine(entry)}`, w), dimColor: true }]
+      });
+    });
+  }
+  return lines.slice(0, Math.max(1, maxRows));
+}
+function byLabel2(by) {
+  if (by === "jarvis:auto" || by === "auto") return "auto";
+  return by ?? "";
+}
+var JARVIS_DECIDING = "Jarvis is deciding";
+function resolvedLine(by, decision, request) {
+  if (by !== "jarvis" && by !== "jarvis:auto" || !request) return null;
+  const who = by === "jarvis:auto" ? "Jarvis (auto)" : "Jarvis";
+  return `${who} ${decision === "deny" ? "denied" : "allowed"} ${approvalSummary(request)}`;
+}
+var SCOPE_RANK = { once: 0, session: 1, project: 2, site: 2, always: 3 };
+var SCOPE_WORDS = {
+  once: "once only",
+  session: "for this session only",
+  project: "for this project only",
+  site: "for this site only"
+};
+var chosenScopes = /* @__PURE__ */ new Map();
+function rememberChosenScope(requestId, decision, scope) {
+  if (decision !== "allow") return;
+  chosenScopes.set(requestId, scope);
+  if (chosenScopes.size > 200) chosenScopes.delete(chosenScopes.keys().next().value);
+}
+function takeChosenScope(requestId) {
+  const scope = chosenScopes.get(requestId);
+  chosenScopes.delete(requestId);
+  return scope;
+}
+function scopeNarrowed(chosen, applied) {
+  if (!chosen || !applied) return false;
+  const a = SCOPE_RANK[applied];
+  const c = SCOPE_RANK[chosen];
+  return a !== void 0 && c !== void 0 && a < c;
+}
+function approvalResolvedNote(payload, request, chosenScope) {
+  if (payload.outcome === "withdrawn" || payload.decision === null || payload.decision === void 0) return null;
+  const jarvis = resolvedLine(payload.by, payload.decision, request);
+  if (jarvis) return jarvis;
+  if (payload.decision === "allow" && scopeNarrowed(chosenScope, payload.scope)) {
+    const words = SCOPE_WORDS[payload.scope] ?? `as ${payload.scope}`;
+    return `Allowed ${words} \u2014 core kept it narrower than "${chosenScope}"${request ? ` (${approvalSummary(request)})` : ""}`;
+  }
+  return null;
+}
+function highEscalationLine(summary) {
+  return `Jarvis: ${summary.replace(/\s+/g, " ").trim()}`;
+}
+function respondResultNote(requestId, result, request) {
+  const chosen = takeChosenScope(requestId);
+  if (!scopeNarrowed(chosen, result?.scope)) return null;
+  const words = SCOPE_WORDS[result?.scope] ?? `as ${result?.scope}`;
+  return `Allowed ${words} \u2014 core kept it narrower than "${chosen}"${request ? ` (${approvalSummary(request)})` : ""}`;
+}
+function accessLine(event) {
+  const verb = event.action === "read" ? "read" : "instructed";
+  const raw = (event.summary ?? "").replace(/\s+/g, " ").trim();
+  const what = raw.length > 80 ? `${raw.slice(0, 79)}\u2026` : raw;
+  return `Jarvis ${verb} this session${what ? ` \u2014 ${what}` : ""}`;
+}
+function decisionLine(entry) {
+  const who = byLabel2(entry.decidedBy);
+  const where = baseName(entry.project);
+  return `${who}: ${entry.summary}${where ? ` (${where})` : ""}`;
+}
+function levelSource(scope) {
+  switch (scope) {
+    case "project":
+      return "from the project";
+    case "global":
+      return "from the global setting";
+    default:
+      return null;
+  }
+}
+function jarvisMarker(status, row, now) {
+  if (!status?.enabled || !row) return null;
+  if (row.takenOver) return "Jarvis: you have this session \xB7 /jarvis handback";
+  const left2 = formatRemaining(row.pausedUntil, now);
+  if (left2) return `Jarvis paused, returns in ${left2}`;
+  if (!row.level) return "Jarvis deciding";
+  const source = levelSource(row.levelScope);
+  return `Jarvis deciding \xB7 ${row.level}${source ? ` (${source})` : ""}`;
+}
+var GUARDED_WORDS = {
+  deploy: "deploy, release, push",
+  outside_destructive: "outside the project, destructive",
+  secret_send: "secrets, sending data out"
+};
+function guardedWords(name) {
+  return GUARDED_WORDS[name] ?? name;
+}
+function isDelegationProposal(request) {
+  return request.personOnly === true && request.tool === "delegation_set";
+}
+var UNRESTRICTED_WARN = "UNRESTRICTED";
+function isTmuxAdopt(request) {
+  return request.personOnly === true && request.tool === "tmux.adopt";
+}
+function text5(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function parseProposal(request) {
+  if (!isDelegationProposal(request)) return null;
+  const args = request.args ?? {};
+  const scopeRaw = text5(args["scope"]);
+  const scope = scopeRaw === "global" || scopeRaw === "project" || scopeRaw === "session" ? scopeRaw : "session";
+  const allowRaw = args["allow"];
+  const allow = Array.isArray(allowRaw) ? allowRaw.filter((item) => typeof item === "string") : typeof allowRaw === "string" && allowRaw ? allowRaw.split(/[,\s]+/).filter(Boolean) : [];
+  return {
+    scope,
+    target: text5(args["target"]),
+    level: args["level"] === "full" ? "full" : "staged",
+    allow,
+    expiresAt: text5(args["expiresAt"]),
+    note: text5(args["note"]) ?? ""
+  };
+}
+function proposalLines(proposal, now) {
+  const scope = proposal.scope === "global" ? "every project and session" : proposal.scope === "project" ? `project ${proposal.target ?? "(unnamed)"}` : `session ${proposal.target ?? "(this one)"}`;
+  const level2 = proposal.level === "full" ? "full \u2014 Jarvis decides risky requests and stalls too" : "staged \u2014 only safe approvals and how-to-proceed questions";
+  const guarded = proposal.allow.length > 0 ? `Jarvis may ALSO decide: ${proposal.allow.map(guardedWords).join("; ")}` : "none \u2014 deploy, outside-project and secret/send actions still ask you";
+  const left2 = formatRemaining(proposal.expiresAt, now);
+  const expiry = proposal.expiresAt ? `${proposal.expiresAt}${left2 ? ` (in ${left2})` : " (already past)"}` : proposal.scope === "session" ? "until the session ends" : proposal.scope === "project" ? "24 h (the default)" : "until you revoke it";
+  const lines = [`Scope    ${scope}`, `Level    ${level2}`, `Guarded  ${guarded}`, `Expires  ${expiry}`];
+  if (proposal.note) lines.push(`Note     ${proposal.note}`);
+  return lines;
+}
+function personOnlyView(request, now) {
+  const proposal = parseProposal(request);
+  if (proposal) {
+    return {
+      title: "Jarvis asks to change what it may decide",
+      from: "Jarvis",
+      lines: proposalLines(proposal, now),
+      warnPrefix: proposal.allow.length > 0 ? "Guarded" : void 0
+    };
+  }
+  if (isTmuxAdopt(request)) {
+    const args = request.args ?? {};
+    const tmux = args["tmux"] ?? {};
+    const where = [text5(tmux["session"]) ?? text5(args["session"]), text5(tmux["pane"]) ?? text5(args["pane"])].filter(Boolean).join(" ");
+    const unrestricted = args["unrestricted"] === true;
+    const lines = [`Pane     ${where || "(unnamed)"}`];
+    const running = text5(args["paneCommand"]);
+    if (running) lines.push(`Running  ${running}`);
+    const folder = text5(args["paneCwd"]) ?? text5(args["cwd"]);
+    if (folder) lines.push(`Folder   ${folder}`);
+    lines.push(
+      "Does     snowpea types your prompts into that pane",
+      "Stays    permission prompts remain yours, answered in the terminal"
+    );
+    if (unrestricted) {
+      lines.push(
+        `${UNRESTRICTED_WARN}  the pane runs with a permission bypass`,
+        `${UNRESTRICTED_WARN}  snowpea cannot control what it runs`
+      );
+    }
+    if (request.note) lines.push(`Note     ${request.note}`);
+    return {
+      title: "Let snowpea type into your tmux pane?",
+      from: "tmux",
+      lines,
+      warnPrefix: unrestricted ? UNRESTRICTED_WARN : void 0
+    };
+  }
+  return null;
+}
+function statusLines2(status, now) {
+  const lines = [
+    `Jarvis (beta): ${status.enabled ? status.running ? "on, running" : "on, not running" : "off"}`
+  ];
+  if (!status.enabled) return [...lines, "Turn it on with /jarvis on."];
+  lines.push("Requests Jarvis may never decide always ask you.");
+  if (status.model) lines.push(`model: ${status.model}`);
+  lines.push(`default delegation: ${status.delegationDefault ?? "staged"}`);
+  lines.push(`folder: ${status.folder}`);
+  const budget2 = status.budget;
+  if (budget2) {
+    const tokens = budget2.dailyTokens > 0 ? `${budget2.tokensToday ?? 0}/${budget2.dailyTokens} tokens today` : "no daily token cap";
+    lines.push(`budget: ${budget2.wakesThisHour ?? 0}/${budget2.wakesPerHour} wakes this hour, ${tokens}${budget2.exhausted ? " \u2014 USED UP, everything goes to you" : ""}`);
+  }
+  for (const pause of status.paused ?? []) {
+    const who = pause.external ? `${agentOfExternal(pause.external.cli).tag} ${pause.external.id.slice(0, 8)}` : (pause.sessionId ?? "").slice(0, 8);
+    const left2 = formatRemaining(pause.until, now);
+    lines.push(
+      `${pause.reason === "typing" ? "paused (you typed)" : "taken over"}: ${who}${left2 ? `, returns in ${left2}` : pause.reason === "takeover" ? " until /jarvis handback" : ""}`
+    );
+  }
+  if ((status.hiddenProjects ?? []).length > 0) lines.push(`hidden from Jarvis: ${(status.hiddenProjects ?? []).map(baseName).join(", ")}`);
+  for (const problem of status.problems ?? []) lines.push(`! ${problem}`);
+  return lines;
+}
+
+// src/hooks/useJarvisScreens.ts
+function steerOf(infos, cli) {
+  return infos?.find((info) => info.id === cli)?.capabilities?.steer === true;
+}
+function unavailableOf(infos) {
+  return {
+    unavailable: infos.filter((info) => !usable(info) && !info.pendingPath).map((info) => `${cliLabel(info.id)} (${info.installed ? "off" : "not installed"})`),
+    pending: infos.filter((info) => info.pendingPath)
+  };
+}
+function viewReducer(view, action) {
+  if (action.type === "close") return null;
+  if (action.type === "opened") return openExternal(action.session, action.events, action.hasMore);
+  return view ? externalReducer(view, action) : null;
+}
+function errorText(error) {
+  const raw = error;
+  return raw?.message ?? String(error);
+}
+var ACCESS_QUIET_MS = 3e4;
+var ESC_AGAIN_MS = 3e3;
+var POLL_VISIBLE_MS = 4e3;
+var POLL_BACKGROUND_MS = 15e3;
+var PAGE = 40;
+function useJarvisScreens(deps) {
+  const { client, workdir, sessionId, turnActive, resumeSession, showToast, note, start, diskNotice } = deps;
+  const diskNoticeRef = (0, import_react24.useRef)(diskNotice);
+  diskNoticeRef.current = diskNotice;
+  const support = supportOf(client.serverCapabilities?.());
+  const [jarvis, jarvisDispatch] = (0, import_react24.useReducer)(jarvisReducer, initialJarvis);
+  const [external, viewDispatch] = (0, import_react24.useReducer)(viewReducer, null);
+  const [ui, setUi] = (0, import_react24.useState)(null);
+  const uiRef = (0, import_react24.useRef)(null);
+  uiRef.current = ui;
+  const returnTo = (0, import_react24.useRef)(null);
+  const refreshing = (0, import_react24.useRef)(false);
+  const clisRef = (0, import_react24.useRef)(null);
+  const [clis, setClis] = (0, import_react24.useState)(null);
+  const sessionIdRef = (0, import_react24.useRef)(sessionId);
+  sessionIdRef.current = sessionId;
+  const loadClisRef = (0, import_react24.useRef)(null);
+  const lastAccess = (0, import_react24.useRef)(/* @__PURE__ */ new Map());
+  const lastRefusal = (0, import_react24.useRef)(0);
+  const adopting = (0, import_react24.useRef)(null);
+  const externalRef = (0, import_react24.useRef)(null);
+  externalRef.current = external;
+  const jarvisRef = (0, import_react24.useRef)(jarvis);
+  jarvisRef.current = jarvis;
+  const jarvisSessionId = jarvis.status?.sessionId ?? null;
+  const jarvisOn = support.jarvis && jarvis.status?.enabled === true;
+  const now = useClock(jarvisOn, 15e3);
+  const onJarvisScreen = jarvisOn && jarvisSessionId !== null && sessionId === jarvisSessionId;
+  const refresh = (0, import_react24.useCallback)(async (options = {}) => {
+    if (!support.jarvis || refreshing.current) return;
+    refreshing.current = true;
+    try {
+      const status = await client.call("jarvis.status", {}).catch(() => null);
+      if (status) jarvisDispatch({ type: "status", status });
+      if (!status?.enabled) return;
+      const [overview, approvals, questions, ledger, notices, sessions] = await Promise.all([
+        client.call("jarvis.overview", { includeIdle: true, includeExternal: true, limit: 100 }).catch(() => null),
+        options.periodic ? Promise.resolve(null) : client.listApprovals().catch(() => null),
+        options.periodic ? Promise.resolve(null) : client.call("question.list", {}).catch(() => null),
+        support.delegation ? client.call("jarvis.ledger", { limit: 12 }).catch(() => null) : Promise.resolve(null),
+        client.call("jarvis.escalations.list", { limit: MAX_ESCALATIONS }).catch(() => null),
+        client.call("session.list", {}).catch(() => null)
+      ]);
+      if (overview) {
+        jarvisDispatch({ type: "overview", rows: overview.rows ?? [], at: Date.now() });
+      }
+      if (approvals || questions) {
+        jarvisDispatch({
+          type: "waiting",
+          approvals: approvals?.requests ?? [],
+          questions: questions?.requests ?? []
+        });
+      }
+      if (ledger) jarvisDispatch({ type: "decisions", entries: ledger.entries ?? [] });
+      if (notices) jarvisDispatch({ type: "escalations", entries: notices.escalations ?? [] });
+      if (sessions) {
+        const states = {};
+        for (const entry of sessions.sessions ?? []) {
+          if (entry.jarvis) states[entry.sessionId] = entry.jarvis;
+        }
+        jarvisDispatch({ type: "sessionStates", states });
+      }
+    } finally {
+      refreshing.current = false;
+    }
+  }, [client, support.jarvis, support.delegation]);
+  (0, import_react24.useEffect)(() => {
+    void refresh();
+  }, [refresh, sessionId]);
+  (0, import_react24.useEffect)(() => {
+    if (!jarvisOn) return;
+    const timer = setInterval(() => void refresh({ periodic: true }), onJarvisScreen ? POLL_VISIBLE_MS : POLL_BACKGROUND_MS);
+    return () => clearInterval(timer);
+  }, [jarvisOn, onJarvisScreen, refresh]);
+  (0, import_react24.useEffect)(() => {
+    if (jarvis.notice === null) return;
+    showToast(jarvis.notice);
+    jarvisDispatch({ type: "notice/clear" });
+  }, [jarvis.notice, showToast]);
+  (0, import_react24.useEffect)(() => {
+    if (!external?.notice) return;
+    showToast(external.notice);
+    viewDispatch({ type: "notice/clear" });
+  }, [external?.notice, showToast]);
+  const listeners = (0, import_react24.useMemo)(
+    () => ({
+      onJarvisState: (payload) => jarvisDispatch({ type: "event/state", payload }),
+      onJarvisDecision: (payload) => jarvisDispatch({ type: "event/decision", payload }),
+      onJarvisEscalation: (payload) => {
+        jarvisDispatch({ type: "event/escalation", payload });
+        void refresh();
+      },
+      onJarvisDelegation: (payload) => {
+        jarvisDispatch({ type: "event/delegation", payload });
+        void refresh();
+      },
+      onApprovalPending: (payload) => {
+        const request = payload?.request;
+        if (!request) return;
+        jarvisDispatch({ type: "pending", kind: "approval", request });
+        const wanted = adopting.current;
+        const asked = request.tool === "tmux.adopt" ? externalOfRequest(request) : null;
+        if (wanted && asked && sameRef(asked, wanted)) setUi({ kind: "adopt", ref: wanted, request });
+      },
+      onQuestionPending: (payload) => {
+        const request = payload?.request;
+        if (request) jarvisDispatch({ type: "pending", kind: "question", request });
+        else void refresh();
+      },
+      // Jarvis took a request, or gave it back: the "deciding" count and the
+      // prompt list follow the event.
+      onApprovalRouteChanged: (payload) => jarvisDispatch({ type: "route", requestId: payload.requestId, route: payload.route }),
+      onQuestionRouteChanged: (payload) => jarvisDispatch({ type: "route", requestId: payload.requestId, route: payload.route }),
+      onJarvisEscalationDismissed: (payload) => jarvisDispatch({ type: "event/dismissed", payload }),
+      onSessionsChanged: (payload) => {
+        if (payload?.sessionId && payload.jarvis !== void 0) {
+          jarvisDispatch({
+            type: "sessionState",
+            sessionId: payload.sessionId,
+            state: payload.jarvis ?? null
+          });
+        }
+      },
+      // One quiet line in the session Jarvis read or instructed, not one per read.
+      onJarvisAccess: (event) => {
+        const view = externalRef.current;
+        const onView = view !== null && (event.sessionId === extSessionId(view.ref) || event.external != null && sameRef(event.external, view.ref));
+        if (!onView && event.sessionId !== sessionIdRef.current) return;
+        const key = `${event.sessionId}:${event.action === "read" ? "read" : "instruct"}`;
+        const at = Date.now();
+        if (at - (lastAccess.current.get(key) ?? 0) < ACCESS_QUIET_MS) return;
+        lastAccess.current.set(key, at);
+        if (onView) viewDispatch({ type: "note", text: accessLine(event) });
+        else note(accessLine(event));
+      },
+      onExternalClisChanged: (payload) => {
+        const next = payload?.clis ?? [];
+        clisRef.current = next;
+        setClis(next);
+        setUi(
+          (current2) => current2?.kind === "new" ? { ...current2, infos: next } : current2?.kind === "picker" ? { ...current2, ...unavailableOf(next) } : current2
+        );
+      },
+      onExternalEvent: (payload) => viewDispatch({ type: "event", event: payload }),
+      onExternalState: (payload) => {
+        viewDispatch({ type: "state", payload });
+        setUi(
+          (current2) => current2?.kind === "picker" ? {
+            ...current2,
+            rows: current2.rows.map(
+              (row) => sameRef(row.ref, payload.ref) ? {
+                ...row,
+                status: payload.status,
+                host: payload.host,
+                canSend: payload.canSend,
+                mode: payload.mode ?? row.mode,
+                title: payload.title ?? row.title
+              } : row
+            )
+          } : current2
+        );
+      }
+    }),
+    [refresh, note]
+  );
+  const reconnected = (0, import_react24.useCallback)(() => {
+    const view = externalRef.current;
+    void refresh();
+    if (!view) return;
+    void client.call("external.open", { ref: view.ref, limit: 200 }).then(
+      (result) => viewDispatch({ type: "opened", session: result.session, events: result.events ?? [], hasMore: result.hasMore === true })
+    ).catch((error) => note(`external: could not reopen the session \u2014 ${errorText(error)}`));
+  }, [client, note, refresh]);
+  const gate = (0, import_react24.useCallback)(
+    (feature) => {
+      const ok = feature === "jarvis" ? support.jarvis : support.external;
+      if (!ok) note(requiresLine(feature));
+      return ok;
+    },
+    [note, support.external, support.jarvis]
+  );
+  const enterJarvis = (0, import_react24.useCallback)(() => {
+    if (!gate("jarvis")) return;
+    const status = jarvisRef.current.status;
+    if (!status?.enabled) {
+      showToast("Jarvis is off \u2014 /jarvis on");
+      return;
+    }
+    if (!status.sessionId) {
+      showToast("Jarvis has no session yet \u2014 try again in a moment");
+      void refresh();
+      return;
+    }
+    if (status.sessionId === sessionId) {
+      void refresh();
+      showToast("you are in the Jarvis session");
+      return;
+    }
+    if (turnActive) {
+      showToast("interrupt the current turn before opening another session");
+      return;
+    }
+    returnTo.current = sessionId;
+    resumeSession(status.sessionId, "main");
+  }, [gate, refresh, resumeSession, sessionId, showToast, turnActive]);
+  const goBack = (0, import_react24.useCallback)(() => {
+    const target = returnTo.current;
+    if (!target || target === sessionId) {
+      showToast("no earlier session to go back to \u2014 /sessions lists them");
+      return;
+    }
+    if (turnActive) {
+      showToast("interrupt the current turn before opening another session");
+      return;
+    }
+    const from = sessionId;
+    resumeSession(target, "main");
+    returnTo.current = from;
+  }, [resumeSession, sessionId, showToast, turnActive]);
+  const resolveRow = (0, import_react24.useCallback)((target) => {
+    const rows = jarvisRef.current.rows;
+    if (/^\d+$/.test(target)) return rows[Number(target) - 1] ?? null;
+    const lower = target.toLowerCase();
+    return rows.find((row) => row.sessionId?.startsWith(target) || row.external?.id.startsWith(target)) ?? rows.find((row) => sessionLabel(row).toLowerCase().includes(lower)) ?? null;
+  }, []);
+  const unwatch = (0, import_react24.useCallback)(
+    (ref) => {
+      void client.call("external.unwatch", { ref }).catch(() => void 0);
+    },
+    [client]
+  );
+  const showOpened = (0, import_react24.useCallback)(
+    (session, events, hasMore) => {
+      const previous = externalRef.current;
+      if (previous && !sameRef(previous.ref, session.ref)) unwatch(previous.ref);
+      viewDispatch({ type: "opened", session, events, hasMore });
+      setUi(null);
+      void loadClisRef.current?.().catch(() => void 0);
+    },
+    [unwatch]
+  );
+  const callTrusted = (0, import_react24.useCallback)(
+    (method, params, options) => {
+      const run = (trust) => {
+        void client.call(method, trust ? { ...params, trust: true } : params).then(options.onResult).catch((error) => {
+          if (!trust && isUntrustedProject(error)) {
+            const project = rpcErrorFacts(error).project ?? options.project;
+            setUi({
+              kind: "confirm",
+              view: { title: "Trust this project for external CLIs?", from: cliLabel(options.cli), lines: trustPrompt(project) },
+              label: cliLabel(options.cli),
+              onYes: () => {
+                setUi(null);
+                run(true);
+              },
+              onNo: () => {
+                setUi(null);
+                if (options.onDeclined) options.onDeclined();
+                else showToast("project not trusted \u2014 no external session was opened");
+              }
+            });
+            return;
+          }
+          options.onError(error);
+        });
+      };
+      run(false);
+    },
+    [client, showToast]
+  );
+  const openExternalRef = (0, import_react24.useCallback)(
+    (ref, mode) => {
+      callTrusted(
+        "external.open",
+        { ref, limit: 200, ...mode ? { mode } : {} },
+        {
+          cli: ref.cli,
+          project: workdir,
+          onResult: (result) => showOpened(result.session, result.events ?? [], result.hasMore === true),
+          onError: (error) => showToast(describeExternalError(error, ref.cli, "open"))
+        }
+      );
+    },
+    [callTrusted, showOpened, showToast, workdir]
+  );
+  const openByRef = (0, import_react24.useCallback)(
+    (ref) => {
+      void client.call("external.get", { ref }).then((result) => openExternalRef(result.session.ref)).catch((error) => showToast(describeExternalError(error, ref.cli, "open")));
+    },
+    [client, openExternalRef, showToast]
+  );
+  const openRow = (0, import_react24.useCallback)(
+    (row) => {
+      setUi(null);
+      if (row.external) {
+        if (!gate("external")) return;
+        openExternalRef(row.external);
+        return;
+      }
+      if (!row.sessionId) return;
+      if (turnActive) {
+        showToast("interrupt the current turn before opening another session");
+        return;
+      }
+      if (row.sessionId === sessionId) return;
+      returnTo.current = sessionId;
+      resumeSession(row.sessionId, "main");
+    },
+    [gate, openExternalRef, resumeSession, sessionId, showToast, turnActive]
+  );
+  const targetParams = (0, import_react24.useCallback)(
+    (target) => {
+      if (target) {
+        const row = resolveRow(target);
+        if (!row) return `no supervised session "${target}" \u2014 /jarvis sessions lists them`;
+        return row.external ? { external: row.external } : { sessionId: row.sessionId };
+      }
+      const view = externalRef.current;
+      if (view) return { external: view.ref };
+      if (jarvisSessionId && sessionId === jarvisSessionId) {
+        return "name a session: /jarvis handback <n> (/jarvis sessions lists them)";
+      }
+      return { sessionId };
+    },
+    [jarvisSessionId, resolveRow, sessionId]
+  );
+  const jarvisCall = (0, import_react24.useCallback)(
+    (method, params, done) => {
+      void client.call(method, params).then((result) => {
+        const text6 = done(result);
+        if (text6) showToast(text6);
+        void refresh();
+      }).catch((error) => {
+        const code = rpcErrorFacts(error).code;
+        note(
+          code === "jarvis_disabled" ? "Jarvis is off \u2014 /jarvis on" : code === "jarvis_person_only" ? personOnlyLine(error) : `${method} failed: ${errorText(error)}`
+        );
+      });
+    },
+    [client, note, refresh, showToast]
+  );
+  const handleJarvis = (0, import_react24.useCallback)(
+    (line) => {
+      const command2 = parseJarvisCommand(line);
+      if (!command2) return false;
+      if (!gate("jarvis")) return true;
+      switch (command2.kind) {
+        case "invalid":
+          note(`usage: ${command2.usage}`);
+          break;
+        case "enter":
+          enterJarvis();
+          break;
+        case "back":
+          goBack();
+          break;
+        case "status":
+          void client.call("jarvis.status", {}).then((status) => {
+            jarvisDispatch({ type: "status", status });
+            const waiting = diskNoticeRef.current?.() ?? null;
+            note([...waiting ? [`! ${waiting}`] : [], ...statusLines2(status, Date.now())].join("\n"));
+          }).catch((error) => note(`jarvis.status failed: ${errorText(error)}`));
+          break;
+        case "on":
+          jarvisCall("jarvis.enable", {}, (result) => {
+            jarvisDispatch({ type: "status", status: result });
+            return result.running ? "Jarvis is on (beta) \u2014 /jarvis opens it" : "Jarvis is starting\u2026";
+          });
+          break;
+        case "off":
+          jarvisCall("jarvis.disable", {}, (result) => {
+            jarvisDispatch({ type: "status", status: result });
+            return "Jarvis is off \u2014 requests come to you again";
+          });
+          break;
+        case "sessions":
+          if (jarvisRef.current.rows.length === 0) showToast("Jarvis supervises no sessions yet");
+          else setUi({ kind: "sessions" });
+          break;
+        case "open": {
+          const row = resolveRow(command2.target);
+          if (!row) showToast(`no supervised session "${command2.target}"`);
+          else openRow(row);
+          break;
+        }
+        case "dismiss": {
+          const list = jarvisRef.current.escalations;
+          if (list.length === 0) {
+            showToast("no notices to dismiss");
+            break;
+          }
+          const picked = command2.target === "all" ? list : [list[command2.target - 1]];
+          if (picked[0] === void 0) {
+            showToast(`no notice ${command2.target} \u2014 /jarvis lists them`);
+            break;
+          }
+          const ids = picked.map((entry) => entry.id);
+          jarvisCall(
+            "jarvis.escalations.dismiss",
+            command2.target === "all" ? { all: true } : { ids },
+            (result) => {
+              jarvisDispatch({ type: "event/dismissed", payload: { ids: result?.dismissed ?? ids } });
+              return ids.length === 1 ? "notice dismissed" : `${ids.length} notices dismissed`;
+            }
+          );
+          break;
+        }
+        case "waiting":
+          if (jarvisRef.current.waiting.length === 0) showToast("nothing is waiting for you");
+          else setUi({ kind: "answer", requestId: jarvisRef.current.waiting[0].requestId });
+          break;
+        case "handback":
+        case "takeover": {
+          const params = targetParams(command2.target);
+          if (typeof params === "string") {
+            showToast(params);
+            break;
+          }
+          if (command2.kind === "handback") {
+            jarvisCall("jarvis.handback", params, () => "Jarvis has this session again");
+          } else {
+            jarvisCall(
+              "jarvis.takeover",
+              { ...params, ...command2.minutes !== null ? { minutes: command2.minutes } : {} },
+              () => command2.minutes !== null ? `you have this session for ${command2.minutes} min \u2014 /jarvis handback returns it` : "you have this session \u2014 /jarvis handback returns it"
+            );
+          }
+          break;
+        }
+      }
+      return true;
+    },
+    [client, enterJarvis, gate, goBack, jarvisCall, note, openRow, resolveRow, showToast, targetParams]
+  );
+  const waitingItem = ui?.kind === "answer" ? jarvis.waiting.find((item) => item.requestId === ui.requestId) ?? null : null;
+  (0, import_react24.useEffect)(() => {
+    if (ui?.kind !== "answer") return;
+    if (waitingItem) return;
+    const next = jarvis.waiting[0];
+    setUi(next ? { kind: "answer", requestId: next.requestId } : null);
+  }, [ui, waitingItem, jarvis.waiting]);
+  const afterAnswer = (0, import_react24.useCallback)(
+    (requestId) => {
+      jarvisDispatch({ type: "resolved", requestId });
+      const rest = jarvisRef.current.waiting.filter((item) => item.requestId !== requestId);
+      setUi(rest.length > 0 ? { kind: "answer", requestId: rest[0].requestId } : null);
+      void refresh();
+    },
+    [refresh]
+  );
+  const answerApproval = (0, import_react24.useCallback)(
+    (requestId, decision, scope, reason) => {
+      afterAnswer(requestId);
+      rememberChosenScope(requestId, decision, scope);
+      void client.respondApproval(requestId, decision, scope, reason).then((result) => {
+        const line = respondResultNote(requestId, result, void 0);
+        if (line) note(line);
+      }).catch((error) => note(`approval.respond failed: ${errorText(error)}`));
+    },
+    [afterAnswer, client, note]
+  );
+  const answerQuestion = (0, import_react24.useCallback)(
+    (requestId, answers) => {
+      afterAnswer(requestId);
+      void client.respondQuestion(requestId, answers).catch((error) => note(`question.respond failed: ${errorText(error)}`));
+    },
+    [afterAnswer, client, note]
+  );
+  const openWaiting = (0, import_react24.useCallback)(() => {
+    const first = jarvisRef.current.waiting[0];
+    if (first) setUi({ kind: "answer", requestId: first.requestId });
+  }, []);
+  const loadClis = (0, import_react24.useCallback)(async () => {
+    if (clisRef.current) return clisRef.current;
+    const result = await client.call("external.clis", {});
+    clisRef.current = result?.clis ?? [];
+    setClis(clisRef.current);
+    return clisRef.current;
+  }, [client]);
+  loadClisRef.current = loadClis;
+  const loadPicker = (0, import_react24.useCallback)(
+    async (allProjects, before, keep) => {
+      try {
+        const result = await client.call("external.list", {
+          cwd: workdir,
+          allProjects,
+          limit: PAGE,
+          ...before ? { before } : {}
+        });
+        const rows = [...keep, ...result?.sessions ?? []];
+        setUi(
+          (current2) => current2?.kind === "picker" && current2.allProjects === allProjects ? { ...current2, rows, nextBefore: result?.nextBefore ?? null, loading: false, error: null } : current2
+        );
+      } catch (error) {
+        setUi(
+          (current2) => current2?.kind === "picker" ? { ...current2, loading: false, error: describeExternalError(error) } : current2
+        );
+      }
+    },
+    [client, workdir]
+  );
+  const openPicker = (0, import_react24.useCallback)(() => {
+    if (!gate("external")) return;
+    setUi({ kind: "picker", rows: [], nextBefore: null, allProjects: false, loading: true, error: null, unavailable: [], pending: [] });
+    void loadClis().then((infos) => {
+      setUi((current2) => current2?.kind === "picker" ? { ...current2, ...unavailableOf(infos) } : current2);
+    }).catch(() => void 0);
+    void loadPicker(false, null, []);
+  }, [gate, loadClis, loadPicker]);
+  const pickerToggleAll = (0, import_react24.useCallback)(() => {
+    const current2 = uiRef.current;
+    if (current2?.kind !== "picker") return;
+    const allProjects = !current2.allProjects;
+    setUi({ ...current2, allProjects, rows: [], nextBefore: null, loading: true, error: null });
+    void loadPicker(allProjects, null, []);
+  }, [loadPicker]);
+  const pickerMore = (0, import_react24.useCallback)(() => {
+    const current2 = uiRef.current;
+    if (current2?.kind !== "picker" || !current2.nextBefore || current2.loading) return;
+    setUi({ ...current2, loading: true });
+    void loadPicker(current2.allProjects, current2.nextBefore, current2.rows);
+  }, [loadPicker]);
+  const openNewForm = (0, import_react24.useCallback)(() => {
+    void loadClis().then((infos) => setUi({ kind: "new", infos })).catch((error) => showToast(describeExternalError(error)));
+  }, [loadClis, showToast]);
+  const createExternal = (0, import_react24.useCallback)(
+    (choice) => {
+      callTrusted(
+        "external.create",
+        {
+          cli: choice.cli,
+          project: workdir,
+          mode: choice.mode,
+          transport: "structured",
+          ...choice.model ? { model: choice.model } : {}
+        },
+        {
+          cli: choice.cli,
+          project: workdir,
+          onResult: (result) => showOpened(result.session, [], false),
+          onError: (error) => {
+            setUi(null);
+            note(`external: ${describeExternalError(error, choice.cli)}`);
+          }
+        }
+      );
+    },
+    [callTrusted, note, showOpened, workdir]
+  );
+  const loadOlder = (0, import_react24.useCallback)(() => {
+    const view = externalRef.current;
+    if (!view) {
+      showToast("open an external session first");
+      return;
+    }
+    if (!view.hasMore || view.loadingOlder) {
+      showToast("that is the start of the session");
+      return;
+    }
+    const first = view.events[0]?.seq;
+    viewDispatch({ type: "loadingOlder", on: true });
+    void client.call("external.read", { ref: view.ref, beforeSeq: first ?? null, limit: 200 }).then((result) => viewDispatch({ type: "older", events: result.events ?? [], hasMore: result.hasMore === true })).catch((error) => {
+      viewDispatch({ type: "loadingOlder", on: false });
+      showToast(describeExternalError(error));
+    });
+  }, [client, showToast]);
+  const sendExternal = (0, import_react24.useCallback)(
+    (text6) => {
+      const view = externalRef.current;
+      if (!view) return;
+      const why = viewOnlyReason(view.session);
+      if (why) {
+        showToast(why);
+        return;
+      }
+      if (view.state.turnActive && !steerOf(clisRef.current, view.ref.cli)) {
+        showToast(`${cliLabel(view.ref.cli)} is still answering \u2014 Esc stops the turn, then send`);
+        return;
+      }
+      viewDispatch({ type: "sent", text: text6 });
+      callTrusted(
+        "external.send",
+        { ref: view.ref, text: text6 },
+        {
+          cli: view.ref.cli,
+          project: view.session.project ?? workdir,
+          onResult: () => void 0,
+          onError: (error) => {
+            const message = describeExternalError(error, view.ref.cli);
+            viewDispatch({ type: "failed", message });
+            showToast(message);
+          },
+          onDeclined: () => {
+            const message = "project not trusted \u2014 your message was not sent";
+            viewDispatch({ type: "failed", message });
+            showToast(message);
+          }
+        }
+      );
+    },
+    [callTrusted, showToast, workdir]
+  );
+  const interruptExternal = (0, import_react24.useCallback)(() => {
+    const view = externalRef.current;
+    if (!view) return;
+    void client.call("external.interrupt", { ref: view.ref }).catch((error) => showToast(describeExternalError(error, view.ref.cli, "interrupt")));
+  }, [client, showToast]);
+  const leaveExternal = (0, import_react24.useCallback)(() => {
+    const view = externalRef.current;
+    if (!view) return;
+    viewDispatch({ type: "close" });
+    unwatch(view.ref);
+  }, [unwatch]);
+  const stopExternal = (0, import_react24.useCallback)(() => {
+    const view = externalRef.current;
+    if (!view) {
+      showToast("no external session is open");
+      return;
+    }
+    viewDispatch({ type: "close" });
+    void client.call("external.close", { ref: view.ref }).then(() => showToast(`${cliLabel(view.ref.cli)} session stopped \u2014 its transcript stays`)).catch((error) => showToast(describeExternalError(error, view.ref.cli)));
+  }, [client, showToast]);
+  const escapeExternal = (0, import_react24.useCallback)(() => {
+    const view = externalRef.current;
+    if (!view) return;
+    if (!view.state.turnActive) {
+      leaveExternal();
+      return;
+    }
+    const why = interruptRefusal(view.session);
+    if (why) {
+      const at = Date.now();
+      if (at - lastRefusal.current < ESC_AGAIN_MS) {
+        leaveExternal();
+        return;
+      }
+      lastRefusal.current = at;
+      showToast(why);
+      return;
+    }
+    interruptExternal();
+  }, [interruptExternal, leaveExternal, showToast]);
+  const adoptExternal = (0, import_react24.useCallback)(() => {
+    const view = externalRef.current;
+    if (!view) {
+      showToast("open an external session first \u2014 /external");
+      return;
+    }
+    const { ref, session } = view;
+    if (session.host === "tmux") {
+      showToast("snowpea already types into this tmux pane");
+      return;
+    }
+    if (ref.cli !== "claude" || session.host !== "terminal") {
+      showToast("adopting needs a Claude Code session open in your own tmux pane");
+      return;
+    }
+    adopting.current = ref;
+    showToast("Confirm in the prompt \u2014 snowpea types into the pane only after you say yes");
+    void client.call("external.open", { ref, limit: 200, transport: "tmux" }).then((result) => {
+      showToast("snowpea types into the tmux pane now \u2014 answer permission prompts there");
+      showOpened(result.session, result.events ?? [], result.hasMore === true);
+    }).catch((error) => showToast(describeExternalError(error, ref.cli, "adopt"))).finally(() => {
+      adopting.current = null;
+      setUi((current2) => current2?.kind === "adopt" ? null : current2);
+    });
+  }, [client, showOpened, showToast]);
+  const answerAdopt = (0, import_react24.useCallback)(
+    (confirmed) => {
+      const current2 = uiRef.current;
+      if (current2?.kind !== "adopt") return;
+      setUi(null);
+      void client.respondApproval(current2.request.requestId, confirmed ? "allow" : "deny", "once", confirmed ? void 0 : "declined by the person").catch((error) => note(`approval.respond failed: ${errorText(error)}`));
+    },
+    [client, note]
+  );
+  const confirmCliPath = (0, import_react24.useCallback)(
+    (cli) => {
+      void client.call("external.clis", {}).then((result) => {
+        const infos = result?.clis ?? [];
+        clisRef.current = infos;
+        setClis(infos);
+        const info = infos.find((entry) => entry.id === cli);
+        if (!info?.pendingPath) {
+          showToast(`${cliLabel(cli)}: no path is waiting for confirmation`);
+          return;
+        }
+        const path = info.pendingPath;
+        setUi({
+          kind: "confirm",
+          view: { title: `Run this ${cliLabel(cli)} executable?`, from: "Settings", lines: confirmPathPrompt(info) },
+          label: cliLabel(cli),
+          onYes: () => {
+            setUi(null);
+            void client.call("external.clis.confirmPath", { cli, path }).then((confirmed) => {
+              const next = confirmed?.clis ?? clisRef.current ?? [];
+              clisRef.current = next;
+              setClis(next);
+              showToast(`${cliLabel(cli)}: path confirmed`);
+            }).catch((error) => {
+              const facts = rpcErrorFacts(error);
+              showToast(
+                facts.code === "jarvis_person_only" ? personOnlyLine(error) : facts.code === "invalid_params" ? `${cliLabel(cli)}: the configured path changed \u2014 run /external confirm-path ${cli} again` : describeExternalError(error, cli)
+              );
+            });
+          },
+          onNo: () => {
+            setUi(null);
+            showToast(`${cliLabel(cli)}: path not confirmed`);
+          }
+        });
+      }).catch((error) => showToast(describeExternalError(error)));
+    },
+    [client, showToast]
+  );
+  const changeMode = (0, import_react24.useCallback)(
+    (mode) => {
+      const view = externalRef.current;
+      if (!view) {
+        showToast("open an external session first \u2014 /external");
+        return;
+      }
+      if (view.session.mode === mode) {
+        showToast(`already ${modeLabel2(mode)}`);
+        return;
+      }
+      const info = clisRef.current?.find((entry) => entry.id === view.ref.cli);
+      if (info && !modesFor(info).includes(mode)) {
+        showToast(`${cliLabel(view.ref.cli)} has no ${modeLabel2(mode)} mode`);
+        return;
+      }
+      if (mode === "unrestricted") {
+        setUi({
+          kind: "unrestricted",
+          ref: view.ref,
+          lines: unrestrictedPrompt({ cli: view.ref.cli, title: view.session.title, cwd: view.session.cwd })
+        });
+        return;
+      }
+      void client.call("external.setMode", { ref: view.ref, mode }).then((result) => {
+        viewDispatch({ type: "session", session: result.session });
+        showToast(`mode: ${modeLabel2(mode)}`);
+      }).catch((error) => showToast(describeExternalError(error, view.ref.cli)));
+    },
+    [client, showToast]
+  );
+  const confirmUnrestricted = (0, import_react24.useCallback)(() => {
+    if (ui?.kind !== "unrestricted") return;
+    const ref = ui.ref;
+    setUi(null);
+    void client.call("external.setMode", { ref, mode: "unrestricted" }).then((result) => {
+      viewDispatch({ type: "session", session: result.session });
+      showToast("mode: UNRESTRICTED");
+    }).catch((error) => showToast(describeExternalError(error, ref.cli)));
+  }, [client, showToast, ui]);
+  const handleExternal = (0, import_react24.useCallback)(
+    (line) => {
+      const command2 = parseExternalCommand(line);
+      if (!command2) return false;
+      if (!gate("external")) return true;
+      switch (command2.kind) {
+        case "invalid":
+          note(`usage: ${command2.usage}`);
+          break;
+        case "picker":
+          openPicker();
+          break;
+        case "new":
+          openNewForm();
+          break;
+        case "open":
+          openByRef(command2.ref);
+          break;
+        case "close":
+          if (externalRef.current) leaveExternal();
+          else showToast("no external session is open");
+          break;
+        case "stop":
+          stopExternal();
+          break;
+        case "adopt":
+          adoptExternal();
+          break;
+        case "mode":
+          changeMode(command2.mode);
+          break;
+        case "confirmPath":
+          confirmCliPath(command2.cli);
+          break;
+        case "more":
+          loadOlder();
+          break;
+      }
+      return true;
+    },
+    [adoptExternal, changeMode, confirmCliPath, gate, leaveExternal, loadOlder, note, openByRef, openNewForm, openPicker, showToast, stopExternal]
+  );
+  const handleCommand = (0, import_react24.useCallback)(
+    (line) => handleJarvis(line) || handleExternal(line),
+    [handleExternal, handleJarvis]
+  );
+  const started = (0, import_react24.useRef)(false);
+  (0, import_react24.useEffect)(() => {
+    if (!start || started.current) return;
+    if (start === "external") {
+      started.current = true;
+      openPicker();
+      return;
+    }
+    if (!support.jarvis) {
+      started.current = true;
+      note(requiresLine("jarvis"));
+      return;
+    }
+    if (jarvis.status === null) return;
+    started.current = true;
+    if (!jarvis.status.enabled) {
+      note("Jarvis is off \u2014 turn it on with /jarvis on, then open it with /jarvis.");
+      return;
+    }
+    enterJarvis();
+  }, [start, support.jarvis, jarvis.status, openPicker, enterJarvis, note]);
+  const marker = (0, import_react24.useMemo)(() => {
+    if (!jarvisOn || onJarvisScreen) return null;
+    const row = jarvis.rows.find((entry) => entry.sessionId === sessionId);
+    const pause = (jarvis.status?.paused ?? []).find((entry) => entry.sessionId === sessionId);
+    const merged = row ?? (pause ? { level: jarvis.status?.delegationDefault ?? null, pausedUntil: pause.until ?? null, takenOver: pause.reason === "takeover" && !pause.until } : null);
+    const paused = pause && merged ? { ...merged, pausedUntil: pause.until ?? merged.pausedUntil, takenOver: merged.takenOver || pause.reason === "takeover" && !pause.until } : merged;
+    const scoped = paused ? { ...paused, levelScope: jarvis.sessionStates[sessionId]?.levelScope ?? null } : paused;
+    return jarvisMarker(jarvis.status, scoped, now);
+  }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId]);
+  const panel = (0, import_react24.useCallback)(
+    (width, maxRows, diskNotice2 = null) => {
+      if (!onJarvisScreen) return [];
+      const lines = panelLines(jarvis, width, maxRows, now);
+      if (diskNotice2 && lines.length > 0) {
+        const wrapped = wrapSegments("disk-notice", [{ text: `! ${diskNotice2}`, color: "yellow" }], Math.max(20, width), "  ");
+        return [lines[0], ...wrapped, ...lines.slice(1)];
+      }
+      return lines;
+    },
+    [jarvis, now, onJarvisScreen]
+  );
+  return {
+    support,
+    jarvis,
+    onJarvisScreen,
+    external,
+    ui,
+    setUi,
+    listeners,
+    reconnected,
+    refresh,
+    now,
+    handleCommand,
+    enterJarvis,
+    openRow,
+    openExternalRef,
+    openWaiting,
+    waitingItem,
+    answerApproval,
+    answerQuestion,
+    pickerToggleAll,
+    pickerMore,
+    openNewForm,
+    createExternal,
+    sendExternal,
+    interruptExternal,
+    escapeExternal,
+    leaveExternal,
+    stopExternal,
+    adoptExternal,
+    answerAdopt,
+    /** True when the open session's CLI takes a message during a running turn. */
+    canSteer: external ? steerOf(clis, external.ref.cli) : false,
+    confirmUnrestricted,
+    marker,
+    panel
+  };
+}
+
+// src/layout/viewport.ts
+var HEADER_ROWS = 1;
+var STATUS_ROWS = 1;
+var RESERVED_FRAME_ROW = 1;
+function usableRows(terminalRows) {
+  return Math.max(1, Math.floor(terminalRows) - RESERVED_FRAME_ROW);
+}
+var MIN_TRANSCRIPT_ROWS = 1;
+function computeLayout({
+  rows,
+  columns,
+  bottomRows: bottomRows2,
+  headerRows = HEADER_ROWS,
+  statusRows = STATUS_ROWS,
+  minTranscriptRows = MIN_TRANSCRIPT_ROWS
+}) {
+  const safeRows = Math.max(1, Math.floor(rows));
+  const safeColumns = Math.max(1, Math.floor(columns));
+  const fixed = headerRows + statusRows + Math.max(0, bottomRows2);
+  const transcriptRows = Math.max(minTranscriptRows, safeRows - fixed);
+  return {
+    headerRows,
+    transcriptRows,
+    bottomRows: Math.max(0, bottomRows2),
+    statusRows,
+    columns: safeColumns,
+    rows: safeRows
+  };
+}
+function clampScroll(offset, total, height) {
+  const max = Math.max(0, total - Math.max(1, height));
+  if (!Number.isFinite(offset)) return 0;
+  return Math.min(Math.max(0, Math.floor(offset)), max);
+}
+function pageStep(height) {
+  return Math.max(1, Math.max(1, Math.floor(height)) - 1);
+}
+function halfPageStep(height) {
+  return Math.max(1, Math.floor(Math.max(1, Math.floor(height)) / 2));
+}
+function sliceViewport(lines, height, scrollOffset = 0) {
+  const safeHeight = Math.max(1, Math.floor(height));
+  const total = lines.length;
+  const offset = clampScroll(scrollOffset, total, safeHeight);
+  const end2 = Math.max(0, total - offset);
+  const start = Math.max(0, end2 - safeHeight);
+  return {
+    lines: lines.slice(start, end2),
+    start,
+    end: end2,
+    scrollOffset: offset,
+    hiddenAbove: start,
+    hiddenBelow: total - end2,
+    atTop: start === 0,
+    atBottom: offset === 0
+  };
+}
+function paletteRows(commandCount, maxRows = 8) {
+  if (commandCount <= 0) return 0;
+  return Math.min(commandCount, maxRows) + 1 + 2;
+}
+function approvalPromptRows(argCount, menuRows = 6) {
+  return 2 + 1 + 1 + Math.max(0, argCount) + 1 + menuRows;
+}
+function approvalQueueRows(requestCount, focused = false) {
+  if (requestCount <= 0) return 0;
+  return 2 + 1 + requestCount + (focused ? 3 : 1);
+}
+function bottomRows({
+  inputRows = 1,
+  paletteCommands = 0,
+  approvalArgs = null,
+  questionRows = 0,
+  queueRequests = 0,
+  queueFocused = false,
+  errorVisible = false,
+  workingVisible = false,
+  noticeVisible = false,
+  queuedRows = 0,
+  delegationVisible = false,
+  extraRows = 0
+} = {}) {
+  const input = questionRows > 0 ? questionRows : approvalArgs === null ? Math.max(1, inputRows) + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
+  return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0) + (workingVisible ? 1 : 0) + (noticeVisible ? 1 : 0) + Math.max(0, queuedRows) + (delegationVisible ? 1 : 0) + Math.max(0, extraRows);
+}
+function scrollIndicator(view) {
+  if (view.hiddenAbove === 0 && view.hiddenBelow === 0) return null;
+  const parts = [];
+  if (view.hiddenAbove > 0) parts.push(`\u25B2 ${view.hiddenAbove}`);
+  if (view.hiddenBelow > 0) parts.push(`\u25BC ${view.hiddenBelow}`);
+  return parts.join(" ");
+}
+
+// src/components/ApprovalPrompt.tsx
+var import_react26 = __toESM(require_react(), 1);
+
+// src/components/ConfirmMenu.tsx
+var import_react25 = __toESM(require_react(), 1);
+var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
+function ConfirmMenu({
+  options,
+  onChoose,
+  initialIndex = 0,
+  escapeValue,
+  isActive = true,
+  windowSize
+}) {
+  const [index, setIndex] = (0, import_react25.useState)(
+    () => Math.min(Math.max(0, initialIndex), Math.max(0, options.length - 1))
+  );
+  const shortcuts = {};
+  for (const option of options) {
+    if (option.shortcut) shortcuts[option.shortcut.toLowerCase()] = () => onChoose(option.value);
+  }
+  useChoiceKeys({
+    count: options.length,
+    index,
+    onIndex: setIndex,
+    onEnter: (at) => {
+      if (options.length > 0) onChoose(options[at].value);
+    },
+    onCancel: () => {
+      if (escapeValue !== void 0) onChoose(escapeValue);
+    },
+    // Tab has always stepped down this menu; keeping it costs nothing and
+    // people who learned it would notice its absence.
+    onTab: () => {
+      if (options.length > 0) setIndex((i) => (i + 1) % options.length);
+    },
+    onDigit: setIndex,
+    shortcuts,
+    // The shortcut letters own the alphabet here, so j/k would be ambiguous.
+    vim: false,
+    isActive
+  });
+  const rows = options.map((option) => ({
+    label: option.label,
+    description: option.hint,
+    shortcut: option.shortcut,
+    danger: option.danger,
+    tag: option.tag,
+    tagColor: option.tagColor,
+    color: option.color,
+    badge: option.badge,
+    badgeColor: option.badgeColor
+  }));
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+    ChoiceList,
+    {
+      options: rows,
+      selectedIndex: index,
+      color: currentAccent(),
+      windowSize,
+      hint: choiceHint({
+        enter: "confirm",
+        extra: windowSize && rows.length > windowSize ? ["PgUp/PgDn page"] : []
+      })
+    }
+  ) });
+}
+
+// src/components/ApprovalPrompt.tsx
+var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+var RISK_COLOR = {
+  low: "green",
+  medium: "yellow",
+  high: "red"
+};
+var APPROVAL_OPTIONS = [
+  { label: "Yes", value: { decision: "allow", scope: "once" }, shortcut: "y" },
+  {
+    label: "Yes, this session only",
+    value: { decision: "allow", scope: "session" },
+    shortcut: "a"
+  },
+  {
+    label: "Yes, add to project allowlist",
+    value: { decision: "allow", scope: "project" },
+    shortcut: "p"
+  },
+  {
+    label: "Allow Everything (Auto mode)",
+    value: { decision: "allow", scope: "once", switchToAuto: true },
+    shortcut: "e"
+  },
+  { label: "No", value: { decision: "deny", scope: "once" }, shortcut: "n", danger: true },
+  {
+    label: "No, with reason",
+    value: { decision: "deny", scope: "once", withReason: true },
+    shortcut: "r",
+    danger: true
+  }
+];
+var PLAN_ALLOW_EVERYTHING = "Allow Everything (plan, then Auto)";
+var REMEMBER_DISPLAY_MAX = 40;
+function projectRow(request) {
+  if (!request || request.remember === void 0) return void 0;
+  if (request.remember === null) {
+    return typeof request.args?.command === "string" ? null : void 0;
+  }
+  const display = request.remember.display;
+  const shown = display.length > REMEMBER_DISPLAY_MAX ? `${display.slice(0, REMEMBER_DISPLAY_MAX - 1)}\u2026` : display;
+  const note = request.remember.note ? ` (${request.remember.note})` : "";
+  return {
+    label: `Yes, allow "${shown}" in this project${note}`,
+    value: { decision: "allow", scope: "project" },
+    shortcut: "p"
+  };
+}
+function approvalOptions(mode, request) {
+  const project = projectRow(request);
+  if (mode !== "plan" && project === void 0) return APPROVAL_OPTIONS;
+  return APPROVAL_OPTIONS.flatMap((option) => {
+    if (option.value.scope === "project" && project !== void 0) {
+      return project === null ? [] : [project];
+    }
+    if (mode === "plan" && option.value.switchToAuto) {
+      return [{ ...option, label: PLAN_ALLOW_EVERYTHING }];
+    }
+    return [option];
+  });
+}
+function formatArgs(args, max = 72) {
+  return Object.entries(args ?? {}).map(([key, value]) => {
+    const text6 = typeof value === "string" ? value : JSON.stringify(value);
+    const flat = String(text6).replace(/\s+/g, " ");
+    return `${key}: ${flat.length > max ? `${flat.slice(0, max - 1)}\u2026` : flat}`;
+  });
+}
+function ApprovalPrompt({
+  request,
+  onDecide,
+  isActive = true,
+  mode,
+  label = null,
+  crossSession = false,
+  onceOnly = false,
+  refusal = null
+}) {
+  const options = approvalOptions(mode, request).filter(
+    (option) => !(crossSession && option.value.switchToAuto) && !(onceOnly && (option.value.scope !== "once" || option.value.switchToAuto))
+  );
+  const suggested = options.findIndex(
+    (option) => option.value.decision === "allow" && option.value.scope === request.scopeHint
+  );
+  const [reason, setReason] = (0, import_react26.useState)(null);
+  const alwaysAsks = alwaysAsksYou(request);
+  const why = alwaysAsksReason(request);
+  use_input_default(
+    (input, key) => {
+      if (mouseReports(input).length > 0) return;
+      if (reason === null) return;
+      if (key.return) {
+        onDecide({ decision: "deny", scope: "once" }, reason.trim() || void 0);
+        return;
+      }
+      if (key.escape) {
+        setReason(null);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setReason((value) => (value ?? "").slice(0, -1));
+        return;
+      }
+      if (input && !key.ctrl && !key.meta) setReason((value) => (value ?? "") + input);
+    },
+    { isActive: isActive && reason !== null }
+  );
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "yellow", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { bold: true, color: "yellow", wrap: "truncate-end", children: [
+      label ? `Approval required \xB7 ${label}` : "Approval required",
+      alwaysAsks ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "red", children: `  [${ALWAYS_ASKS}]` }) : null
+    ] }),
+    why ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: alwaysAsks ? "red" : "yellow", wrap: "truncate-end", children: [
+      "  ",
+      why
+    ] }) : null,
+    refusal ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { bold: true, color: "red", wrap: "wrap", children: [
+      "  \u2717 ",
+      refusalWords(refusal)
+    ] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, children: request.tool }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: " risk=" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: RISK_COLOR[request.risk ?? ""] ?? "white", children: request.risk ?? "unknown" }),
+      request.timeoutSec ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, children: [
+        " timeout=",
+        request.timeoutSec,
+        "s"
+      ] }) : null
+    ] }),
+    request.note ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { bold: true, color: "red", children: [
+      "  \u25B2 ",
+      request.note
+    ] }) : null,
+    formatArgs(request.args).map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+      "  ",
+      line
+    ] }, `${request.requestId}-a${index}`)),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: reason === null ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      ConfirmMenu,
+      {
+        options,
+        initialIndex: suggested === -1 ? 0 : suggested,
+        escapeValue: { decision: "deny", scope: "once" },
+        isActive,
+        onChoose: (answer) => {
+          if (answer.withReason) {
+            setReason("");
+            return;
+          }
+          onDecide(answer);
+        }
+      }
+    ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "red", children: "Why are you refusing? The model is told exactly this." }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "red", children: "\u203A " }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { children: reason }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { inverse: true, children: " " })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: "Enter deny with this reason \xB7 Esc back to the choices" })
+    ] }) })
+  ] });
+}
+
+// src/components/DelegationConfirm.tsx
+var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
+function delegationConfirmRows(view) {
+  return 2 + 1 + 1 + view.lines.length + 1;
+}
+function DelegationConfirm({
+  view,
+  label,
+  width,
+  onAnswer,
+  isActive = true
+}) {
+  use_input_default(
+    (input, key) => {
+      if (mouseReports(input).length > 0) return;
+      if (key.escape || input.toLowerCase() === "n") {
+        onAnswer(false);
+        return;
+      }
+      if (input.toLowerCase() === "y") onAnswer(true);
+    },
+    { isActive }
+  );
+  const inner = Math.max(10, width - 4);
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "magenta", paddingX: 1, width, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { bold: true, color: "magenta", wrap: "truncate-end", children: fit(view.title, inner) }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: fit(`from ${label}`, inner) }),
+    view.lines.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { wrap: "truncate-end", color: view.warnPrefix && line.startsWith(view.warnPrefix) ? "red" : void 0, children: fit(line, inner) }, `pl-${index}`)),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { bold: true, color: "green", children: "y" }),
+      " confirm \xB7 ",
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { bold: true, color: "red", children: "n" }),
+      " or Esc decline"
+    ] })
+  ] });
+}
+
+// src/components/ExternalNewForm.tsx
+var import_react28 = __toESM(require_react(), 1);
+
+// src/components/UnrestrictedConfirm.tsx
+var import_react27 = __toESM(require_react(), 1);
+var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
+function unrestrictedConfirmRows(lines) {
+  return 2 + lines + 2;
+}
+function UnrestrictedConfirm({
+  lines,
+  width,
+  onConfirm,
+  onCancel,
+  isActive = true
+}) {
+  const [typed, setTyped] = (0, import_react27.useState)("");
+  const [wrong, setWrong] = (0, import_react27.useState)(false);
+  use_input_default(
+    (input, key) => {
+      if (mouseReports(input).length > 0) return;
+      if (key.escape) {
+        onCancel();
+        return;
+      }
+      if (key.return) {
+        if (confirmsUnrestricted(typed)) onConfirm();
+        else setWrong(true);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setTyped((value) => value.slice(0, -1));
+        setWrong(false);
+        return;
+      }
+      if (input && !key.ctrl && !key.meta && !key.tab) {
+        setTyped((value) => value + input);
+        setWrong(false);
+      }
+    },
+    { isActive }
+  );
+  const inner = Math.max(10, width - 4);
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "red", paddingX: 1, width, children: [
+    lines.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: index === 0, color: index === 0 ? "red" : void 0, wrap: "truncate-end", children: fit(line, inner) }, `uc-${index}`)),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "red", children: "\u203A " }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: fit(typed, Math.max(1, inner - 4)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { inverse: true, children: " " })
+    ] }),
+    wrong ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "red", wrap: "truncate-end", children: `Type exactly "${UNRESTRICTED_WORD}", or Esc to cancel.` }) : null
+  ] });
+}
+
+// src/components/ExternalNewForm.tsx
+var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+var EXTERNAL_NEW_ROWS = 14;
+var MODE_HINT = {
+  default: "snowpea asks before it runs things",
+  readonly: "may read, not change anything",
+  unrestricted: "no approvals; snowpea does not control what it runs"
+};
+function CliStep({
+  infos,
+  onChoose,
+  onCancel,
+  isActive,
+  notice,
+  pending
+}) {
+  const [index, setIndex] = (0, import_react28.useState)(() => Math.max(0, infos.findIndex(usable)));
+  useChoiceKeys({
+    count: infos.length,
+    index,
+    onIndex: setIndex,
+    onEnter: (at) => infos[at] && onChoose(infos[at]),
+    onCancel,
+    isActive
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      ChoiceList,
+      {
+        options: infos.map((info) => ({
+          label: `${cliLabel(info.id)}${info.version ? ` ${info.version}` : ""}`,
+          description: usable(info) ? void 0 : unavailableReason(info),
+          badge: usable(info) ? void 0 : "unavailable",
+          badgeColor: "red"
+        })),
+        selectedIndex: index,
+        color: currentAccent(),
+        descriptionMode: "inline",
+        hint: choiceHint({ enter: "pick" })
+      }
+    ),
+    notice ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: "red", wrap: "truncate-end", children: notice }) : null,
+    pending.map((line, at) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: "yellow", wrap: "truncate-end", children: line }, `pending-${at}`))
+  ] });
+}
+function ModeStep({
+  modes,
+  onChoose,
+  onBack,
+  isActive
+}) {
+  const [index, setIndex] = (0, import_react28.useState)(0);
+  useChoiceKeys({
+    count: modes.length,
+    index,
+    onIndex: setIndex,
+    onEnter: (at) => onChoose(modes[at]),
+    onCancel: onBack,
+    isActive
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    ChoiceList,
+    {
+      options: modes.map((mode) => ({
+        label: modeLabel2(mode),
+        description: MODE_HINT[mode],
+        danger: mode === "unrestricted"
+      })),
+      selectedIndex: index,
+      color: currentAccent(),
+      descriptionMode: "inline",
+      hint: choiceHint({ enter: "pick", cancel: "back" })
+    }
+  );
+}
+var TYPE_A_NAME = Symbol("type-a-name");
+var GO_BACK = Symbol("go-back");
+var MODEL_WINDOW = 7;
+function ModelStep({
+  models,
+  note,
+  onSubmit,
+  onBack,
+  isActive,
+  width
+}) {
+  const [typing, setTyping] = (0, import_react28.useState)(false);
+  if (models.length > 0 && !typing) {
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      ConfirmMenu,
+      {
+        options: [
+          { label: "The CLI's default model", value: null },
+          ...models.map((model) => ({ label: fit(model, Math.max(10, width - 12)), value: model })),
+          { label: "Type a name\u2026", value: TYPE_A_NAME }
+        ],
+        escapeValue: GO_BACK,
+        windowSize: MODEL_WINDOW,
+        isActive,
+        onChoose: (choice) => {
+          if (choice === GO_BACK) onBack();
+          else if (choice === TYPE_A_NAME) setTyping(true);
+          else onSubmit(choice);
+        }
+      }
+    );
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    ModelText,
+    {
+      onSubmit,
+      onBack: models.length > 0 ? () => setTyping(false) : onBack,
+      isActive,
+      width,
+      note
+    }
+  );
+}
+function ModelText({
+  onSubmit,
+  onBack,
+  isActive,
+  width,
+  note
+}) {
+  const [text6, setText] = (0, import_react28.useState)("");
+  use_input_default(
+    (input, key) => {
+      if (mouseReports(input).length > 0) return;
+      if (key.escape) return onBack();
+      if (key.return) return onSubmit(text6.trim() || null);
+      if (key.backspace || key.delete) return setText((value) => value.slice(0, -1));
+      if (input && !key.ctrl && !key.meta && !key.tab) setText((value) => value + input);
+    },
+    { isActive }
+  );
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "model: " }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { children: fit(text6, Math.max(1, width - 16)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { inverse: true, children: " " })
+    ] }),
+    note ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: note }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "Enter create (empty = the CLI's default) \xB7 Esc back" })
+  ] });
+}
+function ExternalNewForm({
+  infos,
+  folder,
+  width,
+  onCreate,
+  onCancel,
+  isActive = true
+}) {
+  const ordered = EXTERNAL_CLIS.map((id) => infos.find((info2) => info2.id === id)).filter(
+    (info2) => info2 !== void 0
+  );
+  const [step, setStep] = (0, import_react28.useState)("cli");
+  const [info, setInfo] = (0, import_react28.useState)(null);
+  const [mode, setMode] = (0, import_react28.useState)("default");
+  const [model, setModel] = (0, import_react28.useState)(null);
+  const [notice, setNotice] = (0, import_react28.useState)(null);
+  const liveInfo = info ? infos.find((entry) => entry.id === info.id) ?? info : null;
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "blue", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { bold: true, color: "blue", wrap: "truncate-end", children: fit(`New external session \xB7 ${folder}`, width - 4) }),
+    step === "cli" ? ordered.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: "red", wrap: "truncate-end", children: "no external CLI is known to this daemon" }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      CliStep,
+      {
+        infos: ordered,
+        notice,
+        pending: pendingPathLines(ordered, width - 4),
+        isActive,
+        onCancel,
+        onChoose: (choice) => {
+          if (!usable(choice)) {
+            setNotice(
+              choice.pendingPath ? pendingPathLine(choice) ?? "" : `${cliLabel(choice.id)} is ${unavailableReason(choice) || "unavailable"}`
+            );
+            return;
+          }
+          setNotice(null);
+          setInfo(choice);
+          setStep("mode");
+        }
+      }
+    ) : null,
+    step === "mode" && info ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      ModeStep,
+      {
+        modes: modesFor(liveInfo ?? info),
+        isActive,
+        onBack: () => setStep("cli"),
+        onChoose: (chosen) => {
+          setMode(chosen);
+          setStep("model");
+        }
+      }
+    ) : null,
+    step === "model" && info ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      ModelStep,
+      {
+        models: liveInfo?.models ?? [],
+        note: modelsNote(liveInfo),
+        width,
+        isActive,
+        onBack: () => setStep("mode"),
+        onSubmit: (entered) => {
+          setModel(entered);
+          if (mode === "unrestricted") setStep("confirm");
+          else onCreate({ cli: info.id, mode, model: entered });
+        }
+      }
+    ) : null,
+    step === "confirm" && info ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      UnrestrictedConfirm,
+      {
+        width: width - 4,
+        lines: unrestrictedPrompt({ cli: info.id, cwd: folder }),
+        isActive,
+        onCancel: () => setStep("model"),
+        onConfirm: () => onCreate({ cli: info.id, mode: "unrestricted", model })
+      }
+    ) : null
+  ] });
+}
+
+// src/components/ExternalPicker.tsx
+var import_react29 = __toESM(require_react(), 1);
+var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
+var EXTERNAL_PICKER_ROWS = 8;
+var EXTERNAL_PICKER_TOTAL_ROWS = 2 + 1 + 1 + EXTERNAL_PICKER_ROWS + 2 + 1 + 1 + 1 + PENDING_PATH_ROWS;
+function ExternalPicker({
+  rows,
+  folder,
+  allProjects,
+  loading,
+  hasMore,
+  error = null,
+  unavailable = [],
+  pending = [],
+  width,
+  onOpen,
+  onNew,
+  onToggleAll,
+  onMore,
+  onCancel,
+  isActive = true
+}) {
+  const [query, setQuery] = (0, import_react29.useState)("");
+  const [index, setIndex] = (0, import_react29.useState)(0);
+  const shown = searchRows(rows, query);
+  (0, import_react29.useEffect)(() => {
+    setIndex((at) => Math.min(at, Math.max(0, shown.length - 1)));
+  }, [shown.length]);
+  useChoiceKeys({
+    count: shown.length,
+    index,
+    onIndex: setIndex,
+    onEnter: (at) => {
+      if (shown[at]) onOpen(shown[at]);
+    },
+    onCancel: () => {
+      if (query) {
+        setQuery("");
+        return;
+      }
+      onCancel();
+    },
+    digits: false,
+    vim: false,
+    onKey: (input, key) => {
+      if (key.tab) {
+        onToggleAll();
+        return true;
+      }
+      if (key.ctrl && input === "n") {
+        onNew();
+        return true;
+      }
+      if (key.ctrl && input === "l") {
+        onMore();
+        return true;
+      }
+      if (key.backspace || key.delete) {
+        setQuery((value) => value.slice(0, -1));
+        return true;
+      }
+      if (input && !key.ctrl && !key.meta && !key.upArrow && !key.downArrow && !key.return && !key.escape) {
+        if (input === " " && query === "") return true;
+        setQuery((value) => value + input);
+        return true;
+      }
+      return false;
+    },
+    isActive
+  });
+  const inner = Math.max(20, width - 8);
+  const legend = legendLine(shown.map((row) => agentOfExternal(row.ref.cli)), width - 4);
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "blue", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { bold: true, color: "blue", wrap: "truncate-end", children: fit(`External sessions \xB7 ${allProjects ? "all projects" : folder}`, width - 4) }),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Text, { wrap: "truncate-end", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: "search: " }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { children: fit(query, Math.max(1, width - 16)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { inverse: true, children: " " })
+    ] }),
+    error ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: "red", wrap: "truncate-end", children: fit(error, width - 4) }) : shown.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: loading ? "loading\u2026" : rows.length > 0 ? "no session matches the search" : "no sessions here yet \u2014 Ctrl+N starts one" }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+      ChoiceList,
+      {
+        options: shown.map((row) => {
+          const agent = agentOfExternal(row.ref.cli);
+          return {
+            tag: agent.tag,
+            tagColor: agent.color,
+            label: pickerLabel(row, inner, allProjects).slice(agent.tag.length + 1),
+            danger: false
+          };
+        }),
+        selectedIndex: index,
+        color: currentAccent(),
+        windowSize: EXTERNAL_PICKER_ROWS,
+        hint: null
+      }
+    ),
+    legend ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: legend }) : null,
+    unavailable.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: fit(`unavailable: ${unavailable.join(", ")}`, width - 4) }) : null,
+    pendingPathLines(pending, width - 4).map((line, at) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: "yellow", wrap: "truncate-end", children: line }, `pending-${at}`)),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: fit(
+      `${choiceHint({ enter: "open", digits: false, cancel: query ? "clear search" : "close", extra: ["Tab all projects", "Ctrl+N new", hasMore ? "Ctrl+L older" : ""] })}`,
+      width - 4
+    ) })
+  ] });
+}
+
+// src/components/QuestionPrompt.tsx
+var import_react30 = __toESM(require_react(), 1);
+var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+var OTHER_LABEL = "\uAE30\uD0C0 / Other\u2026";
+var MASK_CHAR = "\u2022";
+function maskSecret(value) {
+  return value ? MASK_CHAR.repeat(value.length) : "";
+}
+var CONFIRM_LABEL = "\uD655\uC778 / Confirm";
+var NOT_ANSWERED = "(not answered)";
+var blank = () => ({ selected: [], text: null });
+var QUESTION_MAX_LINES = 8;
+function clampQuestion(text6) {
+  const lines = text6.split("\n");
+  if (lines.length <= QUESTION_MAX_LINES) return text6;
+  const kept = lines.slice(0, QUESTION_MAX_LINES - 1);
+  return [...kept, `\u2026 (+${lines.length - kept.length} lines)`].join("\n");
+}
+function questionTextRows(text6, width) {
+  return clampQuestion(text6).split("\n").reduce((rows, line) => rows + Math.max(1, Math.ceil(textWidth(line) / Math.max(1, width))), 0);
+}
+function questionPromptRows(request, width = 80) {
+  const questions = request.questions ?? [];
+  const first = questions[0];
+  const options = first?.options ?? [];
+  const described = options.filter((option) => option.description).length;
+  const other = first?.allowOther === false ? 0 : 1;
+  const tabs = questions.length > 1 ? 1 : 0;
+  const question = questionTextRows(first?.question ?? "", width - 4);
+  return 3 + question + tabs + options.length + described + other + 2 + 1;
+}
+function QuestionPrompt({
+  request,
+  onAnswer,
+  isActive = true,
+  label = null,
+  refusal = null
+}) {
+  const questions = (0, import_react30.useMemo)(() => request.questions ?? [], [request]);
+  const alwaysAsks = alwaysAsksYou(request);
+  const [tab2, setTab] = (0, import_react30.useState)(0);
+  const [answers, setAnswers] = (0, import_react30.useState)(() => questions.map(() => blank()));
+  const [cursor, setCursor] = (0, import_react30.useState)(0);
+  const [typing, setTyping] = (0, import_react30.useState)(false);
+  const [draft, setDraft] = (0, import_react30.useState)("");
+  const at = Math.min(tab2, Math.max(questions.length - 1, 0));
+  const current2 = questions[at];
+  const options = current2?.options ?? [];
+  const allowOther = current2?.allowOther !== false;
+  const secret = current2?.secret === true;
+  const multi = current2?.multi === true;
+  const answer = answers[at] ?? blank();
+  const otherRow = allowOther ? options.length : -1;
+  const confirmRow = allowOther ? options.length + 1 : options.length;
+  const rows = confirmRow + 1;
+  const last = at === questions.length - 1;
+  const answeredAt = (index) => {
+    const entry = answers[index];
+    return Boolean(entry && (entry.selected.length > 0 || (entry.text ?? "").length > 0));
+  };
+  const patch = (next) => setAnswers((current3) => current3.map((entry, index) => index === at ? next : entry));
+  const goto = (target) => {
+    setTab((target + questions.length) % questions.length);
+    setTyping(false);
+    setDraft("");
+    setCursor(0);
+  };
+  const pick = (index) => {
+    const label2 = options[index]?.label ?? "";
+    if (!label2) return;
+    if (multi) {
+      const held = answer.selected.includes(label2) ? answer.selected.filter((entry) => entry !== label2) : [...answer.selected, label2];
+      const ordered = options.map((option) => option.label).filter((one) => held.includes(one));
+      patch({ selected: ordered, text: answer.text });
+      return;
+    }
+    patch({ selected: [label2], text: null });
+    setCursor(confirmRow);
+  };
+  const confirm2 = () => {
+    if (!last) {
+      goto(at + 1);
+      return;
+    }
+    onAnswer(answers);
+  };
+  use_input_default(
+    (input, key) => {
+      if (!typing || mouseReports(input).length > 0) return;
+      if (key.return) {
+        const text6 = draft.trim();
+        const keep = multi || text6.length === 0 ? answer.selected : [];
+        patch({ selected: keep, text: text6.length > 0 ? text6 : null });
+        setTyping(false);
+        setDraft("");
+        setCursor(confirmRow);
+        return;
+      }
+      if (key.escape) {
+        setTyping(false);
+        setDraft("");
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setDraft((value) => value.slice(0, -1));
+        return;
+      }
+      if (input && !key.ctrl && !key.meta) setDraft((value) => value + input);
+    },
+    { isActive: isActive && typing }
+  );
+  useChoiceKeys({
+    count: rows,
+    index: cursor,
+    onIndex: setCursor,
+    multi,
+    onToggle: (row) => {
+      if (row < options.length) pick(row);
+    },
+    onEnter: (row) => {
+      if (row === confirmRow) {
+        confirm2();
+        return;
+      }
+      if (row === otherRow || options.length === 0) {
+        setTyping(true);
+        return;
+      }
+      pick(row);
+    },
+    onCancel: () => {
+      onAnswer([]);
+    },
+    // 1-9 marks that row without sending: jumping to an option is not the
+    // same as agreeing to submit, and only the Confirm row submits.
+    onDigit: (row) => {
+      setCursor(row);
+      pick(row);
+    },
+    digitLimit: options.length,
+    onLeft: questions.length > 1 ? () => goto(at - 1) : void 0,
+    onRight: questions.length > 1 ? () => goto(at + 1) : void 0,
+    onTab: questions.length > 1 ? () => goto(at + 1) : void 0,
+    onShiftTab: questions.length > 1 ? () => goto(at - 1) : void 0,
+    isActive: isActive && !typing
+  });
+  const confirmText = last ? CONFIRM_LABEL : "\uB2E4\uC74C \uC9C8\uBB38 / Next question";
+  const hint = [
+    multi ? "Space \uC120\uD0DD" : null,
+    "\u2191\u2193 \uC774\uB3D9",
+    questions.length > 1 ? "\u2190\u2192 \uC9C8\uBB38 \uC774\uB3D9" : null,
+    "Enter \uD655\uC778",
+    "1-9 \uACE0\uB974\uAE30",
+    "Esc \uCDE8\uC18C"
+  ].filter(Boolean).join(" \xB7 ");
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    label ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `from ${label}` }) : null,
+    questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { children: [
+      questions.map((question, index) => {
+        const here = index === at;
+        const tick = answeredAt(index) ? "\u2713 " : here ? "\u25B8 " : "\xB7 ";
+        return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          Text,
+          {
+            inverse: here,
+            bold: here,
+            color: here ? "cyan" : void 0,
+            dimColor: !here,
+            children: ` ${tick}${question.header || `Q${index + 1}`} `
+          },
+          `${request.requestId}-t${index}`
+        );
+      }),
+      alwaysAsks ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: `  [${ALWAYS_ASKS}]` }) : null
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { bold: true, color: "cyan", children: [
+      current2?.header || "\uC9C8\uBB38 / Question",
+      alwaysAsks ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: `  [${ALWAYS_ASKS}]` }) : null
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "wrap", children: clampQuestion(current2?.question ?? "") }),
+    refusal ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { bold: true, color: "red", wrap: "wrap", children: [
+      "\u2717 ",
+      refusalWords(refusal)
+    ] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      ChoiceList,
+      {
+        options: options.map((option) => ({
+          label: option.label,
+          description: option.description,
+          preview: option.preview
+        })),
+        selectedIndex: cursor,
+        checked: new Set(
+          options.map((option, index) => answer.selected.includes(option.label) ? index : -1).filter((index) => index >= 0)
+        ),
+        multi,
+        radio: !multi,
+        numbered: true,
+        allowOther,
+        otherLabel: OTHER_LABEL,
+        otherText: secret ? maskSecret(answer.text) : answer.text,
+        hint: null
+      }
+    ) }),
+    typing ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { marginTop: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "cyan", children: "\u203A " }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { children: secret ? maskSecret(draft) : draft }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { inverse: true, children: " " }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: secret ? "  hidden \xB7 Enter to keep \xB7 Esc to go back" : "  Enter to keep \xB7 Esc to go back" })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
+      questions.length > 1 && last ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: questions.map((question, index) => {
+        const entry = answers[index] ?? blank();
+        const plain = entry.selected.length > 0 ? entry.selected.join(", ") : entry.text ?? "";
+        const said = question.secret === true && entry.selected.length === 0 ? maskSecret(entry.text) : plain;
+        return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: `  ${question.header || `Q${index + 1}`}: ` }),
+          said ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: currentAccent(), children: said }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: NOT_ANSWERED })
+        ] }, `${request.requestId}-r${index}`);
+      }) }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { marginTop: questions.length > 1 && last ? 0 : 1, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: cursor === confirmRow ? "cyan" : void 0, bold: cursor === confirmRow, children: cursor === confirmRow ? "\u276F " : "  " }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          Text,
+          {
+            inverse: cursor === confirmRow,
+            bold: cursor === confirmRow,
+            color: cursor === confirmRow ? "cyan" : void 0,
+            dimColor: cursor !== confirmRow,
+            children: ` ${confirmText} `
+          }
+        ),
+        questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: `  ${questions.filter((_, index) => answeredAt(index)).length}/${questions.length}` }) : null
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: hint })
+    ] })
+  ] });
+}
+
+// src/components/ScreenOverlays.tsx
+var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+function screenOverlayRows(screens, width) {
+  const ui = screens.ui;
+  if (!ui) return 0;
+  switch (ui.kind) {
+    case "picker":
+      return EXTERNAL_PICKER_TOTAL_ROWS;
+    case "new":
+      return EXTERNAL_NEW_ROWS;
+    case "sessions":
+      return Math.min(screens.jarvis.rows.length, 10) + 4;
+    case "unrestricted":
+      return unrestrictedConfirmRows(ui.lines.length);
+    case "adopt": {
+      const view = personOnlyView(ui.request, 0);
+      return view ? delegationConfirmRows(view) : 0;
+    }
+    case "confirm":
+      return delegationConfirmRows(ui.view);
+    case "answer": {
+      const item = screens.waitingItem;
+      if (!item) return 0;
+      if (item.kind === "question") return questionPromptRows(item.request, width) + 1;
+      const request = item.request;
+      const view = personOnlyView(request, 0);
+      if (view) return delegationConfirmRows(view);
+      return approvalPromptRows(Object.keys(request.args ?? {}).length);
+    }
+  }
+}
+function ScreenOverlays({
+  screens,
+  width,
+  folder,
+  now
+}) {
+  const ui = screens.ui;
+  if (!ui) return null;
+  if (ui.kind === "picker") {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      ExternalPicker,
+      {
+        rows: ui.rows,
+        folder,
+        allProjects: ui.allProjects,
+        loading: ui.loading,
+        hasMore: ui.nextBefore !== null,
+        error: ui.error,
+        unavailable: ui.unavailable,
+        pending: ui.pending,
+        width,
+        onOpen: (row) => screens.openExternalRef(row.ref),
+        onNew: screens.openNewForm,
+        onToggleAll: screens.pickerToggleAll,
+        onMore: screens.pickerMore,
+        onCancel: () => screens.setUi(null)
+      }
+    );
+  }
+  if (ui.kind === "new") {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      ExternalNewForm,
+      {
+        infos: ui.infos,
+        folder,
+        width,
+        onCancel: () => screens.setUi(null),
+        onCreate: screens.createExternal
+      }
+    );
+  }
+  if (ui.kind === "sessions") {
+    const shown = screens.jarvis.rows.slice(0, 20);
+    const agents = shown.map(rowAgent);
+    const column = tagColumnWidth(agents);
+    const inner = Math.max(20, width - 8 - column);
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      ConfirmMenu,
+      {
+        options: [
+          ...shown.map((row, index) => {
+            const status = rowStatus(row, now);
+            const color = row.controlled === false && status.color !== "yellow" ? "red" : status.color;
+            const chips = rowChips(row, width);
+            const right2 = fitChips([status.text, ...chips], Math.max(12, Math.floor(inner / 2)));
+            return {
+              label: spread(`${String(index + 1).padStart(2)}. ${sessionName(row)}`, right2, inner),
+              value: index,
+              tag: column > 0 ? tagCell(agents[index], column) : void 0,
+              tagColor: agents[index].color,
+              color
+            };
+          }),
+          { label: "Cancel", value: null }
+        ],
+        escapeValue: null,
+        windowSize: 10,
+        onChoose: (index) => {
+          if (index === null) screens.setUi(null);
+          else screens.openRow(screens.jarvis.rows[index]);
+        }
+      }
+    );
+  }
+  if (ui.kind === "unrestricted") {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      UnrestrictedConfirm,
+      {
+        lines: ui.lines,
+        width,
+        onConfirm: screens.confirmUnrestricted,
+        onCancel: () => screens.setUi(null)
+      }
+    );
+  }
+  if (ui.kind === "confirm") {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      DelegationConfirm,
+      {
+        view: ui.view,
+        label: ui.label,
+        width,
+        onAnswer: (confirmed) => confirmed ? ui.onYes() : ui.onNo()
+      }
+    );
+  }
+  if (ui.kind === "adopt") {
+    const view2 = personOnlyView(ui.request, now);
+    if (!view2) return null;
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(DelegationConfirm, { view: view2, label: view2.from, width, onAnswer: screens.answerAdopt });
+  }
+  const item = screens.waitingItem;
+  if (!item) return null;
+  if (item.kind === "question") {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      QuestionPrompt,
+      {
+        request: item.request,
+        label: fit(item.label, Math.max(10, width - 12)),
+        onAnswer: (answers) => screens.answerQuestion(item.requestId, answers)
+      }
+    );
+  }
+  const request = { ...item.request, source: "queue" };
+  const view = personOnlyView(request, now);
+  if (view) {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      DelegationConfirm,
+      {
+        view,
+        label: item.label,
+        width,
+        onAnswer: (confirmed) => screens.answerApproval(
+          item.requestId,
+          confirmed ? "allow" : "deny",
+          "once",
+          confirmed ? void 0 : "declined by the person"
+        )
+      }
+    );
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+    ApprovalPrompt,
+    {
+      request,
+      label: fit(item.label, Math.max(10, width - 24)),
+      crossSession: true,
+      onceOnly: request.personOnly === true,
+      mode: "accept",
+      onDecide: (answer, reason) => screens.answerApproval(item.requestId, answer.decision, answer.scope, reason)
+    }
+  );
+}
+
+// src/components/JarvisPanel.tsx
+var import_react31 = __toESM(require_react(), 1);
+var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+function JarvisPanelInner({ lines }) {
+  if (lines.length === 0) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { wrap: "truncate-end", children: line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    Text,
+    {
+      color: segment.color,
+      dimColor: segment.dimColor,
+      bold: segment.bold,
+      children: segment.text
+    },
+    `${line.key}-${index}`
+  )) }, line.key)) });
+}
+var JarvisPanel = import_react31.default.memo(JarvisPanelInner);
+
+// src/components/ExternalTranscript.tsx
+var import_react33 = __toESM(require_react(), 1);
+
+// src/components/TranscriptView.tsx
+var import_react32 = __toESM(require_react(), 1);
+var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var transcriptRenderCount = { value: 0 };
+function TranscriptViewInner({
+  lines,
+  height
+}) {
+  transcriptRenderCount.value += 1;
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { flexDirection: "column", height, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { wrap: "truncate-end", children: line.segments.every((segment) => segment.text === "") ? " " : line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+    Text,
+    {
+      color: segment.color,
+      dimColor: segment.dimColor,
+      bold: segment.bold,
+      italic: segment.italic,
+      backgroundColor: segment.backgroundColor,
+      children: segment.text
+    },
+    `${line.key}-s${index}`
+  )) }) }, line.key)) });
+}
+var TranscriptView = import_react32.default.memo(TranscriptViewInner);
+
+// src/components/ExternalTranscript.tsx
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+function externalExtraRows(warning, viewOnly, note = null) {
+  return (warning ? 1 : 0) + (viewOnly ? 1 : 0) + (note ? 1 : 0);
+}
+function ExternalTranscriptInner({
+  title,
+  tag = "",
+  tagColor,
+  status,
+  warning,
+  viewOnly,
+  note = null,
+  lines,
+  height,
+  width,
+  scrollIndicator: scrollIndicator2 = null,
+  empty = false
+}) {
+  const inner = Math.max(10, width - 4);
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+    Box_default,
+    {
+      flexDirection: "column",
+      width,
+      borderStyle: "round",
+      borderColor: warning ? "red" : "blue",
+      paddingX: 1,
+      flexShrink: 0,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { wrap: "truncate-end", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, color: "blue", children: "\u25C8 " }),
+          tag ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, color: tagColor, children: `${tag} ` }) : null,
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, children: spread(title, scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status, inner - 2 - (tag ? tag.length + 1 : 0)) })
+        ] }),
+        warning ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, color: "red", wrap: "truncate-end", children: `! ${fit(warning, inner - 2)}` }) : null,
+        viewOnly ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: "yellow", wrap: "truncate-end", children: fit(viewOnly, inner) }) : null,
+        note ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: fit(note, inner) }) : null,
+        empty ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: "nothing in this session yet" }) }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(TranscriptView, { lines, height }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: fit("\u2191\u2193 PgUp/PgDn scroll \xB7 Esc stops the turn, or goes back when idle", inner) })
+      ]
+    }
+  );
+}
+var ExternalTranscript = import_react33.default.memo(ExternalTranscriptInner);
+
+// src/components/SecurityScreen.tsx
+var import_react34 = __toESM(require_react(), 1);
+
+// src/components/RenderedLines.tsx
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+function RenderedLines({
+  lines,
+  background,
+  width
+}) {
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(import_jsx_runtime14.Fragment, { children: lines.map((line) => {
+    const used = background && width ? line.segments.reduce((sum, segment) => sum + textWidth(segment.text), 0) : 0;
+    const pad = background && width ? Math.max(0, width - used) : 0;
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { children: [
+      line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        Text,
+        {
+          color: segment.color,
+          backgroundColor: background,
+          dimColor: segment.dimColor,
+          bold: segment.bold,
+          italic: segment.italic,
+          children: segment.text
+        },
+        index
+      )),
+      pad > 0 ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { backgroundColor: background, children: " ".repeat(pad) }) : null
+    ] }, line.key);
+  }) });
+}
+
+// src/components/SecurityScreen.tsx
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var TAB_TITLE = { commands: "Blocked commands", paths: "Protected folders" };
+var INTRO = {
+  commands: "snowpea refuses these commands where it sees them: not asked, not approvable, not handed to Jarvis.",
+  paths: '"no changes" stops writing, deleting, moving and chmod; "no access" stops reading too.'
+};
+function SecurityScreen({
+  catalog,
+  config,
+  readOnly: initialReadOnly,
+  width,
+  height,
+  onSave,
+  onCheck,
+  onReload,
+  onSetUnknownCode,
+  changeSeq = 0,
+  diskNotice = null,
+  onClose,
+  isActive = true
+}) {
+  const [tab2, setTab] = (0, import_react34.useState)("commands");
+  const [cursors, setCursors] = (0, import_react34.useState)({ commands: 0, paths: 0 });
+  const [base, setBase] = (0, import_react34.useState)(config);
+  const [draft, setDraft] = (0, import_react34.useState)(() => listsOf(config));
+  const [mode, setMode] = (0, import_react34.useState)({ k: "browse" });
+  const [notes, setNotes] = (0, import_react34.useState)([]);
+  const [readOnly, setReadOnly] = (0, import_react34.useState)(initialReadOnly);
+  const [effCursor, setEffCursor] = (0, import_react34.useState)(0);
+  const [entryProblems, setEntryProblems] = (0, import_react34.useState)({ commands: /* @__PURE__ */ new Map(), paths: /* @__PURE__ */ new Map() });
+  const [elsewhere, setElsewhere] = (0, import_react34.useState)(false);
+  const [helpTop, setHelpTop] = (0, import_react34.useState)(0);
+  const scroll = (0, import_react34.useRef)({});
+  const dirty = !sameLists(draft, listsOf(base));
+  const rows = tabRows(tab2, catalog, draft);
+  const cursor = Math.min(cursors[tab2], Math.max(0, rows.length - 1));
+  const row = rows[cursor];
+  const say2 = (text6, color) => setNotes([{ text: text6, color }]);
+  const moveTo = (index) => setCursors((current2) => ({ ...current2, [tab2]: index }));
+  const confirm2 = (lines, yes) => {
+    setNotes([]);
+    setMode({ k: "confirm", lines, yes });
+  };
+  const apply = (next, nextCursor) => {
+    setDraft(next);
+    setNotes([]);
+    setMode({ k: "browse" });
+    if (nextCursor !== void 0) moveTo(Math.max(0, nextCursor));
+  };
+  const locked = () => {
+    if (readOnly === null) return false;
+    say2(readOnly, "yellow");
+    return true;
+  };
+  const reload = (quiet = false) => {
+    if (!onReload) return;
+    onReload().then((next) => {
+      setBase(next);
+      setDraft(listsOf(next));
+      setEntryProblems({ commands: /* @__PURE__ */ new Map(), paths: /* @__PURE__ */ new Map() });
+      setElsewhere(false);
+      setReadOnly(next.writable ? null : READ_ONLY_LINE);
+      if (!quiet) say2("Reloaded the lists from snowpea.", "green");
+    }).catch((error) => say2(`Could not reload: ${String(error?.message ?? error)}`, "red"));
+  };
+  const live = (0, import_react34.useRef)({ dirty, mode });
+  live.current = { dirty, mode };
+  const reloadRef = (0, import_react34.useRef)(reload);
+  reloadRef.current = reload;
+  (0, import_react34.useEffect)(() => {
+    if (changeSeq === 0 || live.current.mode.k === "saving") return;
+    if (live.current.dirty) setElsewhere(true);
+    else reloadRef.current(true);
+  }, [changeSeq]);
+  const save = () => {
+    if (locked()) return;
+    if (!dirty) {
+      say2("Nothing to save.");
+      return;
+    }
+    setMode({ k: "saving" });
+    setNotes([{ text: "Saving\u2026", dim: true }]);
+    onSave(draft).then((result) => {
+      setMode({ k: "browse" });
+      if (result.ok) {
+        setBase(result.config);
+        setDraft(listsOf(result.config));
+        setEntryProblems({ commands: /* @__PURE__ */ new Map(), paths: /* @__PURE__ */ new Map() });
+        setElsewhere(false);
+        say2("Saved. The new lists apply to new commands at once.", "green");
+        return;
+      }
+      if (result.readOnly) {
+        setReadOnly(result.readOnly);
+        setDraft(listsOf(base));
+        say2(result.readOnly, "yellow");
+        return;
+      }
+      if (result.entries && result.entries.length > 0) {
+        const next = { commands: /* @__PURE__ */ new Map(), paths: /* @__PURE__ */ new Map() };
+        for (const entry of result.entries) next[entry.tab].set(entry.text, entry.reason);
+        setEntryProblems(next);
+        const first = result.entries.find((entry) => draft && (entry.tab === "commands" ? draft.commandCustom.includes(entry.text) : draft.pathCustom.some((one) => one.path === entry.text)));
+        if (first) setTab(first.tab);
+      }
+      const rest = result.others && result.others.length > 0 ? ` ${result.others.join("; ")}` : "";
+      const count3 = result.entries?.length ?? 0;
+      if (count3 > 0) {
+        setNotes([
+          { text: `Not saved: ${count3 === 1 ? "an entry was" : `${count3} entries were`} refused (marked \u2717).${rest}`, color: "red" },
+          { text: "Press ? for the pattern syntax.", dim: true }
+        ]);
+      } else {
+        say2(`Not saved: ${result.message}`, "red");
+      }
+    }).catch((error) => {
+      setMode({ k: "browse" });
+      say2(`Not saved: ${String(error?.message ?? error)}`, "red");
+    });
+  };
+  const switchUnknownCode = () => {
+    if (!onSetUnknownCode || locked()) return;
+    const next = base.unknownCode === "ask" ? "allow" : "ask";
+    const run = () => {
+      setMode({ k: "saving" });
+      setNotes([{ text: "Saving\u2026", dim: true }]);
+      void onSetUnknownCode(next).then((result) => {
+        setMode({ k: "browse" });
+        if (result.ok) {
+          setBase((current2) => ({ ...current2, unknownCode: result.config.unknownCode }));
+          setNotes([{ text: unknownCodeMeaning(result.config.unknownCode), color: "green" }]);
+        } else if (result.readOnly) {
+          setReadOnly(result.readOnly);
+          say2(result.readOnly, "yellow");
+        } else {
+          say2(`Not saved: ${result.message}`, "red");
+        }
+      });
+    };
+    if (next === "allow") confirm2([...UNKNOWN_CODE_ALLOW_CONFIRM], run);
+    else run();
+  };
+  const toggle = () => {
+    if (!row || row.kind !== "preset" || locked()) return;
+    const next = togglePreset(draft, tab2, row.id);
+    const loss = row.on ? weakening(tab2, catalog, draft, next) : null;
+    if (loss) confirm2([`Turn off "${row.title}"?`, loss, "Turn it off anyway? (y/n)"], () => apply(next));
+    else apply(next);
+  };
+  const remove = () => {
+    if (!row || row.kind !== "custom" || locked()) return;
+    const next = removeCustom(draft, tab2, row.index);
+    const loss = weakening(tab2, catalog, draft, next, row.text);
+    confirm2([`Delete ${row.text}?`, ...loss ? [loss] : [], "Delete it? (y/n)"], () => apply(next, cursor - 1));
+  };
+  const submitInput = (current2) => {
+    const value = current2.value.trim();
+    if (value === "") {
+      say2("Type something first, or press Esc to cancel.", "red");
+      return;
+    }
+    if (current2.action === "check") {
+      setNotes([{ text: "Checking\u2026 (nothing is run)", dim: true }]);
+      setMode({ k: "browse" });
+      onCheck(tab2 === "commands" ? "command" : "path", value, dirty ? draft : null).then((result) => {
+        if ("error" in result) {
+          say2(`Could not check: ${result.error}`, "red");
+          return;
+        }
+        const verdict = verdictLine(result, catalog);
+        setNotes([
+          { text: verdict.text, color: verdict.kind === "blocked" ? "red" : verdict.kind === "opaque" ? "yellow" : "green" },
+          { text: dirty ? "Judged against your unsaved edits." : "Judged against the saved lists.", dim: true },
+          { text: NOTHING_RUN, dim: true }
+        ]);
+      }).catch((error) => say2(`Could not check: ${String(error?.message ?? error)}`, "red"));
+      return;
+    }
+    const except = current2.action === "edit" ? current2.index : -1;
+    if (hasCustom(draft, tab2, value, except)) {
+      say2("That entry is already in the list.", "red");
+      return;
+    }
+    if (current2.action === "add") {
+      apply(addCustom(draft, tab2, value), rows.length);
+    } else if (row && row.kind === "custom") {
+      apply(editCustom(draft, tab2, row.index, value));
+    }
+  };
+  use_input_default(
+    (input, key2) => {
+      if (mouseReports(input).length > 0) return;
+      if (mode.k === "saving") return;
+      if (mode.k === "confirm") {
+        if (input.toLowerCase() === "y") mode.yes();
+        else if (input.toLowerCase() === "n" || key2.escape) setMode({ k: "browse" });
+        return;
+      }
+      if (mode.k === "input") {
+        if (key2.escape) {
+          setMode({ k: "browse" });
+          setNotes([]);
+        } else if (key2.return) submitInput(mode);
+        else if (key2.backspace || key2.delete) setMode({ ...mode, value: Array.from(mode.value).slice(0, -1).join("") });
+        else if (input && !key2.ctrl && !key2.meta && !key2.tab && !key2.upArrow && !key2.downArrow) {
+          setMode({ ...mode, value: mode.value + input.replace(/[\r\n]+/g, " ") });
+        }
+        return;
+      }
+      if (mode.k === "help") {
+        if (key2.escape || input === "?" || input === "q" || key2.return) setMode({ k: "browse" });
+        else if (key2.upArrow || input === "k") setHelpTop((at) => Math.max(0, at - 1));
+        else if (key2.downArrow || input === "j") setHelpTop((at) => at + 1);
+        return;
+      }
+      if (mode.k === "effective") {
+        const count3 = Math.max(1, tab2 === "commands" ? base.effective.commands.length : base.effective.paths.length);
+        if (key2.escape || input === "v" || input === "q") setMode({ k: "browse" });
+        else if (key2.upArrow || input === "k") setEffCursor((at) => Math.max(0, at - 1));
+        else if (key2.downArrow || input === "j") setEffCursor((at) => Math.min(count3 - 1, at + 1));
+        else if (key2.tab) {
+          setTab(tab2 === "commands" ? "paths" : "commands");
+          setEffCursor(0);
+        }
+        return;
+      }
+      if (key2.escape) {
+        if (dirty) confirm2(["Discard your unsaved changes?", "Discard them? (y/n)"], onClose);
+        else onClose();
+        return;
+      }
+      if (key2.tab || key2.leftArrow || key2.rightArrow) {
+        setTab(tab2 === "commands" ? "paths" : "commands");
+        setNotes([]);
+        return;
+      }
+      if (key2.upArrow || input === "k") {
+        if (rows.length > 0) moveTo((cursor + rows.length - 1) % rows.length);
+        return;
+      }
+      if (key2.downArrow || input === "j") {
+        if (rows.length > 0) moveTo((cursor + 1) % rows.length);
+        return;
+      }
+      if (key2.pageUp) return moveTo(Math.max(0, cursor - 5));
+      if (key2.pageDown) return moveTo(Math.min(Math.max(0, rows.length - 1), cursor + 5));
+      if (input === " ") return toggle();
+      switch (input.toLowerCase()) {
+        case "a":
+          if (locked()) return;
+          setNotes([]);
+          setMode({ k: "input", action: "add", value: "" });
+          return;
+        case "e":
+          if (!row || row.kind !== "custom") {
+            say2("Only your own entries can be edited; presets are switched on or off with Space.");
+            return;
+          }
+          if (locked()) return;
+          setNotes([]);
+          setMode({ k: "input", action: "edit", value: row.text, index: row.index });
+          return;
+        case "d":
+          if (!row || row.kind !== "custom") {
+            say2("Only your own entries can be deleted; turn a preset off with Space.");
+            return;
+          }
+          return remove();
+        case "l":
+          if (tab2 !== "paths") return;
+          if (!row || row.kind !== "custom") {
+            say2("A preset has its own level; set one for your own folders.");
+            return;
+          }
+          if (locked()) return;
+          return apply(cycleLevel(draft, row.index));
+        case "u":
+          return switchUnknownCode();
+        case "v":
+          setNotes([]);
+          setEffCursor(0);
+          setMode({ k: "effective" });
+          return;
+        case "c":
+          setNotes([]);
+          setMode({ k: "input", action: "check", value: "" });
+          return;
+        case "?":
+          setMode({ k: "help" });
+          return;
+        case "r":
+          if (dirty) confirm2(["Reload the lists and drop your unsaved changes?", "Reload them? (y/n)"], () => {
+            setMode({ k: "browse" });
+            reload();
+          });
+          else reload();
+          return;
+        case "s":
+          return save();
+        default:
+      }
+    },
+    { isActive }
+  );
+  const inner = Math.max(20, width - 4);
+  const rowsLeft = Math.max(4, height - 2);
+  const bold = (text6, color) => ({ text: text6, bold: true, color });
+  const titleLeft = "Security lists";
+  const titleMid = dirty ? "  \u25CF unsaved changes" : "";
+  const counter3 = mode.k === "effective" ? "" : rows.length > 0 ? `${cursor + 1}/${rows.length}` : "";
+  const gap = Math.max(1, inner - textWidth(titleLeft + titleMid) - textWidth(counter3));
+  const head = [
+    {
+      key: "title",
+      segments: [bold(titleLeft, "cyan"), { text: titleMid, color: "yellow", bold: true }, { text: " ".repeat(gap) + counter3, dimColor: true }]
+    },
+    {
+      key: "tabs",
+      segments: ["commands", "paths"].flatMap((one, index) => [
+        { text: index === 0 ? "" : "  " },
+        one === tab2 ? { text: `[${TAB_TITLE[one]}]`, bold: true, color: "cyan" } : { text: ` ${TAB_TITLE[one]} `, dimColor: true }
+      ])
+    },
+    ...wrapSegments("unknown", unknownCodeSegments(base.unknownCode), inner, "  ")
+  ];
+  const intro = [
+    ...wrapSegments("intro", [{ text: INTRO[tab2], dimColor: true }], inner, ""),
+    ...wrapSegments("limits", [{ text: SECURITY_LIMITS, dimColor: true }], inner, ""),
+    ...wrapSegments("own", [{ text: OWN_FILES_LINE, dimColor: true }], inner, ""),
+    ...wrapSegments("claim", [{ text: SECURITY_CLAIM(), color: "yellow" }], inner, "")
+  ];
+  const skipped = problemNote(base.problems);
+  const lock = [
+    ...diskNotice ? wrapSegments("disk", [{ text: `! ${diskNotice}`, color: "yellow", bold: true }], inner, "  ") : [],
+    ...readOnly ? wrapSegments("lock", [{ text: readOnly, color: "yellow", bold: true }], inner, "") : [],
+    ...elsewhere ? wrapSegments("elsewhere", [{ text: "The lists changed elsewhere \u2014 r to reload (drops your unsaved changes).", color: "yellow", bold: true }], inner, "") : [],
+    ...skipped ? wrapSegments("skipped", [{ text: `! ${skipped}`, color: "yellow" }], inner, "  ") : [],
+    ...base.notices.flatMap((notice, index) => wrapSegments(`notice-${index}`, [{ text: `! ${notice}`, color: "yellow" }], inner, "  "))
+  ];
+  const foot = [];
+  notes.forEach((note, index) => {
+    foot.push(...wrapSegments(`note-${index}`, [{ text: note.text, color: note.color, dimColor: note.dim, bold: note.color === "red" }], inner, "  "));
+  });
+  if (mode.k === "confirm") {
+    mode.lines.forEach((text6, index) => foot.push(...wrapSegments(`ask-${index}`, [{ text: text6, color: "yellow", bold: index === mode.lines.length - 1 }], inner, "  ")));
+  }
+  if (mode.k === "input") {
+    const prompt = mode.action === "check" ? tab2 === "commands" ? "Command to check (it is NOT run):" : "Folder or file to check (nothing is touched):" : mode.action === "add" ? tab2 === "commands" ? "Command pattern to block:" : "Folder to protect (absolute path):" : "Edit entry:";
+    foot.push(...wrapSegments("prompt", [{ text: prompt, color: "cyan" }], inner, ""));
+    foot.push(...wrapSegments("typed", [{ text: "\u203A ", color: "cyan", bold: true }, { text: mode.value }, { text: "\u258F", color: "cyan" }], inner, "  "));
+  }
+  const hints = mode.k === "confirm" ? "y yes \xB7 n / Esc no" : mode.k === "input" ? "Enter " + (mode.action === "check" ? "check" : "accept") + " \xB7 Esc cancel" : mode.k === "help" ? "\u2191\u2193 scroll \xB7 Esc back" : mode.k === "effective" ? "\u2191\u2193 scroll \xB7 Tab other list \xB7 Esc back" : mode.k === "saving" ? "saving\u2026" : [
+    "\u2191\u2193 move",
+    readOnly ? null : "Space toggle",
+    readOnly ? null : "a add \xB7 e edit \xB7 d delete",
+    readOnly || tab2 !== "paths" ? null : "l level",
+    readOnly ? null : "u unreadable code",
+    "v effective",
+    "c check",
+    "r reload",
+    "? syntax",
+    readOnly ? null : "s save",
+    "Tab other list",
+    "Esc close"
+  ].filter(Boolean).join(" \xB7 ");
+  const hint = wrapSegments("hint", [{ text: hints, dimColor: true }], inner, "");
+  let top = [...head, ...lock];
+  const bodyRoom = (extra) => rowsLeft - top.length - extra.length - foot.length - hint.length;
+  let shownIntro = intro;
+  if (bodyRoom(shownIntro) < 5) shownIntro = shownIntro.slice(0, 1);
+  if (bodyRoom(shownIntro) < 4) shownIntro = [];
+  top = [...head, ...shownIntro, ...lock];
+  const bodyHeight = Math.max(2, rowsLeft - top.length - foot.length - hint.length);
+  let body;
+  let start = 0;
+  let end2 = 0;
+  let key = tab2;
+  if (mode.k === "help") {
+    const lines = PATTERN_HELP.flatMap(
+      (entry, at) => wrapSegments(
+        `help-${at}`,
+        [entry.kind === "head" ? { text: entry.text, bold: true, color: "cyan" } : entry.kind === "example" ? { text: entry.text, color: "green" } : { text: entry.text }],
+        inner,
+        entry.kind === "example" ? "                     " : "  "
+      )
+    );
+    const offset = Math.max(0, Math.min(helpTop, Math.max(0, lines.length - bodyHeight)));
+    body = lines.slice(offset, offset + bodyHeight);
+  } else if (mode.k === "effective") {
+    const lines = effectiveLines(tab2, base, catalog, inner);
+    const heading = [
+      ...wrapSegments("eff-head", [{ text: `In force now: ${TAB_TITLE[tab2]}`, bold: true }, { text: dirty ? "  (saved lists; unsaved changes are not included)" : "  (as saved)", dimColor: true }], inner, "  ")
+    ];
+    const window2 = Math.max(1, bodyHeight - heading.length);
+    const starts = lines.map((line, at2) => /-w[1-9]\d*$/.test(line.key) ? -1 : at2).filter((at2) => at2 >= 0);
+    const at = Math.min(effCursor, Math.max(0, starts.length - 1));
+    start = starts[at] ?? 0;
+    end2 = starts[at + 1] ?? lines.length;
+    key = `eff-${tab2}`;
+    const offset = scrollInto(scroll.current[key] ?? 0, start, end2, window2, lines.length);
+    scroll.current[key] = offset;
+    body = [...heading, ...lines.slice(offset, offset + window2)];
+  } else {
+    const built = bodyLines(rows, cursor, inner, entryProblems[tab2]);
+    start = built.start;
+    end2 = built.end;
+    const offset = scrollInto(scroll.current[key] ?? 0, start, end2, bodyHeight, built.lines.length);
+    scroll.current[key] = offset;
+    body = built.lines.slice(offset, offset + bodyHeight);
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: dirty ? "yellow" : "cyan", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(RenderedLines, { lines: top }),
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { flexDirection: "column", flexGrow: 1, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(RenderedLines, { lines: body }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(RenderedLines, { lines: foot }),
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(RenderedLines, { lines: hint })
+  ] });
+}
+
+// src/hooks/useSecurityScreen.ts
+var import_react35 = __toESM(require_react(), 1);
+
+// src/slash/security.ts
+var SECURITY_USAGE = "/security [status | check <command> | check-path <path>]";
+var SECURITY_ACTIONS = [
+  { action: "status", summary: "Counts and which presets are on." },
+  { action: "check", summary: "/security check <command> \u2014 is it blocked? (nothing is run)" },
+  { action: "check-path", summary: "/security check-path <path> \u2014 is it protected? (nothing is run)" }
+];
+function parseSecurityCommand(line) {
+  const match = /^\/security(?:\s+([\s\S]*))?$/.exec(line.trim());
+  if (!match) return null;
+  const rest = (match[1] ?? "").trim();
+  if (rest === "") return { kind: "enter" };
+  const [action, ...words] = rest.split(/\s+/);
+  const argument = rest.slice(action.length).trim();
+  switch (action) {
+    case "status":
+      return words.length === 0 ? { kind: "status" } : { kind: "invalid", usage: SECURITY_USAGE };
+    case "check":
+      return argument !== "" ? { kind: "check", what: "command", text: argument } : { kind: "invalid", usage: SECURITY_USAGE };
+    case "check-path":
+      return argument !== "" ? { kind: "check", what: "path", text: argument } : { kind: "invalid", usage: SECURITY_USAGE };
+    default:
+      return { kind: "invalid", usage: SECURITY_USAGE };
+  }
+}
+function securitySubCommands(draft) {
+  const match = /^\/security(?:\s+([^\s]*))?$/.exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return SECURITY_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
+    name: `security ${entry.action}`,
+    summary: entry.summary,
+    source: "tui"
+  }));
+}
+
+// src/hooks/useSecurityScreen.ts
+function errorText2(error) {
+  if (isSettingsUnreadable(error)) return settingsUnreadableLine(error);
+  const raw = error;
+  return sanitizeText(raw?.message ?? String(error));
+}
+function useSecurityScreen(deps) {
+  const { client, workdir, sessionId, viewingId, showToast, note, warn, diskNotice } = deps;
+  const supported = securitySupported(client.serverCapabilities?.());
+  const [ui, setUi] = (0, import_react35.useState)(null);
+  const [listsSet, setListsSet] = (0, import_react35.useState)(false);
+  const opening = (0, import_react35.useRef)(false);
+  const [changeSeq, setChangeSeq] = (0, import_react35.useState)(0);
+  const openRef = (0, import_react35.useRef)(false);
+  openRef.current = ui !== null;
+  const catalogRef = (0, import_react35.useRef)(null);
+  const sessionIdRef = (0, import_react35.useRef)(sessionId);
+  sessionIdRef.current = sessionId;
+  const viewingRef = (0, import_react35.useRef)(viewingId);
+  viewingRef.current = viewingId;
+  const loadCatalog = (0, import_react35.useCallback)(async () => {
+    const catalog = normalizeCatalog(await client.call("security.presets.list", { locale: uiLanguage() }));
+    catalogRef.current = catalog;
+    return catalog;
+  }, [client]);
+  const loadConfig = (0, import_react35.useCallback)(async () => {
+    const config = normalizeConfig(await client.call("security.get", {}));
+    setListsSet(listsAreSet(config));
+    return config;
+  }, [client]);
+  const refreshListsSet = (0, import_react35.useCallback)(() => {
+    if (!supported) return;
+    void loadConfig().catch(() => void 0);
+  }, [supported, loadConfig]);
+  (0, import_react35.useEffect)(() => {
+    refreshListsSet();
+  }, [refreshListsSet]);
+  const open = (0, import_react35.useCallback)(async () => {
+    if (opening.current) return;
+    opening.current = true;
+    showToast("Loading security lists\u2026");
+    try {
+      const [catalog, config] = await Promise.all([loadCatalog(), loadConfig()]);
+      setUi({ catalog, config, readOnly: config.writable ? null : READ_ONLY_LINE });
+      setChangeSeq(0);
+    } catch (error) {
+      note(`Security lists: could not load them \u2014 ${errorText2(error)}`);
+    } finally {
+      opening.current = false;
+    }
+  }, [loadCatalog, loadConfig, note, showToast]);
+  const save = (0, import_react35.useCallback)(
+    async (lists) => {
+      try {
+        await client.call("settings.set", { scope: "global", patch: settingsPatch(lists) });
+      } catch (error) {
+        if (rpcErrorFacts(error).code === "jarvis_person_only") {
+          return { ok: false, message: errorText2(error), readOnly: personOnlyReadOnlyLine(error) };
+        }
+        if (rpcErrorFacts(error).code === "invalid_params" && !isSettingsUnreadable(error)) {
+          const { entries, others } = saveProblems(error);
+          return { ok: false, message: errorText2(error), entries, others };
+        }
+        return { ok: false, message: errorText2(error) };
+      }
+      try {
+        return { ok: true, config: await loadConfig() };
+      } catch (error) {
+        return { ok: false, message: `saved, but could not read the lists back \u2014 ${errorText2(error)}` };
+      }
+    },
+    [client, loadConfig]
+  );
+  const setUnknownCode = (0, import_react35.useCallback)(
+    async (value) => {
+      try {
+        await client.call("settings.set", { scope: "global", patch: unknownCodePatch(value) });
+      } catch (error) {
+        if (rpcErrorFacts(error).code === "jarvis_person_only") {
+          return { ok: false, message: rpcErrorText(error), readOnly: personOnlyReadOnlyLine(error) };
+        }
+        return { ok: false, message: rpcErrorText(error) };
+      }
+      try {
+        return { ok: true, config: await loadConfig() };
+      } catch (error) {
+        return { ok: false, message: `saved, but could not read the setting back \u2014 ${errorText2(error)}` };
+      }
+    },
+    [client, loadConfig]
+  );
+  const check = (0, import_react35.useCallback)(
+    async (what, text6, draft = null) => {
+      try {
+        const raw = await client.call("security.check", {
+          [what]: text6,
+          workdir,
+          locale: uiLanguage(),
+          ...draft ? { draft: draftOf(draft) } : {}
+        });
+        return normalizeVerdict(raw);
+      } catch (error) {
+        return { error: errorText2(error) };
+      }
+    },
+    [client, workdir]
+  );
+  const handleCommand = (0, import_react35.useCallback)(
+    (line) => {
+      const command2 = parseSecurityCommand(line);
+      if (!command2) return false;
+      if (!supported) {
+        note(SECURITY_REQUIRES_LINE);
+        return true;
+      }
+      if (command2.kind === "invalid") {
+        note(`Usage: ${command2.usage}`);
+      } else if (command2.kind === "enter") {
+        void open();
+      } else if (command2.kind === "status") {
+        void Promise.all([loadConfig(), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)]).then(([config, catalog]) => note(statusLines(config, catalog, diskNotice?.() ?? null).join("\n"))).catch((error) => note(`Security lists: could not read them \u2014 ${errorText2(error)}`));
+      } else {
+        void Promise.all([check(command2.what, command2.text), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)]).then(
+          ([result, catalog]) => {
+            if ("error" in result) {
+              note(`Security check failed \u2014 ${result.error}`);
+              return;
+            }
+            const verdict = verdictLine(result, catalog);
+            const text6 = `${verdict.text}
+${NOTHING_RUN}`;
+            if (verdict.blocked) warn(text6);
+            else note(text6);
+          }
+        );
+      }
+      return true;
+    },
+    [check, loadCatalog, loadConfig, note, open, supported, warn]
+  );
+  const onBlocked = (0, import_react35.useCallback)(
+    (raw) => {
+      const event = normalizeBlocked(raw);
+      if (event.summary === "") return;
+      if (event.sessionId === sessionIdRef.current) warn(blockedLine(event));
+      else showToast(blockedToast(event, event.sessionId === viewingRef.current));
+    },
+    [showToast, warn]
+  );
+  const onSettingsChanged = (0, import_react35.useCallback)(
+    (params) => {
+      if (!params.keys || params.keys.some((key) => key.startsWith("security"))) {
+        refreshListsSet();
+        if (openRef.current) setChangeSeq((seq) => seq + 1);
+      }
+    },
+    [refreshListsSet]
+  );
+  return {
+    supported,
+    ui,
+    close: (0, import_react35.useCallback)(() => setUi(null), []),
+    handleCommand,
+    save,
+    setUnknownCode,
+    check,
+    reload: loadConfig,
+    changeSeq,
+    onBlocked,
+    onSettingsChanged,
+    /** True while lists are in force, so ungated sessions can say they are not covered. */
+    listsSet: supported && listsSet
+  };
+}
+
+// src/components/WebScreen.tsx
+var import_react36 = __toESM(require_react(), 1);
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var FIELDS = ["host", "port", "username", "remember", "submit"];
+function WebScreen({
+  status: initial,
+  width,
+  height,
+  onListen,
+  onStop,
+  onRotate,
+  onSetPassword,
+  onClearPassword,
+  onSetMaxMode,
+  diskNotice = null,
+  onRefresh,
+  onCopy,
+  changeSeq = 0,
+  onClose,
+  isActive = true
+}) {
+  const [status, setStatus] = (0, import_react36.useState)(initial);
+  const [link2, setLink] = (0, import_react36.useState)(initial.accessUrl);
+  const [revealed, setRevealed] = (0, import_react36.useState)(false);
+  const [mode, setMode] = (0, import_react36.useState)({ k: "browse" });
+  const [notes, setNotes] = (0, import_react36.useState)([]);
+  const mounted = (0, import_react36.useRef)(true);
+  (0, import_react36.useEffect)(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const say2 = (text6, color) => setNotes([{ text: text6, color }]);
+  const applyStatus = (next, replaceLink) => {
+    setStatus(next);
+    setLink(replaceLink !== void 0 ? replaceLink : next.accessUrl);
+  };
+  const idle = (0, import_react36.useRef)(true);
+  idle.current = mode.k === "browse";
+  (0, import_react36.useEffect)(() => {
+    if (changeSeq === 0 || !idle.current) return;
+    void onRefresh().then((result) => {
+      if (mounted.current && result.ok) applyStatus(result.status);
+    });
+  }, [changeSeq]);
+  const act = (what, call, done, failed) => {
+    setMode({ k: "busy", what });
+    setNotes([{ text: `${what}\u2026`, dim: true }]);
+    void call().then((result) => {
+      if (!mounted.current) return;
+      if (result.ok) {
+        setMode({ k: "browse" });
+        done(result);
+        return;
+      }
+      if (failed?.(result.error)) return;
+      setMode({ k: "browse" });
+      say2(rpcCode(result.error) === "jarvis_person_only" ? localPersonOnlyLine(result.error) : `${what} failed: ${String(result.error?.message ?? result.error)}`, "red");
+    });
+  };
+  const startForm = () => {
+    setNotes([]);
+    setMode({ k: "form", form: initialForm(status), at: 0, errors: {}, message: null });
+  };
+  const submitForm = (current2) => {
+    const errors = validateForm(current2.form);
+    if (Object.keys(errors).length > 0) {
+      const first = FIELDS.findIndex((name) => name in errors);
+      setMode({ ...current2, errors, at: first, message: null });
+      return;
+    }
+    const form = current2.form;
+    setMode({ k: "busy", what: "Opening the listener" });
+    setNotes([{ text: "Opening the listener\u2026", dim: true }]);
+    void onListen(form).then((result) => {
+      if (!mounted.current) return;
+      if (result.ok) {
+        applyStatus(result.status);
+        setMode({ k: "browse" });
+        say2(
+          result.status.listening ? `Listening on ${result.status.host}:${result.status.port}.${form.remember ? " It will start again with the daemon." : ""}` : listenLine(result.status),
+          result.status.listening ? "green" : "yellow"
+        );
+        return;
+      }
+      if (rpcCode(result.error) === "jarvis_person_only") {
+        setMode({ k: "browse" });
+        say2(localPersonOnlyLine(result.error), "yellow");
+        return;
+      }
+      const { field, message } = fieldError(result.error);
+      const at = field ? FIELDS.indexOf(field) : 4;
+      setMode({ k: "form", form, at, errors: field ? { [field]: message } : {}, message: field ? null : message });
+    });
+  };
+  const confirm2 = (lines, options, keys) => {
+    setNotes([]);
+    setMode({ k: "confirm", lines, keys, options });
+  };
+  const askStop = () => {
+    if (!status.listening) {
+      say2("It is not listening.", "yellow");
+      return;
+    }
+    const busy = status.turnsRunning > 0 ? `${status.turnsRunning} turn${status.turnsRunning === 1 ? " is" : "s are"} running; people watching them lose the view.` : null;
+    confirm2(
+      ["Stop listening?", "Everyone signed in through it is signed out.", ...busy ? [busy] : [], "y stop now \xB7 k stop and keep it off at the next start \xB7 n cancel"],
+      [
+        { key: "y", run: () => doStop(false) },
+        { key: "k", run: () => doStop(true) }
+      ],
+      "ykn"
+    );
+  };
+  const doStop = (save) => act("Stopping", () => onStop(save), (result) => {
+    applyStatus(result.status);
+    setRevealed(false);
+    say2(save ? "Stopped. It stays off at the next start." : "Stopped. Everyone was signed out.", "green");
+  });
+  const askRotate = () => confirm2(
+    ["Make a new access link?", "The old link stops working and everyone is signed out.", "Make a new one? (y/n)"],
+    [{ key: "y", run: () => doRotate() }],
+    "yn"
+  );
+  const doRotate = () => act("Making a new link", onRotate, (result) => {
+    applyStatus(result.status, result.link ?? result.status.accessUrl);
+    setRevealed(false);
+    say2("New access link made. The old one stopped working and everyone was signed out.", "green");
+  });
+  const askClear = () => {
+    if (!status.passwordSet) {
+      say2("No password is set.", "yellow");
+      return;
+    }
+    confirm2(
+      ["Remove the password?", "Sign-in goes back to the access link and everyone is signed out.", "Remove it? (y/n)"],
+      [{ key: "y", run: () => doClear() }],
+      "yn"
+    );
+  };
+  const doClear = () => act("Removing the password", onClearPassword, (result) => {
+    applyStatus(result.status);
+    say2("Password removed. Sign-in is the access link again; everyone was signed out.", "green");
+  });
+  const startPassword = () => {
+    setNotes([]);
+    setMode({ k: "password", step: status.username === "" ? "username" : "password", username: status.username, first: "", value: "" });
+  };
+  const submitPassword = (current2) => {
+    if (current2.step === "username") {
+      if (current2.value.trim() === "") {
+        say2("Type a username: password mode needs one.", "red");
+        return;
+      }
+      setNotes([]);
+      setMode({ k: "password", step: "password", username: current2.value.trim(), first: "", value: "" });
+      return;
+    }
+    if (current2.step === "password") {
+      if (Array.from(current2.value).length < MIN_PASSWORD) {
+        say2(`A password needs at least ${MIN_PASSWORD} characters.`, "red");
+        setMode({ ...current2, value: "" });
+        return;
+      }
+      setNotes([]);
+      setMode({ k: "password", step: "repeat", username: current2.username, first: current2.value, value: "" });
+      return;
+    }
+    const problem = passwordProblem(current2.first, current2.value);
+    if (problem) {
+      setMode({ k: "password", step: "password", username: current2.username, first: "", value: "" });
+      say2(problem, "red");
+      return;
+    }
+    const password = current2.first;
+    const username = current2.username;
+    act("Setting the password", () => onSetPassword(password, username), (result) => {
+      applyStatus(result.status);
+      say2("Password set. Sign-in now needs the username and the password; everyone was signed out.", "green");
+    }, (error) => {
+      setMode({ k: "password", step: "password", username, first: "", value: "" });
+      say2(`The password was not set: ${String(error?.message ?? error)}`, "red");
+      return true;
+    });
+  };
+  const copyLink = () => {
+    if (!link2) {
+      say2(status.mode === "password" ? "In password mode there is no access link: people sign in with the username and password." : "There is no access link while it is not listening.", "yellow");
+      return;
+    }
+    if (onCopy(link2) === "copied") {
+      say2("Copied the access link to the clipboard (OSC 52).", "green");
+      return;
+    }
+    setNotes([
+      { text: "This terminal is not known to take OSC 52 copies. The link, once (select it with the mouse):", color: "yellow" },
+      { text: link2, color: "cyan" }
+    ]);
+  };
+  use_input_default(
+    (input, key) => {
+      if (mouseReports(input).length > 0) return;
+      if (mode.k === "busy") return;
+      if (mode.k === "confirm") {
+        const pressed = input.toLowerCase();
+        const chosen = mode.options.find((option) => option.key === pressed);
+        if (chosen) {
+          setMode({ k: "browse" });
+          chosen.run();
+        } else if (pressed === "n" || key.escape) {
+          setMode({ k: "browse" });
+        }
+        return;
+      }
+      if (mode.k === "password") {
+        if (key.escape) {
+          setMode({ k: "browse" });
+          setNotes([]);
+        } else if (key.return) submitPassword(mode);
+        else if (key.backspace || key.delete) setMode({ ...mode, value: Array.from(mode.value).slice(0, -1).join("") });
+        else if (input && !key.ctrl && !key.meta && !key.tab && !key.upArrow && !key.downArrow) {
+          setMode({ ...mode, value: mode.value + input.replace(/[\r\n]+/g, "") });
+        }
+        return;
+      }
+      if (mode.k === "form") {
+        const name = FIELDS[mode.at];
+        const move = (to) => setMode({ ...mode, at: (to + FIELDS.length) % FIELDS.length });
+        if (key.escape) {
+          setMode({ k: "browse" });
+          setNotes([]);
+        } else if (key.tab && key.shift) move(mode.at - 1);
+        else if (key.tab || key.downArrow) move(mode.at + 1);
+        else if (key.upArrow) move(mode.at - 1);
+        else if (key.return) {
+          if (name === "submit") submitForm(mode);
+          else move(mode.at + 1);
+        } else if (name === "remember") {
+          if (input === " ") setMode({ ...mode, form: { ...mode.form, remember: !mode.form.remember } });
+        } else if (name === "submit") {
+          return;
+        } else if (key.backspace || key.delete) {
+          setMode({ ...mode, form: { ...mode.form, [name]: Array.from(mode.form[name]).slice(0, -1).join("") }, errors: { ...mode.errors, [name]: void 0 }, message: null });
+        } else if (input && !key.ctrl && !key.meta && !/\s/.test(input)) {
+          setMode({ ...mode, form: { ...mode.form, [name]: mode.form[name] + input }, errors: { ...mode.errors, [name]: void 0 }, message: null });
+        }
+        return;
+      }
+      setNotes([]);
+      if (key.escape || input === "q") {
+        onClose();
+        return;
+      }
+      switch (input.toLowerCase()) {
+        case "l":
+          return startForm();
+        case "x":
+          return askStop();
+        case "t":
+          return askRotate();
+        case "p":
+          return startPassword();
+        case "c":
+          return askClear();
+        case "v":
+          if (!link2) return copyLink();
+          setRevealed((on) => !on);
+          return;
+        case "y":
+          return copyLink();
+        case "m": {
+          if (status.maxMode === null || !onSetMaxMode) return;
+          const next = nextMaxMode(status.maxMode);
+          return act(
+            "Setting the highest mode",
+            () => onSetMaxMode(next),
+            (result) => {
+              applyStatus(result.status);
+              say2(`Remote sign-ins are limited to ${result.status.maxMode ?? next} from now on; it applies at once.`, "green");
+            }
+          );
+        }
+        case "r":
+          return act("Reading the status", onRefresh, (result) => applyStatus(result.status));
+        default:
+      }
+    },
+    { isActive }
+  );
+  const inner = Math.max(20, width - 4);
+  const rowsLeft = Math.max(6, height - 2);
+  const bold = (text6, color) => ({ text: text6, bold: true, color });
+  const wrap2 = (key, segments, indent = "  ") => wrapSegments(key, segments, inner, indent);
+  const head = wrap2("title", [bold("Remote access", "cyan")], "");
+  const body = [];
+  body.push(...wrap2("listen", [bold(listenLine(status), status.listening ? "green" : status.error ? "red" : "yellow")]));
+  if (status.listening) {
+    status.listenUrls.slice(0, 3).forEach((url, index) => body.push(...wrap2(`url-${index}`, [{ text: "Open  ", dimColor: true }, { text: url, color: "cyan" }], "        ")));
+    body.push(...wrap2("sessions", [{ text: sessionsLine(status) }]));
+  }
+  const degraded = degradedLine(status.settingsDegraded);
+  const remoteJobs = remoteJobsLine(status);
+  if (remoteJobs) body.push(...wrap2("remote-jobs", [{ text: remoteJobs, color: "yellow" }]));
+  const remoteLeft = remoteLeftLine(status);
+  if (remoteLeft) body.push(...wrap2("remote-left", [{ text: remoteLeft, color: "yellow" }]));
+  body.push(...wrap2("mode", [{ text: modeLine(status) }]));
+  if (status.listening && status.mode === "token") {
+    body.push(
+      ...wrap2(
+        "link",
+        link2 ? [{ text: "Link  ", dimColor: true }, { text: shownLink(link2, revealed), color: "cyan" }] : [{ text: "No access link is available.", dimColor: true }],
+        "        "
+      )
+    );
+    if (link2) body.push(...wrap2("link-keys", [{ text: revealed ? "v hides the token \xB7 y copies the link" : "v reveals the token \xB7 y copies the link", dimColor: true }]));
+  }
+  if (status.maxMode !== null) {
+    body.push(...wrap2("max-mode", [{ text: maxModeRow(status.maxMode), bold: true }], "  "));
+    body.push(...wrap2("max-mode-why", [{ text: MAX_MODE_EXPLAIN(), dimColor: true }], "  "));
+  }
+  if (status.needsRestart) body.push(...wrap2("restart", [{ text: RESTART_LINE, color: "yellow" }]));
+  const warning = [
+    ...wrap2("warn", [bold("! ", "yellow"), { text: status.warning ?? PLAIN_HTTP_WARNING, color: "yellow" }], "  "),
+    ...diskNotice ? wrap2("disk", [bold("! ", "yellow"), { text: diskNotice, color: "yellow" }], "  ") : [],
+    ...degraded ? wrap2("degraded", [bold("! ", "yellow"), { text: degraded, color: "yellow" }], "  ") : []
+  ];
+  const live = [];
+  const hintParts = [];
+  if (mode.k === "form") {
+    const { form, errors, message, at } = mode;
+    const field = (index, label, value, name, placeholder) => {
+      const here = at === index;
+      live.push(
+        ...wrap2(
+          `f-${name}`,
+          [
+            { text: here ? "\u203A " : "  ", color: "cyan", bold: true },
+            { text: `${label.padEnd(9)}`, bold: here, dimColor: !here },
+            { text: value === "" && placeholder ? placeholder : value, color: value === "" ? void 0 : "white", dimColor: value === "" },
+            ...here ? [{ text: "\u258F", color: "cyan" }] : []
+          ],
+          "              "
+        )
+      );
+      const problem = errors[name];
+      if (problem) live.push(...wrap2(`e-${name}`, [{ text: "    \u2717 ", color: "red", bold: true }, { text: problem, color: "red" }], "      "));
+    };
+    live.push(...wrap2("form-title", [bold("Listen for other machines")], ""));
+    field(0, "Address", form.host, "host");
+    field(1, "Port", form.port, "port");
+    field(2, "Username", form.username, "username", "(optional \u2014 for password mode)");
+    live.push(
+      ...wrap2(
+        "f-remember",
+        [
+          { text: at === 3 ? "\u203A " : "  ", color: "cyan", bold: true },
+          { text: form.remember ? "[x] " : "[ ] ", color: form.remember ? "green" : void 0 },
+          { text: "Remember for next start", bold: at === 3 }
+        ],
+        "      "
+      )
+    );
+    live.push(...wrap2("f-submit", [{ text: at === 4 ? "\u203A " : "  ", color: "cyan", bold: true }, bold("Start listening", at === 4 ? "green" : void 0)], "      "));
+    if (message) live.push(...wrap2("f-message", [{ text: "    \u2717 ", color: "red", bold: true }, { text: message, color: "red" }], "      "));
+    hintParts.push("Tab/\u2191\u2193 field", "Space toggles", "Enter next / start", "Esc cancel");
+  } else if (mode.k === "confirm") {
+    mode.lines.forEach((text6, index) => live.push(...wrap2(`ask-${index}`, [{ text: text6, color: "yellow", bold: index === mode.lines.length - 1 }])));
+    hintParts.push(mode.keys.includes("k") ? "y stop \xB7 k stop and keep off \xB7 n / Esc cancel" : "y yes \xB7 n / Esc no");
+  } else if (mode.k === "password") {
+    const prompt = mode.step === "username" ? "Username for sign-in:" : mode.step === "password" ? `New password (at least ${MIN_PASSWORD} characters, hidden):` : "Repeat the password:";
+    const typed = mode.step === "username" ? mode.value : hidden(mode.value);
+    live.push(...wrap2("p-prompt", [{ text: prompt, color: "cyan" }], ""));
+    live.push(...wrap2("p-typed", [{ text: "\u203A ", color: "cyan", bold: true }, { text: typed }, { text: "\u258F", color: "cyan" }], "  "));
+    hintParts.push("Enter next", "Esc cancel");
+  } else if (mode.k === "busy") {
+    hintParts.push(`${mode.what}\u2026`);
+  } else {
+    hintParts.push("l start / move", ...status.listening ? ["x stop"] : [], "t new link", "p password", ...status.passwordSet ? ["c clear password"] : [], ...status.maxMode !== null && onSetMaxMode ? ["m max mode"] : [], "r refresh", "Esc close");
+  }
+  const foot = [];
+  notes.forEach((note, index) => foot.push(...wrap2(`note-${index}`, [{ text: note.text, color: note.color, dimColor: note.dim, bold: note.color === "red" }])));
+  const hint = wrap2("hint", [{ text: hintParts.join(" \xB7 "), dimColor: true }], "");
+  const fixed = head.length + live.length + foot.length + hint.length + warning.length;
+  const room = Math.max(0, rowsLeft - fixed);
+  const shownBody = body.length > room ? body.slice(0, room) : body;
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: status.listening ? "yellow" : "cyan", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(RenderedLines, { lines: head }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { flexDirection: "column", flexGrow: 1, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(RenderedLines, { lines: [...warning, ...shownBody, ...live] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(RenderedLines, { lines: foot }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(RenderedLines, { lines: hint })
+  ] });
+}
+
+// src/hooks/useWebScreen.ts
+var import_react37 = __toESM(require_react(), 1);
+
+// src/slash/web.ts
+var WEB_USAGE = "/web [status]";
+var WEB_ACTIONS = [
+  { action: "status", summary: "Print whether remote access is on, the addresses and who is signed in." }
+];
+function parseWebCommand(line) {
+  const match = /^\/web(?:\s+([\s\S]*))?$/.exec(line.trim());
+  if (!match) return null;
+  const rest = (match[1] ?? "").trim();
+  if (rest === "") return { kind: "enter" };
+  return rest === "status" ? { kind: "status" } : { kind: "invalid", usage: WEB_USAGE };
+}
+function webSubCommands(draft) {
+  const match = /^\/web(?:\s+([^\s]*))?$/.exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return WEB_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
+    name: `web ${entry.action}`,
+    summary: entry.summary,
+    source: "tui"
+  }));
+}
+
+// src/hooks/useWebScreen.ts
+function errorText3(error) {
+  if (isSettingsUnreadable(error)) return settingsUnreadableLine(error);
+  const raw = error;
+  return sanitizeText(raw?.message ?? String(error));
+}
+function useWebScreen(deps) {
+  const { client, note, showToast, write, diskNotice } = deps;
+  const supported = webRemoteSupported(client.serverCapabilities?.());
+  const [ui, setUi] = (0, import_react37.useState)(null);
+  const opening = (0, import_react37.useRef)(false);
+  const [changeSeq, setChangeSeq] = (0, import_react37.useState)(0);
+  const openRef = (0, import_react37.useRef)(false);
+  openRef.current = ui !== null;
+  const read = (0, import_react37.useCallback)(async () => normalizeStatus(await client.call("web.remote.status", {})), [client]);
+  const run = (0, import_react37.useCallback)(
+    async (method, params = {}) => {
+      try {
+        const raw = await client.call(method, params);
+        if (method === "web.remote.rotateToken") {
+          const status = await read();
+          const link2 = typeof raw?.accessUrl === "string" && raw.accessUrl !== "" ? sanitizeText(raw.accessUrl) : status.accessUrl;
+          return { ok: true, status: { ...status, accessUrl: link2 }, link: link2 };
+        }
+        return { ok: true, status: normalizeStatus(raw) };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    },
+    [client, read]
+  );
+  const open = (0, import_react37.useCallback)(async () => {
+    if (opening.current) return;
+    opening.current = true;
+    showToast("Loading remote access\u2026");
+    try {
+      setUi({ status: await read() });
+      setChangeSeq(0);
+    } catch (error) {
+      note(rpcCode(error) === "jarvis_person_only" ? localPersonOnlyLine(error) : `Remote access: could not read it \u2014 ${errorText3(error)}`);
+    } finally {
+      opening.current = false;
+    }
+  }, [note, read, showToast]);
+  const handleCommand = (0, import_react37.useCallback)(
+    (line) => {
+      const command2 = parseWebCommand(line);
+      if (!command2) return false;
+      if (!supported) {
+        note(WEB_REQUIRES_LINE);
+        return true;
+      }
+      if (command2.kind === "invalid") {
+        note(`Usage: ${command2.usage}`);
+      } else if (command2.kind === "enter") {
+        void open();
+      } else {
+        void read().then((status) => note(summaryLines(status, diskNotice?.() ?? null).join("\n"))).catch(
+          (error) => note(rpcCode(error) === "jarvis_person_only" ? localPersonOnlyLine(error) : `Remote access: could not read it \u2014 ${errorText3(error)}`)
+        );
+      }
+      return true;
+    },
+    [diskNotice, note, open, read, supported]
+  );
+  const listen = (0, import_react37.useCallback)((form) => run("web.remote.listen", listenParams(form)), [run]);
+  const stop = (0, import_react37.useCallback)((save) => run("web.remote.stop", save ? { save: true } : {}), [run]);
+  const rotate = (0, import_react37.useCallback)(() => run("web.remote.rotateToken"), [run]);
+  const setPassword = (0, import_react37.useCallback)(
+    (password, username) => run("web.remote.setPassword", { password, ...username.trim() !== "" ? { username: username.trim() } : {} }),
+    [run]
+  );
+  const clearPassword = (0, import_react37.useCallback)(() => run("web.remote.clearPassword"), [run]);
+  const setMaxMode = (0, import_react37.useCallback)(
+    async (mode) => {
+      try {
+        await client.call("settings.set", { scope: "global", patch: maxModePatch(mode) });
+        return { ok: true, status: await read() };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    },
+    [client, read]
+  );
+  const refresh = (0, import_react37.useCallback)(async () => {
+    try {
+      return { ok: true, status: await read() };
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }, [read]);
+  const copy = (0, import_react37.useCallback)(
+    (link2) => {
+      if (!osc52Supported(process.env)) return "unsupported";
+      write(osc52Sequence(link2));
+      return "copied";
+    },
+    [write]
+  );
+  const onSettingsChanged = (0, import_react37.useCallback)((params) => {
+    if (!openRef.current) return;
+    if (!params.keys || params.keys.some((key) => key.startsWith("web"))) setChangeSeq((seq) => seq + 1);
+  }, []);
+  return {
+    supported,
+    ui,
+    close: (0, import_react37.useCallback)(() => setUi(null), []),
+    handleCommand,
+    listen,
+    stop,
+    rotate,
+    setPassword,
+    clearPassword,
+    setMaxMode,
+    refresh,
+    copy,
+    changeSeq,
+    onSettingsChanged
+  };
+}
+
+// src/components/TrustScreen.tsx
+var import_react38 = __toESM(require_react(), 1);
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+function TrustScreen({ status: initial, width, height, onTrust, onRevoke, onReload, changeSeq = 0, tampered = false, onClose, isActive = true }) {
+  const [status, setStatus] = (0, import_react38.useState)(initial);
+  const [selected, setSelected] = (0, import_react38.useState)(() => initialSelection(initial));
+  const [cursor, setCursor] = (0, import_react38.useState)(0);
+  const [mode, setMode] = (0, import_react38.useState)({ k: "browse" });
+  const [notes, setNotes] = (0, import_react38.useState)([]);
+  const [inside, setInside] = (0, import_react38.useState)(0);
+  const scroll = (0, import_react38.useRef)(0);
+  const rows = trustRows(status);
+  const at = Math.min(cursor, Math.max(0, rows.length - 1));
+  const row = rows[at];
+  const say1 = (text6, color) => setNotes([{ text: text6, color }]);
+  const take = (next) => {
+    setStatus(next);
+    setCursor((current2) => Math.min(current2, Math.max(0, trustRows(next).length - 1)));
+  };
+  const reload = (quiet = false) => {
+    void onReload().then((result) => {
+      if (result.ok) {
+        take(result.status);
+        if (!quiet) say1(say("Read the project again.", "\uD504\uB85C\uC81D\uD2B8\uB97C \uB2E4\uC2DC \uC77D\uC5C8\uC2B5\uB2C8\uB2E4."), "green");
+      } else if (result.kind === "error") say1(say(`Could not read it: ${result.message}`, `\uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4: ${result.message}`), "red");
+    });
+  };
+  const reloadRef = (0, import_react38.useRef)(reload);
+  reloadRef.current = reload;
+  (0, import_react38.useEffect)(() => {
+    if (changeSeq > 0) reloadRef.current(true);
+  }, [changeSeq]);
+  const trust = () => {
+    if (selected.size === 0) {
+      say1(say("Pick at least one scope with Space.", "Space\uB85C \uBC94\uC704\uB97C \uD558\uB098 \uC774\uC0C1 \uACE0\uB974\uC138\uC694."), "yellow");
+      return;
+    }
+    setMode({ k: "busy" });
+    setNotes([{ text: say("Trusting\u2026", "\uC2E0\uB8B0\uD558\uB294 \uC911\u2026"), dim: true }]);
+    void onTrust(status, selected).then((result) => {
+      setMode({ k: "browse" });
+      if (result.ok) {
+        take(result.status);
+        say1(say(`Trusted: ${result.status.scopes.map(scopeTitle).join(", ")}. Files are pinned as they were shown.`, `\uC2E0\uB8B0\uD568: ${result.status.scopes.map(scopeTitle).join(", ")}. \uBCF4\uC5EC \uB4DC\uB9B0 \uADF8\uB300\uB85C \uD30C\uC77C\uC774 \uACE0\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`), "green");
+      } else if (result.kind === "changed") {
+        if (result.status) take(result.status);
+        setNotes(changedLines(result.files).map((text6, index) => ({ text: text6, color: index === 0 ? "red" : index === 1 ? "yellow" : void 0, dim: index > 1 })));
+      } else {
+        say1(result.message, result.kind === "refused" ? "yellow" : "red");
+      }
+    });
+  };
+  const revoke = (scopes) => {
+    setMode({ k: "busy" });
+    setNotes([{ text: say("Taking trust back\u2026", "\uC2E0\uB8B0\uB97C \uAC70\uB450\uB294 \uC911\u2026"), dim: true }]);
+    void onRevoke(scopes).then((result) => {
+      setMode({ k: "browse" });
+      if (result.ok) {
+        take(result.status);
+        say1(say("Trust taken back. The project's own control files are off again.", "\uC2E0\uB8B0\uB97C \uAC70\uB480\uC2B5\uB2C8\uB2E4. \uD504\uB85C\uC81D\uD2B8 \uC81C\uC5B4 \uD30C\uC77C\uC774 \uB2E4\uC2DC \uAEBC\uC84C\uC2B5\uB2C8\uB2E4."), "green");
+      } else if (result.kind === "changed") say1(changedLines(result.files)[0], "red");
+      else say1(result.message, result.kind === "refused" ? "yellow" : "red");
+    });
+  };
+  use_input_default(
+    (input, key) => {
+      if (mouseReports(input).length > 0) return;
+      if (mode.k === "busy") return;
+      if (mode.k === "revoke") {
+        const lower = input.toLowerCase();
+        if (lower === "s") {
+          const scopes = TRUST_SCOPES.filter((scope) => selected.has(scope));
+          if (scopes.length === 0) {
+            setMode({ k: "browse" });
+            say1(say("No scope is picked.", "\uACE0\uB978 \uBC94\uC704\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."), "yellow");
+            return;
+          }
+          revoke(scopes);
+        } else if (lower === "a") revoke(null);
+        else if (lower === "n" || key.escape) setMode({ k: "browse" });
+        return;
+      }
+      if (key.escape) return onClose();
+      if (key.upArrow || input === "k") {
+        if (rows.length > 0) setCursor((at + rows.length - 1) % rows.length);
+        setInside(0);
+        return;
+      }
+      if (key.downArrow || input === "j") {
+        if (rows.length > 0) setCursor((at + 1) % rows.length);
+        setInside(0);
+        return;
+      }
+      if (key.pageDown) return setInside((value) => value + 5);
+      if (key.pageUp) return setInside((value) => Math.max(0, value - 5));
+      if (input === " ") {
+        if (!row || row.kind !== "scope") return;
+        setSelected((current2) => {
+          const next = new Set(current2);
+          if (next.has(row.scope)) next.delete(row.scope);
+          else next.add(row.scope);
+          return next;
+        });
+        setNotes([]);
+        return;
+      }
+      switch (input.toLowerCase()) {
+        case "t":
+          return trust();
+        case "u":
+          setNotes([]);
+          setMode({ k: "revoke" });
+          return;
+        case "r":
+          return reload();
+        default:
+      }
+    },
+    { isActive }
+  );
+  const inner = Math.max(20, width - 4);
+  const rowsLeft = Math.max(4, height - 2);
+  const bold = (text6, color) => ({ text: text6, bold: true, color });
+  const picked = TRUST_SCOPES.filter((scope) => selected.has(scope)).length;
+  const counter3 = rows.length > 0 ? `${at + 1}/${rows.length}` : "";
+  const titleLeft = say("Project trust", "\uD504\uB85C\uC81D\uD2B8 \uC2E0\uB8B0");
+  const titleMid = say(`  ${picked} picked`, `  ${picked}\uAC1C \uC120\uD0DD`);
+  const gap = Math.max(1, inner - textWidth(titleLeft + titleMid) - textWidth(counter3));
+  const head = [
+    { key: "title", segments: [bold(titleLeft, "cyan"), { text: titleMid, dimColor: true }, { text: " ".repeat(gap) + counter3, dimColor: true }] },
+    ...tampered ? wrapSegments("tamper", [{ text: `! ${TAMPER_LINE()}`, color: "yellow", bold: true }], inner, "  ") : [],
+    ...trustHeader(status, inner)
+  ];
+  const foot = [...limitLines(status, inner)];
+  notes.forEach((note, index) => {
+    foot.push(...wrapSegments(`note-${index}`, [{ text: note.text, color: note.color, dimColor: note.dim, bold: note.color === "red" }], inner, "  "));
+  });
+  if (mode.k === "revoke") {
+    foot.push(
+      ...wrapSegments(
+        "revoke",
+        [{ text: say("Take trust back: s the picked scopes \xB7 a every scope \xB7 n cancel", "\uC2E0\uB8B0 \uAC70\uB450\uAE30: s \uACE0\uB978 \uBC94\uC704 \xB7 a \uBAA8\uB4E0 \uBC94\uC704 \xB7 n \uCDE8\uC18C"), color: "yellow", bold: true }],
+        inner,
+        "  "
+      )
+    );
+  }
+  const hints = mode.k === "revoke" ? say("s picked \xB7 a all \xB7 n / Esc cancel", "s \uACE0\uB978 \uBC94\uC704 \xB7 a \uC804\uCCB4 \xB7 n / Esc \uCDE8\uC18C") : mode.k === "busy" ? "\u2026" : say(
+    "\u2191\u2193 move \xB7 Space pick \xB7 t trust picked \xB7 u untrust \xB7 r reload \xB7 PgUp/PgDn scroll \xB7 Esc close",
+    "\u2191\u2193 \uC774\uB3D9 \xB7 Space \uC120\uD0DD \xB7 t \uC2E0\uB8B0 \xB7 u \uAC70\uB450\uAE30 \xB7 r \uB2E4\uC2DC \uC77D\uAE30 \xB7 PgUp/PgDn \uC2A4\uD06C\uB864 \xB7 Esc \uB2EB\uAE30"
+  );
+  const hint = wrapSegments("hint", [{ text: hints, dimColor: true }], inner, "");
+  const bodyHeight = Math.max(2, rowsLeft - head.length - foot.length - hint.length);
+  const built = trustBody(status, selected, at, inner);
+  let offset = scrollInto(scroll.current, built.start, built.end, bodyHeight, built.lines.length);
+  if (built.end - built.start > bodyHeight) {
+    offset = Math.max(0, Math.min(built.start + inside, built.end - bodyHeight));
+  }
+  scroll.current = offset;
+  const body = built.lines.slice(offset, offset + bodyHeight);
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: status.trusted ? "cyan" : "yellow", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(RenderedLines, { lines: head }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Box_default, { flexDirection: "column", flexGrow: 1, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(RenderedLines, { lines: body }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(RenderedLines, { lines: foot }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(RenderedLines, { lines: hint })
+  ] });
+}
+
+// src/hooks/useTrustScreen.ts
+var import_react39 = __toESM(require_react(), 1);
+
+// src/slash/trust.ts
+var TRUST_USAGE = "/trust [status]";
+var TRUST_ACTIONS = [
+  { action: "status", summary: "One line: is this project trusted, and how many files wait for you." }
+];
+function parseTrustCommand(line) {
+  const match = /^\/trust(?:\s+([\s\S]*))?$/.exec(line.trim());
+  if (!match) return null;
+  const rest = (match[1] ?? "").trim();
+  if (rest === "") return { kind: "enter" };
+  return rest === "status" ? { kind: "status" } : { kind: "invalid", usage: TRUST_USAGE };
+}
+function trustSubCommands(draft) {
+  const match = /^\/trust(?:\s+([^\s]*))?$/.exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return TRUST_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
+    name: `trust ${entry.action}`,
+    summary: entry.summary,
+    source: "tui"
+  }));
+}
+
+// src/hooks/useTrustScreen.ts
+function errorText4(error) {
+  const raw = error;
+  return sanitizeText(raw?.message ?? String(error));
+}
+function useTrustScreen(deps) {
+  const { client, workdir, note, showToast } = deps;
+  const warn = deps.warn ?? note;
+  const supported = trustSupported(client.serverCapabilities?.());
+  const [ui, setUi] = (0, import_react39.useState)(null);
+  const opening = (0, import_react39.useRef)(false);
+  const [changeSeq, setChangeSeq] = (0, import_react39.useState)(0);
+  const [tampered, setTampered] = (0, import_react39.useState)(false);
+  const openRef = (0, import_react39.useRef)(false);
+  openRef.current = ui !== null;
+  const read = (0, import_react39.useCallback)(async () => normalizeTrust(await client.call("project.trust.status", { workdir })), [client, workdir]);
+  const open = (0, import_react39.useCallback)(async () => {
+    if (opening.current) return;
+    opening.current = true;
+    showToast(say("Loading project trust\u2026", "\uD504\uB85C\uC81D\uD2B8 \uC2E0\uB8B0 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uB294 \uC911\u2026"));
+    try {
+      setUi({ status: await read() });
+      setChangeSeq(0);
+      setTampered(false);
+    } catch (error) {
+      note(`${say("Project trust: could not read it", "\uD504\uB85C\uC81D\uD2B8 \uC2E0\uB8B0: \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4")} \u2014 ${errorText4(error)}`);
+    } finally {
+      opening.current = false;
+    }
+  }, [note, read, showToast]);
+  const handleCommand = (0, import_react39.useCallback)(
+    (line) => {
+      const command2 = parseTrustCommand(line);
+      if (!command2) return false;
+      if (!supported) {
+        note(TRUST_REQUIRES_LINE);
+        return true;
+      }
+      if (command2.kind === "invalid") {
+        note(`Usage: ${command2.usage}`);
+      } else if (command2.kind === "enter") {
+        void open();
+      } else {
+        void read().then((status) => note(statusLine(status))).catch((error) => note(`${say("Project trust: could not read it", "\uD504\uB85C\uC81D\uD2B8 \uC2E0\uB8B0: \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4")} \u2014 ${errorText4(error)}`));
+      }
+      return true;
+    },
+    [note, open, read, supported]
+  );
+  const refresh = (0, import_react39.useCallback)(async () => {
+    try {
+      return { ok: true, status: await read() };
+    } catch (error) {
+      return { ok: false, kind: "error", message: errorText4(error) };
+    }
+  }, [read]);
+  const change = (0, import_react39.useCallback)(
+    async (method, params) => {
+      try {
+        return { ok: true, status: normalizeTrust(await client.call(method, params)) };
+      } catch (error) {
+        const code = rpcCode(error);
+        if (code === "jarvis_person_only") return { ok: false, kind: "refused", message: trustRefusalLine(error) };
+        if (code === "trust_changed") {
+          const reloaded = await read().catch(() => null);
+          return { ok: false, kind: "changed", files: changedFiles(error), status: reloaded };
+        }
+        return { ok: false, kind: "error", message: errorText4(error) };
+      }
+    },
+    [client, read]
+  );
+  const trust = (0, import_react39.useCallback)(
+    (shown, selected) => change("project.trust.set", setParams(shown, selected)),
+    [change]
+  );
+  const revoke = (0, import_react39.useCallback)(
+    (scopes) => change("project.trust.revoke", { workdir, ...scopes ? { scopes } : {} }),
+    [change, workdir]
+  );
+  const onChanged = (0, import_react39.useCallback)(
+    (raw) => {
+      const event = normalizeChanged(raw);
+      if (event.reason === "store_lost") showToast(STORE_LOST_LINE());
+      if (event.reason === "tamper") {
+        setTampered(true);
+        warn(TAMPER_LINE());
+        return;
+      }
+      if (openRef.current && concerns(event, workdir)) setChangeSeq((seq) => seq + 1);
+    },
+    [showToast, warn, workdir]
+  );
+  return {
+    supported,
+    ui,
+    close: (0, import_react39.useCallback)(() => setUi(null), []),
+    handleCommand,
+    refresh,
+    trust,
+    revoke,
+    changeSeq,
+    tampered,
+    onChanged
+  };
+}
+
+// src/slash/settings.ts
+var SETTINGS_USAGE = "/settings disk";
+var SETTINGS_ACTIONS = [
+  { action: "disk", summary: "Settings.json was edited outside snowpea: apply what the file says, or keep the current settings." }
+];
+function parseSettingsCommand(line) {
+  const match = /^\/settings(?:\s+([\s\S]*))?$/.exec(line.trim());
+  if (!match) return null;
+  const rest = (match[1] ?? "").trim();
+  return rest === "" || rest === "disk" ? { kind: "disk" } : { kind: "invalid", usage: SETTINGS_USAGE };
+}
+function settingsSubCommands(draft) {
+  const match = /^\/settings(?:\s+([^\s]*))?$/.exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return SETTINGS_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
+    name: `settings ${entry.action}`,
+    summary: entry.summary,
+    source: "tui"
+  }));
+}
+
+// src/components/DiskSettingsScreen.tsx
+var import_react40 = __toESM(require_react(), 1);
+
+// src/state/disk-settings.ts
+var WAITING_SECTIONS = ["security", "jarvis", "web.remote"];
+var SECTION_WORDS = {
+  security: ["security", "\uBCF4\uC548"],
+  jarvis: ["Jarvis", "Jarvis"],
+  "web.remote": ["remote access", "\uC6D0\uACA9 \uC811\uC18D"]
+};
+function normalizeWaiting(raw) {
+  if (!Array.isArray(raw)) return void 0;
+  const given = raw.filter((item) => typeof item === "string" && item !== "").map((item) => sanitizeText(item));
+  const known = WAITING_SECTIONS.filter((section) => given.includes(section));
+  return [...known, ...given.filter((item) => !WAITING_SECTIONS.includes(item))];
+}
+var sectionWord = (section) => {
+  const known = SECTION_WORDS[section];
+  return known ? say(...known) : section;
+};
+var LIST_SHOWN = 3;
+function compactWords(items) {
+  const first = items.slice(0, LIST_SHOWN).map(sectionWord).join(", ");
+  const more = items.length - LIST_SHOWN;
+  return more > 0 ? say(`${first} and ${more} more`, `${first} \uC678 ${more}\uAC1C`) : first;
+}
+var DISK_NOTICE_LINE = () => say(
+  "settings.json was edited outside snowpea: security / Jarvis / remote access settings in it wait for you (/settings disk)",
+  "settings.json\uC774 snowpea \uBC16\uC5D0\uC11C \uC218\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uBCF4\uC548 / Jarvis / \uC6D0\uACA9 \uC811\uC18D \uC124\uC815\uC740 \uD655\uC778\uD560 \uB54C\uAE4C\uC9C0 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 (/settings disk)"
+);
+var DISK_BANNER = () => say("! settings.json edited outside snowpea (/settings disk)", "! settings.json\uC774 \uBC16\uC5D0\uC11C \uC218\uC815\uB428 (/settings disk)");
+function sectionNotice(waiting, section) {
+  if (!waiting.includes(section)) return null;
+  return say(
+    `settings.json was edited outside snowpea: the ${sectionWord(section)} settings in it wait for you (/settings disk)`,
+    `settings.json\uC774 snowpea \uBC16\uC5D0\uC11C \uC218\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uADF8 \uC548\uC758 ${sectionWord(section)} \uC124\uC815\uC740 \uD655\uC778\uD560 \uB54C\uAE4C\uC9C0 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 (/settings disk)`
+  );
+}
+var DISK_NOTHING_WAITS = () => say("Nothing waits: settings.json and the running settings agree.", "\uB300\uAE30 \uC911\uC778 \uC124\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. settings.json\uACFC \uC2E4\uD589 \uC911\uC778 \uC124\uC815\uC774 \uAC19\uC2B5\uB2C8\uB2E4.");
+var DISK_REQUIRES_LINE = () => say("Settings edited on disk: requires a newer core \u2014 this daemon is older. Run /update.", "\uB514\uC2A4\uD06C\uC5D0\uC11C \uC218\uC815\uB41C \uC124\uC815: \uB354 \uC0C8\uB85C\uC6B4 core\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4. \uC774 \uB370\uBAAC\uC740 \uC624\uB798\uB41C \uBC84\uC804\uC785\uB2C8\uB2E4. /update\uB97C \uC2E4\uD589\uD558\uC138\uC694.");
+function choiceLines(waiting) {
+  return [
+    say("settings.json was edited outside snowpea.", "settings.json\uC774 snowpea \uBC16\uC5D0\uC11C \uC218\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4."),
+    say(`These sections wait for you: ${compactWords(waiting)}.`, `\uD655\uC778\uC744 \uAE30\uB2E4\uB9AC\uB294 \uBD80\uBD84: ${compactWords(waiting)}.`),
+    say("They are not applied until you decide. Everything else already took effect.", "\uACB0\uC815\uD558\uAE30 \uC804\uC5D0\uB294 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB098\uBA38\uC9C0 \uC124\uC815\uC740 \uC774\uBBF8 \uC801\uC6A9\uB418\uC5C8\uC2B5\uB2C8\uB2E4."),
+    say("a applies what the file says \xB7 k keeps the current settings (the file is written back)", "a \uD30C\uC77C \uB0B4\uC6A9\uC744 \uC801\uC6A9 \xB7 k \uD604\uC7AC \uC124\uC815 \uC720\uC9C0 (\uD30C\uC77C\uC744 \uB418\uB3CC\uB824 \uC501\uB2C8\uB2E4)")
+  ];
+}
+function resultLine(result) {
+  const list = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+  const applied = list(result?.applied);
+  const discarded = list(result?.discarded);
+  const parts = [
+    ...applied.length > 0 ? [say(`applied from the file: ${compactWords(applied)}`, `\uD30C\uC77C\uC5D0\uC11C \uC801\uC6A9: ${compactWords(applied)}`)] : [],
+    ...discarded.length > 0 ? [say(`kept the current settings, file written back: ${compactWords(discarded)}`, `\uD604\uC7AC \uC124\uC815 \uC720\uC9C0, \uD30C\uC77C\uC744 \uB418\uB3CC\uB824 \uC500: ${compactWords(discarded)}`)] : []
+  ];
+  return parts.length > 0 ? parts.join(" \xB7 ") : say("Nothing was waiting any more.", "\uB354 \uC774\uC0C1 \uB300\uAE30 \uC911\uC778 \uC124\uC815\uC774 \uC5C6\uC5C8\uC2B5\uB2C8\uB2E4.");
+}
+
+// src/components/DiskSettingsScreen.tsx
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+function DiskSettingsScreen({ waiting, width, height, onDecide, onClose, isActive = true }) {
+  const [phase, setPhase] = (0, import_react40.useState)({ k: "choose" });
+  const [shown] = (0, import_react40.useState)(waiting);
+  const mounted = (0, import_react40.useRef)(true);
+  (0, import_react40.useEffect)(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  use_input_default(
+    (input, key) => {
+      if (mouseReports(input).length > 0) return;
+      if (phase.k === "busy") return;
+      if (phase.k === "done" || waiting.length === 0) return onClose();
+      if (key.escape || input === "q") return onClose();
+      const pressed = input.toLowerCase();
+      if (pressed !== "a" && pressed !== "k") return;
+      setPhase({ k: "busy" });
+      void onDecide(pressed === "a").then((result) => {
+        if (mounted.current) setPhase({ k: "done", result });
+      });
+    },
+    { isActive }
+  );
+  const inner = Math.max(20, width - 4);
+  const bold = (text6, color) => ({ text: text6, bold: true, color });
+  const wrap2 = (key, segments, indent = "  ") => wrapSegments(key, segments, inner, indent);
+  const head = wrap2("title", [bold(say("Settings edited on disk", "\uB514\uC2A4\uD06C\uC5D0\uC11C \uC218\uC815\uB41C \uC124\uC815"), "cyan")], "");
+  const settledElsewhere = phase.k === "choose" && waiting.length === 0;
+  const body = phase.k === "done" ? wrap2("result", [{ text: phase.result.ok ? phase.result.line : phase.result.message, color: phase.result.ok ? "green" : "red", bold: !phase.result.ok }]) : settledElsewhere ? wrap2("elsewhere", [{ text: DISK_NOTHING_WAITS(), color: "green" }]) : choiceLines(shown).flatMap((text6, index) => wrap2(`c-${index}`, [{ text: text6, color: index === 1 ? "yellow" : void 0, dimColor: index === 2 }]));
+  const hint = wrap2(
+    "hint",
+    [
+      {
+        text: phase.k === "choose" && !settledElsewhere ? say("a apply the file \xB7 k keep current \xB7 Esc close", "a \uD30C\uC77C \uC801\uC6A9 \xB7 k \uD604\uC7AC \uC720\uC9C0 \xB7 Esc \uB2EB\uAE30") : phase.k === "busy" ? "\u2026" : say("any key closes", "\uC544\uBB34 \uD0A4\uB098 \uB204\uB974\uBA74 \uB2EB\uD799\uB2C8\uB2E4"),
+        dimColor: true
+      }
+    ],
+    ""
+  );
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "yellow", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(RenderedLines, { lines: head }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { flexDirection: "column", flexGrow: 1, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(RenderedLines, { lines: body }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(RenderedLines, { lines: hint })
+  ] });
+}
+
+// src/hooks/useDiskSettings.ts
+var import_react41 = __toESM(require_react(), 1);
+function useDiskSettings(deps) {
+  const { client, warn, note, onReloaded } = deps;
+  const [waiting, setWaitingState] = (0, import_react41.useState)([]);
+  const [open, setOpen] = (0, import_react41.useState)(false);
+  const waitingRef = (0, import_react41.useRef)([]);
+  const setWaiting = (0, import_react41.useCallback)(
+    (next) => {
+      const before = waitingRef.current;
+      waitingRef.current = next;
+      setWaitingState(next);
+      if (before.length === 0 && next.length > 0) warn(DISK_NOTICE_LINE());
+    },
+    [warn]
+  );
+  const onSettingsChanged = (0, import_react41.useCallback)(
+    (params) => {
+      const next = normalizeWaiting(params.waitingKeys);
+      if (next !== void 0) setWaiting(next);
+    },
+    [setWaiting]
+  );
+  const handleCommand = (0, import_react41.useCallback)(
+    (line) => {
+      const command2 = parseSettingsCommand(line);
+      if (!command2) return false;
+      if (command2.kind === "invalid") {
+        note(`Usage: ${command2.usage}`);
+        return true;
+      }
+      void client.call("system.reloadSettings", {}).then((result) => {
+        onReloaded?.();
+        const next = normalizeWaiting(result?.waitingKeys);
+        if (next === void 0) {
+          note(DISK_REQUIRES_LINE());
+          return;
+        }
+        setWaiting(next);
+        if (next.length === 0) note(DISK_NOTHING_WAITS());
+        else setOpen(true);
+      }).catch((error) => note(rpcErrorText(error)));
+      return true;
+    },
+    [client, note, setWaiting, onReloaded]
+  );
+  const decide = (0, import_react41.useCallback)(
+    async (accept) => {
+      try {
+        const result = await client.call("settings.acceptDiskChange", { accept });
+        setWaiting([]);
+        return { ok: true, line: resultLine(result) };
+      } catch (error) {
+        return { ok: false, message: rpcErrorText(error) };
+      }
+    },
+    [client, setWaiting]
+  );
+  return {
+    waiting,
+    open,
+    close: (0, import_react41.useCallback)(() => setOpen(false), []),
+    handleCommand,
+    onSettingsChanged,
+    decide
+  };
+}
+
+// src/state/update.ts
+var initialUpdateState = {
+  phase: "idle",
+  current: "",
+  latest: "",
+  message: "",
+  dismissed: false
+};
+function fromCheck(state2, check) {
+  const current2 = check.current ?? state2.current;
+  const latest = check.latest ?? state2.latest;
+  if (state2.phase === "running" || state2.phase === "done" || state2.phase === "confirm") {
+    return { ...state2, current: current2, latest };
+  }
+  if (!check.available || check.error) {
+    const stale = state2.phase === "available" && !check.error && !check.available;
+    return { ...state2, phase: stale ? "idle" : state2.phase, current: current2, latest };
+  }
+  return { ...state2, phase: state2.dismissed ? "idle" : "available", current: current2, latest };
+}
+function confirm(state2) {
+  if (state2.phase === "running" || state2.phase === "done") return state2;
+  return { ...state2, phase: "confirm", dismissed: false };
+}
+function cancel(state2) {
+  if (state2.phase === "running" || state2.phase === "done") return state2;
+  return { ...state2, phase: "idle", dismissed: true };
+}
+function progress(state2, phase, message) {
+  const next = phase === "started" ? "running" : phase;
+  return { ...state2, phase: next, message };
+}
+function bannerText(state2) {
+  switch (state2.phase) {
+    case "available":
+      return `\u2191 Update available v${state2.latest} (current v${state2.current}) \u2014 press U or type /update`;
+    case "confirm":
+      return state2.latest && state2.current ? `\u2191 Update to v${state2.latest} from v${state2.current}? [y/N]` : "\u2191 Check for an update and install it? [y/N]";
+    case "running":
+      return `\u2191 ${state2.message || `Updating to v${state2.latest}\u2026`}`;
+    case "done":
+      return `\u2191 Updated to v${state2.latest} \u2014 restarting\u2026`;
+    case "failed":
+      return `\u2191 Update failed: ${state2.message || "see the update log"}`;
+    default:
+      return null;
+  }
+}
 
 // src/state/mode.ts
 var MODE_CYCLE_ORDER = ["accept", "auto", "plan"];
@@ -36502,7 +43902,7 @@ function cycleMode(mode) {
 }
 
 // src/hooks/useTerminalSize.ts
-var import_react22 = __toESM(require_react(), 1);
+var import_react42 = __toESM(require_react(), 1);
 var FALLBACK_COLUMNS = 80;
 var FALLBACK_ROWS = 24;
 var RESIZE_DEBOUNCE_MS = 60;
@@ -36514,9 +43914,9 @@ function readSize(stream) {
 }
 function useTerminalSize(debounceMs = RESIZE_DEBOUNCE_MS) {
   const { stdout } = use_stdout_default();
-  const [size, setSize] = (0, import_react22.useState)(() => readSize(stdout));
-  const timer = (0, import_react22.useRef)(null);
-  (0, import_react22.useEffect)(() => {
+  const [size, setSize] = (0, import_react42.useState)(() => readSize(stdout));
+  const timer = (0, import_react42.useRef)(null);
+  (0, import_react42.useEffect)(() => {
     if (!stdout) return;
     const apply = () => setSize((current2) => {
       const next = readSize(stdout);
@@ -36537,25 +43937,25 @@ function useTerminalSize(debounceMs = RESIZE_DEBOUNCE_MS) {
 }
 
 // src/hooks/useDaemonInfo.ts
-var import_react23 = __toESM(require_react(), 1);
+var import_react43 = __toESM(require_react(), 1);
 var DAEMON_INFO_POLL_MS = 3e4;
-var emptyDaemonInfo = { pid: null, summary: null };
+var emptyDaemonInfo = { pid: null, summary: null, degraded: [] };
 function fromSystemInfo(result) {
   const pid = typeof result?.pid === "number" ? result.pid : null;
   const lifecycle = result?.lifecycle ?? null;
   const summary = typeof lifecycle?.summary === "string" && lifecycle.summary.length > 0 ? lifecycle.summary : null;
-  return { pid, summary };
+  return { pid, summary, degraded: normalizeDegraded(result?.settingsDegraded) };
 }
-function useDaemonInfo(client, pollMs = DAEMON_INFO_POLL_MS) {
-  const [info, setInfo] = (0, import_react23.useState)(emptyDaemonInfo);
-  (0, import_react23.useEffect)(() => {
+function useDaemonInfo(client, pollMs = DAEMON_INFO_POLL_MS, refreshTick = 0) {
+  const [info, setInfo] = (0, import_react43.useState)(emptyDaemonInfo);
+  (0, import_react43.useEffect)(() => {
     let cancelled = false;
     const read = () => {
       void client.call("system.info", {}).then((result) => {
         if (cancelled) return;
         const next = fromSystemInfo(result);
         setInfo(
-          (current2) => current2.pid === next.pid && current2.summary === next.summary ? current2 : next
+          (current2) => current2.pid === next.pid && current2.summary === next.summary && current2.degraded.join("\n") === next.degraded.join("\n") ? current2 : next
         );
       }).catch(() => {
       });
@@ -36566,35 +43966,21 @@ function useDaemonInfo(client, pollMs = DAEMON_INFO_POLL_MS) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [client, pollMs]);
+  }, [client, pollMs, refreshTick]);
   return info;
 }
 
 // src/hooks/useElapsed.ts
-var import_react24 = __toESM(require_react(), 1);
+var import_react44 = __toESM(require_react(), 1);
 var ELAPSED_TICK_MS = 1e4;
 function useElapsed(tickMs = ELAPSED_TICK_MS, now = Date.now) {
-  const start = (0, import_react24.useRef)(now());
-  const [elapsed, setElapsed] = (0, import_react24.useState)(0);
-  (0, import_react24.useEffect)(() => {
+  const start = (0, import_react44.useRef)(now());
+  const [elapsed, setElapsed] = (0, import_react44.useState)(0);
+  (0, import_react44.useEffect)(() => {
     const timer = setInterval(() => setElapsed(now() - start.current), tickMs);
     return () => clearInterval(timer);
   }, [tickMs, now]);
   return elapsed;
-}
-
-// src/hooks/useClock.ts
-var import_react25 = __toESM(require_react(), 1);
-var CLOCK_TICK_MS = 1e3;
-function useClock(active, tickMs = CLOCK_TICK_MS, now = Date.now) {
-  const [stamp, setStamp] = (0, import_react25.useState)(() => now());
-  (0, import_react25.useEffect)(() => {
-    if (!active) return;
-    setStamp(now());
-    const timer = setInterval(() => setStamp(now()), tickMs);
-    return () => clearInterval(timer);
-  }, [active, tickMs, now]);
-  return stamp;
 }
 
 // src/state/coalesce.ts
@@ -36614,19 +44000,19 @@ function pendingKey(kind, event) {
 function kindOf(key) {
   return key.split("\0", 1)[0];
 }
-function count(event, field) {
+function count2(event, field) {
   const value = event.payload?.[field];
   return typeof value === "number" ? value : Number(value ?? 0) || 0;
 }
 function mergeLive(kind, older, newer) {
   if (kind === "message.delta") {
-    const text2 = (event) => {
+    const text6 = (event) => {
       const value = event.payload?.text;
       return typeof value === "string" ? value : "";
     };
     return {
       ...newer,
-      payload: { ...newer.payload, text: text2(older) + text2(newer) }
+      payload: { ...newer.payload, text: text6(older) + text6(newer) }
     };
   }
   if (kind === "message.reasoning") return newer;
@@ -36647,8 +44033,8 @@ function mergeLive(kind, older, newer) {
       ...newer,
       payload: {
         ...newer.payload,
-        inputTokens: count(older, "inputTokens") + count(newer, "inputTokens"),
-        outputTokens: count(older, "outputTokens") + count(newer, "outputTokens")
+        inputTokens: count2(older, "inputTokens") + count2(newer, "inputTokens"),
+        outputTokens: count2(older, "outputTokens") + count2(newer, "outputTokens")
       }
     };
   }
@@ -36712,8 +44098,8 @@ function createLiveEventThrottle(deliver, { setTimer = setTimeout, clearTimer = 
 function deltaText(event) {
   if (event.kind !== "message.delta") return null;
   const payload = event.payload;
-  const text2 = payload?.text;
-  return typeof text2 === "string" ? text2 : "";
+  const text6 = payload?.text;
+  return typeof text6 === "string" ? text6 : "";
 }
 function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const pending = /* @__PURE__ */ new Map();
@@ -36740,8 +44126,8 @@ function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer
   };
   return {
     push(sessionId, event) {
-      const text2 = deltaText(event);
-      if (text2 === null) {
+      const text6 = deltaText(event);
+      if (text6 === null) {
         const entry2 = pending.get(sessionId);
         if (entry2) {
           pending.delete(sessionId);
@@ -36752,7 +44138,7 @@ function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer
       }
       const entry = pending.get(sessionId);
       if (entry) {
-        entry.text += text2;
+        entry.text += text6;
         entry.event = event;
         return;
       }
@@ -36761,7 +44147,7 @@ function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer
         arm();
         return;
       }
-      pending.set(sessionId, { event, text: text2 });
+      pending.set(sessionId, { event, text: text6 });
     },
     flush() {
       drain();
@@ -36774,10 +44160,10 @@ function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer
 }
 
 // src/hooks/useSpinner.ts
-var import_react26 = __toESM(require_react(), 1);
+var import_react45 = __toESM(require_react(), 1);
 function useSpinner(active, intervalMs = SPINNER_INTERVAL_MS) {
-  const [frame, setFrame] = (0, import_react26.useState)(0);
-  (0, import_react26.useEffect)(() => {
+  const [frame, setFrame] = (0, import_react45.useState)(0);
+  (0, import_react45.useEffect)(() => {
     if (!active) {
       setFrame(0);
       return;
@@ -36789,12 +44175,12 @@ function useSpinner(active, intervalMs = SPINNER_INTERVAL_MS) {
 }
 
 // src/hooks/useKnownAgents.ts
-var import_react27 = __toESM(require_react(), 1);
+var import_react46 = __toESM(require_react(), 1);
 var AGENT_LIST_POLL_MS = 3e4;
 var EMPTY = [];
 function useKnownAgents(client, pollMs = AGENT_LIST_POLL_MS, refreshKey = 0) {
-  const [agents, setAgents] = (0, import_react27.useState)(EMPTY);
-  (0, import_react27.useEffect)(() => {
+  const [agents, setAgents] = (0, import_react46.useState)(EMPTY);
+  (0, import_react46.useEffect)(() => {
     let cancelled = false;
     const read = () => {
       void client.call("agent.list", {}).then((result) => {
@@ -36835,193 +44221,6 @@ function clampFocus(focus, agentRows) {
   if (focus.zone !== "agent") return focus;
   if (agentRows === 0) return { zone: "footer" };
   return focus.index < agentRows ? focus : { zone: "agent", index: agentRows - 1 };
-}
-
-// src/input/mouse.ts
-var REPORT = /(?:\u001b)?(\[?<)?(\d+);(\d+);(\d+)([Mm])/g;
-function mouseReports(input) {
-  if (!/^(?:(?:\u001b)?(?:\[?<)?\d+;\d+;\d+[Mm])+$/.test(input)) return [];
-  const reports = [];
-  for (const match of input.matchAll(REPORT)) {
-    const button = Number(match[2]);
-    const col = Number(match[3]);
-    const row = Number(match[4]);
-    if (!match[1] && button < 64) return [];
-    if (button < 0 || col < 1 || row < 1) continue;
-    reports.push({ button, col, row, press: match[5] === "M" });
-  }
-  return reports;
-}
-function panelRowAt(row, layout2) {
-  const y = Math.floor(row);
-  if (!Number.isFinite(y) || y < 1) return null;
-  const totalRows = Math.max(1, Math.floor(layout2.totalRows));
-  const bottomRows2 = Math.max(0, Math.floor(layout2.bottomRows));
-  const panelRows = Math.max(0, Math.floor(layout2.panelRows));
-  if (panelRows < 1) return null;
-  const top = totalRows - bottomRows2 - panelRows + 1;
-  const bottom = top + panelRows - 1;
-  if (y < Math.max(1, top) || y > bottom) return null;
-  const index = y - top;
-  return index >= 0 && index < panelRows ? index : null;
-}
-
-// src/state/history.ts
-var MAX_HISTORY = 500;
-var HISTORY_FILE = "tui-history.jsonl";
-var SESSIONS_FILE = "tui-sessions.json";
-function sessionKindPrefix(kind, parentSessionId) {
-  const parent = parentSessionId ? ` ${parentSessionId.slice(0, 8)}` : "";
-  if (kind === "scheduled") return `\u23F0${parent} `;
-  if (kind === "subagent") return `\u21B3${parent} `;
-  if (kind === "agent") return "\u25C6 ";
-  return "";
-}
-function resumeRows(entries, workdir) {
-  const kept = entries.filter(
-    (entry) => entry.kind !== "subagent" && entry.firstPrompt.trim().length > 0
-  );
-  if (!workdir) return kept;
-  const here = kept.filter((entry) => entry.workdir === workdir);
-  const elsewhere = kept.filter((entry) => entry.workdir !== workdir);
-  return [...here, ...elsewhere];
-}
-var RESUME_ELSEWHERE = "__elsewhere__";
-function resumeView(rows, workdir, showElsewhere) {
-  if (!workdir) return { rows, hiddenElsewhere: 0 };
-  const here = rows.filter((entry) => entry.workdir === workdir);
-  const elsewhere = rows.length - here.length;
-  if (showElsewhere || here.length === 0) return { rows, hiddenElsewhere: 0 };
-  return { rows: here, hiddenElsewhere: elsewhere };
-}
-function resumeLabel(entry, promptChars = 48, workdir) {
-  const prompt = entry.firstPrompt.length > promptChars ? `${entry.firstPrompt.slice(0, promptChars - 1)}\u2026` : entry.firstPrompt;
-  const where = workdir && entry.workdir !== workdir ? `[${entry.workdir.split("/").pop() || entry.workdir}] ` : "";
-  return `${where}${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId.slice(
-    0,
-    8
-  )} \xB7 ${new Date(entry.at).toLocaleString()} \xB7 ${prompt || "(no prompt)"}`;
-}
-function stateDir(env3, home2) {
-  return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home2}/.snowpea`;
-}
-function parseHistory(contents) {
-  if (!contents) return [];
-  const out = [];
-  for (const line of contents.split("\n")) {
-    if (line.trim().length === 0) continue;
-    try {
-      const entry = JSON.parse(line);
-      if (typeof entry.text === "string" && entry.text.length > 0) {
-        out.push({
-          text: entry.text,
-          at: typeof entry.at === "number" ? entry.at : 0,
-          workdir: typeof entry.workdir === "string" ? entry.workdir : ""
-        });
-      }
-    } catch {
-    }
-  }
-  return out;
-}
-var TuiHistory = class {
-  constructor(store, dir) {
-    this.store = store;
-    this.dir = dir;
-  }
-  entries = [];
-  /** Read the history from disk. Safe to call before anything exists. */
-  load() {
-    this.entries = parseHistory(this.store.read(this.store.join(this.dir, HISTORY_FILE)));
-    return this.entries;
-  }
-  /** The prompts, oldest first. */
-  prompts() {
-    return this.entries.map((entry) => entry.text);
-  }
-  /**
-   * Add one prompt and write the file back.
-   *
-   * A prompt repeated straight away is not recorded twice: walking back through
-   * a history full of the same line is the thing that makes history useless.
-   */
-  add(text2, workdir, now = Date.now()) {
-    const trimmed = text2.trim();
-    if (trimmed.length === 0) return;
-    if (this.entries[this.entries.length - 1]?.text === trimmed) return;
-    this.entries.push({ text: trimmed, at: now, workdir });
-    if (this.entries.length > MAX_HISTORY) {
-      this.entries = this.entries.slice(this.entries.length - MAX_HISTORY);
-    }
-    try {
-      this.store.write(
-        this.store.join(this.dir, HISTORY_FILE),
-        `${this.entries.map((entry) => JSON.stringify(entry)).join("\n")}
-`
-      );
-    } catch {
-    }
-  }
-};
-function parseSessions(contents) {
-  if (!contents) return {};
-  try {
-    const parsed = JSON.parse(contents);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-var SessionMemory = class {
-  constructor(store, dir) {
-    this.store = store;
-    this.dir = dir;
-  }
-  records = {};
-  load() {
-    this.records = parseSessions(this.store.read(this.store.join(this.dir, SESSIONS_FILE)));
-    return this.records;
-  }
-  /** What was last open in this directory, if anything. */
-  last(workdir) {
-    return this.records[workdir] ?? null;
-  }
-  /** Remember this session as the directory's most recent one. */
-  remember(record) {
-    this.records[record.workdir] = record;
-    try {
-      this.store.write(
-        this.store.join(this.dir, SESSIONS_FILE),
-        `${JSON.stringify(this.records, null, 2)}
-`
-      );
-    } catch {
-    }
-  }
-};
-function priorSession(sessions, workdir, currentSessionId) {
-  const candidates = sessions.filter((entry) => entry.workdir === workdir && entry.sessionId !== currentSessionId).map((entry) => ({
-    sessionId: entry.sessionId,
-    workdir: entry.workdir,
-    firstPrompt: "",
-    at: entry.createdAt ? Date.parse(entry.createdAt) || 0 : 0
-  })).sort((a, b) => b.at - a.at);
-  return candidates[0] ?? null;
-}
-function offerSession(local, live) {
-  if (!live) return local;
-  if (!local || local.sessionId !== live.sessionId) return live;
-  return { ...live, firstPrompt: local.firstPrompt, at: Math.max(live.at, local.at) };
-}
-function relativeTime(then, now = Date.now()) {
-  const seconds = Math.max(0, Math.round((now - then) / 1e3));
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "yesterday" : `${days}d ago`;
 }
 
 // src/rpc/audio.ts
@@ -37161,20 +44360,20 @@ async function endRecording(runtime, handle) {
       );
       return null;
     }
-    const text2 = (stopped.text ?? "").trim();
-    if (text2.length === 0) {
+    const text6 = (stopped.text ?? "").trim();
+    if (text6.length === 0) {
       runtime.onToast("nothing was heard");
       return null;
     }
-    return text2;
+    return text6;
   } catch (error) {
     if (audioErrorCode(error) === "not_recording") return null;
     runtime.onToast(describeAudioError(error));
     return null;
   }
 }
-async function speak(runtime, text2) {
-  const said = text2.trim();
+async function speak(runtime, text6) {
+  const said = text6.trim();
   if (said.length === 0) return null;
   if (!runtime.capabilities.tts) {
     runtime.onToast(runtime.capabilities.reasons.tts ?? "no text-to-speech backend is configured");
@@ -37413,38 +44612,18 @@ function filterAgents(candidates, prefix) {
 }
 function applyAgentCompletion(draft, query, name) {
   const inserted = `${name} `;
-  const text2 = draft.slice(0, query.start) + inserted + draft.slice(query.end);
-  return { text: text2, cursor: query.start + inserted.length };
+  const text6 = draft.slice(0, query.start) + inserted + draft.slice(query.end);
+  return { text: text6, cursor: query.start + inserted.length };
 }
 function candidateTag(candidate) {
   if (candidate.model) return candidate.model;
   return candidate.kind === "definition" ? "" : candidate.kind;
 }
 
-// src/layout/text-width.ts
-var segmenter2 = new Intl.Segmenter(void 0, { granularity: "grapheme" });
-function graphemes(text2) {
-  return Array.from(segmenter2.segment(text2), ({ segment, index }) => ({
-    text: segment,
-    index,
-    width: graphemeWidth(segment)
-  }));
-}
-function graphemeWidth(text2) {
-  if (/^[\p{Mark}\p{Control}\p{Format}]+$/u.test(text2)) return 0;
-  if (new RegExp("\\p{Emoji_Presentation}|\\p{Regional_Indicator}|\\uFE0F|\\u20E3", "u").test(text2)) return 2;
-  const code = text2.codePointAt(0) ?? 0;
-  if (code >= 4352 && (code <= 4447 || code === 9001 || code === 9002 || code >= 11904 && code <= 42191 && code !== 12351 || code >= 44032 && code <= 55203 || code >= 63744 && code <= 64255 || code >= 65040 && code <= 65049 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 131072 && code <= 262141)) return 2;
-  return 1;
-}
-function textWidth(text2) {
-  return graphemes(text2).reduce((sum, part) => sum + part.width, 0);
-}
-
 // src/state/editor.ts
 var WHITESPACE = /^\s$/u;
-function partsOf(text2) {
-  return graphemes(text2).map((part) => ({
+function partsOf(text6) {
+  return graphemes(text6).map((part) => ({
     ...part,
     end: part.index + part.text.length
   }));
@@ -37483,12 +44662,12 @@ function nextBoundary(parts, cursor, textLength) {
   }
   return textLength;
 }
-function withCursor(state, cursor) {
-  return { text: state.text, cursor };
+function withCursor(state2, cursor) {
+  return { text: state2.text, cursor };
 }
-function normalizedCursor(text2, cursor, parts = partsOf(text2)) {
-  const clamped = clamp(cursor, 0, text2.length);
-  return floorBoundary(parts, clamped, text2.length);
+function normalizedCursor(text6, cursor, parts = partsOf(text6)) {
+  const clamped = clamp(cursor, 0, text6.length);
+  return floorBoundary(parts, clamped, text6.length);
 }
 function isWhitespace(part) {
   return WHITESPACE.test(part.text);
@@ -37505,9 +44684,9 @@ function locateCursorRow(lines, cursor) {
   }
   return Math.max(0, lines.length - 1);
 }
-function cursorAtColumn(text2, line, column) {
+function cursorAtColumn(text6, line, column) {
   if (column <= 0) return line.start;
-  const local = partsOf(text2.slice(line.start, line.end));
+  const local = partsOf(text6.slice(line.start, line.end));
   let used = 0;
   for (const part of local) {
     const partStart = line.start + part.index;
@@ -37523,102 +44702,102 @@ function cursorAtColumn(text2, line, column) {
   }
   return line.end;
 }
-function moveVertical(state, width, direction, stickyColumn) {
-  const view = layout(state.text, width, state.cursor);
+function moveVertical(state2, width, direction, stickyColumn) {
+  const view = layout(state2.text, width, state2.cursor);
   const row = view.cursorRow + direction;
-  if (row < 0 || row >= view.lines.length) return state;
+  if (row < 0 || row >= view.lines.length) return state2;
   const target = stickyColumn ?? view.cursorCol;
-  return withCursor(state, cursorAtColumn(state.text, view.lines[row], target));
+  return withCursor(state2, cursorAtColumn(state2.text, view.lines[row], target));
 }
-function insert(state, chunk) {
-  if (chunk.length === 0) return state;
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
-  const text2 = state.text.slice(0, at) + chunk + state.text.slice(at);
-  return { text: text2, cursor: at + chunk.length };
+function insert(state2, chunk) {
+  if (chunk.length === 0) return state2;
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
+  const text6 = state2.text.slice(0, at) + chunk + state2.text.slice(at);
+  return { text: text6, cursor: at + chunk.length };
 }
-function backspace(state) {
-  if (state.text.length === 0 || state.cursor <= 0) return state;
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
-  if (at <= 0) return withCursor(state, 0);
+function backspace(state2) {
+  if (state2.text.length === 0 || state2.cursor <= 0) return state2;
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
+  if (at <= 0) return withCursor(state2, 0);
   const start = previousBoundary(parts, at);
-  if (start === at) return state;
+  if (start === at) return state2;
   return {
-    text: state.text.slice(0, start) + state.text.slice(at),
+    text: state2.text.slice(0, start) + state2.text.slice(at),
     cursor: start
   };
 }
-function del(state) {
-  if (state.text.length === 0) return state;
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
-  const end2 = nextBoundary(parts, at, state.text.length);
-  if (end2 === at) return state;
+function del(state2) {
+  if (state2.text.length === 0) return state2;
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
+  const end2 = nextBoundary(parts, at, state2.text.length);
+  if (end2 === at) return state2;
   return {
-    text: state.text.slice(0, at) + state.text.slice(end2),
+    text: state2.text.slice(0, at) + state2.text.slice(end2),
     cursor: at
   };
 }
-function left(state) {
-  if (state.cursor <= 0) return withCursor(state, 0);
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
-  return withCursor(state, previousBoundary(parts, at));
+function left(state2) {
+  if (state2.cursor <= 0) return withCursor(state2, 0);
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
+  return withCursor(state2, previousBoundary(parts, at));
 }
-function right(state) {
-  if (state.cursor >= state.text.length) return withCursor(state, state.text.length);
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
-  return withCursor(state, nextBoundary(parts, at, state.text.length));
+function right(state2) {
+  if (state2.cursor >= state2.text.length) return withCursor(state2, state2.text.length);
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
+  return withCursor(state2, nextBoundary(parts, at, state2.text.length));
 }
-function home(state) {
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
-  const previousBreak = state.text.lastIndexOf("\n", Math.max(0, at - 1));
-  return withCursor(state, previousBreak === -1 ? 0 : previousBreak + 1);
+function home(state2) {
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
+  const previousBreak = state2.text.lastIndexOf("\n", Math.max(0, at - 1));
+  return withCursor(state2, previousBreak === -1 ? 0 : previousBreak + 1);
 }
-function end(state) {
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
-  const nextBreak = state.text.indexOf("\n", at);
-  return withCursor(state, nextBreak === -1 ? state.text.length : nextBreak);
+function end(state2) {
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
+  const nextBreak = state2.text.indexOf("\n", at);
+  return withCursor(state2, nextBreak === -1 ? state2.text.length : nextBreak);
 }
-function up(state, width, stickyColumn) {
-  return moveVertical(state, width, -1, stickyColumn);
+function up(state2, width, stickyColumn) {
+  return moveVertical(state2, width, -1, stickyColumn);
 }
-function down(state, width, stickyColumn) {
-  return moveVertical(state, width, 1, stickyColumn);
+function down(state2, width, stickyColumn) {
+  return moveVertical(state2, width, 1, stickyColumn);
 }
-function wordLeft(state) {
-  if (state.cursor <= 0) return withCursor(state, 0);
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
+function wordLeft(state2) {
+  if (state2.cursor <= 0) return withCursor(state2, 0);
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
   let index = parts.length - 1;
   while (index >= 0 && parts[index].end > at) index -= 1;
   while (index >= 0 && isWhitespace(parts[index])) index -= 1;
   while (index >= 0 && !isWhitespace(parts[index])) index -= 1;
-  return withCursor(state, index < 0 ? 0 : parts[index + 1].index);
+  return withCursor(state2, index < 0 ? 0 : parts[index + 1].index);
 }
-function wordRight(state) {
-  if (state.cursor >= state.text.length) return withCursor(state, state.text.length);
-  const parts = partsOf(state.text);
-  const at = normalizedCursor(state.text, state.cursor, parts);
+function wordRight(state2) {
+  if (state2.cursor >= state2.text.length) return withCursor(state2, state2.text.length);
+  const parts = partsOf(state2.text);
+  const at = normalizedCursor(state2.text, state2.cursor, parts);
   let index = 0;
   while (index < parts.length && parts[index].end <= at) index += 1;
-  if (index >= parts.length) return withCursor(state, state.text.length);
+  if (index >= parts.length) return withCursor(state2, state2.text.length);
   if (isWhitespace(parts[index])) {
     while (index < parts.length && isWhitespace(parts[index])) index += 1;
-    return withCursor(state, index < parts.length ? parts[index].index : state.text.length);
+    return withCursor(state2, index < parts.length ? parts[index].index : state2.text.length);
   }
   while (index < parts.length && !isWhitespace(parts[index])) index += 1;
   while (index < parts.length && isWhitespace(parts[index])) index += 1;
-  return withCursor(state, index < parts.length ? parts[index].index : state.text.length);
+  return withCursor(state2, index < parts.length ? parts[index].index : state2.text.length);
 }
-function layout(text2, width, cursor = text2.length) {
+function layout(text6, width, cursor = text6.length) {
   const limit = safeWidth(width);
-  const safeCursor = clamp(cursor, 0, text2.length);
-  const parts = partsOf(text2);
+  const safeCursor = clamp(cursor, 0, text6.length);
+  const parts = partsOf(text6);
   const lines = [];
   let start = 0;
   let used = 0;
@@ -37636,9 +44815,9 @@ function layout(text2, width, cursor = text2.length) {
     }
     used += part.width;
   }
-  lines.push({ start, end: text2.length, cells: used });
-  if (used >= limit && safeCursor === text2.length && !text2.endsWith("\n")) {
-    lines.push({ start: text2.length, end: text2.length, cells: 0 });
+  lines.push({ start, end: text6.length, cells: used });
+  if (used >= limit && safeCursor === text6.length && !text6.endsWith("\n")) {
+    lines.push({ start: text6.length, end: text6.length, cells: 0 });
   }
   const cursorRow = locateCursorRow(lines, safeCursor);
   const line = lines[cursorRow] ?? { start: 0, end: 0, cells: 0 };
@@ -37646,7 +44825,7 @@ function layout(text2, width, cursor = text2.length) {
   return {
     lines,
     cursorRow,
-    cursorCol: textWidth(text2.slice(line.start, stop))
+    cursorCol: textWidth(text6.slice(line.start, stop))
   };
 }
 
@@ -37687,19 +44866,19 @@ function formatSize(bytes) {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
-function stripPasteMarkers(text2) {
-  return text2.replace(/\u001B?\[20[01]~/g, "");
+function stripPasteMarkers(text6) {
+  return text6.replace(/\u001B?\[20[01]~/g, "");
 }
-function fromFileUrl(text2) {
-  const rest = text2.slice("file://".length).replace(/^localhost/, "");
+function fromFileUrl(text6) {
+  const rest = text6.slice("file://".length).replace(/^localhost/, "");
   try {
     return decodeURIComponent(rest);
   } catch {
     return rest;
   }
 }
-function unquote(text2) {
-  const trimmed = text2.trim();
+function unquote(text6) {
+  const trimmed = text6.trim();
   if (trimmed.length >= 2) {
     const first = trimmed[0];
     const last = trimmed[trimmed.length - 1];
@@ -37709,18 +44888,18 @@ function unquote(text2) {
   }
   return trimmed;
 }
-function normalizePath(text2) {
-  const bare = unquote(text2).replace(/\\ /g, " ");
+function normalizePath(text6) {
+  const bare = unquote(text6).replace(/\\ /g, " ");
   return bare.startsWith("file://") ? fromFileUrl(bare) : bare;
 }
 var counter2 = 0;
-function scanAttachments(text2, probe) {
+function scanAttachments(text6, probe) {
   const attachments = [];
   const rejected = [];
   const seen = /* @__PURE__ */ new Set();
   let textLines = 0;
   const candidates = [];
-  for (const line of stripPasteMarkers(text2).split(/[\r\n]+/)) {
+  for (const line of stripPasteMarkers(text6).split(/[\r\n]+/)) {
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
     const whole = normalizePath(trimmed);
@@ -37773,26 +44952,26 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.87";
+var TUI_VERSION = "0.2.88";
 
 // src/components/DiffView.tsx
-var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
 var COLLAPSED_LINES = 12;
 var EXPANDED_LINES = 200;
-function diffLineColor(line) {
+function diffLineColor2(line) {
   if (line.startsWith("+++") || line.startsWith("---")) return "cyan";
   if (line.startsWith("@@")) return "magenta";
   if (line.startsWith("+")) return "green";
   if (line.startsWith("-")) return "red";
   return void 0;
 }
-function bodyLines(patch) {
+function bodyLines2(patch) {
   return patch.split("\n").filter((line) => !/^(\+\+\+|---|diff |index )/.test(line));
 }
 function diffStats(patch) {
   let added = 0;
   let removed = 0;
-  for (const line of bodyLines(patch)) {
+  for (const line of bodyLines2(patch)) {
     if (line.startsWith("+")) added += 1;
     else if (line.startsWith("-")) removed += 1;
   }
@@ -37814,23 +44993,23 @@ function DiffView({
   const lines = diff2.patch.split("\n");
   const limit = expanded ? EXPANDED_LINES : COLLAPSED_LINES;
   const shown = lines.slice(0, limit);
-  const hidden = lines.length - shown.length;
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
-      badge ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
+  const hidden2 = lines.length - shown.length;
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
+      badge ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
     ] }),
-    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
       Text,
       {
-        color: diffLineColor(line),
-        dimColor: diffLineColor(line) === void 0,
+        color: diffLineColor2(line),
+        dimColor: diffLineColor2(line) === void 0,
         wrap: "truncate-end",
         children: line
       },
       `${diff2.id}-d${index}`
     )),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, children: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)` }) : null
+    hidden2 > 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: `\u2026 ${hidden2} more ${hidden2 === 1 ? "line" : "lines"} (Ctrl+O)` }) : null
   ] });
 }
 
@@ -38036,335 +45215,20 @@ function hiddenLines(calls) {
 }
 
 // src/components/ToolSummary.tsx
-var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
-var SUMMARY_GLYPH = "\u23FA";
+var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+var SUMMARY_GLYPH = "\u25CF";
 function ToolSummary({ calls }) {
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Box_default, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { children: summarizeCalls(calls) }),
-    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { children: summarizeCalls(calls) }),
+    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
   ] });
 }
 
-// src/layout/transcript.ts
-var TOOL_OUTPUT_LINES = 12;
-var COLLAPSED_ERROR_LINES = 3;
-var DIFF_LINES = 40;
-function roleMark(role) {
-  switch (role) {
-    case "user":
-      return { text: "\u203A ", color: currentAccent(), bold: true };
-    case "assistant":
-      return { text: "\u25C6 ", color: currentAccent(), bold: true };
-    case "system":
-      return { text: "! ", color: "yellow", bold: true };
-    // An aside from the surface itself, e.g. a replayed turn's `✓ Done` line: no
-    // speaker, so no marker and no attention-seeking colour.
-    default:
-      return { text: "", dimColor: true };
-  }
-}
-var TOOL_MARK = {
-  running: { text: "\u25CC ", color: "yellow" },
-  ok: { text: "\u2713 ", color: "green" },
-  error: { text: "\u2717 ", color: "red" }
-};
-function plainLength(segments) {
-  let total = 0;
-  for (const segment of segments) total += textWidth(segment.text);
-  return total;
-}
-function lineText(line) {
-  return line.segments.map((segment) => segment.text).join("");
-}
-function sliceSegments(segments, start, end2) {
-  const out = [];
-  let cursor = 0;
-  for (const segment of segments) {
-    const segStart = cursor;
-    const segEnd = cursor + segment.text.length;
-    cursor = segEnd;
-    if (segEnd <= start) continue;
-    if (segStart >= end2) break;
-    const text2 = segment.text.slice(Math.max(0, start - segStart), Math.min(segment.text.length, end2 - segStart));
-    if (text2.length > 0) out.push({ ...segment, text: text2 });
-  }
-  return out;
-}
-function wrapLine(line, width, indent = "") {
-  if (width <= 0 || plainLength(line.segments) <= width) return [line];
-  const text2 = lineText(line);
-  const parts = graphemes(text2);
-  const out = [];
-  let start = 0;
-  while (start < parts.length) {
-    const prefix = out.length === 0 ? "" : indent;
-    const room = Math.max(1, width - textWidth(prefix));
-    let end2 = start;
-    let used = 0;
-    while (end2 < parts.length && used + parts[end2].width <= room) {
-      used += parts[end2].width;
-      end2 += 1;
-    }
-    if (end2 === start) end2 += 1;
-    if (end2 < parts.length) {
-      let space = end2;
-      while (space > start && parts[space]?.text !== " ") space -= 1;
-      if (space > start) end2 = space;
-    }
-    const segments = sliceSegments(line.segments, parts[start].index, parts[end2]?.index ?? text2.length);
-    out.push({
-      key: `${line.key}-w${out.length}`,
-      segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments,
-      ...line.source !== void 0 ? { source: line.source } : {}
-    });
-    start = end2;
-    while (parts[start]?.text === " ") start += 1;
-  }
-  return out;
-}
-function inlineSegments(text2) {
-  const parts = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
-  let last = 0;
-  let match;
-  while ((match = pattern.exec(text2)) !== null) {
-    if (match.index > last) parts.push({ text: text2.slice(last, match.index) });
-    const token = match[0];
-    if (token.startsWith("`")) parts.push({ text: token.slice(1, -1), color: "cyan" });
-    else if (token.startsWith("**")) parts.push({ text: token.slice(2, -2), bold: true });
-    else parts.push({ text: token.slice(1, -1), italic: true });
-    last = match.index + token.length;
-  }
-  if (last < text2.length) parts.push({ text: text2.slice(last) });
-  return parts.length > 0 ? parts : [{ text: text2 }];
-}
-function tableCells(raw) {
-  const text2 = raw.trim();
-  if (!text2.includes("|")) return null;
-  const cells2 = [];
-  let cell = "";
-  let ticks = 0;
-  for (let i = 0; i < text2.length; i += 1) {
-    if (text2[i] === "\\" && text2[i + 1] === "|") {
-      cell += "|";
-      i += 1;
-    } else if (text2[i] === "`") {
-      let end2 = i + 1;
-      while (text2[end2] === "`") end2 += 1;
-      const count2 = end2 - i;
-      if (ticks === 0) ticks = count2;
-      else if (ticks === count2) ticks = 0;
-      cell += text2.slice(i, end2);
-      i = end2 - 1;
-    } else if (text2[i] === "|" && ticks === 0) {
-      cells2.push(cell.trim());
-      cell = "";
-    } else cell += text2[i];
-  }
-  cells2.push(cell.trim());
-  if (text2.startsWith("|")) cells2.shift();
-  if (text2.endsWith("|") && cells2.at(-1) === "") cells2.pop();
-  return cells2.length > 0 ? cells2 : null;
-}
-function tableAt(source, start, width, id) {
-  const header = tableCells(source[start]);
-  const divider = tableCells(source[start + 1] ?? "");
-  if (!header || !divider || header.length !== divider.length || !divider.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
-  const rows = [header];
-  let end2 = start + 2;
-  while (end2 < source.length) {
-    const row = tableCells(source[end2]);
-    if (!row || row.length !== header.length) break;
-    rows.push(row);
-    end2 += 1;
-  }
-  const styled = rows.map((row) => row.map(inlineSegments));
-  const widths = header.map((_, col) => Math.max(2, ...styled.map((row) => plainLength(row[col]))));
-  const lines = [];
-  const add = (segments) => lines.push({ key: `${id}-table${start}-${lines.length}`, segments });
-  if (header.length * 5 + 1 > width) {
-    styled.forEach((row, rowIndex) => {
-      if (rowIndex === 0) return;
-      row.forEach((cell, col) => {
-        const entry = { key: `${id}-table${start}-${rowIndex}-${col}`, segments: [
-          ...styled[0][col].map((segment) => ({ ...segment, bold: true })),
-          { text: ": " },
-          ...cell
-        ] };
-        lines.push(...wrapLine(entry, width));
-      });
-    });
-    if (lines.length === 0) add(styled[0].flatMap((cell, col) => col ? [{ text: " / " }, ...cell] : cell));
-    return { lines, end: end2 };
-  }
-  while (widths.reduce((sum, value) => sum + value, 0) + header.length * 3 + 1 > width) {
-    const largest = widths.indexOf(Math.max(...widths));
-    widths[largest] -= 1;
-  }
-  const border = (left2, middle, right2) => add([{
-    text: left2 + widths.map((size) => "\u2500".repeat(size + 2)).join(middle) + right2,
-    dimColor: true
-  }]);
-  border("\u250C", "\u252C", "\u2510");
-  styled.forEach((row, rowIndex) => {
-    const cells2 = row.map((segments, col) => wrapLine({ key: "cell", segments }, widths[col]));
-    const height = Math.max(...cells2.map((cell) => cell.length));
-    for (let line = 0; line < height; line += 1) {
-      const segments = [{ text: "\u2502 ", dimColor: true }];
-      cells2.forEach((cell, col) => {
-        const content = cell[line]?.segments ?? [];
-        const padding = Math.max(0, widths[col] - plainLength(content));
-        const right2 = divider[col].endsWith(":");
-        const left2 = right2 ? divider[col].startsWith(":") ? Math.floor(padding / 2) : padding : 0;
-        segments.push(
-          { text: " ".repeat(left2) },
-          ...content.map((segment) => rowIndex === 0 ? { ...segment, bold: true } : segment),
-          { text: " ".repeat(padding - left2) },
-          { text: col === cells2.length - 1 ? " \u2502" : " \u2502 ", dimColor: true }
-        );
-      });
-      add(segments);
-    }
-    if (rowIndex === 0) border("\u251C", "\u253C", "\u2524");
-  });
-  border("\u2514", "\u2534", "\u2518");
-  return { lines, end: end2 };
-}
-function messageSource(message) {
-  const text2 = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
-  return (message.streaming ? `${text2}\u2026` : text2).split("\n");
-}
-function messageLines(message, width = 80) {
-  const out = [];
-  const source = messageSource(message);
-  let inFence = false;
-  for (let index = 0; index < source.length; index += 1) {
-    const raw = source[index];
-    if (!inFence) {
-      const table = tableAt(source, index, Math.max(1, width - 2), message.id);
-      if (table) {
-        table.lines.forEach((line, row) => out.push({
-          ...line,
-          source: index,
-          segments: [index === 0 && row === 0 ? roleMark(message.role) : { text: "  " }, ...line.segments]
-        }));
-        index = table.end - 1;
-        continue;
-      }
-    }
-    const key = `${message.id}-l${index}`;
-    let segments;
-    if (raw.trimStart().startsWith("```")) {
-      inFence = !inFence;
-      segments = [{ text: raw, dimColor: true }];
-    } else if (inFence) {
-      segments = [{ text: raw, color: "cyan" }];
-    } else {
-      const heading = /^(#{1,6})\s+(.*)$/.exec(raw);
-      const bullet = /^(\s*)[-*]\s+(.*)$/.exec(raw);
-      if (heading) segments = [{ text: heading[2], bold: true, color: "yellow" }];
-      else if (bullet)
-        segments = [{ text: bullet[1] }, { text: "\u2022 ", color: "magenta" }, ...inlineSegments(bullet[2])];
-      else segments = inlineSegments(raw);
-    }
-    const mark = index === 0 ? roleMark(message.role) : { text: "  " };
-    out.push({ key, segments: [mark, ...segments], source: index });
-  }
-  return out;
-}
-function summarizeArgs(args, max = 60) {
-  const joined = Object.entries(args).map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`).join(" ");
-  return joined.length > max ? `${joined.slice(0, max - 1)}\u2026` : joined;
-}
-function visibleToolBodyLines(call, expanded, maxLines = TOOL_OUTPUT_LINES) {
-  const body = call.error ?? call.output ?? "";
-  const all = body.length > 0 ? body.replace(/\n+$/, "").split("\n") : [];
-  if (expanded) return { shown: all.slice(0, maxLines), total: all.length };
-  if (call.state === "error" && all.length > 0) {
-    return { shown: all.slice(0, COLLAPSED_ERROR_LINES), total: all.length };
-  }
-  const live = call.progress?.length ?? 0;
-  if (call.state === "ok" && live > 0 && all.length > 0) {
-    return { shown: all.slice(-live), total: all.length, kept: true };
-  }
-  return { shown: [], total: all.length };
-}
-function toolLineCount(shown, total, kept) {
-  if (kept) return shown < total ? ` (last ${shown} of ${total} lines)` : "";
-  return shown === 0 && total > 0 ? ` (${total} lines)` : "";
-}
-function toolCallLines(call, expanded) {
-  const { shown, total: allLength, kept } = visibleToolBodyLines(call, expanded);
-  const hidden = kept ? 0 : allLength - shown.length;
-  const head = [
-    TOOL_MARK[call.state] ?? TOOL_MARK.running,
-    { text: call.name, bold: true },
-    { text: ` ${summarizeArgs(call.args)}`, dimColor: true }
-  ];
-  const count2 = expanded ? "" : toolLineCount(shown.length, allLength, kept);
-  if (count2) head.push({ text: count2, dimColor: true });
-  const out = [{ key: `${call.callId}-h`, segments: head }];
-  if (call.state === "running") {
-    (call.progress ?? []).forEach((line, index) => {
-      out.push({
-        key: `${call.callId}-p${index}`,
-        segments: [{
-          text: `  ${line.text}`,
-          dimColor: line.stream === "stdout",
-          color: line.stream === "stderr" ? "yellow" : void 0
-        }]
-      });
-    });
-    if ((call.progress ?? []).length > 0 && call.progressTruncated) {
-      out.push({ key: `${call.callId}-ptrunc`, segments: [{ text: "  \u2026 truncated", dimColor: true }] });
-    }
-  }
-  shown.forEach((line, index) => {
-    const severity = diagnosticLineColor(line);
-    out.push({
-      key: `${call.callId}-o${index}`,
-      segments: [
-        {
-          text: `  ${line}`,
-          dimColor: !call.error && severity === void 0,
-          color: call.error ? "red" : severity
-        }
-      ]
-    });
-  });
-  if (hidden > 0 && shown.length > 0) {
-    out.push({ key: `${call.callId}-more`, segments: [{ text: `  \u2026 ${hidden} more lines`, dimColor: true }] });
-  }
-  return out;
-}
-function diffLineColor2(line) {
-  if (line.startsWith("+++") || line.startsWith("---")) return "cyan";
-  if (line.startsWith("@@")) return "magenta";
-  if (line.startsWith("+")) return "green";
-  if (line.startsWith("-")) return "red";
-  return void 0;
-}
-function diffLines(diff2) {
-  const all = diff2.patch.split("\n");
-  const shown = all.slice(0, DIFF_LINES);
-  const hidden = all.length - shown.length;
-  const out = [
-    { key: `${diff2.id}-h`, segments: [{ text: `\xB1 ${diff2.path}`, bold: true, color: "yellow" }] }
-  ];
-  shown.forEach(
-    (line, index) => out.push({ key: `${diff2.id}-d${index}`, segments: [{ text: line, color: diffLineColor2(line) }] })
-  );
-  if (hidden > 0) {
-    out.push({ key: `${diff2.id}-more`, segments: [{ text: `\u2026 ${hidden} more diff lines`, dimColor: true }] });
-  }
-  return out;
-}
-
 // src/layout/screen-transcript.ts
-var blank = (key) => ({ key, segments: [{ text: "" }] });
+var blank2 = (key) => ({ key, segments: [{ text: "" }] });
 function bandLines(lines, width, background) {
   if (!background) return lines;
   return lines.map((line) => {
@@ -38402,23 +45266,23 @@ function messageBlock(message, width, colorize2, inputBackground) {
   }
   return out;
 }
-function diffBlock(diff2, expanded, state) {
-  const diagnostics = state.diagnostics[diff2.path];
+function diffBlock(diff2, expanded, state2) {
+  const diagnostics = state2.diagnostics[diff2.path];
   const badge = diagnosticsBadge(diagnostics);
   const head = [{ text: diffHeader(diff2), bold: true, color: diff2.created ? "green" : "yellow" }];
   if (badge) head.push({ text: `  ${badge}`, color: diagnosticsColor(diagnostics) });
   const all = diff2.patch.split("\n");
   const shown = all.slice(0, expanded ? EXPANDED_LINES : COLLAPSED_LINES);
-  const hidden = all.length - shown.length;
+  const hidden2 = all.length - shown.length;
   const out = [{ key: `${diff2.id}-h`, segments: head }];
   shown.forEach((line, index) => {
-    const color = diffLineColor(line);
+    const color = diffLineColor2(line);
     out.push({ key: `${diff2.id}-d${index}`, segments: [{ text: line, color, dimColor: color === void 0 }] });
   });
-  if (hidden > 0) {
+  if (hidden2 > 0) {
     out.push({
       key: `${diff2.id}-more`,
-      segments: [{ text: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)`, dimColor: true }]
+      segments: [{ text: `\u2026 ${hidden2} more ${hidden2 === 1 ? "line" : "lines"} (Ctrl+O)`, dimColor: true }]
     });
   }
   return out;
@@ -38435,23 +45299,23 @@ function cachedMessageLines(message, width, colorize2, inputBackground) {
   messageCache.set(message, { width, background: inputBackground, colorize: colorize2, lines });
   return lines;
 }
-function screenTranscriptLines(state, width, { expandedId = null, notes = [], inputBackground = currentInputBackground() } = {}, colorize2 = (lines) => lines) {
-  notes = notes.filter((note) => note.at <= state.timeline.length).sort((a, b) => a.at - b.at);
+function screenTranscriptLines(state2, width, { expandedId = null, notes = [], inputBackground = currentInputBackground() } = {}, colorize2 = (lines) => lines) {
+  notes = notes.filter((note) => note.at <= state2.timeline.length).sort((a, b) => a.at - b.at);
   const out = [];
   let last = "none";
   let run = [];
   let noteIndex = 0;
-  const messages = new Map(state.messages.map((entry) => [entry.id, entry]));
-  const calls = new Map(state.toolCalls.map((entry) => [entry.callId, entry]));
-  const diffs = new Map(state.diffs.map((entry) => [entry.id, entry]));
+  const messages = new Map(state2.messages.map((entry) => [entry.id, entry]));
+  const calls = new Map(state2.toolCalls.map((entry) => [entry.callId, entry]));
+  const diffs = new Map(state2.diffs.map((entry) => [entry.id, entry]));
   const push = (lines, kind, gapAfter, wrapped = false) => {
-    if (kind === "block" && last === "tools") out.push(blank(`gap-${out.length}`));
+    if (kind === "block" && last === "tools") out.push(blank2(`gap-${out.length}`));
     if (wrapped) {
       for (const line of lines) out.push(line);
     } else {
       out.push(...lines.flatMap((line) => wrapLine(line, width, "  ")));
     }
-    if (gapAfter) out.push(blank(`gap-${out.length}`));
+    if (gapAfter) out.push(blank2(`gap-${out.length}`));
     last = gapAfter ? "none" : kind;
   };
   const flush = (_live) => {
@@ -38476,7 +45340,7 @@ function screenTranscriptLines(state, width, { expandedId = null, notes = [], in
       noteIndex += 1;
     }
   };
-  state.timeline.forEach((item, index) => {
+  state2.timeline.forEach((item, index) => {
     placeNotes(index);
     if (item.kind === "tool") {
       const call = calls.get(item.id);
@@ -38492,164 +45356,72 @@ function screenTranscriptLines(state, width, { expandedId = null, notes = [], in
       return;
     }
     if (item.kind === "compaction") {
-      const entry = state.compactions.find((c) => c.id === item.id);
+      const entry = state2.compactions.find((c) => c.id === item.id);
       if (entry) {
-        push([{ key: `compaction-${entry.id}`, segments: [{ text: compactionDivider(entry.before, entry.after, width), dimColor: true }] }], "block", true);
+        push([{ key: `compaction-${entry.id}`, segments: [{ text: compactionDivider(entry.before, entry.after, width, entry.reason), dimColor: true }] }], "block", true);
       }
       return;
     }
     const diff2 = diffs.get(item.id);
-    if (diff2) push(diffBlock(diff2, expandedId === diff2.id, state), "block", true);
+    if (diff2) push(diffBlock(diff2, expandedId === diff2.id, state2), "block", true);
   });
-  const tailNotes = notes.slice(noteIndex).some((note) => note.at <= state.timeline.length);
-  flush(state.turnActive && !tailNotes);
-  placeNotes(state.timeline.length);
+  const tailNotes = notes.slice(noteIndex).some((note) => note.at <= state2.timeline.length);
+  flush(state2.turnActive && !tailNotes);
+  placeNotes(state2.timeline.length);
   while (out.length > 0 && out[out.length - 1].segments.every((segment) => segment.text === "")) out.pop();
   return out;
-}
-
-// src/layout/viewport.ts
-var HEADER_ROWS = 1;
-var STATUS_ROWS = 1;
-var RESERVED_FRAME_ROW = 1;
-function usableRows(terminalRows) {
-  return Math.max(1, Math.floor(terminalRows) - RESERVED_FRAME_ROW);
-}
-var MIN_TRANSCRIPT_ROWS = 1;
-function computeLayout({
-  rows,
-  columns,
-  bottomRows: bottomRows2,
-  headerRows = HEADER_ROWS,
-  statusRows = STATUS_ROWS,
-  minTranscriptRows = MIN_TRANSCRIPT_ROWS
-}) {
-  const safeRows = Math.max(1, Math.floor(rows));
-  const safeColumns = Math.max(1, Math.floor(columns));
-  const fixed = headerRows + statusRows + Math.max(0, bottomRows2);
-  const transcriptRows = Math.max(minTranscriptRows, safeRows - fixed);
-  return {
-    headerRows,
-    transcriptRows,
-    bottomRows: Math.max(0, bottomRows2),
-    statusRows,
-    columns: safeColumns,
-    rows: safeRows
-  };
-}
-function clampScroll(offset, total, height) {
-  const max = Math.max(0, total - Math.max(1, height));
-  if (!Number.isFinite(offset)) return 0;
-  return Math.min(Math.max(0, Math.floor(offset)), max);
-}
-function pageStep(height) {
-  return Math.max(1, Math.max(1, Math.floor(height)) - 1);
-}
-function halfPageStep(height) {
-  return Math.max(1, Math.floor(Math.max(1, Math.floor(height)) / 2));
-}
-function sliceViewport(lines, height, scrollOffset = 0) {
-  const safeHeight = Math.max(1, Math.floor(height));
-  const total = lines.length;
-  const offset = clampScroll(scrollOffset, total, safeHeight);
-  const end2 = Math.max(0, total - offset);
-  const start = Math.max(0, end2 - safeHeight);
-  return {
-    lines: lines.slice(start, end2),
-    start,
-    end: end2,
-    scrollOffset: offset,
-    hiddenAbove: start,
-    hiddenBelow: total - end2,
-    atTop: start === 0,
-    atBottom: offset === 0
-  };
-}
-function paletteRows(commandCount, maxRows = 8) {
-  if (commandCount <= 0) return 0;
-  return Math.min(commandCount, maxRows) + 1 + 2;
-}
-function approvalPromptRows(argCount, menuRows = 6) {
-  return 2 + 1 + 1 + Math.max(0, argCount) + 1 + menuRows;
-}
-function approvalQueueRows(requestCount, focused = false) {
-  if (requestCount <= 0) return 0;
-  return 2 + 1 + requestCount + (focused ? 3 : 1);
-}
-function bottomRows({
-  inputRows = 1,
-  paletteCommands = 0,
-  approvalArgs = null,
-  questionRows = 0,
-  queueRequests = 0,
-  queueFocused = false,
-  errorVisible = false,
-  workingVisible = false,
-  noticeVisible = false,
-  queuedRows = 0,
-  delegationVisible = false
-} = {}) {
-  const input = questionRows > 0 ? questionRows : approvalArgs === null ? Math.max(1, inputRows) + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
-  return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0) + (workingVisible ? 1 : 0) + (noticeVisible ? 1 : 0) + Math.max(0, queuedRows) + (delegationVisible ? 1 : 0);
-}
-function scrollIndicator(view) {
-  if (view.hiddenAbove === 0 && view.hiddenBelow === 0) return null;
-  const parts = [];
-  if (view.hiddenAbove > 0) parts.push(`\u25B2 ${view.hiddenAbove}`);
-  if (view.hiddenBelow > 0) parts.push(`\u25BC ${view.hiddenBelow}`);
-  return parts.join(" ");
 }
 
 // src/layout/statics.ts
 var UNKNOWN_ENTRY_ROWS = 1;
 var ENTRY_CHROME_ROWS = 2;
-function entryRows(state, item) {
+function entryRows(state2, item) {
   if (item.kind === "tool") {
-    const call = state.toolCalls.find((c) => c.callId === item.id);
+    const call = state2.toolCalls.find((c) => c.callId === item.id);
     return call ? toolCallLines(call, false).length + ENTRY_CHROME_ROWS : UNKNOWN_ENTRY_ROWS;
   }
   if (item.kind === "diff") {
-    const diff2 = state.diffs.find((d) => d.id === item.id);
+    const diff2 = state2.diffs.find((d) => d.id === item.id);
     return diff2 ? diffLines(diff2).length + ENTRY_CHROME_ROWS : UNKNOWN_ENTRY_ROWS;
   }
   if (item.kind === "message") {
-    const message = state.messages.find((m) => m.id === item.id);
+    const message = state2.messages.find((m) => m.id === item.id);
     return message?.expansion ? UNKNOWN_ENTRY_ROWS + 1 : UNKNOWN_ENTRY_ROWS;
   }
   return UNKNOWN_ENTRY_ROWS;
 }
-function isSettled(state, item) {
+function isSettled(state2, item) {
   if (item.kind === "message") {
-    const message = state.messages.find((m) => m.id === item.id);
+    const message = state2.messages.find((m) => m.id === item.id);
     if (!message) return false;
     if (message.streaming) return false;
     if (message.awaitingFold) return false;
     return true;
   }
   if (item.kind === "tool") {
-    const call = state.toolCalls.find((c) => c.callId === item.id);
+    const call = state2.toolCalls.find((c) => c.callId === item.id);
     return call ? call.state !== "running" : false;
   }
   return true;
 }
-function settledCount(state, cursor = 0, liveRows = Number.POSITIVE_INFINITY) {
-  const total = state.timeline.length;
+function settledCount(state2, cursor = 0, liveRows = Number.POSITIVE_INFINITY) {
+  const total = state2.timeline.length;
   const start = Math.max(0, Math.min(Math.floor(cursor), total));
-  let count2 = start;
-  while (count2 < total && isSettled(state, state.timeline[count2])) count2 += 1;
-  const next = count2 < total ? state.timeline[count2] : void 0;
+  let count3 = start;
+  while (count3 < total && isSettled(state2, state2.timeline[count3])) count3 += 1;
+  const next = count3 < total ? state2.timeline[count3] : void 0;
   const runIsOver = next !== void 0 && next.kind !== "tool" && next.kind !== "diff";
-  if (state.turnActive && !runIsOver) {
+  if (state2.turnActive && !runIsOver) {
     let rows = 0;
-    while (count2 > start) {
-      const item = state.timeline[count2 - 1];
+    while (count3 > start) {
+      const item = state2.timeline[count3 - 1];
       if (item.kind !== "tool" && item.kind !== "diff") break;
-      rows += entryRows(state, item);
+      rows += entryRows(state2, item);
       if (rows > liveRows) break;
-      count2 -= 1;
+      count3 -= 1;
     }
   }
-  return count2;
+  return count3;
 }
 
 // src/layout/stream-scrollback.ts
@@ -38658,9 +45430,9 @@ function wrappedMessageLines(message, width) {
 }
 function finalSourceLines(message, source) {
   if (!message.streaming) return source.length;
-  let count2 = source.length - 1;
-  while (count2 > 0 && source[count2 - 1].includes("|")) count2 -= 1;
-  return count2;
+  let count3 = source.length - 1;
+  while (count3 > 0 && source[count3 - 1].includes("|")) count3 -= 1;
+  return count3;
 }
 function committedSourceLines(source, entry) {
   if (!entry || entry.lines <= 0) return 0;
@@ -38679,13 +45451,13 @@ function rowOf(lines, line) {
   const at = lines.findIndex((row) => (row.source ?? 0) >= line);
   return at === -1 ? lines.length : at;
 }
-function commitStreamingPrefixes(state, fromTimelineIndex, width, tailRows, committed) {
+function commitStreamingPrefixes(state2, fromTimelineIndex, width, tailRows, committed) {
   const chunks = [];
   const next = new Map(committed);
-  for (let index = fromTimelineIndex; index < state.timeline.length; index += 1) {
-    const item = state.timeline[index];
+  for (let index = fromTimelineIndex; index < state2.timeline.length; index += 1) {
+    const item = state2.timeline[index];
     if (item.kind !== "message") continue;
-    const message = state.messages.find((entry) => entry.id === item.id);
+    const message = state2.messages.find((entry) => entry.id === item.id);
     if (!message) continue;
     if (message.awaitingFold) continue;
     const source = messageSource(message);
@@ -38717,34 +45489,6 @@ function messageFullyCommitted(message, _width, committed) {
   return committedSourceLines(source, committed.get(message.id)) >= source.length;
 }
 
-// src/components/RenderedLines.tsx
-var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
-function RenderedLines({
-  lines,
-  background,
-  width
-}) {
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_jsx_runtime3.Fragment, { children: lines.map((line) => {
-    const used = background && width ? line.segments.reduce((sum, segment) => sum + textWidth(segment.text), 0) : 0;
-    const pad = background && width ? Math.max(0, width - used) : 0;
-    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Text, { children: [
-      line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-        Text,
-        {
-          color: segment.color,
-          backgroundColor: background,
-          dimColor: segment.dimColor,
-          bold: segment.bold,
-          italic: segment.italic,
-          children: segment.text
-        },
-        index
-      )),
-      pad > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Text, { backgroundColor: background, children: " ".repeat(pad) }) : null
-    ] }, line.key);
-  }) });
-}
-
 // src/layout/agents.ts
 var MAX_COMPACT_AGENT_ROWS = 2;
 var FINISHED_AGENT_GRACE_MS = 1e4;
@@ -38760,8 +45504,9 @@ function rowColor(row) {
 var STATUS_GLYPH = {
   current: CURRENT_GLYPH,
   idle: AGENT_GLYPH,
-  queued: "\u23F3",
-  running: "\u2733",
+  // One cell to Ink and to the layout alike (⏳ and ✳ are two to Ink).
+  queued: "\u25F7",
+  running: "\u25CF",
   done: "\u2713",
   error: "\u2717"
 };
@@ -38844,7 +45589,7 @@ function rowOrigin(name, roster, named) {
   return "external";
 }
 function buildAgentRows({
-  state,
+  state: state2,
   known = [],
   roster,
   now,
@@ -38867,9 +45612,9 @@ function buildAgentRows({
       dim: false
     }
   ];
-  const orderedSubagents = recentFirst(state.subagents, activityTime);
+  const orderedSubagents = recentFirst(state2.subagents, activityTime);
   const compactSubagents = orderedSubagents.filter((entry) => isCompactVisible(entry, now));
-  const teamRows = recentFirst(state.teamTasks, (task) => Number(task.taskId) || 0).map(
+  const teamRows = recentFirst(state2.teamTasks, (task) => Number(task.taskId) || 0).map(
     (task) => teamRow(task, rowOrigin(task.assignee || task.teamId || "team", onTeam, named))
   ).filter((row) => !row.dim);
   const allLive = orderedSubagents.map(
@@ -38880,7 +45625,7 @@ function buildAgentRows({
   );
   const allWorkingRows = [...allLive, ...teamRows];
   const compactWorkingRows = [...compactLive, ...teamRows];
-  const busy = new Set(state.subagents.map((entry) => entry.name).filter(Boolean));
+  const busy = new Set(state2.subagents.map((entry) => entry.name).filter(Boolean));
   const idle = known.filter((agent) => agent.kind !== "subagent" && !busy.has(agent.name)).filter((agent) => !onTeam || onTeam.has(agent.name) || agent.kind === "agent").map((agent) => ({
     key: `idle-${agent.name}`,
     glyph: agent.kind === "agent" ? NAMED_GLYPH : AGENT_GLYPH,
@@ -38911,14 +45656,14 @@ function buildAgentRows({
   }
   return rows;
 }
-function cells(text2) {
-  return textWidth(text2);
+function cells(text6) {
+  return textWidth(text6);
 }
-function fitCells(text2, room) {
-  if (cells(text2) <= room) return text2;
+function fitCells(text6, room) {
+  if (cells(text6) <= room) return text6;
   let out = "";
   let used = 0;
-  for (const part of graphemes(text2)) {
+  for (const part of graphemes(text6)) {
     if (used + part.width > room - 1) break;
     out += part.text;
     used += part.width;
@@ -38947,7 +45692,7 @@ function layoutAgentRow(row, width) {
 }
 
 // src/components/Logo.tsx
-var import_react28 = __toESM(require_react(), 1);
+var import_react47 = __toESM(require_react(), 1);
 
 // src/components/mark.ts
 var BIG_MARK = [
@@ -39166,7 +45911,7 @@ function shadowRow(width) {
 }
 
 // src/components/Logo.tsx
-var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
 var LOGO_COLLAPSE_ROWS = 24;
 var LOGO_EXPANDED_ROWS = 3;
 var LOGO_COLLAPSED_ROWS = 1;
@@ -39203,49 +45948,25 @@ function LogoInner({
     const paint = mode ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
     const colors = gradientColors(bigRows.length, paint);
     const accent = paint === "none" ? void 0 : LOGO_COLOR;
-    return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
-      bigRows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: colors[index], bold: true, wrap: "truncate-end", children: row }, `wordmark-${index}`)),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: shadowRow(drawn) })
+    return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
+      bigRows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: colors[index], bold: true, wrap: "truncate-end", children: row }, `wordmark-${index}`)),
+      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: shadowRow(drawn) })
     ] });
   }
   if (isCollapsed(terminalRows)) {
-    return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: collapsedLine(version) }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: collapsedLine(version) }) });
   }
   const mini = renderMiniMark();
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[0]} ${WORDMARK[0]}` }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[1]} ${WORDMARK[1]}` }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${TAGLINE}  v${version}` })
+  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[0]} ${WORDMARK[0]}` }),
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[1]} ${WORDMARK[1]}` }),
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${TAGLINE}  v${version}` })
   ] });
 }
-var Logo = import_react28.default.memo(LogoInner);
-
-// src/components/TranscriptView.tsx
-var import_react29 = __toESM(require_react(), 1);
-var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
-var transcriptRenderCount = { value: 0 };
-function TranscriptViewInner({
-  lines,
-  height
-}) {
-  transcriptRenderCount.value += 1;
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { flexDirection: "column", height, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { wrap: "truncate-end", children: line.segments.every((segment) => segment.text === "") ? " " : line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-    Text,
-    {
-      color: segment.color,
-      dimColor: segment.dimColor,
-      bold: segment.bold,
-      italic: segment.italic,
-      backgroundColor: segment.backgroundColor,
-      children: segment.text
-    },
-    `${line.key}-s${index}`
-  )) }) }, line.key)) });
-}
-var TranscriptView = import_react29.default.memo(TranscriptViewInner);
+var Logo = import_react47.default.memo(LogoInner);
 
 // src/components/FullscreenLayout.tsx
-var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
 function FullscreenLayout({
   rows,
   terminalRows,
@@ -39263,61 +45984,61 @@ function FullscreenLayout({
 }) {
   const inner = Math.max(1, columns - 2);
   const rule = banner === null ? "\u2500".repeat(Math.max(0, inner - (scrollIndicator2?.length ?? 0))) : null;
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", width: columns, height: rows, paddingX: 1, overflow: "hidden", children: [
-    showLogo ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Logo, { terminalRows, version, width: inner }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexShrink: 0, justifyContent: "space-between", children: [
-      banner === null ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: rule }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: bannerColor, wrap: "truncate-end", children: banner }),
-      scrollIndicator2 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: scrollIndicator2 }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", width: columns, height: rows, paddingX: 1, overflow: "hidden", children: [
+    showLogo ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Logo, { terminalRows, version, width: inner }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexShrink: 0, justifyContent: "space-between", children: [
+      banner === null ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: rule }) : /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: bannerColor, wrap: "truncate-end", children: banner }),
+      scrollIndicator2 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: scrollIndicator2 }) : null
     ] }),
-    overlay ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", height: transcriptRows, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: overlay }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(TranscriptView, { lines, height: transcriptRows }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: bottom }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: status })
+    overlay ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Box_default, { flexDirection: "column", height: transcriptRows, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: overlay }) : /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(TranscriptView, { lines, height: transcriptRows }),
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: bottom }),
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: status })
   ] });
 }
 
 // src/components/Chat.tsx
-var import_react30 = __toESM(require_react(), 1);
+var import_react48 = __toESM(require_react(), 1);
 
 // src/state/fileRefs.ts
 var TRAILING_PUNCT_CHARS = /* @__PURE__ */ new Set([".", ",", ";", ":", ")", "!", "?"]);
-function findAllFileRefs(text2) {
+function findAllFileRefs(text6) {
   const refs = [];
-  const len = text2.length;
+  const len = text6.length;
   let i = 0;
   while (i < len) {
-    if (text2[i] !== "@") {
+    if (text6[i] !== "@") {
       i += 1;
       continue;
     }
     if (i > 0) {
-      const prev = text2[i - 1];
+      const prev = text6[i - 1];
       if (prev === "\\" || /\w/.test(prev)) {
         i += 1;
         continue;
       }
     }
     const start = i;
-    if (i + 1 < len && text2[i + 1] === '"') {
+    if (i + 1 < len && text6[i + 1] === '"') {
       let closeIdx = -1;
       let j2 = i + 2;
-      while (j2 < len && text2[j2] !== "\n") {
-        if (text2[j2] === '"') {
+      while (j2 < len && text6[j2] !== "\n") {
+        if (text6[j2] === '"') {
           closeIdx = j2;
           break;
         }
         j2 += 1;
       }
       if (closeIdx !== -1) {
-        const query2 = text2.slice(i + 2, closeIdx);
+        const query2 = text6.slice(i + 2, closeIdx);
         let tokenEnd = closeIdx + 1;
         let lineRange2;
-        const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text2.slice(tokenEnd));
+        const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text6.slice(tokenEnd));
         if (rangeMatch2) {
           lineRange2 = rangeMatch2[1];
           tokenEnd += rangeMatch2[0].length;
         }
         refs.push({
-          raw: text2.slice(start, tokenEnd),
+          raw: text6.slice(start, tokenEnd),
           start,
           end: tokenEnd,
           query: query2,
@@ -39328,9 +46049,9 @@ function findAllFileRefs(text2) {
         continue;
       } else {
         const end2 = j2;
-        const query2 = text2.slice(i + 2, end2);
+        const query2 = text6.slice(i + 2, end2);
         refs.push({
-          raw: text2.slice(start, end2),
+          raw: text6.slice(start, end2),
           start,
           end: end2,
           query: query2,
@@ -39341,10 +46062,10 @@ function findAllFileRefs(text2) {
       }
     }
     let j = i + 1;
-    while (j < len && !/\s/.test(text2[j]) && text2[j] !== "@") {
+    while (j < len && !/\s/.test(text6[j]) && text6[j] !== "@") {
       j += 1;
     }
-    const rawSegment = text2.slice(i + 1, j);
+    const rawSegment = text6.slice(i + 1, j);
     let pathEnd = j;
     let trailingPunct = "";
     if (rawSegment.length === 0) {
@@ -39359,15 +46080,15 @@ function findAllFileRefs(text2) {
       continue;
     }
     let p = j - 1;
-    while (p > i && TRAILING_PUNCT_CHARS.has(text2[p])) {
-      if (text2[p] === "." && (p === i + 1 || text2[p - 1] === "/")) {
+    while (p > i && TRAILING_PUNCT_CHARS.has(text6[p])) {
+      if (text6[p] === "." && (p === i + 1 || text6[p - 1] === "/")) {
         break;
       }
       p -= 1;
     }
-    trailingPunct = text2.slice(p + 1, j);
+    trailingPunct = text6.slice(p + 1, j);
     pathEnd = p + 1;
-    const fullPathSegment = text2.slice(i + 1, pathEnd);
+    const fullPathSegment = text6.slice(i + 1, pathEnd);
     let query = fullPathSegment;
     let lineRange;
     const rangeMatch = /^(.+?):(\d+(?:-\d+)?)$/.exec(fullPathSegment);
@@ -39376,7 +46097,7 @@ function findAllFileRefs(text2) {
       lineRange = rangeMatch[2];
     }
     refs.push({
-      raw: text2.slice(start, pathEnd),
+      raw: text6.slice(start, pathEnd),
       start,
       end: pathEnd,
       query,
@@ -39388,28 +46109,28 @@ function findAllFileRefs(text2) {
   }
   return refs;
 }
-function findFileRefToken(text2, cursor) {
-  if (text2.length === 0 || cursor <= 0) return null;
-  const len = text2.length;
+function findFileRefToken(text6, cursor) {
+  if (text6.length === 0 || cursor <= 0) return null;
+  const len = text6.length;
   let atPos = -1;
   let inQuotes = false;
   for (let k = cursor - 1; k >= 0; k -= 1) {
-    const ch = text2[k];
+    const ch = text6[k];
     if (ch === "\n") break;
     if (ch === '"') inQuotes = true;
     if (ch === "@") {
-      if (k === 0 || text2[k - 1] !== "\\" && !/\w/.test(text2[k - 1])) {
+      if (k === 0 || text6[k - 1] !== "\\" && !/\w/.test(text6[k - 1])) {
         atPos = k;
       }
       break;
     }
   }
   if (atPos === -1) return null;
-  if (atPos + 1 < len && text2[atPos + 1] === '"') {
+  if (atPos + 1 < len && text6[atPos + 1] === '"') {
     let closeIdx = -1;
     let j2 = atPos + 2;
-    while (j2 < len && text2[j2] !== "\n") {
-      if (text2[j2] === '"') {
+    while (j2 < len && text6[j2] !== "\n") {
+      if (text6[j2] === '"') {
         closeIdx = j2;
         break;
       }
@@ -39418,17 +46139,17 @@ function findFileRefToken(text2, cursor) {
     if (closeIdx !== -1) {
       let tokenEnd = closeIdx + 1;
       let lineRange2;
-      const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text2.slice(tokenEnd));
+      const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text6.slice(tokenEnd));
       if (rangeMatch2) {
         lineRange2 = rangeMatch2[1];
         tokenEnd += rangeMatch2[0].length;
       }
       if (cursor > atPos && cursor <= tokenEnd) {
         return {
-          raw: text2.slice(atPos, tokenEnd),
+          raw: text6.slice(atPos, tokenEnd),
           start: atPos,
           end: tokenEnd,
-          query: text2.slice(atPos + 2, closeIdx),
+          query: text6.slice(atPos + 2, closeIdx),
           quoted: true,
           lineRange: lineRange2
         };
@@ -39438,10 +46159,10 @@ function findFileRefToken(text2, cursor) {
       const end2 = j2;
       if (cursor > atPos && cursor <= end2) {
         return {
-          raw: text2.slice(atPos, end2),
+          raw: text6.slice(atPos, end2),
           start: atPos,
           end: end2,
-          query: text2.slice(atPos + 2, end2),
+          query: text6.slice(atPos + 2, end2),
           quoted: true
         };
       }
@@ -39449,11 +46170,11 @@ function findFileRefToken(text2, cursor) {
     }
   }
   let j = atPos + 1;
-  while (j < len && !/\s/.test(text2[j]) && text2[j] !== "@") {
+  while (j < len && !/\s/.test(text6[j]) && text6[j] !== "@") {
     j += 1;
   }
   if (cursor <= atPos || cursor > j) return null;
-  const rawSegment = text2.slice(atPos + 1, j);
+  const rawSegment = text6.slice(atPos + 1, j);
   if (rawSegment.length === 0) {
     return {
       raw: "@",
@@ -39466,8 +46187,8 @@ function findFileRefToken(text2, cursor) {
   let pathEnd = j;
   let trailingPunct = "";
   let p = j - 1;
-  while (p > atPos && TRAILING_PUNCT_CHARS.has(text2[p])) {
-    if (text2[p] === "." && (cursor === j || p === atPos + 1 || text2[p - 1] === "/")) {
+  while (p > atPos && TRAILING_PUNCT_CHARS.has(text6[p])) {
+    if (text6[p] === "." && (cursor === j || p === atPos + 1 || text6[p - 1] === "/")) {
       break;
     }
     if (cursor > p) {
@@ -39475,12 +46196,12 @@ function findFileRefToken(text2, cursor) {
     }
     p -= 1;
   }
-  trailingPunct = text2.slice(p + 1, j);
+  trailingPunct = text6.slice(p + 1, j);
   pathEnd = p + 1;
   if (cursor > pathEnd && trailingPunct.length > 0) {
     return null;
   }
-  const fullPathSegment = text2.slice(atPos + 1, pathEnd);
+  const fullPathSegment = text6.slice(atPos + 1, pathEnd);
   let query = fullPathSegment;
   let lineRange;
   const rangeMatch = /^(.+?):(\d+(?:-\d+)?)$/.exec(fullPathSegment);
@@ -39489,7 +46210,7 @@ function findFileRefToken(text2, cursor) {
     lineRange = rangeMatch[2];
   }
   return {
-    raw: text2.slice(atPos, pathEnd),
+    raw: text6.slice(atPos, pathEnd),
     start: atPos,
     end: pathEnd,
     query,
@@ -39498,7 +46219,7 @@ function findFileRefToken(text2, cursor) {
     trailingPunct: trailingPunct.length > 0 ? trailingPunct : void 0
   };
 }
-function applyFileCompletion(text2, token, entry) {
+function applyFileCompletion(text6, token, entry) {
   const path = typeof entry === "string" ? entry : entry.path;
   const isDir = typeof entry === "object" && entry.kind === "dir" || path.endsWith("/");
   const normalizedPath = isDir && !path.endsWith("/") ? `${path}/` : path;
@@ -39509,13 +46230,13 @@ function applyFileCompletion(text2, token, entry) {
   } else {
     replacement = hasSpaces ? `@"${normalizedPath}" ` : `@${normalizedPath} `;
   }
-  const newText = text2.slice(0, token.start) + replacement + text2.slice(token.end);
+  const newText = text6.slice(0, token.start) + replacement + text6.slice(token.end);
   const nextCursor = token.start + replacement.length;
   return { text: newText, cursor: nextCursor };
 }
 
 // src/components/AgentPalette.tsx
-var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
 function AgentPalette({
   candidates,
   selectedIndex = 0,
@@ -39524,235 +46245,26 @@ function AgentPalette({
 }) {
   if (candidates.length === 0) {
     if (prefix.length === 0) return null;
-    return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { borderStyle: "round", borderColor: "magenta", paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: `no agent starts with "${prefix}"` }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Box_default, { borderStyle: "round", borderColor: "magenta", paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: `no agent starts with "${prefix}"` }) });
   }
   const start = Math.max(0, Math.min(selectedIndex - maxRows + 1, candidates.length - maxRows));
   const shown = candidates.slice(Math.max(0, start), Math.max(0, start) + maxRows);
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "magenta", paddingX: 1, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "magenta", paddingX: 1, children: [
     shown.map((candidate) => {
       const active = candidates.indexOf(candidate) === selectedIndex;
       const tag = candidateTag(candidate);
-      return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Text, { inverse: active, wrap: "truncate-end", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: "magenta", children: candidate.name }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: candidate.description ? ` ${candidate.description}` : "" }),
-        tag ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: ` [${tag}]` }) : null
+      return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Text, { inverse: active, wrap: "truncate-end", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "magenta", children: candidate.name }),
+        /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: candidate.description ? ` ${candidate.description}` : "" }),
+        tag ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: ` [${tag}]` }) : null
       ] }, candidate.name);
     }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "\u2191/\u2193 select \xB7 Tab or Enter accept \xB7 Esc close" })
-  ] });
-}
-
-// src/hooks/useChoiceKeys.ts
-var PAGE_STEP = 10;
-function useChoiceKeys(options) {
-  const {
-    count: count2,
-    index,
-    onIndex,
-    onEnter,
-    onCancel,
-    onToggle,
-    multi = false,
-    onDigit,
-    digitLimit,
-    digits = true,
-    onLeft,
-    onRight,
-    onTab,
-    onShiftTab,
-    shortcuts,
-    vim = true,
-    onKey,
-    isActive = true
-  } = options;
-  use_input_default(
-    (input, key) => {
-      if (mouseReports(input).length > 0) return;
-      if (onKey?.(input, key)) return;
-      if (key.escape) {
-        onCancel?.();
-        return;
-      }
-      if (key.tab && key.shift) {
-        if (onShiftTab) onShiftTab();
-        return;
-      }
-      if (key.tab) {
-        if (onTab) onTab();
-        return;
-      }
-      if (key.leftArrow) {
-        onLeft?.();
-        return;
-      }
-      if (key.rightArrow) {
-        onRight?.();
-        return;
-      }
-      const typed = input.toLowerCase();
-      const shortcut = shortcuts?.[typed];
-      if (shortcut) {
-        shortcut();
-        return;
-      }
-      if (count2 > 0) {
-        if (key.upArrow || vim && typed === "k") {
-          onIndex((index + count2 - 1) % count2);
-          return;
-        }
-        if (key.downArrow || vim && typed === "j") {
-          onIndex((index + 1) % count2);
-          return;
-        }
-        if (key.pageDown) {
-          onIndex(Math.min(count2 - 1, index + PAGE_STEP));
-          return;
-        }
-        if (key.pageUp) {
-          onIndex(Math.max(0, index - PAGE_STEP));
-          return;
-        }
-      }
-      if (input === " ") {
-        if (multi) onToggle?.(index);
-        return;
-      }
-      if (key.return) {
-        onEnter?.(index);
-        return;
-      }
-      if (digits && /^[1-9]$/.test(input)) {
-        const target = Number(input) - 1;
-        const limit = digitLimit ?? count2;
-        if (target < limit) {
-          if (onDigit) onDigit(target);
-          else {
-            onIndex(target);
-            if (multi) onToggle?.(target);
-          }
-        }
-        return;
-      }
-    },
-    { isActive }
-  );
-}
-function choiceHint(options) {
-  const {
-    multi = false,
-    tabs = false,
-    digits = true,
-    enter = "confirm",
-    extra = [],
-    cancel: cancel2 = "cancel"
-  } = options;
-  return [
-    "\u2191\u2193 move",
-    multi ? "Space toggle" : null,
-    `Enter ${enter}`,
-    digits ? multi ? "1-9 toggle" : "1-9 pick" : null,
-    tabs ? "\u2190\u2192 tabs" : null,
-    ...extra,
-    `Esc ${cancel2}`
-  ].filter(Boolean).join(" \xB7 ");
-}
-
-// src/components/ChoiceList.tsx
-var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
-function otherRowIndex(options, allowOther) {
-  return allowOther ? options.length : -1;
-}
-function windowStart(index, total, size) {
-  if (total <= size) return 0;
-  return Math.max(0, Math.min(index - size + 2, total - size));
-}
-function ChoiceList({
-  options,
-  selectedIndex,
-  checked,
-  multi = false,
-  radio = false,
-  numbered = false,
-  allowOther = false,
-  otherLabel = "Other\u2026",
-  otherText = null,
-  color = "cyan",
-  windowSize,
-  descriptionMode = "block",
-  hint,
-  showPreview = true
-}) {
-  const size = windowSize ?? options.length;
-  const start = windowStart(selectedIndex, options.length, Math.max(size, 1));
-  const shown = options.slice(start, start + Math.max(size, 1));
-  const hiddenAbove = start;
-  const hiddenBelow = Math.max(0, options.length - (start + shown.length));
-  const preview = showPreview ? options[selectedIndex]?.preview ?? "" : "";
-  const other = otherRowIndex(options, allowOther);
-  const row = (option, index) => {
-    const here = index === selectedIndex;
-    const held = checked?.has(index) ?? false;
-    const mark = multi ? held ? "[x] " : "[ ] " : radio ? held ? "\u25CF " : "\u25CB " : "";
-    const number = numbered ? `${index + 1}. ` : "";
-    const rowColor2 = option.danger ? "red" : here ? color : void 0;
-    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: here ? option.danger ? "red" : color : void 0, bold: here, children: here ? "\u276F " : "  " }),
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { flexShrink: descriptionMode === "inline" ? 0 : 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-          Text,
-          {
-            inverse: here,
-            bold: here || option.bold,
-            color: rowColor2,
-            dimColor: !here && !held && !option.danger,
-            wrap: "truncate-end",
-            children: ` ${number}${mark}${option.label} `
-          }
-        ) }),
-        option.shortcut ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: `  (${option.shortcut})` }) : null,
-        option.description && descriptionMode === "inline" ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  ${option.description}` }) : null,
-        option.badge ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: option.badgeColor ?? color, children: `  ${option.badge}` }) : null
-      ] }),
-      option.description && descriptionMode === "block" ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `      ${option.description}` }) : null
-    ] }, `${index}-${option.label}`);
-  };
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
-        hiddenAbove > 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: `   \u2191 ${hiddenAbove} more` }) : null,
-        shown.map((option, offset) => row(option, start + offset)),
-        hiddenBelow > 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: `   \u2193 ${hiddenBelow} more` }) : null,
-        allowOther ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: selectedIndex === other ? color : void 0, bold: selectedIndex === other, children: selectedIndex === other ? "\u276F " : "  " }),
-          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-            Text,
-            {
-              inverse: selectedIndex === other,
-              color: selectedIndex === other ? color : void 0,
-              dimColor: selectedIndex !== other && !otherText,
-              children: ` ${otherText ? `\u25CF ${otherText}` : otherLabel} `
-            }
-          )
-        ] }) : null
-      ] }),
-      preview ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-        Box_default,
-        {
-          flexDirection: "column",
-          marginLeft: 2,
-          borderStyle: "single",
-          borderColor: "gray",
-          paddingX: 1,
-          children: preview.split("\n").map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `preview-${index}`))
-        }
-      ) : null
-    ] }),
-    hint === null || hint === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: hint })
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: "\u2191/\u2193 select \xB7 Tab or Enter accept \xB7 Esc close" })
   ] });
 }
 
 // src/components/FilePalette.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
 function FilePalette({
   entries,
   selectedIndex = 0,
@@ -39769,8 +46281,8 @@ function FilePalette({
       description
     };
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
       ChoiceList,
       {
         options,
@@ -39782,26 +46294,26 @@ function FilePalette({
         showPreview: false
       }
     ),
-    truncated ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "\u2026 more" }) : null
+    truncated ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, children: "\u2026 more" }) : null
   ] });
 }
 
 // src/components/SlashCommandPalette.tsx
-var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
 function SlashCommandPalette({
   commands,
   selectedIndex = 0,
   maxRows = 8
 }) {
   if (commands.length === 0) return null;
-  const hasPreview = commands.some((command) => Boolean(command.preview));
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: currentAccent(), paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+  const hasPreview = commands.some((command2) => Boolean(command2.preview));
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: currentAccent(), paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
     ChoiceList,
     {
-      options: commands.map((command) => ({
-        label: `/${command.name}`,
-        description: command.summary,
-        preview: command.preview
+      options: commands.map((command2) => ({
+        label: `/${command2.name}`,
+        description: command2.summary,
+        preview: command2.preview
       })),
       selectedIndex,
       color: currentAccent(),
@@ -39814,7 +46326,7 @@ function SlashCommandPalette({
 }
 
 // src/components/Chat.tsx
-var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
 function Chat({
   onSubmit,
   initialHistory = [],
@@ -39842,8 +46354,8 @@ function Chat({
   onFileComplete,
   fileCompleteDebounceMs = 80
 }) {
-  const [editor, setEditor] = (0, import_react30.useState)({ text: "", cursor: 0 });
-  const editorRef = (0, import_react30.useRef)(editor);
+  const [editor, setEditor] = (0, import_react48.useState)({ text: "", cursor: 0 });
+  const editorRef = (0, import_react48.useRef)(editor);
   const value = editor.text;
   const cursor = editor.cursor;
   const { stdout } = use_stdout_default();
@@ -39851,32 +46363,32 @@ function Chat({
     1,
     Math.floor(draftWidth ?? Math.max(1, (stdout?.columns ?? 80) - 2))
   );
-  const draft = (0, import_react30.useMemo)(
+  const draft = (0, import_react48.useMemo)(
     () => layout(value, wrapWidth, cursor),
     [value, wrapWidth, cursor]
   );
-  const stickyColumn = (0, import_react30.useRef)(null);
-  const [history, setHistory] = (0, import_react30.useState)(initialHistory);
-  const [historyIndex, setHistoryIndex] = (0, import_react30.useState)(null);
-  const historyDraft = (0, import_react30.useRef)("");
-  const [selected, setSelected] = (0, import_react30.useState)(0);
-  const [agentsDismissed, setAgentsDismissed] = (0, import_react30.useState)(false);
-  const [fileCompletions, setFileCompletions] = (0, import_react30.useState)([]);
-  const [fileTruncated, setFileTruncated] = (0, import_react30.useState)(false);
-  const [selectedFile, setSelectedFile] = (0, import_react30.useState)(0);
-  const [dismissedTokenStart, setDismissedTokenStart] = (0, import_react30.useState)(null);
+  const stickyColumn = (0, import_react48.useRef)(null);
+  const [history, setHistory] = (0, import_react48.useState)(initialHistory);
+  const [historyIndex, setHistoryIndex] = (0, import_react48.useState)(null);
+  const historyDraft = (0, import_react48.useRef)("");
+  const [selected, setSelected] = (0, import_react48.useState)(0);
+  const [agentsDismissed, setAgentsDismissed] = (0, import_react48.useState)(false);
+  const [fileCompletions, setFileCompletions] = (0, import_react48.useState)([]);
+  const [fileTruncated, setFileTruncated] = (0, import_react48.useState)(false);
+  const [selectedFile, setSelectedFile] = (0, import_react48.useState)(0);
+  const [dismissedTokenStart, setDismissedTokenStart] = (0, import_react48.useState)(null);
   const showPalette = shouldShowSlashPalette(value, completions);
   const fileToken = findFileRefToken(value, cursor);
   const isFileDismissed = fileToken !== null && dismissedTokenStart === fileToken.start;
   const showFilePopup = fileToken !== null && !isFileDismissed && !showPalette;
-  (0, import_react30.useEffect)(() => {
+  (0, import_react48.useEffect)(() => {
     if (dismissedTokenStart !== null) {
       if (!fileToken || fileToken.start !== dismissedTokenStart) {
         setDismissedTokenStart(null);
       }
     }
   }, [fileToken, dismissedTokenStart]);
-  (0, import_react30.useEffect)(() => {
+  (0, import_react48.useEffect)(() => {
     if (!showFilePopup || !onFileComplete) {
       setFileCompletions([]);
       setFileTruncated(false);
@@ -39917,15 +46429,15 @@ function Chat({
     setAgentsDismissed(false);
     onChange?.(safe.text);
   };
-  const replace = (text2, nextCursor = text2.length) => update({ text: text2, cursor: nextCursor });
-  (0, import_react30.useEffect)(() => {
+  const replace = (text6, nextCursor = text6.length) => update({ text: text6, cursor: nextCursor });
+  (0, import_react48.useEffect)(() => {
     if (!insert2) return;
     const current2 = editorRef.current;
-    const text2 = current2.text.length > 0 ? ` ${insert2}` : insert2;
-    update(insert(current2, text2));
+    const text6 = current2.text.length > 0 ? ` ${insert2}` : insert2;
+    update(insert(current2, text6));
     onInserted?.();
   }, [insert2]);
-  (0, import_react30.useEffect)(() => {
+  (0, import_react48.useEffect)(() => {
     if (!append) return;
     update(insert(editorRef.current, append));
     onAppended?.();
@@ -40080,12 +46592,12 @@ function Chat({
             }
           }
         }
-        const text2 = value2.trim();
-        if (text2.length === 0) return;
-        setHistory((h) => [...h, text2]);
+        const text6 = value2.trim();
+        if (text6.length === 0) return;
+        setHistory((h) => [...h, text6]);
         setHistoryIndex(null);
         replace("");
-        onSubmit(text2);
+        onSubmit(text6);
         return;
       }
       if (key.ctrl && input === "d") {
@@ -40137,11 +46649,11 @@ function Chat({
     },
     { isActive: !disabled }
   );
-  const cursorEnd = (0, import_react30.useMemo)(() => right(editor).cursor, [editor]);
+  const cursorEnd = (0, import_react48.useMemo)(() => right(editor).cursor, [editor]);
   const promptColor = disabled ? "gray" : currentAccent();
   const band = currentInputBackground();
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", children: [
-    showFilePopup && fileCompletions.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexDirection: "column", children: [
+    showFilePopup && fileCompletions.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
       FilePalette,
       {
         entries: fileCompletions,
@@ -40149,7 +46661,7 @@ function Chat({
         truncated: fileTruncated
       }
     ) : null,
-    showAgents ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    showAgents ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
       AgentPalette,
       {
         candidates: agentMatches,
@@ -40157,35 +46669,35 @@ function Chat({
         prefix: query?.prefix ?? ""
       }
     ) : null,
-    showPalette ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
-    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: promptColor, backgroundColor: band, children: "> " }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, backgroundColor: band, wrap: "truncate-end", children: placeholder }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { inverse: true, children: " " }),
-      band ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(placeholder) - 1)) }) : null
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
+    showPalette ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
+    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: promptColor, backgroundColor: band, children: "> " }),
+      /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { dimColor: true, backgroundColor: band, wrap: "truncate-end", children: placeholder }),
+      /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { inverse: true, children: " " }),
+      band ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(placeholder) - 1)) }) : null
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
       const shown = Math.max(1, maxRows ?? draft.lines.length);
       const first = Math.max(0, Math.min(draft.cursorRow - shown + 1, draft.lines.length - shown));
       if (row < first || row >= first + shown) return null;
       const prefix = row === 0 ? "> " : "  ";
       if (row !== draft.cursorRow) {
-        const text2 = value.slice(line.start, line.end);
-        return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: text2 }),
-          band ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(text2))) }) : null
+        const text6 = value.slice(line.start, line.end);
+        return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
+          /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: text6 }),
+          band ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(text6))) }) : null
         ] }, `draft-${row}`);
       }
       const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
       const before = value.slice(line.start, cursor);
       const mark = hasCursorText ? value.slice(cursor, cursorEnd) : " ";
       const after = hasCursorText ? value.slice(cursorEnd, line.end) : value.slice(cursor, line.end);
-      return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: before }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { inverse: true, children: mark }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: after }),
-        band ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: " ".repeat(
+      return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
+        /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { backgroundColor: band, children: before }),
+        /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { inverse: true, children: mark }),
+        /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: after }),
+        band ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { backgroundColor: band, children: " ".repeat(
           Math.max(0, wrapWidth - textWidth(before) - textWidth(mark) - textWidth(after))
         ) }) : null
       ] }, `draft-${row}`);
@@ -40194,14 +46706,14 @@ function Chat({
 }
 
 // src/components/MessageStream.tsx
-var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
 function skillExpansionLabel(expansion, width) {
   const suffix = ` \xB7 ${expansion.lines} lines`;
   const prefix = "skill ";
-  const budget = Math.max(1, width - SUMMARY_GLYPH.length - 1 - prefix.length - suffix.length);
+  const budget2 = Math.max(1, width - SUMMARY_GLYPH.length - 1 - prefix.length - suffix.length);
   let name = expansion.name;
-  if (name.length > budget) {
-    name = budget > 1 ? `${name.slice(0, budget - 1)}\u2026` : name.slice(0, budget);
+  if (name.length > budget2) {
+    name = budget2 > 1 ? `${name.slice(0, budget2 - 1)}\u2026` : name.slice(0, budget2);
   }
   return `${prefix}${name}${suffix}`;
 }
@@ -40209,9 +46721,9 @@ function SkillExpansionLine({
   expansion,
   width
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: skillExpansionLabel(expansion, width) })
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: skillExpansionLabel(expansion, width) })
   ] });
 }
 function colorizeFileRefs(lines) {
@@ -40252,8 +46764,8 @@ function colorizeFileRefs(lines) {
     return { ...line, segments };
   });
 }
-function padCells(text2, width) {
-  return text2 + " ".repeat(Math.max(0, width - textWidth(text2)));
+function padCells(text6, width) {
+  return text6 + " ".repeat(Math.max(0, width - textWidth(text6)));
 }
 function MessageView({
   message,
@@ -40270,10 +46782,10 @@ function MessageView({
     if (lines.length > cap) lines = lines.slice(lines.length - cap);
   }
   const band = message.role === "user" ? currentInputBackground() : void 0;
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(RenderedLines, { lines, background: band, width: band ? width : void 0 }),
-    message.expansion ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(SkillExpansionLine, { expansion: message.expansion, width }) : null,
-    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(RenderedLines, { lines, background: band, width: band ? width : void 0 }),
+    message.expansion ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SkillExpansionLine, { expansion: message.expansion, width }) : null,
+    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       Text,
       {
         dimColor: true,
@@ -40287,7 +46799,7 @@ function MessageView({
 }
 
 // src/components/ToolCall.tsx
-var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
 var STATE_GLYPH = {
   running: { glyph: "\u25CC", color: "yellow" },
   ok: { glyph: "\u2713", color: "green" },
@@ -40308,23 +46820,27 @@ function ToolCall({
 }) {
   const meta = STATE_GLYPH[call.state];
   const { shown, total, kept } = visibleToolBodyLines(call, expanded, maxOutputLines);
-  const hidden = kept ? 0 : total - shown.length;
-  const count2 = expanded ? "" : toolLineCount(shown.length, total, kept);
+  const hidden2 = kept ? 0 : total - shown.length;
+  const count3 = expanded ? "" : toolLineCount(shown.length, total, kept);
   const tail = call.state === "running" ? call.progress ?? [] : [];
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { color: meta.color, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Text, { color: meta.color, children: [
         meta.glyph,
         " "
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, children: call.name }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { bold: true, children: call.name }),
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Text, { dimColor: true, children: [
         " ",
         summarizeArgs2(call.args)
       ] }),
-      count2 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: count2 }) : null
+      count3 ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: count3 }) : null
     ] }),
-    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+    call.state === "running" && call.waiting ? /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Text, { color: "yellow", dimColor: true, wrap: "truncate-end", children: [
+      "  ",
+      waitingText(call.waiting.note)
+    ] }) : null,
+    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(
       Text,
       {
         dimColor: line.stream === "stdout",
@@ -40336,10 +46852,10 @@ function ToolCall({
       },
       `${call.callId}-p${index}`
     )),
-    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
+    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
     shown.map((line, index) => {
       const severity = diagnosticLineColor(line);
-      return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+      return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(
         Text,
         {
           dimColor: !call.error && severity === void 0,
@@ -40352,449 +46868,22 @@ function ToolCall({
         `${call.callId}-o${index}`
       );
     }),
-    hidden > 0 && shown.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden} more lines` }) : null
-  ] });
-}
-
-// src/components/ApprovalPrompt.tsx
-var import_react32 = __toESM(require_react(), 1);
-
-// src/components/ConfirmMenu.tsx
-var import_react31 = __toESM(require_react(), 1);
-var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
-function ConfirmMenu({
-  options,
-  onChoose,
-  initialIndex = 0,
-  escapeValue,
-  isActive = true,
-  windowSize
-}) {
-  const [index, setIndex] = (0, import_react31.useState)(
-    () => Math.min(Math.max(0, initialIndex), Math.max(0, options.length - 1))
-  );
-  const shortcuts = {};
-  for (const option of options) {
-    if (option.shortcut) shortcuts[option.shortcut.toLowerCase()] = () => onChoose(option.value);
-  }
-  useChoiceKeys({
-    count: options.length,
-    index,
-    onIndex: setIndex,
-    onEnter: (at) => {
-      if (options.length > 0) onChoose(options[at].value);
-    },
-    onCancel: () => {
-      if (escapeValue !== void 0) onChoose(escapeValue);
-    },
-    // Tab has always stepped down this menu; keeping it costs nothing and
-    // people who learned it would notice its absence.
-    onTab: () => {
-      if (options.length > 0) setIndex((i) => (i + 1) % options.length);
-    },
-    onDigit: setIndex,
-    shortcuts,
-    // The shortcut letters own the alphabet here, so j/k would be ambiguous.
-    vim: false,
-    isActive
-  });
-  const rows = options.map((option) => ({
-    label: option.label,
-    description: option.hint,
-    shortcut: option.shortcut,
-    danger: option.danger
-  }));
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
-    ChoiceList,
-    {
-      options: rows,
-      selectedIndex: index,
-      color: currentAccent(),
-      windowSize,
-      hint: choiceHint({
-        enter: "confirm",
-        extra: windowSize && rows.length > windowSize ? ["PgUp/PgDn page"] : []
-      })
-    }
-  ) });
-}
-
-// src/components/ApprovalPrompt.tsx
-var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
-var RISK_COLOR = {
-  low: "green",
-  medium: "yellow",
-  high: "red"
-};
-var APPROVAL_OPTIONS = [
-  { label: "Yes", value: { decision: "allow", scope: "once" }, shortcut: "y" },
-  {
-    label: "Yes, this session only",
-    value: { decision: "allow", scope: "session" },
-    shortcut: "a"
-  },
-  {
-    label: "Yes, add to project allowlist",
-    value: { decision: "allow", scope: "project" },
-    shortcut: "p"
-  },
-  {
-    label: "Allow Everything (Auto mode)",
-    value: { decision: "allow", scope: "once", switchToAuto: true },
-    shortcut: "e"
-  },
-  { label: "No", value: { decision: "deny", scope: "once" }, shortcut: "n", danger: true },
-  {
-    label: "No, with reason",
-    value: { decision: "deny", scope: "once", withReason: true },
-    shortcut: "r",
-    danger: true
-  }
-];
-var PLAN_ALLOW_EVERYTHING = "Allow Everything (plan, then Auto)";
-var REMEMBER_DISPLAY_MAX = 40;
-function projectRow(request) {
-  if (!request || request.remember === void 0) return void 0;
-  if (request.remember === null) {
-    return typeof request.args?.command === "string" ? null : void 0;
-  }
-  const display = request.remember.display;
-  const shown = display.length > REMEMBER_DISPLAY_MAX ? `${display.slice(0, REMEMBER_DISPLAY_MAX - 1)}\u2026` : display;
-  const note = request.remember.note ? ` (${request.remember.note})` : "";
-  return {
-    label: `Yes, allow "${shown}" in this project${note}`,
-    value: { decision: "allow", scope: "project" },
-    shortcut: "p"
-  };
-}
-function approvalOptions(mode, request) {
-  const project = projectRow(request);
-  if (mode !== "plan" && project === void 0) return APPROVAL_OPTIONS;
-  return APPROVAL_OPTIONS.flatMap((option) => {
-    if (option.value.scope === "project" && project !== void 0) {
-      return project === null ? [] : [project];
-    }
-    if (mode === "plan" && option.value.switchToAuto) {
-      return [{ ...option, label: PLAN_ALLOW_EVERYTHING }];
-    }
-    return [option];
-  });
-}
-function formatArgs(args, max = 72) {
-  return Object.entries(args ?? {}).map(([key, value]) => {
-    const text2 = typeof value === "string" ? value : JSON.stringify(value);
-    const flat = String(text2).replace(/\s+/g, " ");
-    return `${key}: ${flat.length > max ? `${flat.slice(0, max - 1)}\u2026` : flat}`;
-  });
-}
-function ApprovalPrompt({
-  request,
-  onDecide,
-  isActive = true,
-  mode
-}) {
-  const options = approvalOptions(mode, request);
-  const suggested = options.findIndex(
-    (option) => option.value.decision === "allow" && option.value.scope === request.scopeHint
-  );
-  const [reason, setReason] = (0, import_react32.useState)(null);
-  use_input_default(
-    (input, key) => {
-      if (mouseReports(input).length > 0) return;
-      if (reason === null) return;
-      if (key.return) {
-        onDecide({ decision: "deny", scope: "once" }, reason.trim() || void 0);
-        return;
-      }
-      if (key.escape) {
-        setReason(null);
-        return;
-      }
-      if (key.backspace || key.delete) {
-        setReason((value) => (value ?? "").slice(0, -1));
-        return;
-      }
-      if (input && !key.ctrl && !key.meta) setReason((value) => (value ?? "") + input);
-    },
-    { isActive: isActive && reason !== null }
-  );
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "yellow", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { bold: true, color: "yellow", children: "Approval required" }),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { bold: true, children: request.tool }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: " risk=" }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: RISK_COLOR[request.risk ?? ""] ?? "white", children: request.risk ?? "unknown" }),
-      request.timeoutSec ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { dimColor: true, children: [
-        " timeout=",
-        request.timeoutSec,
-        "s"
-      ] }) : null
-    ] }),
-    request.note ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { bold: true, color: "red", children: [
-      "  \u26A0 ",
-      request.note
-    ] }) : null,
-    formatArgs(request.args).map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
-      "  ",
-      line
-    ] }, `${request.requestId}-a${index}`)),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: reason === null ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
-      ConfirmMenu,
-      {
-        options,
-        initialIndex: suggested === -1 ? 0 : suggested,
-        escapeValue: { decision: "deny", scope: "once" },
-        isActive,
-        onChoose: (answer) => {
-          if (answer.withReason) {
-            setReason("");
-            return;
-          }
-          onDecide(answer);
-        }
-      }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "red", children: "Why are you refusing? The model is told exactly this." }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "red", children: "\u203A " }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { children: reason }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { inverse: true, children: " " })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "Enter deny with this reason \xB7 Esc back to the choices" })
-    ] }) })
-  ] });
-}
-
-// src/components/QuestionPrompt.tsx
-var import_react33 = __toESM(require_react(), 1);
-var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
-var OTHER_LABEL = "\uAE30\uD0C0 / Other\u2026";
-var MASK_CHAR = "\u2022";
-function maskSecret(value) {
-  return value ? MASK_CHAR.repeat(value.length) : "";
-}
-var CONFIRM_LABEL = "\uD655\uC778 / Confirm";
-var NOT_ANSWERED = "(not answered)";
-var blank2 = () => ({ selected: [], text: null });
-var QUESTION_MAX_LINES = 8;
-function clampQuestion(text2) {
-  const lines = text2.split("\n");
-  if (lines.length <= QUESTION_MAX_LINES) return text2;
-  const kept = lines.slice(0, QUESTION_MAX_LINES - 1);
-  return [...kept, `\u2026 (+${lines.length - kept.length} lines)`].join("\n");
-}
-function questionTextRows(text2, width) {
-  return clampQuestion(text2).split("\n").reduce((rows, line) => rows + Math.max(1, Math.ceil(textWidth(line) / Math.max(1, width))), 0);
-}
-function questionPromptRows(request, width = 80) {
-  const questions = request.questions ?? [];
-  const first = questions[0];
-  const options = first?.options ?? [];
-  const described = options.filter((option) => option.description).length;
-  const other = first?.allowOther === false ? 0 : 1;
-  const tabs = questions.length > 1 ? 1 : 0;
-  const question = questionTextRows(first?.question ?? "", width - 4);
-  return 3 + question + tabs + options.length + described + other + 2 + 1;
-}
-function QuestionPrompt({
-  request,
-  onAnswer,
-  isActive = true
-}) {
-  const questions = (0, import_react33.useMemo)(() => request.questions ?? [], [request]);
-  const [tab2, setTab] = (0, import_react33.useState)(0);
-  const [answers, setAnswers] = (0, import_react33.useState)(() => questions.map(() => blank2()));
-  const [cursor, setCursor] = (0, import_react33.useState)(0);
-  const [typing, setTyping] = (0, import_react33.useState)(false);
-  const [draft, setDraft] = (0, import_react33.useState)("");
-  const at = Math.min(tab2, Math.max(questions.length - 1, 0));
-  const current2 = questions[at];
-  const options = current2?.options ?? [];
-  const allowOther = current2?.allowOther !== false;
-  const secret = current2?.secret === true;
-  const multi = current2?.multi === true;
-  const answer = answers[at] ?? blank2();
-  const otherRow = allowOther ? options.length : -1;
-  const confirmRow = allowOther ? options.length + 1 : options.length;
-  const rows = confirmRow + 1;
-  const last = at === questions.length - 1;
-  const answeredAt = (index) => {
-    const entry = answers[index];
-    return Boolean(entry && (entry.selected.length > 0 || (entry.text ?? "").length > 0));
-  };
-  const patch = (next) => setAnswers((current3) => current3.map((entry, index) => index === at ? next : entry));
-  const goto = (target) => {
-    setTab((target + questions.length) % questions.length);
-    setTyping(false);
-    setDraft("");
-    setCursor(0);
-  };
-  const pick = (index) => {
-    const label = options[index]?.label ?? "";
-    if (!label) return;
-    if (multi) {
-      const held = answer.selected.includes(label) ? answer.selected.filter((entry) => entry !== label) : [...answer.selected, label];
-      const ordered = options.map((option) => option.label).filter((one) => held.includes(one));
-      patch({ selected: ordered, text: answer.text });
-      return;
-    }
-    patch({ selected: [label], text: null });
-    setCursor(confirmRow);
-  };
-  const confirm2 = () => {
-    if (!last) {
-      goto(at + 1);
-      return;
-    }
-    onAnswer(answers);
-  };
-  use_input_default(
-    (input, key) => {
-      if (!typing || mouseReports(input).length > 0) return;
-      if (key.return) {
-        const text2 = draft.trim();
-        const keep = multi || text2.length === 0 ? answer.selected : [];
-        patch({ selected: keep, text: text2.length > 0 ? text2 : null });
-        setTyping(false);
-        setDraft("");
-        setCursor(confirmRow);
-        return;
-      }
-      if (key.escape) {
-        setTyping(false);
-        setDraft("");
-        return;
-      }
-      if (key.backspace || key.delete) {
-        setDraft((value) => value.slice(0, -1));
-        return;
-      }
-      if (input && !key.ctrl && !key.meta) setDraft((value) => value + input);
-    },
-    { isActive: isActive && typing }
-  );
-  useChoiceKeys({
-    count: rows,
-    index: cursor,
-    onIndex: setCursor,
-    multi,
-    onToggle: (row) => {
-      if (row < options.length) pick(row);
-    },
-    onEnter: (row) => {
-      if (row === confirmRow) {
-        confirm2();
-        return;
-      }
-      if (row === otherRow || options.length === 0) {
-        setTyping(true);
-        return;
-      }
-      pick(row);
-    },
-    onCancel: () => {
-      onAnswer([]);
-    },
-    // 1-9 marks that row without sending: jumping to an option is not the
-    // same as agreeing to submit, and only the Confirm row submits.
-    onDigit: (row) => {
-      setCursor(row);
-      pick(row);
-    },
-    digitLimit: options.length,
-    onLeft: questions.length > 1 ? () => goto(at - 1) : void 0,
-    onRight: questions.length > 1 ? () => goto(at + 1) : void 0,
-    onTab: questions.length > 1 ? () => goto(at + 1) : void 0,
-    onShiftTab: questions.length > 1 ? () => goto(at - 1) : void 0,
-    isActive: isActive && !typing
-  });
-  const confirmText = last ? CONFIRM_LABEL : "\uB2E4\uC74C \uC9C8\uBB38 / Next question";
-  const hint = [
-    multi ? "Space \uC120\uD0DD" : null,
-    "\u2191\u2193 \uC774\uB3D9",
-    questions.length > 1 ? "\u2190\u2192 \uC9C8\uBB38 \uC774\uB3D9" : null,
-    "Enter \uD655\uC778",
-    "1-9 \uACE0\uB974\uAE30",
-    "Esc \uCDE8\uC18C"
-  ].filter(Boolean).join(" \xB7 ");
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { children: questions.map((question, index) => {
-      const here = index === at;
-      const tick = answeredAt(index) ? "\u2713 " : here ? "\u25B8 " : "\xB7 ";
-      return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
-        Text,
-        {
-          inverse: here,
-          bold: here,
-          color: here ? "cyan" : void 0,
-          dimColor: !here,
-          children: ` ${tick}${question.header || `Q${index + 1}`} `
-        },
-        `${request.requestId}-t${index}`
-      );
-    }) }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { bold: true, color: "cyan", children: current2?.header || "\uC9C8\uBB38 / Question" }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { wrap: "wrap", children: clampQuestion(current2?.question ?? "") }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
-      ChoiceList,
-      {
-        options: options.map((option) => ({
-          label: option.label,
-          description: option.description,
-          preview: option.preview
-        })),
-        selectedIndex: cursor,
-        checked: new Set(
-          options.map((option, index) => answer.selected.includes(option.label) ? index : -1).filter((index) => index >= 0)
-        ),
-        multi,
-        radio: !multi,
-        numbered: true,
-        allowOther,
-        otherLabel: OTHER_LABEL,
-        otherText: secret ? maskSecret(answer.text) : answer.text,
-        hint: null
-      }
-    ) }),
-    typing ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { marginTop: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: "cyan", children: "\u203A " }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { children: secret ? maskSecret(draft) : draft }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { inverse: true, children: " " }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: secret ? "  hidden \xB7 Enter to keep \xB7 Esc to go back" : "  Enter to keep \xB7 Esc to go back" })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
-      questions.length > 1 && last ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: questions.map((question, index) => {
-        const entry = answers[index] ?? blank2();
-        const plain = entry.selected.length > 0 ? entry.selected.join(", ") : entry.text ?? "";
-        const said = question.secret === true && entry.selected.length === 0 ? maskSecret(entry.text) : plain;
-        return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: `  ${question.header || `Q${index + 1}`}: ` }),
-          said ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: currentAccent(), children: said }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: "yellow", children: NOT_ANSWERED })
-        ] }, `${request.requestId}-r${index}`);
-      }) }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { marginTop: questions.length > 1 && last ? 0 : 1, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: cursor === confirmRow ? "cyan" : void 0, bold: cursor === confirmRow, children: cursor === confirmRow ? "\u276F " : "  " }),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
-          Text,
-          {
-            inverse: cursor === confirmRow,
-            bold: cursor === confirmRow,
-            color: cursor === confirmRow ? "cyan" : void 0,
-            dimColor: cursor !== confirmRow,
-            children: ` ${confirmText} `
-          }
-        ),
-        questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: `  ${questions.filter((_, index) => answeredAt(index)).length}/${questions.length}` }) : null
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: hint })
-    ] })
+    hidden2 > 0 && shown.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden2} more lines` }) : null
   ] });
 }
 
 // src/components/ApprovalQueue.tsx
-var import_react34 = __toESM(require_react(), 1);
-var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+var import_react49 = __toESM(require_react(), 1);
+var import_jsx_runtime29 = __toESM(require_jsx_runtime(), 1);
+function queueBadge(request) {
+  const cli = request.external ? `${agentOfExternal(request.external.cli).tag} ` : "";
+  const route = request.route === "jarvis" && !alwaysAsksYou(request) ? "[Jarvis deciding] " : "";
+  const person = alwaysAsksYou(request) ? `[${ALWAYS_ASKS}] ` : "";
+  return `${cli}${route}${person}`;
+}
 function summarise(request) {
-  const command = (request.args ?? {})["command"];
-  if (typeof command === "string" && command.length > 0) return command;
+  const command2 = (request.args ?? {})["command"];
+  if (typeof command2 === "string" && command2.length > 0) return command2;
   const args = Object.keys(request.args ?? {});
   return args.length > 0 ? args.join(", ") : "no arguments";
 }
@@ -40804,9 +46893,9 @@ function ApprovalQueue({
   isActive = false,
   onBlur
 }) {
-  const [selected, setSelected] = (0, import_react34.useState)(0);
-  const [scopeIndex, setScopeIndex] = (0, import_react34.useState)(0);
-  (0, import_react34.useEffect)(() => {
+  const [selected, setSelected] = (0, import_react49.useState)(0);
+  const [scopeIndex, setScopeIndex] = (0, import_react49.useState)(0);
+  (0, import_react49.useEffect)(() => {
     setSelected((index) => requests.length === 0 ? 0 : Math.min(index, requests.length - 1));
   }, [requests.length]);
   const current2 = requests[Math.min(selected, Math.max(requests.length - 1, 0))];
@@ -40831,7 +46920,7 @@ function ApprovalQueue({
     isActive: isActive && requests.length > 0
   });
   if (requests.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(
     Box_default,
     {
       flexDirection: "column",
@@ -40839,26 +46928,26 @@ function ApprovalQueue({
       borderColor: isActive ? "yellow" : "gray",
       paddingX: 1,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Text, { bold: true, dimColor: !isActive, color: isActive ? "yellow" : void 0, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Text, { bold: true, dimColor: !isActive, color: isActive ? "yellow" : void 0, children: [
           "Unattended approvals (",
           requests.length,
           ")"
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
           ChoiceList,
           {
             options: requests.map((request) => ({
-              label: `${request.tool} \xB7 risk=${request.risk ?? "unknown"} \xB7 ${request.requestId.slice(0, 8)} \xB7 ${summarise(request)}`
+              label: `${queueBadge(request)}${request.tool} \xB7 risk=${request.risk ?? "unknown"} \xB7 ${request.requestId.slice(0, 8)} \xB7 ${summarise(request)}`
             })),
             selectedIndex: isActive ? Math.min(selected, requests.length - 1) : -1,
             color: "yellow",
             hint: null
           }
         ),
-        isActive ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { marginTop: 1, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { children: "scope: " }),
-            APPROVAL_SCOPES.map((scope, index) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+        isActive ? /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(import_jsx_runtime29.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Box_default, { marginTop: 1, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { children: "scope: " }),
+            APPROVAL_SCOPES.map((scope, index) => /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
               Text,
               {
                 inverse: index === scopeIndex,
@@ -40869,20 +46958,20 @@ function ApprovalQueue({
               scope
             ))
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: "\u2191\u2193 move \xB7 1-9 pick \xB7 \u2190\u2192 scope \xB7 a allow \xB7 d deny \xB7 Esc or Ctrl+R leave" })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: "Ctrl+R to answer them here." })
+          /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: "\u2191\u2193 move \xB7 1-9 pick \xB7 \u2190\u2192 scope \xB7 a allow \xB7 d deny \xB7 Esc or Ctrl+R leave" })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: "Ctrl+R to answer them here." })
       ]
     }
   );
 }
 
 // src/components/StatusHud.tsx
-var import_react35 = __toESM(require_react(), 1);
-var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+var import_react50 = __toESM(require_react(), 1);
+var import_jsx_runtime30 = __toESM(require_jsx_runtime(), 1);
 function StatusHudInner({ rows, width }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_react35.default.Fragment, { children: [
-    index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)(import_react50.default.Fragment, { children: [
+    index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(
       Text,
       {
         color: segment.color,
@@ -40894,11 +46983,11 @@ function StatusHudInner({ rows, width }) {
     )
   ] }, segment.key)) }, `hud-row-${rowIndex}`)) });
 }
-var StatusHud = import_react35.default.memo(StatusHudInner);
+var StatusHud = import_react50.default.memo(StatusHudInner);
 
 // src/components/AgentPanel.tsx
-var import_react36 = __toESM(require_react(), 1);
-var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+var import_react51 = __toESM(require_react(), 1);
+var import_jsx_runtime31 = __toESM(require_jsx_runtime(), 1);
 function hintShares(rows) {
   const last = rows[rows.length - 1];
   return last !== void 0 && (last.key === "overflow" || last.key === "idle-more");
@@ -40909,46 +46998,46 @@ function AgentPanelInner({
   focusedIndex = null,
   hint
 }) {
-  if (rows.length === 0) return hint ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: hint }) : null;
+  if (rows.length === 0) return hint ? /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: hint }) : null;
   const shared = hint !== void 0 && hintShares(rows);
-  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
     rows.map((row, index) => {
       const focused = index === focusedIndex;
       const line = layoutAgentRow(row, width - 1);
       if (shared && index === rows.length - 1) {
-        return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: rowColor(row), dimColor: !focused, inverse: focused, bold: focused, children: line.left }),
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7  ${hint}` })
+        return /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { color: rowColor(row), dimColor: !focused, inverse: focused, bold: focused, children: line.left }),
+          /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7  ${hint}` })
         ] }, row.key);
       }
-      return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: rowColor(row), dimColor: row.dim && !rowColor(row), inverse: focused, bold: focused, children: line.left }),
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
+      return /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { color: rowColor(row), dimColor: row.dim && !rowColor(row), inverse: focused, bold: focused, children: line.left }),
+        /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
+        /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
+        /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
       ] }, row.key);
     }),
-    hint !== void 0 && !shared ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: hint }) : null
+    hint !== void 0 && !shared ? /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: hint }) : null
   ] });
 }
-var AgentPanel = import_react36.default.memo(AgentPanelInner);
+var AgentPanel = import_react51.default.memo(AgentPanelInner);
 
 // src/components/AttachmentChips.tsx
-var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime32 = __toESM(require_jsx_runtime(), 1);
 function AttachmentChips({
   attachments,
   width
 }) {
   if (attachments.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { width, flexWrap: "wrap", children: [
-    attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "cyan", children: `[${chipLabel(attachment)}] ` }, attachment.id)),
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "(backspace removes the last \xB7 Ctrl+X clears)" })
+  return /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(Box_default, { width, flexWrap: "wrap", children: [
+    attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { color: "cyan", children: `[${chipLabel(attachment)}] ` }, attachment.id)),
+    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { dimColor: true, children: "(backspace removes the last \xB7 Ctrl+X clears)" })
   ] });
 }
 
 // src/components/ModelPicker.tsx
-var import_react37 = __toESM(require_react(), 1);
-var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
+var import_react52 = __toESM(require_react(), 1);
+var import_jsx_runtime33 = __toESM(require_jsx_runtime(), 1);
 var MODEL_PICKER_ROWS = 8;
 function ModelPicker({
   options,
@@ -40959,7 +47048,7 @@ function ModelPicker({
   title = "Model",
   emptyText = "no profiles configured and the vendor listed nothing"
 }) {
-  const [index, setIndex] = (0, import_react37.useState)(() => {
+  const [index, setIndex] = (0, import_react52.useState)(() => {
     const current2 = options.findIndex((option) => option.current);
     return current2 === -1 ? 0 : current2;
   });
@@ -40976,12 +47065,12 @@ function ModelPicker({
     },
     isActive
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { bold: true, color: "cyan", children: title }),
-    options.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: emptyText }),
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "pick", digits: false }) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { bold: true, color: "cyan", children: title }),
+    options.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(import_jsx_runtime33.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { dimColor: true, children: emptyText }),
+      /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "pick", digits: false }) })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
       ChoiceList,
       {
         options: options.map((option) => ({
@@ -41002,7 +47091,7 @@ function ModelPicker({
 }
 
 // src/components/SkillCreateForm.tsx
-var import_react38 = __toESM(require_react(), 1);
+var import_react53 = __toESM(require_react(), 1);
 
 // src/state/skill-completion.ts
 var SKILL_ACTIONS = [
@@ -41041,11 +47130,11 @@ function skillSubCommands(draft, skills = []) {
     source: "core"
   }));
 }
-function isBareSkillCreate(text2) {
-  return /^\/skill\s+create\s*$/.test(text2.trim());
+function isBareSkillCreate(text6) {
+  return /^\/skill\s+create\s*$/.test(text6.trim());
 }
-function parseSkillEdit(text2) {
-  const match = /^\/skill\s+edit\s+(\S+)\s*$/.exec(text2.trim());
+function parseSkillEdit(text6) {
+  const match = /^\/skill\s+edit\s+(\S+)\s*$/.exec(text6.trim());
   return match ? match[1] : null;
 }
 function skillCreateCommand({
@@ -41058,9 +47147,9 @@ function skillCreateCommand({
   if (scope === "global") parts.push("--global");
   return parts.join(" ");
 }
-function createdSkillName(text2) {
-  const runIt = /Run it with \/([A-Za-z0-9][\w.-]*)/.exec(text2);
-  const named = /(?:Created|Learned) skill ['"`]?([A-Za-z0-9][\w.-]*)/.exec(text2);
+function createdSkillName(text6) {
+  const runIt = /Run it with \/([A-Za-z0-9][\w.-]*)/.exec(text6);
+  const named = /(?:Created|Learned) skill ['"`]?([A-Za-z0-9][\w.-]*)/.exec(text6);
   const found = runIt?.[1] ?? named?.[1];
   if (!found) return null;
   const trimmed = found.replace(/[.\-]+$/, "");
@@ -41071,7 +47160,7 @@ function isValidSkillName(name) {
 }
 
 // src/components/SkillCreateForm.tsx
-var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime34 = __toESM(require_jsx_runtime(), 1);
 var SCOPES2 = [
   { value: "project", label: "this project", hint: ".snowpea/skills \u2014 travels with the repo" },
   { value: "global", label: "everywhere", hint: "your home \u2014 available in every project" }
@@ -41082,11 +47171,11 @@ function SkillCreateForm({
   isActive = true,
   width
 }) {
-  const [step, setStep] = (0, import_react38.useState)("name");
-  const [name, setName] = (0, import_react38.useState)("");
-  const [description, setDescription] = (0, import_react38.useState)("");
-  const [scope, setScope] = (0, import_react38.useState)(0);
-  const [error, setError] = (0, import_react38.useState)(null);
+  const [step, setStep] = (0, import_react53.useState)("name");
+  const [name, setName] = (0, import_react53.useState)("");
+  const [description, setDescription] = (0, import_react53.useState)("");
+  const [scope, setScope] = (0, import_react53.useState)(0);
+  const [error, setError] = (0, import_react53.useState)(null);
   const typed = step === "name" ? name : description;
   const setTyped = step === "name" ? setName : setDescription;
   useChoiceKeys({
@@ -41136,21 +47225,21 @@ function SkillCreateForm({
     },
     { isActive: isActive && step !== "scope" }
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { bold: true, color: "cyan", children: "New skill" }),
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Text, { dimColor: step !== "name", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { bold: true, color: "cyan", children: "New skill" }),
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Text, { dimColor: step !== "name", children: [
       "  name         ",
-      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { children: name }) : /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: currentAccent(), children: name }),
-      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { inverse: true, children: " " }) : null
+      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { children: name }) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: currentAccent(), children: name }),
+      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { inverse: true, children: " " }) : null
     ] }),
-    step === "name" ? null : /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Text, { dimColor: step !== "description", children: [
+    step === "name" ? null : /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Text, { dimColor: step !== "description", children: [
       "  description  ",
-      step === "description" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { children: description }),
-        /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { inverse: true, children: " " })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: currentAccent(), children: description })
+      step === "description" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(import_jsx_runtime34.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { children: description }),
+        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { inverse: true, children: " " })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: currentAccent(), children: description })
     ] }),
-    step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+    step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ChoiceList,
       {
         options: SCOPES2.map((entry) => ({ label: entry.label, description: entry.hint })),
@@ -41159,8 +47248,8 @@ function SkillCreateForm({
         hint: null
       }
     ) : null,
-    error ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: step === "scope" ? choiceHint({ enter: "create" }) : "Enter next \xB7 Esc cancel" })
+    error ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: step === "scope" ? choiceHint({ enter: "create" }) : "Enter next \xB7 Esc cancel" })
   ] });
 }
 
@@ -41180,11 +47269,11 @@ function shouldSuggestSkill({
 }
 
 // src/components/McpAddForm.tsx
-var import_react40 = __toESM(require_react(), 1);
+var import_react55 = __toESM(require_react(), 1);
 
 // src/components/ToolChecklist.tsx
-var import_react39 = __toESM(require_react(), 1);
-var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
+var import_react54 = __toESM(require_react(), 1);
+var import_jsx_runtime35 = __toESM(require_jsx_runtime(), 1);
 var CHECKLIST_ROWS = 8;
 function ToolChecklist({
   title,
@@ -41195,8 +47284,8 @@ function ToolChecklist({
   isActive = true,
   width
 }) {
-  const [index, setIndex] = (0, import_react39.useState)(0);
-  const [picked, setPicked] = (0, import_react39.useState)(
+  const [index, setIndex] = (0, import_react54.useState)(0);
+  const [picked, setPicked] = (0, import_react54.useState)(
     () => new Set(initial && initial.length > 0 ? initial : tools2.map((tool) => tool.name))
   );
   const toggle = (row) => {
@@ -41234,12 +47323,12 @@ function ToolChecklist({
     enter: "save",
     extra: ["a all", "n none"]
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { bold: true, color: "cyan", children: title }),
-    tools2.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(import_jsx_runtime23.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: "this server reported no tools" }),
-      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: `0/0 chosen \xB7 ${hint}` })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(Text, { bold: true, color: "cyan", children: title }),
+    tools2.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime35.jsxs)(import_jsx_runtime35.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(Text, { dimColor: true, children: "this server reported no tools" }),
+      /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(Text, { dimColor: true, children: `0/0 chosen \xB7 ${hint}` })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
       ChoiceList,
       {
         options: tools2.map((tool) => ({ label: tool.name, description: tool.description })),
@@ -41258,7 +47347,7 @@ function ToolChecklist({
 }
 
 // src/components/McpAddForm.tsx
-var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime36 = __toESM(require_jsx_runtime(), 1);
 var TRANSPORTS = [
   { value: "stdio", label: "Command", hint: "a program this machine runs, e.g. npx \u2026" },
   { value: "url", label: "URL", hint: "a remote server, http or sse" }
@@ -41289,12 +47378,12 @@ function McpAddForm({
   isActive = true,
   width
 }) {
-  const [draft, setDraft] = (0, import_react40.useState)(initial);
-  const [step, setStep] = (0, import_react40.useState)("name");
-  const [typed, setTyped] = (0, import_react40.useState)(initial.name);
-  const [choice, setChoice] = (0, import_react40.useState)(0);
-  const [error, setError] = (0, import_react40.useState)(null);
-  const [probe, setProbe] = (0, import_react40.useState)(null);
+  const [draft, setDraft] = (0, import_react55.useState)(initial);
+  const [step, setStep] = (0, import_react55.useState)("name");
+  const [typed, setTyped] = (0, import_react55.useState)(initial.name);
+  const [choice, setChoice] = (0, import_react55.useState)(0);
+  const [error, setError] = (0, import_react55.useState)(null);
+  const [probe, setProbe] = (0, import_react55.useState)(null);
   const isUrl = draft.transport === "url";
   const varLabel = isUrl ? "header" : "env";
   const collected = isUrl ? draft.headers : draft.env;
@@ -41442,7 +47531,7 @@ function McpAddForm({
     { isActive: isActive && step !== "tools" && !onList }
   );
   if (step === "tools") {
-    return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
       ToolChecklist,
       {
         width,
@@ -41457,16 +47546,16 @@ function McpAddForm({
       }
     );
   }
-  const field = (label, value, active) => /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Text, { dimColor: !active, wrap: "truncate-end", children: [
+  const field = (label, value, active) => /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(Text, { dimColor: !active, wrap: "truncate-end", children: [
     `  ${label.padEnd(11)}`,
     value,
-    active ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { inverse: true, children: " " }) : null
+    active ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { inverse: true, children: " " }) : null
   ] });
-  const done = (value) => /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: currentAccent(), children: value });
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { bold: true, color: "cyan", children: "New MCP server" }),
-    field("name", step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { children: typed }) : done(draft.name), step === "name"),
-    step === "transport" ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+  const done = (value) => /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { color: currentAccent(), children: value });
+  return /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { bold: true, color: "cyan", children: "New MCP server" }),
+    field("name", step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { children: typed }) : done(draft.name), step === "name"),
+    step === "transport" ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
       ChoiceList,
       {
         options: TRANSPORTS.map((entry) => ({ label: entry.label, description: entry.hint })),
@@ -41477,16 +47566,16 @@ function McpAddForm({
     ) : step === "name" ? null : field("transport", done(isUrl ? "URL" : "Command"), false),
     step === "command" || !isUrl && draft.commandLine && step !== "name" && step !== "transport" ? field(
       "command",
-      step === "command" ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { children: typed }) : done(draft.commandLine),
+      step === "command" ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { children: typed }) : done(draft.commandLine),
       step === "command"
     ) : null,
-    step === "url" || isUrl && draft.url && step !== "name" && step !== "transport" ? field("url", step === "url" ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { children: typed }) : done(draft.url), step === "url") : null,
-    collected.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+    step === "url" || isUrl && draft.url && step !== "name" && step !== "transport" ? field("url", step === "url" ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { children: typed }) : done(draft.url), step === "url") : null,
+    collected.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
       `  ${varLabel.padEnd(11)}`,
-      /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: currentAccent(), children: maskAssignment(entry.key) })
+      /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { color: currentAccent(), children: maskAssignment(entry.key) })
     ] }, `${varLabel}-${entry.key}`)),
-    step === "vars" ? field(varLabel, /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { children: typed }), true) : null,
-    step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+    step === "vars" ? field(varLabel, /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { children: typed }), true) : null,
+    step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
       ChoiceList,
       {
         options: SCOPES3.map((entry) => ({ label: entry.label, description: entry.hint })),
@@ -41495,11 +47584,11 @@ function McpAddForm({
         hint: null
       }
     ) : null,
-    step === "testing" ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: "yellow", children: `  testing ${draft.name}\u2026` }) : null,
-    step === "connected" && probe ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: "green", wrap: "truncate-end", children: `  ${probeSummary(probe)}` }) : null,
-    (step === "failed" || step === "unsafe") && probe ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: "red", wrap: "truncate-end", children: `  could not start ${draft.name}: ${probe.error ?? "no answer"}` }) : null,
-    step === "unsafe" ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: "yellow", wrap: "truncate-end", children: "  this entry failed the safety check; saving it accepts that finding" }) : null,
-    menu.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+    step === "testing" ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { color: "yellow", children: `  testing ${draft.name}\u2026` }) : null,
+    step === "connected" && probe ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { color: "green", wrap: "truncate-end", children: `  ${probeSummary(probe)}` }) : null,
+    (step === "failed" || step === "unsafe") && probe ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { color: "red", wrap: "truncate-end", children: `  could not start ${draft.name}: ${probe.error ?? "no answer"}` }) : null,
+    step === "unsafe" ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { color: "yellow", wrap: "truncate-end", children: "  this entry failed the safety check; saving it accepts that finding" }) : null,
+    menu.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
       ChoiceList,
       {
         options: menu.map((entry) => ({ label: entry.label, description: entry.hint })),
@@ -41508,14 +47597,14 @@ function McpAddForm({
         hint: null
       }
     ) : null,
-    error ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, children: step === "testing" ? "probing the server \xB7 Esc cancel" : onList ? choiceHint({ enter: "pick" }) : step === "vars" ? `Enter adds one ${varLabel} \xB7 empty Enter continues \xB7 Esc cancel` : "Enter next \xB7 Esc cancel" })
+    error ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(Text, { dimColor: true, children: step === "testing" ? "probing the server \xB7 Esc cancel" : onList ? choiceHint({ enter: "pick" }) : step === "vars" ? `Enter adds one ${varLabel} \xB7 empty Enter continues \xB7 Esc cancel` : "Enter next \xB7 Esc cancel" })
   ] });
 }
 
 // src/components/McpCatalogPicker.tsx
-var import_react41 = __toESM(require_react(), 1);
-var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
+var import_react56 = __toESM(require_react(), 1);
+var import_jsx_runtime37 = __toESM(require_jsx_runtime(), 1);
 var CATALOG_ROWS = 8;
 function McpCatalogPicker({
   entries,
@@ -41524,7 +47613,7 @@ function McpCatalogPicker({
   isActive = true,
   width
 }) {
-  const [index, setIndex] = (0, import_react41.useState)(0);
+  const [index, setIndex] = (0, import_react56.useState)(0);
   useChoiceKeys({
     count: entries.length,
     index,
@@ -41538,12 +47627,12 @@ function McpCatalogPicker({
     },
     isActive
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { bold: true, color: "cyan", children: "MCP catalog" }),
-    entries.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_jsx_runtime25.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, children: "this daemon ships no presets" }),
-      /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "fills the add form", digits: false }) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(Text, { bold: true, color: "cyan", children: "MCP catalog" }),
+    entries.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)(import_jsx_runtime37.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(Text, { dimColor: true, children: "this daemon ships no presets" }),
+      /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "fills the add form", digits: false }) })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(
       ChoiceList,
       {
         options: entries.map((entry) => ({
@@ -41561,7 +47650,7 @@ function McpCatalogPicker({
 }
 
 // src/components/QueuedPrompts.tsx
-var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime38 = __toESM(require_jsx_runtime(), 1);
 var MAX_QUEUED_ROWS = 3;
 function QueuedPrompts({
   queued,
@@ -41569,16 +47658,16 @@ function QueuedPrompts({
 }) {
   if (queued.length === 0) return null;
   const shown = queued.slice(0, MAX_QUEUED_ROWS);
-  const hidden = queued.length - shown.length;
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
-    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden} more queued` }) : null
+  const hidden2 = queued.length - shown.length;
+  return /* @__PURE__ */ (0, import_jsx_runtime38.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
+    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
+    hidden2 > 0 ? /* @__PURE__ */ (0, import_jsx_runtime38.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden2} more queued` }) : null
   ] });
 }
 
 // src/components/AgentTranscript.tsx
-var import_react42 = __toESM(require_react(), 1);
-var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
+var import_react57 = __toESM(require_react(), 1);
+var import_jsx_runtime39 = __toESM(require_jsx_runtime(), 1);
 function AgentTranscriptInner({
   name,
   task,
@@ -41589,7 +47678,7 @@ function AgentTranscriptInner({
   scrollIndicator: scrollIndicator2 = null,
   empty = false
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime39.jsxs)(
     Box_default,
     {
       flexDirection: "column",
@@ -41599,23 +47688,23 @@ function AgentTranscriptInner({
       paddingX: 1,
       flexShrink: 0,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { justifyContent: "space-between", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Text, { wrap: "truncate-end", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
-            /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
+        /* @__PURE__ */ (0, import_jsx_runtime39.jsxs)(Box_default, { justifyContent: "space-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime39.jsxs)(Text, { wrap: "truncate-end", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
+          /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
         ] }),
-        empty ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(TranscriptView, { lines, height }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
+        empty ? /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(TranscriptView, { lines, height }),
+        /* @__PURE__ */ (0, import_jsx_runtime39.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
       ]
     }
   );
 }
-var AgentTranscript = import_react42.default.memo(AgentTranscriptInner);
+var AgentTranscript = import_react57.default.memo(AgentTranscriptInner);
 
 // src/components/SectionRule.tsx
-var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime40 = __toESM(require_jsx_runtime(), 1);
 function SectionRule({
   width,
   color,
@@ -41623,32 +47712,32 @@ function SectionRule({
 }) {
   const suffix = label ? ` ${label}` : "";
   const rule = `${"\u2500".repeat(Math.max(1, width - suffix.length))}${suffix}`.slice(0, Math.max(1, width));
-  return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime40.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime40.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
 }
 
 // src/components/LaunchBanner.tsx
-var import_jsx_runtime29 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime41 = __toESM(require_jsx_runtime(), 1);
 var PROMPT_PREVIEW = 60;
 function bannerParts(width, hasLastSession, maxRows = Number.POSITIVE_INFINITY) {
-  const text2 = 2;
+  const text6 = 2;
   const last = hasLastSession ? 3 : 0;
   const tips = TIPS.length + 2;
   const big = bigLogoRows(width) + 1;
-  if (big + text2 + last + tips <= maxRows) return { bigLogo: true, tips: true };
-  if (big + text2 + last <= maxRows) return { bigLogo: true, tips: false };
-  return { bigLogo: false, tips: 1 + text2 + last + tips <= maxRows };
+  if (big + text6 + last + tips <= maxRows) return { bigLogo: true, tips: true };
+  if (big + text6 + last <= maxRows) return { bigLogo: true, tips: false };
+  return { bigLogo: false, tips: 1 + text6 + last + tips <= maxRows };
 }
 var TIPS = [
   "/help lists every command the daemon offers",
   "Shift+Tab cycles plan \u2192 accept \u2192 auto",
   "/setup configures providers and models"
 ];
-function centre(text2, width) {
-  const room = Math.max(0, Math.floor(width) - [...text2].length);
-  return `${" ".repeat(Math.floor(room / 2))}${text2}`;
+function centre(text6, width) {
+  const room = Math.max(0, Math.floor(width) - [...text6].length);
+  return `${" ".repeat(Math.floor(room / 2))}${text6}`;
 }
-function previewPrompt(text2, max = PROMPT_PREVIEW) {
-  const flat = text2.replace(/\s+/g, " ").trim();
+function previewPrompt(text6, max = PROMPT_PREVIEW) {
+  const flat = text6.replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}\u2026`;
 }
 function LaunchBanner({
@@ -41669,29 +47758,29 @@ function LaunchBanner({
   const paint = paintProp ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
   const description = "Open-source multi-vendor coding agent and personal AI assistant";
   const meta = [`v${version}`, target, workdir, mode.toUpperCase()].filter(Boolean).join(" \xB7 ");
-  return /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Box_default, { flexDirection: "column", width, children: [
-    parts.bigLogo ? /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(import_jsx_runtime29.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
-      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { color: "green", wrap: "truncate-end", children: collapsedLine(version) }),
-    /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
-      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
+  return /* @__PURE__ */ (0, import_jsx_runtime41.jsxs)(Box_default, { flexDirection: "column", width, children: [
+    parts.bigLogo ? /* @__PURE__ */ (0, import_jsx_runtime41.jsxs)(import_jsx_runtime41.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
+      /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { color: "green", wrap: "truncate-end", children: collapsedLine(version) }),
+    /* @__PURE__ */ (0, import_jsx_runtime41.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
+      /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
     ] }),
-    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Text, { wrap: "truncate-end", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { color: "cyan", children: "Last session: " }),
-        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
-        /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
+    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime41.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime41.jsxs)(Text, { wrap: "truncate-end", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { color: "cyan", children: "Last session: " }),
+        /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
+        /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "Press R or type /resume to continue it" })
+      /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "Press R or type /resume to continue it" })
     ] }) : null,
-    parts.tips ? /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) }) : null
+    parts.tips ? /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) }) : null
   ] });
 }
 
 // src/components/ShellList.tsx
-var import_jsx_runtime30 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime42 = __toESM(require_jsx_runtime(), 1);
 function runningCalls(calls) {
   const running = calls.filter((call) => call.state === "running");
   return [
@@ -41705,24 +47794,24 @@ function ShellList({
   width
 }) {
   const running = runningCalls(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime42.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime42.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime42.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
     `    \u25E6 ${summarizeCalls([call])}`,
     call.startedAt ? ` \xB7 ${formatDuration(now - call.startedAt)}` : ""
   ] }, call.callId)) });
 }
 
 // src/components/WorkingIndicator.tsx
-var import_react43 = __toESM(require_react(), 1);
-var import_jsx_runtime31 = __toESM(require_jsx_runtime(), 1);
+var import_react58 = __toESM(require_react(), 1);
+var import_jsx_runtime43 = __toESM(require_jsx_runtime(), 1);
 function WorkingIndicatorInner({ line }) {
   if (!line) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime43.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime43.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
 }
-var WorkingIndicator = import_react43.default.memo(WorkingIndicatorInner);
+var WorkingIndicator = import_react58.default.memo(WorkingIndicatorInner);
 
 // src/components/HelpPanel.tsx
-var import_react44 = __toESM(require_react(), 1);
-var import_jsx_runtime32 = __toESM(require_jsx_runtime(), 1);
+var import_react59 = __toESM(require_react(), 1);
+var import_jsx_runtime44 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
   "ralplan",
@@ -41747,7 +47836,7 @@ var KEYS = [
   "/new opens a fresh session without leaving the TUI; /resume brings an earlier one back",
   "/resume or R on empty input resumes the last session; /resume <sessionId> selects one",
   "From a shell: snowpea --resume <id> \xB7 session list --include-closed \xB7 session delete <id>",
-  "Typing while a turn runs queues the prompt (\u23F3 N queued); Esc interrupts and drops the queue",
+  "Typing while a turn runs queues the prompt (\u25F7 N queued); Esc interrupts and drops the queue",
   "/model on its own opens a picker of profiles and vendor models; /model <ref> switches",
   "Paste a file path to attach it \xB7 Ctrl+V pastes an image \xB7 /attach <path>",
   "Backspace on empty input removes an attachment \xB7 Ctrl+X removes all",
@@ -41756,18 +47845,18 @@ var KEYS = [
   "Approval menus: \u2191\u2193 select, Enter confirm, y/a/p/n answer, Esc refuse"
 ];
 function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, isActive = true }) {
-  const [offset, setOffset] = (0, import_react44.useState)(0);
+  const [offset, setOffset] = (0, import_react59.useState)(0);
   const inner = Math.max(1, width - 4);
   const rows = Math.max(1, height - 3);
   const lines = [];
-  const add = (text2, color, bold = false) => {
-    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text: text2, color, bold }] }, inner));
+  const add = (text6, color, bold = false) => {
+    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text: text6, color, bold }] }, inner));
   };
-  const workflows = commands.filter((command) => WORKFLOW_COMMANDS.includes(command.name));
-  const others = commands.filter((command) => !WORKFLOW_COMMANDS.includes(command.name));
-  const commandRows = (entries) => entries.forEach((command) => {
-    add(`/${command.name}`, "cyan", true);
-    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text: `  ${command.summary}`, dimColor: true }] }, inner, "  "));
+  const workflows = commands.filter((command2) => WORKFLOW_COMMANDS.includes(command2.name));
+  const others = commands.filter((command2) => !WORKFLOW_COMMANDS.includes(command2.name));
+  const commandRows = (entries) => entries.forEach((command2) => {
+    add(`/${command2.name}`, "cyan", true);
+    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text: `  ${command2.summary}`, dimColor: true }] }, inner, "  "));
   });
   if (workflows.length) {
     add("Workflows and modes", "cyan", true);
@@ -41778,22 +47867,22 @@ function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, is
   if (!commands.length) add("no commands reported by the daemon");
   commandRows(others);
   add("Keys", "cyan", true);
-  KEYS.forEach((text2) => add(text2));
+  KEYS.forEach((text6) => add(text6));
   const maxOffset = Math.max(0, lines.length - rows);
   const start = Math.min(offset, maxOffset);
   use_input_default((_input, key) => {
     const step = key.pageDown ? rows : key.pageUp ? -rows : key.downArrow ? 1 : key.upArrow ? -1 : 0;
     if (step) setOffset((current2) => Math.min(maxOffset, Math.max(0, current2 + step)));
   }, { isActive });
-  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
-  return /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
-    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
+  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime44.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
+  return /* @__PURE__ */ (0, import_jsx_runtime44.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime44.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
+    /* @__PURE__ */ (0, import_jsx_runtime44.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
   ] });
 }
 
 // src/components/UpdateBanner.tsx
-var import_jsx_runtime33 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime45 = __toESM(require_jsx_runtime(), 1);
 var PHASE_COLOR = {
   available: "cyan",
   confirm: "yellow",
@@ -41802,13 +47891,13 @@ var PHASE_COLOR = {
   failed: "red"
 };
 function UpdateBanner({ update }) {
-  const text2 = bannerText(update);
-  if (text2 === null) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text2 }) });
+  const text6 = bannerText(update);
+  if (text6 === null) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime45.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime45.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text6 }) });
 }
 
 // src/app.tsx
-var import_jsx_runtime34 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime46 = __toESM(require_jsx_runtime(), 1);
 var ENABLE_MOUSE = "\x1B[?1000h\x1B[?1006h";
 var WHEEL_ROWS = 3;
 var DISABLE_MOUSE = "\x1B[?1000l\x1B[?1006l";
@@ -41828,7 +47917,7 @@ var HOLD_CHROME_SLACK = 4;
 var MESSAGE_MARGIN_ROWS = 1;
 function agentTranscriptRows({
   fullscreen,
-  usable,
+  usable: usable2,
   statusRows,
   bottomRows: bottomRows2,
   transcriptRows
@@ -41837,12 +47926,12 @@ function agentTranscriptRows({
     if (transcriptRows === void 0) return AGENT_TRANSCRIPT_ROWS;
     return Math.max(MIN_AGENT_TRANSCRIPT_ROWS, transcriptRows - AGENT_TRANSCRIPT_CHROME_ROWS);
   }
-  const room = usable - statusRows - bottomRows2 - AGENT_TRANSCRIPT_CHROME_ROWS;
+  const room = usable2 - statusRows - bottomRows2 - AGENT_TRANSCRIPT_CHROME_ROWS;
   return Math.max(MIN_AGENT_TRANSCRIPT_ROWS, Math.min(AGENT_TRANSCRIPT_ROWS, room));
 }
 var RESTART_DELAY_MS = 1200;
 function TimelineEntry({
-  state,
+  state: state2,
   item,
   expandedId,
   width,
@@ -41850,8 +47939,8 @@ function TimelineEntry({
   messageStartLine = 0
 }) {
   if (item.kind === "message") {
-    const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    const message = state2.messages.find((m) => m.id === item.id);
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       MessageView,
       {
         message,
@@ -41862,20 +47951,20 @@ function TimelineEntry({
     ) : null;
   }
   if (item.kind === "tool") {
-    const call = state.toolCalls.find((c) => c.callId === item.id);
-    return call ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
+    const call = state2.toolCalls.find((c) => c.callId === item.id);
+    return call ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
   }
   if (item.kind === "compaction") {
-    const entry = state.compactions.find((c) => c.id === item.id);
-    return entry ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
+    const entry = state2.compactions.find((c) => c.id === item.id);
+    return entry ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width, entry.reason) }) }) : null;
   }
-  const diff2 = state.diffs.find((d) => d.id === item.id);
-  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+  const diff2 = state2.diffs.find((d) => d.id === item.id);
+  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
     DiffView,
     {
       diff: diff2,
       expanded: expandedId === item.id,
-      diagnostics: state.diagnostics[diff2.path]
+      diagnostics: state2.diagnostics[diff2.path]
     }
   ) : null;
 }
@@ -41885,7 +47974,7 @@ function followsTools(entries, index) {
   if (previous.kind === "tools") return true;
   return previous.kind === "entry" && previous.item.kind === "tool";
 }
-function releaseEntries(state, items, width, streamCommitted) {
+function releaseEntries(state2, items, width, streamCommitted) {
   const out = [];
   let run = [];
   const flush = () => {
@@ -41900,7 +47989,7 @@ function releaseEntries(state, items, width, streamCommitted) {
   };
   for (const item of items) {
     if (item.kind === "tool") {
-      const call = state.toolCalls.find((c) => c.callId === item.id);
+      const call = state2.toolCalls.find((c) => c.callId === item.id);
       if (call) {
         run.push(call);
         continue;
@@ -41908,7 +47997,7 @@ function releaseEntries(state, items, width, streamCommitted) {
     }
     flush();
     if (item.kind === "message") {
-      const message = state.messages.find((entry) => entry.id === item.id);
+      const message = state2.messages.find((entry) => entry.id === item.id);
       if (message && messageFullyCommitted(message, width, streamCommitted)) {
         continue;
       }
@@ -41925,6 +48014,10 @@ function releaseEntries(state, items, width, streamCommitted) {
   }
   flush();
   return out;
+}
+function securityNotice(waiting, degraded) {
+  const parts = [sectionNotice(waiting, "security"), degradedLine(degraded)].filter((part) => part !== null);
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 function App2({
   client,
@@ -41946,17 +48039,26 @@ function App2({
   localAudio = null,
   recordingPath,
   editor,
-  startDaemon
+  startDaemon,
+  startScreen
 }) {
   const { exit } = use_app_default();
-  const [sessionId, setSessionId] = (0, import_react45.useState)(initialSessionId);
-  const activeSessionRef = (0, import_react45.useRef)(initialSessionId);
-  const resumingRef = (0, import_react45.useRef)(false);
-  const [state, dispatch] = (0, import_react45.useReducer)(reducer, initialState);
-  const [reconnectAttempt, setReconnectAttempt] = (0, import_react45.useState)(null);
-  const [daemonGone, setDaemonGone] = (0, import_react45.useState)(false);
-  const disconnectTimer = (0, import_react45.useRef)(null);
-  const handleStartDaemon = (0, import_react45.useCallback)(async () => {
+  const [sessionId, setSessionId] = (0, import_react60.useState)(initialSessionId);
+  const activeSessionRef = (0, import_react60.useRef)(initialSessionId);
+  const resumingRef = (0, import_react60.useRef)(false);
+  const [state2, dispatch] = (0, import_react60.useReducer)(reducer, initialState);
+  const modeRef = (0, import_react60.useRef)(state2.mode);
+  modeRef.current = state2.mode;
+  const knownApprovalsRef = (0, import_react60.useRef)([]);
+  knownApprovalsRef.current = [
+    ...state2.heldApprovals,
+    ...state2.pendingApproval ? [state2.pendingApproval] : [],
+    ...state2.approvalQueue
+  ];
+  const [reconnectAttempt, setReconnectAttempt] = (0, import_react60.useState)(null);
+  const [daemonGone, setDaemonGone] = (0, import_react60.useState)(false);
+  const disconnectTimer = (0, import_react60.useRef)(null);
+  const handleStartDaemon = (0, import_react60.useCallback)(async () => {
     if (startDaemon) {
       await startDaemon();
       return;
@@ -41979,79 +48081,89 @@ function App2({
     } catch {
     }
   }, [startDaemon]);
-  const [showHelp, setShowHelp] = (0, import_react45.useState)(false);
+  const [showHelp, setShowHelp] = (0, import_react60.useState)(false);
   const { stdin, setRawMode } = use_stdin_default();
   const { stdout } = use_stdout_default();
-  const [draft, setDraft] = (0, import_react45.useState)("");
-  const [expandedId, setExpandedId] = (0, import_react45.useState)(null);
-  const [queueFocused, setQueueFocused] = (0, import_react45.useState)(false);
-  const [agentsExpanded, setAgentsExpanded] = (0, import_react45.useState)(false);
-  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react45.useState)(0);
-  const [attachments, setAttachments] = (0, import_react45.useState)([]);
-  const [voice, setVoice] = (0, import_react45.useState)(initialVoice);
-  const [insert2, setInsert] = (0, import_react45.useState)(null);
-  const [append, setAppend] = (0, import_react45.useState)(null);
-  const [sessionModelSource, setSessionModelSource] = (0, import_react45.useState)(null);
-  const [agentModels, setAgentModels] = (0, import_react45.useState)({});
-  const [modelPicker, setModelPicker] = (0, import_react45.useState)(null);
-  const [pickerPurpose, setPickerPurpose] = (0, import_react45.useState)("model");
-  const [skillForm, setSkillForm] = (0, import_react45.useState)(false);
-  const [skillRows, setSkillRows] = (0, import_react45.useState)([]);
-  const [mcpForm, setMcpForm] = (0, import_react45.useState)(null);
-  const [mcpCatalog, setMcpCatalog] = (0, import_react45.useState)(null);
-  const [mcpConfigure, setMcpConfigure] = (0, import_react45.useState)(null);
-  const mcpErrorsRef = (0, import_react45.useRef)(/* @__PURE__ */ new Set());
-  const [skillChip, setSkillChip] = (0, import_react45.useState)(null);
-  const [skillHint, setSkillHint] = (0, import_react45.useState)(false);
-  const skillHintSpent = (0, import_react45.useRef)(false);
-  const hintTurnRef = (0, import_react45.useRef)(null);
-  const skillReplyRef = (0, import_react45.useRef)(null);
-  const [suspended, setSuspended] = (0, import_react45.useState)(false);
-  const [capabilities, setCapabilities] = (0, import_react45.useState)(audio);
-  const recordingRef = (0, import_react45.useRef)(null);
-  const speechRef = (0, import_react45.useRef)(null);
-  const spokenRef = (0, import_react45.useRef)(/* @__PURE__ */ new Set());
-  const [focus, setFocus] = (0, import_react45.useState)(INPUT_FOCUS);
-  const [shellsOpen, setShellsOpen] = (0, import_react45.useState)(false);
-  const [openAgent, setOpenAgent] = (0, import_react45.useState)(null);
-  const [resumeChoices, setResumeChoices] = (0, import_react45.useState)(null);
-  const [resumeElsewhere, setResumeElsewhere] = (0, import_react45.useState)(false);
-  const [modePicker, setModePicker] = (0, import_react45.useState)(false);
-  const [agentScroll, setAgentScroll] = (0, import_react45.useState)(0);
-  const [pastPrompts] = (0, import_react45.useState)(() => {
+  const [draft, setDraft] = (0, import_react60.useState)("");
+  const [expandedId, setExpandedId] = (0, import_react60.useState)(null);
+  const [queueFocused, setQueueFocused] = (0, import_react60.useState)(false);
+  const [agentsExpanded, setAgentsExpanded] = (0, import_react60.useState)(false);
+  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react60.useState)(0);
+  const [attachments, setAttachments] = (0, import_react60.useState)([]);
+  const [voice, setVoice] = (0, import_react60.useState)(initialVoice);
+  const [insert2, setInsert] = (0, import_react60.useState)(null);
+  const [append, setAppend] = (0, import_react60.useState)(null);
+  const [sessionModelSource, setSessionModelSource] = (0, import_react60.useState)(null);
+  const [sessionAgent, setSessionAgent] = (0, import_react60.useState)(() => agentOfSession(null));
+  const [agentModels, setAgentModels] = (0, import_react60.useState)({});
+  const [modelPicker, setModelPicker] = (0, import_react60.useState)(null);
+  const [pickerPurpose, setPickerPurpose] = (0, import_react60.useState)("model");
+  const [skillForm, setSkillForm] = (0, import_react60.useState)(false);
+  const [skillRows, setSkillRows] = (0, import_react60.useState)([]);
+  const [mcpForm, setMcpForm] = (0, import_react60.useState)(null);
+  const [mcpCatalog, setMcpCatalog] = (0, import_react60.useState)(null);
+  const [mcpConfigure, setMcpConfigure] = (0, import_react60.useState)(null);
+  const mcpErrorsRef = (0, import_react60.useRef)(/* @__PURE__ */ new Set());
+  const [skillChip, setSkillChip] = (0, import_react60.useState)(null);
+  const [skillHint, setSkillHint] = (0, import_react60.useState)(false);
+  const skillHintSpent = (0, import_react60.useRef)(false);
+  const hintTurnRef = (0, import_react60.useRef)(null);
+  const skillReplyRef = (0, import_react60.useRef)(null);
+  const [suspended, setSuspended] = (0, import_react60.useState)(false);
+  const [capabilities, setCapabilities] = (0, import_react60.useState)(audio);
+  const recordingRef = (0, import_react60.useRef)(null);
+  const speechRef = (0, import_react60.useRef)(null);
+  const spokenRef = (0, import_react60.useRef)(/* @__PURE__ */ new Set());
+  const [focus, setFocus] = (0, import_react60.useState)(INPUT_FOCUS);
+  const [shellsOpen, setShellsOpen] = (0, import_react60.useState)(false);
+  const [openAgent, setOpenAgent] = (0, import_react60.useState)(null);
+  const [resumeChoices, setResumeChoices] = (0, import_react60.useState)(null);
+  const [resumeElsewhere, setResumeElsewhere] = (0, import_react60.useState)(false);
+  const [resumeIncludeExternal, setResumeIncludeExternal] = (0, import_react60.useState)(false);
+  const [resumeExternals, setResumeExternals] = (0, import_react60.useState)({ rows: [], loading: false, error: null });
+  const [modePicker, setModePicker] = (0, import_react60.useState)(false);
+  const [agentScroll, setAgentScroll] = (0, import_react60.useState)(0);
+  const [pastPrompts] = (0, import_react60.useState)(() => {
     history?.load();
     return history?.prompts() ?? [];
   });
-  const [lastSession] = (0, import_react45.useState)(() => {
+  const [lastSession] = (0, import_react60.useState)(() => {
     sessions?.load();
     return offerSession(sessions?.last(workdir) ?? null, priorSession2);
   });
-  const [modeHintVisible, setModeHintVisible] = (0, import_react45.useState)(true);
-  const [modeToast, setModeToast] = (0, import_react45.useState)(null);
-  const [runningCommand, setRunningCommand] = (0, import_react45.useState)(null);
-  const staticCursorRef = (0, import_react45.useRef)(0);
-  const staticBlocksRef = (0, import_react45.useRef)([{ key: "launch", kind: "launch" }]);
-  const turnNotesRef = (0, import_react45.useRef)([]);
-  const streamCommittedRef = (0, import_react45.useRef)(/* @__PURE__ */ new Map());
-  const turnRef = (0, import_react45.useRef)(null);
-  const turnActiveRef = (0, import_react45.useRef)(false);
-  const turnCountRef = (0, import_react45.useRef)(0);
-  const [scrollOffset, setScrollOffset] = (0, import_react45.useState)(0);
-  const modeToastTimer = (0, import_react45.useRef)(null);
-  const droppedRef = (0, import_react45.useRef)(0);
-  const droppedTimer = (0, import_react45.useRef)(null);
-  const childEventsRef = (0, import_react45.useRef)(null);
-  const registryRef = (0, import_react45.useRef)(new SlashRegistry(client, sessionId));
-  const [update, setUpdate] = (0, import_react45.useState)(initialUpdateState);
-  const [updateAvailable, setUpdateAvailable] = (0, import_react45.useState)(false);
-  const approvalResolver = (0, import_react45.useRef)(null);
-  const questionResolver = (0, import_react45.useRef)(null);
-  const audioClient = (0, import_react45.useMemo)(() => createAudioClient(client), [client]);
-  const audioOffered = (0, import_react45.useCallback)(
+  const [modeHintVisible, setModeHintVisible] = (0, import_react60.useState)(true);
+  const [modeToast, setModeToast] = (0, import_react60.useState)(null);
+  const [runningCommand, setRunningCommand] = (0, import_react60.useState)(null);
+  const staticCursorRef = (0, import_react60.useRef)(0);
+  const staticBlocksRef = (0, import_react60.useRef)([{ key: "launch", kind: "launch" }]);
+  const turnNotesRef = (0, import_react60.useRef)([]);
+  const streamCommittedRef = (0, import_react60.useRef)(/* @__PURE__ */ new Map());
+  const turnRef = (0, import_react60.useRef)(null);
+  const turnActiveRef = (0, import_react60.useRef)(false);
+  const turnCountRef = (0, import_react60.useRef)(0);
+  const [scrollOffset, setScrollOffset] = (0, import_react60.useState)(0);
+  const modeToastTimer = (0, import_react60.useRef)(null);
+  const droppedRef = (0, import_react60.useRef)(0);
+  const droppedTimer = (0, import_react60.useRef)(null);
+  const childEventsRef = (0, import_react60.useRef)(null);
+  const registryRef = (0, import_react60.useRef)(new SlashRegistry(client, sessionId));
+  const [update, setUpdate] = (0, import_react60.useState)(initialUpdateState);
+  const [updateAvailable, setUpdateAvailable] = (0, import_react60.useState)(false);
+  const approvalResolvers = (0, import_react60.useRef)(/* @__PURE__ */ new Map());
+  const questionResolvers = (0, import_react60.useRef)(/* @__PURE__ */ new Map());
+  const screensRef = (0, import_react60.useRef)(null);
+  const securityRef = (0, import_react60.useRef)(null);
+  const webRef = (0, import_react60.useRef)(null);
+  const trustRef = (0, import_react60.useRef)(null);
+  const highEscalationsRef = (0, import_react60.useRef)(/* @__PURE__ */ new Set());
+  const diskRef = (0, import_react60.useRef)(null);
+  const [infoTick, setInfoTick] = (0, import_react60.useState)(0);
+  const audioClient = (0, import_react60.useMemo)(() => createAudioClient(client), [client]);
+  const audioOffered = (0, import_react60.useCallback)(
     () => client.serverCapabilities?.().includes("audio") ?? true,
     [client]
   );
-  const refreshCapabilities = (0, import_react45.useCallback)(() => {
+  const refreshCapabilities = (0, import_react60.useCallback)(() => {
     if (!audioOffered()) {
       setCapabilities(noAudio);
       return;
@@ -42060,20 +48172,20 @@ function App2({
       setCapabilities(noAudio);
     });
   }, [audioClient, audioOffered]);
-  (0, import_react45.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
     refreshCapabilities();
   }, [refreshCapabilities]);
-  const refreshLsp = (0, import_react45.useCallback)(() => {
+  const refreshLsp = (0, import_react60.useCallback)(() => {
     void client.call("lsp.status", {}).then((result) => dispatch({ type: "lsp/status", servers: readLspStatus(result) })).catch(() => {
       dispatch({ type: "lsp/status", servers: [] });
     });
   }, [client]);
-  const refreshMcp = (0, import_react45.useCallback)(() => {
+  const refreshMcp = (0, import_react60.useCallback)(() => {
     void client.call("mcp.list", { sessionId, workdir }).then((result) => dispatch({ type: "mcp/list", servers: readMcpList(result) })).catch(() => {
       dispatch({ type: "mcp/list", servers: [] });
     });
   }, [client, sessionId, workdir]);
-  const refreshSkills = (0, import_react45.useCallback)(() => {
+  const refreshSkills = (0, import_react60.useCallback)(() => {
     void client.call("skill.list", {}).then((result) => {
       const rows = Array.isArray(result?.skills) ? result.skills : [];
       setSkillRows(
@@ -42088,11 +48200,11 @@ function App2({
       setSkillRows([]);
     });
   }, [client]);
-  const refreshApprovals = (0, import_react45.useCallback)(() => {
+  const refreshApprovals = (0, import_react60.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
   }, [client, sessionId]);
-  (0, import_react45.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
     dispatch({
       type: "session/ready",
       sessionId,
@@ -42111,7 +48223,54 @@ function App2({
     const liveEvents = createLiveEventThrottle(
       (event) => dispatch({ type: "session/event", event })
     );
+    const featureSupport = supportOf(client.serverCapabilities?.());
+    setSurfaceSupport([
+      ...featureSupport.jarvis ? [] : ["jarvis"],
+      ...featureSupport.external ? [] : ["external"],
+      ...securitySupported(client.serverCapabilities?.()) ? [] : ["security"],
+      ...webRemoteSupported(client.serverCapabilities?.()) ? [] : ["web"],
+      ...trustSupported(client.serverCapabilities?.()) ? [] : ["trust"]
+    ]);
     client.setListeners({
+      // The Jarvis and external-session notifications go to their hook.
+      onJarvisState: (params) => screensRef.current?.listeners.onJarvisState?.(params),
+      onJarvisDecision: (params) => screensRef.current?.listeners.onJarvisDecision?.(params),
+      onJarvisEscalation: (params) => {
+        screensRef.current?.listeners.onJarvisEscalation?.(params);
+        const id = typeof params?.id === "string" ? params.id : "";
+        if (params?.importance === "high" && typeof params.summary === "string" && params.summary !== "" && !highEscalationsRef.current.has(id)) {
+          highEscalationsRef.current.add(id);
+          dispatch({ type: "note", text: highEscalationLine(params.summary), blocked: true });
+        }
+      },
+      onJarvisDelegation: (params) => screensRef.current?.listeners.onJarvisDelegation?.(params),
+      onQuestionPending: (params) => {
+        const refused = refusalOf(params?.refused);
+        const requestId = params?.request?.requestId;
+        if (refused && typeof requestId === "string") dispatch({ type: "refusal", requestId, refused });
+        screensRef.current?.listeners.onQuestionPending?.(params);
+      },
+      // Jarvis took a request, or handed it back to the person: the prompt and
+      // the "Jarvis is deciding" line follow the event, not a poll.
+      onApprovalRouteChanged: (params) => {
+        dispatch({ type: "approval/route", requestId: params.requestId, route: params.route });
+        if (!knownApprovalsRef.current.some((request) => request.requestId === params.requestId)) {
+          refreshApprovals();
+        }
+        screensRef.current?.listeners.onApprovalRouteChanged?.(params);
+      },
+      onQuestionRouteChanged: (params) => {
+        dispatch({ type: "question/route", requestId: params.requestId, route: params.route });
+        screensRef.current?.listeners.onQuestionRouteChanged?.(params);
+      },
+      onSecurityBlocked: (params) => securityRef.current?.onBlocked(params),
+      onProjectTrustChanged: (params) => trustRef.current?.onChanged(params),
+      onExternalEvent: (params) => screensRef.current?.listeners.onExternalEvent?.(params),
+      onExternalState: (params) => screensRef.current?.listeners.onExternalState?.(params),
+      onExternalClisChanged: (params) => screensRef.current?.listeners.onExternalClisChanged?.(params),
+      onJarvisAccess: (params) => screensRef.current?.listeners.onJarvisAccess?.(params),
+      onJarvisEscalationDismissed: (params) => screensRef.current?.listeners.onJarvisEscalationDismissed?.(params),
+      onSessionsChanged: (params) => screensRef.current?.listeners.onSessionsChanged?.(params),
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
       onSessionEvent: (event) => {
@@ -42119,15 +48278,16 @@ function App2({
           droppedRef.current += 1;
           if (droppedTimer.current) clearTimeout(droppedTimer.current);
           droppedTimer.current = setTimeout(() => {
-            const count2 = droppedRef.current;
+            const count3 = droppedRef.current;
             droppedRef.current = 0;
-            if (count2 > 0) showToast(`${count2} queued prompt${count2 === 1 ? "" : "s"} dropped`);
+            if (count3 > 0) showToast(`${count3} queued prompt${count3 === 1 ? "" : "s"} dropped`);
           }, 120);
         }
         if (event.sessionId && event.sessionId !== activeSessionRef.current) {
           childEvents.push(event.sessionId, event);
           return;
         }
+        if (event.kind === "command.result") showToast(commandResultText(event.payload).split("\n")[0]);
         liveEvents.push(event);
       },
       onStatus: (status) => {
@@ -42172,6 +48332,9 @@ function App2({
         }
         showToast("daemon restarted \u2014 session resumed");
         dispatch({ type: "session/reconnected" });
+        refreshApprovals();
+        void client.call("question.list", {}).then((result) => dispatch({ type: "question/list", requests: result?.requests ?? [] })).catch(() => void 0);
+        screensRef.current?.reconnected();
         void client.checkUpdate(false).then((check) => {
           setUpdateAvailable(Boolean(check.available) && !check.error);
           setUpdate((current2) => fromCheck(current2, check));
@@ -42180,7 +48343,17 @@ function App2({
       },
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
-      onApprovalPending: () => refreshApprovals(),
+      onQuestionResolved: ({ requestId }) => {
+        dispatch({ type: "question/resolved", requestId });
+        questionResolvers.current.delete(requestId);
+      },
+      onApprovalPending: (params) => {
+        const refused = refusalOf(params?.refused);
+        if (refused && params.request?.requestId) dispatch({ type: "refusal", requestId: params.request.requestId, refused });
+        screensRef.current?.listeners.onApprovalPending?.(params);
+        refreshApprovals();
+        void screensRef.current?.refresh();
+      },
       // A plugin install or `skill.reload` moved the server-side table.
       onCommandsChanged: () => {
         refreshSkills();
@@ -42188,7 +48361,13 @@ function App2({
         });
       },
       // Installing a backend or naming a voice is a setting; re-ask.
-      onSettingsChanged: () => refreshCapabilities(),
+      onSettingsChanged: (params) => {
+        refreshCapabilities();
+        securityRef.current?.onSettingsChanged(params);
+        webRef.current?.onSettingsChanged(params);
+        diskRef.current?.onSettingsChanged(params);
+        setInfoTick((tick) => tick + 1);
+      },
       // An MCP server moved: the HUD follows the payload at once, and the full
       // list is re-read for the tools it carries. A server that broke is said
       // once — a flapping server must not fill the transcript with the same
@@ -42213,15 +48392,20 @@ function App2({
         const next = phase2 ?? "started";
         return progress(current2, next, message ?? "");
       }),
-      onApprovalResolved: ({ requestId }) => {
+      onApprovalResolved: ({ requestId, decision, by, outcome, scope }) => {
+        const known = knownApprovalsRef.current.find((request) => request.requestId === requestId);
+        const line = approvalResolvedNote({ by, decision, outcome, scope }, known, takeChosenScope(requestId));
+        if (line) dispatch({ type: "note", text: line });
         dispatch({ type: "approval/resolved", requestId });
         refreshApprovals();
+        void screensRef.current?.refresh();
       }
     });
     void client.call("session.list", {}).then((result) => {
       const sessions2 = Array.isArray(result?.sessions) ? result.sessions : [];
       const mine = sessions2.find((entry) => entry?.sessionId === sessionId);
       setSessionModelSource(modelSource(mine));
+      setSessionAgent(agentOfSession(mine));
     }).catch(() => {
     });
     refreshLsp();
@@ -42239,17 +48423,17 @@ function App2({
     });
     client.onApprovalRequest(
       (request) => new Promise((resolve2) => {
-        approvalResolver.current = resolve2;
+        approvalResolvers.current.set(request.requestId, resolve2);
         dispatch({ type: "approval/request", request });
       })
     );
     client.onQuestionRequest(
       (request) => new Promise((resolve2) => {
-        questionResolver.current = resolve2;
+        questionResolvers.current.set(request.requestId, resolve2);
         dispatch({ type: "question/request", request });
       })
     );
-    void registryRef.current.load().then((commands) => dispatch({ type: "commands", commands })).catch((error) => dispatch({ type: "error", message: String(error) }));
+    void registryRef.current.load().then((commands) => dispatch({ type: "commands", commands })).catch((error) => dispatch({ type: "error", message: rpcErrorText(error) }));
     refreshApprovals();
     return () => {
       childEvents.dispose();
@@ -42274,7 +48458,7 @@ function App2({
     refreshMcp,
     refreshSkills
   ]);
-  (0, import_react45.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
     let cancelled = false;
     void client.checkUpdate(true).then((check) => {
       if (cancelled) return;
@@ -42286,9 +48470,9 @@ function App2({
       cancelled = true;
     };
   }, [client]);
-  (0, import_react45.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
     const onData = (data) => {
-      if (state.pendingQuestion || state.pendingApproval) return;
+      if (state2.pendingQuestion || state2.pendingApproval || securityRef.current?.ui || webRef.current?.ui || diskRef.current?.open) return;
       if (update.phase === "confirm" || update.phase === "running") return;
       if (["\x1BOP", "\x1B[11~", "\x1B[[A"].includes(data.toString())) {
         setShowHelp((current2) => !current2);
@@ -42299,8 +48483,8 @@ function App2({
     return () => {
       stdin.off("data", onData);
     };
-  }, [stdin, state.pendingApproval, state.pendingQuestion, update.phase]);
-  (0, import_react45.useEffect)(() => {
+  }, [stdin, state2.pendingApproval, state2.pendingQuestion, update.phase]);
+  (0, import_react60.useEffect)(() => {
     if (update.phase !== "done") return;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -42318,13 +48502,13 @@ function App2({
       clearTimeout(timer);
     };
   }, [update.phase, client, onRestart, exit]);
-  (0, import_react45.useEffect)(() => {
-    if (state.approvalQueue.length === 0) return;
+  (0, import_react60.useEffect)(() => {
+    if (state2.approvalQueue.length === 0) return;
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
-  }, [state.approvalQueue.length, refreshApprovals]);
-  const lastMessage = state.messages[state.messages.length - 1];
-  (0, import_react45.useEffect)(() => {
+  }, [state2.approvalQueue.length, refreshApprovals]);
+  const lastMessage = state2.messages[state2.messages.length - 1];
+  (0, import_react60.useEffect)(() => {
     if (!voice.tts || !lastMessage) return;
     if (lastMessage.role !== "assistant" || lastMessage.streaming) return;
     if (spokenRef.current.has(lastMessage.id)) return;
@@ -42335,54 +48519,56 @@ function App2({
       if (!handle) setVoice((current2) => ({ ...current2, speaking: false }));
     });
   }, [voice.tts, lastMessage?.id, lastMessage?.streaming]);
-  const compactionCount = state.compactions.length;
-  (0, import_react45.useEffect)(() => {
-    const latest = state.compactions[compactionCount - 1];
+  const compactionCount = state2.compactions.length;
+  (0, import_react60.useEffect)(() => {
+    const latest = state2.compactions[compactionCount - 1];
     if (!latest) return;
-    showToast(`compacted: ${formatTokens(latest.before)} \u2192 ${formatTokens(latest.after)}`);
+    showToast(
+      `compacted${latest.reason === "overflow" ? " (request too long)" : ""}: ${formatTokens(latest.before)} \u2192 ${formatTokens(latest.after)}`
+    );
   }, [compactionCount]);
-  (0, import_react45.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
     const timer = setInterval(refreshLsp, LSP_POLL_MS);
     return () => clearInterval(timer);
   }, [refreshLsp]);
-  const diagnosticsVersion = Object.keys(state.diagnostics).length;
-  (0, import_react45.useEffect)(() => {
+  const diagnosticsVersion = Object.keys(state2.diagnostics).length;
+  (0, import_react60.useEffect)(() => {
     if (diagnosticsVersion > 0) refreshLsp();
   }, [diagnosticsVersion, refreshLsp]);
-  (0, import_react45.useEffect)(() => {
-    if (!state.turnActive) setRunningCommand(null);
-  }, [state.turnActive]);
-  (0, import_react45.useEffect)(() => {
-    if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
-  }, [state.approvalQueue.length, queueFocused]);
-  (0, import_react45.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
+    if (!state2.turnActive) setRunningCommand(null);
+  }, [state2.turnActive]);
+  (0, import_react60.useEffect)(() => {
+    if (state2.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
+  }, [state2.approvalQueue.length, queueFocused]);
+  (0, import_react60.useEffect)(() => {
     const timer = setTimeout(() => setModeHintVisible(false), 6e3);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react45.useEffect)(() => () => {
+  (0, import_react60.useEffect)(() => () => {
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
   }, []);
-  const showToast = (0, import_react45.useCallback)((text2) => {
-    setModeToast(text2);
+  const showToast = (0, import_react60.useCallback)((text6) => {
+    setModeToast(text6);
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
-  const setMouseMode = (0, import_react45.useCallback)(
+  const setMouseMode = (0, import_react60.useCallback)(
     (enabled) => {
       if (!stdout?.isTTY) return;
       stdout.write(enabled ? ENABLE_MOUSE : DISABLE_MOUSE);
     },
     [stdout]
   );
-  const [mouseOn, setMouseOn] = (0, import_react45.useState)(fullscreen);
-  (0, import_react45.useEffect)(() => {
+  const [mouseOn, setMouseOn] = (0, import_react60.useState)(fullscreen);
+  (0, import_react60.useEffect)(() => {
     setMouseMode(mouseOn);
     return () => setMouseMode(false);
   }, [setMouseMode, mouseOn]);
-  const resumeSession = (0, import_react45.useCallback)(
+  const resumeSession = (0, import_react60.useCallback)(
     (target, into) => {
       if (into === "main") {
-        if (resumingRef.current || state.turnActive) return;
+        if (resumingRef.current || state2.turnActive) return;
         if (target === activeSessionRef.current) return;
         resumingRef.current = true;
       }
@@ -42424,15 +48610,15 @@ function App2({
         if (into === "main") resumingRef.current = false;
       });
     },
-    [client, state.turnActive, sessions, workdir]
+    [client, state2.turnActive, sessions, workdir]
   );
-  const startNewSession = (0, import_react45.useCallback)(() => {
-    if (resumingRef.current || state.turnActive) {
+  const startNewSession = (0, import_react60.useCallback)(() => {
+    if (resumingRef.current || state2.turnActive) {
       showToast("interrupt the current turn before opening a new session");
       return;
     }
     resumingRef.current = true;
-    const mode2 = state.mode;
+    const mode2 = state2.mode;
     void client.createSessionInfo({ workdir, mode: mode2, originSurface: "tui" }).then(({ sessionId: created, delegation: delegation2 }) => {
       activeSessionRef.current = created;
       registryRef.current = new SlashRegistry(client, created);
@@ -42452,63 +48638,132 @@ function App2({
       sessions?.remember({ sessionId: created, workdir, firstPrompt: "", at: Date.now() });
       showToast("new session");
     }).catch(
-      (error) => dispatch({ type: "error", message: `new session failed: ${String(error)}` })
+      (error) => dispatch({ type: "error", message: `new session failed: ${rpcErrorText(error)}` })
     ).finally(() => {
       resumingRef.current = false;
     });
-  }, [client, state.turnActive, state.mode, sessions, workdir, showToast]);
-  const changeMode = (0, import_react45.useCallback)(
+  }, [client, state2.turnActive, state2.mode, sessions, workdir, showToast]);
+  const changeMode = (0, import_react60.useCallback)(
     (next) => {
       setModeHintVisible(false);
+      const previous = modeRef.current;
       dispatch({ type: "mode", mode: next });
       showToast(`mode: ${next.toUpperCase()}`);
-      void client.setMode(sessionId, next).catch((error) => dispatch({ type: "error", message: String(error) }));
+      void client.setMode(sessionId, next).catch((error) => {
+        dispatch({ type: "mode", mode: previous });
+        showToast(`mode: ${previous.toUpperCase()}`);
+        dispatch({ type: "error", message: rpcErrorText(error) });
+      });
     },
     [client, sessionId, showToast]
   );
-  const handleFileComplete = (0, import_react45.useCallback)(
+  const handleFileComplete = (0, import_react60.useCallback)(
     (query) => client.fileComplete({ sessionId, query }),
     [client, sessionId]
   );
-  const completions = (0, import_react45.useMemo)(() => {
+  const completions = (0, import_react60.useMemo)(() => {
     if (!draft.startsWith("/")) return [];
-    const skills = state.commands.some((command) => command.name === "skill") ? skillSubCommands(draft, skillRows) : [];
-    const mcp = state.commands.some((command) => command.name === "mcp") ? mcpSubCommands(draft, state.mcp, mcpCatalog ?? []) : [];
+    const skills = state2.commands.some((command2) => command2.name === "skill") ? skillSubCommands(draft, skillRows) : [];
+    const mcp = state2.commands.some((command2) => command2.name === "mcp") ? mcpSubCommands(draft, state2.mcp, mcpCatalog ?? []) : [];
     return [
       ...skills,
       ...mcp,
       ...ttsSubCommands(draft),
       ...voiceSubCommands(draft),
+      ...jarvisSubCommands(draft),
+      ...securitySubCommands(draft),
+      ...webSubCommands(draft),
+      ...trustSubCommands(draft),
+      ...settingsSubCommands(draft),
+      ...externalSubCommands(draft),
       ...registryRef.current.complete(draft)
     ];
-  }, [draft, state.commands, state.mcp, mcpCatalog, skillRows]);
+  }, [draft, state2.commands, state2.mcp, mcpCatalog, skillRows]);
   const terminal = useTerminalSize();
   const contentWidth = Math.max(1, terminal.columns - 2);
-  const daemon = useDaemonInfo(client);
+  const daemon = useDaemonInfo(client, void 0, infoTick);
+  const degradedRef = (0, import_react60.useRef)([]);
+  degradedRef.current = daemon.degraded;
   const sessionElapsedMs = useElapsed();
+  const note = (0, import_react60.useCallback)((text6) => dispatch({ type: "note", text: text6 }), []);
+  const screens = useJarvisScreens({
+    client,
+    workdir,
+    sessionId,
+    turnActive: state2.turnActive,
+    resumeSession,
+    showToast,
+    note,
+    start: startScreen,
+    diskNotice: () => sectionNotice(diskRef.current?.waiting ?? [], "jarvis")
+  });
+  screensRef.current = screens;
+  const externalOpen = screens.external;
+  const warn = (0, import_react60.useCallback)((text6) => dispatch({ type: "note", text: text6, blocked: true }), []);
+  const security = useSecurityScreen({
+    client,
+    workdir,
+    sessionId,
+    viewingId: externalOpen ? extSessionId(externalOpen.ref) : null,
+    showToast,
+    note,
+    warn,
+    diskNotice: () => securityNotice(diskRef.current?.waiting ?? [], degradedRef.current)
+  });
+  securityRef.current = security;
+  const web = useWebScreen({
+    client,
+    note,
+    showToast,
+    write: (data) => void stdout.write(data),
+    diskNotice: () => sectionNotice(diskRef.current?.waiting ?? [], "web.remote")
+  });
+  webRef.current = web;
+  const trust = useTrustScreen({ client, workdir, note, warn, showToast });
+  trustRef.current = trust;
+  const disk = useDiskSettings({ client, warn, note, onReloaded: () => setInfoTick((tick) => tick + 1) });
+  diskRef.current = disk;
+  const topBanner = bannerText(update) ?? (daemon.degraded.length > 0 ? DEGRADED_BANNER() : null) ?? (disk.waiting.length > 0 ? DISK_BANNER() : null);
+  const degradedSaid = (0, import_react60.useRef)(false);
+  const degradedText = degradedLine(daemon.degraded);
+  (0, import_react60.useEffect)(() => {
+    if (degradedText === null || degradedSaid.current) return;
+    degradedSaid.current = true;
+    warn(degradedText);
+  }, [degradedText, warn]);
+  const externalWarning = externalOpen ? ungatedWarning(externalOpen.session) : null;
+  const externalViewOnly = externalOpen ? viewOnlyReason(externalOpen.session) : null;
+  const externalId = externalOpen?.ref.id ?? null;
+  (0, import_react60.useEffect)(() => {
+    setAgentScroll(0);
+  }, [externalId]);
   const version = update.current || TUI_VERSION;
-  const hudSegments = (0, import_react45.useMemo)(
+  const hudAgent = (0, import_react60.useMemo)(
+    () => externalOpen ? agentOfExternal(externalOpen.ref.cli) : sessionAgent,
+    [externalOpen?.ref.cli, sessionAgent]
+  );
+  const hudSegments = (0, import_react60.useMemo)(
     () => buildHudSegments({
-      status: state.status,
+      status: state2.status,
       reconnectAttempt,
       daemonGone,
       version,
       latestVersion: updateAvailable ? update.latest : null,
       workdir,
       remote,
-      sessionId: state.sessionId,
-      provider: state.provider,
-      model: state.model,
-      modelSource: state.modelSource ?? sessionModelSource,
-      effort: state.effort,
-      delegation: state.delegation,
-      mode: state.mode,
-      autoAfterPlan: state.autoAfterPlan,
-      usage: state.usage,
-      context: state.context,
-      toolCount: state.toolCount,
-      lsp: state.lsp,
-      mcp: state.mcp,
+      sessionId: state2.sessionId,
+      provider: state2.provider,
+      model: state2.model,
+      modelSource: state2.modelSource ?? sessionModelSource,
+      effort: state2.effort,
+      delegation: state2.delegation,
+      mode: state2.mode,
+      autoAfterPlan: state2.autoAfterPlan,
+      usage: state2.usage,
+      context: state2.context,
+      toolCount: state2.toolCount,
+      lsp: state2.lsp,
+      mcp: state2.mcp,
       speaking: voice.tts,
       voiceInput: voice.input,
       recording: voice.recording,
@@ -42517,14 +48772,19 @@ function App2({
       sessionMs: sessionElapsedMs,
       daemonPid: daemon.pid,
       daemonSummary: daemon.summary,
-      pendingApprovals: state.approvalQueue.length,
+      pendingApprovals: state2.approvalQueue.length,
       runningCommand,
-      turnActive: state.turnActive,
+      turnActive: state2.turnActive,
       toast: modeToast && modeToast.length <= TOAST_INLINE_MAX ? modeToast : null,
-      modeHint: modeHintVisible
+      modeHint: modeHintVisible,
+      jarvis: state2.heldApprovals.length + state2.heldQuestions.filter((q) => q.route === "jarvis").length > 0 ? JARVIS_DECIDING : screens.marker,
+      externalWarning,
+      agentTag: hudAgent.tag || null,
+      agentColor: hudAgent.color
     }),
     [
-      state.status,
+      hudAgent,
+      state2.status,
       reconnectAttempt,
       daemonGone,
       version,
@@ -42532,41 +48792,45 @@ function App2({
       updateAvailable,
       workdir,
       remote,
-      state.sessionId,
-      state.provider,
-      state.model,
-      state.modelSource,
+      state2.sessionId,
+      state2.provider,
+      state2.model,
+      state2.modelSource,
       sessionModelSource,
-      state.mode,
-      state.autoAfterPlan,
-      state.usage,
-      state.context,
-      state.toolCount,
-      state.lsp,
-      state.mcp,
+      state2.mode,
+      state2.autoAfterPlan,
+      state2.usage,
+      state2.context,
+      state2.toolCount,
+      state2.lsp,
+      state2.mcp,
       voice.tts,
       sessionElapsedMs,
       daemon.pid,
       daemon.summary,
-      state.approvalQueue.length,
+      state2.approvalQueue.length,
       runningCommand,
-      state.turnActive,
+      state2.turnActive,
       modeToast,
-      modeHintVisible
+      modeHintVisible,
+      screens.marker,
+      state2.heldApprovals.length,
+      state2.heldQuestions,
+      externalWarning
     ]
   );
-  const hudRows = (0, import_react45.useMemo)(
+  const hudRows = (0, import_react60.useMemo)(
     () => layoutHud(hudSegments, contentWidth),
     [hudSegments, contentWidth]
   );
   const now = Date.now();
-  const clock = useClock(state.turnActive || voice.recording);
+  const clock = useClock(state2.turnActive || voice.recording);
   const knownAgents = useKnownAgents(client, void 0, agentRosterVersion);
   const teamRow2 = knownAgents.find((agent) => agent.kind === "team" && agent.active) ?? knownAgents.find((agent) => agent.kind === "team");
   const activeTeam = teamRow2?.name;
-  const agentRows = (0, import_react45.useMemo)(
+  const agentRows = (0, import_react60.useMemo)(
     () => buildAgentRows({
-      state,
+      state: state2,
       known: knownAgents.filter((agent) => agent.kind !== "team"),
       roster: teamRow2?.agents,
       now: clock,
@@ -42578,54 +48842,55 @@ function App2({
     // hand `AgentPanel` a new array on each of the spinner's five frames a
     // second and on every token a delegate streams.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.subagents, state.teamTasks, knownAgents, teamRow2, agentsExpanded, clock]
+    [state2.subagents, state2.teamTasks, knownAgents, teamRow2, agentsExpanded, clock]
   );
   const agentRowCount = agentRows.length;
-  (0, import_react45.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
     setFocus((current2) => clampFocus(current2, agentRowCount));
   }, [agentRowCount]);
-  const previousFocusRef = (0, import_react45.useRef)(INPUT_FOCUS);
-  (0, import_react45.useEffect)(() => {
+  const previousFocusRef = (0, import_react60.useRef)(INPUT_FOCUS);
+  (0, import_react60.useEffect)(() => {
     const previous = previousFocusRef.current;
     if (agentsExpanded && previous.zone !== "input" && focus.zone === "input") {
       setAgentsExpanded(false);
     }
     previousFocusRef.current = focus;
   }, [agentsExpanded, focus]);
-  const openAgentEntry = openAgent ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
-  const agentLines = (0, import_react45.useMemo)(
-    () => openAgent && state.children[openAgent.sessionId] ? screenTranscriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
-    [openAgent, state.children, contentWidth]
+  const openAgentEntry = openAgent ? state2.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
+  const externalState = externalOpen?.state ?? null;
+  const agentLines = (0, import_react60.useMemo)(
+    () => externalState ? screenTranscriptLines(externalState, contentWidth - 4) : openAgent && state2.children[openAgent.sessionId] ? screenTranscriptLines(state2.children[openAgent.sessionId], contentWidth - 4) : [],
+    [externalState, openAgent, state2.children, contentWidth]
   );
-  const phase = derivePhase(state, { runningCommand });
+  const phase = derivePhase(state2, { runningCommand });
   const spinnerFrame = useSpinner(
     voice.recording || phase.kind !== "idle" && phase.kind !== "approval"
   );
   const turn = turnRef.current;
-  const turnStartedAt = state.turnStartedAt ?? turn?.startedAt ?? null;
-  const queuedSuffix = state.queued.length > 0 ? ` \xB7 ${queuedLabel(state.queued.length)}` : "";
+  const turnStartedAt = state2.turnStartedAt ?? turn?.startedAt ?? null;
+  const queuedSuffix = state2.queued.length > 0 ? ` \xB7 ${queuedLabel(state2.queued.length)}` : "";
   const workingText = voice.recording ? recordingLabel(voice.startedAt, clock) : voice.speaking ? SPEAKING_LABEL : workingLine({
     phase,
     elapsedMs: turnStartedAt === null ? 0 : clock - turnStartedAt,
-    inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
+    inputTokens: turn ? state2.usage.inputTokens - turn.inputTokens : 0,
     // The daemon reports usage once per model round; between reports the
     // streamed answer and thinking stand in, so a long round still moves.
-    outputTokens: (turn ? state.usage.outputTokens - turn.outputTokens : 0) + estimateTokens(state.streamedChars + state.reasoningChars),
+    outputTokens: (turn ? state2.usage.outputTokens - turn.outputTokens : 0) + estimateTokens(state2.streamedChars + state2.reasoningChars),
     frame: spinnerFrame,
-    verbOffset: state.messages.length,
-    waited: state.turnWaited
+    verbOffset: state2.messages.length,
+    waited: state2.turnWaited
   });
   const indicatorText = workingText === null ? null : `${workingText}${queuedSuffix}`;
-  const completableAgents = (0, import_react45.useMemo)(
-    () => agentCandidates({ known: knownAgents, teamTasks: state.teamTasks, models: agentModels }),
-    [knownAgents, state.teamTasks, agentModels]
+  const completableAgents = (0, import_react60.useMemo)(
+    () => agentCandidates({ known: knownAgents, teamTasks: state2.teamTasks, models: agentModels }),
+    [knownAgents, state2.teamTasks, agentModels]
   );
-  const delegation = (0, import_react45.useMemo)(
+  const delegation = (0, import_react60.useMemo)(
     () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
     [draft, knownAgents]
   );
   const maxDraftRows = Math.max(3, Math.floor(usableRows(terminal.rows) / 3));
-  const draftRows = (0, import_react45.useMemo)(
+  const draftRows = (0, import_react60.useMemo)(
     () => Math.min(
       maxDraftRows,
       layout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length
@@ -42635,6 +48900,18 @@ function App2({
   const panelHint = mouseOn ? `\u2191\u2193 select \xB7 click or Enter opens${fullscreen ? " \xB7 wheel scrolls \xB7 Shift+drag selects text" : ""}` : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking";
   const hintRows = hintShares(agentRows) ? 0 : 1;
   const showLogo = !fullscreen;
+  const jarvisDiskNotice = sectionNotice(disk.waiting, "jarvis");
+  const jarvisPanelLines = (0, import_react60.useMemo)(
+    () => screens.panel(contentWidth, Math.max(6, Math.min(12, Math.floor(usableRows(terminal.rows) / 3))), jarvisDiskNotice),
+    // `screens.panel` changes with the Jarvis state and the clock.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [screens.panel, contentWidth, terminal.rows, jarvisDiskNotice]
+  );
+  const overlayRows = screenOverlayRows(screens, contentWidth);
+  const openRefusal = state2.refusals[state2.pendingQuestion?.requestId ?? state2.pendingApproval?.requestId ?? ""];
+  const approvalLabel = requestLabel(state2.pendingApproval, screens.jarvis.rows, sessionId);
+  const screenQuestionLabel = requestLabel(state2.pendingQuestion, screens.jarvis.rows, sessionId);
+  const proposalRequest = state2.pendingApproval ? personOnlyView(state2.pendingApproval, screens.now) : null;
   const layout2 = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
     rows: usableRows(terminal.rows),
@@ -42644,28 +48921,37 @@ function App2({
     headerRows: (showLogo ? logoRows(terminal.rows) : 0) + HEADER_ROWS,
     // The HUD's rows, the context warning when there is one, the summary line,
     // every row of the agent panel and its key/mouse hint.
-    statusRows: hudRows.length + (contextWarning(state.context) ? 1 : 0) + 1 + agentRows.length + 2 + hintRows,
+    statusRows: hudRows.length + (contextWarning(state2.context) ? 1 : 0) + 1 + agentRows.length + 2 + hintRows,
     bottomRows: bottomRows({
       inputRows: draftRows,
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
-      approvalArgs: state.pendingApproval ? Object.keys(state.pendingApproval.args ?? {}).length : null,
-      queueRequests: state.approvalQueue.length,
-      questionRows: state.pendingQuestion ? questionPromptRows(state.pendingQuestion, contentWidth) : 0,
+      approvalArgs: state2.pendingApproval ? Object.keys(state2.pendingApproval.args ?? {}).length : null,
+      queueRequests: state2.approvalQueue.length,
+      questionRows: state2.pendingQuestion ? questionPromptRows(state2.pendingQuestion, contentWidth) : 0,
       queueFocused,
-      errorVisible: state.errors.length > 0,
+      errorVisible: state2.errors.length > 0,
       workingVisible: workingText !== null,
       delegationVisible: delegation !== null,
-      queuedRows: Math.min(waitingPrompts(state).length, 4),
-      noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX)
+      queuedRows: Math.min(waitingPrompts(state2).length, 4),
+      noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX),
+      extraRows: jarvisPanelLines.length + overlayRows + (openRefusal ? 2 : 0) + (state2.pendingQuestion && screenQuestionLabel ? 1 : 0) + (proposalRequest ? delegationConfirmRows(proposalRequest) - approvalPromptRows(Object.keys(state2.pendingApproval?.args ?? {}).length) : 0)
     })
   });
-  const agentWindowRows = agentTranscriptRows({
-    fullscreen,
-    usable: usableRows(terminal.rows),
-    statusRows: layout2.statusRows,
-    bottomRows: layout2.bottomRows,
-    transcriptRows: layout2.transcriptRows
-  });
+  const externalNoteLine = externalOpen ? [
+    externalOpen.session.securityListsApply === false ? NOT_APPLIED_NOTE : null,
+    externalNote(externalOpen.session)
+  ].filter(Boolean).join(" \xB7 ") || null : null;
+  const externalExtra = externalOpen ? externalExtraRows(externalWarning, externalViewOnly, externalNoteLine) : 0;
+  const agentWindowRows = Math.max(
+    3,
+    agentTranscriptRows({
+      fullscreen,
+      usable: usableRows(terminal.rows),
+      statusRows: layout2.statusRows,
+      bottomRows: layout2.bottomRows,
+      transcriptRows: layout2.transcriptRows
+    }) - externalExtra
+  );
   const liveRegionRows = fullscreen ? Number.POSITIVE_INFINITY : Math.max(
     1,
     usableRows(terminal.rows) - layout2.statusRows - layout2.bottomRows - INLINE_CHROME_SLACK
@@ -42674,13 +48960,13 @@ function App2({
     1,
     usableRows(terminal.rows) - layout2.statusRows - layout2.bottomRows - HOLD_CHROME_SLACK
   );
-  const agentWindowRowsRef = (0, import_react45.useRef)(agentWindowRows);
+  const agentWindowRowsRef = (0, import_react60.useRef)(agentWindowRows);
   agentWindowRowsRef.current = agentWindowRows;
-  const agentViewport = (0, import_react45.useMemo)(
+  const agentViewport = (0, import_react60.useMemo)(
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll]
   );
-  const panelMouseLayout = (0, import_react45.useMemo)(
+  const panelMouseLayout = (0, import_react60.useMemo)(
     () => ({
       totalRows: terminal.rows,
       bottomRows: hintRows + (fullscreen ? terminal.rows - layout2.rows : 1),
@@ -42688,51 +48974,51 @@ function App2({
     }),
     [fullscreen, layout2.rows, hintRows, terminal.rows, agentRows.length]
   );
-  const liveRegionRef = (0, import_react45.useRef)(null);
+  const liveRegionRef = (0, import_react60.useRef)(null);
   const liveMaxRows = usableRows(terminal.rows);
   liveRegionRef.current?.yogaNode?.setMaxHeight(liveMaxRows);
-  (0, import_react45.useLayoutEffect)(() => {
+  (0, import_react60.useLayoutEffect)(() => {
     liveRegionRef.current?.yogaNode?.setMaxHeight(liveMaxRows);
   });
-  const holdRows = state.messages.some((message) => message.streaming) ? Math.max(1, holdRegionRows - MIN_LIVE_MESSAGE_ROWS) : holdRegionRows;
-  const released = settledCount(state, staticCursorRef.current, holdRows);
+  const holdRows = state2.messages.some((message) => message.streaming) ? Math.max(1, holdRegionRows - MIN_LIVE_MESSAGE_ROWS) : holdRegionRows;
+  const released = settledCount(state2, staticCursorRef.current, holdRows);
   if (released > staticCursorRef.current) {
     const previous = staticCursorRef.current;
     staticBlocksRef.current = staticBlocksRef.current.concat(
       releaseEntries(
-        state,
-        state.timeline.slice(previous, released),
+        state2,
+        state2.timeline.slice(previous, released),
         contentWidth,
         streamCommittedRef.current
       )
     );
-    for (const item of state.timeline.slice(previous, released)) {
+    for (const item of state2.timeline.slice(previous, released)) {
       if (item.kind === "message") streamCommittedRef.current.delete(item.id);
     }
     staticCursorRef.current = released;
   }
-  if (state.turnActive && !turnActiveRef.current) {
+  if (state2.turnActive && !turnActiveRef.current) {
     turnRef.current = {
-      startedAt: state.turnStartedAt ?? now,
-      inputTokens: state.usage.inputTokens,
-      outputTokens: state.usage.outputTokens,
-      errors: state.errors.length
+      startedAt: state2.turnStartedAt ?? now,
+      inputTokens: state2.usage.inputTokens,
+      outputTokens: state2.usage.outputTokens,
+      errors: state2.errors.length
     };
   }
-  if (state.turnActive && turnRef.current && state.turnStartedAt !== null) {
-    turnRef.current.startedAt = state.turnStartedAt;
+  if (state2.turnActive && turnRef.current && state2.turnStartedAt !== null) {
+    turnRef.current.startedAt = state2.turnStartedAt;
   }
-  if (!state.turnActive && turnActiveRef.current && turnRef.current) {
+  if (!state2.turnActive && turnActiveRef.current && turnRef.current) {
     const turn2 = turnRef.current;
-    const ok = state.lastTurnReason === null || state.lastTurnReason === "complete";
+    const ok = state2.lastTurnReason === null || state2.lastTurnReason === "complete";
     turnCountRef.current += 1;
     const noteText = turnSummaryLine({
       ok,
       elapsedMs: now - turn2.startedAt,
-      inputTokens: state.usage.inputTokens - turn2.inputTokens,
-      outputTokens: state.usage.outputTokens - turn2.outputTokens,
-      reason: state.lastTurnReason,
-      error: state.lastTurnError
+      inputTokens: state2.usage.inputTokens - turn2.inputTokens,
+      outputTokens: state2.usage.outputTokens - turn2.outputTokens,
+      reason: state2.lastTurnReason,
+      error: state2.lastTurnError
     });
     staticBlocksRef.current = staticBlocksRef.current.concat({
       key: `turn-${turnCountRef.current}`,
@@ -42740,37 +49026,37 @@ function App2({
       ok,
       text: noteText
     });
-    turnNotesRef.current = turnNotesRef.current.concat({ at: state.timeline.length, text: noteText, ok });
+    turnNotesRef.current = turnNotesRef.current.concat({ at: state2.timeline.length, text: noteText, ok });
     turnRef.current = null;
   }
-  turnActiveRef.current = state.turnActive;
+  turnActiveRef.current = state2.turnActive;
   const staticCursor = staticCursorRef.current;
   const turnNotes = turnNotesRef.current;
-  const lines = (0, import_react45.useMemo)(
-    () => fullscreen ? screenTranscriptLines(state, contentWidth, { expandedId, notes: turnNotes }, colorizeFileRefs) : [],
-    [fullscreen, state, contentWidth, expandedId, turnNotes]
+  const lines = (0, import_react60.useMemo)(
+    () => fullscreen ? screenTranscriptLines(state2, contentWidth, { expandedId, notes: turnNotes }, colorizeFileRefs) : [],
+    [fullscreen, state2, contentWidth, expandedId, turnNotes]
   );
-  const viewport = (0, import_react45.useMemo)(
+  const viewport = (0, import_react60.useMemo)(
     () => sliceViewport(lines, layout2.transcriptRows, scrollOffset),
     [lines, layout2.transcriptRows, scrollOffset]
   );
-  const previousLineCount = (0, import_react45.useRef)(0);
-  (0, import_react45.useEffect)(() => {
+  const previousLineCount = (0, import_react60.useRef)(0);
+  (0, import_react60.useEffect)(() => {
     const grown = lines.length - previousLineCount.current;
     previousLineCount.current = lines.length;
     if (grown > 0) setScrollOffset((offset) => offset > 0 ? offset + grown : 0);
   }, [lines.length]);
-  (0, import_react45.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
     setScrollOffset((offset) => clampScroll(offset, lines.length, layout2.transcriptRows));
   }, [layout2.transcriptRows, lines.length]);
-  const scrollBy = (0, import_react45.useCallback)(
+  const scrollBy = (0, import_react60.useCallback)(
     (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout2.transcriptRows)),
     [lines.length, layout2.transcriptRows]
   );
-  const takePaste = (0, import_react45.useCallback)(
-    (text2) => {
+  const takePaste = (0, import_react60.useCallback)(
+    (text6) => {
       if (!probe) return false;
-      const { attachments: found, rejected, textLines } = scanAttachments(text2, probe);
+      const { attachments: found, rejected, textLines } = scanAttachments(text6, probe);
       if (textLines > 0) return false;
       for (const entry of rejected) showToast(`${entry.path}: ${entry.reason}`);
       if (found.length === 0) return rejected.length > 0;
@@ -42779,7 +49065,7 @@ function App2({
     },
     [probe, showToast]
   );
-  const editSkill = (0, import_react45.useCallback)(
+  const editSkill = (0, import_react60.useCallback)(
     (name) => {
       if (!editor) {
         showToast("no editor available in this terminal");
@@ -42837,7 +49123,7 @@ function App2({
     },
     [client, editor, setMouseMode, setRawMode, showToast, workdir]
   );
-  const openModelPicker = (0, import_react45.useCallback)((purpose = "model") => {
+  const openModelPicker = (0, import_react60.useCallback)((purpose = "model") => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
     const projectSettings = client.call("settings.get", { scope: "project", workdir }).catch(() => ({ settings: {} }));
     const discovered = client.call("provider.list", {}).then(async (result) => {
@@ -42865,11 +49151,11 @@ function App2({
           defaultProfile: document2.models?.default ?? null,
           agentModels: document2.agents?.models ?? null,
           discoveries: modelListings,
-          current: purpose === "vision" ? null : state.model ?? null,
-          vendor: purpose === "vision" ? null : state.provider ?? null,
-          effort: purpose === "vision" ? null : state.effort,
-          effortSource: purpose === "vision" ? null : state.effortSource,
-          efforts: purpose === "vision" ? null : state.efforts
+          current: purpose === "vision" ? null : state2.model ?? null,
+          vendor: purpose === "vision" ? null : state2.provider ?? null,
+          effort: purpose === "vision" ? null : state2.effort,
+          effortSource: purpose === "vision" ? null : state2.effortSource,
+          efforts: purpose === "vision" ? null : state2.efforts
         });
         if (purpose === "vision") {
           setModelPicker(visionOptions(options, visionRef));
@@ -42880,26 +49166,26 @@ function App2({
         }
       }
     );
-  }, [client, workdir, state.provider, state.model, state.effort, state.effortSource, state.efforts]);
-  const chooseModel = (0, import_react45.useCallback)(
+  }, [client, workdir, state2.provider, state2.model, state2.effort, state2.effortSource, state2.efforts]);
+  const chooseModel = (0, import_react60.useCallback)(
     (ref) => {
       if (ref === EFFORT_REF) {
-        if (state.efforts && state.efforts.length === 0) {
-          showToast(`effort: not supported by ${state.model ?? "this model"}`);
+        if (state2.efforts && state2.efforts.length === 0) {
+          showToast(`effort: not supported by ${state2.model ?? "this model"}`);
           return;
         }
-        const wanted = nextEffort(state.effort, state.efforts);
+        const wanted = nextEffort(state2.effort, state2.efforts);
         void client.call("session.setEffort", { sessionId, effort: wanted }).then((result) => {
           const applied = result?.effort ?? null;
           showToast(
-            applied === null ? `effort: not supported by ${state.model ?? "this model"}` : applied !== wanted ? `effort: ${applied} (${wanted} is not available for this model)` : `effort: ${applied}`
+            applied === null ? `effort: not supported by ${state2.model ?? "this model"}` : applied !== wanted ? `effort: ${applied} (${wanted} is not available for this model)` : `effort: ${applied}`
           );
         }).catch((error) => {
           if (error?.code === -32601) {
             submit(`/effort ${wanted}`);
             return;
           }
-          dispatch({ type: "error", message: String(error) });
+          dispatch({ type: "error", message: rpcErrorText(error) });
         });
         return;
       }
@@ -42914,12 +49200,12 @@ function App2({
           submit(`/model ${ref}`);
           return;
         }
-        dispatch({ type: "error", message: String(error) });
+        dispatch({ type: "error", message: rpcErrorText(error) });
       });
     },
-    [client, sessionId, showToast, state.effort, state.efforts, state.model]
+    [client, sessionId, showToast, state2.effort, state2.efforts, state2.model]
   );
-  const takeClipboard = (0, import_react45.useCallback)(() => {
+  const takeClipboard = (0, import_react60.useCallback)(() => {
     if (!captureClipboard || !probe) {
       showToast("no clipboard tool available");
       return;
@@ -42936,7 +49222,7 @@ function App2({
     }
     setAttachments((current2) => addAttachments(current2, found));
   }, [captureClipboard, probe, showToast]);
-  const runtime = (0, import_react45.useMemo)(
+  const runtime = (0, import_react60.useMemo)(
     () => ({
       audio: audioClient,
       local: localAudio,
@@ -42947,7 +49233,7 @@ function App2({
     }),
     [audioClient, localAudio, capabilities, sessionId, recordingPath, showToast]
   );
-  const toggleRecording = (0, import_react45.useCallback)(() => {
+  const toggleRecording = (0, import_react60.useCallback)(() => {
     if (recordingRef.current) {
       const handle = recordingRef.current;
       recordingRef.current = null;
@@ -42956,8 +49242,8 @@ function App2({
         showToast(outcome2.message);
         return outcome2.state;
       });
-      void endRecording(runtime, handle).then((text2) => {
-        if (text2) setInsert(text2);
+      void endRecording(runtime, handle).then((text6) => {
+        if (text6) setInsert(text6);
       });
       return;
     }
@@ -42978,28 +49264,33 @@ function App2({
     setVoice(outcome.state);
     showToast(outcome.message);
   }, [runtime, voice, capabilities, localAudio, recordingPath, showToast]);
-  const silence = (0, import_react45.useCallback)(() => {
+  const silence = (0, import_react60.useCallback)(() => {
     if (!speechRef.current) return;
     stopSpeaking(runtime, speechRef.current);
     speechRef.current = null;
     setVoice((current2) => ({ ...current2, speaking: false }));
   }, [runtime]);
-  const resumeMemory = (0, import_react45.useCallback)(() => {
+  const resumeMemory = (0, import_react60.useCallback)(() => {
     if (!lastSession) return;
     showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
     resumeSession(lastSession.sessionId, "main");
   }, [lastSession, resumeSession, showToast]);
-  const openResumePicker = (0, import_react45.useCallback)(() => {
+  const loadResumeExternals = (0, import_react60.useCallback)(() => {
+    setResumeExternals((current2) => ({ ...current2, loading: true, error: null }));
+    void client.call("external.list", { cwd: workdir, allProjects: false, limit: 50 }).then(
+      (result) => setResumeExternals({ rows: result?.sessions ?? [], loading: false, error: null })
+    ).catch(
+      (error) => setResumeExternals({
+        rows: [],
+        loading: false,
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 60)
+      })
+    );
+  }, [client, workdir]);
+  const openResumePicker = (0, import_react60.useCallback)(() => {
     showToast("loading saved sessions");
     void client.call("session.list", { includeClosed: true }).then((result) => {
-      const choices = (Array.isArray(result?.sessions) ? result.sessions : []).filter((row) => row.sessionId !== activeSessionRef.current).map((row) => ({
-        sessionId: String(row.sessionId),
-        workdir: String(row.workdir),
-        firstPrompt: typeof row.lastPrompt === "string" ? row.lastPrompt : "",
-        at: Date.parse(String(row.createdAt)) || 0,
-        kind: typeof row.kind === "string" ? row.kind : "chat",
-        parentSessionId: typeof row.parentSessionId === "string" ? row.parentSessionId : void 0
-      }));
+      const choices = (Array.isArray(result?.sessions) ? result.sessions : []).filter((row) => row.sessionId !== activeSessionRef.current).map(recordOfListRow);
       const rows = resumeRows(choices, workdir);
       if (rows.length === 0) {
         showToast("no saved sessions for this directory");
@@ -43007,15 +49298,16 @@ function App2({
       }
       setResumeElsewhere(false);
       setResumeChoices(rows);
+      if (resumeIncludeExternal) loadResumeExternals();
     }).catch(
       (error) => dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` })
     );
-  }, [client, workdir, showToast]);
-  const testMcpDraft = (0, import_react45.useCallback)(
+  }, [client, workdir, showToast, resumeIncludeExternal, loadResumeExternals]);
+  const testMcpDraft = (0, import_react60.useCallback)(
     (params) => client.call("mcp.test", { ...params, sessionId, workdir }).then((result) => readMcpProbe(result)).catch((error) => ({ ok: false, tools: [], error: String(error) })),
     [client, sessionId, workdir]
   );
-  const addMcpServer = (0, import_react45.useCallback)(
+  const addMcpServer = (0, import_react60.useCallback)(
     (submission) => {
       setMcpForm(null);
       const params = {
@@ -43038,7 +49330,7 @@ function App2({
     },
     [client, refreshMcp, sessionId, workdir]
   );
-  const openMcpCatalog = (0, import_react45.useCallback)(() => {
+  const openMcpCatalog = (0, import_react60.useCallback)(() => {
     void client.call("mcp.catalog", {}).then((result) => {
       const entries = readMcpCatalog(result);
       if (entries.length === 0) {
@@ -43050,7 +49342,7 @@ function App2({
       (error) => dispatch({ type: "note", text: `mcp.catalog failed: ${String(error)}` })
     );
   }, [client]);
-  const openMcpConfigure = (0, import_react45.useCallback)(
+  const openMcpConfigure = (0, import_react60.useCallback)(
     (name) => {
       void client.call("mcp.list", { sessionId, workdir }).then((result) => {
         const servers = readMcpList(result);
@@ -43086,7 +49378,7 @@ function App2({
     },
     [client, sessionId, workdir]
   );
-  const saveMcpTools = (0, import_react45.useCallback)(
+  const saveMcpTools = (0, import_react60.useCallback)(
     (name, scope, names) => {
       setMcpConfigure(null);
       void client.call("mcp.update", {
@@ -43107,23 +49399,49 @@ function App2({
     },
     [client, refreshMcp, sessionId, workdir]
   );
-  const submit = (0, import_react45.useCallback)(
-    (text2) => {
+  const submit = (0, import_react60.useCallback)(
+    (text6) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       setScrollOffset(0);
       setSkillChip(null);
       setSkillHint(false);
-      if (/^\/delegate(\s|$)/.test(text2.trim())) {
-        dispatch({ type: "user/message", text: text2, attachments: [], expectEvent: false });
-        history?.add(text2, workdir);
-        void client.prompt(sessionId, text2).then((result) => {
-          const turnId = result?.turnId;
-          if (turnId) dispatch({ type: "prompt/turn", turnId, text: text2 });
-          return result;
-        }).catch((error) => dispatch({ type: "error", message: String(error) }));
+      const screensNow = screensRef.current;
+      if (securityRef.current?.handleCommand(text6)) {
+        history?.add(text6, workdir);
         return;
       }
-      if (/^\/update\s*$/.test(text2.trim())) {
+      if (webRef.current?.handleCommand(text6)) {
+        history?.add(text6, workdir);
+        return;
+      }
+      if (trustRef.current?.handleCommand(text6)) {
+        history?.add(text6, workdir);
+        return;
+      }
+      if (diskRef.current?.handleCommand(text6)) {
+        history?.add(text6, workdir);
+        return;
+      }
+      if (screensNow?.handleCommand(text6)) {
+        history?.add(text6, workdir);
+        return;
+      }
+      if (screensNow?.external) {
+        history?.add(text6, workdir);
+        screensNow.sendExternal(text6);
+        return;
+      }
+      if (/^\/delegate(\s|$)/.test(text6.trim())) {
+        dispatch({ type: "user/message", text: text6, attachments: [], expectEvent: false });
+        history?.add(text6, workdir);
+        void client.prompt(sessionId, text6).then((result) => {
+          const turnId = result?.turnId;
+          if (turnId) dispatch({ type: "prompt/turn", turnId, text: text6 });
+          return result;
+        }).catch((error) => dispatch({ type: "error", message: rpcErrorText(error) }));
+        return;
+      }
+      if (/^\/update\s*$/.test(text6.trim())) {
         void client.checkUpdate(true).then((check) => {
           setUpdate((current2) => fromCheck(current2, check));
           setUpdateAvailable(Boolean(check.available) && !check.error);
@@ -43140,7 +49458,7 @@ function App2({
         });
         return;
       }
-      const mouse = /^\/mouse(?:\s+(on|off))?\s*$/.exec(text2.trim());
+      const mouse = /^\/mouse(?:\s+(on|off))?\s*$/.exec(text6.trim());
       if (mouse) {
         const next = mouse[1] ? mouse[1] === "on" : !mouseOn;
         setMouseOn(next);
@@ -43149,9 +49467,9 @@ function App2({
         );
         return;
       }
-      const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text2.trim());
+      const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text6.trim());
       if (resume) {
-        if (state.turnActive) {
+        if (state2.turnActive) {
           showToast("interrupt the current turn before resuming another session");
           return;
         }
@@ -43159,20 +49477,20 @@ function App2({
         else openResumePicker();
         return;
       }
-      if (/^\/(?:new|session\s+new)\s*$/.test(text2.trim())) {
+      if (/^\/(?:new|session\s+new)\s*$/.test(text6.trim())) {
         startNewSession();
         return;
       }
-      if (/^\/sessions\s*$/.test(text2.trim())) {
-        if (state.turnActive) {
+      if (/^\/sessions\s*$/.test(text6.trim())) {
+        if (state2.turnActive) {
           showToast("interrupt the current turn before resuming another session");
           return;
         }
         openResumePicker();
         return;
       }
-      const sessionDelete = /^\/session\s+delete\s+(\S+)\s*$/.exec(text2.trim());
-      const sessionClear = /^\/session\s+clear(?:\s+(--all))?\s*$/.exec(text2.trim());
+      const sessionDelete = /^\/session\s+delete\s+(\S+)\s*$/.exec(text6.trim());
+      const sessionClear = /^\/session\s+clear(?:\s+(--all))?\s*$/.exec(text6.trim());
       if (sessionDelete || sessionClear) {
         const params = sessionDelete ? { sessionId: sessionDelete[1] } : sessionClear?.[1] ? { all: true } : { workdir };
         void client.call("session.deleteSaved", params).then(
@@ -43182,7 +49500,7 @@ function App2({
         );
         return;
       }
-      if (/^\/lsp\s*$/.test(text2.trim())) {
+      if (/^\/lsp\s*$/.test(text6.trim())) {
         void client.call("lsp.status", {}).then((result) => {
           const servers = readLspStatus(result);
           dispatch({ type: "lsp/status", servers });
@@ -43192,46 +49510,46 @@ function App2({
         );
         return;
       }
-      if (isBareSkillCreate(text2)) {
+      if (isBareSkillCreate(text6)) {
         setSkillForm(true);
         return;
       }
-      const edit = parseSkillEdit(text2);
+      const edit = parseSkillEdit(text6);
       if (edit) {
         editSkill(edit);
         return;
       }
-      if (isBareMcpAdd(text2)) {
+      if (isBareMcpAdd(text6)) {
         setMcpForm(emptyDraft());
         return;
       }
-      if (isBareMcpCatalog(text2)) {
+      if (isBareMcpCatalog(text6)) {
         openMcpCatalog();
         return;
       }
-      const configure = parseMcpConfigure(text2);
+      const configure = parseMcpConfigure(text6);
       if (configure) {
         openMcpConfigure(configure);
         return;
       }
-      if (/^\/model\s*$/.test(text2.trim())) {
+      if (/^\/model\s*$/.test(text6.trim())) {
         openModelPicker();
         return;
       }
-      if (/^\/vision\s*$/.test(text2.trim())) {
+      if (/^\/vision\s*$/.test(text6.trim())) {
         openModelPicker("vision");
         return;
       }
-      const attach = /^\/attach\s+(.+)$/.exec(text2.trim());
+      const attach = /^\/attach\s+(.+)$/.exec(text6.trim());
       if (attach) {
         if (!takePaste(attach[1])) showToast(`no readable file at ${attach[1]}`);
         return;
       }
-      if (/^\/(voice|rec|tts)\b/.test(text2.trim()) && !audioOffered()) {
+      if (/^\/(voice|rec|tts)\b/.test(text6.trim()) && !audioOffered()) {
         showToast("this daemon has no audio support");
         return;
       }
-      const voiceCmd = /^\/voice(?:\s+(on|off))?\s*$/.exec(text2.trim());
+      const voiceCmd = /^\/voice(?:\s+(on|off))?\s*$/.exec(text6.trim());
       if (voiceCmd) {
         const wanted = voiceCmd[1] === "on" ? true : voiceCmd[1] === "off" ? false : null;
         setVoice((current2) => {
@@ -43247,12 +49565,12 @@ function App2({
         });
         return;
       }
-      if (/^\/rec\s*$/.test(text2.trim())) {
+      if (/^\/rec\s*$/.test(text6.trim())) {
         toggleRecording();
         return;
       }
-      const ttsVoices = /^\/tts\s+voices\s*$/.exec(text2.trim());
-      const ttsVoice = /^\/tts\s+voice\s+(\S+)(?:\s+(\S+))?\s*$/.exec(text2.trim());
+      const ttsVoices = /^\/tts\s+voices\s*$/.exec(text6.trim());
+      const ttsVoice = /^\/tts\s+voice\s+(\S+)(?:\s+(\S+))?\s*$/.exec(text6.trim());
       if (ttsVoices || ttsVoice) {
         const engine = capabilities?.ttsProvider;
         if (!engine) {
@@ -43284,10 +49602,10 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
             patch: { audio: { tts: { voices: { [lang]: picked.id } } } }
           });
           showToast(`speech voice for ${lang}: ${picked.label} (${picked.id})`);
-        }).catch((error) => showToast(`voices: ${String(error)}`));
+        }).catch((error) => showToast(`voices: ${rpcErrorText(error)}`));
         return;
       }
-      const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text2.trim());
+      const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text6.trim());
       if (tts) {
         setVoice((current2) => {
           const outcome = setTts(current2, capabilities, tts[1] !== "off", {
@@ -43298,34 +49616,40 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         });
         return;
       }
+      const beside = text6.startsWith("/") && state2.turnActive && commandsBesideTurnSupported(client.serverCapabilities?.());
       const sent = attachments.map(({ name, mime, size }) => ({ name, mime, size }));
-      dispatch({
-        type: "user/message",
-        text: text2,
-        attachments: sent,
-        expectEvent: !text2.startsWith("/")
-      });
-      setAttachments([]);
-      history?.add(text2, workdir);
-      if (state.messages.every((message) => message.role !== "user")) {
-        sessions?.remember({ sessionId, workdir, firstPrompt: text2, at: Date.now() });
+      if (!beside) {
+        dispatch({
+          type: "user/message",
+          text: text6,
+          attachments: sent,
+          expectEvent: !text6.startsWith("/")
+        });
       }
-      const commandName = text2.startsWith("/") ? `/${text2.slice(1).split(/\s/)[0]}` : null;
-      setRunningCommand(commandName);
+      setAttachments([]);
+      history?.add(text6, workdir);
+      if (!beside && state2.messages.every((message) => message.role !== "user")) {
+        sessions?.remember({ sessionId, workdir, firstPrompt: text6, at: Date.now() });
+      }
+      const commandName = text6.startsWith("/") ? `/${text6.slice(1).split(/\s/)[0]}` : null;
+      if (!beside) setRunningCommand(commandName);
       const registry = registryRef.current;
-      const run = text2.startsWith("/") ? registry.dispatch(text2).then(async (result) => {
-        if (/^(help|skill|plugin)/.test(text2.slice(1))) {
+      const run = text6.startsWith("/") ? registry.dispatch(text6).then(async (result) => {
+        if (beside && !ranBesideTurn(result)) {
+          dispatch({ type: "user/message", text: text6, attachments: [], expectEvent: false });
+        }
+        if (/^(help|skill|plugin)/.test(text6.slice(1))) {
           const commands = await registry.refresh();
           dispatch({ type: "commands", commands });
         }
-        if (/^team(?:\s|$)/.test(text2.slice(1))) {
+        if (/^team(?:\s|$)/.test(text6.slice(1))) {
           setAgentRosterVersion((version2) => version2 + 1);
         }
-        if (text2.slice(1).startsWith("help")) setShowHelp(true);
+        if (text6.slice(1).startsWith("help") && !(beside && ranBesideTurn(result))) setShowHelp(true);
         return result;
       }) : client.prompt(
         sessionId,
-        text2,
+        text6,
         attachments.map((attachment) => ({
           kind: attachment.mime.startsWith("image/") ? "image" : "file",
           name: attachment.name,
@@ -43336,11 +49660,11 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       );
       void run.then((result) => {
         const turnId = result?.turnId;
-        if (turnId) dispatch({ type: "prompt/turn", turnId, text: text2 });
+        if (turnId && !ranBesideTurn(result)) dispatch({ type: "prompt/turn", turnId, text: text6 });
         return result;
       }).catch((error) => {
-        setRunningCommand(null);
-        dispatch({ type: "error", message: String(error) });
+        if (!beside) setRunningCommand(null);
+        dispatch({ type: "error", message: rpcErrorText(error) });
       });
     },
     [
@@ -43349,13 +49673,13 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       history,
       sessions,
       workdir,
-      state.messages,
+      state2.messages,
       lastSession,
       resumeMemory,
       resumeSession,
       startNewSession,
       openResumePicker,
-      state.turnActive,
+      state2.turnActive,
       update.phase,
       attachments,
       capabilities,
@@ -43371,39 +49695,39 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       toggleRecording
     ]
   );
-  const createSkill = (0, import_react45.useCallback)(
+  const createSkill = (0, import_react60.useCallback)(
     (form) => {
       setSkillForm(false);
-      const text2 = skillCreateCommand(form);
-      dispatch({ type: "user/message", text: text2, attachments: [], expectEvent: false });
-      history?.add(text2, workdir);
+      const text6 = skillCreateCommand(form);
+      dispatch({ type: "user/message", text: text6, attachments: [], expectEvent: false });
+      history?.add(text6, workdir);
       setRunningCommand("/skill create");
-      void client.prompt(sessionId, text2).then((result) => {
+      void client.prompt(sessionId, text6).then((result) => {
         const turnId = result?.turnId;
-        if (turnId) dispatch({ type: "prompt/turn", turnId, text: text2 });
+        if (turnId) dispatch({ type: "prompt/turn", turnId, text: text6 });
         return result;
       }).catch((error) => {
         setRunningCommand(null);
-        dispatch({ type: "error", message: String(error) });
+        dispatch({ type: "error", message: rpcErrorText(error) });
       });
     },
     [client, history, sessionId, workdir]
   );
-  (0, import_react45.useEffect)(() => {
-    const last = [...state.messages].reverse().find((message) => message.role === "assistant" && !message.streaming);
+  (0, import_react60.useEffect)(() => {
+    const last = [...state2.messages].reverse().find((message) => message.role === "assistant" && !message.streaming);
     if (!last || skillReplyRef.current === last.id) return;
     const name = createdSkillName(last.text);
     if (!name) return;
     skillReplyRef.current = last.id;
     setSkillChip(name);
     void registryRef.current.refresh().then((commands) => dispatch({ type: "commands", commands })).catch(() => void 0);
-  }, [state.messages]);
-  (0, import_react45.useEffect)(() => {
-    if (state.turnActive) {
+  }, [state2.messages]);
+  (0, import_react60.useEffect)(() => {
+    if (state2.turnActive) {
       hintTurnRef.current = {
         startedAt: Date.now(),
-        tools: state.toolCalls.length,
-        errors: state.errors.length
+        tools: state2.toolCalls.length,
+        errors: state2.errors.length
       };
       return;
     }
@@ -43411,23 +49735,23 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     hintTurnRef.current = null;
     if (!turn2) return;
     const suggest = shouldSuggestSkill({
-      toolCalls: state.toolCalls.length - turn2.tools,
+      toolCalls: state2.toolCalls.length - turn2.tools,
       elapsedMs: Date.now() - turn2.startedAt,
-      ok: state.errors.length === turn2.errors,
+      ok: state2.errors.length === turn2.errors,
       shown: skillHintSpent.current,
       dismissed: skillHintSpent.current
     });
     if (!suggest) return;
     skillHintSpent.current = true;
     setSkillHint(true);
-  }, [state.turnActive]);
-  const answerUpdate = (0, import_react45.useCallback)(
+  }, [state2.turnActive]);
+  const answerUpdate = (0, import_react60.useCallback)(
     (accepted) => {
       if (!accepted) {
         setUpdate(cancel);
         return;
       }
-      if (state.turnActive) {
+      if (state2.turnActive) {
         setUpdate((current2) => progress(current2, "failed", "finish or interrupt the current turn before updating"));
         return;
       }
@@ -43442,45 +49766,56 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         (error) => setUpdate((current2) => progress(current2, "failed", String(error)))
       );
     },
-    [client, state.turnActive]
+    [client, state2.turnActive]
   );
-  const planThenAuto = (0, import_react45.useCallback)(() => {
+  const planThenAuto = (0, import_react60.useCallback)(() => {
     setModeHintVisible(false);
     dispatch({ type: "mode", mode: "plan", autoAfterPlan: true });
     showToast("mode: PLAN\u2192AUTO");
-    void client.setMode(sessionId, "plan", { autoAfterPlan: true }).catch((error) => dispatch({ type: "error", message: String(error) }));
+    const previous = modeRef.current;
+    void client.setMode(sessionId, "plan", { autoAfterPlan: true }).catch((error) => {
+      dispatch({ type: "mode", mode: previous });
+      dispatch({ type: "error", message: rpcErrorText(error) });
+    });
   }, [client, sessionId, showToast]);
-  const decideApproval = (0, import_react45.useCallback)(
+  const decideApproval = (0, import_react60.useCallback)(
     (answer, reason) => {
       if (answer.switchToAuto) {
-        if (state.mode === "plan") planThenAuto();
+        if (state2.mode === "plan") planThenAuto();
         else changeMode("auto");
       }
-      const resolve2 = approvalResolver.current;
-      const requestId = state.pendingApproval?.requestId;
-      approvalResolver.current = null;
+      const requestId = state2.pendingApproval?.requestId;
+      const resolve2 = requestId ? approvalResolvers.current.get(requestId) : void 0;
+      if (requestId) approvalResolvers.current.delete(requestId);
       if (requestId) dispatch({ type: "approval/resolved", requestId });
       const { decision, scope } = answer;
+      if (requestId) rememberChosenScope(requestId, decision, scope);
       resolve2?.(reason ? { decision, scope, reason } : { decision, scope });
     },
-    [changeMode, planThenAuto, state.mode, state.pendingApproval]
+    [changeMode, planThenAuto, state2.mode, state2.pendingApproval]
   );
-  const answerQuestion = (0, import_react45.useCallback)(
+  const answerQuestion = (0, import_react60.useCallback)(
     (answers) => {
-      const resolve2 = questionResolver.current;
-      const requestId = state.pendingQuestion?.requestId;
-      questionResolver.current = null;
+      const requestId = state2.pendingQuestion?.requestId;
+      const resolve2 = requestId ? questionResolvers.current.get(requestId) : void 0;
+      if (requestId) questionResolvers.current.delete(requestId);
       if (requestId) dispatch({ type: "question/resolved", requestId });
       resolve2?.({ answers });
     },
-    [state.pendingQuestion]
+    [state2.pendingQuestion]
   );
-  const respondQueued = (0, import_react45.useCallback)(
+  const respondQueued = (0, import_react60.useCallback)(
     (requestId, decision, scope, reason) => {
       dispatch({ type: "approval/resolved", requestId });
-      void client.respondApproval(requestId, decision, scope, reason).catch((error) => dispatch({ type: "error", message: String(error) }));
+      const personOnly = state2.approvalQueue.find((entry) => entry.requestId === requestId)?.personOnly === true;
+      rememberChosenScope(requestId, decision, personOnly ? "once" : scope);
+      const known = knownApprovalsRef.current.find((request) => request.requestId === requestId);
+      void client.respondApproval(requestId, decision, personOnly ? "once" : scope, reason).then((result) => {
+        const line = respondResultNote(requestId, result, known);
+        if (line) dispatch({ type: "note", text: line });
+      }).catch((error) => dispatch({ type: "error", message: rpcErrorText(error) }));
     },
-    [client]
+    [client, state2.approvalQueue]
   );
   use_input_default((input, key) => {
     if (key.ctrl && input === "c") {
@@ -43498,20 +49833,20 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     }, 0);
     if (wheel !== 0) {
       if (showHelp) return;
-      if (openAgent) {
+      if (openAgent || externalOpen) {
         setAgentScroll(
           (offset) => clampScroll(offset + wheel * WHEEL_ROWS, agentLines.length, agentWindowRows)
         );
       } else if (fullscreen) scrollBy(wheel * WHEEL_ROWS);
       return;
     }
-    if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
+    if (state2.pendingQuestion || state2.pendingApproval || update.phase === "confirm" || modelPicker || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || disk.open) {
       return;
     }
     if (reports.length > 0) {
       const mouse = reports.find((report) => report.press);
       if (!mouse) return;
-      if (openAgent || mouse.button !== 0) return;
+      if (openAgent || externalOpen || mouse.button !== 0) return;
       const index = panelRowAt(mouse.row, panelMouseLayout);
       if (index === null) return;
       setFocus({ zone: "agent", index });
@@ -43552,6 +49887,24 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         return;
       }
     }
+    if (externalOpen && externalViewOnly !== null && key.escape) {
+      screens.escapeExternal();
+      return;
+    }
+    if (externalOpen && externalViewOnly !== null && input === "t" && !key.ctrl && !key.meta && screens.ui === null && state2.pendingApproval === null) {
+      screens.adoptExternal();
+      return;
+    }
+    if (externalOpen) {
+      if (key.pageUp) {
+        setAgentScroll((offset) => offset + agentWindowRowsRef.current);
+        return;
+      }
+      if (key.pageDown) {
+        setAgentScroll((offset) => Math.max(0, offset - agentWindowRowsRef.current));
+        return;
+      }
+    }
     if (!isInput(focus)) {
       if (key.escape) {
         setFocus(INPUT_FOCUS);
@@ -43582,11 +49935,16 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       return;
     }
     if (key.ctrl && input === "r") {
-      setQueueFocused((focused) => !focused && state.approvalQueue.length > 0);
+      setQueueFocused((focused) => !focused && state2.approvalQueue.length > 0);
+      return;
+    }
+    if (key.ctrl && input === "w") {
+      if (screens.jarvis.waiting.length > 0) screens.openWaiting();
+      else showToast("nothing is waiting for you");
       return;
     }
     if (key.ctrl && input === "o") {
-      const newest = [...state.timeline].reverse().find((item) => item.kind === "tool" || item.kind === "diff");
+      const newest = [...state2.timeline].reverse().find((item) => item.kind === "tool" || item.kind === "diff");
       setExpandedId((current2) => current2 ? null : newest?.id ?? null);
       return;
     }
@@ -43609,14 +49967,14 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       }
     }
     if (key.tab && key.shift || input === "\x1B[Z" || input === "[Z") {
-      changeMode(cycleMode(state.mode));
+      changeMode(cycleMode(state2.mode));
       return;
     }
     if (key.ctrl && input === "p") {
-      changeMode(state.mode === "plan" ? "accept" : "plan");
+      changeMode(state2.mode === "plan" ? "accept" : "plan");
     }
   });
-  const openAgentRow = (0, import_react45.useCallback)(
+  const openAgentRow = (0, import_react60.useCallback)(
     (index) => {
       const row = agentRows[index];
       if (!row) return;
@@ -43629,56 +49987,56 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         return;
       }
       const agentId = row.key.startsWith("agent-") ? row.key.slice("agent-".length) : null;
-      const entry = state.subagents.find((agent) => agent.agentId === agentId);
+      const entry = state2.subagents.find((agent) => agent.agentId === agentId);
       if (!entry?.sessionId) {
         showToast(`${row.name}: no run in this session yet`);
         return;
       }
       setOpenAgent({ sessionId: entry.sessionId, name: entry.name || row.name });
       setAgentScroll(0);
-      if (!state.children[entry.sessionId]) resumeSession(entry.sessionId, "child");
+      if (!state2.children[entry.sessionId]) resumeSession(entry.sessionId, "child");
     },
-    [agentRows, state.subagents, state.children, resumeSession, showToast]
+    [agentRows, state2.subagents, state2.children, resumeSession, showToast]
   );
-  const closeAgent = (0, import_react45.useCallback)(() => {
+  const closeAgent = (0, import_react60.useCallback)(() => {
     setOpenAgent(null);
     setFocus(INPUT_FOCUS);
   }, []);
-  const approvalActive = state.pendingApproval !== null;
-  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(import_jsx_runtime34.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(WorkingIndicator, { line: indicatorText }),
-    delegation ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
-    skillChip ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: currentAccent(), wrap: "truncate-end", children: `[run /${skillChip}]` }) : null,
-    skillHint ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${SKILL_HINT_TEXT} \xB7 Esc dismisses` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QueuedPrompts, { queued: waitingPrompts(state), width: contentWidth }),
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(AttachmentChips, { attachments, width: contentWidth }),
-    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
-    skillForm ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+  const approvalActive = state2.pendingApproval !== null;
+  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime46.jsxs)(import_jsx_runtime46.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(WorkingIndicator, { line: indicatorText }),
+    delegation ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
+    skillChip ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { color: currentAccent(), wrap: "truncate-end", children: `[run /${skillChip}]` }) : null,
+    skillHint ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${SKILL_HINT_TEXT} \xB7 Esc dismisses` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(QueuedPrompts, { queued: waitingPrompts(state2), width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(AttachmentChips, { attachments, width: contentWidth }),
+    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
+    skillForm ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       SkillCreateForm,
       {
         width: contentWidth,
-        isActive: state.pendingApproval === null && state.pendingQuestion === null,
+        isActive: state2.pendingApproval === null && state2.pendingQuestion === null,
         onCancel: () => setSkillForm(false),
         onSubmit: createSkill
       }
     ) : null,
-    mcpForm ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    mcpForm ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       McpAddForm,
       {
         width: contentWidth,
         initial: mcpForm,
-        isActive: state.pendingApproval === null && state.pendingQuestion === null,
+        isActive: state2.pendingApproval === null && state2.pendingQuestion === null,
         onTest: testMcpDraft,
         onCancel: () => setMcpForm(null),
         onSubmit: addMcpServer
       }
     ) : null,
-    mcpCatalog ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    mcpCatalog ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       McpCatalogPicker,
       {
         width: contentWidth,
         entries: mcpCatalog,
-        isActive: state.pendingApproval === null && state.pendingQuestion === null,
+        isActive: state2.pendingApproval === null && state2.pendingQuestion === null,
         onCancel: () => setMcpCatalog(null),
         onChoose: (entry) => {
           setMcpCatalog(null);
@@ -43686,26 +50044,26 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         }
       }
     ) : null,
-    mcpConfigure ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    mcpConfigure ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       ToolChecklist,
       {
         width: contentWidth,
         title: `${mcpConfigure.name} \u2014 tools to register`,
         tools: mcpConfigure.tools,
         initial: mcpConfigure.selected,
-        isActive: state.pendingApproval === null && state.pendingQuestion === null,
+        isActive: state2.pendingApproval === null && state2.pendingQuestion === null,
         onCancel: () => setMcpConfigure(null),
         onSubmit: (names) => saveMcpTools(mcpConfigure.name, mcpConfigure.scope, names)
       }
     ) : null,
-    modelPicker ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    modelPicker ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       ModelPicker,
       {
         options: modelPicker,
         title: pickerPurpose === "vision" ? "Vision model" : "Model",
         emptyText: pickerPurpose === "vision" ? "no configured model to choose from" : void 0,
         width: contentWidth,
-        isActive: state.pendingApproval === null && state.pendingQuestion === null,
+        isActive: state2.pendingApproval === null && state2.pendingQuestion === null,
         onCancel: () => setModelPicker(null),
         onChoose: (option) => {
           setModelPicker(null);
@@ -43717,38 +50075,58 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         }
       }
     ) : null,
-    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       ConfirmMenu,
       {
         options: UPDATE_OPTIONS,
         initialIndex: 1,
         escapeValue: false,
         onChoose: answerUpdate,
-        isActive: state.pendingApproval === null && state.pendingQuestion === null
+        isActive: state2.pendingApproval === null && state2.pendingQuestion === null
       }
     ) : null,
-    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    state2.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { color: "red", wrap: "truncate-end", children: state2.errors[state2.errors.length - 1] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       ApprovalQueue,
       {
-        requests: state.approvalQueue,
+        requests: state2.approvalQueue,
         onRespond: respondQueued,
-        isActive: queueFocused && state.pendingApproval === null && state.pendingQuestion === null,
+        isActive: queueFocused && state2.pendingApproval === null && state2.pendingQuestion === null,
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QuestionPrompt, { request: state.pendingQuestion, onAnswer: answerQuestion }) : state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(JarvisPanel, { lines: jarvisPanelLines }),
+    state2.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(QuestionPrompt, { request: state2.pendingQuestion, onAnswer: answerQuestion, label: screenQuestionLabel, refusal: openRefusal }) : state2.pendingApproval && proposalRequest ? (
+      // A request only a person may answer (Jarvis's proposal, a tmux
+      // adoption): one key confirms or declines.
+      /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
+        DelegationConfirm,
+        {
+          view: proposalRequest,
+          label: approvalLabel ?? proposalRequest.from,
+          width: contentWidth,
+          onAnswer: (confirmed) => decideApproval(
+            { decision: confirmed ? "allow" : "deny", scope: "once" },
+            confirmed ? void 0 : "declined by the person"
+          )
+        }
+      )
+    ) : state2.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       ApprovalPrompt,
       {
-        request: state.pendingApproval,
+        request: state2.pendingApproval,
         onDecide: decideApproval,
-        mode: state.mode
+        mode: state2.mode,
+        label: approvalLabel,
+        crossSession: approvalLabel !== null,
+        onceOnly: state2.pendingApproval.personOnly === true,
+        refusal: openRefusal
       }
-    ) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    ) : screens.ui ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(ScreenOverlays, { screens, width: contentWidth, folder: workdir, now: screens.now }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       ConfirmMenu,
       {
         options: ["accept", "auto", "plan"].map((value) => ({ label: `${value} mode`, value })),
-        initialIndex: Math.max(0, ["accept", "auto", "plan"].indexOf(state.mode)),
+        initialIndex: Math.max(0, ["accept", "auto", "plan"].indexOf(state2.mode)),
         escapeValue: null,
         onChoose: (value) => {
           setModePicker(false);
@@ -43756,45 +50134,43 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           if (value) changeMode(value);
         }
       }
-    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
-      ConfirmMenu,
+    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
+      SessionPicker,
       {
-        options: (() => {
-          const view = resumeView(resumeChoices, workdir, resumeElsewhere);
-          return [
-            ...view.rows.map((entry) => ({
-              label: resumeLabel(entry, 48, workdir),
-              value: entry.sessionId
-            })),
-            ...view.hiddenElsewhere > 0 ? [
-              {
-                label: `\u25B8 Sessions from other directories (${view.hiddenElsewhere})\u2026`,
-                value: RESUME_ELSEWHERE
-              }
-            ] : [],
-            { label: "Cancel", value: null }
-          ];
-        })(),
-        escapeValue: null,
-        windowSize: Math.max(5, terminal.rows - 17),
-        onChoose: (target) => {
-          if (target === RESUME_ELSEWHERE) {
-            setResumeElsewhere(true);
-            return;
-          }
+        records: resumeChoices,
+        externals: resumeExternals.rows,
+        externalsLoading: resumeExternals.loading,
+        externalsError: resumeExternals.error,
+        includeExternal: resumeIncludeExternal,
+        onToggleExternal: () => {
+          const next = !resumeIncludeExternal;
+          setResumeIncludeExternal(next);
+          if (next) loadResumeExternals();
+        },
+        workdir,
+        showElsewhere: resumeElsewhere,
+        onRevealElsewhere: () => setResumeElsewhere(true),
+        onOpenSession: (target) => {
           setResumeChoices(null);
-          if (target) resumeSession(target, "main");
-        }
+          resumeSession(target, "main");
+        },
+        onOpenExternal: (row) => {
+          setResumeChoices(null);
+          screensRef.current?.openExternalRef(row.ref);
+        },
+        onCancel: () => setResumeChoices(null),
+        width: contentWidth,
+        windowSize: Math.max(5, terminal.rows - 17 - SESSION_PICKER_CHROME_ROWS + 1)
       },
       resumeElsewhere ? "resume-all" : "resume-here"
-    ) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    ) : /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       Chat,
       {
         onSubmit: submit,
         initialHistory: pastPrompts,
         onFocusDown: () => setFocus((current2) => focusDown(current2, agentRows.length)),
         onQuickUpdate: update.phase === "available" ? () => setUpdate(confirm) : void 0,
-        onQuickResume: lastSession && state.messages.length === 0 ? resumeMemory : void 0,
+        onQuickResume: lastSession && state2.messages.length === 0 ? resumeMemory : void 0,
         onStartDaemon: daemonGone ? () => {
           void handleStartDaemon();
         } : void 0,
@@ -43811,7 +50187,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         onInserted: () => setInsert(null),
         append,
         onAppended: () => setAppend(null),
-        placeholder: state.turnActive ? "Esc stops \xB7 type what to change" : void 0,
+        placeholder: externalOpen ? externalViewOnly ? "view only" : externalOpen.state.turnActive ? screens.canSteer ? "Esc stops the turn \xB7 type to steer it" : "Esc stops the turn \xB7 wait to send" : `message ${cliLabel(externalOpen.ref.cli)} \xB7 Esc goes back` : state2.turnActive ? "Esc stops \xB7 type what to change" : void 0,
         completions,
         agents: completableAgents,
         onFileComplete: handleFileComplete,
@@ -43819,32 +50195,36 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         maxRows: maxDraftRows,
         onChange: (next) => {
           setDraft(next);
-          if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
+          if (next.length > 0 && state2.errors.length > 0) dispatch({ type: "errors/clear" });
         },
         onInterrupt: () => {
-          if (skillHint && !state.turnActive) {
+          if (externalOpen) {
+            screens.escapeExternal();
+            return;
+          }
+          if (skillHint && !state2.turnActive) {
             setSkillHint(false);
             return;
           }
           setFocus(INPUT_FOCUS);
           void client.interrupt(sessionId).catch(() => void 0);
         },
-        disabled: skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null
+        disabled: skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || disk.open
       }
     )
   ] });
-  const warning = contextWarning(state.context);
+  const warning = contextWarning(state2.context);
   const summary = summaryLine({
-    mode: state.mode,
-    shells: state.toolCalls.filter(
+    mode: state2.mode,
+    shells: state2.toolCalls.filter(
       (call) => call.state === "running" && toolKind(call.name) === "shell"
     ).length,
-    agents: state.subagents.filter((agent) => agent.status === "running").length
+    agents: state2.subagents.filter((agent) => agent.status === "running").length
   });
-  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(import_jsx_runtime34.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Text, { inverse: focus.zone === "footer", wrap: "truncate-end", children: [
+  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime46.jsxs)(import_jsx_runtime46.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsxs)(Text, { inverse: focus.zone === "footer", wrap: "truncate-end", children: [
       (summary.segments ?? [{ text: summary.text, color: summary.color, dimColor: summary.dimColor }]).map(
-        (segment, index) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+        (segment, index) => /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
           Text,
           {
             color: segment.color,
@@ -43854,14 +50234,14 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           `summary-${index}`
         )
       ),
-      focus.zone === "footer" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: " \xB7 Enter to choose mode" }) : null
+      focus.zone === "footer" ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { dimColor: true, children: " \xB7 Enter to choose mode" }) : null
     ] }),
-    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(SectionRule, { width: contentWidth }),
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
-    warning ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(ShellList, { calls: state2.toolCalls, now: clock, width: contentWidth }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(SectionRule, { width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
+    warning ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       AgentPanel,
       {
         rows: agentRows,
@@ -43871,19 +50251,104 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       }
     )
   ] });
-  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
     HelpPanel,
     {
-      commands: state.commands,
+      commands: state2.commands,
       width: contentWidth,
-      height: fullscreen ? layout2.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout2.bottomRows - layout2.statusRows - (bannerText(update) ? 3 : 0)),
-      isActive: state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm",
-      runningSubagents: state.subagents.filter((agent) => agent.status === "running").length
+      height: fullscreen ? layout2.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout2.bottomRows - layout2.statusRows - (topBanner ? 3 : 0)),
+      isActive: state2.pendingApproval === null && state2.pendingQuestion === null && update.phase !== "confirm",
+      runningSubagents: state2.subagents.filter((agent) => agent.status === "running").length
     }
   ) : null;
-  if (suspended) return /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, {});
+  const securityNode = security.ui ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
+    SecurityScreen,
+    {
+      catalog: security.ui.catalog,
+      config: security.ui.config,
+      readOnly: security.ui.readOnly,
+      width: contentWidth,
+      height: fullscreen ? layout2.transcriptRows : Math.max(8, usableRows(terminal.rows) - layout2.bottomRows - layout2.statusRows - (topBanner ? 3 : 0)),
+      onSave: security.save,
+      onCheck: security.check,
+      onReload: security.reload,
+      onSetUnknownCode: security.setUnknownCode,
+      changeSeq: security.changeSeq,
+      diskNotice: securityNotice(disk.waiting, daemon.degraded),
+      onClose: security.close,
+      isActive: state2.pendingApproval === null && state2.pendingQuestion === null && update.phase !== "confirm"
+    }
+  ) : null;
+  const webNode = web.ui ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
+    WebScreen,
+    {
+      status: web.ui.status,
+      width: contentWidth,
+      height: fullscreen ? layout2.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout2.bottomRows - layout2.statusRows - (topBanner ? 3 : 0)),
+      onListen: web.listen,
+      onStop: web.stop,
+      onRotate: web.rotate,
+      onSetPassword: web.setPassword,
+      onClearPassword: web.clearPassword,
+      onSetMaxMode: web.setMaxMode,
+      diskNotice: sectionNotice(disk.waiting, "web.remote"),
+      onRefresh: web.refresh,
+      onCopy: web.copy,
+      changeSeq: web.changeSeq,
+      onClose: web.close,
+      isActive: state2.pendingApproval === null && state2.pendingQuestion === null && update.phase !== "confirm"
+    }
+  ) : null;
+  const trustNode = trust.ui ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
+    TrustScreen,
+    {
+      status: trust.ui.status,
+      width: contentWidth,
+      height: fullscreen ? layout2.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout2.bottomRows - layout2.statusRows - (topBanner ? 3 : 0)),
+      onTrust: trust.trust,
+      onRevoke: trust.revoke,
+      onReload: trust.refresh,
+      changeSeq: trust.changeSeq,
+      tampered: trust.tampered,
+      onClose: trust.close,
+      isActive: state2.pendingApproval === null && state2.pendingQuestion === null && update.phase !== "confirm"
+    }
+  ) : null;
+  const diskNode = disk.open ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
+    DiskSettingsScreen,
+    {
+      waiting: disk.waiting,
+      width: contentWidth,
+      height: fullscreen ? layout2.transcriptRows : Math.max(8, usableRows(terminal.rows) - layout2.bottomRows - layout2.statusRows - (topBanner ? 3 : 0)),
+      onDecide: disk.decide,
+      onClose: disk.close,
+      isActive: state2.pendingApproval === null && state2.pendingQuestion === null && update.phase !== "confirm"
+    }
+  ) : null;
+  const externalNode = externalOpen ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
+    ExternalTranscript,
+    {
+      title: (externalOpen.session.title ?? "").trim() || externalOpen.ref.id.slice(0, 8),
+      tag: hudAgent.tag,
+      tagColor: hudAgent.color,
+      status: [
+        externalOpen.state.turnActive ? "running" : externalOpen.session.status,
+        hostLabel(externalOpen.session),
+        modeLabel2(externalOpen.session.mode)
+      ].join(" \xB7 "),
+      warning: externalWarning,
+      viewOnly: externalViewOnly,
+      note: externalNoteLine,
+      lines: agentViewport.lines,
+      height: agentWindowRows,
+      width: contentWidth,
+      scrollIndicator: scrollIndicator(agentViewport),
+      empty: agentLines.length === 0
+    }
+  ) : null;
+  if (suspended) return /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Box_default, {});
   if (fullscreen) {
-    return /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       FullscreenLayout,
       {
         rows: layout2.rows,
@@ -43893,9 +50358,10 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         columns: layout2.columns,
         transcriptRows: layout2.transcriptRows,
         lines: viewport.lines,
-        banner: bannerText(update),
+        banner: topBanner,
+        bannerColor: bannerText(update) === null ? "yellow" : void 0,
         scrollIndicator: scrollIndicator(viewport),
-        overlay: helpNode ?? (state.timeline.length === 0 && !openAgent ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+        overlay: helpNode ?? diskNode ?? trustNode ?? webNode ?? securityNode ?? externalNode ?? (state2.timeline.length === 0 && !openAgent ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
           LaunchBanner,
           {
             width: terminal.columns - 2,
@@ -43903,12 +50369,12 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
             version,
             workdir,
             mode,
-            provider: state.provider,
-            model: state.model,
+            provider: state2.provider,
+            model: state2.model,
             lastSession,
             maxRows: layout2.transcriptRows
           }
-        ) : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+        ) : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
           AgentTranscript,
           {
             name: openAgent.name,
@@ -43926,19 +50392,19 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       }
     );
   }
-  const live = state.timeline.slice(staticCursor);
+  const live = state2.timeline.slice(staticCursor);
   const liveMessages = Math.max(1, live.filter((item) => item.kind === "message").length);
   const liveMessageRows = Math.max(
     MIN_LIVE_MESSAGE_ROWS,
     Math.floor(
       (liveRegionRows - MESSAGE_MARGIN_ROWS * liveMessages - live.reduce(
-        (rows, item) => item.kind === "message" ? rows : rows + entryRows(state, item),
+        (rows, item) => item.kind === "message" ? rows : rows + entryRows(state2, item),
         0
       )) / liveMessages
     )
   );
   const streamCommit = commitStreamingPrefixes(
-    state,
+    state2,
     staticCursor,
     contentWidth,
     liveMessageRows,
@@ -43951,17 +50417,17 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
   const staticItems = staticBlocksRef.current;
   const liveStartRow = (item) => {
     if (item.kind !== "message") return 0;
-    const message = state.messages.find((entry) => entry.id === item.id);
+    const message = state2.messages.find((entry) => entry.id === item.id);
     return message ? messageStartRow(message, contentWidth, streamCommittedRef.current) : 0;
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime46.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
       Box_default,
       {
         flexDirection: "column",
         paddingX: entry.kind === "launch" ? 0 : 1,
         marginTop: followsTools(staticItems, staticItems.indexOf(entry)) ? 1 : 0,
-        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
           LaunchBanner,
           {
             width: terminal.columns,
@@ -43969,17 +50435,17 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
             version,
             workdir,
             mode,
-            provider: state.provider,
-            model: state.model,
+            provider: state2.provider,
+            model: state2.model,
             lastSession
           }
-        ) : entry.kind === "stream-chunk" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(RenderedLines, { lines: entry.lines }) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { marginBottom: 1, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: entry.ok ? "green" : "red", children: entry.text[0] }),
-          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: entry.text.slice(1) })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+        ) : entry.kind === "stream-chunk" ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(RenderedLines, { lines: entry.lines }) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime46.jsxs)(Box_default, { marginBottom: 1, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { color: entry.ok ? "green" : "red", children: entry.text[0] }),
+          /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { dimColor: true, children: entry.text.slice(1) })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
           TimelineEntry,
           {
-            state,
+            state: state2,
             item: entry.item,
             expandedId,
             width: contentWidth,
@@ -43989,8 +50455,8 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       },
       entry.key
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { ref: liveRegionRef, flexDirection: "column", paddingX: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, { flexDirection: "column", flexShrink: 1, overflowY: "hidden", justifyContent: "flex-end", children: showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime46.jsxs)(Box_default, { ref: liveRegionRef, flexDirection: "column", paddingX: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Box_default, { flexDirection: "column", flexShrink: 1, overflowY: "hidden", justifyContent: "flex-end", children: showHelp || securityNode || webNode || trustNode || diskNode ? null : externalNode ? externalNode : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
         AgentTranscript,
         {
           name: openAgent.name,
@@ -44002,10 +50468,10 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           scrollIndicator: scrollIndicator(agentViewport),
           empty: agentLines.length === 0
         }
-      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(
         TimelineEntry,
         {
-          state,
+          state: state2,
           item,
           expandedId,
           width: contentWidth,
@@ -44013,9 +50479,14 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           messageStartLine: liveStartRow(item)
         }
       ) }, `${item.kind}-${item.id}`)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(UpdateBanner, { update }),
+      /* @__PURE__ */ (0, import_jsx_runtime46.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(UpdateBanner, { update }),
+        bannerText(update) === null && topBanner !== null ? /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime46.jsx)(Text, { color: "yellow", wrap: "truncate-end", children: topBanner }) }) : null,
         helpNode,
+        diskNode,
+        securityNode,
+        webNode,
+        trustNode,
         bottomNode,
         statusNode
       ] })
@@ -44133,11 +50604,11 @@ function editorCommand(env3 = process.env) {
 }
 function createEditorRunner(env3 = process.env) {
   const spelled = editorCommand(env3);
-  const [command, ...args] = spelled.split(/\s+/).filter((part) => part.length > 0);
+  const [command2, ...args] = spelled.split(/\s+/).filter((part) => part.length > 0);
   return {
     command: () => spelled,
     run: (path) => new Promise((resolve2) => {
-      const child = spawn(command, [...args, path], { stdio: "inherit" });
+      const child = spawn(command2, [...args, path], { stdio: "inherit" });
       child.on("error", () => resolve2(-1));
       child.on("exit", (code) => resolve2(code ?? 0));
     })
@@ -44239,10 +50710,10 @@ function installAltScreen({
     proc.on(event, listener);
   };
   on("exit", () => restore());
-  for (const [signal, number] of SIGNALS) {
+  for (const [signal, number2] of SIGNALS) {
     on(signal, () => {
       restore();
-      if (exitOnSignal) proc.exit?.(128 + number);
+      if (exitOnSignal) proc.exit?.(128 + number2);
     });
   }
   on("uncaughtException", (error) => {
@@ -44320,9 +50791,9 @@ function splitKeypresses(stdin) {
     if (queued.length > 0) return queued.shift();
     const chunk = read(size);
     if (chunk === null || chunk === void 0) return chunk;
-    const text2 = typeof chunk === "string" ? chunk : String(chunk);
-    if (!needsSplit(text2)) return chunk;
-    const [first, ...rest] = splitKeys(text2);
+    const text6 = typeof chunk === "string" ? chunk : String(chunk);
+    if (!needsSplit(text6)) return chunk;
+    const [first, ...rest] = splitKeys(text6);
     queued.push(...rest);
     return first;
   };
@@ -44372,14 +50843,31 @@ var TuiClient = class {
       ...this.options.remote ? { resolveEndpoint: () => ({ port: this.options.port, token: this.options.token }) } : {}
     });
     this.client = client;
-    client.on("session.event", (event) => this.handleSessionEvent(event));
-    client.on("approval.resolved", (params) => this.listeners.onApprovalResolved?.(params));
-    client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
-    client.on("approval.pending", (params) => this.listeners.onApprovalPending?.(params));
-    client.on("question.resolved", (params) => this.listeners.onQuestionResolved?.(params));
-    client.on("system.updateProgress", (params) => this.listeners.onUpdateProgress?.(params));
-    client.on("mcp.changed", (params) => this.listeners.onMcpChanged?.(params));
-    client.on("settings.changed", (params) => {
+    const rawOn = client.on.bind(client);
+    const untypedOn = (event, handler) => rawOn(event, (params) => handler(sanitizeDeep(params)));
+    untypedOn("session.event", (event) => this.handleSessionEvent(event));
+    untypedOn("approval.resolved", (params) => this.listeners.onApprovalResolved?.(params));
+    untypedOn("commands.changed", () => this.listeners.onCommandsChanged?.());
+    untypedOn("approval.pending", (params) => this.listeners.onApprovalPending?.(params));
+    untypedOn("question.resolved", (params) => this.listeners.onQuestionResolved?.(params));
+    untypedOn("system.updateProgress", (params) => this.listeners.onUpdateProgress?.(params));
+    untypedOn("mcp.changed", (params) => this.listeners.onMcpChanged?.(params));
+    untypedOn("question.pending", (params) => this.listeners.onQuestionPending?.(params));
+    untypedOn("approval.route.changed", (params) => this.listeners.onApprovalRouteChanged?.(params));
+    untypedOn("question.route.changed", (params) => this.listeners.onQuestionRouteChanged?.(params));
+    untypedOn("jarvis.state", (params) => this.listeners.onJarvisState?.(params));
+    untypedOn("jarvis.decision", (params) => this.listeners.onJarvisDecision?.(params));
+    untypedOn("jarvis.escalation", (params) => this.listeners.onJarvisEscalation?.(params));
+    untypedOn("jarvis.delegation.changed", (params) => this.listeners.onJarvisDelegation?.(params));
+    untypedOn("external.event", (params) => this.listeners.onExternalEvent?.(params));
+    untypedOn("external.state", (params) => this.listeners.onExternalState?.(params));
+    untypedOn("jarvis.access", (params) => this.listeners.onJarvisAccess?.(params));
+    untypedOn("jarvis.escalation.dismissed", (params) => this.listeners.onJarvisEscalationDismissed?.(params));
+    untypedOn("external.clis.changed", (params) => this.listeners.onExternalClisChanged?.(params));
+    untypedOn("security.blocked", (params) => this.listeners.onSecurityBlocked?.(params));
+    untypedOn("project.trust.changed", (params) => this.listeners.onProjectTrustChanged?.(params));
+    untypedOn("sessions.changed", (params) => this.listeners.onSessionsChanged?.(params));
+    untypedOn("settings.changed", (params) => {
       void this.loadUiLanguage();
       this.listeners.onSettingsChanged?.(params ?? {});
     });
@@ -44422,11 +50910,11 @@ var TuiClient = class {
   }
   /** Bind the interactive server→client approval prompt. */
   onApprovalRequest(handler) {
-    this.require().onRequest("approval.request", handler);
+    this.require().onRequest("approval.request", (params) => handler(sanitizeDeep(params)));
   }
   /** Bind the `ask_user` picker; the daemon blocks on the answer. */
   onQuestionRequest(handler) {
-    this.require().onRequest("question.request", handler);
+    this.require().onRequest("question.request", (params) => handler(sanitizeDeep(params)));
   }
   /**
    * Record the seq and forward. Replayed events at or below the high-water
@@ -44458,7 +50946,7 @@ var TuiClient = class {
   call(method, params = {}) {
     const client = this.require();
     const untyped = client.call.bind(client);
-    return untyped(method, params);
+    return untyped(method, params).then((result) => sanitizeDeep(result));
   }
   async createSession(options) {
     return (await this.createSessionInfo(options)).sessionId;
@@ -44479,11 +50967,11 @@ var TuiClient = class {
    * bytes twice, once here to base64 them and once there, would be work for
    * nothing.
    */
-  prompt(sessionId, text2, attachments = []) {
-    if (!this.languagePinned && text2.trim().length > 0) setUiLanguage(detectLanguage(text2));
+  prompt(sessionId, text6, attachments = []) {
+    if (!this.languagePinned && text6.trim().length > 0) setUiLanguage(detectLanguage(text6));
     return this.call("session.prompt", {
       sessionId,
-      text: text2,
+      text: text6,
       ...attachments.length > 0 ? { attachments } : {}
     });
   }
@@ -44530,9 +51018,10 @@ var TuiClient = class {
 };
 
 // src/index.tsx
-var import_jsx_runtime35 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime47 = __toESM(require_jsx_runtime(), 1);
 var CLIENT_VERSION = TUI_VERSION;
 var MODES = ["plan", "accept", "auto"];
+var START_SCREENS = ["jarvis", "external"];
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fullscreen", "no-fullscreen", "inline"]);
 var RESTART_EXIT_CODE = 75;
 function parseArgs(argv, cwd2 = process.cwd(), env3 = process.env) {
@@ -44561,6 +51050,10 @@ function parseArgs(argv, cwd2 = process.cwd(), env3 = process.env) {
   if (modeRaw !== void 0 && !MODES.includes(modeRaw)) {
     throw new Error(`--mode must be one of ${MODES.join("|")}`);
   }
+  const startRaw = values.get("start") || env3.SNOWPEA_TUI_START || void 0;
+  if (startRaw !== void 0 && !START_SCREENS.includes(startRaw)) {
+    throw new Error(`--start must be one of ${START_SCREENS.join("|")}`);
+  }
   const inlineRequested = values.get("no-fullscreen") === "true" || values.get("inline") === "true" || values.get("fullscreen") === "false" || env3.SNOWPEA_TUI_INLINE === "1";
   return {
     port,
@@ -44568,6 +51061,7 @@ function parseArgs(argv, cwd2 = process.cwd(), env3 = process.env) {
     mode: modeRaw,
     cwd: values.get("cwd") || cwd2,
     remote: values.get("remote") || void 0,
+    start: startRaw,
     fullscreen: !inlineRequested
   };
 }
@@ -44624,9 +51118,9 @@ function createProbe(cwd2, home2) {
   };
 }
 var commandRunner = {
-  run(command, args) {
+  run(command2, args) {
     try {
-      const result = spawnSync(command, args, { maxBuffer: 64 * 1024 * 1024 });
+      const result = spawnSync(command2, args, { maxBuffer: 64 * 1024 * 1024 });
       if (result.error) return null;
       return { status: result.status ?? 1, stdout: result.stdout ?? new Uint8Array() };
     } catch {
@@ -44635,16 +51129,16 @@ var commandRunner = {
   }
 };
 var spawner = {
-  start(command, args) {
+  start(command2, args) {
     try {
-      const child = spawn2(command, args, { stdio: "ignore", detached: false });
+      const child = spawn2(command2, args, { stdio: "ignore", detached: false });
       let failed = false;
       child.on("error", () => {
         failed = true;
       });
       if (failed) return null;
       const handle = {
-        command,
+        command: command2,
         stop() {
           try {
             child.kill("SIGINT");
@@ -44683,8 +51177,11 @@ async function main(argv = process.argv.slice(2)) {
       originSurface: "tui"
     }));
   } catch (error) {
-    process.stderr.write(`snowpea-tui: cannot connect to daemon: ${error.message}
-`);
+    process.stderr.write(
+      rpcCode(error) === "jarvis_person_only" ? `snowpea-tui: ${rpcErrorText(error)}
+` : `snowpea-tui: cannot connect to daemon: ${error.message}
+`
+    );
     await client.close().catch(() => void 0);
     return 1;
   }
@@ -44725,7 +51222,7 @@ async function main(argv = process.argv.slice(2)) {
   splitKeypresses(process.stdin);
   let restart = false;
   const instance = render_default(
-    /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime47.jsx)(
       App2,
       {
         client,
@@ -44734,6 +51231,7 @@ async function main(argv = process.argv.slice(2)) {
         mode: args.mode ?? "accept",
         workdir: args.cwd,
         remote: args.remote,
+        startScreen: args.start,
         fullscreen: args.fullscreen,
         history,
         sessions,
