@@ -32,6 +32,15 @@ def register_home(home: Path | str) -> None:
     _HOMES.add(Path(os.path.realpath(Path(home).expanduser())))
 
 
+def _known_homes() -> set[Path]:
+    from snowpea_core.config.paths import resolve_home
+
+    try:
+        return _HOMES | {Path(os.path.realpath(resolve_home()))}
+    except (OSError, RuntimeError, ValueError):  # no home directory to expand
+        return _HOMES
+
+
 def home_problem(workdir: Path | str, home: Path | str | None = None) -> str | None:
     """Why ``workdir`` is not a project folder, or ``None`` when it is one.
 
@@ -44,10 +53,12 @@ def home_problem(workdir: Path | str, home: Path | str | None = None) -> str | N
         (with the default home, ``workdir`` is the user's home directory): its
         "project" settings, skills, agents and commands are the GLOBAL ones.
 
-    ``home``: one home to judge against; default every registered one.
+    ``home``: one home to judge against; default every registered one and the
+    home this process would use (``$SNOWPEA_HOME``, else ``~/.snowpea``) — so
+    the CLI, which builds no daemon, is covered too.
     """
     homes = (
-        {Path(os.path.realpath(Path(home).expanduser()))} if home is not None else _HOMES
+        {Path(os.path.realpath(Path(home).expanduser()))} if home is not None else _known_homes()
     )
     if not homes:
         return None

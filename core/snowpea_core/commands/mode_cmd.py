@@ -152,7 +152,11 @@ async def cmd_mode(ctx: CommandContext, args: str) -> None:
     if target == "save":
         project = ProjectSettings.load(ctx.session.workdir)
         project.defaultMode = ctx.session.mode  # type: ignore[assignment]
-        path = project.save(ctx.session.workdir)
+        try:
+            path = project.save(ctx.session.workdir)
+        except ValueError as exc:  # snowpea's own home is not a project (review 7, H-2)
+            await ctx.say(f"Could not save the mode: {exc}.")
+            return
         await ctx.say(f"Default mode for this project is now '{ctx.session.mode}' ({path}).")
         return
     if target.split() == ["plan", "auto"]:

@@ -395,6 +395,49 @@ def test_a_remote_logins_project_patch_meets_an_allow_table(
         assert _gate(kind, patch, project=True) == "refused", (kind, patch)
 
 
+def test_a_process_without_a_daemon_knows_its_home_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI builds no daemon: the home it would use counts all the same."""
+    home = tmp_path / "user" / ".snowpea"
+    home.mkdir(parents=True)
+    assert home_problem(home.parent) is None
+    monkeypatch.setenv("SNOWPEA_HOME", str(home))
+    assert home_problem(home.parent) == "parent" and home_problem(home) == "home"
+    with pytest.raises(ValueError, match="not a project"):
+        ProjectSettings(defaultMode="auto").save(home.parent)
+    assert not (home / "settings.json").exists()
+
+
+async def test_what_writes_project_settings_in_process_says_why_it_cannot(core: Core) -> None:
+    """``/mode save``, ``/team`` and the ``settings_set`` tool in a session that works
+    in the folder holding ``.snowpea``: the reason, never an "internal error"."""
+    from snowpea_core.commands import mode_cmd, team_cmd
+    from snowpea_core.commands.registry import CommandContext
+    from snowpea_core.tools.registry import ToolContext
+    from snowpea_core.tools.settings_tools import settings_set
+
+    parent = Path(core.paths.home).parent
+    session = await core.sessions.create(parent)
+    before = core.paths.settings_json.read_bytes() if core.paths.settings_json.exists() else None
+    said: list[str] = []
+    ctx = CommandContext(core=core, session=session, turn_id="t")
+
+    async def say(text: str) -> None:
+        said.append(text)
+
+    ctx.say = say  # type: ignore[method-assign]
+    await mode_cmd.cmd_mode(ctx, "save")
+    await team_cmd._configure_team(ctx, ["use", "none"])
+    assert len(said) == 2 and all("not a project" in line for line in said)
+    result = await settings_set(
+        ToolContext(session=session, core=core, backend=None),  # type: ignore[arg-type]
+        {"key": "defaultMode", "value": "auto", "scope": "project"})
+    assert not result.ok and "not a project" in str(result.error)
+    after = core.paths.settings_json.read_bytes() if core.paths.settings_json.exists() else None
+    assert after == before
+
+
 # -- a settings file that does not validate never stops the daemon ---------------------------
 
 
