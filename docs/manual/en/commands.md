@@ -354,6 +354,10 @@ snowpea -c "/init --force" --json
 
 The CLI does not parse it. It hands the text to the core, which dispatches it exactly as the TUI would.
 
+## Jarvis and external sessions
+
+The `/jarvis` commands (turn Jarvis mode on or off, take a session over, hand it back, list what waits for you) and the `/external` commands (open, start, stop and switch the mode of another CLI's session) are described in [Jarvis mode](jarvis.md) and [External sessions](external-sessions.md).
+
 ## Next
 
 [Plugins](plugins.md) — adding commands of your own.
