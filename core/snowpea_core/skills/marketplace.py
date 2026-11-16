@@ -395,7 +395,9 @@ async def _clone(url: str, target: Path) -> None:
     try:
         _, err = await asyncio.wait_for(process.communicate(), CLONE_TIMEOUT_SEC)
     except TimeoutError as exc:
-        process.kill()
+        from snowpea_core.exec import winproc
+
+        winproc.kill_now(process)
         raise InstallError(f"git clone {url} timed out") from exc
     if process.returncode != 0:
         raise InstallError(f"git clone {url} failed: {(err or b'').decode('utf-8', 'replace')}")

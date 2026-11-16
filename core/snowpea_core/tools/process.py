@@ -9,12 +9,20 @@ case it exists for.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
+import os
 import shlex
+import signal
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from snowpea_core.exec import winproc
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
+
+log = logging.getLogger("snowpea.tools.process")
 
 #: Where a background command's combined output is written on the backend.
 LOG_DIR = ".snowpea/logs"
@@ -40,6 +48,13 @@ class BackgroundProcess:
     #: stays in memory, read from ``read_from`` on.
     detached: Any = None
     read_from: int = 0
+    #: Windows ``background: true``: the started process and its job
+    #: (:class:`winproc.DetachedChild`); ``None`` on POSIX.
+    child: Any = None
+    #: POSIX ``background: true`` on the local backend: the process group the
+    #: launch created (the launching shell's own session), recorded at launch
+    #: so cleanup signals exactly that group and nothing else.
+    pgid: int | None = None
 
     def row(self, running: bool) -> str:
         if running:
@@ -91,6 +106,19 @@ class ProcessRegistry:
     def drop(self, process_id: str) -> None:
         self._processes.pop(process_id, None)
 
+    def reassign(self, from_session: str, to_session: str) -> int:
+        """Hand ``from_session``'s processes to ``to_session``; returns how many."""
+        moved = 0
+        for entry in self._processes.values():
+            if entry.session_id == from_session:
+                entry.session_id = to_session
+                moved += 1
+        return moved
+
+    def ids(self, session_id: str | None = None) -> tuple[str, ...]:
+        # A tuple: this class has a ``list`` method, which shadows the builtin.
+        return tuple(entry.id for entry in self.list(session_id))
+
     def clear(self) -> None:
         self._processes.clear()
         self._counter = 0
@@ -108,9 +136,61 @@ async def _alive(ctx: ToolContext, pid: int) -> bool:
     return result.exit_code == 0
 
 
+async def _entry_alive(ctx: ToolContext, entry: BackgroundProcess) -> bool:
+    """Whether a ``background: true`` command still runs.
+
+    Windows: the process object snowpea holds (no ``kill -0`` in cmd.exe, and
+    the held handle means the pid cannot have been reused).
+    """
+    if entry.child is not None:
+        running = bool(entry.child.running())
+        if not running and entry.exit_code is None:
+            entry.exit_code = entry.child.exit_code
+        return running
+    return await _alive(ctx, entry.pid)
+
+
+def _known_ids(session_id: str | None) -> str:
+    """The ids a model may pass, for an error that says which exist."""
+    ids = REGISTRY.ids(session_id)
+    if not ids:
+        return "this session has no background processes"
+    return f"this session's background processes: {', '.join(ids)}"
+
+
+def _windows_local(ctx: ToolContext) -> bool:
+    return winproc.enabled() and hasattr(ctx.backend, "spawn_background")
+
+
+async def _launch_windows(ctx: ToolContext, command: str, log_path: str) -> ToolResult:
+    """``background: true`` on Windows: start the command directly, no window."""
+    try:
+        child = await ctx.backend.spawn_background(command, log_path)  # type: ignore[attr-defined]
+    except (OSError, ValueError) as exc:
+        return ToolResult(ok=False, error=f"could not start the background command: {exc}")
+    entry = REGISTRY.add(
+        session_id=ctx.session.id,
+        pid=child.pid,
+        command=command,
+        log_path=log_path,
+        backend_kind=str(getattr(ctx.backend, "kind", "local")),
+    )
+    entry.child = child
+    return ToolResult(
+        ok=True,
+        output=(
+            f"started {entry.id} (pid {entry.pid}) in the background\n"
+            f"output: {entry.log_path}"
+        ),
+        path=entry.log_path,
+    )
+
+
 async def launch(ctx: ToolContext, command: str) -> ToolResult:
     """Detach ``command`` on the backend and register its pid."""
     log_path = f"{LOG_DIR}/bg-{int(datetime.now(UTC).timestamp() * 1000)}.log"
+    if _windows_local(ctx):
+        return await _launch_windows(ctx, command, log_path)
     script = (
         f"mkdir -p {shlex.quote(LOG_DIR)} && "
         f"nohup sh -c {shlex.quote(command)} > {shlex.quote(log_path)} 2>&1 & echo $!"
@@ -133,6 +213,8 @@ async def launch(ctx: ToolContext, command: str) -> ToolResult:
         log_path=log_path,
         backend_kind=str(getattr(ctx.backend, "kind", "local")),
     )
+    if entry.backend_kind == "local":
+        entry.pgid = _launch_group(entry.pid)
     return ToolResult(
         ok=True,
         output=(
@@ -141,6 +223,24 @@ async def launch(ctx: ToolContext, command: str) -> ToolResult:
         ),
         path=entry.log_path,
     )
+
+
+def _launch_group(pid: int) -> int | None:
+    """The process group a POSIX launch left ``pid`` in, if it is one of ours.
+
+    The launching shell ran in a session of its own (``start_new_session``),
+    so its group holds only what that launch started.  Never the daemon's own.
+    """
+    getpgid = getattr(os, "getpgid", None)
+    if getpgid is None:
+        return None
+    try:
+        group = int(getpgid(pid))
+    except OSError:
+        return None
+    if group <= 1 or group == os.getpgrp():
+        return None
+    return group
 
 
 def adopt(ctx: ToolContext, command: str, detached: Any) -> BackgroundProcess:
@@ -183,18 +283,28 @@ async def process_output(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     process_id = str(args.get("id", "")).strip()
     entry = REGISTRY.get(process_id) if process_id else None
     if entry is None:
-        return ToolResult(ok=False, error=f"no such background process: {process_id or '(none)'}")
+        return ToolResult(
+            ok=False,
+            error=(
+                f"no such background process: {process_id or '(none)'}; "
+                f"{_known_ids(ctx.session.id)}"
+            ),
+        )
     if entry.detached is not None:
         text = entry.detached.output()
         new, entry.read_from = text[entry.read_from :], len(text)
         running = not entry.detached.task.done()
     else:
         try:
-            new = await ctx.backend.read_file(entry.log_path)
+            if entry.child is not None:
+                # cmd.exe and native tools write the console code page.
+                new = winproc.decode_output(await ctx.backend.read_bytes(entry.log_path))
+            else:
+                new = await ctx.backend.read_file(entry.log_path)
         except OSError as exc:
             return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
         new, entry.read_from = new[entry.read_from :], len(new)
-        running = await _alive(ctx, entry.pid)
+        running = await _entry_alive(ctx, entry)
     if len(new) > OUTPUT_LIMIT:
         new = f"… {len(new) - OUTPUT_LIMIT} characters earlier\n" + new[-OUTPUT_LIMIT:]
     code = entry.exit_code if entry.exit_code is not None else "?"
@@ -212,7 +322,7 @@ async def process_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if entry.detached is not None:
             rows.append(entry.row(not entry.detached.task.done()))
             continue
-        running = await _alive(ctx, entry.pid)
+        running = await _entry_alive(ctx, entry)
         if not running and entry.exit_code is None:
             entry.exit_code = 0
         rows.append(entry.row(running))
@@ -222,10 +332,24 @@ async def process_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 async def process_kill(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     process_id = str(args.get("id", "")).strip()
     if not process_id:
-        return ToolResult(ok=False, error="id is required (see process_list)")
+        return ToolResult(
+            ok=False, error=f"id is required (see process_list); {_known_ids(ctx.session.id)}"
+        )
     entry = REGISTRY.get(process_id)
     if entry is None:
-        return ToolResult(ok=False, error=f"no such background process: {process_id}")
+        return ToolResult(
+            ok=False,
+            error=f"no such background process: {process_id}; {_known_ids(ctx.session.id)}",
+        )
+    if winproc.enabled() and (entry.child is not None or entry.detached is not None):
+        # No signals on Windows: the command and everything it started end.
+        await stop_entry(entry)
+        entry.exit_code = -1
+        REGISTRY.drop(entry.id)
+        return ToolResult(
+            ok=True,
+            output=f"stopped {entry.id} (pid {entry.pid}) and the processes it started",
+        )
     signal_name = str(args.get("signal", "TERM")).strip().upper().removeprefix("SIG") or "TERM"
     if signal_name not in {"TERM", "KILL", "INT", "HUP", "QUIT"}:
         return ToolResult(ok=False, error=f"unsupported signal: {signal_name}")
@@ -243,6 +367,83 @@ async def process_kill(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     entry.exit_code = -1
     REGISTRY.drop(entry.id)
     return ToolResult(ok=True, output=f"sent SIG{signal_name} to {entry.id} (pid {entry.pid})")
+
+
+#: Seconds a POSIX background group gets between SIGTERM and SIGKILL.
+STOP_GRACE = 2.0
+
+
+async def stop_entry(entry: BackgroundProcess) -> None:
+    """End one registered command and what it started.  Never raises.
+
+    Only what the registry itself started is touched:
+
+    * a command moved to the background (``adopt``): the foreground shell
+      snowpea ran — its own process group on POSIX, its job on Windows;
+    * ``background: true`` on Windows: its job (or ``taskkill`` for its pid);
+    * ``background: true`` on POSIX: the process group recorded at launch,
+      and only while ``pid`` is still in it (a pid that left the group or was
+      reused is not ours to signal).
+    """
+    try:
+        if entry.detached is not None:
+            await entry.detached.stop()
+        elif entry.child is not None:
+            await asyncio.to_thread(entry.child.stop)
+        elif entry.pgid is not None and entry.backend_kind == "local":
+            await _stop_group(entry.pid, entry.pgid)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - cleanup failures are logged, never raised
+        log.warning("could not stop %s (pid %s)", entry.id, entry.pid, exc_info=True)
+
+
+def _in_group(pid: int, pgid: int) -> bool:
+    try:
+        return int(os.getpgid(pid)) == pgid
+    except OSError:
+        return False
+
+
+async def _stop_group(pid: int, pgid: int) -> None:
+    if pgid <= 1 or pgid == os.getpgrp() or not _in_group(pid, pgid):
+        return
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGTERM)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + STOP_GRACE
+    while loop.time() < deadline:
+        if not _in_group(pid, pgid) or _zombie(pid):
+            return
+        await asyncio.sleep(0.05)
+    if _in_group(pid, pgid):
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pgid, signal.SIGKILL)
+
+
+def _zombie(pid: int) -> bool:
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as handle:
+            raw = handle.read()
+    except OSError:
+        return False
+    return raw[raw.rfind(")") + 2 :].startswith("Z")
+
+
+async def stop_owned(session_id: str | None = None) -> list[str]:
+    """Stop the commands snowpea started for ``session_id`` (every one when ``None``).
+
+    Called when a session is closed or deleted, and at daemon stop — never
+    when a session is merely idle.  Returns the ids that were stopped.
+    """
+    stopped: list[str] = []
+    for entry in REGISTRY.list(session_id):
+        await stop_entry(entry)
+        REGISTRY.drop(entry.id)
+        stopped.append(entry.id)
+    if stopped:
+        log.info("stopped background processes %s", ", ".join(stopped))
+    return stopped
 
 
 TOOLS: tuple[Tool, ...] = (
@@ -310,4 +511,6 @@ __all__ = [
     "process_kill",
     "process_output",
     "process_list",
+    "stop_entry",
+    "stop_owned",
 ]

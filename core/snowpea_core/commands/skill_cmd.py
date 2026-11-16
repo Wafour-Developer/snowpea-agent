@@ -71,6 +71,7 @@ SKILL_ARGS_SCHEMA = {
 USAGE = (
     'Usage: /skill create <name> "<what it should do>" [--global] [--force] | '
     "/skill learn [name] | /skill publish <dir> | /skill sources | /skill reload | /skill list"
+    " | /skill hooks"
 )
 
 #: How many of the most recent messages are summarised.
@@ -375,6 +376,21 @@ async def list_skills(ctx: CommandContext) -> None:
     await ctx.say("\n".join(lines))
 
 
+async def hooks_status(ctx: CommandContext) -> None:
+    """``/skill hooks`` — how many plugin hooks are loaded, and which are failing."""
+    from snowpea_core.skills import hooks as plugin_hooks
+
+    registry = plugin_hooks.registry_of(ctx.core)
+    count = registry.count() if registry is not None else 0
+    failing = plugin_hooks.health_lines()
+    if not failing:
+        await ctx.say(f"{count} plugin hooks loaded; none has failed.")
+        return
+    await ctx.say(
+        f"{count} plugin hooks loaded; {len(failing)} failing:\n" + "\n".join(failing)
+    )
+
+
 async def cmd_skill(ctx: CommandContext, args: str) -> None:
     """``/skill create|learn|publish|sources|reload|list``."""
     action, _, rest = args.strip().partition(" ")
@@ -401,9 +417,13 @@ async def cmd_skill(ctx: CommandContext, args: str) -> None:
     if action == "list":
         await list_skills(ctx)
         return
+    if action == "hooks":
+        await hooks_status(ctx)
+        return
     if action != "learn":
         await ctx.say(
-            "/skill only handles 'create', 'learn', 'publish', 'sources', 'reload' and 'list' "
+            "/skill only handles 'create', 'learn', 'publish', 'sources', 'reload', 'list' "
+            "and 'hooks' "
             f"here; use the snowpea CLI for search/install/rate.\n{USAGE}"
         )
         return

@@ -175,6 +175,8 @@ class GitResult:
 
 async def git(cwd: Path | str, *args: str, timeout: float = 120.0) -> GitResult:
     """Run one git command and capture its output."""
+    from snowpea_core.exec import winproc
+
     process = await asyncio.create_subprocess_exec(
         "git",
         *args,
@@ -185,7 +187,8 @@ async def git(cwd: Path | str, *args: str, timeout: float = 120.0) -> GitResult:
     try:
         raw_out, raw_err = await asyncio.wait_for(process.communicate(), timeout)
     except TimeoutError:
-        process.kill()
+        # It may have exited a moment ago: kill() would raise ProcessLookupError.
+        winproc.kill_now(process)
         await process.wait()
         return GitResult(124, "", f"git {' '.join(args)} timed out after {timeout:g}s")
     return GitResult(

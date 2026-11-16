@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import codecs
 import contextlib
+import logging
 import os
 import signal
 from collections.abc import Callable
@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath
 from typing import Any
 
+from snowpea_core.exec import winproc
 from snowpea_core.exec.backend import (
     DEFAULT_TIMEOUT,
     MAX_OUTPUT,
@@ -35,6 +36,22 @@ FLUSH_INTERVAL = 0.1
 
 #: How often a yielding run asks whether to stop waiting.
 YIELD_POLL = 0.25
+
+#: How often the drain checks whether the command's own process has exited.
+EXIT_POLL = 0.1
+
+#: Seconds the pipes may stay open after the command's own process exited.
+#: Past that, whatever it started (an ``adb`` server, a ``cmd /c start``,
+#: ``daemon &``) holds them, and waiting on would hang the call forever.
+PIPE_GRACE = 2.0
+
+#: Appended to stderr when the reading stopped for that reason.
+HELD_OPEN_NOTE = (
+    "[the command exited, but a process it started kept its output open; stopped "
+    "reading {grace:g}s later. Start servers with background: true.]"
+)
+
+log = logging.getLogger("snowpea.exec.local")
 
 
 def sanitized_path(value: str, workdir: Path | str | None) -> str:
@@ -81,6 +98,12 @@ class Detached:
             return None
         return self.task.result()
 
+    async def stop(self) -> None:
+        """End the command and what it started, as a timeout would; never raises."""
+        if self.task.done():
+            return
+        await _terminate_process_group(self.process)
+
 class LocalBackend:
     """Runs shell commands and file operations in the session's workdir."""
 
@@ -88,6 +111,9 @@ class LocalBackend:
 
     def __init__(self, workdir: Path | str) -> None:
         self._cwd = Path(workdir).expanduser()
+        #: Windows: jobs of finished commands that left processes running
+        #: (``start …``, ``adb`` starting its server).  Ended by :meth:`close`.
+        self._leftovers: list[winproc.ProcessTree] = []
 
     @property
     def cwd(self) -> Path:
@@ -146,7 +172,9 @@ class LocalBackend:
             stderr=asyncio.subprocess.PIPE,
             env=merged,
             start_new_session=True,
+            **winproc.spawn_kwargs(),
         )
+        winproc.attach(process)
         captured: dict[str, list[str]] = {"stdout": [], "stderr": []}
         waiting: dict[str, str] = {"stdout": "", "stderr": ""}
 
@@ -154,8 +182,9 @@ class LocalBackend:
             if reader is None:
                 return
             # An incremental decoder so a multi-byte character split across two
-            # reads is not turned into two replacement characters.
-            decoder = codecs.getincrementaldecoder("utf-8")("replace")
+            # reads is not turned into two replacement characters (UTF-8 on
+            # POSIX; UTF-8, else the console code page, on Windows).
+            decoder = winproc.output_decoder()
             while True:
                 data = await reader.read(READ_SIZE)
                 text = decoder.decode(data, not data)
@@ -187,8 +216,18 @@ class LocalBackend:
                 await asyncio.shield(flush())
 
         async def drain() -> int:
-            await asyncio.gather(pump(process.stdout, "stdout"), pump(process.stderr, "stderr"))
-            return await process.wait()
+            code = await _drain_until_exit(
+                process,
+                pump(process.stdout, "stdout"),
+                pump(process.stderr, "stderr"),
+                on_held_open=lambda: captured["stderr"].append(
+                    "\n" + HELD_OPEN_NOTE.format(grace=PIPE_GRACE) + "\n"
+                ),
+            )
+            # What it left behind keeps running, as on POSIX; on Windows its
+            # job stays open until the session or the daemon ends it.
+            self._keep_leftovers(process)
+            return code
 
         flusher = asyncio.ensure_future(ticker()) if on_chunk is not None else None
         drain_task: asyncio.Task[int] | None = None
@@ -288,23 +327,125 @@ class LocalBackend:
         return await asyncio.to_thread(_list)
 
     async def close(self) -> None:
-        """Nothing to release: the local backend owns no resources."""
-        return None
+        """End what finished commands left running on Windows (session close).
+
+        POSIX owns nothing here: there, as before, what a finished foreground
+        command left behind is not tracked.
+        """
+        leftovers, self._leftovers = self._leftovers, []
+        for tree in leftovers:
+            try:
+                await asyncio.to_thread(tree.terminate)
+            except Exception:  # noqa: BLE001 - close must finish
+                log.warning("could not end leftovers of pid %s", tree.pid, exc_info=True)
+
+    def _keep_leftovers(self, process: Any) -> None:
+        winproc.release(process, keep_leftovers=True)
+        tree = winproc.tree_of(process)
+        if tree is not None and not tree.closed:
+            self._leftovers = [t for t in self._leftovers if not t.closed]
+            self._leftovers.append(tree)
+
+    async def spawn_background(self, command: str, log_path: str) -> winproc.DetachedChild:
+        """Start ``command`` detached on Windows, output appended to ``log_path``.
+
+        POSIX keeps ``nohup sh -c … &`` (``tools/process.launch``); Windows has
+        neither, so the command is started directly here, without a window,
+        in a job of its own (:func:`winproc.start_detached`).
+        """
+        return await asyncio.to_thread(
+            winproc.start_detached,
+            command,
+            cwd=str(self._cwd),
+            env={**os.environ},
+            log_path=self.resolve(log_path),
+        )
+
+
+async def _drain_until_exit(
+    process: Any,
+    *pumps: Any,
+    on_held_open: Callable[[], None],
+) -> int:
+    """Read the pipes until they close, or until the command itself has exited.
+
+    A process the command started in the background (``adb`` starting its
+    server, ``daemon &``, ``start``) inherits the pipes and holds them open
+    after the command's own process is gone; reading to EOF would then never
+    end, and the tool call would stay "running" with no result.  So once the
+    command's process has exited, the readers get :data:`PIPE_GRACE` seconds
+    more, then reading stops, ``on_held_open`` is told and the exit status is
+    returned with what was read.  (``process.wait()`` itself waits for the
+    pipes on Python 3.11, so the exit is read from ``returncode``.)
+    """
+    readers = asyncio.ensure_future(asyncio.gather(*pumps))
+    try:
+        while not readers.done() and process.returncode is None:
+            await asyncio.wait({readers}, timeout=EXIT_POLL)
+        if not readers.done():
+            done, _ = await asyncio.wait({readers}, timeout=PIPE_GRACE)
+            if not done:
+                readers.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await readers
+                _close_pipes(process)
+                on_held_open()
+                return int(process.returncode)
+        await readers
+    except BaseException:
+        if not readers.done():
+            readers.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await readers
+        raise
+    if process.returncode is not None:
+        return int(process.returncode)
+    return await process.wait()
+
+
+def _close_pipes(process: Any) -> None:
+    """Stop reading a finished command's pipes that something else holds open."""
+    transport = getattr(process, "_transport", None)
+    if transport is None:
+        return
+    try:
+        transport.close()
+    except Exception:  # noqa: BLE001 - cleanup must not raise
+        log.warning("could not close the pipes of pid %s", process.pid, exc_info=True)
 
 
 async def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
-    """Stop a shell command and anything it spawned."""
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGTERM)
+    """Stop a shell command and anything it spawned.  Never raises.
+
+    POSIX: SIGTERM to its process group, SIGKILL after half a second.  Windows
+    (no ``killpg``): its job, or ``taskkill /T`` for its exact pid
+    (:mod:`snowpea_core.exec.winproc`).
+    """
     try:
-        await asyncio.wait_for(process.wait(), 0.5)
+        if winproc.enabled():
+            await winproc.kill(process)
+        else:
+            _signal_group(process.pid, signal.SIGTERM)
+            try:
+                await asyncio.wait_for(process.wait(), 0.5)
+                return
+            except TimeoutError:
+                pass
+            _signal_group(process.pid, signal.SIGKILL)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(process.wait(), 5.0)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - a cleanup failure is logged, never the turn's error
+        log.warning("could not stop command pid %s", process.pid, exc_info=True)
+
+
+def _signal_group(pgid: int, sig: int) -> None:
+    killpg = getattr(os, "killpg", None)
+    if killpg is None:  # pragma: no cover - only Windows, handled above
         return
-    except TimeoutError:
-        pass
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGKILL)
-    with contextlib.suppress(Exception):
-        await process.wait()
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        killpg(pgid, sig)
 
 
 __all__ = ["CHUNK_LIMIT", "FLUSH_INTERVAL", "MAX_OUTPUT", "READ_SIZE", "LocalBackend"]

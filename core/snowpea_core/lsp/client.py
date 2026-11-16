@@ -44,6 +44,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 from urllib.request import pathname2url
 
+from snowpea_core.exec import winproc
 from snowpea_core.lsp.language import language_id
 
 log = logging.getLogger("snowpea.lsp.client")
@@ -385,13 +386,13 @@ class LspClient:
                 await self._reader
             self._reader = None
         if self.process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                self.process.terminate()
+            winproc.terminate_now(self.process)
             try:
                 await asyncio.wait_for(self.process.wait(), timeout=2.0)
             except TimeoutError:
-                with contextlib.suppress(ProcessLookupError):
-                    self.process.kill()
+                await winproc.kill(self.process)
+        # What the server left behind (node under an npm shim) ends with it.
+        winproc.release(self.process)
         self.exited = True
 
     @property

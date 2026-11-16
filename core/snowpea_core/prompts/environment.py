@@ -16,10 +16,11 @@ import os
 import platform as platform_module
 import shutil
 import subprocess
-from collections.abc import Sequence
+import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 log = logging.getLogger("snowpea.prompts.environment")
 
@@ -638,6 +639,23 @@ def _date_line(now: datetime) -> str:
     return text
 
 
+def shell_name(platform: str | None = None, environ: Mapping[str, str] | None = None) -> str:
+    """The shell the ``shell`` tool really runs commands in, for the prompt.
+
+    POSIX: ``$SHELL``'s name, as before.  Windows has no ``$SHELL``; the tool
+    runs ``%COMSPEC% /c <command>`` (``cmd.exe``), so that is named, with the
+    consequence the model needs: cmd syntax, PowerShell only when called.
+    """
+    env = os.environ if environ is None else environ
+    if (platform or sys.platform) != "win32":
+        return Path(env.get("SHELL", "")).name
+    comspec = PureWindowsPath(env.get("COMSPEC") or "cmd.exe").name or "cmd.exe"
+    return (
+        f"{comspec} (commands run as `{comspec} /c …`; use cmd syntax, or call "
+        "`powershell -NoProfile -Command …` explicitly)"
+    )
+
+
 def collect(
     workdir: Path | str,
     *,
@@ -675,7 +693,7 @@ def collect(
     return Environment(
         workdir=str(workdir),
         platform="" if remote else f"{platform_module.system()} ({platform_module.machine()})",
-        shell="" if remote else Path(os.environ.get("SHELL", "")).name,
+        shell="" if remote else shell_name(),
         home=None if remote else os.path.expanduser("~"),
         today=_date_line(moment),
         model=model,

@@ -62,6 +62,20 @@ SHELL = (
     "command rather than sleeping."
 )
 
+#: Appended to :data:`SHELL` when the daemon runs on Windows.
+SHELL_WINDOWS = (
+    " On Windows commands run in cmd.exe with no console window: never use start, "
+    "Start-Process, cmd /k or -NoExit (they open windows that stay open); use "
+    "`background: true` for servers."
+)
+
+
+def shell_description(platform: str | None = None) -> str:
+    """:data:`SHELL`, plus :data:`SHELL_WINDOWS` on Windows; POSIX text unchanged."""
+    import sys
+
+    return SHELL + (SHELL_WINDOWS if (platform or sys.platform) == "win32" else "")
+
 EXECUTE_CODE = (
     "Run a short Python program in the project and return what it printed. Use it to "
     "check behaviour without leaving files behind: build inputs in memory or in a temp "

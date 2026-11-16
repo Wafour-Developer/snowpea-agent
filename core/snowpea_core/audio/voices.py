@@ -200,23 +200,29 @@ def openai_voices(configured: bool) -> list[Voice]:
 
 async def _run(argv: list[str]) -> str:
     """Run a listing command and return its stdout, or ``""``."""
+    from snowpea_core.exec import winproc
+
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            **winproc.spawn_kwargs(),
         )
     except OSError as exc:
         log.debug("could not list voices with %s: %s", argv[0], exc)
         return ""
+    winproc.attach(process)
     try:
         out, _err = await asyncio.wait_for(process.communicate(), LIST_TIMEOUT)
     except TimeoutError:
-        process.kill()
+        await winproc.kill(process)
+        winproc.release(process)
         await process.wait()
         log.info("%s took too long to list its voices", argv[0])
         return ""
+    winproc.release(process)
     return out.decode("utf-8", "replace")
 
 

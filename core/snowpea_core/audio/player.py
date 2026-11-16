@@ -120,19 +120,25 @@ async def play(
             "no audio player found; install one of afplay, paplay, aplay, ffplay or mpv",
         )
     argv = _windows_argv(target) if player.name == WINDOWS_PLAYER.name else player.argv(target)
+    from snowpea_core.exec import winproc
+
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
+            **winproc.spawn_kwargs(),
         )
     except OSError as exc:
         raise AudioError("playback_failed", f"{player.name}: {exc}") from exc
+    winproc.attach(process)
     try:
         _, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
     except TimeoutError:
-        process.kill()
+        await winproc.kill(process)
         raise AudioError("playback_failed", f"{player.name} timed out") from None
+    finally:
+        winproc.release(process)
     if process.returncode:
         detail = (stderr or b"").decode("utf-8", "replace").strip()[:200]
         raise AudioError("playback_failed", f"{player.name} exited {process.returncode}: {detail}")

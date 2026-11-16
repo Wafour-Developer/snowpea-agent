@@ -684,7 +684,10 @@ def tmux_supported() -> bool:
 
 def _group_kwargs() -> dict[str, Any]:
     if IS_WINDOWS:
-        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)}
+        # Its own group, and no console window even from a daemon run in a terminal.
+        from snowpea_core.exec import winproc
+
+        return {"creationflags": winproc.SPAWN_FLAGS}
     return {"start_new_session": True}
 
 
@@ -817,14 +820,11 @@ async def _kill_tree(pid: int, *, pgid: int | None = None, grace: float = KILL_G
     descendant are always signalled by pid.
     """
     if IS_WINDOWS:  # pragma: no cover - Windows only
+        # Exactly this pid's tree, no console window, taskkill from System32.
+        from snowpea_core.exec import winproc
+
         with contextlib.suppress(OSError, subprocess.SubprocessError):
-            await asyncio.to_thread(
-                subprocess.run,
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                capture_output=True,
-                check=False,
-                timeout=15,
-            )
+            await asyncio.to_thread(winproc.taskkill_tree, pid)
         return
     group = _own_group(pid, pgid)
     tree = descendants(pid)

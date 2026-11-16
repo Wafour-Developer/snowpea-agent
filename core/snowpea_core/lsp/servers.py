@@ -53,6 +53,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
+from snowpea_core.exec import winproc
+
 log = logging.getLogger("snowpea.lsp.servers")
 
 #: How long an auto-install may take before it is given up on.
@@ -253,7 +255,9 @@ async def _exec(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             env={**os.environ, **(env or {})},
+            **winproc.spawn_kwargs(),
         )
+        winproc.attach(process)
     except (OSError, ValueError) as exc:
         log.debug("could not run %s: %s", argv[0], exc)
         return False, f"could not run {Path(argv[0]).name}: {exc}"
@@ -289,6 +293,7 @@ async def _exec(
         # Cancelled: an installer is never left running unwatched.
         await asyncio.shield(_kill(process))
         raise
+    winproc.release(process)
     tail = "\n".join(lines)[-400:]
     if process.returncode != 0:
         log.warning("%s failed (%s): %s", argv[0], process.returncode, tail)
@@ -298,8 +303,7 @@ async def _exec(
 
 
 async def _kill(process: asyncio.subprocess.Process) -> None:
-    with contextlib.suppress(ProcessLookupError):
-        process.kill()
+    await winproc.kill(process)
     with contextlib.suppress(Exception):
         await process.wait()
 
@@ -646,10 +650,13 @@ async def start_server(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
             env={**os.environ, **server.env},
+            **winproc.spawn_kwargs(),
         )
     except (OSError, ValueError) as exc:
         log.warning("could not start language server %s: %s", server.id, exc)
         return None, f"could not start: {exc}"
+    # An npm ``.cmd`` shim starts node: on Windows the job ends both.
+    winproc.attach(process)
     return process, None
 
 
