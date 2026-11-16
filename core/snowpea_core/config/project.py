@@ -168,6 +168,16 @@ class ProjectSettings(BaseModel):
     agents: ProjectAgentsSettings = Field(default_factory=ProjectAgentsSettings)
     models: ProjectModelsSettings = Field(default_factory=ProjectModelsSettings)
     jarvis: ProjectJarvisSettings = Field(default_factory=ProjectJarvisSettings)
+    #: Additions to the global security lists (1.54.0): ``{blockedCommands:
+    #: {presets, custom}, protectedPaths: {presets, custom}}``, every part
+    #: optional and empty by default.  A project can only add; read leniently
+    #: by :func:`snowpea_core.security.lists.project_additions`.
+    security: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("security", mode="before")
+    @classmethod
+    def _security_object(cls, value: Any) -> Any:
+        return value if isinstance(value, dict) else {}
 
     _normalise_allowlist = field_validator("allowlist", mode="before")(_coerce_allowlist)
 

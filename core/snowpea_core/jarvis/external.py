@@ -226,6 +226,7 @@ def overview_rows(service: JarvisService) -> list[JarvisOverviewRow]:
                 lastActivityAt=(digest.last_activity if digest is not None else None)
                 or row.get("updatedAt"),
                 digest=line or str(row.get("preview") or "")[:200],
+                securityListsApply=row.get("securityListsApply"),
             )
         )
     return rows

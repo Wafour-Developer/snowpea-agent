@@ -47,7 +47,7 @@ Pattern = tuple[str, ...]
 #: A local person's only, from any other connection kind, with or without the marker.
 PERSON_LOCAL_ONLY: tuple[Pattern, ...] = (
     ("jarvis",),
-    ("security",),  # reserved for the coming security section
+    ("security",),  # the security lists (1.54.0): blocked commands, protected paths
     ("daemon",),
     ("web",),
     ("extensions",),

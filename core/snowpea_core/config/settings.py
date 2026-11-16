@@ -949,6 +949,75 @@ class JarvisSettings(_Model):
         return value
 
 
+class SecurityProtectedPath(_Model):
+    """One protected folder or file of ``security.protectedPaths.custom``."""
+
+    path: str
+    #: ``write``: no changes (reads allowed); ``all``: no access at all.
+    level: Literal["write", "all"] = "write"
+
+
+def _coerce_protected(value: Any) -> Any:
+    """A bare string is a ``write`` entry; an unusable item is dropped (a hand-edited
+    file still loads; ``security.get`` reports nothing it cannot use)."""
+    if not isinstance(value, list):
+        return []
+    out: list[Any] = []
+    for item in value:
+        if isinstance(item, str):
+            out.append({"path": item, "level": "write"})
+        elif isinstance(item, dict) and isinstance(item.get("path"), str):
+            level = item.get("level", "write")
+            # An unknown level fails closed: no access at all.
+            out.append({"path": item["path"], "level": level if level in ("write", "all")
+                        else "all"})
+    return out
+
+
+def _coerce_strings(value: Any) -> Any:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+class SecurityBlockedCommands(_Model):
+    """``security.blockedCommands`` (protocol 1.54.0, ``docs/manual/en/security.md``).
+
+    An absent key means the defaults (preset ``essential``); an explicit empty
+    list stays empty.  Values are checked by ``settings.set``
+    (:mod:`snowpea_core.security.lists`), not here, so a hand-edited file never
+    stops the daemon: an unknown preset or a broken pattern is skipped and
+    reported by ``security.get``.
+    """
+
+    presets: list[str] = Field(default_factory=lambda: ["essential"])
+    #: Command patterns (:mod:`snowpea_core.security.patterns`).
+    custom: list[str] = Field(default_factory=list)
+
+    _strings = field_validator("presets", "custom", mode="before")(_coerce_strings)
+
+
+class SecurityProtectedPaths(_Model):
+    """``security.protectedPaths``; defaults as for :class:`SecurityBlockedCommands`."""
+
+    presets: list[str] = Field(default_factory=lambda: ["essential"])
+    custom: list[SecurityProtectedPath] = Field(default_factory=list)
+
+    _strings = field_validator("presets", mode="before")(_coerce_strings)
+    _custom = field_validator("custom", mode="before")(_coerce_protected)
+
+
+class SecuritySettings(_Model):
+    """The security lists: blocked commands and protected paths (1.54.0).
+
+    Only a local person changes them (``settings_gate.PERSON_LOCAL_ONLY``); a
+    project's ``.snowpea/settings.json`` may only add to them.
+    """
+
+    blockedCommands: SecurityBlockedCommands = Field(default_factory=SecurityBlockedCommands)
+    protectedPaths: SecurityProtectedPaths = Field(default_factory=SecurityProtectedPaths)
+
+
 class Settings(_Model):
     """Daemon-wide settings, persisted as JSON."""
 
@@ -977,6 +1046,8 @@ class Settings(_Model):
     updates: UpdatesSettings = Field(default_factory=UpdatesSettings)
     #: Jarvis mode (M19, beta, 1.53.0); off by default.
     jarvis: JarvisSettings = Field(default_factory=JarvisSettings)
+    #: Blocked commands and protected paths (1.54.0); a local person's only.
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
     providers: dict[str, Any] = Field(default_factory=dict)
     #: Multi-model profiles and the default profile for new sessions.
     models: ModelsSettings = Field(default_factory=ModelsSettings)

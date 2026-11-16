@@ -498,6 +498,12 @@ class _Cmd:
     heredoc: bool = False
     #: Per word: it came out of a brace expansion (``{a,b}``, ``{1..3}``).
     braced: list[bool] = field(default_factory=list)
+    #: The text a here-string or here-document feeds the command (the security
+    #: lists read a shell's script from it); ``None`` without one.
+    stdin_text: str | None = None
+    #: That text is expanded by the shell (an unquoted delimiter with ``$``/backticks,
+    #: or a here-string with an expansion): what the command reads is not known.
+    stdin_dynamic: bool = False
 
 
 #: Most words one brace expansion may produce before the line is opaque.
@@ -602,7 +608,7 @@ class _Scanner:
         self.in_word = False
         self.dynamic = False
         self.pending_redirect: str | None = None
-        self.pending_heredocs: list[tuple[str, bool, bool]] = []
+        self.pending_heredocs: list[tuple[str, bool, bool, _Cmd]] = []
         #: The word being read had a quote or a backslash in it.
         self.quoted = False
         self.piped_in = False
@@ -629,10 +635,12 @@ class _Scanner:
                 raise _Opaque("brace-redirect")
             target = expanded[0] if expanded else ""
             if operator in ("<<", "<<-"):
-                self.pending_heredocs.append((text, operator == "<<-", self.quoted))
+                self.pending_heredocs.append((text, operator == "<<-", self.quoted, self.cmd))
                 self.cmd.heredoc = True
             elif operator == "<<<":
                 self.cmd.heredoc = True
+                self.cmd.stdin_text = text
+                self.cmd.stdin_dynamic = self.dynamic
             else:
                 self.cmd.redirects.append((operator, target, self.dynamic))
         elif text in ("{", "}") and not self.dynamic and not self.quoted:
@@ -665,7 +673,8 @@ class _Scanner:
     # -- here-documents ----------------------------------------------------
     def _read_heredocs(self) -> None:
         text = self.text
-        for delimiter, strip_tabs, quoted in self.pending_heredocs:
+        for delimiter, strip_tabs, quoted, owner in self.pending_heredocs:
+            body: list[str] = []
             while self.i <= len(text):
                 end = text.find("\n", self.i)
                 end = len(text) if end < 0 else end
@@ -673,11 +682,15 @@ class _Scanner:
                 self.i = end + 1
                 if (line.lstrip("\t") if strip_tabs else line) == delimiter:
                     break
+                body.append(line.lstrip("\t") if strip_tabs else line)
                 if not quoted and ("`" in line or "$(" in line):
                     # An unquoted delimiter: the body is expanded, substitutions run.
                     self.line.substitution = True
+                if not quoted and ("$" in line or "`" in line):
+                    owner.stdin_dynamic = True
                 if end >= len(text):
                     break
+            owner.stdin_text = "\n".join(body)
         self.pending_heredocs = []
 
     # -- the scan ----------------------------------------------------------

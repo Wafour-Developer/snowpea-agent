@@ -92,6 +92,8 @@ JARVIS_DISABLED = "jarvis_disabled"
 JARVIS_PERSON_ONLY = "jarvis_person_only"
 EXTERNAL_VIEW_ONLY = "external_view_only"
 EXTERNAL_UNAVAILABLE = "external_unavailable"
+#: 1.54.0: a call refused by the security lists (blocked command or protected path).
+SECURITY_BLOCKED = "security_blocked"
 
 ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,
@@ -136,6 +138,7 @@ ERROR_CODES: tuple[str, ...] = (
     JARVIS_PERSON_ONLY,
     EXTERNAL_VIEW_ONLY,
     EXTERNAL_UNAVAILABLE,
+    SECURITY_BLOCKED,
 )
 
 # JSON-RPC 2.0 reserved codes.

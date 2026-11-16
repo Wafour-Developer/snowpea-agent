@@ -735,7 +735,30 @@ class ExternalManager:
             "controlled": self._controlled(record, found),
             "preview": _preview(info.preview),
             "model": info.model,
+            "securityListsApply": self._lists_apply(
+                record.project, record.host, self._approvals(record, found),
+                self._controlled(record, found),
+            ),
         }
+
+    def _lists_apply(self, project: str | None, host: str, approvals: str,
+                     controlled: bool) -> bool | None:
+        """``ExternalSessionRow.securityListsApply``: null with empty lists; false when
+        snowpea cannot see what the CLI runs (unrestricted or uncontrolled, a tmux pane
+        whose prompts are answered there, another terminal)."""
+        from snowpea_core.security.enforce import lists_for
+
+        try:
+            lists = lists_for(getattr(self.approvals, "settings", None), project)
+        except Exception:  # noqa: BLE001 - unknown lists: say nothing
+            return None
+        if lists.empty:
+            return None
+        if host == "terminal":
+            return False
+        if host in ("snowpea", "tmux"):
+            return bool(controlled) and approvals == "bridged"
+        return True
 
     def _state(self, record: _Record, previous: str | None, previous_host: str | None
                ) -> dict[str, Any]:
@@ -1002,6 +1025,9 @@ class ExternalManager:
             "controlled": True,
             "preview": _preview(info.preview),
             "model": info.model,
+            "securityListsApply": self._lists_apply(
+                proc.project_of(info.cwd, roots), host, "none", True
+            ),
         }
 
     # -- open / read --------------------------------------------------------
@@ -1537,6 +1563,32 @@ class ExternalManager:
             return False
         return verdict.classification in ("safe", "risky")
 
+    async def _security(self, record: _Record, ask: ApprovalAsk) -> Any:
+        """The security lists' verdict on a bridged request; a block is announced."""
+        from snowpea_core.security import enforce
+
+        queue = self.approvals
+        core = getattr(queue, "core", None)
+        args = dict(ask.args or {})
+        cwd = record.real_cwd or record.info.cwd
+        if cwd and not any(k in args for k in ("cwd", "workdir", "dir")):
+            args["cwd"] = cwd  # the CLI's folder, for relative paths (judgement only)
+        if core is not None:
+            await enforce.refresh_projects(core)
+        projects = enforce.live_projects(core) if core is not None else []
+        verdict = enforce.judge(
+            settings=getattr(queue, "settings", None), home=self.home,
+            workdir=record.project or cwd, tool=ask.tool, args=args, tags=(),
+            projects=projects,
+        )
+        if verdict.blocked:
+            await enforce.announce(
+                hub=getattr(queue, "hub", None), paths=getattr(queue, "paths", None),
+                session_id=f"ext:{record.cli}:{record.id}", tool=ask.tool, args=ask.args,
+                verdict=verdict, surface="external", core=core,
+            )
+        return verdict
+
     async def _ask_approval(self, record: _Record, ask: ApprovalAsk) -> ApprovalAnswer:
         """Bridge one CLI prompt into the shared approval queue (``ApprovalRequest.external``).
 
@@ -1554,10 +1606,16 @@ class ExternalManager:
         ask.args = dict(ask.args or {})
         ask.note = clean_text(ask.note) if ask.note else ask.note
         ask.diff = clean_text(ask.diff) if ask.diff else ask.diff
+        # The security lists before the session's own cache (1.54.0): a blocked
+        # call is denied with the reason, so the CLI's model reads why.
+        security = await self._security(record, ask)
+        if security.blocked:
+            return ApprovalAnswer(allow=False, reason=security.refusal, by="security")
         command = command_of(ask.args or {})
         cache_key = _call_key(ask.tool, ask.args or {}, command)
         if (
             not ask.person_only
+            and not security.opaque
             and cache_key in record.approval_cache
             and (not command or matchable(command))
             and self._cacheable(record, ask)

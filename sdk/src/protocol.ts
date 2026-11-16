@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.53.0";
+export const PROTOCOL_VERSION = "1.54.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -47,6 +47,7 @@ export type ErrorCode =
   | "outside_root"
   | "protected"
   | "protocol_incompatible"
+  | "security_blocked"
   | "session_busy"
   | "skill_exists"
   | "steer_slash_command"
@@ -90,6 +91,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "outside_root",
   "protected",
   "protocol_incompatible",
+  "security_blocked",
   "session_busy",
   "skill_exists",
   "steer_slash_command",
@@ -302,12 +304,16 @@ export interface ApprovalListResult {
     folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
     guard?: string | null;
+    /** True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. */
+    neverDelegable?: boolean | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
     note?: string;
     /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
     paths?: string[] | null;
     /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
     personOnly?: boolean | null;
+    /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. */
+    reason?: string | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
     /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -359,12 +365,16 @@ export interface ApprovalRequestParams {
   folder?: string | null;
   /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
   guard?: string | null;
+  /** True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. */
+  neverDelegable?: boolean | null;
   /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
   note?: string;
   /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
   paths?: string[] | null;
   /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
   personOnly?: boolean | null;
+  /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. */
+  reason?: string | null;
   /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
   reasonCode?: string | null;
   /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -1114,6 +1124,8 @@ export interface ExternalCreateResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     };
+    /** Whether the security lists can reach what it runs (1.54.0): null while both lists are empty; false when snowpea cannot see its calls (mode unrestricted or otherwise uncontrolled, prompts answered in a tmux pane, running in another terminal), so a UI can warn that blocked commands and protected folders do not apply inside it. */
+    securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
     /** Title the CLI keeps, or the first prompt. */
@@ -1170,6 +1182,8 @@ export interface ExternalGetResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     };
+    /** Whether the security lists can reach what it runs (1.54.0): null while both lists are empty; false when snowpea cannot see its calls (mode unrestricted or otherwise uncontrolled, prompts answered in a tmux pane, running in another terminal), so a UI can warn that blocked commands and protected folders do not apply inside it. */
+    securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
     /** Title the CLI keeps, or the first prompt. */
@@ -1250,6 +1264,8 @@ export interface ExternalListResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     };
+    /** Whether the security lists can reach what it runs (1.54.0): null while both lists are empty; false when snowpea cannot see its calls (mode unrestricted or otherwise uncontrolled, prompts answered in a tmux pane, running in another terminal), so a UI can warn that blocked commands and protected folders do not apply inside it. */
+    securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
     /** Title the CLI keeps, or the first prompt. */
@@ -1331,6 +1347,8 @@ export interface ExternalOpenResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     };
+    /** Whether the security lists can reach what it runs (1.54.0): null while both lists are empty; false when snowpea cannot see its calls (mode unrestricted or otherwise uncontrolled, prompts answered in a tmux pane, running in another terminal), so a UI can warn that blocked commands and protected folders do not apply inside it. */
+    securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
     /** Title the CLI keeps, or the first prompt. */
@@ -1442,6 +1460,8 @@ export interface ExternalSetModeResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     };
+    /** Whether the security lists can reach what it runs (1.54.0): null while both lists are empty; false when snowpea cannot see its calls (mode unrestricted or otherwise uncontrolled, prompts answered in a tmux pane, running in another terminal), so a UI can warn that blocked commands and protected folders do not apply inside it. */
+    securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
     /** Title the CLI keeps, or the first prompt. */
@@ -2430,6 +2450,8 @@ export interface JarvisOverviewResult {
     grantId?: string | null;
     /** For an external session: where its process lives. */
     host?: "none" | "terminal" | "tmux" | "snowpea" | null;
+    /** For a snowpea session: as SessionSummary.hostToolsFrom (1.54.0) — a browser profile's clientId when it runs on a browser host's tools, null for IDE, TUI and CLI sessions. */
+    hostToolsFrom?: string | null;
     /** UTC ISO time of its last activity. */
     lastActivityAt?: string | null;
     /** Delegation in force for it; null when not exposed. */
@@ -2438,6 +2460,8 @@ export interface JarvisOverviewResult {
     levelScope?: "session" | "project" | "global" | "default" | null;
     /** For an external session snowpea runs (host snowpea or tmux): its mode. */
     mode?: "default" | "readonly" | "unrestricted" | null;
+    /** For a snowpea session: as SessionSummary.originSurface (1.54.0): the surface that owns its approvals ('gateway:<platform>:<chat>' for a messenger session, 'scheduler', 'jarvis-task', a client's surface id, …). */
+    originSurface?: string | null;
     /** As SessionJarvisState.pausedUntil. */
     pausedUntil?: string | null;
     /** Approvals waiting (any route). */
@@ -2446,6 +2470,8 @@ export interface JarvisOverviewResult {
     pendingQuestions?: number;
     /** Project root it works in. */
     project?: string | null;
+    /** For an external session: as ExternalSessionRow.securityListsApply (1.54.0). */
+    securityListsApply?: boolean | null;
     /** snowpea session; null for an external one. */
     sessionId?: string | null;
     /** SessionSummary.status, or the external status. */
@@ -4178,6 +4204,12 @@ export interface QuestionListResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     } | null;
+    /** What a personOnly question decides (1.54.0): 'mode' for a mode picker. Null for an ordinary question. */
+    kind?: "mode" | null;
+    /** True when only a person may decide this question (1.54.0): it is personOnly. Clients label it "always asks you". Null otherwise. */
+    neverDelegable?: boolean | null;
+    /** True when only a person may answer (1.54.0, security review 4 C1): the answer changes the session's permissions or raises its mode (set_mode, the plan-exit and plan-review pickers). Routed to the person; Jarvis's question_answer is refused (jarvis_person_only); a browser or connector may not answer it. Null otherwise. */
+    personOnly?: boolean | null;
     /** The questions, in the order they were asked. */
     questions?: ({
       /** Offer a free-text '기타 / Other' row alongside the options. */
@@ -4220,6 +4252,12 @@ export interface QuestionRequestParams {
     /** The CLI's own session (thread, chat) id. */
     id: string;
   } | null;
+  /** What a personOnly question decides (1.54.0): 'mode' for a mode picker. Null for an ordinary question. */
+  kind?: "mode" | null;
+  /** True when only a person may decide this question (1.54.0): it is personOnly. Clients label it "always asks you". Null otherwise. */
+  neverDelegable?: boolean | null;
+  /** True when only a person may answer (1.54.0, security review 4 C1): the answer changes the session's permissions or raises its mode (set_mode, the plan-exit and plan-review pickers). Routed to the person; Jarvis's question_answer is refused (jarvis_person_only); a browser or connector may not answer it. Null otherwise. */
+  personOnly?: boolean | null;
   /** The questions, in the order they were asked. */
   questions?: ({
     /** Offer a free-text '기타 / Other' row alongside the options. */
@@ -4282,6 +4320,176 @@ export interface QuestionRespondParams {
 export interface QuestionRespondResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `security.check` params. Security lists (1.54.0): judge a command or a path against the lists (or an unsaved draft) without running anything — the 'try it' box. */
+export interface SecurityCheckParams {
+  /** With path: judge a change (default) or a read. */
+  access?: "write" | "read";
+  /** A shell line to judge. */
+  command?: string | null;
+  /** Unsaved lists to judge against instead of the saved global ones (the project's additions still apply). Invalid entries are invalid_params. */
+  draft?: {
+    blockedCommands?: {
+      /** Command patterns (see docs/manual/en/security.md, 'Custom patterns'). */
+      custom?: string[];
+      presets?: string[];
+    };
+    protectedPaths?: {
+      custom?: ({
+        level?: "write" | "all";
+        /** Absolute path, or one starting with ~/. */
+        path: string;
+      })[];
+      presets?: string[];
+    };
+  } | null;
+  /** Language of 'why'; default 'en'. */
+  locale?: string | null;
+  /** A path to judge. */
+  path?: string | null;
+  /** Where it would run (relative paths, project additions). */
+  workdir?: string | null;
+}
+
+/** `security.check` result. */
+export interface SecurityCheckResult {
+  blocked: boolean;
+  /** 'commands:<presetId>', 'paths:<presetId>', 'custom', or 'security' (an edit of the security lists themselves). */
+  by?: string | null;
+  /** For a protected path hit: the entry's level. */
+  level?: "write" | "all" | null;
+  /** The command or protected path hit. */
+  match?: string | null;
+  /** Not blocked, but part of it cannot be seen while a list is set: it would always be put to the person (reason). */
+  opaque?: boolean;
+  /** 'cannot be checked against your block list' when opaque. */
+  reason?: string | null;
+  /** Localized reason. */
+  why?: string | null;
+}
+
+/** `security.get` params. Security lists (1.54.0): the stored global lists, a project's additions, the effective lists with presets expanded, and whether this connection may change them (settings.set {scope: 'global', patch: {security: …}}, a local person only; arrays replace). */
+export interface SecurityGetParams {
+  /** For problems; default 'en'. */
+  locale?: string | null;
+  /** A project: adds its additions and resolves its presets. */
+  workdir?: string | null;
+}
+
+/** `security.get` result. */
+export interface SecurityGetResult {
+  blockedCommands?: {
+    /** Command patterns (see docs/manual/en/security.md, 'Custom patterns'). */
+    custom?: string[];
+    presets?: string[];
+  };
+  /** The lists in force: the global ones plus the project's additions. */
+  effective?: {
+    blockedCommands?: {
+      /** Command patterns (see docs/manual/en/security.md, 'Custom patterns'). */
+      custom?: string[];
+      presets?: string[];
+    };
+    /** Every command pattern in force, presets expanded. */
+    commands?: ({
+      /** 'commands:<presetId>' or 'custom'. */
+      by: string;
+      /** A pattern in force; for a preset rule the pattern language cannot spell (a download piped into a shell, rm -r of a folder holding the home) one of the preset's examples, for display. */
+      pattern: string;
+    })[];
+    /** Every protected path, presets expanded for the given workdir. */
+    paths?: ({
+      /** 'paths:<presetId>' or 'custom'. */
+      by: string;
+      /** Folders below it that stay usable (the project). */
+      exempt?: string[];
+      level: "write" | "all";
+      path: string;
+      /** 'tree': the path and everything below it; 'self': the folder itself only (never deleted, moved or changed recursively, nor through a folder above it). */
+      scope: "tree" | "self";
+    })[];
+    protectedPaths?: {
+      custom?: ({
+        level?: "write" | "all";
+        /** Absolute path, or one starting with ~/. */
+        path: string;
+      })[];
+      presets?: string[];
+    };
+  };
+  /** Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. */
+  problems?: string[];
+  /** What the workdir's .snowpea/settings.json adds; null without. */
+  project?: {
+    blockedCommands?: {
+      /** Command patterns (see docs/manual/en/security.md, 'Custom patterns'). */
+      custom?: string[];
+      presets?: string[];
+    };
+    protectedPaths?: {
+      custom?: ({
+        level?: "write" | "all";
+        /** Absolute path, or one starting with ~/. */
+        path: string;
+      })[];
+      presets?: string[];
+    };
+  } | null;
+  protectedPaths?: {
+    custom?: ({
+      level?: "write" | "all";
+      /** Absolute path, or one starting with ~/. */
+      path: string;
+    })[];
+    presets?: string[];
+  };
+  /** True only for a local person's connection: the only one settings.set accepts security.* from. A remote web login, a browser or a connector reads only. */
+  writable: boolean;
+}
+
+/** `security.presets.list` params. Security lists (1.54.0): the preset catalog of blocked commands and protected paths, localized (en, ko). People only (not a browser or connector). */
+export interface SecurityPresetsListParams {
+  /** 'en' or 'ko' (others fall back to English); default 'en'. */
+  locale?: string | null;
+}
+
+/** `security.presets.list` result. */
+export interface SecurityPresetsListResult {
+  commands?: ({
+    /** On in a fresh install (only 'essential'). */
+    default: boolean;
+    /** What it covers, in the requested locale. */
+    description: string;
+    /** Commands it blocks (commands) or paths it covers (paths), as typed. */
+    examples?: string[];
+    /** Stable id, e.g. 'essential', 'git-destructive', 'credentials'. */
+    id: string;
+    /** Paths only: 'write' (no changes) or 'all' (no access). */
+    level?: "write" | "all" | null;
+    /** Paths only: what it protects on this machine now, as shown (~/.ssh, /etc, the registered projects, the mounted disks); the session's own project is left out when a check runs. */
+    paths?: string[];
+    /** Short name in the requested locale. */
+    title: string;
+  })[];
+  /** The locale the texts are in. */
+  locale?: string;
+  paths?: ({
+    /** On in a fresh install (only 'essential'). */
+    default: boolean;
+    /** What it covers, in the requested locale. */
+    description: string;
+    /** Commands it blocks (commands) or paths it covers (paths), as typed. */
+    examples?: string[];
+    /** Stable id, e.g. 'essential', 'git-destructive', 'credentials'. */
+    id: string;
+    /** Paths only: 'write' (no changes) or 'all' (no access). */
+    level?: "write" | "all" | null;
+    /** Paths only: what it protects on this machine now, as shown (~/.ssh, /etc, the registered projects, the mounted disks); the session's own project is left out when a check runs. */
+    paths?: string[];
+    /** Short name in the requested locale. */
+    title: string;
+  })[];
 }
 
 /** `session.archive` params. Archive or restore a conversation; refused while it runs unless stop (1.47.0). */
@@ -8069,12 +8277,16 @@ export interface ApprovalPendingPayload {
     folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
     guard?: string | null;
+    /** True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. */
+    neverDelegable?: boolean | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
     note?: string;
     /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
     paths?: string[] | null;
     /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
     personOnly?: boolean | null;
+    /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. */
+    reason?: string | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
     /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
@@ -8596,6 +8808,12 @@ export interface QuestionPendingPayload {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     } | null;
+    /** What a personOnly question decides (1.54.0): 'mode' for a mode picker. Null for an ordinary question. */
+    kind?: "mode" | null;
+    /** True when only a person may decide this question (1.54.0): it is personOnly. Clients label it "always asks you". Null otherwise. */
+    neverDelegable?: boolean | null;
+    /** True when only a person may answer (1.54.0, security review 4 C1): the answer changes the session's permissions or raises its mode (set_mode, the plan-exit and plan-review pickers). Routed to the person; Jarvis's question_answer is refused (jarvis_person_only); a browser or connector may not answer it. Null otherwise. */
+    personOnly?: boolean | null;
     /** The questions, in the order they were asked. */
     questions?: ({
       /** Offer a free-text '기타 / Other' row alongside the options. */
@@ -8649,6 +8867,22 @@ export interface QuestionRouteChangedPayload {
   route: "person" | "jarvis" | "auto" | null;
   /** Its session; 'ext:<cli>:<id>' for an external session's approval. */
   sessionId: string;
+}
+
+/** `security.blocked` notification payload. */
+export interface SecurityBlockedPayload {
+  /** As SecurityCheckResult.by. */
+  by: string;
+  /** The session ('ext:<cli>:<id>' for an external session's request). */
+  sessionId: string;
+  /** The command line or the call, shortened. */
+  summary: string;
+  /** Where it was stopped: snowpea's own tool execution, the approval queue, or an external CLI's bridged approval. */
+  surface?: "agent" | "approval" | "external";
+  /** The tool the model called. */
+  tool: string;
+  /** The reason in English, as the model read it. */
+  why?: string;
 }
 
 /** `session.event` notification payload. */
@@ -9722,6 +9956,9 @@ export interface MethodMap {
   "question.list": { params: QuestionListParams; result: QuestionListResult };
   "question.request": { params: QuestionRequestParams; result: QuestionRequestResult };
   "question.respond": { params: QuestionRespondParams; result: QuestionRespondResult };
+  "security.check": { params: SecurityCheckParams; result: SecurityCheckResult };
+  "security.get": { params: SecurityGetParams; result: SecurityGetResult };
+  "security.presets.list": { params: SecurityPresetsListParams; result: SecurityPresetsListResult };
   "session.archive": { params: SessionArchiveParams; result: SessionArchiveResult };
   "session.artifacts": { params: SessionArtifactsParams; result: SessionArtifactsResult };
   "session.attach": { params: SessionAttachParams; result: SessionAttachResult };
@@ -9930,6 +10167,9 @@ export type ClientMethod =
   | "provider.visionReset"
   | "question.list"
   | "question.respond"
+  | "security.check"
+  | "security.get"
+  | "security.presets.list"
   | "session.archive"
   | "session.artifacts"
   | "session.attach"
@@ -10043,6 +10283,7 @@ export interface EventMap {
   "question.pending": QuestionPendingPayload;
   "question.resolved": QuestionResolvedPayload;
   "question.route.changed": QuestionRouteChangedPayload;
+  "security.blocked": SecurityBlockedPayload;
   "session.event": SessionEventPayload;
   "sessions.changed": SessionsChangedPayload;
   "settings.changed": SettingsChangedPayload;
@@ -10077,6 +10318,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "question.pending",
   "question.resolved",
   "question.route.changed",
+  "security.blocked",
   "session.event",
   "sessions.changed",
   "settings.changed",

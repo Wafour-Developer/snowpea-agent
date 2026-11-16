@@ -86,6 +86,12 @@ PERSON_METHODS: dict[str, bool] = {
     "mcp.preset.check": False,
     # A CLI path override runs that executable.
     "external.clis.confirmPath": True,
+    # Security lists (1.54.0): people read and try them (a remote web login
+    # too, read-only: security.get says writable false); only a local person
+    # changes them, through settings.set (settings_gate.PERSON_LOCAL_ONLY).
+    "security.presets.list": False,
+    "security.get": False,
+    "security.check": False,
 }
 
 

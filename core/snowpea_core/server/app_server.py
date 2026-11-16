@@ -739,6 +739,10 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.jarvis_assist_handlers import register_jarvis_assist_handlers
 
     register_jarvis_assist_handlers(dispatcher)
+
+    from snowpea_core.server.security_handlers import register_security_handlers
+
+    register_security_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)

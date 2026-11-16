@@ -312,7 +312,8 @@ async def test_n3_the_queue_escapes_never_caches_and_routes_opaque(tmp_path: Pat
     queue.router = router
     session = SimpleNamespace(id="s-1", workdir=PROJECT, origin_conn=None,
                               host_tools_from=None, owned_by=None)
-    for command in ("ls \u009d;rm -rf ~", "ls \x1b]0;x", "ls \x00", "ls ‮x"):
+    # Not "rm -rf ~": the default security list refuses that before it is queued.
+    for command in ("ls \u009d;rm -rf build", "ls \x1b]0;x", "ls \x00", "ls ‮x"):
         task = asyncio.ensure_future(queue.request(session, "shell", {"command": command},
                                                    unattended=True, timeout_sec=30,
                                                    scope_hint="session", tags=("exec",)))

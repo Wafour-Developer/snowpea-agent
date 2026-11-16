@@ -177,6 +177,7 @@ def wire_core(core: Core) -> Core:
     core.sessions.definition_model_for = functools.partial(_definition_model, core)
     core.hub.bind(core.store, core.sessions)
     core.approvals.bind(core.settings, core.paths, core.hub)
+    core.approvals.core = core  # the security lists read projects and the ledger through it
     core.questions.bind(core.settings, core.hub)
     core.providers.bind(core.settings, core.paths)
     # /model and the lazy model auto-pick persist through the registry; the
