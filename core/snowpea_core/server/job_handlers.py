@@ -130,6 +130,17 @@ async def job_schedule_handler(
     if params.meta is not None:
         owner = _owner_id(conn)
         _check_meta(params.meta)
+    from snowpea_core.server.person_gate import connection_kind
+
+    creator = connection_kind(conn)
+    # Security review 6, M-4/L-2: whose browser the runs drive is judged now, for
+    # the job's creator (a remote login or a connector never borrows one; a
+    # browser names itself or "browser"); the scheduler's in-process sessions
+    # inherit it.  Every job is a prompt job: a jarvis-task target cannot be set
+    # over RPC and no job kind runs a shell line.
+    from snowpea_core.server.settings_gate import host_choice_refusal
+
+    host_choice_refusal(conn, template.hostToolsFrom if template is not None else None)
     try:
         job = await services(core).schedule(
             params.spec,
@@ -142,6 +153,7 @@ async def job_schedule_handler(
             host_wait_sec=template.hostWaitSec if template else None,
             catch_up_window_min=template.catchUpWindowMinutes if template else None,
             created_via="rpc",
+            created_by=creator if creator != "none" else None,
             meta=params.meta,
             owner_client_id=owner,
             title=params.title,

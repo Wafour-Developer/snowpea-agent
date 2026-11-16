@@ -121,6 +121,12 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
         "skill.install from a browser outside its Settings page, not the bundled plugin; "
         "details.why",
     ),
+    "local_only": (
+        JARVIS_PERSON_ONLY,
+        "a person may do this only at a local connection (IDE, TUI, CLI, the local web page): "
+        "it names a program to run, a messenger identity, a provider endpoint or an install "
+        "source; details.what says which",
+    ),
     "catch_all": (INVALID_PARAMS, "an allowlist pattern that would match every command"),
     "project_add_only": (
         INVALID_PARAMS,

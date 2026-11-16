@@ -601,6 +601,9 @@ LOCAL_ONLY = {"jarvis", "daemon", "web", "extensions", "allowlist", "mcp.permiss
 BROWSER_PERSON = {"agent", "browser", "gateway", "lsp", "memory", "models",
                   "providers", "scheduler", "search", "skills"}
 REMOTE = BROWSER_PERSON | {"mcp", "approvals", "audio", "ide", "appearance"}
+#: Security review 6 (H-1/M-4): the leaves above that name a program to run or a
+#: messenger's identity are a local person's, whatever the scope (``local_only``).
+REMOTE_LOCAL = {"mcp", "lsp", "gateway"}
 #: Of the leaves above, those in Jarvis's authority chain while it is on: the
 #: messenger binding, the provider and the profile Jarvis runs on.
 AUTHORITY = {"gateway", "providers", "models"}
@@ -626,6 +629,8 @@ def _expected(key: str, kind: str, scope: str, jarvis_on: bool) -> tuple[str, st
         return "ok", None
     if key in LOCAL_ONLY:
         return refused
+    if kind == "remote_login" and key in REMOTE_LOCAL:
+        return "jarvis_person_only", "local_only"
     if scope == "project":
         return ("ok", None) if kind == "remote_login" else refused
     allowed = {"remote_login": REMOTE, "browser+actor": BROWSER_PERSON,
@@ -653,6 +658,10 @@ def test_settings_gate_every_top_level_key(key: str, kind: str, scope: str,
     deleted = _gate(kind, {top: None}, project=scope == "project", jarvis_on=jarvis_on)
     # ``mcp`` holds local-only keys, so only its ``servers`` are the browser's.
     whole = kind == "person" or (want[0] == "ok" and "." not in key and top != "mcp")
+    if kind == "remote_login" and key in ("lsp", "gateway"):
+        # Review 6: deleting the whole key only takes away; a remote login still may
+        # (unless it is Jarvis's chain while Jarvis is on).
+        whole = not (jarvis_on and key in AUTHORITY and scope == "global")
     assert (deleted[0] == "ok") == whole, (key, kind, deleted)
 
 
@@ -681,7 +690,11 @@ BROWSER_PAGE_WRITES: list[dict[str, Any]] = [
 def test_the_browser_settings_pages_keep_working_with_the_marker() -> None:
     for patch in BROWSER_PAGE_WRITES:
         assert _gate("browser+actor", patch, project=False) == ("ok", None), patch
-        assert _gate("remote_login", patch, project=False) == ("ok", None), patch
+        # A remote login writes the same pages but for a messenger's identity and
+        # switch (security review 6, M-4).
+        local = "gateway" in patch
+        assert _gate("remote_login", patch, project=False) == (
+            ("jarvis_person_only", "local_only") if local else ("ok", None)), patch
 
 
 def test_a_new_browser_without_the_marker_writes_no_settings() -> None:
@@ -699,7 +712,15 @@ def test_jarvis_on_keeps_its_authority_chain_local() -> None:
         {"providers": {"openai": {"base_url": "http://evil"}}},
         {"providers": {"openai": None}},
     ):
+        from snowpea_core.server.settings_gate import remote_login_local_keys
+
         for kind in ("browser+actor", "remote_login"):
+            if kind == "remote_login" and remote_login_local_keys(patch):
+                # Review 6, M-4: a remote login's never, Jarvis on or off.
+                for jarvis_on in (True, False):
+                    assert _gate(kind, patch, project=False, jarvis_on=jarvis_on) == (
+                        "jarvis_person_only", "local_only"), (kind, patch)
+                continue
             assert _gate(kind, patch, project=False, jarvis_on=True) == (
                 "jarvis_person_only", "jarvis_on"), (kind, patch)
             assert _gate(kind, patch, project=False, jarvis_on=False) == ("ok", None), (kind,
@@ -1274,7 +1295,10 @@ COMMAND_TABLE: list[tuple[str, str, str]] = [
     ("mcp", "add x -- npx srv", "person"),
     ("mcp", "add x --permission read -- npx srv", "person+jarvis"),
     ("mcp", "", "session"),
-    ("allow", "^ls$", "person+jarvis"),
+    ("allow", "^ls$", "local"),  # security review 6, M-2: a local person's only
+    ("update", "", "local"),
+    ("update", "check", "person"),
+    ("desktop", "", "local"),
     ("allowlist", "", "session"),
     ("allowlist", "remove a1", "person"),
     ("schedule", "every day 9:00 say hi", "host"),
@@ -1320,6 +1344,8 @@ def test_browser_commands_by_what_they_persist(name: str, args: str, level: str,
     if name == "model" and args == "gpt-5" and jarvis_on:
         want_marked = "jarvis_on"  # /model <name> touches models.* while Jarvis runs on one
         want_unmarked = "person_only"
+    if level == "local":
+        want_marked = want_unmarked = "local_only"  # no browser, marker or not, legacy or not
     assert _command("browser+actor", name, args, jarvis_on=jarvis_on) == want_marked
     assert _command("browser", name, args, jarvis_on=jarvis_on) == want_unmarked
     # A legacy browser gets the marked answer; a person is not judged here.

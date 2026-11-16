@@ -391,6 +391,9 @@ async def session_attach_handler(
             errors.INVALID_PARAMS,
             f"hostToolsFrom {target!r} is not an open connection of clientKind 'browser'",
         )
+    from snowpea_core.server.settings_gate import host_choice_refusal
+
+    host_choice_refusal(conn, target)  # security review 6, L-2
     # Only the live origin *connection* moves. ``origin_surface`` is what
     # opened the session ("browser", "tui", ...) and is never rewritten here,
     # in memory or in the store: a browser root must stay a browser root.

@@ -359,7 +359,9 @@ async def _run(ctx: CommandContext, session: Session, action: str, rest: str) ->
 
     if action == "test":
         name = _one_name(rest)
-        probed = await mcp_test_handler(None, McpTestParams(name=name, workdir=workdir), core)
+        probed = await mcp_test_handler(
+            _remote(ctx), McpTestParams(name=name, workdir=workdir), core
+        )
         if not probed.ok:
             await ctx.say(f"{name}: {probed.error} ({probed.elapsedMs} ms)")
             return
@@ -376,7 +378,7 @@ async def _run(ctx: CommandContext, session: Session, action: str, rest: str) ->
         if not names:
             raise UsageError("a server name is required")
         await mcp_remove_handler(
-            None,
+            _remote(ctx),
             McpRemoveParams(name=names[0], scope=scope, workdir=workdir),  # type: ignore[arg-type]
             core,
         )
@@ -388,7 +390,7 @@ async def _run(ctx: CommandContext, session: Session, action: str, rest: str) ->
         if not names:
             raise UsageError("a server name is required")
         await mcp_update_handler(
-            None,
+            _remote(ctx),
             McpUpdateParams(
                 name=names[0],
                 scope=scope,  # type: ignore[arg-type]
@@ -405,7 +407,7 @@ async def _run(ctx: CommandContext, session: Session, action: str, rest: str) ->
         if not target:
             raise UsageError("a server name is required")
         await mcp_update_handler(
-            None,
+            _remote(ctx),
             McpUpdateParams(
                 name=target,
                 scope=scope,  # type: ignore[arg-type]
@@ -441,6 +443,21 @@ async def _run(ctx: CommandContext, session: Session, action: str, rest: str) ->
         return
 
 
+def _remote(ctx: CommandContext) -> Any:
+    """The caller's connection when it is a remote web login, else ``None``.
+
+    The handlers judge a connection like the RPC does; a command's own gate
+    (``registry.gate_command``) has judged every other caller already.  A remote
+    login's ``/mcp add|configure|enable|test|remove`` gets the RPC's limits: no
+    server that runs a command, no waved-through finding, no ``read`` tag
+    (security review 6, H-1/M-2).
+    """
+    from snowpea_core.server.person_gate import connection_kind
+
+    conn = getattr(ctx, "conn", None)
+    return conn if connection_kind(conn) == "remote_login" else None
+
+
 def _entry_kwargs(entry: dict[str, Any]) -> dict[str, Any]:
     """A raw ``.mcp.json`` entry mapped onto :class:`McpAddParams` keys."""
     raw_tools = entry.get("tools")
@@ -467,7 +484,7 @@ async def _add(ctx: CommandContext, kwargs: dict[str, Any]) -> None:
         )
         return
     try:
-        result = await mcp_add_handler(None, McpAddParams(**kwargs), ctx.core)
+        result = await mcp_add_handler(_remote(ctx), McpAddParams(**kwargs), ctx.core)
     except RpcError as exc:
         # The security check found something (a plain-http url, say).  Where a
         # person can answer, they decide; otherwise the refusal stands.
@@ -478,7 +495,7 @@ async def _add(ctx: CommandContext, kwargs: dict[str, Any]) -> None:
             await ctx.say(f"Not added: '{kwargs.get('name')}' was declined; nothing is written.")
             return
         result = await mcp_add_handler(
-            None, McpAddParams(**{**kwargs, "acceptFindings": True}), ctx.core
+            _remote(ctx), McpAddParams(**{**kwargs, "acceptFindings": True}), ctx.core
         )
     lines = [connected_line(result.tools, result.path)]
     if result.warnings:

@@ -125,7 +125,7 @@ async def test_a_call_after_the_browser_closed_is_told_to_stop(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
 ) -> None:
     host = await open_client(http, daemon, client_id="browser-install-1")
-    driver = await open_client(http, daemon)
+    driver = await open_client(http, daemon, kind="ide")
     try:
         await host.ok("tool.register", {"tools": [spec("host_echo")]})
         session_id = await new_session(driver, tmp_path / "d", hostToolsFrom="browser-install-1")

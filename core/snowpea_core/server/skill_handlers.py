@@ -149,6 +149,15 @@ async def skill_install_handler(conn: RpcConnection, params: SkillInstallParams,
             settings_gate.refuse(conn, "call skill.install outside its Settings page",
                                  reason="not_bundled_plugin", extra={"why": problem})
         source = os.path.realpath(source)
+    if connection_kind(conn) == "remote_login":
+        # Security review 6, H-1: a plugin brings hooks and MCP servers that run
+        # here; a remote login installs only what the registry or a marketplace
+        # the person added serves, never a path, a link or a git URL.
+        why = settings_gate.remote_skill_source_problem(source, bool(params.link))
+        if why is not None:
+            settings_gate.refuse_local_only(
+                conn, core, "skill.install from a path, a link or a git URL",
+                method="skill.install", detail=why)
     try:
         target = await _loader(core).install(source, link=params.link)
     except InstallError as exc:

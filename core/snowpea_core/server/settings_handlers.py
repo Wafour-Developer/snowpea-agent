@@ -121,6 +121,14 @@ def guard_patch(
     from snowpea_core.server.person_gate import connection_kind
 
     kind = connection_kind(conn)
+    if kind == "remote_login":
+        # Security review 6, H-1/M-4: programs to run, messenger identity, a
+        # provider's endpoint, the skill registry — a local person's, either scope.
+        local = gate.remote_login_local_keys(patch)
+        if local:
+            gate.ledger_settings(core, conn, local, refused=True, method="settings.set")
+            gate.refuse(conn, f"change {', '.join(local[:6])}", reason=gate.LOCAL_ONLY,
+                        extra={"what": "settings", "keys": local[:20]})
     authority = gate.jarvis_authority(core) if core is not None else ()
     refused, jarvis_on, relevant = gate.judge_patch(
         kind, patch, project=project,

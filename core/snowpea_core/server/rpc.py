@@ -262,9 +262,20 @@ class RpcDispatcher:
         except asyncio.CancelledError:  # pragma: no cover - shutdown path
             raise
         except Exception as exc:  # noqa: BLE001 - handlers must not kill the loop
-            log.exception("handler for %s failed", method)
-            if request_id is not None:
+            from snowpea_core.server.person_gate import connection_kind
+
+            if connection_kind(conn) == "person":
+                log.exception("handler for %s failed", method)
                 err = RpcError(errors.INTERNAL, f"{type(exc).__name__}: {exc}")
+            else:
+                # Security review 6: exception text can carry paths, settings and
+                # other callers' data.  Everyone but a local person gets an id to
+                # quote; the text stays in the daemon log under that id.
+                error_id = uuid.uuid4().hex[:12]
+                log.exception("handler for %s failed (error id %s)", method, error_id)
+                err = RpcError(errors.INTERNAL, f"internal error (id {error_id})",
+                               {"errorId": error_id})
+            if request_id is not None:
                 await conn.send_json(
                     {"jsonrpc": "2.0", "id": request_id, "error": err.to_jsonrpc()}
                 )

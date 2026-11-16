@@ -1989,7 +1989,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; target?: string \| null; task: string; timezone?: string \| null; title?: string \| null; })[]` | no | Known jobs. |
+| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; createdBy?: "remote_login" \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; target?: string \| null; task: string; timezone?: string \| null; title?: string \| null; })[]` | no | Known jobs. |
 
 ### `job.nextRunForClient`
 
@@ -2120,6 +2120,7 @@ Change an existing job (addendum 12).
 |---|---|---|---|
 | `catchUpWindowMinutes` | `number` | no | How long a held run waits for its host before it is missed. |
 | `channel` | `string \| null` | no | Channel that receives the output. |
+| `createdBy` | `"remote_login" \| null` | no | 'remote_login' when a remote web login (web.remote) scheduled the job over job.schedule; null for every other job (1.55.0). Show it: the job keeps running after that login ends. web.remote.status counts them (remoteJobs). |
 | `createdVia` | `"rpc" \| "tool"` | no | 'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0). |
 | `enabled` | `boolean` | no | False once the job is cancelled or has run out. |
 | `fingerprint` | `string \| null` | no | The fingerprint tool.invoke job carries; only the owner sees it. |
@@ -4713,7 +4714,7 @@ Notification: progress of a running tool.invoke, re-emitted as tool.progress.
 | field | type | required | description |
 |---|---|---|---|
 | `callId` | `string` | yes | The tool.invoke callId this progress belongs to. |
-| `message` | `string` | no | Progress text; re-emitted as session.event tool.progress. Any tool.progress, an empty keepalive included, restarts the call's deadline (addendum 15). |
+| `message` | `string` | no | Progress text; re-emitted as session.event tool.progress. Any tool.progress, an empty keepalive included, restarts the call's deadline (addendum 15). At most 65536 characters; only the connection the call was sent to may report. |
 | `note` | `string \| null` | no | 1.55.0: what it waits for, one short line ('waiting for the page'). |
 | `state` | `"running" \| "waiting" \| null` | no | 1.55.0: 'waiting' = the call is waiting on something outside it (a page loading, a download); 'running' = it is working again. Forwarded on the session event tool.progress as state, so a tool card can say so. Restarts the deadline like any progress. |
 
@@ -4830,6 +4831,7 @@ _No params (send `{}`)._
 | `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
+| `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
@@ -4865,6 +4867,7 @@ Remote web access (1.54.0): open (or move) the external listener now, without a 
 | `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
+| `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
@@ -4914,6 +4917,7 @@ Remote web access (1.54.0): store a password (scrypt hash) — password mode: th
 | `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
+| `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
@@ -4944,6 +4948,7 @@ _No params (send `{}`)._
 | `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
+| `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
@@ -4976,6 +4981,7 @@ Remote web access (1.54.0): close the external listener; its sessions end.
 | `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
 | `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
 | `port` | `number` | yes | Bound port (or the configured one). |
+| `remoteJobs` | `number` | no | Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. |
 | `sessions` | `number` | no | Open browser sessions through the listener. |
 | `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
 | `username` | `string` | no | Login name; empty in access-link mode. |
@@ -5957,6 +5963,7 @@ Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a 
 |---|---|---|
 | `catch_all` | `invalid_params` | an allowlist pattern that would match every command |
 | `jarvis_on` | `jarvis_person_only` | the change is part of Jarvis's authority and Jarvis mode is on: the app or the TUI only |
+| `local_only` | `jarvis_person_only` | a person may do this only at a local connection (IDE, TUI, CLI, the local web page): it names a program to run, a messenger identity, a provider endpoint or an install source; details.what says which |
 | `mode_raise` | `jarvis_person_only` | raising a session's mode (plan < accept < auto) needs a person; details.from/to |
 | `model_cannot_see` | `unavailable` | llm.sample images for a model known not to take images |
 | `no_vision_model` | `unavailable` | llm.sample modelCategory 'vision' with none configured |
