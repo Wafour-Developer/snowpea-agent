@@ -37,4 +37,4 @@ export function degradedLine(sections: readonly string[]): string | null {
 
 /** The one banner row: short enough for 60 columns. */
 export const DEGRADED_BANNER = (): string =>
-  say("! settings.json unreadable: safe defaults in use", "! settings.json을 읽지 못함: 안전한 기본값 사용 중");
+  say("! settings.json has a problem: safe defaults in use", "! settings.json에 문제 있음: 안전한 기본값 사용 중");

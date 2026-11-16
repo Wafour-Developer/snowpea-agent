@@ -126,7 +126,7 @@ describe("a settings.json core could not read", () => {
   it("shows a banner and one transcript line, and /security status repeats it", async () => {
     const app = await mount(fakeClient({ degraded: ["security", "web"] }));
     const view = app.view();
-    expect(view).toContain("settings.json unreadable: safe defaults in use");
+    expect(view).toContain("settings.json has a problem: safe defaults in use");
     expect(view).toContain("settings.json: snowpea could not read security, web; safe defaults are in use");
     expect(fits(app.raw())).toBe(true);
     await submit(app, "/security status");
