@@ -46,6 +46,8 @@ const TURN_TIMEOUT_MS = 30_000;
 interface DaemonHandle {
   proc: DaemonProcess;
   home: string;
+  /** A project folder for sessions: the home itself is not a project. */
+  work: string;
   port: number;
   token: string;
   output: () => string;
@@ -58,6 +60,7 @@ function sleep(ms: number): Promise<void> {
 /** Spawn the real daemon on an ephemeral port with the scripted fake provider. */
 async function startDaemon(script: string = FAKE_SCRIPT): Promise<DaemonHandle> {
   const home = mkdtempSync(path.join(tmpdir(), "snowpea-contract-"));
+  const work = mkdtempSync(path.join(tmpdir(), "snowpea-contract-work-"));
   const chunks: string[] = [];
 
   const proc = spawn(
@@ -94,7 +97,7 @@ async function startDaemon(script: string = FAKE_SCRIPT): Promise<DaemonHandle> 
           token?: string;
         };
         if (typeof info.port === "number" && info.port > 0 && info.token) {
-          return { proc, home, port: info.port, token: info.token, output };
+          return { proc, home, work, port: info.port, token: info.token, output };
         }
       } catch {
         // the daemon may still be mid-write; retry
@@ -116,7 +119,7 @@ async function startDaemon(script: string = FAKE_SCRIPT): Promise<DaemonHandle> 
 
 async function stopDaemon(daemon: DaemonHandle | undefined): Promise<void> {
   if (!daemon) return;
-  const { proc, home } = daemon;
+  const { proc, home, work } = daemon;
   if (proc.exitCode === null && proc.signalCode === null) {
     const ended = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
     proc.kill("SIGTERM");
@@ -125,6 +128,7 @@ async function stopDaemon(daemon: DaemonHandle | undefined): Promise<void> {
   }
   try {
     rmSync(home, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
   } catch {
     // best effort
   }
@@ -198,7 +202,7 @@ describe("base contract (AC-15a)", function () {
   });
 
   it("base: session.create returns a sessionId", async function () {
-    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
+    const { sessionId } = await createSession(client!, { workdir: daemon!.work, mode: "accept" });
     assert.equal(typeof sessionId, "string");
     assert.ok(sessionId.length > 0, "sessionId must be a non-empty string");
     assert.ok(
@@ -208,7 +212,7 @@ describe("base contract (AC-15a)", function () {
   });
 
   it("base: session.prompt streams message.delta and then turn.done", async function () {
-    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
+    const { sessionId } = await createSession(client!, { workdir: daemon!.work, mode: "accept" });
     const log = new EventLog(client!, sessionId);
     try {
       const { turnId } = await prompt(client!, sessionId, "hello");
@@ -231,7 +235,7 @@ describe("base contract (AC-15a)", function () {
   });
 
   it("base: a denied approval ends the turn with reason 'denied'", async function () {
-    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
+    const { sessionId } = await createSession(client!, { workdir: daemon!.work, mode: "accept" });
     const log = new EventLog(client!, sessionId);
     let sawRequest = false;
 
@@ -287,7 +291,7 @@ describe("subagent contract (AC-15b)", function () {
   });
 
   it("subagent: agent.spawn emits subagent.spawn, update, and done events", async function () {
-    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "auto" });
+    const { sessionId } = await createSession(client!, { workdir: daemon!.work, mode: "auto" });
     const log = new EventLog(client!, sessionId);
     try {
       const { agentId } = await spawnAgent(
@@ -357,7 +361,7 @@ describe("subagent contract (AC-15b)", function () {
   });
 
   it("subagent: delegate_task is active and reports through the same events", async function () {
-    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "auto" });
+    const { sessionId } = await createSession(client!, { workdir: daemon!.work, mode: "auto" });
     const log = new EventLog(client!, sessionId);
     try {
       await prompt(client!, sessionId, "delegate please");
@@ -379,7 +383,7 @@ describe("subagent contract (AC-15b)", function () {
   });
 
   it("subagent: agent.list reports running children with kind 'subagent'", async function () {
-    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "auto" });
+    const { sessionId } = await createSession(client!, { workdir: daemon!.work, mode: "auto" });
     const log = new EventLog(client!, sessionId);
     try {
       const { agentId } = await spawnAgent(client!, "", "summarise the project layout", sessionId);
@@ -438,7 +442,7 @@ describe("host tools contract (1.6.0)", function () {
       },
     );
     assert.deepEqual(host.registered, ["host_echo"]);
-    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
+    const { sessionId } = await createSession(client!, { workdir: daemon!.work, mode: "accept" });
     const log = new EventLog(client!, sessionId);
     try {
       await prompt(client!, sessionId, "use host echo");
