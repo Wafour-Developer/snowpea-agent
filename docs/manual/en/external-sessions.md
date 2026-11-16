@@ -11,7 +11,7 @@ Related: [Jarvis mode (beta)](jarvis.md) · [Security lists](security.md) · [Ag
 ## What it is
 
 - snowpea finds the four CLIs on the machine that runs the daemon. A CLI that is not installed shows as "not installed". You can turn each CLI off in settings.
-- Sessions are grouped by folder. Use **Load a session** to see sessions from another folder or from every project.
+- Sessions are listed with their project, beside snowpea's own sessions. Use **Load external session…** in the project's **+** menu to see sessions from another folder or from every project.
 - A session opens in snowpea's chat view. It looks like a snowpea session: messages, tool calls and approvals appear in one stream.
 
 ## The three kinds of session
@@ -29,11 +29,13 @@ Shared terminal (tmux) works on Linux and macOS only. It is not available on Win
 
 ## Create, load, send, stop
 
+In the desktop app and snowpea web, a project in the sidebar shows one list of its sessions: snowpea's own and the external ones together, each row with the icon of the agent that runs it. The project's **+** menu has **New Session**, **New external session…** and **Load external session…**.
+
 | Task | In the app | In the terminal UI |
 |---|---|---|
-| Start a new session | **New external session**: pick the CLI, an optional model (the default if empty), and the folder | `/external new` |
-| Open a session from this folder | Pick it in the external sessions group | `/external` (the picker) |
-| Open a session by its handle | **Load a session**, then search or filter by CLI and project | `/external open <cli>:<id>`, where `<cli>` is `claude`, `codex`, `agy` or `cursor` |
+| Start a new session | Project **+** → **New external session…**: pick the CLI, an optional model (the default if empty), and the folder | `/external new` |
+| Open a session from this folder | Pick its row in the project's session list (the agent icon shows which CLI) | `/external` (the picker) |
+| Open a session by its handle | Project **+** → **Load external session…**, then search or filter by CLI and project | `/external open <cli>:<id>`, where `<cli>` is `claude`, `codex`, `agy` or `cursor` |
 | Send a message | Type in the composer and send | Type in the prompt |
 | Interrupt the running turn | **Stop** | **Esc** |
 | Leave the screen and keep it running | Close the tab or panel | `/external close` |

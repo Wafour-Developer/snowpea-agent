@@ -28,6 +28,42 @@ MAX_ENTRIES = pl.MAX_PATTERNS
 MAX_PATH_CHARS = 4096
 
 
+class Problems(list):  # type: ignore[type-arg]
+    """Problem lines, each with a structured twin in :attr:`structured` (1.55.0).
+
+    ``structured`` holds ``{list: "commands" | "paths" | None, entry, reason}``
+    — the list the entry belongs to (``None`` for the shape of the section
+    itself), the entry as written (``None`` when there is none), and why — so
+    a client need not parse the text.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.structured: list[dict[str, Any]] = []
+
+    def note(self, text: str, list_name: str | None, entry: Any, reason: str) -> None:
+        self.append(text)
+        self.structured.append({
+            "list": list_name,
+            "entry": None if entry is None else (entry if isinstance(entry, str) else repr(entry)),
+            "reason": reason,
+        })
+
+
+def _note(problems: list[str] | None, text: str, list_name: str | None, entry: Any,
+          reason: str) -> None:
+    if problems is None:
+        return
+    if isinstance(problems, Problems):
+        problems.note(text, list_name, entry, reason)
+    else:
+        problems.append(text)
+
+
+def _list_of(where: str) -> str:
+    return "commands" if "blockedCommands" in where else "paths"
+
+
 @dataclass(frozen=True)
 class Lists:
     """Effective lists: preset ids and custom entries, deduplicated, valid ones only."""
@@ -39,6 +75,8 @@ class Lists:
     paths: tuple[tuple[str, str], ...] = ()
     #: What was skipped as unusable (a hand-edited file), for ``security.get``.
     problems: tuple[str, ...] = ()
+    #: The same, structured (:class:`Problems`, 1.55.0).
+    problem_items: tuple[dict[str, Any], ...] = ()
 
     @property
     def commands_empty(self) -> bool:
@@ -63,6 +101,9 @@ class Lists:
             path_presets=tuple(dict.fromkeys((*self.path_presets, *other.path_presets))),
             paths=tuple(levels.items()),
             problems=tuple(dict.fromkeys((*self.problems, *other.problems))),
+            problem_items=tuple(
+                {**item} for item in _unique_items((*self.problem_items, *other.problem_items))
+            ),
         )
 
     def to_wire(self) -> dict[str, Any]:
@@ -95,6 +136,17 @@ def path_problem(raw: Any) -> str | None:
     return None
 
 
+def _unique_items(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[Any, ...]] = set()
+    out: list[dict[str, Any]] = []
+    for item in items:
+        key = (item.get("list"), item.get("entry"), item.get("reason"))
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return out
+
+
 def _clean_presets(raw: Any, known: Iterable[str], where: str,
                    problems: list[str] | None) -> list[str]:
     known = tuple(known)
@@ -102,8 +154,9 @@ def _clean_presets(raw: Any, known: Iterable[str], where: str,
     for item in raw if isinstance(raw, list) else []:
         if isinstance(item, str) and item in known:
             out.append(item)
-        elif problems is not None:
-            problems.append(f"{where}: unknown preset {item!r}")
+        else:
+            _note(problems, f"{where}: unknown preset {item!r}", _list_of(where), item,
+                  "unknown preset")
     return list(dict.fromkeys(out))
 
 
@@ -113,8 +166,9 @@ def _clean_patterns(raw: Any, where: str, problems: list[str] | None) -> list[st
         problem = pl.validate(item) if isinstance(item, str) else "not text"
         if problem is None:
             out.append(item.strip())
-        elif problems is not None:
-            problems.append(f"{where}: pattern {item!r} skipped ({problem})")
+        else:
+            _note(problems, f"{where}: pattern {item!r} skipped ({problem})", "commands", item,
+                  problem)
     return list(dict.fromkeys(out))
 
 
@@ -124,14 +178,13 @@ def _clean_paths(raw: Any, where: str, problems: list[str] | None) -> list[tuple
         if isinstance(item, str):
             item = {"path": item, "level": "write"}
         if not isinstance(item, Mapping):
-            if problems is not None:
-                problems.append(f"{where}: entry {item!r} skipped")
+            _note(problems, f"{where}: entry {item!r} skipped", "paths", item,
+                  "not a path entry")
             continue
         path, level = item.get("path"), item.get("level", "write")
         problem = path_problem(path)
         if problem is not None:
-            if problems is not None:
-                problems.append(f"{where}: path {path!r} skipped ({problem})")
+            _note(problems, f"{where}: path {path!r} skipped ({problem})", "paths", path, problem)
             continue
         level = level if level in LEVELS else "all"
         text = str(path).strip()
@@ -149,7 +202,7 @@ def _section(raw: Any, name: str) -> Mapping[str, Any]:
 
 def from_raw(raw: Any, *, where: str = "settings", defaults: bool = True) -> Lists:
     """Lists from a ``security`` object; ``defaults``: an absent key means the defaults."""
-    problems: list[str] = []
+    problems = Problems()
     commands = _section(raw, "blockedCommands")
     paths = _section(raw, "protectedPaths")
     command_presets = commands.get("presets") if "presets" in commands else (
@@ -167,6 +220,7 @@ def from_raw(raw: Any, *, where: str = "settings", defaults: bool = True) -> Lis
                                           f"{where} protectedPaths", problems)),
         paths=tuple(_clean_paths(paths.get("custom"), f"{where} protectedPaths", problems)),
         problems=tuple(problems),
+        problem_items=tuple(problems.structured),
     )
 
 
@@ -202,61 +256,72 @@ def effective(settings: Any, workdir: Any = None) -> Lists:
 
 def problems_in(raw: Any) -> list[str]:
     """Every reason ``raw`` (a ``security`` patch value) would be refused by ``settings.set``."""
+    found = Problems()
     if raw is None:
-        return []
+        return found
     if not isinstance(raw, Mapping):
-        return ["security must be an object {blockedCommands, protectedPaths}"]
-    found: list[str] = []
+        found.note("security must be an object {blockedCommands, protectedPaths}", None, None,
+                   "not an object")
+        return found
     for key in raw:
         if key not in ("blockedCommands", "protectedPaths"):
-            found.append(f"security.{key} is not a setting (blockedCommands, protectedPaths)")
+            found.note(f"security.{key} is not a setting (blockedCommands, protectedPaths)",
+                       None, key, "not a setting")
     for name, ids in (("blockedCommands", catalog.COMMAND_PRESET_IDS),
                       ("protectedPaths", catalog.PATH_PRESET_IDS)):
+        which = "commands" if name == "blockedCommands" else "paths"
         section = raw.get(name)
         if section is None:
             continue
         if not isinstance(section, Mapping):
-            found.append(f"security.{name} must be an object {{presets, custom}}")
+            found.note(f"security.{name} must be an object {{presets, custom}}", which, None,
+                       "not an object")
             continue
         for key in section:
             if key not in ("presets", "custom"):
-                found.append(f"security.{name}.{key} is not a setting (presets, custom)")
+                found.note(f"security.{name}.{key} is not a setting (presets, custom)", which,
+                           key, "not a setting")
         presets = section.get("presets")
         if presets is not None:
             if not isinstance(presets, list):
-                found.append(f"security.{name}.presets must be a list of preset ids")
+                found.note(f"security.{name}.presets must be a list of preset ids", which, None,
+                           "presets is not a list")
             else:
                 for item in presets:
                     if item not in ids:
-                        found.append(f"security.{name}.presets: unknown preset {item!r} "
-                                     f"(known: {', '.join(ids)})")
+                        found.note(f"security.{name}.presets: unknown preset {item!r} "
+                                   f"(known: {', '.join(ids)})", which, item, "unknown preset")
         custom = section.get("custom")
         if custom is None:
             continue
         if not isinstance(custom, list):
-            found.append(f"security.{name}.custom must be a list")
+            found.note(f"security.{name}.custom must be a list", which, None,
+                       "custom is not a list")
             continue
         if len(custom) > MAX_ENTRIES:
-            found.append(f"security.{name}.custom holds more than {MAX_ENTRIES} entries")
+            found.note(f"security.{name}.custom holds more than {MAX_ENTRIES} entries", which,
+                       None, f"more than {MAX_ENTRIES} entries")
         for item in custom:
             if name == "blockedCommands":
                 problem = pl.validate(item) if isinstance(item, str) else "a pattern is text"
                 if problem is not None:
-                    found.append(f"blocked command {item!r}: {problem}")
+                    found.note(f"blocked command {item!r}: {problem}", which, item, problem)
                 continue
             if isinstance(item, Mapping):
+                path = item.get("path")
                 extra = set(item) - {"path", "level"}
                 if extra:
-                    found.append(f"protected path entry has unknown keys: {sorted(extra)}")
+                    found.note(f"protected path entry has unknown keys: {sorted(extra)}", which,
+                               path, f"unknown keys: {', '.join(sorted(map(str, extra)))}")
                 level = item.get("level", "write")
                 if level not in LEVELS:
-                    found.append(f"protected path level must be 'write' or 'all', not {level!r}")
-                path = item.get("path")
+                    found.note(f"protected path level must be 'write' or 'all', not {level!r}",
+                               which, path, "level must be 'write' or 'all'")
             else:
                 path = item if isinstance(item, str) else None
             problem = path_problem(path)
             if problem is not None:
-                found.append(f"protected path {path!r}: {problem}")
+                found.note(f"protected path {path!r}: {problem}", which, path, problem)
     return found
 
 

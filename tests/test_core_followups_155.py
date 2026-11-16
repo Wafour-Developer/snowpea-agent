@@ -90,8 +90,16 @@ async def test_hook_failed_event_has_details(tmp_path: Path) -> None:
     (_sid, (kind, payload)), = hub.events
     assert kind == "error" and payload["code"] == "hook_failed"
     assert payload["details"] == {
-        "plugin": "acme", "hook": "PreToolUse",
+        "plugin": "acme", "hook": "guard", "event": "PreToolUse",
         "reason": "command not found (exit 9009): not recognized", "exitCode": 9009,
+    }
+    hooks._WARNED.clear()
+    hub.events.clear()
+    await hooks.note_failure(core, session, hook, hooks.HOOK_FAILED, "timed out after 30s")
+    (_sid, (_kind, timed)), = hub.events
+    assert timed["details"] == {
+        "plugin": "acme", "hook": "guard", "event": "PreToolUse",
+        "reason": "timed out after 30s", "timedOut": True,
     }
 
 

@@ -3071,6 +3071,7 @@ Security lists (1.54.0): the stored global lists, a project's additions, the eff
 |---|---|---|---|
 | `blockedCommands` | `{ custom?: string[]; presets?: string[]; }` | no |  |
 | `effective` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; commands?: ({ by: string; pattern: string; })[]; paths?: ({ by: string; exempt?: string[]; level: "write" \| "all"; path: string; scope: "tree" \| "self"; })[]; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; }` | no | The lists in force: the global ones plus the project's additions. |
+| `problemItems` | `({ entry?: string \| null; list: "commands" \| "paths" \| null; reason: string; })[]` | no | 1.55.0: the same problems, structured, in the same order. settings.set and security.check refuse a bad security value with invalid_params whose details carry both problems (text) and problemItems (this shape). |
 | `problems` | `string[]` | no | Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. |
 | `project` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; } \| null` | no | What the workdir's .snowpea/settings.json adds; null without. |
 | `protectedPaths` | `{ custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }` | no |  |
@@ -5420,7 +5421,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `code` | `string` | yes | One of the protocol error codes. |
-| `details` | `Record<string, unknown> \| null` | no | Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (PreToolUse, PostToolUse or Stop), reason, exitCode (-1 = could not start or timed out)}. context_window_too_small: {windowTokens, neededTokens}. |
+| `details` | `Record<string, unknown> \| null` | no | Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (the hook's command line), event (PreToolUse, PostToolUse or Stop), reason (one line), exitCode? (absent when it could not start or timed out), timedOut? (true when it timed out)}. context_window_too_small: {windowTokens, neededTokens}. |
 | `kind` | `"error"` | no |  |
 | `message` | `string` | yes | Human-readable detail. |
 
@@ -5808,7 +5809,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `approval_denied` | The user denied the approval request. |
 | `approval_timeout` | No approval arrived before `approvals.timeoutSec` elapsed. |
 | `auth_expired` |  |
-| `context_window_too_small` |  |
+| `context_window_too_small` | `error` event (1.55.0), the turn ends with reason error: the model's context window cannot hold the system prompt and tool definitions. details {windowTokens, neededTokens}. |
 | `empty_response` |  |
 | `exists` |  |
 | `external_unavailable` | The external CLI is missing, disabled or an unsupported version (1.53.0). |
@@ -5819,14 +5820,14 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `fork_running` |  |
 | `fork_turn_not_found` |  |
 | `goal_not_allowed` |  |
-| `hook_failed` |  |
+| `hook_failed` | `error` event (1.55.0): a plugin hook could not start, failed or timed out; the call goes on unless the hook is failClosed. details {plugin, hook (its command), event (PreToolUse, PostToolUse or Stop), reason, exitCode? (absent when it could not start or timed out), timedOut?}. |
 | `image_rejected` |  |
 | `internal` | Unexpected server-side failure. |
 | `invalid_output` |  |
 | `invalid_params` | Params failed schema validation. |
 | `is_dir` |  |
 | `jarvis_disabled` | A jarvis.* call that needs Jarvis mode on while it is off (1.53.0). |
-| `jarvis_person_only` | A delegation change from a connection that may not make it: a messenger with jarvis.messenger.allowGrants off, a remote login not re-authenticated (1.53.0). |
+| `jarvis_person_only` | Only a person may do this (1.53.0): a delegation change from a messenger with jarvis.messenger.allowGrants off or a remote login not re-authenticated, a mode raise, a person-only answer, a setting a browser or connector may not change. `details.reason` and `details.kind` say which (below). |
 | `login_unsupported` | The vendor does not support the requested login method. |
 | `mcp_auth_failed` |  |
 | `mcp_exists` |  |
@@ -5842,7 +5843,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `outside_root` |  |
 | `protected` |  |
 | `protocol_incompatible` | Client and server protocol majors differ. |
-| `security_blocked` |  |
+| `security_blocked` | The security lists refused the call: a blocked command or a protected path (1.54.0). |
 | `session_busy` |  |
 | `skill_exists` |  |
 | `steer_slash_command` |  |
@@ -5850,3 +5851,22 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `tool_inactive` | The tool exists but is disabled for this session. |
 | `unauthorized` | Missing or invalid token, or a call before `system.hello`. |
 | `unavailable` |  |
+
+### `details.reason` values
+
+Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a client may switch on these. Other `details` fields are named in the meaning.
+
+| reason | on code | meaning |
+|---|---|---|
+| `catch_all` | `invalid_params` | an allowlist pattern that would match every command |
+| `jarvis_on` | `jarvis_person_only` | the change is part of Jarvis's authority and Jarvis mode is on: the app or the TUI only |
+| `mode_raise` | `jarvis_person_only` | raising a session's mode (plan < accept < auto) needs a person; details.from/to |
+| `model_cannot_see` | `unavailable` | llm.sample images for a model known not to take images |
+| `no_vision_model` | `unavailable` | llm.sample modelCategory 'vision' with none configured |
+| `not_bundled_plugin` | `jarvis_person_only` | skill.install from a browser outside its Settings page, not the bundled plugin; details.why |
+| `person_only` | `jarvis_person_only` | only a person's connection may do this (details.kind says who asked) |
+| `project_add_only` | `invalid_params` | a project's security lists may only add entries; details.removed names the rest |
+| `untrusted_project` | `external_unavailable` | first external CLI session in this project: confirm with trust: true; details.project |
+| `untrusted_project_person_only` | `external_unavailable` | a person must open an external session in this project first; details.project |
+
+`details.kind` of a `jarvis_person_only` error says who asked: `person`, `remote_login`, `browser`, `connector`, `none`, `agent`, `mode` (a connection kind, or the mode guard's caller kind). A refused answer to a person-only question carries the question's kind instead (`mode`, or null).

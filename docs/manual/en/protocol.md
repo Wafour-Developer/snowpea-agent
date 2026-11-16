@@ -77,7 +77,7 @@ Some codes arrive only as the `code` of an `error` session event, inside a turn.
 
 | Code | When | `details` |
 | --- | --- | --- |
-| `hook_failed` | A plugin hook could not start, crashed or timed out (shown once per session per hook; the call itself goes on unless the hook is `failClosed`). | `{plugin, hook, reason, exitCode}`: `hook` is `PreToolUse`, `PostToolUse` or `Stop`; `exitCode` is `-1` when the hook could not start or timed out. |
+| `hook_failed` | A plugin hook could not start, crashed or timed out (shown once per session per hook; the call itself goes on unless the hook is `failClosed`). | `{plugin, hook, event, reason, exitCode?, timedOut?}`: `hook` is the hook's command line, `event` is `PreToolUse`, `PostToolUse` or `Stop`; `exitCode` is absent when the hook could not start or timed out, and `timedOut` is `true` when it timed out. |
 | `context_window_too_small` | The model's context window cannot hold snowpea's system prompt and tool definitions, so no request can fit; the turn ends with reason `error`. | `{windowTokens, neededTokens}` |
 
 A started tool call always ends with a `tool.result`: when the turn is cancelled under it (daemon shutdown, an interrupt that cancels the task) the result has `ok: false` and `error: "cancelled"`.

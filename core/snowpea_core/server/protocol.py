@@ -19,7 +19,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from snowpea_core import __version__ as _core_version
-from snowpea_core.server.errors import ERROR_CODES
+from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
 
 PROTOCOL_VERSION = "1.55.0"
 SERVER_VERSION = _core_version
@@ -6389,9 +6389,10 @@ class ErrorEvent(Payload):
         default=None,
         description=(
             "Machine-readable facts for the code (1.55.0); absent when the code has none. "
-            "hook_failed: {plugin, hook (PreToolUse, PostToolUse or Stop), reason, exitCode "
-            "(-1 = could not start or timed out)}. context_window_too_small: "
-            "{windowTokens, neededTokens}."
+            "hook_failed: {plugin, hook (the hook's command line), event (PreToolUse, "
+            "PostToolUse or Stop), reason (one line), exitCode? (absent when it could not "
+            "start or timed out), timedOut? (true when it timed out)}. "
+            "context_window_too_small: {windowTokens, neededTokens}."
         ),
     )
 
@@ -9397,6 +9398,18 @@ class SecurityGetParams(Payload):
     locale: str | None = Field(default=None, description="For problems; default 'en'.")
 
 
+class SecurityProblem(Payload):
+    """One unusable security-list entry, structured (1.55.0)."""
+
+    list: Literal["commands", "paths"] | None = Field(
+        description="The list it belongs to; null for the shape of the section itself."
+    )
+    entry: str | None = Field(
+        default=None, description="The entry as written (a pattern, path or preset id), if any."
+    )
+    reason: str = Field(description="Why it is unusable, one short line.")
+
+
 class SecurityGetResult(SecurityLists):
     """The global lists as stored (absent keys shown as their defaults)."""
 
@@ -9414,6 +9427,14 @@ class SecurityGetResult(SecurityLists):
         default_factory=list,
         description=(
             "Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern."
+        ),
+    )
+    problemItems: list[SecurityProblem] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0: the same problems, structured, in the same order. settings.set and "
+            "security.check refuse a bad security value with invalid_params whose "
+            "details carry both problems (text) and problemItems (this shape)."
         ),
     )
 
@@ -11316,6 +11337,15 @@ def dump_schema() -> dict[str, Any]:
             kind: model.model_json_schema() for kind, model in SESSION_EVENT_MODELS.items()
         },
         "errorCodes": list(ERROR_CODES),
+        # details.reason values and the jarvis_person_only details.kind values
+        # a client may switch on (1.55.0).
+        "errorDetails": {
+            "reasons": {
+                reason: {"code": code, "meaning": meaning}
+                for reason, (code, meaning) in DETAIL_REASONS.items()
+            },
+            "personOnlyKinds": list(PERSON_ONLY_KINDS),
+        },
         "capabilities": list(CAPABILITIES),
         "transport": TRANSPORT,
     }

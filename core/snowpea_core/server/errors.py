@@ -95,11 +95,56 @@ EXTERNAL_UNAVAILABLE = "external_unavailable"
 #: 1.54.0: a call refused by the security lists (blocked command or protected path).
 SECURITY_BLOCKED = "security_blocked"
 #: 1.55.0 (``error`` event codes registered with the protocol): a plugin hook
-#: could not run or failed (``details {plugin, hook, reason, exitCode}``);
-#: the model's context window cannot hold snowpea's system prompt and tool
-#: definitions, so the turn ended (``details {windowTokens, neededTokens}``).
+#: could not run or failed (``details {plugin, hook, event, reason, exitCode?,
+#: timedOut?}``); the model's context window cannot hold snowpea's system
+#: prompt and tool definitions, so the turn ended (``details {windowTokens,
+#: neededTokens}``).
 HOOK_FAILED = "hook_failed"
 CONTEXT_WINDOW_TOO_SMALL = "context_window_too_small"
+
+#: ``error.data.details.reason`` values a client may switch on (1.55.0
+#: enumerates them): reason -> (the code it rides on, what it means).
+DETAIL_REASONS: dict[str, tuple[str, str]] = {
+    "person_only": (
+        JARVIS_PERSON_ONLY, "only a person's connection may do this (details.kind says who asked)"
+    ),
+    "mode_raise": (
+        JARVIS_PERSON_ONLY,
+        "raising a session's mode (plan < accept < auto) needs a person; details.from/to",
+    ),
+    "jarvis_on": (
+        JARVIS_PERSON_ONLY,
+        "the change is part of Jarvis's authority and Jarvis mode is on: the app or the TUI only",
+    ),
+    "not_bundled_plugin": (
+        JARVIS_PERSON_ONLY,
+        "skill.install from a browser outside its Settings page, not the bundled plugin; "
+        "details.why",
+    ),
+    "catch_all": (INVALID_PARAMS, "an allowlist pattern that would match every command"),
+    "project_add_only": (
+        INVALID_PARAMS,
+        "a project's security lists may only add entries; details.removed names the rest",
+    ),
+    "untrusted_project": (
+        EXTERNAL_UNAVAILABLE,
+        "first external CLI session in this project: confirm with trust: true; details.project",
+    ),
+    "untrusted_project_person_only": (
+        EXTERNAL_UNAVAILABLE,
+        "a person must open an external session in this project first; details.project",
+    ),
+    "no_vision_model": (UNAVAILABLE, "llm.sample modelCategory 'vision' with none configured"),
+    "model_cannot_see": (UNAVAILABLE, "llm.sample images for a model known not to take images"),
+}
+
+#: ``details.kind`` of a ``jarvis_person_only`` error: who asked.  The
+#: connection kinds (``server/person_gate.connection_kind``) plus the mode
+#: guard's caller kinds (``session/mode_guard.ModeCaller``); a refused answer to
+#: a person-only question carries the question's kind instead (``mode`` or null).
+PERSON_ONLY_KINDS: tuple[str, ...] = (
+    "person", "remote_login", "browser", "connector", "none", "agent", "mode",
+)
 
 ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,

@@ -475,7 +475,16 @@ async def note_failure(core: Any, session: Any, hook: Hook, code: int, err: str)
     try:
         from snowpea_core.session import events
 
-        details = {"plugin": name, "hook": hook.event, "reason": reason, "exitCode": code}
+        details: dict[str, Any] = {
+            "plugin": name,
+            "hook": hook.command[:500],
+            "event": hook.event,
+            "reason": reason,
+        }
+        if code != HOOK_FAILED:
+            details["exitCode"] = code
+        elif err.startswith("timed out"):
+            details["timedOut"] = True
         await hub.emit_event(session_id, events.error(HOOK_FAILED_CODE, message, details))
     except Exception:  # noqa: BLE001 - telling the surface is best effort
         log.debug("could not surface the hook failure", exc_info=True)

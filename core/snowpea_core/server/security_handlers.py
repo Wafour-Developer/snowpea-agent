@@ -100,13 +100,21 @@ async def get_handler(
     effective = {**_wire(merged), "commands": effective_commands(merged),
                  "paths": list({r["path"] + r["by"]: r for r in resolved}.values())}
     problems = list(stored.problems) + (list(project.problems) if project else [])
+    items = list(stored.problem_items) + (list(project.problem_items) if project else [])
     return SecurityGetResult.model_validate({
         **_wire(stored),
         "project": _wire(project) if project is not None and not project.empty else None,
         "effective": effective,
         "writable": connection_kind(conn) == "person",
         "problems": problems,
+        "problemItems": items,
     })
+
+
+def _problem_details(problems: list[str]) -> dict[str, Any]:
+    """``invalid_params`` details: the text, and its structured twin (1.55.0)."""
+    return {"problems": list(problems),
+            "problemItems": list(getattr(problems, "structured", []) or [])}
 
 
 async def check_handler(
@@ -119,7 +127,7 @@ async def check_handler(
         problems = problems_in(raw)
         if problems:
             raise RpcError(errors.INVALID_PARAMS, "; ".join(problems[:5]),
-                           {"problems": problems})
+                           _problem_details(problems))
         lists = from_raw(raw, where="draft", defaults=False)
     else:
         lists = global_lists(core.settings)
@@ -154,7 +162,7 @@ def settings_problems(patch: dict[str, Any], *, project_current: Any = None,
         return  # back to the defaults, a local person's choice
     problems = problems_in(value) if value is not None else []
     if problems:
-        raise RpcError(errors.INVALID_PARAMS, "; ".join(problems[:5]), {"problems": problems})
+        raise RpcError(errors.INVALID_PARAMS, "; ".join(problems[:5]), _problem_details(problems))
     if project:
         before = project_current if isinstance(project_current, dict) else {}
         after = deep_merge(dict(before), value) if isinstance(value, dict) else {}

@@ -104,6 +104,40 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "unauthorized",
   "unavailable",
 ];
+/** Values of `error.data.details.reason` clients may switch on (1.55.0). */
+export type ErrorDetailReason =
+  | "catch_all"
+  | "jarvis_on"
+  | "mode_raise"
+  | "model_cannot_see"
+  | "no_vision_model"
+  | "not_bundled_plugin"
+  | "person_only"
+  | "project_add_only"
+  | "untrusted_project"
+  | "untrusted_project_person_only";
+/** The error code each `details.reason` rides on. */
+export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>> = {
+  catch_all: "invalid_params",
+  jarvis_on: "jarvis_person_only",
+  mode_raise: "jarvis_person_only",
+  model_cannot_see: "unavailable",
+  no_vision_model: "unavailable",
+  not_bundled_plugin: "jarvis_person_only",
+  person_only: "jarvis_person_only",
+  project_add_only: "invalid_params",
+  untrusted_project: "external_unavailable",
+  untrusted_project_person_only: "external_unavailable",
+};
+/** Values of `details.kind` on a `jarvis_person_only` error (1.55.0). */
+export type PersonOnlyKind =
+  | "person"
+  | "remote_login"
+  | "browser"
+  | "connector"
+  | "none"
+  | "agent"
+  | "mode";
 
 // ---------------------------------------------------------------------------
 // Method params / results
@@ -4437,6 +4471,15 @@ export interface SecurityGetResult {
       presets?: string[];
     };
   };
+  /** 1.55.0: the same problems, structured, in the same order. settings.set and security.check refuse a bad security value with invalid_params whose details carry both problems (text) and problemItems (this shape). */
+  problemItems?: ({
+    /** The entry as written (a pattern, path or preset id), if any. */
+    entry?: string | null;
+    /** The list it belongs to; null for the shape of the section itself. */
+    list: "commands" | "paths" | null;
+    /** Why it is unusable, one short line. */
+    reason: string;
+  })[];
   /** Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. */
   problems?: string[];
   /** What the workdir's .snowpea/settings.json adds; null without. */
@@ -9438,7 +9481,7 @@ export interface DiffEventPayload {
 export interface ErrorEventPayload {
   /** One of the protocol error codes. */
   code: string;
-  /** Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (PreToolUse, PostToolUse or Stop), reason, exitCode (-1 = could not start or timed out)}. context_window_too_small: {windowTokens, neededTokens}. */
+  /** Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (the hook's command line), event (PreToolUse, PostToolUse or Stop), reason (one line), exitCode? (absent when it could not start or timed out), timedOut? (true when it timed out)}. context_window_too_small: {windowTokens, neededTokens}. */
   details?: Record<string, unknown> | null;
   kind?: "error";
   /** Human-readable detail. */
