@@ -47,6 +47,11 @@ import { securitySubCommands } from "./slash/security.js";
 import { WebScreen } from "./components/WebScreen.js";
 import { useWebScreen, type WebScreenHook } from "./hooks/useWebScreen.js";
 import { webRemoteSupported } from "./state/web-remote.js";
+import { TrustScreen } from "./components/TrustScreen.js";
+import { useTrustScreen, type TrustScreenHook } from "./hooks/useTrustScreen.js";
+import { trustSupported } from "./state/trust.js";
+import { commandResultText, commandsBesideTurnSupported, ranBesideTurn } from "./state/command-result.js";
+import { trustSubCommands } from "./slash/trust.js";
 import { webSubCommands } from "./slash/web.js";
 import {
   cliLabel,
@@ -57,7 +62,7 @@ import {
   ungatedWarning,
   viewOnlyReason,
 } from "./state/external.js";
-import { rpcErrorText } from "./state/errors.js";
+import { refusalOf, rpcErrorText } from "./state/errors.js";
 import { JARVIS_DECIDING, approvalResolvedNote, personOnlyView, rememberChosenScope, requestLabel, supportOf, takeChosenScope } from "./state/jarvis.js";
 import {
   bannerText,
@@ -94,6 +99,7 @@ import { mouseReports, panelRowAt } from "./input/mouse.js";
 import {
   RESUME_ELSEWHERE,
   offerSession,
+  recordOfListRow,
   resumeLabel,
   resumeRows,
   resumeView,
@@ -440,7 +446,7 @@ function TimelineEntry({
     const entry = state.compactions.find((c) => c.id === item.id);
     return entry ? (
       <Box marginBottom={1}>
-        <Text dimColor>{compactionDivider(entry.before, entry.after, width)}</Text>
+        <Text dimColor>{compactionDivider(entry.before, entry.after, width, entry.reason)}</Text>
       </Box>
     ) : null;
   }
@@ -765,6 +771,8 @@ export function App({
   const securityRef = useRef<SecurityScreenHook | null>(null);
   /** The remote-access hook, for the same reason. */
   const webRef = useRef<WebScreenHook | null>(null);
+  /** The project-trust hook, for the same reason. */
+  const trustRef = useRef<TrustScreenHook | null>(null);
 
   const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
   /**
@@ -901,6 +909,7 @@ export function App({
       ...(featureSupport.external ? [] : ["external"]),
       ...(securitySupported(client.serverCapabilities?.()) ? [] : ["security"]),
       ...(webRemoteSupported(client.serverCapabilities?.()) ? [] : ["web"]),
+      ...(trustSupported(client.serverCapabilities?.()) ? [] : ["trust"]),
     ]);
 
     client.setListeners({
@@ -909,7 +918,12 @@ export function App({
       onJarvisDecision: (params) => screensRef.current?.listeners.onJarvisDecision?.(params),
       onJarvisEscalation: (params) => screensRef.current?.listeners.onJarvisEscalation?.(params),
       onJarvisDelegation: (params) => screensRef.current?.listeners.onJarvisDelegation?.(params),
-      onQuestionPending: (params) => screensRef.current?.listeners.onQuestionPending?.(params),
+      onQuestionPending: (params) => {
+        const refused = refusalOf((params as any)?.refused);
+        const requestId = (params as any)?.request?.requestId;
+        if (refused && typeof requestId === "string") dispatch({ type: "refusal", requestId, refused });
+        screensRef.current?.listeners.onQuestionPending?.(params);
+      },
       // Jarvis took a request, or handed it back to the person: the prompt and
       // the "Jarvis is deciding" line follow the event, not a poll.
       onApprovalRouteChanged: (params) => {
@@ -925,6 +939,7 @@ export function App({
         screensRef.current?.listeners.onQuestionRouteChanged?.(params);
       },
       onSecurityBlocked: (params) => securityRef.current?.onBlocked(params),
+      onProjectTrustChanged: (params) => trustRef.current?.onChanged(params),
       onExternalEvent: (params) => screensRef.current?.listeners.onExternalEvent?.(params),
       onExternalState: (params) => screensRef.current?.listeners.onExternalState?.(params),
       onExternalClisChanged: (params) => screensRef.current?.listeners.onExternalClisChanged?.(params),
@@ -949,6 +964,9 @@ export function App({
           childEvents.push(event.sessionId, event);
           return;
         }
+        // An instant command that ran beside the turn: the aside waits for the open
+        // answer to close, so say it at once in the status line too.
+        if (event.kind === "command.result") showToast(commandResultText(event.payload as Record<string, unknown>).split("\n")[0]);
         liveEvents.push(event);
       },
       onStatus: (status) => {
@@ -1014,6 +1032,9 @@ export function App({
         questionResolvers.current.delete(requestId);
       },
       onApprovalPending: (params) => {
+        // The reply was refused and the request is still open: say why on the prompt (1.55.0).
+        const refused = refusalOf((params as any)?.refused);
+        if (refused && params.request?.requestId) dispatch({ type: "refusal", requestId: params.request.requestId, refused });
         screensRef.current?.listeners.onApprovalPending?.(params);
         refreshApprovals();
         void screensRef.current?.refresh();
@@ -1240,7 +1261,9 @@ export function App({
   useEffect(() => {
     const latest = state.compactions[compactionCount - 1];
     if (!latest) return;
-    showToast(`compacted: ${formatTokens(latest.before)} → ${formatTokens(latest.after)}`);
+    showToast(
+      `compacted${latest.reason === "overflow" ? " (request too long)" : ""}: ${formatTokens(latest.before)} → ${formatTokens(latest.after)}`,
+    );
     // Only the arrival of a new compaction matters, not the state it arrived in.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compactionCount]);
@@ -1453,6 +1476,7 @@ export function App({
       ...jarvisSubCommands(draft),
       ...securitySubCommands(draft),
       ...webSubCommands(draft),
+      ...trustSubCommands(draft),
       ...externalSubCommands(draft),
       ...registryRef.current.complete(draft),
     ];
@@ -1494,6 +1518,8 @@ export function App({
   securityRef.current = security;
   const web = useWebScreen({ client, note, showToast, write: (data) => void stdout.write(data) });
   webRef.current = web;
+  const trust = useTrustScreen({ client, workdir, note, showToast });
+  trustRef.current = trust;
   const externalWarning = externalOpen ? ungatedWarning(externalOpen.session) : null;
   const externalViewOnly = externalOpen ? viewOnlyReason(externalOpen.session) : null;
 
@@ -1728,6 +1754,8 @@ export function App({
     [screens.panel, contentWidth, terminal.rows],
   );
   const overlayRows = screenOverlayRows(screens, contentWidth);
+  // Core refused the last reply to the prompt on screen and left it open (1.55.0): the reason shows on the prompt.
+  const openRefusal = state.refusals[state.pendingQuestion?.requestId ?? state.pendingApproval?.requestId ?? ""];
   const approvalLabel = requestLabel(state.pendingApproval, screens.jarvis.rows, sessionId);
   const screenQuestionLabel = requestLabel(state.pendingQuestion, screens.jarvis.rows, sessionId);
   const proposalRequest = state.pendingApproval ? personOnlyView(state.pendingApproval, screens.now) : null;
@@ -1766,6 +1794,7 @@ export function App({
       extraRows:
         jarvisPanelLines.length +
         overlayRows +
+        (openRefusal ? 2 : 0) +
         (state.pendingQuestion && screenQuestionLabel ? 1 : 0) +
         (proposalRequest ? delegationConfirmRows(proposalRequest) - approvalPromptRows(Object.keys(state.pendingApproval?.args ?? {}).length) : 0),
     }),
@@ -2276,20 +2305,7 @@ export function App({
     void client.call("session.list", { includeClosed: true }).then((result) => {
       const choices = (Array.isArray(result?.sessions) ? result.sessions : [])
         .filter((row: any) => row.sessionId !== activeSessionRef.current)
-        .map((row: any) => ({
-          sessionId: String(row.sessionId),
-          workdir: String(row.workdir),
-          firstPrompt: typeof row.lastPrompt === "string" ? row.lastPrompt : "",
-          at: Date.parse(String(row.createdAt)) || 0,
-          kind: typeof row.kind === "string" ? row.kind : "chat",
-          parentSessionId:
-            typeof row.parentSessionId === "string" ? row.parentSessionId : undefined,
-          agentFields: {
-            hostToolsFrom: row.hostToolsFrom,
-            browserProvider: row.browserProvider,
-            originSurface: row.originSurface,
-          },
-        }));
+        .map(recordOfListRow);
       const rows = resumeRows(choices, workdir);
       if (rows.length === 0) {
         showToast("no saved sessions for this directory");
@@ -2458,6 +2474,10 @@ export function App({
         return;
       }
       if (webRef.current?.handleCommand(text)) {
+        history?.add(text, workdir);
+        return;
+      }
+      if (trustRef.current?.handleCommand(text)) {
         history?.add(text, workdir);
         return;
       }
@@ -2707,26 +2727,37 @@ export function App({
         });
         return;
       }
+      // A slash command sent while a turn runs (capability `commandsBesideTurn`):
+      // an instant one runs beside the turn and answers `besideTurn: true`, so
+      // nothing is drawn or named until core says which kind it was. A turn
+      // command queues like a prompt and is drawn as one then.
+      const beside = text.startsWith("/") && state.turnActive && commandsBesideTurnSupported(client.serverCapabilities?.());
       const sent = attachments.map(({ name, mime, size }) => ({ name, mime, size }));
-      dispatch({
-        type: "user/message",
-        text,
-        attachments: sent,
-        expectEvent: !text.startsWith("/"),
-      });
+      if (!beside) {
+        dispatch({
+          type: "user/message",
+          text,
+          attachments: sent,
+          expectEvent: !text.startsWith("/"),
+        });
+      }
       setAttachments([]);
       // Remember it for the next run: ↑ reaches it, and the launch screen
       // offers the session it belongs to.
       history?.add(text, workdir);
-      if (state.messages.every((message) => message.role !== "user")) {
+      if (!beside && state.messages.every((message) => message.role !== "user")) {
         sessions?.remember({ sessionId, workdir, firstPrompt: text, at: Date.now() });
       }
       // Name the command in the HUD for as long as its turn owns the session.
       const commandName = text.startsWith("/") ? `/${text.slice(1).split(/\s/)[0]}` : null;
-      setRunningCommand(commandName);
+      if (!beside) setRunningCommand(commandName);
       const registry = registryRef.current;
       const run = text.startsWith("/")
         ? registry.dispatch(text).then(async (result) => {
+            if (beside && !ranBesideTurn(result)) {
+              // A turn command: it waits behind the running turn, shown as queued.
+              dispatch({ type: "user/message", text, attachments: [], expectEvent: false });
+            }
             // Skills and plugins can change the command table; re-read it.
             if (/^(help|skill|plugin)/.test(text.slice(1))) {
               const commands = await registry.refresh();
@@ -2735,7 +2766,7 @@ export function App({
             if (/^team(?:\s|$)/.test(text.slice(1))) {
               setAgentRosterVersion((version) => version + 1);
             }
-            if (text.slice(1).startsWith("help")) setShowHelp(true);
+            if (text.slice(1).startsWith("help") && !(beside && ranBesideTurn(result))) setShowHelp(true);
             return result;
           })
         : client.prompt(
@@ -2754,11 +2785,13 @@ export function App({
           // `turn.queued` carries only a turn id; this is the side that knows
           // which prompt that id belongs to, so the queue can show its text.
           const turnId = (result as { turnId?: string } | null)?.turnId;
-          if (turnId) dispatch({ type: "prompt/turn", turnId, text });
+          // A command that ran beside the turn has a command id, not a turn: its `command.result` is the whole answer.
+          if (turnId && !ranBesideTurn(result)) dispatch({ type: "prompt/turn", turnId, text });
           return result;
         })
         .catch((error: unknown) => {
-          setRunningCommand(null);
+          // The running turn keeps its name when only a side command failed.
+          if (!beside) setRunningCommand(null);
           dispatch({ type: "error", message: rpcErrorText(error) });
         });
     },
@@ -2997,7 +3030,8 @@ export function App({
       modelPicker ||
       screens.ui !== null ||
       security.ui !== null ||
-      web.ui !== null
+      web.ui !== null ||
+      trust.ui !== null
     ) {
       return;
     }
@@ -3326,7 +3360,7 @@ export function App({
       <JarvisPanel lines={jarvisPanelLines} />
 
       {state.pendingQuestion ? (
-        <QuestionPrompt request={state.pendingQuestion} onAnswer={answerQuestion} label={screenQuestionLabel} />
+        <QuestionPrompt request={state.pendingQuestion} onAnswer={answerQuestion} label={screenQuestionLabel} refusal={openRefusal} />
       ) : state.pendingApproval && proposalRequest ? (
         // A request only a person may answer (Jarvis's proposal, a tmux
         // adoption): one key confirms or declines.
@@ -3349,6 +3383,7 @@ export function App({
           label={approvalLabel}
           crossSession={approvalLabel !== null}
           onceOnly={state.pendingApproval.personOnly === true}
+          refusal={openRefusal}
         />
       ) : screens.ui ? (
         <ScreenOverlays screens={screens} width={contentWidth} folder={workdir} now={screens.now} />
@@ -3456,7 +3491,7 @@ export function App({
             setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null}
         />
       )}
     </>
@@ -3528,6 +3563,7 @@ export function App({
       onSave={security.save}
       onCheck={security.check}
       onReload={security.reload}
+      onSetUnknownCode={security.setUnknownCode}
       changeSeq={security.changeSeq}
       onClose={security.close}
       isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
@@ -3548,6 +3584,20 @@ export function App({
       onCopy={web.copy}
       changeSeq={web.changeSeq}
       onClose={web.close}
+      isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
+    />
+  ) : null;
+
+  const trustNode = trust.ui ? (
+    <TrustScreen
+      status={trust.ui.status}
+      width={contentWidth}
+      height={fullscreen ? layout.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
+      onTrust={trust.trust}
+      onRevoke={trust.revoke}
+      onReload={trust.refresh}
+      changeSeq={trust.changeSeq}
+      onClose={trust.close}
       isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
     />
   ) : null;
@@ -3590,7 +3640,7 @@ export function App({
         lines={viewport.lines}
         banner={bannerText(update)}
         scrollIndicator={scrollIndicator(viewport)}
-        overlay={helpNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
+        overlay={helpNode ?? trustNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
           <LaunchBanner
             width={terminal.columns - 2}
             terminalRows={terminal.rows}
@@ -3721,7 +3771,7 @@ export function App({
           oldest rows go, clipped at the top, and the newest stay. Whatever is
           clipped is still live, so it reaches the scrollback whole later. */}
       <Box flexDirection="column" flexShrink={1} overflowY="hidden" justifyContent="flex-end">
-      {showHelp || securityNode || webNode ? null : externalNode ? externalNode : openAgent ? (
+      {showHelp || securityNode || webNode || trustNode ? null : externalNode ? externalNode : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}
@@ -3756,6 +3806,8 @@ export function App({
       {securityNode}
 
       {webNode}
+
+      {trustNode}
 
       {bottomNode}
 
