@@ -444,18 +444,25 @@ async def _run(ctx: CommandContext, session: Session, action: str, rest: str) ->
 
 
 def _remote(ctx: CommandContext) -> Any:
-    """The caller's connection when it is a remote web login, else ``None``.
+    """The caller the handlers judge when it is a remote web login, else ``None``.
 
-    The handlers judge a connection like the RPC does; a command's own gate
+    The handlers judge a caller like the RPC does; a command's own gate
     (``registry.gate_command``) has judged every other caller already.  A remote
     login's ``/mcp add|configure|enable|test|remove`` gets the RPC's limits: no
     server that runs a command, no waved-through finding, no ``read`` tag
     (security review 6, H-1/M-2).
-    """
-    from snowpea_core.server.person_gate import connection_kind
 
-    conn = getattr(ctx, "conn", None)
-    return conn if connection_kind(conn) == "remote_login" else None
+    Security review 7, H-1: the caller is the SNAPSHOT taken when the command
+    was accepted (``ctx.who``), so a command queued behind a turn is still a
+    remote login's after that login disconnects; a connection that had closed
+    already is passed on too (the handlers refuse it), never read as in-process.
+    """
+    from snowpea_core.server.person_gate import connection_kind, snapshot
+
+    who = getattr(ctx, "who", None)
+    if who is None:
+        who = snapshot(getattr(ctx, "conn", None), getattr(ctx, "actor", None))
+    return who if connection_kind(who) in ("remote_login", "closed") else None
 
 
 def _entry_kwargs(entry: dict[str, Any]) -> dict[str, Any]:

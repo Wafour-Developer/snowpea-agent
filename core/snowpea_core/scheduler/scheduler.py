@@ -580,6 +580,22 @@ class Scheduler:
         # session, so it sees the agent's memory namespace (M7 contract §6).
         # An owned job never borrows a live named session: another turn there
         # would run alongside it under its job (1.23.0).
+        remote_job = job.created_by == "remote_login"
+        if remote_job:
+            # web.remote.maxMode (security review 7): what a remote sign-in
+            # scheduled never runs unattended above it, also when the limit was
+            # lowered after the job was made.
+            from snowpea_core.session import mode_guard
+
+            limit = mode_guard.above_remote_max(
+                "remote_login", job.mode, getattr(core, "settings", None))
+            if limit is not None:
+                return (
+                    "error",
+                    f"mode_above_remote_max: this job was scheduled from a remote sign-in in "
+                    f"{job.mode} mode, above web.remote.maxMode ({limit}); it did not run",
+                    None,
+                )
         session = None if job.owned else session_for_job(core, job.agent)
         owned = session is None
         if session is None:
@@ -609,6 +625,13 @@ class Scheduler:
         turn_id = agent_loop.new_turn_id()
         if context is not None:
             session.turn_jobs[turn_id] = context
+        if remote_job:
+            # What the run does (a job it schedules, an MCP server it adds) is
+            # still a remote sign-in's (security review 7, M-2).
+            from snowpea_core.server.person_gate import CallerSnapshot
+
+            agent_loop.note_caller(
+                session, turn_id, CallerSnapshot(kind="remote_login", origin="schedule"))
         try:
             await agent_loop.run_turn(
                 core, session, job.task, turn_id=turn_id, unattended=True, origin="schedule"

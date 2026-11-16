@@ -54,10 +54,24 @@ PERSON_LOCAL_ONLY: tuple[Pattern, ...] = (
     ("allowlist",),
     ("mcp", "permissions"),
     ("mcp", "allowVars"),
+    # Security review 7, H-2: ``media.mcp`` names a program (command, args, env)
+    # or a URL the daemon starts or calls with a stored key.
+    ("media",),
 )
 #: The same for the project scope (every other project key is refused to
 #: non-local callers too: no client but a local one writes the project scope).
 PROJECT_PERSON_LOCAL_ONLY: tuple[Pattern, ...] = (("jarvis",), ("allowlist",))
+#: What a remote web login may write in the PROJECT scope (security review 7,
+#: H-2: an allow table, not only the never-list): the keys a project document
+#: has for running work — its default mode (never above ``web.remote.maxMode``,
+#: and counted only once the person trusts the project), teams and model
+#: routing.  Everything else — any key the project schema does not know
+#: included — is a local person's.  No browser or connector writes this scope.
+PROJECT_REMOTE_LOGIN_KEYS: tuple[Pattern, ...] = (
+    ("defaultMode",),
+    ("agents",),
+    ("models",),
+)
 
 #: What the snowpea browser's Settings/setup pages write (the browser team's
 #: inventory, 2026-11-16), with ``actor: "person"`` (global scope only).
@@ -240,12 +254,21 @@ def refuse(conn: Any, what: str, *, reason: str = "person_only",
         )
     elif kind == "remote_login":
         message = f"{what} needs a local connection (IDE, TUI or the local web page)"
-    elif kind == "none":
+    elif kind in ("none", "closed"):
         message = f"only a person may {what}"
     else:
         message = f"a {getattr(conn, 'client_kind', None) or kind} connection cannot {what}"
     raise RpcError(errors.JARVIS_PERSON_ONLY, message,
                    {"reason": reason, "kind": kind, **(extra or {})})
+
+
+def refuse_closed(conn: Any, what: str) -> None:
+    """A connection that has closed (or never signed in) is nobody: refused,
+    never read as an in-process caller (security review 7, H-1)."""
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(conn) == "closed":
+        refuse(conn, what)
 
 
 def remote_login_local_keys(patch: dict[str, Any]) -> list[str]:
@@ -282,6 +305,7 @@ def remote_mcp_refusal(conn: Any, core: Any, *, method: str, entry: dict[str, An
     """
     from snowpea_core.server.person_gate import connection_kind
 
+    refuse_closed(conn, f"call {method}")
     if connection_kind(conn) != "remote_login":
         return
     if accept:
@@ -291,6 +315,73 @@ def remote_mcp_refusal(conn: Any, core: Any, *, method: str, entry: dict[str, An
     if launch and launch != _launch(saved):
         refuse_local_only(conn, core, f"{method} of a server that runs a command",
                           method=method, detail="command")
+    # Security review 7, H-3: the daemon fills ``${NAME}`` from credentials.json
+    # and its environment, so whoever chooses where a server's requests go, or
+    # what they carry, chooses where a stored secret is sent.
+    if saved is not None and mcp_target(entry) != mcp_target(saved):
+        refuse_local_only(
+            conn, core, f"{method} that changes a saved server's url, headers or oauth",
+            method=method, detail="target")
+    if has_variable(_fresh(entry, saved)):
+        refuse_local_only(conn, core, f"{method} of an entry that uses a ${{VAR}}",
+                          method=method, detail="variable")
+
+
+#: Fields of a SAVED MCP entry a remote web login may not change (security
+#: review 7, H-3): where its requests go and what they carry.
+MCP_TARGET_FIELDS: tuple[str, ...] = ("url", "headers", "oauth")
+
+
+def mcp_target(entry: Any) -> dict[str, Any]:
+    """The part of an MCP entry that says where requests go and what they carry."""
+    if not isinstance(entry, dict):
+        return {}
+    return {name: entry[name] for name in MCP_TARGET_FIELDS if entry.get(name)}
+
+
+def has_variable(value: Any) -> bool:
+    """``value`` (a string, or strings in lists and objects) holds a ``${NAME}``
+    the MCP client would expand (``$${NAME}``, the literal text, does not count)."""
+    if isinstance(value, str):
+        from snowpea_core.tools.mcp_client import var_names
+
+        return bool(var_names(value))
+    if isinstance(value, dict):
+        return any(has_variable(item) for item in value.values())
+    if isinstance(value, list | tuple):
+        return any(has_variable(item) for item in value)
+    return False
+
+
+def _fresh(entry: Any, saved: Any) -> dict[str, Any]:
+    """The fields of ``entry`` that are not the saved entry's, unchanged."""
+    if not isinstance(entry, dict):
+        return {}
+    known = saved if isinstance(saved, dict) else {}
+    return {name: value for name, value in entry.items() if known.get(name) != value}
+
+
+def remote_mcp_settings_keys(patch: dict[str, Any], current: Any) -> list[str]:
+    """Dotted ``mcp.servers.*`` keys of a ``settings.set`` patch a remote web
+    login may not write (security review 7, H-3): ``url``/``headers``/``oauth``
+    of a server ``settings.mcp.servers`` already has, and any value with a
+    ``${VAR}`` — the same rule as ``mcp.add|update`` (``details.reason:
+    "local_only"``)."""
+    servers = patch.get("mcp", {}).get("servers") if isinstance(patch.get("mcp"), dict) else None
+    if not isinstance(servers, dict):
+        return []
+    saved = current if isinstance(current, dict) else {}
+    found: list[str] = []
+    for name, entry in servers.items():
+        if not isinstance(entry, dict):
+            continue  # null: the server goes, which only takes away
+        if has_variable(entry):
+            found.append(f"mcp.servers.{name}")
+            continue
+        if name in saved:
+            found.extend(f"mcp.servers.{name}.{field}" for field in MCP_TARGET_FIELDS
+                         if field in entry)
+    return found
 
 
 #: ``hostToolsFrom`` naming "whichever browser is connected" (the browser's
@@ -433,9 +524,11 @@ def judge_patch(
             refused.append(dotted)
             continue
         if project:
-            # The project scope: a remote web login (a person) keeps the rest of it;
-            # no browser host or connector writes it.
-            if kind != "remote_login":
+            # The project scope: a remote web login (a person) writes the keys of
+            # PROJECT_REMOTE_LOGIN_KEYS; no browser host or connector writes it.
+            if kind != "remote_login" or not any(
+                matches(path, pattern) for pattern in PROJECT_REMOTE_LOGIN_KEYS
+            ):
                 refused.append(dotted)
             continue
         if not any(matches(path, pattern) for pattern in allowed):
@@ -462,7 +555,9 @@ def guard_call(
     if kind in ("person", "none"):
         return
     what = method + (f" {'.'.join(key[1:])}" if key else "")
-    if kind == "connector" or (kind == "remote_login" and method not in REMOTE_LOGIN_METHODS):
+    if kind in ("connector", "closed") or (
+        kind == "remote_login" and method not in REMOTE_LOGIN_METHODS
+    ):
         # Security review 4, H4 (also refused by the dispatcher: kind_method_refusal).
         ledger_settings(core, conn, [what], refused=True, method=method)
         refuse(conn, f"call {method}")
@@ -776,6 +871,8 @@ def kind_method_refusal(method: str, params: dict[str, Any], conn: Any, core: An
         allowed = method in REMOTE_LOGIN_ALLOWED
     elif kind == "browser":
         allowed = browser_allowed(method)
+    elif kind == "closed":
+        allowed = False  # nobody: never an in-process caller (security review 7, H-1)
     else:
         return
     if allowed:
@@ -895,6 +992,8 @@ def list_visible(conn: Any, session: Any, *, person_only: bool = False, host: An
     person-only one, and a browser never a Jarvis-routed one.  A legacy browser
     (< 0.3.0) sees what it saw before, but Jarvis's routing."""
     kind = _kind(conn)
+    if kind == "closed":
+        return False
     if kind not in _WATCHERS:
         return True
     if kind == "browser" and route == "jarvis":
@@ -918,6 +1017,8 @@ def may_answer(conn: Any, session: Any, *, origin_conn: Any = None, owner: Any =
     never; a person-only one never; a Jarvis-routed one not until it is the
     person's.  A legacy browser answers as before."""
     kind = _kind(conn)
+    if kind == "closed":
+        return False
     if kind not in _WATCHERS:
         return True
     # Security review 4, M5: a person-only or Jarvis-routed request is never a

@@ -16,7 +16,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.scheduler import services
+from snowpea_core.scheduler import access, services
 from snowpea_core.scheduler.jobs import Job
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
@@ -95,82 +95,46 @@ def _is_owner(conn: RpcConnection, job: Job) -> bool:
 
 
 async def _guard(conn: RpcConnection, core: Core, job_id: str, action: str) -> None:
-    """An owned job takes changes only from its owner's connection (1.23.0)."""
-    job = await services(core).get(job_id)
-    if job is not None and job.owned and not _is_owner(conn, job):
-        raise RpcError(
-            errors.UNAUTHORIZED, f"job {job_id} is owned by its browser; cannot {action} it"
-        )
-    if job is not None and job.target == "jarvis-task":
-        # A Jarvis task's prompt runs unattended and is handed to Jarvis: only a
-        # person rewrites or fires it (security review M6/M9).
-        from snowpea_core.server.person_gate import require_person
+    """The scheduler's one rule for changing a job (``scheduler/access.py``):
+    an owned job only from its owner's connection (1.23.0), a Jarvis task only
+    from a person, a remote login only the jobs it created."""
+    from snowpea_core.server.person_gate import snapshot
 
-        require_person(conn, f"{action} Jarvis's scheduled task {job_id}")
-    if job is not None and action not in REMOTE_LOGIN_ANY_JOB:
-        # Security review 6, M-4: a remote login changes, cancels, re-enables or
-        # deletes only the jobs it created; a local person's or a browser's it may
-        # read and run as saved (the same class as prompting a session).
-        from snowpea_core.server import settings_gate
-        from snowpea_core.server.person_gate import connection_kind
-
-        if connection_kind(conn) == "remote_login" and job.created_by != "remote_login":
-            settings_gate.refuse_local_only(
-                conn, core, f"{action} a scheduled job it did not create",
-                method=f"job.{_ACTION_METHOD.get(action, action)}", detail="job")
+    await access.guard_job(core, snapshot(conn), job_id, action)
 
 
-#: ``_guard`` actions a remote web login may take on a job it did not create.
-REMOTE_LOGIN_ANY_JOB: frozenset[str] = frozenset({"run"})
-_ACTION_METHOD = {"run": "runNow"}
-#: Delivery channels a remote login may give a job: none (in-app: the session
-#: that made it, else the log) or the log.  A messenger chat leaves the machine.
-REMOTE_LOGIN_JOB_CHANNELS: frozenset[str | None] = frozenset({None, "", "log"})
+#: Re-exported: the rules live in ``scheduler/access.py`` (security review 7, M-2).
+REMOTE_LOGIN_ANY_JOB = access.REMOTE_LOGIN_ANY_JOB
+REMOTE_LOGIN_JOB_CHANNELS = access.REMOTE_LOGIN_JOB_CHANNELS
 
 
 async def job_schedule_handler(
     conn: RpcConnection, params: JobScheduleParams, core: Core
 ) -> JobScheduleResult:
-    """``job.schedule`` — parse the spec, store the job, report its first firing."""
+    """``job.schedule`` — parse the spec, store the job, report its first firing.
+
+    Who may schedule what is :func:`snowpea_core.scheduler.access.schedule_job`'s
+    (the same entry point as ``/schedule`` and the ``schedule_create`` tool):
+    the mode (a raise is a person's; a re-created job is a new job), whose
+    browser the runs drive, a remote login's channel and ``createdBy``.  Every
+    job is a prompt job: a jarvis-task target cannot be set over RPC and no job
+    kind runs a shell line.
+    """
     from snowpea_core.scheduler.jobs import iso
+    from snowpea_core.server.person_gate import snapshot
 
     template = params.sessionTemplate
-    mode = template.mode if template and template.mode else params.mode
-    if mode:
-        # Every run starts in this mode with nobody asked: a mode wider than the
-        # default is a raise, a person's (security review 4; session/mode_guard.py).
-        # A re-created job is a new job: no earlier job vouches for it.
-        from snowpea_core.session import mode_guard
-
-        workdir = params.workdir or str(core.paths.home)
-        mode_guard.check(mode_guard.ModeCaller.from_conn(conn, params.actor), None,
-                         core.sessions.default_mode(workdir), mode)
     owner: str | None = None
     if params.meta is not None:
         owner = _owner_id(conn)
         _check_meta(params.meta)
-    from snowpea_core.server.person_gate import connection_kind
-
-    creator = connection_kind(conn)
-    # Security review 6, M-4/L-2: whose browser the runs drive is judged now, for
-    # the job's creator (a remote login or a connector never borrows one; a
-    # browser names itself or "browser"); the scheduler's in-process sessions
-    # inherit it.  Every job is a prompt job: a jarvis-task target cannot be set
-    # over RPC and no job kind runs a shell line.
-    from snowpea_core.server.settings_gate import host_choice_refusal
-
-    host_choice_refusal(conn, template.hostToolsFrom if template is not None else None)
-    if creator == "remote_login" and params.channel not in REMOTE_LOGIN_JOB_CHANNELS:
-        # M-4: no delivery that leaves the machine (job.update cannot change a
-        # channel at all, so a saved one stays as a local person set it).
-        from snowpea_core.server import settings_gate
-
-        settings_gate.refuse_local_only(conn, core, "schedule a job that delivers to a messenger",
-                                        method="job.schedule", detail="channel")
     try:
-        job = await services(core).schedule(
+        job = await access.schedule_job(
+            core,
+            snapshot(conn, params.actor),
             params.spec,
             params.task,
+            via="rpc",
             mode=(template.mode if template and template.mode else params.mode),
             channel=params.channel,
             agent=(template.agent if template and template.agent else params.agent),
@@ -178,8 +142,6 @@ async def job_schedule_handler(
             host_tools_from=template.hostToolsFrom if template else None,
             host_wait_sec=template.hostWaitSec if template else None,
             catch_up_window_min=template.catchUpWindowMinutes if template else None,
-            created_via="rpc",
-            created_by=creator if creator != "none" else None,
             meta=params.meta,
             owner_client_id=owner,
             title=params.title,

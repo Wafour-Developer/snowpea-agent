@@ -95,7 +95,7 @@ from snowpea_core.server.protocol import (
     TurnResult,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
-from snowpea_core.session import events
+from snowpea_core.session import events, mode_guard
 from snowpea_core.session.history import message_from_json, message_text
 from snowpea_core.session.mode_guard import ModeCaller
 from snowpea_core.session.session import origin_of
@@ -778,6 +778,12 @@ async def session_prompt_handler(
     session = _session(core, params.sessionId)
     core.hub.subscribe(conn, session.id)
     mark_active(core, conn, session)
+    # Security review 7, H-1: who sent this is fixed now; the turn — queued,
+    # folded into a running one or started at once — carries it.
+    from snowpea_core.server.person_gate import snapshot
+    from snowpea_core.server.rpc import current_actor
+
+    who = snapshot(conn, current_actor(), origin="human")
     raw_text = params.text
     parsed = core.commands.parse(raw_text)
     if parsed is not None:
@@ -796,6 +802,9 @@ async def session_prompt_handler(
                                       when_busy=params.whenBusy)
         pending.clear(session.id)
         return TurnResult(turnId=turn_id)
+    # web.remote.maxMode: a remote login starts no work in a session above it.
+    mode_guard.check_remote_max(who.kind, mode_guard.effective_mode(session), core.settings,
+                                "prompting a session")
     prepared = prepare_prompt(
         core, session, raw_text, params.attachments, accept_wire=_accept_attachments
     )
@@ -825,6 +834,7 @@ async def session_prompt_handler(
         refs=prepared.refs,
         when_busy=params.whenBusy,
         surface=getattr(conn, "client_kind", None) or getattr(session, "origin_surface", None),
+        who=who,
     )
     if params.attachments:
         AttachmentStore(core.paths.attachments_dir).assign_message(session.id, turn_id)

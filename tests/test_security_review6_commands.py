@@ -238,7 +238,9 @@ async def test_mcp_command_from_a_remote_login_meets_the_rpc_rule(
         said.append(text)
 
     ctx.say = say
-    assert mcp_cmd._remote(ctx) is REMOTE
+    # Security review 7, H-1: the snapshot of the caller, not the live connection.
+    judged = mcp_cmd._remote(ctx)
+    assert judged.kind == "remote_login" and judged.conn is REMOTE
     with pytest.raises(RpcError) as caught:
         await mcp_cmd._add(ctx, {"name": "run", "command": "prog", "args": ["x"],
                                  "scope": "project", "workdir": str(tmp_path)})

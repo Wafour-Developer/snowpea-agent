@@ -218,17 +218,26 @@ class QueuedTurn:
     #: A slash command of kind ``turn`` waiting its turn (1.55.0): run by the
     #: command registry instead of the model; never folded into a running turn.
     command: QueuedCommand | None = None
+    #: Who sent the prompt, as it was when it was accepted (``person_gate.
+    #: CallerSnapshot``, security review 7 H-1); ``None`` for an in-process start.
+    who: Any = None
 
 
 @dataclass(frozen=True)
 class QueuedCommand:
-    """A slash command queued behind a running turn (``commands/kinds.py``)."""
+    """A slash command queued behind a running turn (``commands/kinds.py``).
+
+    ``who`` is the caller snapshot taken when the command was accepted: the
+    command is gated again by it when its turn comes and judges its caller by
+    it — never by ``conn``, which may have closed since (security review 7, H-1).
+    """
 
     name: str
     args: str
     conn: Any = None
     actor: str | None = None
     caller: str | None = None
+    who: Any = None
 
 
 def new_turn_id() -> str:
@@ -1646,6 +1655,53 @@ def note_origin(session: Session, turn_id: str, origin: str) -> None:
         origins.pop(next(iter(origins)))
 
 
+def note_caller(session: Session, turn_id: str, who: Any) -> None:
+    """Record who started turn ``turn_id`` (a ``person_gate.CallerSnapshot``).
+
+    Security review 7, H-1/M-2: what the turn does later — a tool that
+    schedules a job or adds an MCP server — is judged by this, not by whatever
+    connection the session has by then.  Words another caller adds to the turn
+    (a steer, a prompt folded in) make it theirs too: a caller that is not a
+    local person replaces a local person's or an unknown one, never the reverse.
+    """
+    callers = getattr(session, "turn_callers", None)
+    if who is None or callers is None or not turn_id:
+        return
+    known = callers.get(turn_id)
+    if known is not None and (
+        getattr(known, "kind", "none") not in ("person", "none")
+        or getattr(who, "kind", "none") in ("person", "none")
+    ):
+        return
+    callers[turn_id] = who
+    while len(callers) > 64:
+        callers.pop(next(iter(callers)))
+
+
+def turn_caller(core: Any, session: Any) -> Any:
+    """Who started the turn ``session`` is running (a ``CallerSnapshot``).
+
+    A delegated child, a team worker or a fork answers with its parent's: the
+    chain of ``parent_session_id`` is followed to the first session whose
+    running turn has a recorded caller.  Nobody recorded (a messenger turn, an
+    in-process start): ``person_gate.NOBODY``.
+    """
+    from snowpea_core.server.person_gate import NOBODY
+
+    sessions = getattr(core, "sessions", None)
+    current = session
+    for _ in range(16):
+        if current is None:
+            break
+        turn = getattr(current, "current_turn", None)
+        who = getattr(current, "turn_callers", {}).get(turn) if turn else None
+        if who is not None:
+            return who
+        parent = getattr(current, "parent_session_id", None)
+        current = sessions.get(parent) if parent and sessions is not None else None
+    return NOBODY
+
+
 #: :data:`ORIGINS` -> ``message.user`` ``origin.kind`` (1.53.0).  ``agent``
 #: text (a queued command, ``/ralplan``) is ``system``: no person typed it.
 #: ``jarvis`` is the Jarvis session's instructions to a worker (M19 WP4).
@@ -1704,12 +1760,16 @@ def start_turn(
     surface: str | None = None,
     origin_kind: str | None = None,
     show_prompt: bool = False,
+    who: Any = None,
 ) -> str:
     """Schedule a turn, or queue it behind the session's active turn.
 
     ``surface`` and ``origin_kind`` shape the prompt's ``message.user``
     origin (1.53.0, :func:`message_origin`).  ``show_prompt`` publishes a
     system turn's text as ``message.user`` too (see :func:`run_turn`).
+    ``who`` is the caller snapshot of the RPC that sent the prompt
+    (:func:`note_caller`); a turn the agent queues for itself inherits the
+    running turn's.
 
     A user can keep typing while tools or subagents are running.  Those
     follow-ups must not start overlapping provider loops against the same
@@ -1721,6 +1781,10 @@ def start_turn(
     drop_owned_context(session, origin)
     note_origin(session, turn_id, origin)
     note_message_origin(session, turn_id, origin, surface, origin_kind)
+    if who is None and origin in ("agent", "system"):
+        # What the running turn queued for itself runs for whoever started it.
+        who = getattr(session, "turn_callers", {}).get(session.current_turn or "")
+    note_caller(session, turn_id, who)
     queued = QueuedTurn(
         turn_id=turn_id,
         text=text,
@@ -1735,6 +1799,7 @@ def start_turn(
         origin=origin,
         surface=surface,
         show_prompt=show_prompt,
+        who=who,
     )
     task = session.turn_task
     if task is not None and not task.done():
@@ -1935,6 +2000,8 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
     session.queued_turns[:] = [q for q in session.queued_turns if q not in steered]
     for index, queued in enumerate(steered):
         remaining = len(steered) - index - 1
+        # The running turn now carries this caller's words too (review 7, H-1).
+        note_caller(session, session.current_turn or "", queued.who)
         if session.user_turn is not None and not session.is_subagent:
             if queued.origin == "human":
                 session.user_turn["steers"].append(queued.text)
@@ -2006,13 +2073,17 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
         while True:
             session.interrupt.clear()
             session.current_turn = queued.turn_id
+            note_caller(session, queued.turn_id, queued.who)
             if queued.command is not None:
                 # A slash command's turn (1.55.0): the registry runs it, with
                 # its turn.started/turn.done, in this same FIFO.
                 item = queued.command
+                # Gated again as it starts, by the snapshot taken when it was
+                # accepted (security review 7, H-1): never by the live connection.
                 await core.commands.run(
                     core, session, item.name, item.args, item.conn, queued.turn_id,
                     actor=item.actor, caller=item.caller,
+                    **({"who": item.who} if item.who is not None else {}),
                 )
                 if not session.queued_turns:
                     break
@@ -2054,7 +2125,10 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
                 round_text = await goal_driver.after_turn(core, session)
                 if not round_text:
                     break
+                # The next round runs for whoever started the one that ended.
+                earlier = getattr(session, "turn_callers", {}).get(queued.turn_id)
                 queued = QueuedTurn(
+                    who=earlier,
                     turn_id=new_turn_id(),
                     text=round_text,
                     unattended=False,

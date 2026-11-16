@@ -90,7 +90,10 @@ URL = {"url": "https://mcp.example.com/sse"}
     [
         (URL, None, False, False),  # a url-only server: add
         (URL, URL, False, False),
-        ({**URL, "headers": {"X": "y"}}, URL, False, False),
+        # Security review 7, H-3: a saved server's url/headers/oauth are a local
+        # person's to change (the daemon fills ${VAR} from credentials.json there).
+        ({**URL, "headers": {"X": "y"}}, URL, False, True),
+        ({**URL, "headers": {"X": "y"}}, None, False, False),  # a new one, no variable
         (URL, None, True, True),  # force / acceptFindings is a local person's
         (STDIO, None, False, True),  # a new server that runs a command
         ({"command": "prog"}, None, False, True),
@@ -101,7 +104,9 @@ URL = {"url": "https://mcp.example.com/sse"}
         ({**STDIO, "cwd": "/somewhere"}, STDIO, False, True),
         ({"command": "other", "args": ["--serve"]}, STDIO, False, True),
         (STDIO, URL, False, True),  # a url server turned into a command
-        (URL, STDIO, False, False),  # a command server turned into a url: takes away
+        # A command server turned into a url: a new target for a saved entry
+        # (security review 7, H-3; it was allowed as "takes away" in review 6).
+        (URL, STDIO, False, True),
     ],
 )
 def test_remote_mcp_rule(entry: dict[str, Any], saved: dict[str, Any] | None, accept: bool,

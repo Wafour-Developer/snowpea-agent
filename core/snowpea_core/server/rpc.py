@@ -271,9 +271,9 @@ class RpcDispatcher:
                 # Security review 6: exception text can carry paths, settings and
                 # other callers' data.  Everyone but a local person gets an id to
                 # quote; the text stays in the daemon log under that id.
-                error_id = uuid.uuid4().hex[:12]
+                error_id = errors.new_error_id()
                 log.exception("handler for %s failed (error id %s)", method, error_id)
-                err = RpcError(errors.INTERNAL, f"internal error (id {error_id})",
+                err = RpcError(errors.INTERNAL, errors.internal_text(error_id),
                                {"errorId": error_id})
             if request_id is not None:
                 await conn.send_json(
@@ -321,9 +321,11 @@ class RpcDispatcher:
         self._refuse_owned_run(method, params)
         from snowpea_core.server.person_gate import method_refusal
 
-        method_refusal(method, conn)
-        settings_gate.browser_method_refusal(method, gated, conn, self.core)
-        settings_gate.kind_method_refusal(method, gated, conn, self.core)
+        if conn.authenticated or method not in PUBLIC_METHODS:
+            # (The handshake itself comes from a connection that is nobody yet.)
+            method_refusal(method, conn)
+            settings_gate.browser_method_refusal(method, gated, conn, self.core)
+            settings_gate.kind_method_refusal(method, gated, conn, self.core)
         token = CURRENT_ACTOR.set(actor)
         try:
             result = await handler(conn, params, self.core)

@@ -116,7 +116,9 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
     ),
     "mode_raise": (
         JARVIS_PERSON_ONLY,
-        "raising a session's mode (plan < accept < auto) needs a person; details.from/to",
+        "raising a session's mode (plan < accept < auto) needs a person; details.from/to. "
+        "With details.max: a remote web login asked for, or to start work in, a mode above "
+        "settings web.remote.maxMode (the value of details.max)",
     ),
     "jarvis_on": (
         JARVIS_PERSON_ONLY,
@@ -131,7 +133,14 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
         JARVIS_PERSON_ONLY,
         "a person may do this only at a local connection (IDE, TUI, CLI, the local web page): "
         "it names a program to run, a messenger identity, a provider endpoint or an install "
-        "source; details.what says which",
+        "source, changes where a saved MCP server's requests go or what they carry, uses a "
+        "${VAR}, stores a rule or a setting, or writes a skill, agent or command file that "
+        "widens what runs; details.what says which",
+    ),
+    "snowpea_home": (
+        INVALID_PARAMS,
+        "the folder is snowpea's own home (or its .snowpea directory is): not a project, for "
+        "any caller; details.field names the parameter, details.what is 'home' or 'parent'",
     ),
     "catch_all": (INVALID_PARAMS, "an allowlist pattern that would match every command"),
     "project_add_only": (
@@ -160,7 +169,7 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
 #: guard's caller kinds (``session/mode_guard.ModeCaller``); a refused answer to
 #: a person-only question carries the question's kind instead (``mode`` or null).
 PERSON_ONLY_KINDS: tuple[str, ...] = (
-    "person", "remote_login", "browser", "connector", "none", "agent", "mode",
+    "person", "remote_login", "browser", "connector", "closed", "none", "agent", "mode",
 )
 
 ERROR_CODES: tuple[str, ...] = (
@@ -244,6 +253,23 @@ _JSONRPC_CODE: dict[str, int] = {
 def jsonrpc_code(code: str) -> int:
     """Map a snowpea error code onto its JSON-RPC numeric code."""
     return _JSONRPC_CODE.get(code, SERVER_ERROR)
+
+
+def new_error_id() -> str:
+    """An id to quote for a failure whose text stays in the daemon log.
+
+    Exception text can carry paths, settings and other callers' data (security
+    review 6; review 7, Low 5): what reaches a client that is not a local
+    person, or an event every subscriber sees, is :func:`internal_text` with
+    this id; the text is logged under it.
+    """
+    import uuid
+
+    return uuid.uuid4().hex[:12]
+
+
+def internal_text(error_id: str) -> str:
+    return f"internal error (id {error_id})"
 
 
 class RpcError(Exception):

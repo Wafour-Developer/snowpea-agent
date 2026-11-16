@@ -160,6 +160,13 @@ def _allowlist_twin(args: str) -> tuple[str, ...]:
             else "permission.allowlist.list",)
 
 
+def _schedule_twin(args: str) -> tuple[str, ...]:
+    sub = _first(args)
+    if sub in ("", "list"):
+        return ("job.list",)
+    return ("job.cancel",) if sub == "cancel" else ("job.schedule",)
+
+
 #: ``/mcp <sub>`` -> the RPC it performs (``commands/mcp_cmd.py``).
 _MCP_TWINS: dict[str, str] = {
     "": "mcp.list", "list": "mcp.list", "get": "mcp.list", "catalog": "mcp.catalog",
@@ -182,6 +189,7 @@ COMMAND_TWINS: dict[str, Callable[[str], tuple[str, ...]]] = {
     "mcp": lambda a: (_MCP_TWINS.get(_first(a), "mcp.update"),),
     "setup": lambda _a: ("setup.applyDefaults",),
     "login": lambda _a: ("provider.loginWeb",),
+    "schedule": _schedule_twin,  # security review 7, M-2
 }
 
 

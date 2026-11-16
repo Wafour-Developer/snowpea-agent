@@ -9301,6 +9301,17 @@ class WebRemoteStatus(Payload):
             "with createdBy 'remote_login', 1.55.0): they keep running after the login ends."
         ),
     )
+    maxMode: Literal["plan", "accept", "auto"] = Field(
+        default="auto",
+        description=(
+            "settings web.remote.maxMode (1.55.0): the widest mode a remote web login may "
+            "use. It cannot raise a session or a job above it, nor create, prompt, steer or "
+            "run one already above it: jarvis_person_only with details {reason: 'mode_raise', "
+            "max: <this value>}. 'auto' is no limit. A local person changes it with "
+            "settings.set; it applies at once. It stops unattended runs, not the holder of "
+            "the link, who still answers each approval."
+        ),
+    )
 
 
 class WebRemoteListenParams(Payload):

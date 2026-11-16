@@ -36,8 +36,16 @@ async def mcp_add(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         )
     except ValidationError as exc:
         return ToolResult(ok=False, error=f"mcp_add: {exc.errors(include_url=False)}")
+    # Security review 7, H-1/H-3: judged for whoever started this turn.  A turn a
+    # remote web login prompted gets ``mcp.add``'s limits for a remote login (no
+    # program, no ``${VAR}``, no change of a saved server's target); a local
+    # person's, a messenger's and a scheduled turn stay in-process callers.
+    from snowpea_core.agent.loop import turn_caller
+
+    who = turn_caller(ctx.core, ctx.session)
     try:
-        result = await mcp_add_handler(None, params, ctx.core)
+        result = await mcp_add_handler(
+            who if who.kind in ("remote_login", "closed") else None, params, ctx.core)
     except RpcError as exc:
         return ToolResult(ok=False, error=f"mcp_add ({exc.code}): {exc}")
     names = ", ".join(f"mcp__{params.name}__{tool.name}" for tool in result.tools)

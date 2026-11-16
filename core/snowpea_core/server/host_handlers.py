@@ -755,9 +755,19 @@ async def session_steer_handler(
     task = getattr(session, "turn_task", None)
     running = session.current_turn is not None or (task is not None and not task.done())
     if running:
+        from snowpea_core.agent import loop as agent_loop
+        from snowpea_core.server.person_gate import snapshot
+        from snowpea_core.server.rpc import current_actor
         from snowpea_core.server.session_handlers import mark_active
+        from snowpea_core.session import mode_guard
 
+        who = snapshot(conn, current_actor(), origin="human")
+        # web.remote.maxMode: a remote login adds no words to work above it.
+        mode_guard.check_remote_max(who.kind, mode_guard.effective_mode(session),
+                                    core.settings, "steering a session")
         mark_active(core, conn, session)
+        # Security review 7, H-1: the running turn carries this caller's words now.
+        agent_loop.note_caller(session, session.current_turn or "", who)
         session.rpc_steers.append(text)
         session.user_waiting.set()
         return SessionSteerResult(ok=True, started=False)

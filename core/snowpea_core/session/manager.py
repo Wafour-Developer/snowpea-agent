@@ -206,7 +206,13 @@ class SessionManager:
         resolved_dir = Path(workdir).expanduser()
         if mode:
             # A mode wider than the default is a raise: a person's (mode_guard).
-            mode_guard.check(caller, None, self.default_mode(resolved_dir), mode)
+            mode_guard.check(caller, None, self.default_mode(resolved_dir), mode,
+                             settings=self.settings)
+        elif caller is not None:
+            # web.remote.maxMode (security review 7): a remote login starts no
+            # session above it, whatever the folder's default.
+            mode_guard.check_remote_max(caller.kind, self.default_mode(resolved_dir),
+                                        self.settings, "starting a session")
         selected_team = active_team(self.settings, resolved_dir)
         if definition_model is None and agent and not _reserved_agent(kind, agent):
             definition_model = self._definition_model(agent, resolved_dir)
@@ -416,7 +422,7 @@ class SessionManager:
         wanted = "auto" if mode == "plan" and (
             auto_after_plan or (keeps_flag and session.auto_after_plan)
         ) else mode
-        mode_guard.check(caller, session, current, wanted)
+        mode_guard.check(caller, session, current, wanted, settings=self.settings)
         return await self._set_mode(session, mode, auto_after_plan)
 
     async def _set_mode(

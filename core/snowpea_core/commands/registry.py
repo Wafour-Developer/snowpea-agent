@@ -109,8 +109,8 @@ def gate_command(
     from snowpea_core.commands.persists import persists
     from snowpea_core.server import errors
     from snowpea_core.server.errors import RpcError
-    from snowpea_core.server.person_gate import connection_kind
-    from snowpea_core.server.settings_gate import command_refusal
+    from snowpea_core.server.person_gate import connection_kind, snapshot
+    from snowpea_core.server.settings_gate import command_refusal, refuse_closed
     from snowpea_core.session import mode_guard
 
     what = persists(name, args, source)
@@ -118,7 +118,13 @@ def gate_command(
     current = "auto" if getattr(session, "mode", None) == "plan" and getattr(
         session, "auto_after_plan", False) else getattr(session, "mode", "accept")
     if conn is not None:
+        # Security review 7, H-1: ``conn`` may be the snapshot taken when the
+        # command was accepted (a queued command is gated again when it runs,
+        # by that snapshot); a connection that has closed is nobody.
+        who = snapshot(conn, actor, caller=caller)
+        conn, actor = who, who.actor
         kind = connection_kind(conn)
+        refuse_closed(conn, f"run /{name}")
         if kind != "person":
             _refuse_local(conn, core, name, args, source, what.level)
         command_refusal(conn, core, name, args, source=source, actor=actor)
@@ -134,13 +140,22 @@ def gate_command(
                            f"/{name} changes settings; only a person may run it",
                            {"reason": "person_only", "kind": "none"})
         mode_caller = mode_guard.NOBODY
+    settings = getattr(core, "settings", None)
     if target is not None:
-        mode_guard.check(mode_caller, session, current, target)
+        mode_guard.check(mode_caller, session, current, target, settings=settings)
+    else:
+        # web.remote.maxMode (security review 7): a remote login starts no work
+        # (a ``turn`` command) in a session above it; a read or a setting
+        # (``instant``) and a mode command that lowers it stay open.
+        from snowpea_core.commands.kinds import TURN, command_kind
+
+        if command_kind(name, args, source) == TURN:
+            mode_guard.check_remote_max(mode_caller.kind, current, settings, f"running /{name}")
     if name == "mode" and (args or "").strip().lower() == "save":
         sessions = getattr(core, "sessions", None)
         if sessions is not None:
             mode_guard.check(mode_caller, None, sessions.default_mode(session.workdir),
-                             session.mode)
+                             session.mode, settings=settings)
 
 
 @dataclass
@@ -157,6 +172,10 @@ class CommandContext:
     actor: str | None = None
     #: With no connection: who started it (``"messenger"``, ``"internal"``).
     caller: str | None = None
+    #: Who started it, as it was when the command was accepted
+    #: (``person_gate.CallerSnapshot``, security review 7 H-1): what a command
+    #: judges its caller by — never ``conn``, which may have closed since.
+    who: Any = None
     #: Set by a command that ran a full agent turn itself (a skill command);
     #: the registry then leaves ``turn.done`` to the turn it started.
     handled_turn: bool = False
@@ -172,6 +191,12 @@ class CommandContext:
     beside_turn: bool = False
     _history_recorded: bool = False
     _history_started: bool = False
+
+    def __post_init__(self) -> None:
+        if self.who is None:
+            from snowpea_core.server.person_gate import snapshot
+
+            self.who = snapshot(self.conn, self.actor, caller=self.caller)
 
     async def emit(self, event: events.Event) -> None:
         await self.core.hub.emit_event(self.session.id, event)
@@ -348,8 +373,13 @@ class CommandRegistry:
 
             actor = current_actor()
         source = getattr(self._commands.get(name), "source", "builtin")
-        gate_command(core, session, name, args, conn=conn, actor=actor, caller=caller,
-                     source=source)
+        from snowpea_core.server.person_gate import snapshot
+
+        # Security review 7, H-1: who asks is fixed NOW; the command — run at
+        # once, beside a turn or queued behind one — is judged by this snapshot.
+        who = snapshot(conn, actor, caller=caller, origin=origin or "human")
+        gate_command(core, session, name, args, conn=who if conn is not None else None,
+                     actor=actor, caller=caller, source=source)
         from snowpea_core.agent import loop as agent_loop
         from snowpea_core.commands.kinds import INSTANT, command_kind
 
@@ -359,7 +389,7 @@ class CommandRegistry:
             command_id = f"c-{uuid.uuid4().hex[:12]}"
             side = asyncio.ensure_future(
                 self.run_beside(core, session, name, args, conn, command_id,
-                                actor=actor, caller=caller)
+                                actor=actor, caller=caller, who=who)
             )
             self._beside.add(side)
             side.add_done_callback(self._beside.discard)
@@ -373,8 +403,9 @@ class CommandRegistry:
             unattended=session.origin_conn is None,
             attachments=[],
             origin=origin or "human",
-            command=agent_loop.QueuedCommand(name, args, conn, actor, caller),
+            command=agent_loop.QueuedCommand(name, args, conn, actor, caller, who=who),
         )
+        agent_loop.note_caller(session, turn_id, who)
         if busy:
             # A command that starts work waits for the running turn, like a
             # prompt; it is never folded into it, whatever ``when_busy`` says.
@@ -397,6 +428,7 @@ class CommandRegistry:
         *,
         actor: str | None = None,
         caller: str | None = None,
+        who: Any = None,
     ) -> None:
         """Run an instant command beside a running turn; one ``command.result`` (1.55.0).
 
@@ -418,17 +450,21 @@ class CommandRegistry:
             return
         ctx = CommandContext(
             core=core, session=session, turn_id=command_id, conn=conn, command_name=name,
-            command_args=args, actor=actor, caller=caller, beside_turn=True,
+            command_args=args, actor=actor, caller=caller, beside_turn=True, who=who,
         )
         ok = True
         try:
             await command.run(ctx, args)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001 - a broken command reports, never ends the turn
-            log.exception("command /%s failed beside turn %s", name, running_turn)
+        except Exception:  # noqa: BLE001 - a broken command reports, never ends the turn
+            # Security review 7, Low 5: the event reaches every subscriber; the
+            # exception's text stays in the log under the id.
+            error_id = errors.new_error_id()
+            log.exception("command /%s failed beside turn %s (error id %s)", name,
+                          running_turn, error_id)
             ok = False
-            ctx.output_texts.append(f"Command failed: {type(exc).__name__}: {exc}")
+            ctx.output_texts.append(f"Command failed: {errors.internal_text(error_id)}")
         await core.hub.emit_event(
             session.id,
             events.command_result(
@@ -452,10 +488,33 @@ class CommandRegistry:
         *,
         actor: str | None = None,
         caller: str | None = None,
+        who: Any = None,
     ) -> str:
-        """Run a command to completion, emitting its ``turn.done``."""
+        """Run a command to completion, emitting its ``turn.done``.
+
+        ``who`` is the caller snapshot :meth:`start` took: with it the command
+        is gated again here, as it starts (security review 7, H-1) — what was
+        allowed when it was queued may not be when its turn comes (Jarvis mode
+        turned on, the session's mode, a limit set meanwhile).
+        """
         turn_id = turn_id or f"t-{uuid.uuid4().hex[:12]}"
         command = self._commands.get(name)
+        if who is not None and command is not None:
+            from snowpea_core.server.errors import RpcError
+
+            try:
+                gate_command(core, session, name, args,
+                             conn=who if who.kind != "none" else None, actor=who.actor,
+                             caller=who.caller, source=command.source)
+            except RpcError as exc:
+                line = f"/{name} {args}".strip()
+                await core.hub.emit_event(session.id, events.turn_started(turn_id, line))
+                await core.hub.emit_event(
+                    session.id, events.error(exc.code, str(exc.message), exc.data))
+                await core.hub.emit_event(session.id, events.turn_done(turn_id, "error"))
+                if session.current_turn == turn_id:
+                    session.current_turn = None
+                return turn_id
         if command is None:
             # Open and close the turn like any other: ``start`` already made it
             # the session's current turn, and a client that saw ``turn.done``
@@ -482,6 +541,7 @@ class CommandRegistry:
             command_args=args,
             actor=actor,
             caller=caller,
+            who=who,
         )
         # A command is a turn: it ends with ``turn.done`` below, so it opens
         # with ``turn.started`` too, carrying the line that was typed. That
@@ -505,12 +565,16 @@ class CommandRegistry:
             await ctx.record_history(reason="interrupted")
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
             raise
-        except Exception as exc:  # noqa: BLE001 - a broken command ends its own turn
-            log.exception("command /%s failed", name)
-            ctx.set_history_summary(f"Command failed: {type(exc).__name__}: {exc}")
+        except Exception:  # noqa: BLE001 - a broken command ends its own turn
+            # Security review 7, Low 5: an id for everyone, the text in the log.
+            error_id = errors.new_error_id()
+            log.exception("command /%s failed (error id %s)", name, error_id)
+            ctx.set_history_summary(f"Command failed: {errors.internal_text(error_id)}")
             await ctx.record_history(reason="error")
             await core.hub.emit_event(
-                session.id, events.error(errors.INTERNAL, f"{type(exc).__name__}: {exc}")
+                session.id,
+                events.error(errors.INTERNAL, errors.internal_text(error_id),
+                             {"errorId": error_id}),
             )
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "error"))
             return turn_id

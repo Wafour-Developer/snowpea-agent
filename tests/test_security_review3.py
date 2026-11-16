@@ -597,7 +597,10 @@ GLOBAL_LEAVES: dict[str, dict[str, Any]] = {
     "ide": {"ide": {"projects": []}}, "appearance": {"appearance": {"theme": "dark"}},
 }
 LOCAL_ONLY = {"jarvis", "daemon", "web", "extensions", "allowlist", "mcp.permissions",
-              "mcp.allowVars", "security"}
+              "mcp.allowVars", "security", "media"}  # media: security review 7, H-2
+#: Security review 7, H-2: what a remote login may write in the PROJECT scope
+#: (an allow table: ``settings_gate.PROJECT_REMOTE_LOGIN_KEYS``).
+PROJECT_REMOTE = {"agents", "models"}
 BROWSER_PERSON = {"agent", "browser", "gateway", "lsp", "memory", "models",
                   "providers", "scheduler", "search", "skills"}
 REMOTE = BROWSER_PERSON | {"mcp", "approvals", "audio", "ide", "appearance"}
@@ -632,7 +635,7 @@ def _expected(key: str, kind: str, scope: str, jarvis_on: bool) -> tuple[str, st
     if kind == "remote_login" and key in REMOTE_LOCAL:
         return "jarvis_person_only", "local_only"
     if scope == "project":
-        return ("ok", None) if kind == "remote_login" else refused
+        return ("ok", None) if kind == "remote_login" and key in PROJECT_REMOTE else refused
     allowed = {"remote_login": REMOTE, "browser+actor": BROWSER_PERSON,
                "browser": set(), "connector": set()}[kind]
     if key not in allowed:
@@ -660,8 +663,9 @@ def test_settings_gate_every_top_level_key(key: str, kind: str, scope: str,
     whole = kind == "person" or (want[0] == "ok" and "." not in key and top != "mcp")
     if kind == "remote_login" and key in ("lsp", "gateway"):
         # Review 6: deleting the whole key only takes away; a remote login still may
-        # (unless it is Jarvis's chain while Jarvis is on).
-        whole = not (jarvis_on and key in AUTHORITY and scope == "global")
+        # (unless it is Jarvis's chain while Jarvis is on) — in the global scope:
+        # the project scope takes only its allow table's keys (review 7, H-2).
+        whole = scope == "global" and not (jarvis_on and key in AUTHORITY)
     assert (deleted[0] == "ok") == whole, (key, kind, deleted)
 
 

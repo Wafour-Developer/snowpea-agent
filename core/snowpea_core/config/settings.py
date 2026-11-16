@@ -412,6 +412,12 @@ class WebRemoteSettings(_Model):
     allowedOrigins: list[str] = Field(default_factory=list)
     #: Believe ``X-Forwarded-Proto``/``X-Forwarded-For`` (only behind your own proxy).
     trustProxy: bool = False
+    #: The widest mode a remote sign-in may use (security review 7): it cannot
+    #: raise a session or a job above it, nor start or prompt one already above
+    #: it.  ``auto`` (the default) is no limit.  Read at every call, so a change
+    #: applies at once.  It stops unattended runs, not the holder of the link:
+    #: that person still answers each approval (``session/mode_guard.py``).
+    maxMode: Literal["plan", "accept", "auto"] = "auto"
 
 
 class WebSettings(_Model):
