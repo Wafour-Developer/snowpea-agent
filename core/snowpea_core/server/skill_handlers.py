@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.definition import DefinitionError, validate_name
 from snowpea_core.server import errors
@@ -407,6 +407,8 @@ async def skill_create_handler(
     home = Path(core.paths.home)
 
     directory = skill_root(name, workdir=params.workdir, home=home, global_=global_)
+    _judge_write(conn, core, method="skill.create", kind="skill", name=name, global_=global_,
+                 workdir=params.workdir, content=params.content, target=directory / "SKILL.md")
     if params.content is not None:
         try:
             package = write_skill_document(
@@ -460,10 +462,34 @@ async def skill_create_handler(
     if params.force:
         args += " --force"
     # skill.create itself was judged by the dispatcher (BROWSER_PERSON_METHODS,
-    # kind_method_refusal): the command it starts is that caller's.
-    turn_id = core.commands.start(core, session, "skill", f"create {args}", turn_conn,
+    # kind_method_refusal): the command it starts is that caller's.  A remote
+    # web login's stays a remote login's in a headless session too, so the
+    # document the model writes for it is judged like one it sent (review 7, M-1).
+    from snowpea_core.server.person_gate import connection_kind, snapshot
+
+    starter: Any = turn_conn
+    if starter is None and connection_kind(conn) == "remote_login":
+        starter = snapshot(conn)
+    turn_id = core.commands.start(core, session, "skill", f"create {args}", starter,
                                   caller="internal")
     return SkillCreateResult(turnId=turn_id, sessionId=session.id)
+
+
+def _judge_write(conn: Any, core: Core, *, method: str, kind: str, name: str, global_: bool,
+                 workdir: Any, content: str | None, target: Path | None) -> None:
+    """Who may write this skill, agent or command file where (security review 7).
+
+    H-2, every caller: a project-scope file is never written into snowpea's own
+    home, whose ``.snowpea`` is the global scope.  M-1, a remote web login:
+    :func:`snowpea_core.server.skill_gate.remote_write_refusal`.
+    """
+    from snowpea_core.server import skill_gate
+    from snowpea_core.server.project_gate import require_project
+
+    if not global_ and workdir:
+        require_project(core, workdir)
+    skill_gate.remote_write_refusal(conn, core, method=method, kind=kind, name=name,
+                                    global_=global_, content=content, target=target)
 
 
 async def skill_learn_handler(
@@ -482,9 +508,14 @@ async def skill_learn_handler(
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     requested = (params.name or "").strip()
+    global_ = params.scope == "global"
+    # Before the model is asked: where this caller may write at all (the name and
+    # the document are judged once they exist, by ``learn_skill``).
+    _judge_write(conn, core, method="skill.learn", kind="skill", name=requested, global_=global_,
+                 workdir=session.workdir, content=None, target=None)
     try:
         path = await learn_skill(
-            core, session, requested, global_=params.scope == "global", force=params.force
+            core, session, requested, global_=global_, force=params.force, who=conn
         )
     except DefinitionError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
@@ -569,6 +600,8 @@ async def skill_write_handler(
     if not global_ and workdir is None:
         raise RpcError(errors.INVALID_PARAMS, "skill.write with scope 'project' needs a workdir")
     kind = params.kind if params.kind in _ENTRY_DIRS else "skill"
+    _judge_write(_conn, core, method="skill.write", kind=kind, name=name, global_=global_,
+                 workdir=workdir, content=params.content, target=None)
     if kind == "skill":
         directory = skill_root(
             name,

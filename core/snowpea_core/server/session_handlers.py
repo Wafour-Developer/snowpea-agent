@@ -63,7 +63,6 @@ from snowpea_core.server.protocol import (
     MemoryWriteResult,
     Ok,
     OptionalSessionParams,
-    ProviderConfigureParams,
     ProviderListResult,
     ProviderModelsParams,
     ProviderModelsResult,
@@ -267,6 +266,52 @@ def _count_sessions(core: Core) -> None:
 # ---------------------------------------------------------------------------
 
 
+#: Origin surfaces only the core itself gives a session (security review 7,
+#: Low 6): a Jarvis task worker (hidden from non-people, its jobs a person's),
+#: Jarvis, a scheduled run, a skill draft.  Prefixes: a messenger chat's and a
+#: named agent's.  ``session.create`` never takes one from a caller.
+RESERVED_ORIGIN_SURFACES: frozenset[str] = frozenset(
+    {"jarvis-task", "jarvis", "scheduler", "skill", "connector"}
+)
+RESERVED_ORIGIN_PREFIXES: tuple[str, ...] = ("gateway:", "agent:")
+#: What a person's client calls itself (``system.hello`` ``clientKind``).
+PERSON_ORIGIN_SURFACES: frozenset[str] = frozenset({"ide", "desktop", "tui", "cli", "web", "app"})
+
+
+def origin_surface_for(conn: Any, asked: str | None) -> str:
+    """The ``originSurface`` a session created by ``conn`` gets (review 7, Low 6).
+
+    It was whatever the caller sent, so any caller could label a session
+    ``jarvis-task`` (hidden from other non-people) or ``browser`` (every
+    browser's "own" session).  Now the server decides:
+
+    * a browser connection: ``"browser"``, whatever it sent;
+    * a reserved surface (:data:`RESERVED_ORIGIN_SURFACES`, the prefixes):
+      ``invalid_params``, for every caller;
+    * a remote web login: one of :data:`PERSON_ORIGIN_SURFACES` as sent (the
+      web page is the IDE's and says ``"ide"``), anything else its connection's
+      surface id;
+    * a local person: what it sent (the TUI ``"tui"``, the CLI ``"cli"``, the
+      IDE ``"ide"``), as before; nothing sent: the connection's surface id.
+    """
+    from snowpea_core.server.person_gate import connection_kind
+
+    kind = connection_kind(conn)
+    own = str(getattr(conn, "surface_id", "") or "")
+    if kind == "browser":
+        return "browser"
+    text = (asked or "").strip()
+    if text in RESERVED_ORIGIN_SURFACES or text.startswith(RESERVED_ORIGIN_PREFIXES):
+        raise RpcError(errors.INVALID_PARAMS,
+                       f"originSurface {text!r} is the core's own; a client cannot claim it",
+                       {"field": "originSurface"})
+    if not text:
+        return own
+    if kind != "person" and text not in PERSON_ORIGIN_SURFACES:
+        return own
+    return text
+
+
 async def session_create_handler(
     conn: RpcConnection, params: SessionCreateParams, core: Core
 ) -> SessionCreateResult:
@@ -274,6 +319,10 @@ async def session_create_handler(
     from snowpea_core.server.settings_gate import host_choice_refusal
 
     host_choice_refusal(conn, params.hostToolsFrom)  # security review 6, L-2
+    # Security review 7, H-2: no session works inside snowpea's own home.
+    from snowpea_core.server.project_gate import require_project
+
+    require_project(core, params.workdir, dot=False)
     await _refresh_settings(core)
     session = await core.sessions.create(
         workdir=params.workdir,
@@ -283,7 +332,9 @@ async def session_create_handler(
         agent=params.agent,
         effort=params.effort,
         max_concurrent=params.maxConcurrent,
-        origin_surface=params.originSurface or conn.surface_id,
+        # Security review 7, Low 6: the server names the origin (a browser's
+        # session is "browser", nobody's is a reserved one), not the params.
+        origin_surface=origin_surface_for(conn, params.originSurface),
         origin_conn=conn,
         deny_exec=bool(params.denyExec),
         caller=ModeCaller.from_conn(conn, params.actor),
@@ -308,6 +359,10 @@ async def session_create_handler(
     if params.hostToolsFrom and core.store is not None:
         await core.store.update_host_tools_from(session.id, params.hostToolsFrom)
     session.origin_client_id = getattr(conn, "client_id", None)
+    if session.origin_client_id and core.store is not None:
+        # Kept with the session (security review 7, Low 6): whose it is, for
+        # a browser's "own session" rule, also after a restart.
+        await core.store.update_origin_client_id(session.id, str(session.origin_client_id))
     session.browser_memory = (
         params.browserMemory
         if params.browserMemory is not None
@@ -1345,19 +1400,10 @@ async def provider_models_handler(
     )
 
 
-async def provider_configure_handler(
-    _conn: RpcConnection, params: ProviderConfigureParams, core: Core
-) -> Ok:
-    """``provider.configure`` — vendor ``media`` flips the media tools live."""
-    if params.vendor == "media":
-        state = await media_tools.configure(core, params.config)
-        log.info("media tools are now %s", state)
-        return Ok(ok=True)
-    raise RpcError(
-        errors.NOT_IMPLEMENTED,
-        f"provider.configure does not handle vendor {params.vendor!r} yet",
-    )
-
+# (Security review 7, Info: the never-registered ``provider.configure`` handler
+# that set ``settings.media.mcp`` — a command to run — from any caller's params
+# was deleted; ``app_server.provider_configure_handler`` is the method, and
+# ``media.*`` is written with ``settings.set`` by a local person only.)
 
 # ---------------------------------------------------------------------------
 # memory.* (M5 contract §1)

@@ -109,6 +109,9 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("goal", "TEXT"),
     ("forked_from", "TEXT"),
     ("forked_at_turn_id", "TEXT"),
+    # The clientId of the connection that created the session, recorded by the
+    # server (security review 7, Low 6): whose session it is, for a browser.
+    ("origin_client_id", "TEXT"),
 )
 
 #: Columns added to ``events`` after 1.43 (M17 2a).
@@ -295,6 +298,14 @@ class Store:
         """Persist the session's title (auto or ``session.rename``, 1.7.0)."""
         await asyncio.to_thread(
             self._execute, "UPDATE sessions SET title = ? WHERE id = ?", (title, session_id)
+        )
+
+    async def update_origin_client_id(self, session_id: str, value: str | None) -> None:
+        """Persist the creating connection's clientId (security review 7, Low 6)."""
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET origin_client_id = ? WHERE id = ?",
+            (value, session_id),
         )
 
     async def update_host_tools_from(self, session_id: str, value: str | None) -> None:

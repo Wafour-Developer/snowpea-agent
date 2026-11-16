@@ -167,6 +167,11 @@ def _schedule_twin(args: str) -> tuple[str, ...]:
     return ("job.cancel",) if sub == "cancel" else ("job.schedule",)
 
 
+def _agent_twin(args: str) -> tuple[str, ...]:
+    """``/agent create`` writes a definition file as ``agent.create`` does."""
+    return ("agent.create",) if _first(args) in ("create", "new", "add") else ()
+
+
 #: ``/mcp <sub>`` -> the RPC it performs (``commands/mcp_cmd.py``).
 _MCP_TWINS: dict[str, str] = {
     "": "mcp.list", "list": "mcp.list", "get": "mcp.list", "catalog": "mcp.catalog",
@@ -190,6 +195,7 @@ COMMAND_TWINS: dict[str, Callable[[str], tuple[str, ...]]] = {
     "setup": lambda _a: ("setup.applyDefaults",),
     "login": lambda _a: ("provider.loginWeb",),
     "schedule": _schedule_twin,  # security review 7, M-2
+    "agent": _agent_twin,  # security review 7, M-1
 }
 
 

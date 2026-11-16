@@ -124,6 +124,11 @@ async def job_schedule_handler(
     from snowpea_core.server.person_gate import snapshot
 
     template = params.sessionTemplate
+    # Security review 7, H-2: no job runs inside snowpea's own home by request
+    # (a job with no workdir keeps running there, as before).
+    from snowpea_core.server.project_gate import require_project
+
+    require_project(core, params.workdir, dot=False)
     owner: str | None = None
     if params.meta is not None:
         owner = _owner_id(conn)

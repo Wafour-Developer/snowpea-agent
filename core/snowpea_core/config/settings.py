@@ -75,6 +75,46 @@ DEFAULT_AGENT_TEAM: tuple[str, ...] = (
 )
 
 
+def _load_without_invalid_sections(
+    cls: Any, raw: dict[str, Any], invalid: ValidationError
+) -> tuple[Any, list[str]]:
+    """``raw`` validated with its failing top-level sections left out.
+
+    Returns the settings and the sections that went (``[]`` with all-default
+    settings when even that does not validate).  Used only when the file on
+    disk does not validate, so the daemon starts and can be repaired from.
+    """
+    document = dict(raw)
+    gone: list[str] = []
+    for _ in range(4):  # a dropped section can uncover a reference to it
+        sections = sorted({
+            str(error["loc"][0]) for error in invalid.errors(include_url=False)
+            if error.get("loc") and str(error["loc"][0]) in document
+        })
+        if not sections:
+            break
+        for name in sections:
+            document.pop(name, None)
+        gone += sections
+        document, _refs = _drop_unresolvable_model_refs(document)
+        try:
+            return cls.model_validate(document), gone
+        except ValidationError as again:
+            invalid = again
+    return cls(), []
+
+
+def _keep_invalid_copy(path: Path) -> Path | None:
+    """Copy a settings file that does not validate to ``settings.json.invalid`` (0600)."""
+    target = path.with_name(path.name + ".invalid")
+    try:
+        target.write_bytes(path.read_bytes())
+        _chmod_quietly(target)
+    except OSError:
+        return None
+    return target
+
+
 def _drop_unresolvable_model_refs(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     """Remove ``models.default`` / ``agents.models`` entries with no profile.
 
@@ -1143,23 +1183,44 @@ class Settings(_Model):
             return cls()
         try:
             settings = cls.model_validate(raw)
-        except ValidationError:
+        except ValidationError as first:
             # A settings file the strict validator rejects used to escape out
             # of ``load``, and the daemon died on startup — which left no
             # ``settings.set`` to repair it with, so the only way back was
             # hand-editing JSON.  Boot degraded instead: drop the references
             # that do not resolve, keep everything else, and say so loudly
             # (CORE-model-assignment B-P1-2).
+            failure = first
             raw, dropped = _drop_unresolvable_model_refs(raw)
-            if not dropped:
-                raise
-            log.error(
-                "ignoring unusable model routing in %s (%s); "
-                "fix it with `snowpea model profiles` or by editing the file",
-                path,
-                "; ".join(dropped),
-            )
-            settings = cls.model_validate(raw)
+            repaired: Settings | None = None
+            if dropped:
+                try:
+                    repaired = cls.model_validate(raw)
+                except ValidationError as again:
+                    failure = again
+            if repaired is not None:
+                log.error(
+                    "ignoring unusable model routing in %s (%s); "
+                    "fix it with `snowpea model profiles` or by editing the file",
+                    path,
+                    "; ".join(dropped),
+                )
+            else:
+                # Security review 7, H-2: a document that still does not
+                # validate (a project document written over it, a hand edit)
+                # never stops the daemon from starting: the sections that fail
+                # go back to their defaults, the rest is kept, the file as it
+                # was is copied beside it, and the log says which.
+                repaired, sections = _load_without_invalid_sections(cls, raw, failure)
+                kept = _keep_invalid_copy(path)
+                log.error(
+                    "%s is not valid: using defaults for %s%s; the rest is kept. Fix the "
+                    "file or set the values again",
+                    path,
+                    ", ".join(sections) or "every section",
+                    f" (the file as it was: {kept})" if kept else "",
+                )
+            settings = repaired
         # Existing installations predate teams. Loading their settings is the
         # first-setup migration point; explicit empty/disabled teams can still
         # be represented with ``default_team: null`` after a team is defined.

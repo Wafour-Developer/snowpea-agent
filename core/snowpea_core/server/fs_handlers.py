@@ -466,9 +466,13 @@ def _decode(text: str) -> bytes:
     return data
 
 
-def fs_write(roots: Roots, params: FsWriteParams) -> FsWriteResult:
+def fs_write(roots: Roots, params: FsWriteParams, target: Path | None = None) -> FsWriteResult:
+    """``target``: the path as the caller's rules judged it (security review 7,
+    Low 9) — resolved ONCE, so what is written is what was judged, not what a
+    second resolution of ``params.path`` finds after a directory was swapped."""
     data = _decode(params.dataBase64)
-    target = roots.no_follow(params.path, secrets=True)
+    if target is None:
+        target = roots.no_follow(params.path, secrets=True)
     if os.path.islink(target):
         raise RpcError(errors.OUTSIDE_ROOT, "refusing to write through a symbolic link")
     existing: os.stat_result | None = None
@@ -564,9 +568,11 @@ def control_file(target: Path) -> bool:
     return False
 
 
-def _refuse_caller(conn: Any, core: Core, session_id: str, roots: Roots, params: Any,
-                   write: bool) -> None:
+def _refuse_caller(conn: Any, core: Core, session_id: str, write: bool) -> str:
     """Who may use ``fs.*`` on which session, and write what (security review 6, L-6).
+
+    Returns the caller's kind; the control-file rule is :func:`_refuse_control`,
+    on the path once it is resolved.
 
     A browser (0.3.0+) reads only a session it hosts, or an unhosted one it
     opened — another client's is ``not_found``.  A browser of any version
@@ -584,7 +590,13 @@ def _refuse_caller(conn: Any, core: Core, session_id: str, roots: Roots, params:
     kind = connection_kind(conn)
     if kind == "browser" and write:
         session = core.sessions.get(session_id)
-        if not settings_gate._names_browser(conn, getattr(session, "host_tools_from", None)):
+        # Security review 7, Low 6: a session THIS browser hosts — the alias
+        # "browser" means it only while it is the one browser connected (or
+        # created the session), never any browser.
+        host = getattr(session, "host_tools_from", None)
+        if not (host and settings_gate.owns_session(
+                conn, host, None, getattr(session, "origin_client_id", None)
+                if host == settings_gate.BROWSER_ALIAS else None)):
             settings_gate.refuse(conn, "write a file in a session this browser does not host")
     elif kind == "browser" and not settings_gate.legacy_browser(conn):
         session = core.sessions.get(session_id)
@@ -595,7 +607,14 @@ def _refuse_caller(conn: Any, core: Core, session_id: str, roots: Roots, params:
         )
         if not (settings_gate._names_browser(conn, host) if host is not None else opened):
             raise RpcError(errors.NOT_FOUND, f"no such session: {session_id}")
-    if write and kind != "person" and control_file(roots.no_follow(params.path)):
+    return kind
+
+
+def _refuse_control(kind: str, target: Path) -> None:
+    """A control file is written only by a local person (``protected``)."""
+    from snowpea_core.server import settings_gate
+
+    if kind != "person" and control_file(target):
         raise RpcError(
             errors.PROTECTED,
             "a project control file (hooks, agents, commands, skills, MCP, git hooks and "
@@ -610,7 +629,14 @@ def _handler(
     async def handle(_conn: RpcConnection, params: Any, core: Core) -> T:
         roots = _roots_for(core, params.sessionId)
         try:
-            _refuse_caller(_conn, core, params.sessionId, roots, params, write)
+            kind = _refuse_caller(_conn, core, params.sessionId, write)
+            if write:
+                # Security review 7, Low 9: resolved ONCE — the path the control
+                # file rule judges is the path that is written (it used to be
+                # resolved again by the write, after a directory could be swapped).
+                target = roots.no_follow(params.path, secrets=True)
+                _refuse_control(kind, target)
+                return await asyncio.to_thread(work, roots, params, target)  # type: ignore[call-arg]
             return await asyncio.to_thread(work, roots, params)
         except RpcError:
             raise

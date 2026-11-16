@@ -31,7 +31,6 @@ from snowpea_core.server.web_remote import (
     MAX_FAILURES_GLOBAL,
     MAX_FAILURES_PER_IP,
     MAX_PARALLEL_CHECKS,
-    MAX_WAITING_PER_IP,
     RemoteAuth,
     create_remote_app,
     rate_key,
@@ -323,6 +322,7 @@ async def test_over_its_limit_an_address_is_checked_one_at_a_time(paths: Paths) 
     client, auth, _, _ = await _remote(paths)
     auth.sleep = asyncio.sleep
     auth.penalty_base = 0.01
+    auth.penalty_max = 0.05
     lock = threading.Lock()
     running = {"now": 0, "most": 0, "calls": 0}
 
@@ -342,9 +342,11 @@ async def test_over_its_limit_an_address_is_checked_one_at_a_time(paths: Paths) 
         auth.check = check  # type: ignore[method-assign]
         answers = await asyncio.gather(*(_login(client, "nope") for _ in range(12)))
         assert {a.status for a in answers} == {429}
-        assert running["most"] == 1  # one guess at a time, each after its wait
-        # No more than the queue holds are checked; the rest are answered unchecked.
-        assert 1 <= running["calls"] <= MAX_WAITING_PER_IP
+        # The queued ones go one at a time; the ones past the queue are checked
+        # too, after the longest wait (security review 7, Low 2: none is answered
+        # unchecked any more) — never more than the two check slots at once.
+        assert running["most"] <= MAX_PARALLEL_CHECKS
+        assert running["calls"] == 12
         assert auth._waiting == {} and auth._turns == {}
     finally:
         await client.close()

@@ -395,6 +395,14 @@ class HostTools:
         """True when ``conn`` has registered host tools (it is a host, not a plain client)."""
         return getattr(conn, "surface_id", None) in self._hosts
 
+    def browser_hosts(self) -> list[Any]:
+        """The open ``browser``-kind connections that are hosts now (review 7, Low 6)."""
+        return [
+            host.conn for host in self._hosts.values()
+            if not getattr(host.conn, "closed", False)
+            and getattr(host.conn, "client_kind", None) == "browser"
+        ]
+
     def owner_of(self, session: Any) -> str | None:
         """The surface id whose host tools ``session`` sees, if any."""
         if session is None:

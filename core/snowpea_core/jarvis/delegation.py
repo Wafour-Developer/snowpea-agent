@@ -159,8 +159,12 @@ class Caller:
 
     @classmethod
     def from_connection(cls, conn: Any) -> Caller:
-        """The caller an RPC handler sees; ``None`` (in-process) is ``system``."""
-        if conn is None:
+        """The caller an RPC handler sees; ``None`` (in-process) is ``system``.
+
+        A connection that has closed is nobody (security review 7, H-1): it is
+        ``system`` too, which may change nothing — never the person it was.
+        """
+        if conn is None or getattr(conn, "closed", False) is True:
             return cls(kind="system", surface="core")
         return cls(
             kind="connection",

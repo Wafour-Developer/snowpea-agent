@@ -181,6 +181,7 @@ async def learn_skill(
     *,
     global_: bool = False,
     force: bool = True,
+    who: Any = None,
 ) -> Path:
     """Summarise ``session`` into a SKILL.md; raises :class:`DefinitionError`.
 
@@ -188,7 +189,15 @@ async def learn_skill(
     every later session (``skill.learn {scope: "global"}``, 1.28.0).  Without
     ``force`` an existing SKILL.md at the target is refused rather than
     replaced; ``/skill learn`` keeps replacing it, as it always did.
+
+    ``who`` is the caller (a connection or its snapshot): a remote web login's
+    skill is judged by ``server/skill_gate.py`` (``RpcError``) before it is
+    written.  No project skill is written into snowpea's own home.
     """
+    from snowpea_core.config.project import NOT_A_PROJECT, home_problem
+
+    if not global_ and home_problem(session.workdir, _home_dir(core)) is not None:
+        raise DefinitionError(NOT_A_PROJECT)
     body = transcript(session)
     if not body.strip():
         raise DefinitionError("this session has no history to learn from yet")
@@ -210,6 +219,12 @@ async def learn_skill(
     )
     if not force and (target.is_symlink() or (target / "SKILL.md").exists()):
         raise DefinitionError(f"a skill named {name!r} already exists at {target}")
+    if who is not None:
+        from snowpea_core.server import skill_gate
+
+        skill_gate.remote_write_refusal(who, core, method="skill.learn", kind="skill", name=name,
+                                        global_=global_, content=document,
+                                        target=target / "SKILL.md")
     path = write_skill(session.workdir, name, document, home=home)
     await reload_loader(core)
     return path
@@ -264,12 +279,28 @@ async def create_skill(ctx: CommandContext, args: str) -> None:
     if path.is_file() and not force:
         await ctx.say(f"'{path}' already exists; pass --force to overwrite it.")
         return
+    from snowpea_core.config.project import NOT_A_PROJECT, home_problem
+    from snowpea_core.server import skill_gate
+    from snowpea_core.server.errors import RpcError
+
+    if not global_ and home_problem(ctx.session.workdir, _home_dir(ctx.core)) is not None:
+        await ctx.say(f"Could not create the skill: {NOT_A_PROJECT}; use --global.")
+        return
+    who = getattr(ctx, "who", None)
     provider = ctx.core.providers.get(ctx.session.provider, ctx.session.model)
     try:
+        # Security review 7, M-1: where this caller may write, before the model
+        # is asked; then the document it wrote, before it is saved.
+        skill_gate.remote_write_refusal(who, ctx.core, method="skill.create", kind="skill",
+                                        name=name, global_=global_, content=None, target=path)
         document = await generate_skill_document(provider, name, description)
+        skill_gate.content_refusal(who, ctx.core, method="skill.create", content=document)
         write_skill_document(directory, document, requested_name=name, force=force)
     except (PublishError, SkillCreateError) as exc:
         await ctx.say(f"Could not create the skill: {exc}")
+        return
+    except RpcError as exc:
+        await ctx.say(f"Could not create the skill: {exc.message}")
         return
     await reload_loader(ctx.core)
     await ctx.say(f"Created skill '{name}' at {path}. Run it with /{name}.")
@@ -428,8 +459,14 @@ async def cmd_skill(ctx: CommandContext, args: str) -> None:
         )
         return
     requested = strip_quotes(rest)
+    from snowpea_core.server.errors import RpcError
+
     try:
-        path = await learn_skill(ctx.core, ctx.session, requested)
+        path = await learn_skill(ctx.core, ctx.session, requested,
+                                 who=getattr(ctx, "who", None))
+    except RpcError as exc:  # a remote sign-in's limits (server/skill_gate.py)
+        await ctx.say(f"Could not learn a skill: {exc.message}")
+        return
     except DefinitionError as exc:
         await ctx.emit(events.error(errors.INVALID_PARAMS, str(exc)))
         await ctx.say(f"Could not learn a skill: {exc}")

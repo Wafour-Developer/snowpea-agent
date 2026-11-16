@@ -405,13 +405,49 @@ def _names_browser(conn: Any, host: Any) -> bool:
     )
 
 
+def _only_browser(conn: Any) -> bool:
+    """``conn`` is the one browser host connected now (the alias means it)."""
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    try:
+        hosts = HOST_TOOLS.browser_hosts()
+    except Exception:  # noqa: BLE001 - unknown: not the only one
+        return False
+    mine = getattr(conn, "client_id", None)
+    others = [
+        host for host in hosts
+        if host is not conn and not (mine and getattr(host, "client_id", None) == mine)
+    ]
+    return not others
+
+
+def owns_session(conn: Any, host: Any, surface: Any, creator: Any) -> bool:
+    """A browser's OWN session (security review 7, Low 6).
+
+    One this browser hosts — ``hostToolsFrom`` is its clientId or its surface
+    id — or one it created (the creating connection's clientId, recorded by the
+    server, is its own).  The alias ``"browser"`` ("whichever browser is
+    connected") and a browser-opened session with no recorded creator (stored
+    before 1.55.0) mean this browser only while it is the single browser host
+    connected; with two connected, the one that created the session.  It used
+    to be any browser's: the alias and ``originSurface: "browser"`` (which the
+    caller supplied) matched every browser.
+    """
+    mine = getattr(conn, "client_id", None)
+    if host and host in (mine, getattr(conn, "surface_id", None)):
+        return True
+    if creator and mine and creator == mine:
+        return True
+    if host == BROWSER_ALIAS or (not host and not creator and surface == BROWSER_ALIAS):
+        return _only_browser(conn)
+    return False
+
+
 async def browser_session_refusal(conn: Any, core: Any, session_id: Any, *, method: str,
                                   actor: str | None = None) -> None:
     """A browser's :data:`BROWSER_OWN_SESSION_METHODS` call: its own session, or refused.
 
-    Its own: a session this browser hosts (``hostToolsFrom`` is its clientId,
-    its surface id or the alias ``"browser"``) or one a browser opened
-    (``originSurface: "browser"``), live or stored.  Any other session is
+    Its own: :func:`owns_session`, live or stored.  Any other session is
     ``jarvis_person_only`` (``person_only``) unless the method's entry lets the
     marker open it.  Other kinds, and a session nobody knows, are not judged.
     """
@@ -420,7 +456,7 @@ async def browser_session_refusal(conn: Any, core: Any, session_id: Any, *, meth
     if connection_kind(conn) != "browser":
         return
     with_marker = BROWSER_OWN_SESSION_METHODS[method]
-    host = surface = None
+    host = surface = creator = None
     found = False
     sessions = getattr(core, "sessions", None)
     live = sessions.get(str(session_id)) if sessions is not None and session_id else None
@@ -428,6 +464,7 @@ async def browser_session_refusal(conn: Any, core: Any, session_id: Any, *, meth
         found = True
         host, surface = getattr(live, "host_tools_from", None), getattr(
             live, "origin_surface", None)
+        creator = getattr(live, "origin_client_id", None)
     elif session_id and getattr(core, "store", None) is not None:
         try:
             row = await core.store.session(str(session_id))
@@ -436,9 +473,10 @@ async def browser_session_refusal(conn: Any, core: Any, session_id: Any, *, meth
         if row:
             found = True
             host, surface = row.get("host_tools_from"), row.get("origin_surface")
+            creator = row.get("origin_client_id")
     if session_id and not found:
         return
-    if found and (_names_browser(conn, host) or surface == BROWSER_ALIAS):
+    if found and owns_session(conn, host, surface, creator):
         return
     if with_marker and acts_for_person(conn, actor):
         return
@@ -592,6 +630,9 @@ BROWSER_PERSON_METHODS: frozenset[str] = frozenset({
     "skill.install",  # but the browser's own bundled plugin: see bundled_plugin_problem
     "memory.update", "permission.allowlist.remove", "team.guide.set", "audio.install",
     "lsp.install", "system.reloadSettings",
+    # Security review 7, Low 8: removing a team guide is the same class as
+    # writing one (it was open to every browser call and to a remote login).
+    "team.guide.delete",
 })
 #: Never from a browser connection, any version, marker or not (2026-11-16: no
 #: browser page or host calls them).  ``permission.allowlist.add``: a typed rule
@@ -604,8 +645,12 @@ BROWSER_PERSON_METHODS: frozenset[str] = frozenset({
 #: open to a browser for its own sessions (:data:`BROWSER_OWN_SESSION_METHODS`),
 #: and ``fs.write`` (the host's saves into a remote session's workdir) only for
 #: a session it hosts, never a control file (``fs_handlers._refuse_caller``).
+#: ``agent.bindChannel`` (security review 7, M-1/Low 8): it routes a messenger
+#: channel to a named agent, with a stored credential — a local person's, like
+#: ``gateway.bind`` (the handler itself judged nobody).
 BROWSER_NEVER_METHODS: frozenset[str] = frozenset({
     "permission.allowlist.add", "gateway.bind", "agent.create", "agent.delete",
+    "agent.bindChannel",
 })
 #: What a browser connection may call without the marker (its own runtime and
 #: the pages that send none).  ``job.*`` never touches a ``jarvis-task`` job
@@ -726,9 +771,13 @@ REMOTE_LOGIN_METHODS: frozenset[str] = frozenset({
 #: review 6, H-1/M-4): no program to run, no install from a path or a git URL,
 #: no provider endpoint (``details.reason: "local_only"``).  ``gateway.bind``
 #: is no longer a remote login's at all.
+#: Security review 7: a skill only in the global scope and only one that widens
+#: nothing (``server/skill_gate.py``, M-1); ``audio.transcribe`` of a path only
+#: for a recording or an attachment (Info).
 REMOTE_LOGIN_NARROWED: frozenset[str] = frozenset({
     "settings.set", "mcp.add", "mcp.update", "mcp.test", "skill.install",
     "provider.configure", "job.schedule",
+    "skill.create", "skill.learn", "skill.write", "audio.transcribe",
 })
 #: What the remote connector (``snowpea remote up``, clientKind ``connector``)
 #: calls on its own connection: ``system.hello`` only (it hands the daemon's
@@ -779,9 +828,12 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "fs.write",
     "workspace.list", "workspace.add", "workspace.remove", "workspace.rename",
     "workspace.reorder",
-    # agents, teams, jobs
-    "agent.list", "agent.create", "agent.delete", "agent.spawn", "agent.bindChannel",
-    "team.start", "team.status", "team.guide.list", "team.guide.get", "team.guide.delete",
+    # agents, teams, jobs.  Security review 7, M-1/Low 8: never ``agent.create``
+    # (it writes a project's agent definition, a control file, and a named
+    # agent runs unattended), ``agent.bindChannel`` (a messenger binding) or
+    # ``team.guide.delete`` (the class of ``team.guide.set``, which was never here).
+    "agent.list", "agent.delete", "agent.spawn",
+    "team.start", "team.status", "team.guide.list", "team.guide.get",
     "job.schedule", "job.list", "job.cancel", "job.delete", "job.runNow", "job.update",
     "job.preview", "job.runs", "job.nextRunForClient",
     # reads of config and the services a person uses
@@ -824,8 +876,8 @@ BROWSER_OPEN_METHODS: frozenset[str] = frozenset({
     "file.complete", "usage.summary", "approval.list", "question.list", "approval.ask",
     "approval.evaluate",
     "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "fs.write", "workspace.list",
-    "agent.list", "agent.spawn", "agent.bindChannel",
-    "team.start", "team.status", "team.guide.list", "team.guide.get", "team.guide.delete",
+    "agent.list", "agent.spawn",
+    "team.start", "team.status", "team.guide.list", "team.guide.get",
     "job.list", "job.preview", "job.runs", "job.nextRunForClient",
     "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
     "provider.test", "mcp.list", "mcp.catalog", "skill.list", "skill.read", "skill.search",

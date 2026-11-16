@@ -59,6 +59,9 @@ class Answer:
     by: str = "unknown"
     #: The answerer was checked as a person (a ``personOnly`` question, 1.54.0).
     person: bool = False
+    #: The checked answerer's connection kind (``person_gate.connection_kind``):
+    #: a remote web login's answer keeps ``web.remote.maxMode`` (review 7).
+    person_kind: str | None = None
 
     @property
     def answered(self) -> bool:
@@ -285,8 +288,11 @@ class QuestionQueue:
                     log.warning("question %s: origin answer refused (%s)", request.requestId, why)
                     await self._refused_to_origin(entry, why)
                     return
+                from snowpea_core.server.person_gate import connection_kind
+
                 for answer in answers:
                     answer.person = True
+                    answer.person_kind = connection_kind(entry.origin_conn)
         except TimeoutError:
             answers = [
                 Answer(timed_out=True, by="timeout") for _ in range(len(request.questions))
@@ -355,8 +361,11 @@ class QuestionQueue:
             return False
         count = len(entry.request.questions)
         parsed = _padded(_answers_from(answers, by=by), count)
+        from snowpea_core.server.person_gate import connection_kind
+
         for answer in parsed:
             answer.person = person
+            answer.person_kind = connection_kind(conn) if person else None
         entry.future.set_result(parsed)
         return True
 

@@ -442,23 +442,32 @@ class RemoteAuth:
         over the per-address limit the address's attempts go one at a time,
         each after :meth:`penalty`; while the everyone-together bucket is full
         every attempt waits the penalty first.  A wrong one over a limit is
-        answered ``retry_after`` > 0 (429), as before.  More than
-        :data:`MAX_WAITING_PER_IP` attempts of one address queued at once are
-        answered 429 unchecked.
+        answered ``retry_after`` > 0 (429), as before.
+
+        Security review 7, Low 2: with :data:`MAX_WAITING_PER_IP` attempts of
+        one address queued already, a further one used to be answered 429
+        UNCHECKED — four queued wrong attempts locked out everyone behind that
+        address (an office NAT), the owner's right password included.  It now
+        skips the queue: it waits the longest penalty (:attr:`penalty_max`) and
+        is then checked like any other (password checks stay
+        :data:`MAX_PARALLEL_CHECKS` at a time).  No credential is ever refused
+        unchecked.
         """
         key = rate_key(ip)
         ip_wait = self.retry_after_ip(ip)
         global_wait = self.retry_after_global()
         delay = self.penalty(ip)
-        if ip_wait and self._waiting.get(key, 0) >= MAX_WAITING_PER_IP:
-            return False, ip_wait
+        overflow = bool(ip_wait) and self._waiting.get(key, 0) >= MAX_WAITING_PER_IP
         # Counted at once (no await since the limits were read), so attempts sent
         # in parallel cannot all slip under a limit; a right credential takes it
         # back.  An address already over its own limit no longer adds to the
         # everyone-together bucket: one address cannot slow everybody down.
         stamp = self.record_failure(ip, everyone=not ip_wait)
         started = time.monotonic()
-        if ip_wait:
+        if overflow:
+            await self.sleep(self.penalty_max)
+            passed = bool(await check())
+        elif ip_wait:
             self._waiting[key] = self._waiting.get(key, 0) + 1
             turn = self._turns.setdefault(key, asyncio.Lock())
             try:
@@ -656,8 +665,13 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
     def capability_ok(presented: str | None) -> bool:
         return auth.capability_ok(cookie, presented)
 
+    def alive() -> bool:
+        # Security review 7, Low 3: the login behind this socket still stands
+        # (not expired, its password or link unchanged) — a clock compare.
+        return auth.session(cookie) is not None
+
     return await websocket_handler(request, track=_Track(found.sockets, auth.sockets),
-                                   capability=capability_ok)
+                                   capability=capability_ok, alive=alive)
 
 
 async def remote_web_redirect(request: web.Request) -> web.Response:
