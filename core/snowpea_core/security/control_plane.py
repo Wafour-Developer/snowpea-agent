@@ -239,7 +239,8 @@ def unlisted(parts: tuple[str, ...], *, fold: bool | None = None) -> ControlEntr
     if not parts or entry_for(parts[:1], fold=fold) is not None or working(parts[0], fold=fold):
         return None
     return ControlEntry(parts[0], "write",
-                        "a file in snowpea's own folder that is not working state")
+                        "a file in snowpea's own folder that is not working state; a hook, "
+                        "plugin or extension keeps its files in $SNOWPEA_HOME/extension-data/")
 
 
 def entries_below(parts: tuple[str, ...], *, fold: bool | None = None) -> list[ControlEntry]:

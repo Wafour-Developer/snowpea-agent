@@ -56,7 +56,7 @@
 
 | 프리셋 | 보호하는 것 | 수준 |
 |---|---|---|
-| `essential`(기본으로 켜짐) | `/etc`, `/boot`, `/usr`, `/bin`, `/sbin`, `/lib*`, `/var/lib`, `/System` 은 바꾸지 않고, `/` 와 홈 폴더 자체(그리고 홈 위의 모든 폴더)는 삭제·이동·재귀 변경하지 않음. 로그인하거나 셸을 열 때 실행되는 것도 바꾸지 않음: `~/.ssh`, 셸 시작 파일(`~/.bashrc`, `~/.bash_profile`, `~/.bash_login`, `~/.bash_logout`, `~/.profile`, `~/.zshrc`, `~/.zprofile`, `~/.zshenv`, `~/.zlogin`, `~/.config/fish/config.fish`), `~/.config/autostart`, `~/.config/systemd/user`, `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` | 변경 금지 |
+| `essential`(기본으로 켜짐) | `/etc`, `/boot`, `/usr`, `/bin`, `/sbin`, `/lib*`, `/var/lib`, `/System` 은 snowpea 가 읽는 호출로는 바꾸지 않고, `/` 와 홈 폴더 자체(그리고 홈 위의 모든 폴더)는 그런 호출로 삭제·이동·재귀 변경하지 않음. 로그인하거나 셸을 열 때 실행되는 것도 그런 호출로 바꾸지 않음: `~/.ssh`, 셸 시작 파일(`~/.bashrc`, `~/.bash_profile`, `~/.bash_login`, `~/.bash_logout`, `~/.profile`, `~/.zshrc`, `~/.zprofile`, `~/.zshenv`, `~/.zlogin`, `~/.config/fish/config.fish`), `~/.config/autostart`, `~/.config/systemd/user`, `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` | 변경 금지 |
 | `credentials` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.docker`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, 비밀번호 저장소, 키링 | 접근 금지 |
 | `snowpea-home` | `$SNOWPEA_HOME`(snowpea 의 계획 파일은 계속 쓸 수 있음) | 변경 금지 |
 | `other-projects` | snowpea 가 아는 모든 프로젝트, 세션이 작업 중인 프로젝트만 제외 | 변경 금지 |
@@ -118,7 +118,9 @@ snowpea 는 호출이 실행되기 전에 그 내용을 읽고 판단합니다: 
 
 거절된 호출은 `blocked by the security list: security — $SNOWPEA_HOME/token …` 처럼 표시됩니다. "물어봄"은 사용자만 답할 수 있습니다. 자비스가 결정하지 않으며, 답을 기억하지도 않습니다.
 
-snowpea 는 자기 파일도 조심해서 씁니다. 파일마다 옆에 임의의 이름으로 새 파일을 써서 제자리로 옮기며, 심볼릭 링크인 파일(또는 사용자 소유가 아닌 파일)에는 쓰지 않고, 그런 파일을 `settings.json`, `credentials.json`, `.mcp.json`, `hooks.json`, `daemon.json` 으로 불러오지도 않습니다. 대신 로그에 이유를 남깁니다.
+snowpea 는 자기 파일도 조심해서 씁니다. 파일마다 옆에 임의의 이름으로 새 파일을 써서 제자리로 옮기며, 심볼릭 링크인 파일(또는 사용자 소유가 아닌 파일)에는 쓰지 않고, 그런 파일을 `credentials.json`, `.mcp.json`, `hooks.json`, `daemon.json` 으로 불러오지도 않습니다. 대신 로그에 이유를 남기며, 그 파일의 내용은 쓰지 않습니다: 저장된 자격 증명, 그 파일의 MCP 서버나 훅, 그 파일로 찾은 데몬 모두 쓰지 않습니다. `credentials.json` 의 경우 로그와 보안 화면이 파일 이름과 고치는 법(링크를 파일 자체로 바꾸기)을 알려 줍니다.
+
+`settings.json` 은 예외입니다. dotfile 관리 도구(stow, chezmoi, home-manager)가 이 파일을 링크로 두기 때문입니다. 사용자 소유의 일반 파일을 가리키는 링크는 따라갑니다. snowpea 는 그 파일을 읽고, 바뀐 내용을 그 파일에 씁니다(링크는 링크로 남고, 파일의 권한도 그대로입니다). 그리고 그 파일이 어디에 있든 `settings.json` 과 똑같이 보호합니다. 셸 명령, 코드, `fs.write`, 파일 도구가 그 파일에 쓰려 하면 `settings.json` 과 같이 거절하거나 묻습니다. 세션에서 그런 링크를 만들면 사용자에게 묻습니다(`$SNOWPEA_HOME` 안에 만드는 링크는 항상 묻습니다). 다른 것을 가리키는 링크(폴더, 사용자 소유가 아닌 파일, 없는 파일, 순환)는 쓰지 않습니다. 그때는 읽을 수 없는 파일과 같이 시작합니다(아래).
 
 ## snowpea 가 읽지 않는 것
 
@@ -137,13 +139,13 @@ snowpea 는 자기 파일도 조심해서 씁니다. 파일마다 옆에 임의�
 
 가장 중요한 두 기록에는 어떤 명령도 읽지 않는 두 번째 장치가 있습니다. snowpea 가 실행 중인 동안에는 신뢰한 프로젝트 기록(`trust/`)과 자비스의 위임 규칙(`jarvis/delegation.db`)의 사본을 메모리에 직접 가지고 있습니다. 모든 판단은 파일을 다시 읽은 내용이 아니라 이 사본으로 하며, 사본은 snowpea 자신이 쓸 때만 바뀝니다. snowpea 는 기록을 쓰기 전에 파일을 확인합니다. 다른 무언가가 파일을 바꾸거나 바꿔치기하거나 지웠다면, 또는 위임 규칙 데이터베이스 옆에 저널 파일을 남겼다면, snowpea 는 그 변경을 쓰지 않고 자기 사본을 되돌려 놓고 `logs/security.jsonl` 에 한 줄을 남기고 사용자에게 알립니다("snowpea 밖의 무언가가 신뢰한 프로젝트 기록을 바꿨습니다 … snowpea 는 그 변경을 쓰지 않고 자기 사본을 유지했습니다". 보안 화면에도 나옵니다). 자비스 규칙의 경우에는 자비스 알림으로 옵니다. 파일이 거듭 바뀌면 처음 한 번은 바로, 그 뒤로는 1분에 한 번까지 횟수와 함께 알립니다. 파일을 되돌리지 못했다면 알림에 그렇게 적힙니다.
 
-이 감시는 snowpea 가 실행 중일 때만 동작합니다. snowpea 가 꺼져 있으면 지켜보는 것이 없고, 다음에 시작할 때는 파일을 있는 그대로 받아들입니다. 사용자 권한으로 실행되는 프로그램은 snowpea 를 멈출 수도 있습니다.
+이 감시는 snowpea 가 실행 중일 때만 동작합니다. snowpea 가 꺼져 있으면 지켜보는 것이 없고, 다음에 시작할 때는 파일을 있는 그대로 받아들입니다. 다만 위임 규칙 데이터베이스 옆의 저널이나 WAL 파일은 읽지 않고 지웁니다. 사용자 권한으로 실행되는 프로그램은 snowpea 를 멈출 수도 있습니다.
 
 ### 사용자를 기다리는 설정
 
-`settings.json` 은 손으로 고칠 수 있고, 대부분은 전처럼 바로 반영됩니다. 프로그램을 실행하거나 권한을 넓힐 수 있는 설정은 snowpea 가 실행 중일 때 파일을 고친 것만으로는 적용되지 않습니다: `security`(목록과 `unknownCode`), `jarvis`, `web.remote`, 허용 규칙(`allowlist`), MCP 권한, 그리고 프로그램이나 snowpea 가 호출하는 주소나 snowpea 자체 코드를 가리키는 모든 설정 — MCP 서버의 명령과 주소, 언어 서버, `media.mcp`, 오디오 재생기·녹음기·음성 명령, 제공자의 base URL, 확장, 스킬 레지스트리, 업데이트 채널. snowpea 는 가지고 있던 값을 유지하고 "settings.json 이 디스크에서 바뀌었습니다: 프로그램을 실행하거나 권한을 넓힐 수 있는 설정(…)이 적용되지 않고 확인을 기다립니다"라고 알린 뒤, 사용자가 로컬 연결(IDE, TUI, CLI, 로컬 웹 페이지)에서 적용하라고 할 때만 적용합니다. 고친 내용을 버릴 수도 있으며, 그러면 snowpea 가 가진 값을 파일에 다시 씁니다. 설정 화면과 보안 화면에서 같은 설정을 바꾸는 것은 전과 똑같이 됩니다. 다른 설정과 API 키는 전처럼 바로 반영됩니다.
+`settings.json` 은 손으로 고칠 수 있고, 대부분은 전처럼 바로 반영됩니다. 프로그램을 실행하거나 권한을 넓힐 수 있는 설정은 snowpea 가 실행 중일 때 파일을 고친 것만으로는 적용되지 않습니다: `security`(목록과 `unknownCode`), `jarvis`, `web.remote`, 허용 규칙(`allowlist`), MCP 권한, 그리고 프로그램이나 snowpea 가 호출하는 주소나 snowpea 자체 코드를 가리키는 모든 설정 — MCP 서버의 명령과 주소, 언어 서버, `media.mcp`, 오디오 재생기·녹음기·음성 명령, 제공자의 base URL, 검색·브라우저 자격 증명과 제공자 블록, 메신저 블록의 주소 모양 필드(이름이 `url`, `uri`, `endpoint`, `host`, `proxy` 로 끝나는 것: `base_url`, `baseUrl`, `SEARXNG_URL` 등), 확장, 스킬 레지스트리, 업데이트 채널. snowpea 는 가지고 있던 값을 유지하고 "settings.json 이 디스크에서 바뀌었습니다: 프로그램을 실행하거나 권한을 넓힐 수 있는 설정(…)이 적용되지 않고 확인을 기다립니다"라고 알린 뒤, 사용자가 로컬 연결(IDE, TUI, CLI, 로컬 웹 페이지)에서 적용하라고 할 때만 적용합니다. 고친 내용을 버릴 수도 있으며, 그러면 snowpea 가 가진 값을 파일에 다시 씁니다. 설정 화면과 보안 화면에서 같은 설정을 바꾸는 것은 전과 똑같이 됩니다. 다른 설정과 API 키는 전처럼 바로 반영됩니다.
 
-시작할 때는 `settings.json` 을 있는 그대로 받아들입니다.
+시작할 때는 `settings.json` 을 있는 그대로 받아들입니다. 다만 사용자 소유의 일반 파일이 아니거나(사용자 파일을 가리키는 링크는 따라갑니다. 위를 보세요) 올바르지 않으면 다릅니다. 그때는 해당 섹션이 기본값을 씁니다(파일을 아예 읽을 수 없으면 모든 섹션). `security` 는 기본 보안 목록에 알 수 없는 코드는 묻기로, `web` 은 원격 접속이 꺼진 채로입니다. 보안 화면과 `snowpea daemon status` 가 이를 알려 주고, 원래 파일은 `settings.json.invalid` 로 남깁니다. 파일 전체를 읽을 수 없는 동안에는 snowpea 가 그 파일을 덮어쓰지 않습니다. 설정을 바꾸려 하면 "… could not be read, so snowpea runs on defaults and does not write over it" 이라며 거절하고, 파일을 고친 뒤 snowpea 를 다시 시작하거나 설정을 다시 읽게 하면 됩니다. 일부 섹션만 올바르지 않으면 나머지는 그대로 쓰고 평소처럼 저장하며, 올바르지 않은 섹션을 설정하면 그 섹션이 바뀝니다.
 
 ## snowpea 가 확인할 수 없는 줄
 
