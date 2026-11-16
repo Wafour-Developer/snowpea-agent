@@ -33,9 +33,12 @@ import logging
 import os
 import posixpath
 import re
+import stat
+import sys
 import tempfile
+import unicodedata
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +117,9 @@ class Verdict:
     unseen: tuple[str, ...] = ()
     #: For a protected path hit: the entry's level.
     level: str | None = None
+    #: ``(path, digest)`` of every script file the call runs, as judged (H4): an
+    #: answer to a question about it holds only while they are unchanged.
+    scripts: tuple[tuple[str, str], ...] = ()
 
     def to_wire(self) -> dict[str, Any]:
         out: dict[str, Any] = {"blocked": self.blocked, "by": self.by, "why": self.why,
@@ -349,8 +355,35 @@ def _shape(effect_raw: str, cwd: Path | None, ctx: Context) -> _Shape | None:
     return _Shape(concrete=tuple(dict.fromkeys((written, _real(written)))))
 
 
+#: Case-insensitive file systems by default (security review 5, M5): macOS and
+#: Windows compare names without case (and macOS without NFC/NFD differences).
+_FOLD_CASE = sys.platform in ("darwin", "win32")
+
+
+def _fold_text(text: str) -> str:
+    return unicodedata.normalize("NFC", text).casefold()
+
+
+def _fold(path: Path) -> Path:
+    return Path(_fold_text(str(path)))
+
+
+def _folded(entry: catalog.PathEntry, shape: _Shape) -> tuple[catalog.PathEntry, _Shape]:
+    entry = replace(entry, path=_fold(entry.path),
+                    exempt=tuple(_fold(e) for e in entry.exempt))
+    shape = _Shape(
+        concrete=tuple(_fold(p) for p in shape.concrete),
+        pattern=[_fold_text(p) for p in shape.pattern] if shape.pattern is not None else None,
+        open_end=shape.open_end,
+        base=_fold(shape.base) if shape.base is not None else None,
+    )
+    return entry, shape
+
+
 def _effect_hits(effect: sh.Effect, entry: catalog.PathEntry, shape: _Shape) -> str | None:
     """``"self"`` (on or below the entry) / ``"ancestor"`` when ``effect`` breaks ``entry``."""
+    if _FOLD_CASE:
+        entry, shape = _folded(entry, shape)
     write = effect.kind == "write"
     if not write and entry.level != "all":
         return None
@@ -385,6 +418,18 @@ def _effect_hits(effect: sh.Effect, entry: catalog.PathEntry, shape: _Shape) -> 
     return None
 
 
+def _hard_linked(shape: _Shape) -> bool:
+    """An existing regular file the effect writes has another name (``st_nlink > 1``)."""
+    for path in shape.concrete[:1]:
+        try:
+            info = os.lstat(path)
+        except (OSError, ValueError):
+            continue
+        if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+            return True
+    return False
+
+
 def _path_verdict(effects: Iterable[sh.Effect], entries: list[catalog.PathEntry],
                   ctx: Context) -> tuple[Verdict | None, list[str]]:
     """The first protected path an effect breaks, and why any effect could not be judged."""
@@ -401,6 +446,10 @@ def _path_verdict(effects: Iterable[sh.Effect], entries: list[catalog.PathEntry]
             if reason not in unseen:
                 unseen.append(reason)
             continue
+        if effect.kind == "write" and _hard_linked(shape) and "hard-linked" not in unseen:
+            # Security review 5, M6: a file with more than one name may be a
+            # protected file under another name; which one cannot be seen.
+            unseen.append("hard-linked")
         for entry in entries:
             hit = _effect_hits(effect, entry, shape)
             if hit is None:
@@ -530,10 +579,32 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         unseen.extend(view.opaque)
     if entries:
         unseen.extend(path_unseen)
+    scripts = tuple(dict.fromkeys(view.scripts))
+    _note_writes(effects, ctx)
     if unseen:
         return Verdict(opaque=True, reason=UNCHECKED_REASON,
-                       why=message("unchecked", ctx.locale), unseen=tuple(dict.fromkeys(unseen)))
-    return ALLOWED
+                       why=message("unchecked", ctx.locale), unseen=tuple(dict.fromkeys(unseen)),
+                       scripts=scripts)
+    return Verdict(scripts=scripts) if scripts else ALLOWED
+
+
+def _note_writes(effects: Iterable[sh.Effect], ctx: Context) -> None:
+    """Files a call that is let through writes: a script among them is the agent's own
+    (H4 b: then what cannot be read of it is opaque, however old its timestamp)."""
+    from snowpea_core.security.code import note_write
+
+    for effect in effects:
+        if effect.kind == "write" and not effect.dynamic:
+            expanded = ctx.expand(effect.raw, effect.cwd)
+            if expanded is not None and not re.search(r"[*?\[]", expanded):
+                note_write(expanded)
+
+
+def scripts_changed(verdict: Verdict) -> list[str]:
+    """The scripts ``verdict`` judged whose content is not what it judged any more."""
+    from snowpea_core.security.code import digest_now
+
+    return [path for path, digest in verdict.scripts if digest_now(path) != digest]
 
 
 def check_path(path: str, lists: Lists, ctx: Context, *, write: bool = True) -> Verdict:
@@ -786,9 +857,11 @@ def _check_call(tool: str, args: dict[str, Any], lists: Lists, ctx: Context,
     if lists.empty:
         return ALLOWED
     if code:
+        language = args.get("language") or args.get("lang") or "python"
         view = sh.code_view(code, cwd=str(ctx.workdir) if ctx.workdir else None,
                             home=str(ctx.home) if ctx.home else None,
-                            user_home=str(ctx.user_home))
+                            user_home=str(ctx.user_home),
+                            language=language if isinstance(language, str) else "python")
     return _judge_view(view, lists, ctx, extra_effects=extra)
 
 

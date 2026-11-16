@@ -634,6 +634,16 @@ class ApprovalQueue:
         if not self.count(session.id):
             await self._announce_status(session.id, "running", entry.host)
         decision = guard_scope(request, decision, entry.workdir)
+        if decision.decision == "allow" and getattr(security, "scripts", ()):
+            # Security review 5, H4: the answer covers the scripts as they were
+            # judged; one swapped while the question was open is not run.
+            from snowpea_core.security.check import scripts_changed
+
+            changed = scripts_changed(security)
+            if changed:
+                decision = Decision("deny", "once", "security", errors.SECURITY_BLOCKED,
+                                    reason="the script changed after you were asked: "
+                                    + ", ".join(changed[:3]))
         await self._resolve(
             request,
             decision,

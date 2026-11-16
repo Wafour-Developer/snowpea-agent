@@ -158,6 +158,14 @@ def from_raw(raw: Any, *, where: str = "settings", defaults: bool = True) -> Lis
     path_presets = paths.get("presets") if "presets" in paths else (
         list(catalog.DEFAULT_PATH_PRESETS) if defaults else []
     )
+    # Security review 5, L2: a preset value that is not a list never means
+    # "no protection" — the defaults, and a problem security.get shows.
+    if not isinstance(command_presets, list):
+        problems.append(f"{where} blockedCommands: presets must be a list; read as the defaults")
+        command_presets = list(catalog.DEFAULT_COMMAND_PRESETS) if defaults else []
+    if not isinstance(path_presets, list):
+        problems.append(f"{where} protectedPaths: presets must be a list; read as the defaults")
+        path_presets = list(catalog.DEFAULT_PATH_PRESETS) if defaults else []
     return Lists(
         command_presets=tuple(_clean_presets(command_presets, catalog.COMMAND_PRESET_IDS,
                                              f"{where} blockedCommands", problems)),

@@ -980,6 +980,27 @@ def _coerce_strings(value: Any) -> Any:
     return [item for item in value if isinstance(item, str)]
 
 
+#: What a hand-edited ``security.*.presets`` that is not a list was read as
+#: (security review 5, L2): ``security.get`` reports these.  Keyed by section.
+SECURITY_PRESET_PROBLEMS: dict[str, str] = {}
+
+
+def _coerce_presets(section: str) -> Any:
+    """A non-list ``presets`` (``"essential"``, ``null``) means the defaults, never
+    "no protection", and is reported (security review 5, L2)."""
+
+    def coerce(value: Any) -> Any:
+        if isinstance(value, list):
+            SECURITY_PRESET_PROBLEMS.pop(section, None)
+            return [item for item in value if isinstance(item, str)]
+        SECURITY_PRESET_PROBLEMS[section] = (
+            f"security.{section}.presets must be a list; {value!r} was read as the defaults "
+            "(essential)")
+        return ["essential"]
+
+    return coerce
+
+
 class SecurityBlockedCommands(_Model):
     """``security.blockedCommands`` (protocol 1.54.0, ``docs/manual/en/security.md``).
 
@@ -994,7 +1015,8 @@ class SecurityBlockedCommands(_Model):
     #: Command patterns (:mod:`snowpea_core.security.patterns`).
     custom: list[str] = Field(default_factory=list)
 
-    _strings = field_validator("presets", "custom", mode="before")(_coerce_strings)
+    _presets = field_validator("presets", mode="before")(_coerce_presets("blockedCommands"))
+    _strings = field_validator("custom", mode="before")(_coerce_strings)
 
 
 class SecurityProtectedPaths(_Model):
@@ -1003,7 +1025,7 @@ class SecurityProtectedPaths(_Model):
     presets: list[str] = Field(default_factory=lambda: ["essential"])
     custom: list[SecurityProtectedPath] = Field(default_factory=list)
 
-    _strings = field_validator("presets", mode="before")(_coerce_strings)
+    _strings = field_validator("presets", mode="before")(_coerce_presets("protectedPaths"))
     _custom = field_validator("custom", mode="before")(_coerce_protected)
 
 

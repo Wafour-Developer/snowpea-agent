@@ -17,9 +17,17 @@ instead of a verdict, collects:
   ``-c`` body or a here-document built from variables, a shell reading a pipe
   (``… | sh``, an encoded payload), a line the parser cannot split.
 
-A script a line runs (``./x.sh``, ``python tool.py``) is not read; inline
-interpreter code (``python -c``, ``node -e``) is searched for string literals
-that are command lines, as a best effort.  Nothing here runs anything.
+Inline interpreter code (``python -c``, ``node -e``, ``perl -e``, ``ruby -e``,
+``php -r``) is analysed by :mod:`snowpea_core.security.code` (security review
+5, H4): its destructive and spawning primitives become the commands and
+effects they stand for, a non-literal one makes the line opaque; its string
+literals that read as command lines are judged too.  A script FILE a line runs
+(``bash x.sh``, ``python tool.py``, ``./x``, ``source x``) is read (size-capped):
+a shell script through this same walk, other languages through the code
+analysis; what cannot be read counts as opaque when the file is recent (the
+agent's own), and a script's own opaque parts count only then too.  Every
+script read is recorded with its digest (:attr:`ShellView.scripts`), so a
+swap between a question and its answer is caught.  Nothing here runs anything.
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from snowpea_core.jarvis import classify as _c
+from snowpea_core.security import code as _code
 
 #: Programs whose path operands this module judges itself (the classifier's
 #: generic write handling does not say what is deleted or moved).
@@ -124,6 +133,8 @@ class ShellView:
     texts: list[str] = field(default_factory=list)
     #: Commands found in string literals of inline code (best effort, never opaque).
     literal_commands: list[Command] = field(default_factory=list)
+    #: ``(path, digest)`` of every script file the line runs, as read now.
+    scripts: list[tuple[str, str]] = field(default_factory=list)
 
 
 class _Probe(_c._Judge):
@@ -257,15 +268,25 @@ class _Probe(_c._Judge):
         program = _c._program(words[0])
         family = _c._family(program)
         rest, rest_dyn = words[1:], dynamic[1:]
+        if program == "toybox" and rest:
+            # ``toybox rm -rf /``: like busybox, the applet named next runs (review 5, H4 c).
+            return self.words(rest, rest_dyn, cwd, depth + 1, piped_in=piped_in,
+                              heredoc=heredoc, stdin_args=stdin_args)
         if self._hidden_command(program, family, rest, rest_dyn, cwd, depth, piped_in, heredoc):
             return cwd
+        if program in ("tar", "bsdtar", "gtar", "zip"):
+            self._archive_removal(program, rest, rest_dyn, cwd)
         own = program in _OWN_WRITE_PROGRAMS
         if own:
             self._own_writes(program, rest, rest_dyn, cwd)
         if program in ("git",) or family == "git":
             self._git_tree(rest, rest_dyn, cwd)
         if family in _c.INTERPRETERS and self.literals:
-            self._inline_literals(family, rest)
+            if not self._inline_literals(family, rest, cwd, depth):
+                self._interpreter_script(family, rest, rest_dyn, cwd, depth)
+        elif self.literals and "/" in words[0].replace("\\", "/") and not dynamic[0]:
+            # ``./x``, ``scripts/x``, ``/opt/tool/run``: the file itself runs.
+            self._script(words[0], cwd, depth, "shell")
         self._own.append(own)
         self._context.append(program)
         try:
@@ -299,7 +320,12 @@ class _Probe(_c._Judge):
             self._body(" ".join(rest), any(rest_dyn), cwd, depth, "eval")
             return handled
         if program in ("source", "."):
-            return False  # a script: not read (stated limit), judged like any program
+            if rest and self.literals:
+                if rest_dyn[0]:
+                    self._opaque("script-dynamic")
+                else:
+                    self._script(rest[0], cwd, depth, "shell")
+            return False
         if family in _c.SHELLS and family != "busybox":
             self._shell(family, rest, rest_dyn, cwd, depth, piped_in, heredoc)
             return handled
@@ -374,7 +400,12 @@ class _Probe(_c._Judge):
             return
         script = rest[len(options)] if len(rest) > len(options) else None
         if script is not None and not any(w in ("-s", "--stdin") for w in options):
-            return  # runs a script file: not read (a stated limit)
+            # Runs a script file: read it (security review 5, H4).
+            if rest_dyn[len(options)]:
+                self._opaque("script-dynamic")
+            elif self.literals:
+                self._script(script, cwd, depth, "shell")
+            return
         cmd = self._cmd
         if heredoc and cmd is not None and cmd.stdin_text is not None:
             self._body(cmd.stdin_text, cmd.stdin_dynamic, cwd, depth, "shell-stdin")
@@ -384,8 +415,10 @@ class _Probe(_c._Judge):
         )):
             self._opaque("shell-stdin")
 
-    def _inline_literals(self, family: str, rest: list[str]) -> None:
-        """String literals of inline code (``python -c``) that read as command lines."""
+    def _inline_literals(self, family: str, rest: list[str], cwd: Path | None,
+                         depth: int) -> bool:
+        """Inline code (``python -c``): its primitives (H4) and its string literals
+        that read as command lines.  True when the line carried inline code."""
         flags = _c.INTERPRETERS.get(family, frozenset())
         code: list[str] = []
         for index, word in enumerate(rest):
@@ -394,8 +427,97 @@ class _Probe(_c._Judge):
             elif any(word.startswith(flag) and len(word) > len(flag) for flag in flags
                      if len(flag) == 2):
                 code.append(word[2:])
+        language = _code.LANGUAGES.get(family)
         for text in code:
             literal_commands(text, self.request, self.view)
+            if language is not None:
+                self.apply_code(_code.analyse(text, language), cwd, depth, count_opaque=True)
+        return bool(code)
+
+    # -- code and scripts (security review 5, H4) --------------------------------
+    def apply_code(self, finding: _code.Finding, cwd: Path | None, depth: int, *,
+                   count_opaque: bool) -> None:
+        """Add what code would do: its commands, its shell lines, its writes."""
+        for words in finding.commands:
+            if not words:
+                continue
+            self.view.commands.append(Command(words=list(words), dynamic=[False] * len(words),
+                                              cwd=cwd, line=max(self._line, 0),
+                                              index=self._index))
+            self.view.texts.append(" ".join(words))
+        for raw, destructive, recursive in finding.writes:
+            self._effect(raw, cwd, "write", destructive=destructive, recursive=recursive,
+                         program="code")
+        for text in finding.lines:
+            if count_opaque:
+                self.line(text, cwd, depth + 1)
+            else:
+                sub = ShellView()
+                probe = _Probe(self.request, sub)
+                probe.line(text, cwd, depth + 1)
+                self._merge(sub, count_opaque=False)
+        if count_opaque:
+            for why in finding.opaque:
+                self._opaque(why)
+
+    def _merge(self, sub: ShellView, *, count_opaque: bool) -> None:
+        self.view.commands.extend(sub.commands)
+        self.view.effects.extend(sub.effects)
+        self.view.texts.extend(sub.texts)
+        self.view.literal_commands.extend(sub.literal_commands)
+        self.view.scripts.extend(sub.scripts)
+        if count_opaque:
+            for why in sub.opaque:
+                self._opaque(why)
+
+    def _interpreter_script(self, family: str, rest: list[str], rest_dyn: list[bool],
+                            cwd: Path | None, depth: int) -> None:
+        """``python x.py`` / ``node x.js`` / ``perl x.pl``: read the script it runs."""
+        language = _code.LANGUAGES.get(family)
+        if language is None:
+            return
+        valued = {
+            "python": frozenset({"-m", "-W", "-X", "-Q"}),
+            "node": frozenset({"-r", "--require", "--import", "--loader", "--env-file",
+                               "--conditions", "-C", "--inspect-port"}),
+            "ruby": frozenset({"-I", "-r", "-C", "-E", "-K", "-T"}),
+            "perl": frozenset({"-I", "-M", "-m", "-x"}),
+        }.get(language, frozenset())
+        options = _c._leading_options(rest, valued=valued)
+        if "-m" in options and language == "python":
+            return  # a module, not a file
+        if len(rest) <= len(options):
+            return
+        index = len(options)
+        if rest[index] == "-":
+            return
+        if rest_dyn[index]:
+            self._opaque("script-dynamic")
+            return
+        self._script(rest[index], cwd, depth, language)
+
+    def _script(self, raw: str, cwd: Path | None, depth: int, default: str) -> None:
+        """Read the script file ``raw`` and judge its text (H4 b)."""
+        if depth > MAX_DEPTH:
+            self._opaque("nesting")
+            return
+        script = _code.read_script(raw, cwd, default=default)
+        if script is None:
+            return
+        self.view.scripts.append((script.path, script.digest))
+        if script.text is None:
+            if script.recent:
+                self._opaque(f"script-{script.digest if ':' not in script.digest else 'binary'}")
+            return
+        if script.language == "shell":
+            sub = ShellView()
+            _Probe(self.request, sub).line(script.text, cwd, depth + 1)
+            # A pre-existing script the person owns: what it plainly does is
+            # judged, what it computes is not held against it.
+            self._merge(sub, count_opaque=script.recent)
+            return
+        finding = _code.analyse(script.text, script.language)
+        self.apply_code(finding, cwd, depth, count_opaque=script.recent)
 
     # -- writes this module judges itself -------------------------------------
     def _own_writes(  # noqa: C901 - one table of the write programs, kept together
@@ -455,9 +577,17 @@ class _Probe(_c._Judge):
         else:
             sources, dest = operands, None
         moving = program == "mv"
+        symbolic = program == "ln" and any(
+            w in ("--symbolic",) or (w.startswith("-") and not w.startswith("--") and "s" in w[1:])
+            for w in rest
+        )
         for word, dyn in sources:
             if moving:
                 self._effect(word, cwd, "write", destructive=True, dynamic=dyn)
+            elif program == "ln" and not symbolic:
+                # A hard link is the same file under a new name: whatever is later
+                # written through it is written to the source (security review 5, M6).
+                self._effect(word, cwd, "write", dynamic=dyn)
             elif program != "ln":
                 self._effect(word, cwd, "read", recursive=recursive, dynamic=dyn)
         if dest is None:
@@ -474,6 +604,34 @@ class _Probe(_c._Judge):
                 if name and not dyn and name not in (".", ".."):
                     self._effect(str(landing / name), None, "write", recursive=tree,
                                  dynamic=dest[1])
+
+    def _archive_removal(self, program: str, rest: list[str], rest_dyn: list[bool],
+                         cwd: Path | None) -> None:
+        """``tar --remove-files`` / ``zip -m``: the sources are deleted once archived."""
+        if program == "zip":
+            moves = any(w == "--move" or (w.startswith("-") and not w.startswith("--")
+                                          and "m" in w[1:]) for w in rest)
+            if not moves:
+                return
+            operands = _c._operands(rest, rest_dyn, frozenset({"-b", "-n", "-t", "-tt", "-x",
+                                                               "-i", "-P", "--password", "-O",
+                                                               "--output-file", "-s", "-Z"}))
+            sources = operands[1:]
+        else:
+            if not any(w.startswith("--remove-f") for w in rest):
+                return
+            operands = _c._operands(rest, rest_dyn, frozenset(
+                {"-f", "--file", "-C", "--directory", "-T", "--files-from", "-X",
+                 "--exclude-from", "-b", "--blocking-factor", "-H", "--format", "-I",
+                 "--use-compress-program", "--exclude"}))
+            if operands and not operands[0][0].startswith("-") and "/" not in operands[0][0] \
+                    and re.fullmatch(r"[A-Za-z]*f[A-Za-z]*", operands[0][0]) and not any(
+                        w.startswith("-") and "f" in w[1:] for w in rest if not w.startswith("--")):
+                operands = operands[2:]  # ``tar cf a.tar --remove-files …``: letters, archive
+            sources = operands
+        for word, dyn in sources:
+            self._effect(word, cwd, "write", destructive=True, recursive=True, dynamic=dyn,
+                         program=program)
 
     def _git_tree(self, rest: list[str], rest_dyn: list[bool], cwd: Path | None) -> None:
         """A git command that rewrites (or cleans) the working tree it runs in."""
@@ -677,15 +835,19 @@ def view(
 
 
 def code_view(code: str, *, cwd: str | None, home: str | None = None,
-              user_home: str | None = None) -> ShellView:
-    """``execute_code``'s code: only its string literals that read as command lines."""
+              user_home: str | None = None, language: str = "python") -> ShellView:
+    """``execute_code``'s code: its primitives (security review 5, H4) and its string
+    literals that read as command lines.  Never raises (a failure is opaque)."""
     result = ShellView()
     request = _c.ClassifyRequest(tool="shell", args={}, workdir=cwd, home=home,
                                  user_home=user_home)
     try:
         literal_commands(code, request, result)
-    except Exception:  # noqa: BLE001
-        pass
+        probe = _Probe(request, result)
+        lang = _code.LANGUAGES.get(_c._family(str(language or "python").lower()), "python")
+        probe.apply_code(_code.analyse(code, lang), probe.ctx.workdir, 0, count_opaque=True)
+    except Exception:  # noqa: BLE001 - a bug here makes the code unseeable, never allowed
+        result.opaque.append("internal")
     return result
 
 
