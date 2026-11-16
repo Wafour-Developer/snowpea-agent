@@ -47,9 +47,48 @@ def _projects_trusted_for_external_clis(request: pytest.FixtureRequest) -> Itera
         ProjectTrust.trusted = original  # type: ignore[method-assign]
 
 
+@pytest.fixture(autouse=True)
+def _tests_may_set_modes_directly(request: pytest.FixtureRequest) -> Iterator[None]:
+    """A test that builds a session in a mode calls the manager itself (security review 4).
+
+    In production every caller of ``SessionManager.create(mode=…)`` and
+    ``set_mode`` names who it is (``session/mode_guard.py``); one that names no
+    one may only keep or lower the mode.  The suites written before that
+    review set up sessions in auto from the test body, as the test harness;
+    that harness is named here.  Tests marked ``real_mode_guard`` see the real
+    rule.  Patched by hand, as ``_projects_trusted_for_external_clis`` is.
+    """
+    if request.node.get_closest_marker("real_mode_guard") is not None:
+        yield
+        return
+    from snowpea_core.session.manager import SessionManager
+    from snowpea_core.session.mode_guard import ModeCaller
+
+    harness = ModeCaller.internal("test-harness")
+    original_create = SessionManager.create
+    original_set_mode = SessionManager.set_mode
+
+    async def create(self, *args, caller=None, **kwargs):  # type: ignore[no-untyped-def]
+        return await original_create(self, *args, caller=caller or harness, **kwargs)
+
+    async def set_mode(self, *args, caller=None, **kwargs):  # type: ignore[no-untyped-def]
+        return await original_set_mode(self, *args, caller=caller or harness, **kwargs)
+
+    SessionManager.create = create  # type: ignore[method-assign]
+    SessionManager.set_mode = set_mode  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        SessionManager.create = original_create  # type: ignore[method-assign]
+        SessionManager.set_mode = original_set_mode  # type: ignore[method-assign]
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "real_trust: external CLI project trust is not pre-granted (M4)"
+    )
+    config.addinivalue_line(
+        "markers", "real_mode_guard: in-process mode raises are not pre-granted (review 4)"
     )
 
 

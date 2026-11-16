@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import builtins
 import contextlib
-import difflib
 import hashlib
 import json
 import logging
@@ -794,11 +793,11 @@ def _binary(data: bytes | None) -> bool:
 
 
 def _patch(path: str, current: bytes | None, before: bytes | None) -> str:
-    current_text = (current or b"").decode("utf-8").splitlines(keepends=True)
-    before_text = (before or b"").decode("utf-8").splitlines(keepends=True)
-    return "".join(
-        difflib.unified_diff(current_text, before_text, fromfile=f"a/{path}", tofile=f"b/{path}")
-    )
+    # Split on "\n" only, with the no-newline marker (browser peer, 2026-11-16).
+    from snowpea_core.util.udiff import unified
+
+    return unified((current or b"").decode("utf-8"), (before or b"").decode("utf-8"),
+                   f"a/{path}", f"b/{path}")
 
 
 __all__ = [

@@ -498,6 +498,12 @@ class _Cmd:
     heredoc: bool = False
     #: Per word: it came out of a brace expansion (``{a,b}``, ``{1..3}``).
     braced: list[bool] = field(default_factory=list)
+    #: The text a here-string or here-document feeds the command (the security
+    #: lists read a shell's script from it); ``None`` without one.
+    stdin_text: str | None = None
+    #: That text is expanded by the shell (an unquoted delimiter with ``$``/backticks,
+    #: or a here-string with an expansion): what the command reads is not known.
+    stdin_dynamic: bool = False
 
 
 #: Most words one brace expansion may produce before the line is opaque.
@@ -602,7 +608,7 @@ class _Scanner:
         self.in_word = False
         self.dynamic = False
         self.pending_redirect: str | None = None
-        self.pending_heredocs: list[tuple[str, bool, bool]] = []
+        self.pending_heredocs: list[tuple[str, bool, bool, _Cmd]] = []
         #: The word being read had a quote or a backslash in it.
         self.quoted = False
         self.piped_in = False
@@ -629,10 +635,12 @@ class _Scanner:
                 raise _Opaque("brace-redirect")
             target = expanded[0] if expanded else ""
             if operator in ("<<", "<<-"):
-                self.pending_heredocs.append((text, operator == "<<-", self.quoted))
+                self.pending_heredocs.append((text, operator == "<<-", self.quoted, self.cmd))
                 self.cmd.heredoc = True
             elif operator == "<<<":
                 self.cmd.heredoc = True
+                self.cmd.stdin_text = text
+                self.cmd.stdin_dynamic = self.dynamic
             else:
                 self.cmd.redirects.append((operator, target, self.dynamic))
         elif text in ("{", "}") and not self.dynamic and not self.quoted:
@@ -665,7 +673,8 @@ class _Scanner:
     # -- here-documents ----------------------------------------------------
     def _read_heredocs(self) -> None:
         text = self.text
-        for delimiter, strip_tabs, quoted in self.pending_heredocs:
+        for delimiter, strip_tabs, quoted, owner in self.pending_heredocs:
+            body: list[str] = []
             while self.i <= len(text):
                 end = text.find("\n", self.i)
                 end = len(text) if end < 0 else end
@@ -673,11 +682,15 @@ class _Scanner:
                 self.i = end + 1
                 if (line.lstrip("\t") if strip_tabs else line) == delimiter:
                     break
+                body.append(line.lstrip("\t") if strip_tabs else line)
                 if not quoted and ("`" in line or "$(" in line):
                     # An unquoted delimiter: the body is expanded, substitutions run.
                     self.line.substitution = True
+                if not quoted and ("$" in line or "`" in line):
+                    owner.stdin_dynamic = True
                 if end >= len(text):
                     break
+            owner.stdin_text = "\n".join(body)
         self.pending_heredocs = []
 
     # -- the scan ----------------------------------------------------------
@@ -1326,7 +1339,8 @@ _DB_RESET = re.compile(
 )
 #: Programs that only touch the paths they name (judged as writes).
 WRITE_PROGRAMS: frozenset[str] = frozenset(
-    {"rm", "rmdir", "unlink", "mv", "cp", "ln", "touch", "mkdir", "chmod", "chown", "chgrp",
+    {"rm", "rmdir", "unlink", "mv", "cp", "ln", "link", "touch", "mkdir", "chmod", "chown",
+     "chgrp",
      "truncate", "tee", "install", "rsync", "shred", "srm", "trash", "trash-put", "gio",
      "mktemp", "split", "csplit", "patch", "rename", "mmv"}
 )
@@ -1340,7 +1354,7 @@ STDIN_ARGS_OK: frozenset[str] = frozenset(
      "sed", "dos2unix", "unix2dos", "true"} | WRITE_PROGRAMS
 )
 #: Of :data:`WRITE_PROGRAMS`, those whose earlier operands are only read.
-DESTINATION_ONLY: frozenset[str] = frozenset({"cp", "rsync", "install", "ln"})
+DESTINATION_ONLY: frozenset[str] = frozenset({"cp", "rsync", "install", "ln", "link"})
 #: Shell reserved words that may start a simple command of a compound one.
 RESERVED_WORDS: frozenset[str] = frozenset(
     {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "for", "case",
@@ -1658,6 +1672,11 @@ _GIT_HARMLESS_CONFIG = re.compile(
     r"protocol\.version|http\.version)=",
     re.IGNORECASE,
 )
+#: git subcommands that write work-tree files out of history (security review 4, H6).
+_GIT_MATERIALISE: frozenset[str] = frozenset(
+    {"switch", "checkout", "merge", "rebase", "cherry-pick", "am", "pull", "checkout-index",
+     "revert", "restore"}
+)
 _GIT_VALUED = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace",
                          "--super-prefix", "--config-env", "--list-cmds", "--attr-source"})
 
@@ -1724,9 +1743,13 @@ def _family(program: str) -> str:
 
 
 def _resolve(raw: str, cwd: Path | None, ctx: _Ctx) -> Path | None:
-    """Where a path argument lands, symlinks followed; ``None`` when unknown."""
-    text = raw.strip()
-    if not text or "$" in text or "`" in text:
+    """Where a path argument lands, symlinks followed; ``None`` when unknown.
+
+    The word is taken as the shell passes it, spaces included (security review
+    4, M1): ``'notes.txt '`` is not ``notes.txt``.
+    """
+    text = raw
+    if not text.strip() or "$" in text or "`" in text:
         return None
     if text.startswith("~"):
         head, _, rest = text[1:].partition("/")
@@ -1857,6 +1880,12 @@ def _git_plumbing(path: Path) -> bool:
             return True
         if any(name == "hooks" or name.startswith("config") for name in rest):
             return True
+        # Security review 4, M7: borrowed objects, grafts and replace refs change
+        # what history every later git command reads.
+        if rest[:3] == ("objects", "info", "alternates") or rest[:2] == ("info", "grafts") or (
+            rest[:2] == ("refs", "replace")
+        ):
+            return True
     return False
 
 
@@ -1878,6 +1907,8 @@ _CLI_CONTROL_DIRS: tuple[tuple[str, ...], ...] = (
     (".config", "cursor"),
     (".config", "codex"),
 )
+#: The agent CLIs' own folders: writing one as a whole (``cp -r x .claude``) is control.
+_CLI_CONTROL_TOPS: frozenset[str] = frozenset({".claude", ".codex", ".cursor", ".gemini", ".agy"})
 #: Single files of the same kind.
 _CLI_CONTROL_NAMES: frozenset[str] = frozenset(
     {".mcp.json", ".claude.json", ".cursorrules", ".cursorignore", ".geminiignore"}
@@ -2109,8 +2140,8 @@ class _Judge:
 
     def _candidates(self, raw: str, cwd: Path | None) -> list[Path] | None:
         """Every place a path argument may land (globs, ``~user``); ``None`` when unknown."""
-        text = raw.strip()
-        if not text:
+        text = raw  # never stripped: the shell keeps the spaces (M1)
+        if not text.strip():
             return []
         words = [text]
         base_word: str | None = None
@@ -2325,9 +2356,10 @@ class _Judge:
             if self._is_config(path):
                 self.hits.never_("path:snowpea-config")
                 continue
-            if cli_control_path(path, self.ctx.user_home):
-                # An agent CLI's permission, hook or MCP file: after such a write
-                # the CLI stops asking while its row still says controlled (N6).
+            if cli_control_path(path, self.ctx.user_home) or path.name in _CLI_CONTROL_TOPS:
+                # An agent CLI's permission, hook or MCP file (or its whole folder,
+                # review 4 H6): after such a write the CLI stops asking while its
+                # row still says controlled (N6).
                 self.hits.never_(f"{rule}:cli-control")
             if _git_plumbing(path):
                 self.hits.guard_all(f"{rule}:git-plumbing")
@@ -2530,6 +2562,10 @@ class _Judge:
             level = None
         if level == "safe" and not self._vouched():
             level = "readlike"
+        if level == "safe" and not self._programs_trusted(command):
+            # Security review 4, M3: ``ls`` must be the system's, not a file in a
+            # project or a world-writable folder found first on PATH.
+            level = "readlike"
         if level is None:
             self._home_relaxed = True
             try:
@@ -2548,6 +2584,47 @@ class _Judge:
             self.read_like = True
             return None
         return "exec:inspection"
+
+    def _programs_trusted(self, command: str) -> bool:
+        """Every program of the line resolves, on the PATH the shell tool uses
+        (``exec.local.sanitized_path``), to a file outside every project root and
+        outside world-writable folders."""
+        import shutil
+        import stat as stat_module
+
+        try:
+            from snowpea_core.exec.local import sanitized_path
+
+            parsed = parse_line(command)
+        except Exception:  # noqa: BLE001 - unknown is not trusted
+            return False
+        workdir = self.ctx.workdir
+        search = sanitized_path(os.environ.get("PATH", ""), workdir)
+        roots = [workdir] if workdir is not None else []
+        for cmd in parsed.commands:
+            words = [w for w in cmd.words if not _ASSIGNMENT.match(w)]
+            while words and words[0] in RESERVED_WORDS:
+                words = words[1:]
+            if not words:
+                continue
+            name = words[0]
+            if "/" in name:
+                return False
+            found = shutil.which(name, path=search)
+            if found is None:
+                continue  # a shell builtin (``cd``, ``pwd``, ``test``) or nothing at all
+            try:
+                real = Path(found).resolve()
+            except (OSError, RuntimeError):
+                return False
+            if any(_under(real, root) for root in roots):
+                return False
+            for folder in (real.parent, Path(found).parent):
+                with contextlib.suppress(OSError):
+                    mode = folder.stat().st_mode
+                    if mode & stat_module.S_IWOTH:
+                        return False
+        return True
 
     def _vouched(self) -> bool:
         """snowpea's own ``shell`` tool: a fresh ``sh -c`` per call (``exec/local.py``),
@@ -2709,13 +2786,20 @@ class _Judge:
         # Every argument that names a credential, wherever it sits (but not the
         # name patterns of ``find -name`` / ``--include``).
         previous = ""
+        # Security review 4, H5: once the line has moved outside the project, a
+        # bare name (``cat apple-notary.env``) is a path there like any other.
+        moved_out = (
+            cwd is not None and self.ctx.workdir is not None and not _under(cwd, self.ctx.workdir)
+        )
         for word, dyn in zip(rest, rest_dyn, strict=False):
             pattern_value = previous in _PATTERN_OPTIONS or word.startswith(_PATTERN_PREFIXES)
             previous = word
             if dyn or pattern_value:
                 continue
             for candidate in _path_candidates(word):
-                if _looks_like_path(candidate):
+                if _looks_like_path(candidate) or (
+                    moved_out and not candidate.startswith("-") and candidate == word
+                ):
                     self.check_read_path(candidate, cwd, "exec", shell=True)
         if any(word in ("--force", "--force-with-lease", "--force-if-includes")
                or word.startswith("--force=") for word in rest):
@@ -2766,6 +2850,9 @@ class _Judge:
             index = rest.index(target)
             if rest_dyn[index] or target == "-":
                 return None
+            # Security review 4, H5: the folder a line moves into is judged like a
+            # read of it (``cd ~/.config && cd gcloud && cat credentials.db``).
+            self.check_read_path(target, cwd, "exec:cd")
             return _resolve(target, cwd, self.ctx)
         if program in ("popd",):
             return None
@@ -2812,6 +2899,13 @@ class _Judge:
         if program == "hash" and any(w.startswith("-") and "p" in w for w in rest):
             # ``hash -p ./x ls``: ``ls`` now runs ./x.
             hits.guard_all("exec:opaque:hash-path")
+            return cwd
+        if program in ("test", "[", "[[") and any(
+            w in ("-v", "-R") or ("[" in w and ("$" in w or "`" in w)) for w in rest
+        ):
+            # Security review 4, C2: bash evaluates an array subscript (``-v
+            # 'a[$(cmd)]'``), which runs whatever the substitution says.
+            hits.guard_all("exec:opaque:test-subscript")
             return cwd
         if program in ("true", "false", ":", "test", "[", "[[", "echo", "printf", "sleep",
                        "wait", "exit", "return", "break", "continue", "shift",
@@ -3410,6 +3504,19 @@ class _Judge:
             for value, dyn in elsewhere:
                 self.check_write_path(value, cwd, "exec", dyn)
         self._git_files(sub, args, args_dyn, cwd)
+        staged_only = sub == "restore" and ("--staged" in args or "-S" in args) and not (
+            "--worktree" in args or "-W" in args
+        )
+        if (sub in _GIT_MATERIALISE and not staged_only) or (
+            sub == "stash" and args[:1] in (["apply"], ["pop"])
+        ) or (
+            sub == "read-tree" and any(w == "-u" or (w.startswith("-") and not w.startswith("--")
+                                                     and "u" in w[1:]) for w in args)
+        ):
+            # Security review 4, H6: files come out of history, a branch or a patch
+            # under names nobody sees here (``.claude/settings.local.json``,
+            # ``.gitattributes``): a control file may be among them.
+            hits.guard_all("exec:git-materialise")
         if sub in ("push", "send-pack"):
             hits.guard(DEPLOY, "exec:git-push")
             hits.network = True
@@ -3938,15 +4045,19 @@ class _Judge:
         workdir = self.ctx.workdir
         if workdir is None or not raw or "$" in raw or "`" in raw or "\x00" in raw:
             return None
+        if raw != raw.strip():
+            # The shell keeps the spaces; a resolver that strips them judges another
+            # file (security review 4, M1): never ``safe``.
+            return None
         if raw == "-":
             return "safe"
         if raw.startswith("~") and not self._home_relaxed:
             return None  # the user's home: outside the project
         level = "safe"
-        if self.external and not self._cwd_known and not raw.startswith("/") and (
-            ".." in raw.split("/")
-        ):
-            return None  # the CLI's shell keeps a folder nobody told us about
+        if self.external and not self._cwd_known and not raw.startswith("/"):
+            # The CLI's shell keeps a folder nobody told us about (an earlier
+            # ``cd``): a relative name may be anywhere (security review 4, M2).
+            return None
         if _has_glob(raw):
             paths = self._candidates(raw, cwd)
             if not paths:
@@ -3974,6 +4085,20 @@ class _Judge:
                 with contextlib.suppress(OSError):
                     if path.is_dir():
                         level = "readlike"
+            try:
+                info = path.lstat() if path.is_symlink() else path.stat()
+            except OSError:
+                continue  # nothing there yet: the command fails, it reads nothing
+            import stat as stat_module
+
+            if not (stat_module.S_ISREG(info.st_mode) or stat_module.S_ISDIR(info.st_mode)):
+                # A FIFO, socket or device: reading it may hang or read another
+                # process's data (security review 4, Low).
+                return None
+            if stat_module.S_ISREG(info.st_mode) and info.st_nlink > 1 and level == "safe":
+                # A hard link made earlier may be a secret under a new name (H5):
+                # a pure check cannot tell, so it is never ``safe``.
+                level = "readlike"
         return level
 
     def _forge(self, program: str, rest: list[str]) -> None:
@@ -4289,11 +4414,16 @@ class _Judge:
                             self.check_read_path(rest[idx + 1], cwd, "exec")
                         else:
                             self.check_write_path(rest[idx + 1], cwd, "exec", rest_dyn[idx + 1])
+            if not operands and "-o" not in rest:
+                # ``patch -p1 < x.diff``: the diff names the files (security review 4,
+                # H6) — an agent CLI's permission file or a git control file among them.
+                hits.guard_all("exec:patch-unknown-files")
         else:
             operands = _operands(rest, rest_dyn, valued)
         # ``-t DIR``, ``-tDIR``, ``-vt DIR``, ``--target-directory=DIR`` and its
         # unambiguous abbreviations (``--target=DIR``): every operand is a source.
         target_dir = False
+        target_value: tuple[str, bool] | None = None
         if program in ("cp", "mv", "ln", "install"):
             for idx, word in enumerate(rest):
                 value: tuple[str, bool] | None = None
@@ -4312,6 +4442,7 @@ class _Judge:
                     value = (word[word.index("t") + 1 :], rest_dyn[idx])
                 if value is not None:
                     target_dir = True
+                    target_value = value
                     self.check_write_path(value[0], cwd, "exec", value[1] or stdin_args)
             if target_dir:
                 operands = [
@@ -4331,17 +4462,53 @@ class _Judge:
         )
         if program in DESTINATION_ONLY and (len(operands) > 1 or target_dir):
             sources, dest = (operands, None) if target_dir else (operands[:-1], operands[-1])
+            symbolic = program == "ln" and any(
+                w in ("-s", "--symbolic") or (w.startswith("-") and not w.startswith("--")
+                                              and "s" in w[1:])
+                or (w.startswith("--sym") and "--symbolic".startswith(w))
+                for w in rest
+            )
             for word, dynamic_source in sources:
-                if program == "ln":
-                    continue  # the link's target is only named, never read
+                if symbolic:
+                    continue  # a symlink's target is only named, never read
+                # A hard link (``ln`` without -s, ``link``) makes the file readable
+                # under a new name (security review 4, H5): its source is read.
                 # What is copied is read (and may land somewhere a send can reach).
                 self.check_read_path(word, cwd, "exec", recursive=recursive,
                                      dynamic=dynamic_source)
             if dest is not None:
                 self.check_write_path(dest[0], cwd, "exec", dest[1])
+            self._landing(target_value if target_dir else dest, sources, cwd,
+                          many=target_dir or len(sources) > 1)
             return
         for word, dyn in operands:
             self.check_write_path(word, cwd, "exec", dyn)
+        if program == "mv" and (len(operands) > 1 or target_dir):
+            sources = operands if target_dir else operands[:-1]
+            self._landing(target_value if target_dir else operands[-1], sources, cwd,
+                          many=target_dir or len(sources) > 1)
+
+    def _landing(
+        self, dest: tuple[str, bool] | None, sources: list[tuple[str, bool]], cwd: Path | None,
+        *, many: bool,
+    ) -> None:
+        """``cp x dir/`` writes ``dir/x``: judge where each source lands (review 4, H6)."""
+        if dest is None or dest[1]:
+            return
+        folder = _resolve(dest[0], cwd, self.ctx)
+        if folder is None:
+            return
+        try:
+            is_dir = folder.is_dir()
+        except OSError:
+            is_dir = False
+        if not (many or is_dir or dest[0].endswith("/")):
+            return
+        for word, dyn in sources:
+            name = word.rstrip("/").rsplit("/", 1)[-1]
+            if dyn or not name or name in (".", ".."):
+                continue
+            self.check_write_path(str(folder / name), cwd, "exec", False)
 
     def _find(self, rest: list[str], rest_dyn: list[bool], cwd: Path | None, depth: int) -> None:
         hits = self.hits
@@ -4441,10 +4608,22 @@ class _Judge:
                     self.check_read_path(rest[idx + 1], cwd, "exec")
         if extract and any(w in ("-P", "--absolute-names") for w in rest):
             self.hits.guard(OUTSIDE, "exec:tar-absolute")
+        if extract:
+            # Members land under names nobody sees here; one may be an agent CLI's
+            # permission file or a git control file (security review 4, H6).
+            self.hits.guard_all("exec:archive-extract")
 
     def _archive(
         self, program: str, rest: list[str], rest_dyn: list[bool], cwd: Path | None
     ) -> None:
+        listing = {"unzip": ("-l", "-t", "-Z", "-p", "-v", "-z"), "unrar": ("l", "lb", "lt", "v",
+                                                                             "t", "p")}
+        if program == "unzip" and not any(w in listing["unzip"] for w in rest):
+            self.hits.guard_all("exec:archive-extract")  # H6: members nobody sees
+        if program in ("7z", "7za") and rest[:1] and rest[0] in ("x", "e"):
+            self.hits.guard_all("exec:archive-extract")
+        if program == "unrar" and not (rest[:1] and rest[0] in listing["unrar"]):
+            self.hits.guard_all("exec:archive-extract")
         if program == "unzip" and "-d" in rest:
             idx = rest.index("-d")
             if idx + 1 < len(rest):

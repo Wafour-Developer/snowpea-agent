@@ -1382,13 +1382,14 @@ class CodexAdapter(ExternalAdapter):
         daemon that dies leaves nothing behind (the next start reaps it).
         """
         if self._supervisor is not None:
-            return self._supervisor, dict(self._env or proc.scrubbed_env())
+            return self._supervisor, dict(self._env or self.base_env())
         if self.supervisor is not None:
-            # Bound by the daemon's manager before any channel ran.
-            return self.supervisor, proc.scrubbed_env()
+            # Bound by the daemon's manager before any channel ran (discovery):
+            # the CLI's passEnv applies already, the shared server is reused.
+            return self.supervisor, self.base_env()
         if self._own_supervisor is None:
             self._own_supervisor = ProcessSupervisor(resolve_home(), max_processes=1)
-        return self._own_supervisor, proc.scrubbed_env()
+        return self._own_supervisor, self.base_env()
 
     async def ensure_server(self, executable: PinnedExecutable | None = None) -> AppServer:
         exe = executable or self.executable

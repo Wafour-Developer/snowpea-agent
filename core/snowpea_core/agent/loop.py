@@ -3039,6 +3039,22 @@ def _jarvis_refusal(
     return guard_call(core, session, name, tag, dict(args or {}))
 
 
+async def _security_verdict(
+    core: Core, session: Session, name: str, args: dict[str, Any], tag: str
+) -> Any:
+    """The security lists' verdict on one call; a block is announced here."""
+    from snowpea_core.security import enforce
+
+    await enforce.refresh_projects(core)
+    verdict = enforce.judge_for_core(core, session, name, dict(args or {}), (tag,))
+    if verdict.blocked:
+        await enforce.announce(
+            hub=core.hub, paths=getattr(core, "paths", None), session_id=session.id, tool=name,
+            args=args, verdict=verdict, surface="agent", core=core,
+        )
+    return verdict
+
+
 def skill_refuses(session: Session, name: str) -> bool:
     """True when the session's narrowed tool list excludes the tool ``name``.
 
@@ -3104,6 +3120,18 @@ async def _run_one_call(
     # A write that lands on snowpea's own settings is judged as ``config``,
     # not ``write`` (CORE-search-fix): the tag, not the tool, decides.
     tag = effective_permission(tool, call.arguments, session, core)
+    # The security lists come before everything else (1.54.0): no mode, rule,
+    # cached answer or Jarvis decision runs a blocked command or changes a
+    # protected path; a line they cannot see through always asks the person.
+    security = await _security_verdict(core, session, tool.name, call.arguments, tag)
+    if security.blocked:
+        await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
+        await _fail_call(
+            core, session, call,
+            f"{security.refusal}. This is the person's standing rule: do not try to reach the "
+            "same result another way; tell them what you wanted to do if it matters.",
+        )
+        return None
     refusal = _jarvis_refusal(core, session, tool.name, tag, call.arguments)
     if refusal:
         await _deny_call(core, session, call, refusal)
@@ -3118,6 +3146,10 @@ async def _run_one_call(
         # The rest of a turn the agent was switched in (addendum 25): its
         # context may hold the page text that asked for the switch, so every
         # change is put to the person — no mode, rule or cached answer skips it.
+        verdict = "ask"
+    if security.opaque and verdict != "deny":
+        # Part of the line cannot be checked against the lists: the person
+        # decides, in every mode (the approval queue makes it person-only).
         verdict = "ask"
     if getattr(session, "read_only", False) and (
         tag in READ_ONLY_REFUSED or verdict == "ask" or tool.name in READ_ONLY_REFUSED_TOOLS
@@ -3164,7 +3196,7 @@ async def _run_one_call(
             unattended=unattended,
             cancel_event=session.interrupt,
             note=_source_note(tool, GUARD_NOTE if guarded else policy.note(tag)),
-            cacheable=tag not in UNPROMOTABLE and not guarded,
+            cacheable=tag not in UNPROMOTABLE and not guarded and not security.opaque,
             guard=AGENT_SWITCH_GUARD if guarded else None,
             tags=(tag,),
         )
@@ -3172,6 +3204,10 @@ async def _run_one_call(
             view_image.flush_tool_image_messages(core, session, append=False)
             await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
+        if not decision.allowed and decision.by == "security":
+            # Blocked by the lists inside the queue (they changed meanwhile).
+            await _fail_call(core, session, call, decision.reason)
+            return None
         if not decision.allowed:
             code = decision.code or errors.APPROVAL_DENIED
             await hub.emit_event(

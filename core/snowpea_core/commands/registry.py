@@ -50,6 +50,65 @@ def _clip_command_history(text: str) -> str:
     return f"{head}\n…[command output truncated]\n{tail}"
 
 
+def gate_command(
+    core: Any,
+    session: Any,
+    name: str,
+    args: str,
+    *,
+    conn: Any = None,
+    actor: str | None = None,
+    caller: str | None = None,
+    source: str = "builtin",
+) -> None:
+    """Refuse a command its caller may not start (``jarvis_person_only``).
+
+    * a browser: the per-command rule of ``command.run`` (``settings_gate.
+      command_refusal``: a persisting command needs ``actor: "person"``);
+    * a connector: nothing that persists;
+    * anyone: a command that raises the session's mode needs a person
+      (``session/mode_guard.py``, ``details.reason: "mode_raise"``);
+    * no connection: ``caller="messenger"`` (the chat's bound person) and
+      ``caller="internal"`` (a handler that judged its own caller) are allowed;
+      an unknown in-process caller may run only what persists nothing and
+      raises no mode.
+    """
+    from snowpea_core.commands.mode_cmd import mode_target
+    from snowpea_core.commands.persists import persists
+    from snowpea_core.server import errors
+    from snowpea_core.server.errors import RpcError
+    from snowpea_core.server.person_gate import connection_kind
+    from snowpea_core.server.settings_gate import command_refusal
+    from snowpea_core.session import mode_guard
+
+    what = persists(name, args, source)
+    target = mode_target(name, args)
+    current = "auto" if getattr(session, "mode", None) == "plan" and getattr(
+        session, "auto_after_plan", False) else getattr(session, "mode", "accept")
+    if conn is not None:
+        kind = connection_kind(conn)
+        command_refusal(conn, core, name, args, source=source, actor=actor)
+        if kind == "connector" and what.level != "session":
+            raise RpcError(errors.JARVIS_PERSON_ONLY, f"a connector cannot run /{name}",
+                           {"reason": "person_only", "kind": kind})
+        mode_caller = mode_guard.ModeCaller.from_conn(conn, actor)
+    elif caller in ("messenger", "internal"):
+        mode_caller = mode_guard.ModeCaller.internal(f"command-{caller}")
+    else:
+        if what.level != "session":
+            raise RpcError(errors.JARVIS_PERSON_ONLY,
+                           f"/{name} changes settings; only a person may run it",
+                           {"reason": "person_only", "kind": "none"})
+        mode_caller = mode_guard.NOBODY
+    if target is not None:
+        mode_guard.check(mode_caller, session, current, target)
+    if name == "mode" and (args or "").strip().lower() == "save":
+        sessions = getattr(core, "sessions", None)
+        if sessions is not None:
+            mode_guard.check(mode_caller, None, sessions.default_mode(session.workdir),
+                             session.mode)
+
+
 @dataclass
 class CommandContext:
     """What a command may reach."""
@@ -60,6 +119,10 @@ class CommandContext:
     conn: Any = None
     command_name: str = ""
     command_args: str = ""
+    #: A browser's ``actor: "person"`` marker on ``command.run`` (1.54.0).
+    actor: str | None = None
+    #: With no connection: who started it (``"messenger"``, ``"internal"``).
+    caller: str | None = None
     #: Set by a command that ran a full agent turn itself (a skill command);
     #: the registry then leaves ``turn.done`` to the turn it started.
     handled_turn: bool = False
@@ -214,19 +277,38 @@ class CommandRegistry:
         conn: Any = None,
         *,
         origin: str | None = None,
+        actor: str | None = None,
+        caller: str | None = None,
     ) -> str:
         """Schedule a command in the background and return its turn id.
 
         ``origin`` says whose words the command line is (``agent.loop.ORIGINS``);
-        a turn the command runs inherits it.
+        a turn the command runs inherits it.  ``actor`` is a browser's
+        ``actor: "person"`` marker (default: the current RPC call's).
+
+        The ONE gate for every way a command starts (``command.run``, slash text
+        in ``session.prompt``, a messenger message, a skill draft): who asks is
+        ``conn`` (with ``actor``), or, with no connection, ``caller`` — an
+        in-process identity (``"messenger"``: the bound person of a chat;
+        ``"internal"``: a handler that already judged its own caller).  A
+        refusal raises before anything runs, so the text never reaches the
+        model either.  See :func:`gate_command`.
         """
+        if actor is None:
+            from snowpea_core.server.rpc import current_actor
+
+            actor = current_actor()
+        gate_command(core, session, name, args, conn=conn, actor=actor, caller=caller,
+                     source=getattr(self._commands.get(name), "source", "builtin"))
         turn_id = f"t-{uuid.uuid4().hex[:12]}"
         session.current_turn = turn_id
         if origin:
             from snowpea_core.agent.loop import note_origin
 
             note_origin(session, turn_id, origin)
-        task = asyncio.ensure_future(self.run(core, session, name, args, conn, turn_id))
+        task = asyncio.ensure_future(
+            self.run(core, session, name, args, conn, turn_id, actor=actor, caller=caller)
+        )
         session.turn_task = task
         return turn_id
 
@@ -238,6 +320,9 @@ class CommandRegistry:
         args: str = "",
         conn: Any = None,
         turn_id: str | None = None,
+        *,
+        actor: str | None = None,
+        caller: str | None = None,
     ) -> str:
         """Run a command to completion, emitting its ``turn.done``."""
         turn_id = turn_id or f"t-{uuid.uuid4().hex[:12]}"
@@ -266,6 +351,8 @@ class CommandRegistry:
             conn=conn,
             command_name=name,
             command_args=args,
+            actor=actor,
+            caller=caller,
         )
         # A command is a turn: it ends with ``turn.done`` below, so it opens
         # with ``turn.started`` too, carrying the line that was typed. That

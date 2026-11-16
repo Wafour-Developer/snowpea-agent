@@ -1631,7 +1631,8 @@ async def test_payment_stays_once_even_when_once_only(
 async def test_allowlist_methods_take_a_project_workdir(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
 ) -> None:
-    client = await open_client(http, daemon)
+    # A person's connection: permission.allowlist.add is never a browser's (2026-11-16).
+    client = await connect(http, daemon)
     try:
         project_a, project_b = tmp_path / "a", tmp_path / "b"
         project_a.mkdir()

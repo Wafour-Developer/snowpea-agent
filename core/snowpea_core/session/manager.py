@@ -22,7 +22,9 @@ from snowpea_core.config.settings import Settings
 from snowpea_core.providers import effort as effort_scale
 from snowpea_core.server.protocol import Mode, SessionEvent, SessionKind, SessionSummary
 from snowpea_core.session import events as event_builders
+from snowpea_core.session import mode_guard
 from snowpea_core.session.history import History, message_from_json
+from snowpea_core.session.mode_guard import ModeCaller
 from snowpea_core.session.session import Session
 from snowpea_core.session.store import Store, StoreClosed
 
@@ -167,8 +169,12 @@ class SessionManager:
         effort: str | None = None,
         deny_exec: bool = False,
         owned_by: str | None = None,
+        caller: ModeCaller | None = None,
     ) -> Session:
         """Register a new session and persist its row.
+
+        ``mode`` wider than the workdir's default needs ``caller`` to be a
+        person or a named in-process path (``session/mode_guard.py``).
 
         ``session_id`` re-opens a session under an id that already exists on
         disk, which is how a named agent comes back after a restart with the
@@ -179,6 +185,9 @@ class SessionManager:
         run or a spawned child, and link the two (CORE-session-kind).
         """
         resolved_dir = Path(workdir).expanduser()
+        if mode:
+            # A mode wider than the default is a raise: a person's (mode_guard).
+            mode_guard.check(caller, None, self.default_mode(resolved_dir), mode)
         selected_team = active_team(self.settings, resolved_dir)
         if definition_model is None and agent and not _reserved_agent(kind, agent):
             definition_model = self._definition_model(agent, resolved_dir)
@@ -365,12 +374,30 @@ class SessionManager:
         return session.next_seq()
 
     async def set_mode(
-        self, session: Session, mode: Mode, auto_after_plan: bool | None = None
+        self,
+        session: Session,
+        mode: Mode,
+        auto_after_plan: bool | None = None,
+        *,
+        caller: ModeCaller | None = None,
     ) -> Mode:
+        """Switch ``session``'s mode; raising it needs a person (``mode_guard``).
+
+        ``caller`` says who asks: a connection (:meth:`ModeCaller.from_conn`),
+        a verified person's answer, or a named in-process path.  Without one,
+        only keeping or lowering the mode is accepted.
+        """
         if getattr(session, "role", None) == "jarvis" and mode != session.mode:
             # Jarvis's own session is pinned (M19): its limits are server-side,
             # but nothing — Jarvis, a prompt, a client — switches its mode.
             raise ModePinned("Jarvis's session keeps its mode; it cannot be switched")
+        # Plan with "approve everything, then auto" (autoAfterPlan) runs as auto.
+        current = "auto" if session.mode == "plan" and session.auto_after_plan else session.mode
+        keeps_flag = auto_after_plan is None and session.mode == "plan" == mode
+        wanted = "auto" if mode == "plan" and (
+            auto_after_plan or (keeps_flag and session.auto_after_plan)
+        ) else mode
+        mode_guard.check(caller, session, current, wanted)
         return await self._set_mode(session, mode, auto_after_plan)
 
     async def _set_mode(

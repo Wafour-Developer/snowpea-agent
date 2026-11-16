@@ -42,6 +42,7 @@ from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     ApprovalListResult,
     ApprovalRespondParams,
+    ApprovalRespondResult,
     Attachment,
     CommandListResult,
     CommandRunParams,
@@ -96,6 +97,7 @@ from snowpea_core.server.protocol import (
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.session import events
 from snowpea_core.session.history import message_from_json, message_text
+from snowpea_core.session.mode_guard import ModeCaller
 from snowpea_core.session.session import origin_of
 from snowpea_core.session.store import Store
 from snowpea_core.session.workspace import ensure_workspace
@@ -177,6 +179,7 @@ def wire_core(core: Core) -> Core:
     core.sessions.definition_model_for = functools.partial(_definition_model, core)
     core.hub.bind(core.store, core.sessions)
     core.approvals.bind(core.settings, core.paths, core.hub)
+    core.approvals.core = core  # the security lists read projects and the ledger through it
     core.questions.bind(core.settings, core.hub)
     core.providers.bind(core.settings, core.paths)
     # /model and the lazy model auto-pick persist through the registry; the
@@ -270,6 +273,7 @@ async def session_create_handler(
         origin_surface=params.originSurface or conn.surface_id,
         origin_conn=conn,
         deny_exec=bool(params.denyExec),
+        caller=ModeCaller.from_conn(conn, params.actor),
     )
     agent_name = params.agent
     if not agent_name and getattr(conn, "client_kind", None) == "browser":
@@ -707,13 +711,17 @@ async def session_prompt_handler(
     parsed = core.commands.parse(raw_text)
     if parsed is not None:
         name, args = parsed
+        # The command gate (CommandRegistry.start) judges this caller exactly as
+        # command.run would; a refusal is the call's error, never model text.
+        turn_id = core.commands.start(core, session, name, args, conn)
         pending.clear(session.id)
-        return TurnResult(turnId=core.commands.start(core, session, name, args, conn))
+        return TurnResult(turnId=turn_id)
     delegate_match = _DELEGATE_PREFIX.match(raw_text) if raw_text else None
     if delegate_match is not None and delegate_match.group(2) is not None:
-        pending.clear(session.id)
         args = f"{delegate_match.group(1)} {delegate_match.group(2)}"
-        return TurnResult(turnId=core.commands.start(core, session, "delegate", args, conn))
+        turn_id = core.commands.start(core, session, "delegate", args, conn)
+        pending.clear(session.id)
+        return TurnResult(turnId=turn_id)
     prepared = prepare_prompt(
         core, session, raw_text, params.attachments, accept_wire=_accept_attachments
     )
@@ -922,14 +930,16 @@ async def session_compact_handler(
 
 
 async def session_set_mode_handler(
-    _conn: RpcConnection, params: SessionSetModeParams, core: Core
+    conn: RpcConnection, params: SessionSetModeParams, core: Core
 ) -> SessionSetModeResult:
     from snowpea_core.session import events
     from snowpea_core.session.manager import ModePinned
 
     session = _session(core, params.sessionId)
     try:
-        mode = await core.sessions.set_mode(session, params.mode, params.autoAfterPlan)
+        # Raising needs a person (security review 4, H2): session/mode_guard.py.
+        mode = await core.sessions.set_mode(session, params.mode, params.autoAfterPlan,
+                                            caller=ModeCaller.from_conn(conn, params.actor))
     except ModePinned as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     flag = bool(session.auto_after_plan)
@@ -1054,16 +1064,12 @@ async def command_run_handler(
 ) -> TurnResult:
     session = _session(core, params.sessionId)
     name = params.name[1:] if params.name.startswith("/") else params.name
-    # A browser's command is judged by what it would persist, before it runs
-    # (security review 3, ``commands/persists.py``): no partial effect.
-    from snowpea_core.server.settings_gate import command_refusal
-
-    command = core.commands.get(name)
-    command_refusal(conn, core, name, params.args,
-                    source=getattr(command, "source", "builtin") if command else "builtin",
-                    actor=params.actor)
+    # Judged before anything runs, by what it would persist and whether it
+    # raises the mode: the one gate in ``CommandRegistry.start`` (security
+    # reviews 3 and 4), shared with slash text in session.prompt.
+    turn_id = core.commands.start(core, session, name, params.args, conn, actor=params.actor)
     core.hub.subscribe(conn, session.id)
-    return TurnResult(turnId=core.commands.start(core, session, name, params.args, conn))
+    return TurnResult(turnId=turn_id)
 
 
 async def tool_list_handler(
@@ -1102,8 +1108,8 @@ async def approval_list_handler(
 
 async def approval_respond_handler(
     conn: RpcConnection, params: ApprovalRespondParams, core: Core
-) -> Ok:
-    await core.approvals.respond(
+) -> ApprovalRespondResult:
+    applied = await core.approvals.respond(
         params.requestId,
         params.decision,
         params.scope,
@@ -1112,7 +1118,8 @@ async def approval_respond_handler(
         reason=params.reason,
         actor=params.actor,
     )
-    return Ok(ok=True)
+    scope = applied.scope if applied is not None and applied.allowed else None
+    return ApprovalRespondResult(ok=True, scope=scope)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -1151,6 +1158,8 @@ async def question_respond_handler(
         params.requestId,
         [answer.model_dump(mode="json") for answer in params.answers],
         by=conn.surface_id,
+        conn=conn,
+        actor=params.actor,
     )
     return Ok(ok=True)
 

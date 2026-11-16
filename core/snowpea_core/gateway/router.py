@@ -63,6 +63,7 @@ from snowpea_core.gateway.chat import (
 from snowpea_core.jarvis.messenger import MessengerBridge
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
+from snowpea_core.session.mode_guard import ModeCaller
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -1457,9 +1458,16 @@ class GatewayRouter:
             session, _conn = await self._session_for(
                 binding, message.channel_id, metadata=message.metadata
             )
-            self.core.commands.start(
-                self.core, session, name, args, None, origin=_origin(binding, message)
-            )
+            from snowpea_core.server.errors import RpcError
+
+            try:
+                # The chat's bound person (the binding admits only them).
+                self.core.commands.start(
+                    self.core, session, name, args, None, origin=_origin(binding, message),
+                    caller="messenger",
+                )
+            except RpcError as exc:
+                await self.send(binding, message.channel_id, f"/{name}: {exc.message}")
             return
         session, _conn = await self._session_for(
             binding, message.channel_id, metadata=message.metadata
@@ -1610,6 +1618,8 @@ class GatewayRouter:
             agent=str(agent) if agent else None,
             origin_surface=origin_surface,
             origin_conn=None,
+            # The binding's configured mode, set by its person with gateway.bind.
+            caller=ModeCaller.internal("messenger-binding"),
         )
         if agent:
             session.memory_namespace = f"agent:{agent}"

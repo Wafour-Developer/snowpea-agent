@@ -142,12 +142,48 @@ def clear_password(paths: Paths) -> bool:
 
 
 def config_problem(remote: Any, paths: Paths) -> str | None:
-    """Why remote access cannot start, or ``None`` when it can."""
-    if not str(remote.username or "").strip():
-        return "web.remote.username is empty"
-    if not stored_hash(paths):
-        return "no password is set; run `snowpea web password`"
+    """Why remote access cannot start, or ``None`` when it can.
+
+    Owner decision 2b (2026-11-16): a password is no longer required — without
+    one the listener admits the web access token's link.  A password without a
+    username is the one broken shape.
+    """
+    if stored_hash(paths) and not str(remote.username or "").strip():
+        return "a password is set but web.remote.username is empty"
     return None
+
+
+# ---------------------------------------------------------------------------
+# the web access token (owner decision 2b)
+# ---------------------------------------------------------------------------
+
+#: ``credentials.json`` key of the web access token (never the daemon token).
+ACCESS_TOKEN_KEY = "web.remote.accessToken"
+#: Query parameter the access link carries; the first request trades it for a cookie.
+TOKEN_PARAM = "t"
+
+
+def access_token(paths: Paths, *, create: bool = True) -> str:
+    """The web access token (32 random bytes, urlsafe), made on first use."""
+    store = CredentialStore(paths)
+    value = store.load().get(ACCESS_TOKEN_KEY)
+    if isinstance(value, str) and len(value) >= 43:
+        return value
+    if not create:
+        return ""
+    return rotate_access_token(paths)
+
+
+def rotate_access_token(paths: Paths) -> str:
+    """A new access token; every session opened with any credential ends (fingerprint)."""
+    token = secrets.token_urlsafe(32)
+    CredentialStore(paths).set(ACCESS_TOKEN_KEY, token)
+    return token
+
+
+def password_mode(remote_username: str, paths: Paths) -> bool:
+    """A username and a password are set: the login page, never the token link alone."""
+    return bool(str(remote_username or "").strip()) and bool(stored_hash(paths))
 
 
 # ---------------------------------------------------------------------------
@@ -179,16 +215,30 @@ class RemoteAuth:
         self._hash_print = ""
 
     def _current_fingerprint(self) -> str:
-        """Fingerprint of the stored hash; the file is re-read only when it changed."""
+        """Fingerprint of the stored hash and the access token (a change of either ends
+        every session); the file is re-read only when it changed."""
         try:
             st = CredentialStore(self.paths).path.stat()
             stamp: tuple[int, int, int] | None = (st.st_mtime_ns, st.st_size, st.st_ino)
         except OSError:
             stamp = None
         if stamp is None or stamp != self._hash_stamp:
-            self._hash_print = _fingerprint(stored_hash(self.paths))
+            stored = stored_hash(self.paths)
+            token = access_token(self.paths, create=False)
+            self._hash_print = _fingerprint(f"{stored}|{token}") if (stored or token) else ""
             self._hash_stamp = stamp
         return self._hash_print
+
+    @property
+    def password_mode(self) -> bool:
+        return password_mode(self.username, self.paths)
+
+    def check_token(self, presented: str) -> bool:
+        """Constant-time check of the access link's token (token mode only)."""
+        expected = access_token(self.paths, create=False)
+        given = hashlib.sha256(presented.encode("utf-8")).digest()
+        wanted = hashlib.sha256((expected or secrets.token_urlsafe(32)).encode("utf-8")).digest()
+        return hmac.compare_digest(given, wanted) and bool(expected) and not self.password_mode
 
     # -- sessions --------------------------------------------------------
     def open_session(self) -> str:
@@ -390,7 +440,8 @@ async def session(request: web.Request) -> web.Response:
     if found is None:
         return _json({"ok": False, "error": "unauthorized"}, 401)
     core = request.app[DISPATCHER_KEY].core
-    return _json({"ok": True, "token": core.token, "username": found.username})
+    return _json({"ok": True, "token": core.token, "username": found.username,
+                  "mode": "password" if auth.password_mode else "token"})
 
 
 async def logout(request: web.Request) -> web.Response:
@@ -421,8 +472,54 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
     return await websocket_handler(request, track=found.sockets)
 
 
-async def remote_web_redirect(_request: web.Request) -> web.Response:
-    raise web.HTTPFound(WEB_PATH)
+async def remote_web_redirect(request: web.Request) -> web.Response:
+    # Keep ``?t=`` so the page handler can trade it for a cookie.
+    query = request.query_string
+    raise web.HTTPFound(WEB_PATH + (f"?{query}" if query else ""))
+
+
+def _without_token(request: web.Request) -> str:
+    """The request's path and query with the access token taken out."""
+    from urllib.parse import urlencode
+
+    kept = [(k, v) for k, v in request.query.items() if k != TOKEN_PARAM]
+    return request.path + (f"?{urlencode(kept)}" if kept else "")
+
+
+async def remote_page(request: web.Request) -> web.StreamResponse:
+    """The page, and the access link: ``?t=<token>`` becomes a session cookie.
+
+    The first request with a right token gets the cookie and a redirect to the
+    same address without the token, so it stays out of the history and the
+    ``Referer``.  A wrong one counts toward the same limit as a wrong password.
+    With a password set the link alone is not enough: the token is dropped and
+    the login page shows.
+    """
+    presented = request.query.get(TOKEN_PARAM)
+    if presented is None:
+        return await web_static(request)
+    auth = request.app[AUTH_KEY]
+    target = _without_token(request)
+    if auth.password_mode:
+        raise web.HTTPFound(target)
+    ip = _client_ip(request)
+    wait = auth.retry_after(ip)
+    if wait:
+        log.warning("web access link refused from %s: too many failures", ip)
+        return _json({"ok": False, "error": "rate_limited"}, 429, **{"Retry-After": str(wait)})
+    stamp = auth.record_failure(ip)
+    started = time.monotonic()
+    if not auth.check_token(presented):
+        log.warning("web access link with a wrong token from %s", ip)
+        await asyncio.sleep(max(0.0, auth.failure_delay - (time.monotonic() - started)))
+        return _json({"ok": False, "error": "invalid_token"}, 401)
+    auth.forgive(ip, stamp)
+    session_token = auth.open_session()
+    log.info("web access link used from %s", ip)
+    response = web.Response(status=302, headers={"Location": target, "Cache-Control": "no-store"})
+    response.set_cookie(COOKIE_NAME, session_token, max_age=int(auth.session_sec), path="/",
+                        httponly=True, samesite="Strict", secure=_is_https(request))
+    return response
 
 
 @web.middleware
@@ -461,7 +558,7 @@ def create_remote_app(
     app.router.add_get(WEB_PATH + "session", session)
     app.router.add_get(WS_PATH, remote_websocket)
     app.router.add_get("/web", remote_web_redirect)
-    app.router.add_get(WEB_PATH + "{tail:.*}", web_static)
+    app.router.add_get(WEB_PATH + "{tail:.*}", remote_page)
 
     async def _sweeper(app: web.Application) -> Any:
         async def loop() -> None:
@@ -478,7 +575,99 @@ def create_remote_app(
     return app
 
 
+PLAIN_HTTP_WARNING = (
+    "plain HTTP: the access link, the password and everything on the page travel "
+    "unencrypted; put it behind TLS (a reverse proxy) or a VPN/ssh tunnel when it is "
+    "reachable beyond a trusted network"
+)
+
+
+class RemoteListener:
+    """The external listener, opened and closed at runtime (``web.remote.listen|stop``).
+
+    Every connection through it is a remote web login (``remote_login``), with a
+    password or with the access link alike; the loopback listener is unchanged.
+    """
+
+    def __init__(self, dispatcher: RpcDispatcher, paths: Paths, *,
+                 connections: set[RpcConnection], sockets: set[web.WebSocketResponse]) -> None:
+        self.dispatcher = dispatcher
+        self.paths = paths
+        self.connections = connections
+        self.sockets = sockets
+        self.runner: web.AppRunner | None = None
+        self.auth: RemoteAuth | None = None
+        self.host = ""
+        self.port = 0
+        self.username = ""
+        self.error: str | None = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def listening(self) -> bool:
+        return self.runner is not None
+
+    async def start(self, *, host: str, port: int, username: str = "", session_hours: float = 12,
+                    trust_proxy: bool = False, allowed_origins: list[str] | tuple[str, ...] = ()
+                    ) -> None:
+        """(Re)bind ``host:port``; :class:`OSError` and :class:`ValueError` say why not."""
+        async with self._lock:
+            remote = type("Remote", (), {"username": username})()
+            problem = config_problem(remote, self.paths)
+            if problem is not None:
+                self.error = problem
+                raise ValueError(problem)
+            await self._stop_locked()
+            access_token(self.paths)  # made now, so the link exists before the first visit
+            auth = RemoteAuth(username, session_hours, self.paths)
+            app = create_remote_app(self.dispatcher, auth, connections=self.connections,
+                                    sockets=self.sockets, trust_proxy=trust_proxy,
+                                    allowed_origins=allowed_origins)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            try:
+                await web.TCPSite(runner, host, port).start()
+            except OSError as exc:
+                await runner.cleanup()
+                self.error = f"could not listen on {host}:{port}: {exc}"
+                raise
+            self.runner, self.auth = runner, auth
+            self.host, self.username, self.error = host, username, None
+            self.port = _bound_port(runner, port)
+            log.warning("remote web access listening on %s:%s (%s); %s", host, self.port,
+                        "password" if auth.password_mode else "access link", PLAIN_HTTP_WARNING)
+
+    async def stop(self) -> None:
+        async with self._lock:
+            await self._stop_locked()
+
+    async def _stop_locked(self) -> None:
+        runner, auth = self.runner, self.auth
+        self.runner = None
+        self.auth = None
+        if auth is not None:
+            for token in list(auth.sessions):
+                await auth.drop(token)
+        if runner is not None:
+            await runner.cleanup()
+
+    def sessions(self) -> int:
+        return self.auth.active() if self.auth is not None else 0
+
+
+def _bound_port(runner: web.AppRunner, requested: int) -> int:
+    for address in runner.addresses:
+        if isinstance(address, tuple) and len(address) >= 2:
+            return int(address[1])
+    return requested
+
+
 __all__ = [
+    "ACCESS_TOKEN_KEY",
+    "PLAIN_HTTP_WARNING",
+    "RemoteListener",
+    "access_token",
+    "rotate_access_token",
     "COOKIE_NAME",
     "PASSWORD_KEY",
     "RemoteAuth",

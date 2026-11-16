@@ -1,0 +1,807 @@
+"""The judgement: is this call blocked by the security lists?  Pure, never raises.
+
+:func:`check_call` judges one tool call (snowpea's own, an external CLI's
+bridged request, a Jarvis or worker call) and :func:`check` the
+``security.check`` RPC's ``{command?, path?}``.  Both return a
+:class:`Verdict`:
+
+``blocked``
+    A blocked command runs somewhere in the line, or the call writes (or, for
+    a level ``all`` entry, reads) a protected path.  ``by`` names what
+    (``commands:<preset>``, ``paths:<preset>``, ``custom``, or ``security``
+    for an attempt to edit the lists themselves) and ``why`` says it in the
+    person's language.
+``opaque``
+    Not blocked as far as can be seen, but part of the line cannot be seen
+    (a program only the shell knows, ``eval`` of a variable, a pipe into a
+    shell, a path only the shell knows) while a list is set: never allowed
+    without the person (``reason``: :data:`UNCHECKED_REASON`).
+
+Matching is on the parsed line (:mod:`snowpea_core.security.shell`).  Paths
+are resolved against the call's folder (``cwd``/``workdir`` argument, else the
+project); ``~``, ``$HOME``, ``$PWD``, ``$SNOWPEA_HOME`` and ``$TMPDIR`` are
+expanded; symlinks are followed on both sides; a glob or a path with an
+unknown tail is judged by every protected path it could reach.  A protected
+path is never exempt for being inside the project.
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import json
+import logging
+import os
+import posixpath
+import re
+import tempfile
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from snowpea_core.jarvis import classify as _c
+from snowpea_core.security import catalog
+from snowpea_core.security import patterns as pl
+from snowpea_core.security import shell as sh
+from snowpea_core.security.lists import Lists
+
+log = logging.getLogger("snowpea.security")
+
+#: ``reason`` of a request that is put to the person because it cannot be checked.
+UNCHECKED_REASON = "cannot be checked against your block list"
+#: ``by`` of an attempt to change the security lists through a tool.
+BY_SETTINGS = "security"
+
+_MESSAGES: dict[str, dict[str, str]] = {
+    "preset_command": {
+        "en": "blocked command ({title}): {command}",
+        "ko": "차단된 명령({title}): {command}",
+    },
+    "custom_command": {
+        "en": "matches your blocked pattern “{pattern}”: {command}",
+        "ko": "차단 패턴 “{pattern}”에 해당합니다: {command}",
+    },
+    "preset_path_write": {
+        "en": "{path} is protected from changes ({title})",
+        "ko": "{path} 은(는) 변경이 금지된 경로입니다({title})",
+    },
+    "preset_path_all": {
+        "en": "{path} is protected from any access ({title})",
+        "ko": "{path} 은(는) 접근이 금지된 경로입니다({title})",
+    },
+    "custom_path_write": {
+        "en": "{path} is in your protected folders (no changes)",
+        "ko": "{path} 은(는) 보호 폴더입니다(변경 금지)",
+    },
+    "custom_path_all": {
+        "en": "{path} is in your protected folders (no access)",
+        "ko": "{path} 은(는) 보호 폴더입니다(접근 금지)",
+    },
+    "ancestor": {
+        "en": "{target} holds {path}, which is protected ({title})",
+        "ko": "{target} 안에 보호된 경로 {path} 이(가) 있습니다({title})",
+    },
+    "settings": {
+        "en": "the security lists can only be changed by you in Settings, never by a tool",
+        "ko": "보안 목록은 설정 화면에서 직접만 바꿀 수 있고, 도구로는 바꿀 수 없습니다",
+    },
+    "unchecked": {
+        "en": "cannot be checked against your block list",
+        "ko": "차단 목록과 대조할 수 없습니다",
+    },
+    "custom_title": {"en": "your list", "ko": "내 목록"},
+}
+
+
+def message(key: str, locale: str | None, **values: Any) -> str:
+    return catalog.pick(_MESSAGES[key], locale).format(**values)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    blocked: bool = False
+    #: ``commands:<id>``, ``paths:<id>``, ``custom`` or ``security``.
+    by: str | None = None
+    why: str | None = None
+    #: Not blocked, but not all of it could be seen while a list is set.
+    opaque: bool = False
+    reason: str | None = None
+    #: What matched: the command text or the protected path.
+    match: str | None = None
+    #: ``command`` | ``path`` | ``settings`` for a block.
+    kind: str | None = None
+    #: Why part of the line could not be seen (``dynamic-program``, ``unknown-path``…).
+    unseen: tuple[str, ...] = ()
+    #: For a protected path hit: the entry's level.
+    level: str | None = None
+
+    def to_wire(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"blocked": self.blocked, "by": self.by, "why": self.why,
+                               "opaque": self.opaque}
+        if self.reason:
+            out["reason"] = self.reason
+        if self.match:
+            out["match"] = self.match
+        if self.level:
+            out["level"] = self.level
+        return out
+
+    @property
+    def refusal(self) -> str:
+        """What the model reads instead of a result."""
+        return f"blocked by the security list: {self.by} — {self.why}"
+
+
+ALLOWED = Verdict()
+
+
+@dataclass
+class Context:
+    """Where a call runs and what the presets that depend on the machine stand for."""
+
+    workdir: Path | None = None
+    user_home: Path = field(default_factory=lambda: Path(os.path.expanduser("~")))
+    home: Path | None = None
+    projects: tuple[str, ...] = ()
+    #: Mounted data disks; ``None`` reads them from the machine when needed.
+    mounts: tuple[Path, ...] | None = None
+    #: A virtual environment is active for the daemon (``VIRTUAL_ENV``/``CONDA_PREFIX``).
+    env_venv: bool | None = None
+    locale: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.env_venv is None:
+            self.env_venv = bool(os.environ.get("VIRTUAL_ENV") or os.environ.get("CONDA_PREFIX"))
+
+    # -- used by the catalog's predicates ---------------------------------------
+    def variables(self, cwd: Path | None) -> dict[str, str]:
+        out = {"HOME": str(self.user_home), "TMPDIR": tempfile.gettempdir()}
+        if cwd is not None:
+            out["PWD"] = str(cwd)
+        if self.home is not None:
+            out["SNOWPEA_HOME"] = str(self.home)
+        return out
+
+    def expand(self, word: str, cwd: Path | None) -> str | None:
+        """``word`` as an absolute, normalised path (wildcards kept); ``None`` when unknown."""
+        text = word.strip()
+        if not text:
+            return None
+        if text.startswith("file://"):
+            text = text[len("file://"):]
+        variables = self.variables(cwd)
+
+        def substitute(match: re.Match[str]) -> str:
+            name = match.group(1) or match.group(2)
+            return variables.get(name, match.group(0))
+
+        text = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", substitute,
+                      text)
+        if text == "~" or text.startswith("~/"):
+            text = str(self.user_home) + text[1:]
+        elif text.startswith("~"):
+            head, _, rest = text[1:].partition("/")
+            if not re.fullmatch(r"[A-Za-z0-9._-]+", head):
+                return None
+            text = str(self.user_home.parent / head / rest)
+        if "$" in text or "`" in text:
+            return None
+        if not text.startswith("/"):
+            if cwd is None:
+                return None
+            text = str(cwd / text)
+        normal = posixpath.normpath(text)
+        if normal.startswith("//"):
+            normal = "/" + normal.lstrip("/")
+        return normal
+
+    def critical_roots(self) -> list[Path]:
+        """``/``, the home, and the parent of the project and of every known project:
+        deleting one of them (or anything above) is catastrophic."""
+        roots = [Path("/"), _real(self.user_home), Path(os.path.normpath(self.user_home))]
+        for raw in (str(self.workdir) if self.workdir else None, *self.projects):
+            if raw:
+                for form in (_real(Path(raw)), Path(os.path.normpath(raw))):
+                    if form.parent != form:
+                        roots.append(form.parent)
+        return list(dict.fromkeys(roots))
+
+    def venv_active(self, cwd: Path | None) -> bool:
+        if self.env_venv:
+            return True
+        for base in (cwd, self.workdir):
+            if base is None:
+                continue
+            for name in (".venv", "venv", "env", ".env"):
+                try:
+                    if (base / name / "pyvenv.cfg").is_file():
+                        return True
+                except OSError:
+                    continue
+        return False
+
+
+def _real(path: Path) -> Path:
+    try:
+        return path.expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return Path(os.path.normpath(str(path.expanduser())))
+
+
+# ---------------------------------------------------------------------------
+# protected paths
+# ---------------------------------------------------------------------------
+
+
+def path_entries(lists: Lists, ctx: Context) -> list[catalog.PathEntry]:
+    """Every protected path the lists stand for now, with symlinked forms twice."""
+    out: list[catalog.PathEntry] = []
+    for preset_id in lists.path_presets:
+        try:
+            out.extend(catalog.path_entries(
+                preset_id, user_home=ctx.user_home, home=ctx.home, workdir=ctx.workdir,
+                projects=ctx.projects, mounts=ctx.mounts,
+            ))
+        except Exception:  # noqa: BLE001 - a preset that cannot resolve protects what it can
+            log.warning("security preset %s could not resolve", preset_id, exc_info=True)
+    for raw, level in lists.paths:
+        expanded = ctx.expand(raw, None)
+        if expanded is None:
+            continue
+        written = Path(expanded)
+        real = _real(written)
+        for form in dict.fromkeys((real, written)):
+            out.append(catalog.PathEntry(form, level, "tree", "custom",
+                                         _MESSAGES["custom_title"], shown=raw))
+    extra: list[catalog.PathEntry] = []
+    for entry in out:
+        if entry.by != "custom":
+            real = _real(entry.path)
+            if real != entry.path:
+                extra.append(catalog.PathEntry(real, entry.level, entry.scope, entry.by,
+                                               entry.title, entry.exempt, entry.shown))
+    return out + extra
+
+
+def _under(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def _glob_parts(text: str) -> list[str]:
+    return [part for part in text.split("/") if part]
+
+
+def _part_match(want: str, got: str) -> bool:
+    return want == "**" or fnmatch.fnmatchcase(got, want)
+
+
+def _relations(pattern: list[str], open_end: bool, target: list[str]) -> set[str]:
+    """Which of ``equal``/``under``/``ancestor`` a path the glob ``pattern`` stands for may
+    have to ``target`` (both as parts).  ``open_end``: anything may follow the pattern."""
+    found: set[str] = set()
+
+    def walk(i: int, j: int) -> None:
+        if len(found) == 3:
+            return
+        if i == len(pattern):
+            if j == len(target):
+                found.add("equal")
+                if open_end:
+                    found.add("under")
+            else:
+                found.add("ancestor")
+                if open_end:
+                    found.update(("equal", "under"))
+            return
+        if j == len(target):
+            found.add("under")
+            return
+        if pattern[i] == "**":
+            found.update(("equal", "under", "ancestor"))
+            return
+        if fnmatch.fnmatchcase(target[j], pattern[i]):
+            walk(i + 1, j + 1)
+
+    walk(0, 0)
+    return found
+
+
+@dataclass
+class _Shape:
+    """A path an effect may land on: concrete, or a pattern of parts."""
+
+    concrete: tuple[Path, ...] = ()
+    pattern: list[str] | None = None
+    open_end: bool = False
+    base: Path | None = None
+
+
+def _shape(effect_raw: str, cwd: Path | None, ctx: Context) -> _Shape | None:
+    """Where ``effect_raw`` lands; ``None`` when nothing at all is known."""
+    expanded = ctx.expand(effect_raw, cwd)
+    open_end = False
+    if expanded is None:
+        # A literal folder before the unknown part: it lands somewhere below it.
+        text = effect_raw.strip()
+        cut = min((i for i in (text.find("$"), text.find("`")) if i >= 0), default=-1)
+        if cut <= 0:
+            return None
+        head = text[:cut]
+        if "/" not in head:
+            return None
+        head = head.rsplit("/", 1)[0] or "/"
+        expanded = ctx.expand(head, cwd)
+        if expanded is None:
+            return None
+        open_end = True
+    if open_end or re.search(r"[*?\[]", expanded):
+        parts = _glob_parts(expanded)
+        literal: list[str] = []
+        for part in parts:
+            if re.search(r"[*?\[]", part):
+                break
+            literal.append(part)
+        base = _real(Path("/" + "/".join(literal)))
+        rest = parts[len(literal):]
+        pattern = _glob_parts(str(base)) + rest
+        return _Shape(pattern=pattern, open_end=open_end, base=base)
+    written = Path(expanded)
+    return _Shape(concrete=tuple(dict.fromkeys((written, _real(written)))))
+
+
+def _effect_hits(effect: sh.Effect, entry: catalog.PathEntry, shape: _Shape) -> str | None:
+    """``"self"`` (on or below the entry) / ``"ancestor"`` when ``effect`` breaks ``entry``."""
+    write = effect.kind == "write"
+    if not write and entry.level != "all":
+        return None
+    reaching = effect.destructive or (write and effect.recursive)
+    if shape.pattern is not None:
+        relations = _relations(shape.pattern, shape.open_end, _glob_parts(str(entry.path)))
+        exempt = shape.base is not None and any(_under(shape.base, e) for e in entry.exempt)
+        if relations & {"equal", "under"} and not exempt:
+            if entry.scope == "tree" or ("equal" in relations and (effect.destructive
+                                                                 or not write)):
+                return "self"
+        if "ancestor" in relations:
+            if write and (reaching or entry.scope == "tree" and shape.open_end):
+                return "ancestor"
+            if not write and effect.recursive:
+                return "ancestor"
+        return None
+    for path in shape.concrete:
+        if _under(path, entry.path):
+            if any(_under(path, e) for e in entry.exempt):
+                continue
+            if entry.scope == "self":
+                if path == entry.path and (effect.destructive or not write):
+                    return "self"
+                continue
+            return "self"
+        if _under(entry.path, path):
+            if write and reaching:
+                return "ancestor"
+            if not write and effect.recursive:
+                return "ancestor"
+    return None
+
+
+def _path_verdict(effects: Iterable[sh.Effect], entries: list[catalog.PathEntry],
+                  ctx: Context) -> tuple[Verdict | None, list[str]]:
+    """The first protected path an effect breaks, and why any effect could not be judged."""
+    unseen: list[str] = []
+    if not entries:
+        return None, unseen
+    any_all = any(e.level == "all" for e in entries)
+    for effect in effects:
+        if effect.kind == "read" and not any_all:
+            continue
+        shape = _shape(effect.raw, effect.cwd, ctx)
+        if shape is None:
+            reason = "unknown-path" if effect.kind == "write" else "unknown-read"
+            if reason not in unseen:
+                unseen.append(reason)
+            continue
+        for entry in entries:
+            hit = _effect_hits(effect, entry, shape)
+            if hit is None:
+                continue
+            shown = entry.shown or str(entry.path)
+            title = catalog.pick(entry.title, ctx.locale)
+            if hit == "ancestor":
+                target = effect.raw
+                why = message("ancestor", ctx.locale, target=target, path=shown, title=title)
+            else:
+                key = ("custom_path_" if entry.by == "custom" else "preset_path_") + (
+                    "all" if entry.level == "all" else "write")
+                why = message(key, ctx.locale, path=shown, title=title)
+            return Verdict(blocked=True, by=entry.by, why=why, match=shown, kind="path",
+                           level=entry.level), unseen
+    return None, unseen
+
+
+# ---------------------------------------------------------------------------
+# commands
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Compiled:
+    presets: list[catalog.CommandPreset]
+    custom: list[pl.Pattern]
+
+
+def _compile(lists: Lists) -> _Compiled:
+    presets = [p for p in (catalog.command_preset(i) for i in lists.command_presets) if p]
+    custom: list[pl.Pattern] = []
+    for source in lists.patterns:
+        try:
+            custom.append(pl.compile_pattern(source))
+        except pl.PatternError:
+            continue
+    return _Compiled(presets, custom)
+
+
+def _subject(cmd: sh.Command, ctx: Context) -> pl.Subject:
+    return pl.Subject(words=list(cmd.words), cwd=cmd.cwd, user_home=ctx.user_home,
+                      extra_paths={f"${k}": v for k, v in ctx.variables(cmd.cwd).items()
+                                   if k != "HOME"})
+
+
+def _command_verdict(view: sh.ShellView, compiled: _Compiled, ctx: Context) -> Verdict | None:
+    commands = [*view.commands, *view.literal_commands]
+    for preset in compiled.presets:
+        title = catalog.pick(preset.title, ctx.locale)
+        by = f"commands:{preset.id}"
+        for predicate in preset.line_predicates:
+            try:
+                hit = predicate(view, ctx)
+            except Exception:  # noqa: BLE001 - a broken rule blocks rather than allows
+                log.warning("security rule failed", exc_info=True)
+                hit = True
+            if hit:
+                shown = view.texts[0] if view.texts else ""
+                return Verdict(True, by, message("preset_command", ctx.locale, title=title,
+                                                 command=_clip(shown)), match=_clip(shown),
+                               kind="command")
+        for cmd in commands:
+            subject = _subject(cmd, ctx)
+            hit = any(pl.matches(p, subject) for p in preset.compiled)
+            if not hit:
+                for predicate in preset.predicates:
+                    try:
+                        hit = bool(predicate(cmd, view, ctx))
+                    except Exception:  # noqa: BLE001
+                        log.warning("security rule failed", exc_info=True)
+                        hit = True
+                    if hit:
+                        break
+            if hit:
+                return Verdict(True, by, message("preset_command", ctx.locale, title=title,
+                                                 command=_clip(cmd.text)),
+                               match=_clip(cmd.text), kind="command")
+    for pattern in compiled.custom:
+        for cmd in commands:
+            if pl.matches(pattern, _subject(cmd, ctx)):
+                return Verdict(True, "custom", message("custom_command", ctx.locale,
+                                                       pattern=pattern.source,
+                                                       command=_clip(cmd.text)),
+                               match=pattern.source, kind="command")
+    return None
+
+
+def _clip(text: str, limit: int = 160) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+# ---------------------------------------------------------------------------
+# entry points
+# ---------------------------------------------------------------------------
+
+
+def check_command(command: str, lists: Lists, ctx: Context, cwd: Path | None = None) -> Verdict:
+    """Judge one shell line run in ``cwd`` (default: the project)."""
+    if lists.empty:
+        return ALLOWED
+    view = sh.view(command, cwd=str(cwd or ctx.workdir) if (cwd or ctx.workdir) else None,
+                   home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home))
+    return _judge_view(view, lists, ctx)
+
+
+def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
+                extra_effects: Iterable[sh.Effect] = ()) -> Verdict:
+    compiled = _compile(lists)
+    if compiled.presets or compiled.custom:
+        verdict = _command_verdict(view, compiled, ctx)
+        if verdict is not None:
+            return verdict
+    effects = [*view.effects, *extra_effects]
+    # A shell write to a settings file cannot be read; a file tool's content is
+    # judged by _settings_tool (the lists compared before and after).
+    settings_hit = _settings_effects(view.effects, ctx)
+    if settings_hit is not None:
+        return settings_hit
+    unseen: list[str] = []
+    entries = path_entries(lists, ctx) if not lists.paths_empty else []
+    verdict, path_unseen = _path_verdict(effects, entries, ctx)
+    if verdict is not None:
+        return verdict
+    if not lists.commands_empty:
+        unseen.extend(view.opaque)
+    if entries:
+        unseen.extend(path_unseen)
+    if unseen:
+        return Verdict(opaque=True, reason=UNCHECKED_REASON,
+                       why=message("unchecked", ctx.locale), unseen=tuple(dict.fromkeys(unseen)))
+    return ALLOWED
+
+
+def check_path(path: str, lists: Lists, ctx: Context, *, write: bool = True) -> Verdict:
+    """Judge a write (or, ``write=False``, a read) of ``path``: the "try it" box."""
+    if lists.paths_empty:
+        return ALLOWED
+    effect = sh.Effect(raw=path, cwd=ctx.workdir, kind="write" if write else "read",
+                       destructive=write, recursive=True)
+    verdict, unseen = _path_verdict([effect], path_entries(lists, ctx), ctx)
+    if verdict is not None:
+        return verdict
+    if unseen:
+        return Verdict(opaque=True, reason=UNCHECKED_REASON, why=message("unchecked", ctx.locale),
+                       unseen=tuple(unseen))
+    return ALLOWED
+
+
+# -- tool calls ------------------------------------------------------------------
+
+_DESTROY_WORDS = re.compile(r"(^|[_.\-])(delete|remove|rm|trash|unlink|rmdir|purge|wipe|erase|"
+                            r"move|rename|mv)([_.\-]|$)", re.IGNORECASE)
+_WRITE_WORDS = re.compile(r"(^|[_.\-])(write|edit|create|copy|save|put|mkdir|append|patch|"
+                          r"upload|replace|insert|chmod|chown|touch|truncate|extract|unzip)"
+                          r"([_.\-]|$)", re.IGNORECASE)
+_PATCH_HEADER = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$|"
+                           r"^(?:\+\+\+|---) (?:[ab]/)?(\S.*?)(?:\t.*)?$", re.MULTILINE)
+_SETTINGS_KEYS = re.compile(r"security|blockedCommands|protectedPaths", re.IGNORECASE)
+
+
+def _tool_cwd(args: Mapping[str, Any], ctx: Context) -> Path | None:
+    raw = args.get("cwd") or args.get("workdir") or args.get("dir")
+    if isinstance(raw, str) and raw.strip():
+        expanded = ctx.expand(raw, ctx.workdir)
+        return Path(expanded) if expanded else None
+    return ctx.workdir
+
+
+def _patch_paths(text: str) -> list[tuple[str, bool]]:
+    out: list[tuple[str, bool]] = []
+    for match in _PATCH_HEADER.finditer(text):
+        if match.group(2):
+            out.append((match.group(2).strip(), match.group(1) == "Delete"))
+        elif match.group(3):
+            out.append((match.group(3).strip(), False))
+        elif match.group(4) and match.group(4).strip() != "/dev/null":
+            out.append((match.group(4).strip(), False))
+    return out
+
+
+def tool_effects(tool: str, args: Mapping[str, Any], tags: Iterable[str],
+                 ctx: Context) -> list[sh.Effect]:
+    """The paths a non-shell tool call writes or reads."""
+    lower = (tool or "").lower()
+    base = lower.split("__")[-1] if lower.startswith(_c.MCP_PREFIX) else lower
+    tagset = set(tags)
+    cwd = _tool_cwd(args, ctx)
+    destroys = bool(_DESTROY_WORDS.search(base))
+    writes = (
+        bool(tagset & {"write", "outside", "config"})
+        or base in _c.WRITE_TOOL_NAMES
+        or destroys
+        or bool(_WRITE_WORDS.search(base))
+    )
+    recursive = base in _c.RECURSIVE_READ_TOOL_NAMES
+    out: list[sh.Effect] = []
+    paths = _c._call_paths(args)
+    if recursive and not writes and not paths and cwd is not None:
+        paths = [str(cwd)]
+    for raw in paths:
+        out.append(sh.Effect(raw=raw, cwd=cwd, kind="write" if writes else "read",
+                             destructive=destroys, recursive=recursive or destroys))
+    for key in ("input", "patch", "diff"):
+        value = args.get(key)
+        if isinstance(value, str) and ("*** " in value or "+++ " in value):
+            for raw, deleted in _patch_paths(value):
+                out.append(sh.Effect(raw=raw, cwd=cwd, kind="write", destructive=deleted))
+    return out
+
+
+def _settings_files(ctx: Context) -> list[Path]:
+    found: list[Path] = []
+    if ctx.home is not None:
+        found.append(_real(ctx.home / "settings.json"))
+    for root in (str(ctx.workdir) if ctx.workdir else None, *ctx.projects):
+        if root:
+            found.append(_real(Path(root) / ".snowpea" / "settings.json"))
+    return list(dict.fromkeys(found))
+
+
+def _settings_effects(effects: Iterable[sh.Effect], ctx: Context) -> Verdict | None:
+    """A shell write that lands on a snowpea settings file may rewrite the lists."""
+    files = _settings_files(ctx)
+    if not files:
+        return None
+    for effect in effects:
+        if effect.kind != "write":
+            continue
+        shape = _shape(effect.raw, effect.cwd, ctx)
+        if shape is None:
+            continue
+        for target in files:
+            # The file itself, or its own folder (``.snowpea/``, the home) deleted,
+            # moved or rewritten as a tree; deleting a whole project is not judged here.
+            if shape.pattern is not None:
+                relations = _relations(shape.pattern, shape.open_end, _glob_parts(str(target)))
+                last = shape.pattern[-1] if shape.pattern else ""
+                named = shape.open_end or last == "**" or fnmatch.fnmatchcase(target.name, last)
+                hit = ("equal" in relations and named) or (
+                    "ancestor" in relations and (effect.destructive or effect.recursive)
+                    and len(shape.pattern) >= len(_glob_parts(str(target))) - 1)
+            else:
+                hit = any(p == target or (p == target.parent and (effect.destructive
+                                                                   or effect.recursive))
+                          for p in shape.concrete)
+            if hit:
+                return Verdict(True, BY_SETTINGS, message("settings", ctx.locale),
+                               match=str(target), kind="settings")
+    return None
+
+
+def _security_of(text: str) -> Any:
+    """The file's ``security`` section (``None`` when absent or empty; ``...`` unreadable)."""
+    if not text.strip():
+        return None
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return ...
+    if not isinstance(data, dict):
+        return ...
+    return data.get("security") or None
+
+
+def _settings_tool(tool: str, args: Mapping[str, Any], ctx: Context) -> Verdict | None:
+    """``settings_set`` touching ``security``; a file tool editing a settings file's lists."""
+    lower = (tool or "").lower()
+    if lower in ("settings_set", "settings.set", "settings_update"):
+        patch = args.get("patch")
+        text = json.dumps(patch) if not isinstance(patch, str) else patch
+        if (isinstance(patch, Mapping) and "security" in patch) or (
+            not isinstance(patch, Mapping) and _SETTINGS_KEYS.search(text or "")
+        ) or any(isinstance(k, str) and k.startswith("security") for k in args):
+            return Verdict(True, BY_SETTINGS, message("settings", ctx.locale), kind="settings")
+        return None
+    files = _settings_files(ctx)
+    if not files:
+        return None
+    cwd = _tool_cwd(args, ctx)
+    for raw in _c._call_paths(args):
+        expanded = ctx.expand(raw, cwd)
+        if expanded is None:
+            continue
+        target = _real(Path(expanded))
+        if target not in files:
+            continue
+        try:
+            current = target.read_text(encoding="utf-8")
+        except OSError:
+            current = "{}"
+        after_text = _new_content(lower, args, current, target, ctx, cwd)
+        before = _security_of(current)
+        after = _security_of(after_text) if after_text is not None else ...
+        # The file read back: an unparseable result loads as the defaults, which
+        # would drop the person's own entries.
+        if after is ... or (before is not ... and before != after) or (
+            before is ... and after is not None
+        ):
+            return Verdict(True, BY_SETTINGS, message("settings", ctx.locale),
+                           match=str(target), kind="settings")
+    return None
+
+
+def _new_content(lower: str, args: Mapping[str, Any], current: str, target: Path,
+                 ctx: Context, cwd: Path | None) -> str | None:
+    """What a file tool leaves in ``target``; ``None`` when that cannot be known."""
+    if _DESTROY_WORDS.search(lower):
+        return None
+    for key in ("content", "contents", "text", "file_text"):
+        if isinstance(args.get(key), str) and not any(
+            k in args for k in ("old_string", "edits", "oldText", "old_str")
+        ):
+            return str(args[key])
+    edits: list[Mapping[str, Any]] = []
+    if any(k in args for k in ("old_string", "old", "oldText", "old_str")):
+        edits.append(args)
+    raw_edits = args.get("edits")
+    if isinstance(raw_edits, list):
+        edits.extend(e for e in raw_edits if isinstance(e, Mapping))
+    if not edits:
+        return None
+    text = current
+    top = args.get("path") or args.get("file_path")
+    for edit in edits:
+        where = edit.get("path") or edit.get("file_path") or top
+        if isinstance(where, str):
+            expanded = ctx.expand(where, cwd)
+            if expanded is not None and _real(Path(expanded)) != target:
+                continue
+        old = next((edit[k] for k in ("old_string", "old", "oldText", "old_str")
+                    if isinstance(edit.get(k), str)), None)
+        new = next((edit[k] for k in ("new_string", "new", "newText", "new_str")
+                    if isinstance(edit.get(k), str)), None)
+        if old is None or new is None or (old and old not in text):
+            return None
+        text = text.replace(old, new) if edit.get("replace_all") else text.replace(old, new, 1)
+    return text
+
+
+def check_call(
+    tool: str,
+    args: Mapping[str, Any] | None,
+    lists: Lists,
+    ctx: Context,
+    *,
+    tags: Iterable[str] = (),
+) -> Verdict:
+    """Judge one tool call against ``lists``.  Pure apart from resolving paths; never raises."""
+    try:
+        return _check_call(tool, dict(args or {}), lists, ctx, tuple(tags))
+    except Exception:  # noqa: BLE001 - a bug here must not let the call through unchecked
+        log.exception("security check failed for %s", tool)
+        if lists.empty:
+            return ALLOWED
+        return Verdict(opaque=True, reason=UNCHECKED_REASON, why=message("unchecked", ctx.locale),
+                       unseen=("internal",))
+
+
+def _check_call(tool: str, args: dict[str, Any], lists: Lists, ctx: Context,
+                tags: tuple[str, ...]) -> Verdict:
+    settings = _settings_tool(tool, args, ctx)
+    if settings is not None:
+        return settings
+    # Even with empty lists a shell line is read: one that rewrites a settings
+    # file may change the lists themselves.
+    lower = (tool or "").lower()
+    command = _c._command_text(args)
+    is_shell = lower in _c.SHELL_TOOL_NAMES or lower.startswith("process_start") or (
+        command is not None and "exec" in tags
+    )
+    extra = tool_effects(tool, args, tags, ctx) if not is_shell else []
+    if is_shell and command is not None:
+        cwd = _tool_cwd(args, ctx)
+        view = sh.view(command, cwd=str(cwd) if cwd else None,
+                       home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home))
+        return _judge_view(view, lists, ctx)
+    code = args.get("code") if isinstance(args.get("code"), str) else None
+    if code is None and lower in _c.CODE_TOOL_NAMES:
+        code = next((v for v in args.values() if isinstance(v, str)), None)
+    view = sh.ShellView()
+    if lists.empty:
+        return ALLOWED
+    if code:
+        view = sh.code_view(code, cwd=str(ctx.workdir) if ctx.workdir else None,
+                            home=str(ctx.home) if ctx.home else None,
+                            user_home=str(ctx.user_home))
+    return _judge_view(view, lists, ctx, extra_effects=extra)
+
+
+__all__ = [
+    "ALLOWED",
+    "BY_SETTINGS",
+    "UNCHECKED_REASON",
+    "Context",
+    "Verdict",
+    "check_call",
+    "check_command",
+    "check_path",
+    "message",
+    "path_entries",
+    "tool_effects",
+]

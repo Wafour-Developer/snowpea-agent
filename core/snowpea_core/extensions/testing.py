@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.session.mode_guard import ModeCaller
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.agent.turn_stopping import StopDecision
     from snowpea_core.extensions.manager import Extension
@@ -205,7 +207,9 @@ async def load_extension(
             assert core is not None
             workdir = root / "project"
             workdir.mkdir(exist_ok=True)
-            session = await core.sessions.create(workdir, mode="accept")
+            session = await core.sessions.create(
+                workdir, mode="accept", caller=ModeCaller.internal("extension-test-harness")
+            )
             before = snapshot(core)
             shutil.copytree(
                 source,

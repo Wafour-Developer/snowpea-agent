@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import getpass
 import json
+import os
 import re
 import sys
 import time
@@ -102,16 +103,64 @@ async def _remote_web_status(info: DaemonInfo) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-async def web_command(home: Path | str | None, *, open_browser: bool = True) -> int:
+PASSWORD_ENV = "SNOWPEA_WEB_PASSWORD"
+
+
+def _print_remote(status: dict[str, Any]) -> None:
+    """What other machines open, and the plain-HTTP warning."""
+    if not status.get("listening"):
+        if status.get("enabled") or status.get("error"):
+            print(f"remote access is not running: {status.get('error') or 'unknown'}")
+        return
+    addresses = status.get("listenUrls") or [
+        _remote_web_url(str(status.get("host", "")), int(status.get("port", 0)))
+    ]
+    if status.get("accessUrl"):
+        print(f"from another machine: {status['accessUrl']}")
+        print("  anyone with this link can drive this machine; rotate it with "
+              "`snowpea web token --rotate`, or set a password for a login page")
+    else:
+        for address in addresses:
+            who = f"  (log in as {status.get('username')})" if status.get("username") else ""
+            print(f"from another machine: {address}{who}")
+    warning = status.get("warning")
+    print(f"warning: {warning}" if warning else REMOTE_WEB_WARNING)
+
+
+async def web_command(
+    home: Path | str | None,
+    *,
+    open_browser: bool = True,
+    host: str | None = None,
+    port: int | None = None,
+    user: str | None = None,
+    password: str | None = None,
+    password_stdin: bool = False,
+    save: bool = False,
+) -> int:
     """``snowpea web``: make sure the daemon runs, then print and open its web address (M18 4.2).
 
-    The address carries the daemon token, like ``snowpea remote``'s; the page
-    keeps it for its tab and takes it out of the address bar.  When remote
-    access is on, the address other machines use is printed as well.
+    The local address carries the daemon token; the page keeps it for its tab
+    and takes it out of the address bar.  ``--host``/``--port`` open the
+    external listener now (``web.remote.listen``, no restart): without a
+    password other machines open the access link (a web access token of its
+    own); with ``--user`` and a password (``--password``, ``--password-stdin``
+    or ``$SNOWPEA_WEB_PASSWORD``) they get the login page.  ``--save`` keeps it
+    for the next daemon start.
     """
     from snowpea_core.cli.daemon_client import ensure_daemon
     from snowpea_core.server.transport_http import WEB_PATH, web_root
 
+    if password is not None:
+        print("warning: a password on the command line is visible in your shell history and "
+              "the process list; prefer --password-stdin or $SNOWPEA_WEB_PASSWORD",
+              file=sys.stderr)
+    elif password_stdin:
+        password = sys.stdin.readline().rstrip("\r\n")
+    elif os.environ.get(PASSWORD_ENV) and (host is not None or port is not None):
+        password = os.environ[PASSWORD_ENV]
+    if password is not None and len(password) < 8:
+        return _fail("use at least 8 characters for the password", EXIT_USAGE)
     info = await ensure_daemon(home)
     url = f"http://127.0.0.1:{info.port}{WEB_PATH}?token={info.token}"
     if web_root() is None:
@@ -121,14 +170,35 @@ async def web_command(home: Path | str | None, *, open_browser: bool = True) -> 
             file=sys.stderr,
         )
     print(f"snowpea web: {url}")
-    status = await _remote_web_status(info)
-    if status and status.get("enabled"):
-        if status.get("listening"):
-            remote_url = _remote_web_url(str(status.get("host", "")), int(status.get("port", 0)))
-            print(f"from another machine: {remote_url}")
-            print(REMOTE_WEB_WARNING)
+    status: dict[str, Any] | None
+    try:
+        if password is not None:
+            params: dict[str, Any] = {"password": password}
+            if user:
+                params["username"] = user
+            await _call(home, "web.remote.setPassword", params)
+        if host is not None or port is not None:
+            listen: dict[str, Any] = {"host": host or "0.0.0.0",
+                                      "port": 8787 if port is None else port, "save": save}
+            if user is not None:
+                listen["username"] = user
+            status = await _call(home, "web.remote.listen", listen)
         else:
-            print(f"remote access is enabled but not running: {status.get('error', 'unknown')}")
+            status = await _call(home, "web.remote.status", {})
+    except RpcCallError as exc:
+        if host is not None or password is not None:
+            return _fail(f"remote access: {exc.message}", EXIT_USAGE)
+        status = await _remote_web_status(info)  # an older daemon
+    except DaemonError as exc:
+        if host is not None or password is not None:
+            return _fail(str(exc), EXIT_NO_DAEMON)
+        status = await _remote_web_status(info)
+    except Exception as exc:  # noqa: BLE001 - the page itself still opens
+        if host is not None or password is not None:
+            return _fail(f"remote access: {exc}", EXIT_USAGE)
+        status = await _remote_web_status(info)
+    if status:
+        _print_remote(status)
     if open_browser:
         import webbrowser
 
@@ -137,11 +207,62 @@ async def web_command(home: Path | str | None, *, open_browser: bool = True) -> 
     return 0
 
 
+async def web_token_command(home: Path | str | None, *, rotate: bool = False) -> int:
+    """``snowpea web token [--rotate]``: print (or replace) the remote access link."""
+    try:
+        if rotate:
+            result = await _call(home, "web.remote.rotateToken", {})
+            print("the web access token was replaced; every open remote session ended")
+            if result.get("accessUrl"):
+                print(f"new link: {result['accessUrl']}")
+            return EXIT_OK
+        status = await _call(home, "web.remote.status", {})
+    except RpcCallError as exc:
+        return _fail(f"web token: {exc.message}", EXIT_USAGE)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    if status.get("accessUrl"):
+        print(status["accessUrl"])
+    elif status.get("mode") == "password":
+        print("remote access uses a password; the link alone does not open the page")
+    else:
+        print("remote access is not listening; start it with `snowpea web --host … --port …`")
+    return EXIT_OK
+
+
 async def web_status_command(home: Path | str | None, *, as_json: bool = False) -> int:
     """``snowpea web status``: remote access as the daemon runs it, and the settings."""
     from snowpea_core.config.settings import Settings
     from snowpea_core.server.web_remote import stored_hash
 
+    try:
+        live = await _call(home, "web.remote.status", {})
+    except Exception:  # noqa: BLE001 - an older daemon: the HTTP status below
+        live = None
+    if live is not None:
+        if as_json:
+            _print_json(live)
+            return 0
+        if live.get("listening"):
+            print(f"remote access: on ({live.get('mode')} mode), listening on "
+                  f"{live.get('host')}:{live.get('port')}")
+        elif live.get("enabled"):
+            print(f"remote access: enabled but not running ({live.get('error')})")
+        else:
+            print("remote access: off")
+        for address in live.get("listenUrls") or []:
+            print(f"address:       {address}")
+        if live.get("accessUrl"):
+            print(f"access link:   {live['accessUrl']}")
+        print(f"username:      {live.get('username') or '(not set)'}")
+        print(f"password:      {'set' if live.get('passwordSet') else 'not set'}")
+        print(f"sessions:      {live.get('sessions', 0)}")
+        if live.get("listening"):
+            print(f"warning:       {live.get('warning') or REMOTE_WEB_WARNING}")
+        if live.get("needsRestart"):
+            print("settings.json says otherwise than what runs; the next daemon start differs "
+                  "(use --save to keep what runs)")
+        return 0
     paths = Paths.create(home)
     remote = Settings.load(paths).web.remote
     info = await ensure_daemon(home)
@@ -3011,7 +3132,28 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     web_parser.add_argument(
         "--no-open", dest="no_open", action="store_true", help="print the address only"
     )
+    web_parser.add_argument(
+        "--host", dest="web_host", default=None,
+        help="open remote access now on this address (0.0.0.0, a LAN address); no restart",
+    )
+    web_parser.add_argument(
+        "--port", dest="web_port", type=int, default=None, help="port for remote access"
+    )
+    web_parser.add_argument("--user", dest="web_user", default=None,
+                            help="username for the login page (with a password)")
+    web_parser.add_argument(
+        "--password", dest="web_password", default=None,
+        help="password for the login page (visible in shell history: prefer --password-stdin "
+             "or $SNOWPEA_WEB_PASSWORD)",
+    )
+    web_parser.add_argument("--password-stdin", dest="web_password_stdin", action="store_true",
+                            help="read the password from one line of stdin")
+    web_parser.add_argument("--save", dest="web_save", action="store_true",
+                            help="also keep these remote settings for the next daemon start")
     web_sub = web_parser.add_subparsers(dest="action", metavar="<action>")
+    web_token = web_sub.add_parser("token", help="print the remote access link")
+    web_token.add_argument("--rotate", dest="rotate", action="store_true",
+                           help="replace the token; every open remote session ends")
     web_status = web_sub.add_parser(
         "status", help="show remote access: bind address, username, password, sessions"
     )
@@ -3324,7 +3466,18 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             )
         if action == "status":
             return await web_status_command(home, as_json=as_json)
-        return await web_command(home, open_browser=not bool(getattr(args, "no_open", False)))
+        if action == "token":
+            return await web_token_command(home, rotate=bool(getattr(args, "rotate", False)))
+        return await web_command(
+            home,
+            open_browser=not bool(getattr(args, "no_open", False)),
+            host=getattr(args, "web_host", None),
+            port=getattr(args, "web_port", None),
+            user=getattr(args, "web_user", None),
+            password=getattr(args, "web_password", None),
+            password_stdin=bool(getattr(args, "web_password_stdin", False)),
+            save=bool(getattr(args, "web_save", False)),
+        )
     if subcommand == "remote":
         # ``remote up`` is routed before parsing (cli/main.py); this is a bare ``snowpea remote``.
         return _fail("usage: snowpea remote up <[user@]host | --docker> --json", EXIT_USAGE)

@@ -8,6 +8,7 @@ and the server calls ``approval.request`` back.  Batching is not supported.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import itertools
 import json
 import logging
@@ -32,6 +33,17 @@ Sender = Callable[[dict[str, Any]], Awaitable[None]]
 
 #: The only method a client may call before ``system.hello`` succeeds.
 PUBLIC_METHODS: frozenset[str] = frozenset({"system.hello"})
+
+#: The ``actor`` of the call being handled (``"person"`` or ``None``), set by the
+#: dispatcher for every method: the one place the gates read it from.
+CURRENT_ACTOR: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "snowpea_rpc_actor", default=None
+)
+
+
+def current_actor() -> str | None:
+    """The ``actor`` the current RPC call carried (``None`` outside one)."""
+    return CURRENT_ACTOR.get()
 
 DEFAULT_CALL_TIMEOUT = 60.0
 
@@ -276,14 +288,17 @@ class RpcDispatcher:
         from snowpea_core.server import settings_gate
 
         gated = raw_params
-        if method in settings_gate.ACTOR_METHODS and "actor" in raw_params and (
-            "actor" not in getattr(model, "model_fields", {})
-        ):
-            # ``actor`` is a dispatcher-level param on these methods (security
-            # review 3): judged below, not part of the handler's own params.
+        actor: str | None = None
+        if "actor" in raw_params:
+            # ``actor`` is a dispatcher-level param on EVERY method, from every
+            # connection kind (a browser stamps it on whatever it sends): checked
+            # here, recorded for the gates (:func:`current_actor`), and taken off
+            # the params unless the method's model declares it.
             if raw_params["actor"] not in (None, "person"):
                 raise RpcError(errors.INVALID_PARAMS, "actor must be 'person' when given")
-            raw_params = {k: v for k, v in raw_params.items() if k != "actor"}
+            actor = raw_params["actor"]
+            if "actor" not in getattr(model, "model_fields", {}):
+                raw_params = {k: v for k, v in raw_params.items() if k != "actor"}
         try:
             params = model.model_validate(raw_params)
         except ValidationError as exc:
@@ -295,7 +310,12 @@ class RpcDispatcher:
 
         method_refusal(method, conn)
         settings_gate.browser_method_refusal(method, gated, conn, self.core)
-        result = await handler(conn, params, self.core)
+        settings_gate.kind_method_refusal(method, gated, conn, self.core)
+        token = CURRENT_ACTOR.set(actor)
+        try:
+            result = await handler(conn, params, self.core)
+        finally:
+            CURRENT_ACTOR.reset(token)
         return _as_dict(result)
 
     def _refuse_owned_run(self, method: str, params: BaseModel) -> None:

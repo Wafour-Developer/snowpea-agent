@@ -90,8 +90,36 @@ def _allowlist(ctx: CommandContext) -> Allowlist | None:
     return getattr(ctx.core, "allowlist", None)
 
 
+def mode_target(name: str, args: str) -> str | None:
+    """The mode a ``/plan``, ``/accept``, ``/auto`` or ``/mode …`` line would set, or ``None``.
+
+    ``/mode plan auto`` (plan, then auto with every approval answered yes)
+    counts as ``auto``: it is what the session ends up running in.
+    """
+    words = args.strip().lower().split()
+    if name in ("plan", "accept", "auto"):
+        return name
+    if name != "mode" or not words:
+        return None
+    if words == ["plan", "auto"]:
+        return "auto"
+    return words[0] if words[0] in MODES else None
+
+
 async def _set_mode(ctx: CommandContext, mode: str, auto_after_plan: bool | None = None) -> None:
-    await ctx.core.sessions.set_mode(ctx.session, mode, auto_after_plan)  # type: ignore[arg-type]
+    from snowpea_core.session.mode_guard import ModeCaller
+
+    # Raising needs a person (security review 4, H2): the command's own caller,
+    # judged already by the command gate (CommandRegistry.start).
+    conn = getattr(ctx, "conn", None)
+    started_by = getattr(ctx, "caller", None)
+    caller = (ModeCaller.from_conn(conn, getattr(ctx, "actor", None)) if conn is not None
+              else ModeCaller.internal(f"command-{started_by}") if started_by in (
+                  "messenger", "internal") else None)
+    await ctx.core.sessions.set_mode(
+        ctx.session, mode, auto_after_plan,  # type: ignore[arg-type]
+        caller=caller,
+    )
     flag = bool(getattr(ctx.session, "auto_after_plan", False))
     await ctx.emit(events.mode_changed(mode, auto_after_plan=flag))
 
@@ -276,6 +304,20 @@ async def cmd_allow(ctx: CommandContext, args: str) -> None:
         pattern, target = pattern_for_tool(name), tool_target(name)
     else:
         pattern, target = raw, SHELL_TARGET
+        from snowpea_core.permissions.allowlist import catch_all_problem
+
+        problem = catch_all_problem(pattern)
+        if problem is not None:
+            await ctx.say(f"Not a usable pattern: {problem}")
+            return
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(ctx.conn) != "person":
+        # A rule pre-approves before any routing (security review 4, H1): a local
+        # person's only, never a remote login, a connector, a messenger or a browser.
+        await ctx.say("Only you, on a local connection (IDE, TUI, CLI), can add an "
+                      "allowlist rule.")
+        return
     scope: Scope = "global" if is_global else "project"
     try:
         pattern_id = allowlist.add(pattern, scope, target, workdir=ctx.session.workdir)

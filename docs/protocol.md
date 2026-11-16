@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.53.0` (semver)
+- **Protocol version:** `1.54.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.53.0"
+    "protocolVersion": "1.54.0"
   }
 }
 ```
@@ -87,6 +87,7 @@ Server capabilities advertised in the `system.hello` result:
 - `providerModelsError`
 - `providerStatusEvents`
 - `readOnlyDelegation`
+- `securityLists`
 - `sessionAttachments`
 - `sessionContinue`
 - `sessionEffort`
@@ -118,6 +119,7 @@ Server capabilities advertised in the `system.hello` result:
 - `turnOutcome`
 - `update`
 - `visionNotice`
+- `webRemoteControl`
 - `webSearch`
 - `workspaces`
 - `writeOutsideAsks`
@@ -248,6 +250,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`question.list`](#questionlist) | client → server | List questions the agent is still waiting on. |
 | [`question.request`](#questionrequest) | server → client | Ask the client to put a question to the human. |
 | [`question.respond`](#questionrespond) | client → server | Answer a pending question and unblock the turn. |
+| [`security.check`](#securitycheck) | client → server | Security lists (1.54.0): judge a command or a path against the lists (or an unsaved draft) without running anything — the 'try it' box. |
+| [`security.get`](#securityget) | client → server | Security lists (1.54.0): the stored global lists, a project's additions, the effective lists with presets expanded, and whether this connection may change them (settings.set {scope: 'global', patch: {security: …}}, a local person only; arrays replace). |
+| [`security.presets.list`](#securitypresetslist) | client → server | Security lists (1.54.0): the preset catalog of blocked commands and protected paths, localized (en, ko). People only (not a browser or connector). |
 | [`session.archive`](#sessionarchive) | client → server | Archive or restore a conversation; refused while it runs unless stop (1.47.0). |
 | [`session.artifacts`](#sessionartifacts) | client → server | Files the session saved for the user under its workspace's artifacts/. |
 | [`session.attach`](#sessionattach) | client → server | Make this connection the origin of a session (approvals, host tools). |
@@ -323,6 +328,12 @@ Server capabilities advertised in the `system.hello` result:
 | [`tool.unregister`](#toolunregister) | client → server | Remove some of this connection's host tools. |
 | [`turn.outcome`](#turnoutcome) | client → server | Record whether a turn did what was asked (1.27.0): a browser client, for its own sessions. Stored as a turn.outcome session event. |
 | [`usage.summary`](#usagesummary) | client → server | Token totals from stored usage events, grouped by provider, model, session or day. |
+| [`web.remote.clearPassword`](#webremoteclearpassword) | client → server | Remote web access (1.54.0): remove the password (back to the access link); every open session ends. |
+| [`web.remote.listen`](#webremotelisten) | client → server | Remote web access (1.54.0): open (or move) the external listener now, without a daemon restart; save also writes web.remote.*. Every connection through it is a remote web login. A local person only. |
+| [`web.remote.rotateToken`](#webremoterotatetoken) | client → server | Remote web access (1.54.0): a new web access token; the old link stops working and every open session ends. |
+| [`web.remote.setPassword`](#webremotesetpassword) | client → server | Remote web access (1.54.0): store a password (scrypt hash) — password mode: the login page is required; every open session ends. A local person only. |
+| [`web.remote.status`](#webremotestatus) | client → server | Remote web access (1.54.0): the external listener, its mode, the addresses and the access link. A local person only (never a remote login, browser or connector). |
+| [`web.remote.stop`](#webremotestop) | client → server | Remote web access (1.54.0): close the external listener; its sessions end. |
 | [`web.search`](#websearch) | client → server | Web search for a browser host (1.11.0): the web_search tool's provider chain, settings, caps and timeouts, for the host's own fallback when its search page is blocked. Browser host clients (with a clientId) only; 'unavailable' with details.reason when no provider can answer. Results are untrusted web content. |
 | [`workspace.add`](#workspaceadd) | client → server | Add a project folder (1.47.0). |
 | [`workspace.list`](#workspacelist) | client → server | Project folders in sidebar order, each with its conversation count (1.47.0, capability 'workspaces'). |
@@ -497,7 +508,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -515,9 +526,11 @@ Ask the client to approve a tool call.
 | `external` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null` | no | Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. |
 | `folder` | `string \| null` | no | For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. |
 | `guard` | `string \| null` | no | Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. |
+| `neverDelegable` | `boolean \| null` | no | True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. |
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `paths` | `string[] \| null` | no | With reasonCode: the resolved absolute paths concerned (1.30.0). |
 | `personOnly` | `boolean \| null` | no | True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. |
+| `reason` | `string \| null` | no | Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. |
 | `reasonCode` | `string \| null` | no | Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. |
 | `remember` | `{ display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null` | no | For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && \|\| \| & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
@@ -559,6 +572,7 @@ Answer a pending approval and unblock the turn.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| null` | no | The scope that applies to this answer (as ApprovalResolvedNotification.scope); null for a deny or when the request had already been answered. |
 
 ### `audio.capabilities`
 
@@ -1017,7 +1031,7 @@ External sessions (1.53.0, WP6): start a new session of a CLI in a registered pr
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
 
 ### `external.get`
 
@@ -1035,7 +1049,7 @@ External sessions (1.53.0): one session's row without opening or reading it (dee
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
 
 ### `external.interrupt`
 
@@ -1077,7 +1091,7 @@ External sessions (1.53.0, WP5/6): one working directory's sessions (or every ex
 | field | type | required | description |
 |---|---|---|---|
 | `nextBefore` | `string \| null` | no | Cursor for the next page. |
-| `sessions` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; })[]` | no | Newest first. |
+| `sessions` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; })[]` | no | Newest first. |
 
 ### `external.open`
 
@@ -1102,7 +1116,7 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 | `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; ts: string; turnId?: string \| null; })[]` | no | Newest page of the timeline, oldest first. |
 | `hasMore` | `boolean` | no | Older entries exist (external.read). |
 | `readOnly` | `boolean` | no | True while host is 'terminal' (or 'tmux' before spike S5 confirms input): view only, external.send refused. Opening a host 'none' session continues it under snowpea, so it comes back with host 'snowpea'. |
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
 
 ### `external.read`
 
@@ -1137,6 +1151,7 @@ External sessions (1.53.0, WP6): send a prompt; the reply streams as external.ev
 |---|---|---|---|
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Session to talk to. |
 | `text` | `string` | yes | Prompt text; attachments are not supported in v1. |
+| `trust` | `boolean` | no | As ExternalOpenParams.trust (1.54.0): continuing a host 'none' session starts the CLI, so in a project no person trusted yet the send answers external_unavailable with details.reason 'untrusted_project' (show the confirmation, retry with trust: true) or 'untrusted_project_person_only'. |
 
 **Result**
 
@@ -1161,7 +1176,7 @@ External sessions (1.53.0, WP6): switch a session to default, readonly or unrest
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
 
 ### `external.unwatch`
 
@@ -1806,7 +1821,7 @@ Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external.
 | field | type | required | description |
 |---|---|---|---|
 | `generatedAt` | `string` | yes | UTC ISO time the table was taken. |
-| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
+| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; hostToolsFrom?: string \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; originSurface?: string \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; securityListsApply?: boolean \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
 
 ### `jarvis.project.alias`
 
@@ -2951,7 +2966,7 @@ List questions the agent is still waiting on.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; route?: "person" \| "jarvis" \| "auto" \| null; sessionId: string; timeoutSec?: number; })[]` | no | Questions still waiting for an answer. |
+| `requests` | `({ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; kind?: "mode" \| null; neverDelegable?: boolean \| null; personOnly?: boolean \| null; questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; route?: "person" \| "jarvis" \| "auto" \| null; sessionId: string; timeoutSec?: number; })[]` | no | Questions still waiting for an answer. |
 
 ### `question.request`
 
@@ -2964,6 +2979,9 @@ Ask the client to put a question to the human.
 | field | type | required | description |
 |---|---|---|---|
 | `external` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null` | no | Set when an external CLI session asks (1.53.0); see ApprovalRequest. |
+| `kind` | `"mode" \| null` | no | What a personOnly question decides (1.54.0): 'mode' for a mode picker. Null for an ordinary question. |
+| `neverDelegable` | `boolean \| null` | no | True when only a person may decide this question (1.54.0): it is personOnly. Clients label it "always asks you". Null otherwise. |
+| `personOnly` | `boolean \| null` | no | True when only a person may answer (1.54.0, security review 4 C1): the answer changes the session's permissions or raises its mode (set_mode, the plan-exit and plan-review pickers). Routed to the person; Jarvis's question_answer is refused (jarvis_person_only); a browser or connector may not answer it. Null otherwise. |
 | `questions` | `({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]` | no | The questions, in the order they were asked. |
 | `requestId` | `string` | yes | Id to answer with question.respond. |
 | `route` | `"person" \| "jarvis" \| "auto" \| null` | no | person or jarvis while Jarvis mode is on (1.53.0); null when it is off. A question is never 'auto'. |
@@ -2995,6 +3013,79 @@ Answer a pending question and unblock the turn.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `security.check`
+
+*Direction:* client → server
+
+Security lists (1.54.0): judge a command or a path against the lists (or an unsaved draft) without running anything — the 'try it' box.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `access` | `"write" \| "read"` | no | With path: judge a change (default) or a read. |
+| `command` | `string \| null` | no | A shell line to judge. |
+| `draft` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; } \| null` | no | Unsaved lists to judge against instead of the saved global ones (the project's additions still apply). Invalid entries are invalid_params. |
+| `locale` | `string \| null` | no | Language of 'why'; default 'en'. |
+| `path` | `string \| null` | no | A path to judge. |
+| `workdir` | `string \| null` | no | Where it would run (relative paths, project additions). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `blocked` | `boolean` | yes |  |
+| `by` | `string \| null` | no | 'commands:<presetId>', 'paths:<presetId>', 'custom', or 'security' (an edit of the security lists themselves). |
+| `level` | `"write" \| "all" \| null` | no | For a protected path hit: the entry's level. |
+| `match` | `string \| null` | no | The command or protected path hit. |
+| `opaque` | `boolean` | no | Not blocked, but part of it cannot be seen while a list is set: it would always be put to the person (reason). |
+| `reason` | `string \| null` | no | 'cannot be checked against your block list' when opaque. |
+| `why` | `string \| null` | no | Localized reason. |
+
+### `security.get`
+
+*Direction:* client → server
+
+Security lists (1.54.0): the stored global lists, a project's additions, the effective lists with presets expanded, and whether this connection may change them (settings.set {scope: 'global', patch: {security: …}}, a local person only; arrays replace).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `locale` | `string \| null` | no | For problems; default 'en'. |
+| `workdir` | `string \| null` | no | A project: adds its additions and resolves its presets. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `blockedCommands` | `{ custom?: string[]; presets?: string[]; }` | no |  |
+| `effective` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; commands?: ({ by: string; pattern: string; })[]; paths?: ({ by: string; exempt?: string[]; level: "write" \| "all"; path: string; scope: "tree" \| "self"; })[]; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; }` | no | The lists in force: the global ones plus the project's additions. |
+| `problems` | `string[]` | no | Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. |
+| `project` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; } \| null` | no | What the workdir's .snowpea/settings.json adds; null without. |
+| `protectedPaths` | `{ custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }` | no |  |
+| `writable` | `boolean` | yes | True only for a local person's connection: the only one settings.set accepts security.* from. A remote web login, a browser or a connector reads only. |
+
+### `security.presets.list`
+
+*Direction:* client → server
+
+Security lists (1.54.0): the preset catalog of blocked commands and protected paths, localized (en, ko). People only (not a browser or connector).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `locale` | `string \| null` | no | 'en' or 'ko' (others fall back to English); default 'en'. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `commands` | `({ default: boolean; description: string; examples?: string[]; id: string; level?: "write" \| "all" \| null; paths?: string[]; title: string; })[]` | no |  |
+| `locale` | `string` | no | The locale the texts are in. |
+| `paths` | `({ default: boolean; description: string; examples?: string[]; id: string; level?: "write" \| "all" \| null; paths?: string[]; title: string; })[]` | no |  |
 
 ### `session.archive`
 
@@ -3148,6 +3239,7 @@ Open a session rooted at a working directory.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | A browser (clientVersion 0.3.0+) sets 'person' when a click created the session with a mode wider than the default (1.54.0). |
 | `agent` | `string \| null` | no | Named agent whose persona to load. |
 | `browserMemory` | `boolean \| null` | no | Recall also searches pages the browser ingested. Default: on when a browser client (clientKind 'browser') creates the session (1.7.0). |
 | `denyExec` | `boolean \| null` | no | When true, refuse exec-tagged tools without prompting (headless CI). |
@@ -3156,7 +3248,7 @@ Open a session rooted at a working directory.
 | `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With agent.replyLanguage 'auto', text the core writes for this session (/init, /ralph and delegated briefs) is in this language before any guess from what the user typed. Ignored when not a language tag. |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
 | `memory` | `boolean \| null` | no | Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Kept with the session across a daemon restart (1.31.0); a delegated child follows its root conversation's. |
-| `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting. |
+| `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting (defaultMode, else 'accept'). A mode wider than that default (plan < accept < auto) needs a person (1.54.0): a local person, a remote web login, or a browser with actor 'person'; else jarvis_person_only with details.reason 'mode_raise'. |
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
 | `originSurface` | `string \| null` | no | Surface that owns approvals for this session (TUI, gateway, ...). |
 | `provider` | `string \| null` | no | Chat provider vendor; defaults to configured. |
@@ -3503,8 +3595,9 @@ Switch a session between plan, accept and auto.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | A browser (0.3.0+) sets 'person' when a click raised the mode (1.54.0). |
 | `autoAfterPlan` | `boolean \| null` | no | With mode 'plan' (1.32.0): true keeps planning but answers every approval 'allow' (a deny stays a deny), and set_mode then offers auto first; false clears it. Omitted keeps it while staying in plan and clears it when plan mode is entered afresh. Any other mode always clears it. |
-| `mode` | `"plan" \| "accept" \| "auto"` | yes | New permission mode. |
+| `mode` | `"plan" \| "accept" \| "auto"` | yes | New permission mode. Raising it (plan < accept < auto) needs a person (1.54.0, security review 4 H2): a local person, a remote web login, or a browser for a session it hosts (or opened) with actor 'person'; never a connector. Else jarvis_person_only with details.reason 'mode_raise'. Lowering is free. |
 | `sessionId` | `string` | yes | Session to change. |
 
 **Result**
@@ -4611,6 +4704,182 @@ Token totals from stored usage events, grouped by provider, model, session or da
 | `outputTokens` | `number` | no | Sum over all rows. |
 | `rows` | `({ calls?: number; inputTokens?: number; key: string; outputTokens?: number; })[]` | no | Totals, largest first. |
 
+### `web.remote.clearPassword`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): remove the password (back to the access link); every open session ends.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
+### `web.remote.listen`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): open (or move) the external listener now, without a daemon restart; save also writes web.remote.*. Every connection through it is a remote web login. A local person only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `host` | `string` | yes | Address to bind (0.0.0.0, a LAN address, ::). |
+| `port` | `number` | yes | Port; 0 picks a free one. |
+| `save` | `boolean` | no | Also write web.remote.{enabled,host,port,username} for the next start. |
+| `username` | `string \| null` | no | Login name for password mode; omitted keeps the configured one. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
+### `web.remote.rotateToken`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): a new web access token; the old link stops working and every open session ends.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The new access link (when listening in token mode). |
+
+### `web.remote.setPassword`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): store a password (scrypt hash) — password mode: the login page is required; every open session ends. A local person only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `password` | `string` | yes | At least 8 characters. |
+| `username` | `string \| null` | no | Set web.remote.username too (saved). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
+### `web.remote.status`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): the external listener, its mode, the addresses and the access link. A local person only (never a remote login, browser or connector).
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
+### `web.remote.stop`
+
+*Direction:* client → server
+
+Remote web access (1.54.0): close the external listener; its sessions end.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `save` | `boolean` | no | Also set web.remote.enabled false. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accessUrl` | `string \| null` | no | The access link with its token (token mode, listening). Treat it like a password: anyone with it drives this machine; rotate it with web.remote.rotateToken. |
+| `enabled` | `boolean` | yes | web.remote.enabled: the listener opens at daemon start. |
+| `error` | `string \| null` | no | Why it is not listening, if it should. |
+| `host` | `string` | yes | Bound address (or the configured one when not listening). |
+| `listenUrls` | `string[]` | no | Addresses other machines open (http://<lan-ip>:<port>/web/). |
+| `listening` | `boolean` | yes | The external listener is open now. |
+| `mode` | `"token" \| "password"` | yes | 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. |
+| `needsRestart` | `boolean` | no | settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. |
+| `passwordSet` | `boolean` | yes | A password is stored (scrypt hash, credentials.json). |
+| `plainHttp` | `boolean` | no | The listener speaks plain HTTP. |
+| `port` | `number` | yes | Bound port (or the configured one). |
+| `sessions` | `number` | no | Open browser sessions through the listener. |
+| `turnsRunning` | `number` | no | Turns running now (a stop or restart would cut their watchers). |
+| `username` | `string` | no | Login name; empty in access-link mode. |
+| `warning` | `string \| null` | no | The plain-HTTP warning to show. |
+
 ### `web.search`
 
 *Direction:* client → server
@@ -4728,7 +4997,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
-| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 
@@ -4738,6 +5007,7 @@ Set the sidebar order (1.47.0).
 | `decision` | `"allow" \| "deny" \| null` | no | The decision that was recorded; null only with outcome 'withdrawn' (1.53.0). |
 | `outcome` | `"withdrawn" \| null` | no | 'withdrawn' (1.53.0, security review 3): the request is no longer this connection's to show — sent only to a browser connection when a request it showed was routed to Jarvis. Nothing was decided; stop showing it. If it is routed back to the person the browser gets approval.pending again. |
 | `requestId` | `string` | yes | Request that was resolved. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| null` | no | The scope actually applied (1.54.0): once, session, project, always or site — after core's rules (a browser's unmarked widening reply, a person-only request, a shell line with no safe rule are kept to 'once'). Null for a deny and with outcome 'withdrawn'. |
 
 ### `approval.route.changed`
 
@@ -4935,7 +5205,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
-| `request` | `{ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; route?: "person" \| "jarvis" \| "auto" \| null; sessionId: string; timeoutSec?: number; }` | yes | The question now in the shared queue. |
+| `request` | `{ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; kind?: "mode" \| null; neverDelegable?: boolean \| null; personOnly?: boolean \| null; questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; route?: "person" \| "jarvis" \| "auto" \| null; sessionId: string; timeoutSec?: number; }` | yes | The question now in the shared queue. |
 
 ### `question.resolved`
 
@@ -4953,6 +5223,17 @@ Set the sidebar order (1.47.0).
 | `requestId` | `string` | yes | The waiting request. |
 | `route` | `"person" \| "jarvis" \| "auto" \| null` | yes | The new route; null when Jarvis mode went off (no routing). |
 | `sessionId` | `string` | yes | Its session; 'ext:<cli>:<id>' for an external session's approval. |
+
+### `security.blocked`
+
+| field | type | required | description |
+|---|---|---|---|
+| `by` | `string` | yes | As SecurityCheckResult.by. |
+| `sessionId` | `string` | yes | The session ('ext:<cli>:<id>' for an external session's request). |
+| `summary` | `string` | yes | The command line or the call, shortened. |
+| `surface` | `"agent" \| "approval" \| "external"` | no | Where it was stopped: snowpea's own tool execution, the approval queue, or an external CLI's bridged approval. |
+| `tool` | `string` | yes | The tool the model called. |
+| `why` | `string` | no | The reason in English, as the model read it. |
 
 ### `session.event`
 
@@ -5527,6 +5808,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `outside_root` |  |
 | `protected` |  |
 | `protocol_incompatible` | Client and server protocol majors differ. |
+| `security_blocked` |  |
 | `session_busy` |  |
 | `skill_exists` |  |
 | `steer_slash_command` |  |

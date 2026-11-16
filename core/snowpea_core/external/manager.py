@@ -99,9 +99,11 @@ def _ref(cli: str, session_id: str) -> dict[str, str]:
 
 
 def _call_key(tool: str, args: dict[str, Any], command: str | None) -> tuple[str, str]:
-    """``(tool, the exact call)``: the whole command line, or every argument."""
+    """``(tool, the exact call)``: the whole command line (and the folder it runs in,
+    security review 4 M2: ``cat .env`` elsewhere is another call), or every argument."""
     if command:
-        return (tool, command.strip())
+        cwd = args.get("cwd") if isinstance(args.get("cwd"), str) else ""
+        return (tool, f"{cwd}\x00{command.strip()}" if cwd else command.strip())
     import json
 
     try:
@@ -289,9 +291,18 @@ class ExternalManager:
                 self._bind(adapter)
 
     def _bind(self, adapter: ExternalAdapter) -> ExternalAdapter:
-        """Hand the daemon's supervisor to ``adapter`` (helpers, shared servers)."""
+        """Hand the daemon's supervisor (helpers, shared servers) and the CLI's
+        environment (with its ``passEnv``) to ``adapter``."""
         if adapter.supervisor is None:
             adapter.supervisor = self.supervisor
+        if getattr(adapter, "env_provider", None) is None:
+            cli = adapter.id
+
+            def provider() -> dict[str, str]:
+                pass_env = getattr(self._cli_settings(cli), "passEnv", None) or ()
+                return proc.scrubbed_env(pass_env=pass_env)
+
+            adapter.env_provider = provider
         return adapter
 
     # -- settings ---------------------------------------------------------
@@ -735,7 +746,30 @@ class ExternalManager:
             "controlled": self._controlled(record, found),
             "preview": _preview(info.preview),
             "model": info.model,
+            "securityListsApply": self._lists_apply(
+                record.project, record.host, self._approvals(record, found),
+                self._controlled(record, found),
+            ),
         }
+
+    def _lists_apply(self, project: str | None, host: str, approvals: str,
+                     controlled: bool) -> bool | None:
+        """``ExternalSessionRow.securityListsApply``: null with empty lists; false when
+        snowpea cannot see what the CLI runs (unrestricted or uncontrolled, a tmux pane
+        whose prompts are answered there, another terminal)."""
+        from snowpea_core.security.enforce import lists_for
+
+        try:
+            lists = lists_for(getattr(self.approvals, "settings", None), project)
+        except Exception:  # noqa: BLE001 - unknown lists: say nothing
+            return None
+        if lists.empty:
+            return None
+        if host == "terminal":
+            return False
+        if host in ("snowpea", "tmux"):
+            return bool(controlled) and approvals == "bridged"
+        return True
 
     def _state(self, record: _Record, previous: str | None, previous_host: str | None
                ) -> dict[str, Any]:
@@ -1002,6 +1036,9 @@ class ExternalManager:
             "controlled": True,
             "preview": _preview(info.preview),
             "model": info.model,
+            "securityListsApply": self._lists_apply(
+                proc.project_of(info.cwd, roots), host, "none", True
+            ),
         }
 
     # -- open / read --------------------------------------------------------
@@ -1329,8 +1366,12 @@ class ExternalManager:
         self, cli: str, session_id: str, text: str, *, conn: Any = None,
         origin: dict[str, Any] | None = None,
         confirmation: PersonConfirmation | None = None,
+        trust: bool = False,
     ) -> dict[str, str]:
         """``external.send``: start a turn; the reply streams as ``external.event``.
+
+        ``trust`` as on :meth:`open`: continuing a ``host: none`` session in a
+        project no person trusted yet (1.54.0).
 
         A ``host: none`` session is continued first in its current mode, or the
         CLI's ``defaultMode`` (``unrestricted`` only for a person; anyone else
@@ -1343,7 +1384,7 @@ class ExternalManager:
         record, found = await self._load(cli, session_id)
         try:
             return await self._send(record, found, text, conn=conn, origin=origin,
-                                    confirmation=confirmation)
+                                    confirmation=confirmation, trust=trust)
         except ExternalError:
             await self._maybe_forget(record)
             raise
@@ -1351,6 +1392,7 @@ class ExternalManager:
     async def _send(
         self, record: _Record, found: Discovery, text: str, *, conn: Any,
         origin: dict[str, Any] | None, confirmation: PersonConfirmation | None = None,
+        trust: bool = False,
     ) -> dict[str, str]:
         cli = record.cli
         async with record.lock:
@@ -1368,7 +1410,7 @@ class ExternalManager:
                 # explicit choice (external.open / external.setMode), never a send.
                 mode = self._implicit_mode(record)
                 self._require_trust(record.project, record.real_cwd or record.info.cwd,
-                                    conn, False)
+                                    conn, trust)
                 try:
                     await self._start_channel(record, mode, None, found, resume=True)
                 except ExternalError:
@@ -1537,6 +1579,32 @@ class ExternalManager:
             return False
         return verdict.classification in ("safe", "risky")
 
+    async def _security(self, record: _Record, ask: ApprovalAsk) -> Any:
+        """The security lists' verdict on a bridged request; a block is announced."""
+        from snowpea_core.security import enforce
+
+        queue = self.approvals
+        core = getattr(queue, "core", None)
+        args = dict(ask.args or {})
+        cwd = record.real_cwd or record.info.cwd
+        if cwd and not any(k in args for k in ("cwd", "workdir", "dir")):
+            args["cwd"] = cwd  # the CLI's folder, for relative paths (judgement only)
+        if core is not None:
+            await enforce.refresh_projects(core)
+        projects = enforce.live_projects(core) if core is not None else []
+        verdict = enforce.judge(
+            settings=getattr(queue, "settings", None), home=self.home,
+            workdir=record.project or cwd, tool=ask.tool, args=args, tags=(),
+            projects=projects,
+        )
+        if verdict.blocked:
+            await enforce.announce(
+                hub=getattr(queue, "hub", None), paths=getattr(queue, "paths", None),
+                session_id=f"ext:{record.cli}:{record.id}", tool=ask.tool, args=ask.args,
+                verdict=verdict, surface="external", core=core,
+            )
+        return verdict
+
     async def _ask_approval(self, record: _Record, ask: ApprovalAsk) -> ApprovalAnswer:
         """Bridge one CLI prompt into the shared approval queue (``ApprovalRequest.external``).
 
@@ -1554,10 +1622,16 @@ class ExternalManager:
         ask.args = dict(ask.args or {})
         ask.note = clean_text(ask.note) if ask.note else ask.note
         ask.diff = clean_text(ask.diff) if ask.diff else ask.diff
+        # The security lists before the session's own cache (1.54.0): a blocked
+        # call is denied with the reason, so the CLI's model reads why.
+        security = await self._security(record, ask)
+        if security.blocked:
+            return ApprovalAnswer(allow=False, reason=security.refusal, by="security")
         command = command_of(ask.args or {})
         cache_key = _call_key(ask.tool, ask.args or {}, command)
         if (
             not ask.person_only
+            and not security.opaque
             and cache_key in record.approval_cache
             and (not command or matchable(command))
             and self._cacheable(record, ask)

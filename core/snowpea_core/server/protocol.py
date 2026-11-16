@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.53.0"
+PROTOCOL_VERSION = "1.54.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -548,7 +548,20 @@ class Attachment(Payload):
 class SessionCreateParams(Payload):
     workdir: str = Field(description="Absolute path the session operates in.")
     mode: Mode | None = Field(
-        default=None, description="Starting mode; defaults to the project setting."
+        default=None,
+        description=(
+            "Starting mode; defaults to the project setting (defaultMode, else 'accept'). "
+            "A mode wider than that default (plan < accept < auto) needs a person (1.54.0): "
+            "a local person, a remote web login, or a browser with actor 'person'; else "
+            "jarvis_person_only with details.reason 'mode_raise'."
+        ),
+    )
+    actor: Literal["person"] | None = Field(
+        default=None,
+        description=(
+            "A browser (clientVersion 0.3.0+) sets 'person' when a click created the session "
+            "with a mode wider than the default (1.54.0)."
+        ),
     )
     provider: str | None = Field(
         default=None, description="Chat provider vendor; defaults to configured."
@@ -1348,7 +1361,18 @@ class TurnResult(Payload):
 
 class SessionSetModeParams(Payload):
     sessionId: str = Field(description="Session to change.")
-    mode: Mode = Field(description="New permission mode.")
+    mode: Mode = Field(
+        description=(
+            "New permission mode. Raising it (plan < accept < auto) needs a person (1.54.0, "
+            "security review 4 H2): a local person, a remote web login, or a browser for a "
+            "session it hosts (or opened) with actor 'person'; never a connector. Else "
+            "jarvis_person_only with details.reason 'mode_raise'. Lowering is free."
+        )
+    )
+    actor: Literal["person"] | None = Field(
+        default=None,
+        description="A browser (0.3.0+) sets 'person' when a click raised the mode (1.54.0).",
+    )
     autoAfterPlan: bool | None = Field(
         default=None,
         description=(
@@ -2213,6 +2237,26 @@ class ApprovalRequest(Payload):
             "class (rule exec:opaque:control-chars)."
         ),
     )
+    neverDelegable: bool | None = Field(
+        default=None,
+        description=(
+            "True when only a person may decide this request (1.54.0): it is personOnly, or "
+            "the delegation engine classifies it 'never' (snowpea's own settings and "
+            "secrets, the snowpea CLI, delegation changes, …), or the security lists "
+            "cannot check it. Clients label it \"always asks you\". Null otherwise; additive "
+            "and informational: core enforces it whatever the client shows."
+        ),
+    )
+    reason: str | None = Field(
+        default=None,
+        description=(
+            "Why core put this request to the person whatever the mode (1.54.0): 'cannot be "
+            "checked against your block list' when the security lists are set and part of "
+            "the call cannot be seen (a program only the shell knows, eval of a variable, a "
+            "pipe into a shell, a path only the shell knows). Such a request is personOnly, "
+            "routed to the person, never cached or remembered. Null otherwise."
+        ),
+    )
 
 
 class ApprovalAskParams(Payload):
@@ -2421,6 +2465,30 @@ class QuestionRequest(Payload):
         description=(
             "person or jarvis while Jarvis mode is on (1.53.0); null when it is off. A "
             "question is never 'auto'."
+        ),
+    )
+    personOnly: bool | None = Field(
+        default=None,
+        description=(
+            "True when only a person may answer (1.54.0, security review 4 C1): the answer "
+            "changes the session's permissions or raises its mode (set_mode, the plan-exit "
+            "and plan-review pickers). Routed to the person; Jarvis's question_answer is "
+            "refused (jarvis_person_only); a browser or connector may not answer it. Null "
+            "otherwise."
+        ),
+    )
+    kind: Literal["mode"] | None = Field(
+        default=None,
+        description=(
+            "What a personOnly question decides (1.54.0): 'mode' for a mode picker. Null for "
+            "an ordinary question."
+        ),
+    )
+    neverDelegable: bool | None = Field(
+        default=None,
+        description=(
+            "True when only a person may decide this question (1.54.0): it is personOnly. "
+            "Clients label it \"always asks you\". Null otherwise."
         ),
     )
 
@@ -6537,6 +6605,27 @@ class ApprovalResolvedNotification(Payload):
             "routed back to the person the browser gets approval.pending again."
         ),
     )
+    scope: ApprovalScope | None = Field(
+        default=None,
+        description=(
+            "The scope actually applied (1.54.0): once, session, project, always or site — "
+            "after core's rules (a browser's unmarked widening reply, a person-only request, "
+            "a shell line with no safe rule are kept to 'once'). Null for a deny and with "
+            "outcome 'withdrawn'."
+        ),
+    )
+
+
+class ApprovalRespondResult(Ok):
+    """``approval.respond``'s result (1.54.0: the applied scope)."""
+
+    scope: ApprovalScope | None = Field(
+        default=None,
+        description=(
+            "The scope that applies to this answer (as ApprovalResolvedNotification.scope); "
+            "null for a deny or when the request had already been answered."
+        ),
+    )
 
 
 class ApprovalPendingNotification(Payload):
@@ -7823,6 +7912,26 @@ class JarvisOverviewRow(Payload):
         default="",
         description="One line: what it did last or is waiting for (at most 200 characters).",
     )
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "For a snowpea session: as SessionSummary.hostToolsFrom (1.54.0) — a browser "
+            "profile's clientId when it runs on a browser host's tools, null for IDE, TUI "
+            "and CLI sessions."
+        ),
+    )
+    originSurface: str | None = Field(
+        default=None,
+        description=(
+            "For a snowpea session: as SessionSummary.originSurface (1.54.0): the surface "
+            "that owns its approvals ('gateway:<platform>:<chat>' for a messenger session, "
+            "'scheduler', 'jarvis-task', a client's surface id, …)."
+        ),
+    )
+    securityListsApply: bool | None = Field(
+        default=None,
+        description="For an external session: as ExternalSessionRow.securityListsApply (1.54.0).",
+    )
 
 
 class JarvisOverviewResult(Payload):
@@ -8417,6 +8526,16 @@ class ExternalSessionRow(Payload):
     )
     preview: str = Field(default="", description="Last message, one line.")
     model: str | None = Field(default=None, description="Model it last used, when recorded.")
+    securityListsApply: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the security lists can reach what it runs (1.54.0): null while both "
+            "lists are empty; false when snowpea cannot see its calls (mode unrestricted or "
+            "otherwise uncontrolled, prompts answered in a tmux pane, running in another "
+            "terminal), so a UI can warn that blocked commands and protected folders do not "
+            "apply inside it."
+        ),
+    )
 
 
 class ExternalListParams(Payload):
@@ -8534,6 +8653,15 @@ class ExternalReadResult(Payload):
 class ExternalSendParams(Payload):
     ref: ExternalRef = Field(description="Session to talk to.")
     text: str = Field(min_length=1, description="Prompt text; attachments are not supported in v1.")
+    trust: bool = Field(
+        default=False,
+        description=(
+            "As ExternalOpenParams.trust (1.54.0): continuing a host 'none' session starts the "
+            "CLI, so in a project no person trusted yet the send answers external_unavailable "
+            "with details.reason 'untrusted_project' (show the confirmation, retry with trust: "
+            "true) or 'untrusted_project_person_only'."
+        ),
+    )
 
 
 class ExternalSendResult(Payload):
@@ -8838,6 +8966,281 @@ class McpPresetApplyResult(Payload):
 
 
 # --------------------------------------------------------------------------
+# remote web access (1.54.0, capability webRemoteControl)
+# --------------------------------------------------------------------------
+
+
+class WebRemoteStatus(Payload):
+    """The external web listener as the daemon runs it, and its settings."""
+
+    enabled: bool = Field(description="web.remote.enabled: the listener opens at daemon start.")
+    listening: bool = Field(description="The external listener is open now.")
+    host: str = Field(description="Bound address (or the configured one when not listening).")
+    port: int = Field(description="Bound port (or the configured one).")
+    username: str = Field(default="", description="Login name; empty in access-link mode.")
+    passwordSet: bool = Field(description="A password is stored (scrypt hash, credentials.json).")
+    mode: Literal["token", "password"] = Field(
+        description=(
+            "'token': the access link (a web access token in ?t=, traded for a cookie on the "
+            "first request) opens the page; 'password': a username and password are set and "
+            "the login page is required — the link alone is not enough."
+        )
+    )
+    listenUrls: list[str] = Field(
+        default_factory=list,
+        description="Addresses other machines open (http://<lan-ip>:<port>/web/).",
+    )
+    accessUrl: str | None = Field(
+        default=None,
+        description=(
+            "The access link with its token (token mode, listening). Treat it like a password: "
+            "anyone with it drives this machine; rotate it with web.remote.rotateToken."
+        ),
+    )
+    sessions: int = Field(default=0, description="Open browser sessions through the listener.")
+    needsRestart: bool = Field(
+        default=False,
+        description=(
+            "settings.json says otherwise than what runs (enabled/host/port/username): the "
+            "next daemon start will differ. web.remote.listen applies at once and can save."
+        ),
+    )
+    plainHttp: bool = Field(default=True, description="The listener speaks plain HTTP.")
+    warning: str | None = Field(default=None, description="The plain-HTTP warning to show.")
+    error: str | None = Field(default=None, description="Why it is not listening, if it should.")
+    turnsRunning: int = Field(
+        default=0, description="Turns running now (a stop or restart would cut their watchers)."
+    )
+
+
+class WebRemoteListenParams(Payload):
+    host: str = Field(description="Address to bind (0.0.0.0, a LAN address, ::).")
+    port: int = Field(ge=0, le=65535, description="Port; 0 picks a free one.")
+    username: str | None = Field(
+        default=None,
+        description="Login name for password mode; omitted keeps the configured one.",
+    )
+    save: bool = Field(
+        default=False,
+        description="Also write web.remote.{enabled,host,port,username} for the next start.",
+    )
+
+
+class WebRemoteStopParams(Payload):
+    save: bool = Field(default=False, description="Also set web.remote.enabled false.")
+
+
+class WebRemoteSetPasswordParams(Payload):
+    password: str = Field(min_length=8, max_length=1024, description="At least 8 characters.")
+    username: str | None = Field(
+        default=None, description="Set web.remote.username too (saved)."
+    )
+
+
+class WebRemoteTokenResult(Payload):
+    accessUrl: str | None = Field(
+        default=None, description="The new access link (when listening in token mode)."
+    )
+
+
+# --------------------------------------------------------------------------
+# security lists (1.54.0, capability securityLists)
+# --------------------------------------------------------------------------
+
+SecurityLevel = Literal["write", "all"]
+
+
+class SecurityPresetsListParams(Payload):
+    locale: str | None = Field(
+        default=None, description="'en' or 'ko' (others fall back to English); default 'en'."
+    )
+
+
+class SecurityPreset(Payload):
+    """One preset of the catalog."""
+
+    id: str = Field(description="Stable id, e.g. 'essential', 'git-destructive', 'credentials'.")
+    title: str = Field(description="Short name in the requested locale.")
+    description: str = Field(description="What it covers, in the requested locale.")
+    examples: list[str] = Field(
+        default_factory=list,
+        description="Commands it blocks (commands) or paths it covers (paths), as typed.",
+    )
+    default: bool = Field(description="On in a fresh install (only 'essential').")
+    level: SecurityLevel | None = Field(
+        default=None, description="Paths only: 'write' (no changes) or 'all' (no access)."
+    )
+    paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Paths only: what it protects on this machine now, as shown (~/.ssh, /etc, the "
+            "registered projects, the mounted disks); the session's own project is left out "
+            "when a check runs."
+        ),
+    )
+
+
+class SecurityPresetsListResult(Payload):
+    commands: list[SecurityPreset] = Field(default_factory=list)
+    paths: list[SecurityPreset] = Field(default_factory=list)
+    locale: str = Field(default="en", description="The locale the texts are in.")
+
+
+class SecurityProtectedPathEntry(Payload):
+    path: str = Field(description="Absolute path, or one starting with ~/.")
+    level: SecurityLevel = Field(default="write")
+
+
+class SecurityCommandList(Payload):
+    presets: list[str] = Field(default_factory=list)
+    custom: list[str] = Field(
+        default_factory=list,
+        description="Command patterns (see docs/manual/en/security.md, 'Custom patterns').",
+    )
+
+
+class SecurityPathList(Payload):
+    presets: list[str] = Field(default_factory=list)
+    custom: list[SecurityProtectedPathEntry] = Field(default_factory=list)
+
+
+class SecurityLists(Payload):
+    blockedCommands: SecurityCommandList = Field(default_factory=SecurityCommandList)
+    protectedPaths: SecurityPathList = Field(default_factory=SecurityPathList)
+
+
+class SecurityResolvedPath(Payload):
+    """One protected path a preset or entry stands for right now."""
+
+    path: str
+    level: SecurityLevel
+    scope: Literal["tree", "self"] = Field(
+        description=(
+            "'tree': the path and everything below it; 'self': the folder itself only "
+            "(never deleted, moved or changed recursively, nor through a folder above it)."
+        )
+    )
+    by: str = Field(description="'paths:<presetId>' or 'custom'.")
+    exempt: list[str] = Field(
+        default_factory=list, description="Folders below it that stay usable (the project)."
+    )
+
+
+class SecurityEffectiveCommand(Payload):
+    pattern: str = Field(
+        description=(
+            "A pattern in force; for a preset rule the pattern language cannot spell (a "
+            "download piped into a shell, rm -r of a folder holding the home) one of the "
+            "preset's examples, for display."
+        )
+    )
+    by: str = Field(description="'commands:<presetId>' or 'custom'.")
+
+
+class SecurityEffective(SecurityLists):
+    """The lists in force: the global ones plus the project's additions."""
+
+    commands: list[SecurityEffectiveCommand] = Field(
+        default_factory=list, description="Every command pattern in force, presets expanded."
+    )
+    paths: list[SecurityResolvedPath] = Field(
+        default_factory=list,
+        description="Every protected path, presets expanded for the given workdir.",
+    )
+
+
+class SecurityGetParams(Payload):
+    workdir: str | None = Field(
+        default=None, description="A project: adds its additions and resolves its presets."
+    )
+    locale: str | None = Field(default=None, description="For problems; default 'en'.")
+
+
+class SecurityGetResult(SecurityLists):
+    """The global lists as stored (absent keys shown as their defaults)."""
+
+    project: SecurityLists | None = Field(
+        default=None, description="What the workdir's .snowpea/settings.json adds; null without."
+    )
+    effective: SecurityEffective = Field(default_factory=SecurityEffective)
+    writable: bool = Field(
+        description=(
+            "True only for a local person's connection: the only one settings.set accepts "
+            "security.* from. A remote web login, a browser or a connector reads only."
+        )
+    )
+    problems: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern."
+        ),
+    )
+
+
+class SecurityCheckParams(Payload):
+    command: str | None = Field(default=None, description="A shell line to judge.")
+    path: str | None = Field(default=None, description="A path to judge.")
+    access: Literal["write", "read"] = Field(
+        default="write", description="With path: judge a change (default) or a read."
+    )
+    workdir: str | None = Field(
+        default=None, description="Where it would run (relative paths, project additions)."
+    )
+    draft: SecurityLists | None = Field(
+        default=None,
+        description=(
+            "Unsaved lists to judge against instead of the saved global ones (the project's "
+            "additions still apply). Invalid entries are invalid_params."
+        ),
+    )
+    locale: str | None = Field(default=None, description="Language of 'why'; default 'en'.")
+
+
+class SecurityCheckResult(Payload):
+    blocked: bool
+    by: str | None = Field(
+        default=None,
+        description=(
+            "'commands:<presetId>', 'paths:<presetId>', 'custom', or 'security' (an edit of "
+            "the security lists themselves)."
+        ),
+    )
+    why: str | None = Field(default=None, description="Localized reason.")
+    opaque: bool = Field(
+        default=False,
+        description=(
+            "Not blocked, but part of it cannot be seen while a list is set: it would always "
+            "be put to the person (reason)."
+        ),
+    )
+    reason: str | None = Field(default=None, description="'cannot be checked against your "
+                                                         "block list' when opaque.")
+    match: str | None = Field(default=None, description="The command or protected path hit.")
+    level: SecurityLevel | None = Field(
+        default=None, description="For a protected path hit: the entry's level."
+    )
+
+
+class SecurityBlockedNotification(Payload):
+    """A call was refused by the security lists (1.54.0)."""
+
+    sessionId: str = Field(
+        description="The session ('ext:<cli>:<id>' for an external session's request)."
+    )
+    tool: str = Field(description="The tool the model called.")
+    summary: str = Field(description="The command line or the call, shortened.")
+    by: str = Field(description="As SecurityCheckResult.by.")
+    why: str = Field(default="", description="The reason in English, as the model read it.")
+    surface: Literal["agent", "approval", "external"] = Field(
+        default="agent",
+        description=(
+            "Where it was stopped: snowpea's own tool execution, the approval queue, or an "
+            "external CLI's bridged approval."
+        ),
+    )
+
+
+# --------------------------------------------------------------------------
 # registries
 # --------------------------------------------------------------------------
 
@@ -9118,7 +9521,7 @@ METHODS: dict[str, RpcMethod] = {
         _m(
             "approval.respond",
             ApprovalRespondParams,
-            Ok,
+            ApprovalRespondResult,
             "Answer a pending approval and unblock the turn.",
         ),
         _m(
@@ -10018,6 +10421,88 @@ METHODS: dict[str, RpcMethod] = {
             "Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it.",
         ),
         _m(
+            "web.remote.status",
+            Empty,
+            WebRemoteStatus,
+            (
+                "Remote web access (1.54.0): the external listener, its mode, the addresses and "
+                "the access link. A local person only (never a remote login, browser or "
+                "connector)."
+            ),
+        ),
+        _m(
+            "web.remote.listen",
+            WebRemoteListenParams,
+            WebRemoteStatus,
+            (
+                "Remote web access (1.54.0): open (or move) the external listener now, without a "
+                "daemon restart; save also writes web.remote.*. Every connection through it is "
+                "a remote web login. A local person only."
+            ),
+        ),
+        _m(
+            "web.remote.stop",
+            WebRemoteStopParams,
+            WebRemoteStatus,
+            "Remote web access (1.54.0): close the external listener; its sessions end.",
+        ),
+        _m(
+            "web.remote.setPassword",
+            WebRemoteSetPasswordParams,
+            WebRemoteStatus,
+            (
+                "Remote web access (1.54.0): store a password (scrypt hash) — password mode: "
+                "the login page is required; every open session ends. A local person only."
+            ),
+        ),
+        _m(
+            "web.remote.clearPassword",
+            Empty,
+            WebRemoteStatus,
+            (
+                "Remote web access (1.54.0): remove the password (back to the access link); "
+                "every open session ends."
+            ),
+        ),
+        _m(
+            "web.remote.rotateToken",
+            Empty,
+            WebRemoteTokenResult,
+            (
+                "Remote web access (1.54.0): a new web access token; the old link stops working "
+                "and every open session ends."
+            ),
+        ),
+        _m(
+            "security.presets.list",
+            SecurityPresetsListParams,
+            SecurityPresetsListResult,
+            (
+                "Security lists (1.54.0): the preset catalog of blocked commands and protected "
+                "paths, localized (en, ko). People only (not a browser or connector)."
+            ),
+        ),
+        _m(
+            "security.get",
+            SecurityGetParams,
+            SecurityGetResult,
+            (
+                "Security lists (1.54.0): the stored global lists, a project's additions, the "
+                "effective lists with presets expanded, and whether this connection may change "
+                "them (settings.set {scope: 'global', patch: {security: …}}, a local person "
+                "only; arrays replace)."
+            ),
+        ),
+        _m(
+            "security.check",
+            SecurityCheckParams,
+            SecurityCheckResult,
+            (
+                "Security lists (1.54.0): judge a command or a path against the lists (or an "
+                "unsaved draft) without running anything — the 'try it' box."
+            ),
+        ),
+        _m(
             "external.clis",
             Empty,
             ExternalClisResult,
@@ -10208,6 +10693,8 @@ EVENTS: dict[str, type[BaseModel]] = {
     "external.event": ExternalEventNotification,
     "external.state": ExternalStateNotification,
     "external.clis.changed": ExternalClisChangedNotification,
+    # 1.54.0: a call the security lists refused; to every person's surface.
+    "security.blocked": SecurityBlockedNotification,
 }
 
 CAPABILITIES: list[str] = [
@@ -10304,6 +10791,11 @@ CAPABILITIES: list[str] = [
     # The browser marker ``actor: "person"`` (security review 3): a browser that
     # sends clientVersion 0.3.0 or later must set it on the config methods.
     "browserActor",
+    # security.presets.list/get/check, security.blocked, settings security.* and
+    # ApprovalRequest.neverDelegable/reason — 1.54.0.
+    "securityLists",
+    # web.remote.status/listen/stop/setPassword/clearPassword/rotateToken — 1.54.0.
+    "webRemoteControl",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -10521,6 +11013,17 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "mcp.preset.check",
         "jarvis.briefing.get",
         "jarvis.briefing.set",
+        # 1.54.0 (capability webRemoteControl)
+        "web.remote.status",
+        "web.remote.listen",
+        "web.remote.stop",
+        "web.remote.setPassword",
+        "web.remote.clearPassword",
+        "web.remote.rotateToken",
+        # 1.54.0 (capability securityLists)
+        "security.presets.list",
+        "security.get",
+        "security.check",
     }
 )
 

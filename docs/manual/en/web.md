@@ -17,25 +17,35 @@ The simplest way is still an ssh tunnel: nothing else listens, and the connectio
 ssh -L <port>:127.0.0.1:<port> host   # then open the printed address locally
 ```
 
-To open snowpea web from other machines directly — a laptop on the same network, a phone — turn on remote access. It is a second listener with a username and password, separate from the loopback one, which keeps working as before.
+To open snowpea web from other machines directly — a laptop on the same network, a phone — give `snowpea web` an address and a port. The daemon opens a second listener at once, without a restart; the loopback one keeps working as before.
 
-1. Set the username (and, if you like, the address) in `settings.json`:
+```bash
+snowpea web --host 0.0.0.0 --port 8787           # an access link, no password
+snowpea web --host 0.0.0.0 --port 8787 --save    # and again at every daemon start
+```
 
-   ```json
-   { "web": { "remote": { "enabled": true, "username": "me" } } }
-   ```
+Without a password, other machines open the **access link** it prints, `http://<this machine's LAN address>:8787/web/?t=<token>`. The token is a random 256-bit key of its own — never the daemon's token — kept in `credentials.json` (mode 0600). The first visit trades it for a sign-in cookie and moves the page to the same address without the token, so it does not stay in the browser's history. Anyone with the link can drive this machine: treat it like a password.
 
-2. Set the password (at least 8 characters). It is asked twice and stored only as a salted scrypt hash in `credentials.json` (mode 0600), never in `settings.json`:
+```bash
+snowpea web token              # print the link again
+snowpea web token --rotate     # a new token: the old link stops working, everyone is signed out
+```
 
-   ```bash
-   snowpea web password             # prompts twice
-   snowpea web password --stdin     # reads one line, for scripts
-   snowpea web password --clear     # remove it
-   ```
+For a sign-in page instead, set a username and a password. Then the link alone is not enough: the page asks for both.
 
-3. Restart the daemon (`snowpea daemon stop`, then `snowpea web`). Settings are read when the daemon starts; a running daemon does not rebind.
+```bash
+snowpea web --host 0.0.0.0 --port 8787 --user me --password-stdin   # one line on stdin
+SNOWPEA_WEB_PASSWORD=… snowpea web --host 0.0.0.0 --port 8787 --user me
+snowpea web --host 0.0.0.0 --port 8787 --user me --password '…'      # works, but see below
+snowpea web password             # set or change it later (asked twice)
+snowpea web password --clear     # back to the access link
+```
 
-`snowpea web` then also prints the address for other machines, `http://<this machine's LAN address>:8787/web/`, which shows a sign-in form. `snowpea web status` shows whether remote access is on, the address it listens on, the username, whether a password is set and how many people are signed in.
+`--password` on the command line works, with a warning: it is visible in your shell history and the process list. Prefer `--password-stdin` or `SNOWPEA_WEB_PASSWORD`. The password is stored only as a salted scrypt hash in `credentials.json`, never in `settings.json`.
+
+`snowpea web status` shows whether remote access is on, the mode (access link or password), the address and the link, the username, whether a password is set, how many people are signed in, and whether `settings.json` says otherwise than what runs (the next daemon start would differ; `--save` keeps what runs). A client with a Remote access settings screen shows the same (read-only on a page that is itself a remote sign-in).
+
+You can still set it in `settings.json` and restart the daemon:
 
 | Setting (`web.remote.…`) | Default | Meaning |
 |---|---|---|
@@ -47,14 +57,15 @@ To open snowpea web from other machines directly — a laptop on the same networ
 | `allowedOrigins` | `[]` | Extra page origins the WebSocket accepts, e.g. `https://snowpea.example.com` behind a proxy. |
 | `trustProxy` | `false` | Believe `X-Forwarded-Proto` / `X-Forwarded-For` from a reverse proxy you run. |
 
-If remote access is enabled without a username or without a password, the daemon starts on loopback only, writes why to its log, and `snowpea web` says so.
+If a password is set without a username, the daemon starts on loopback only, writes why to its log, and `snowpea web` says so.
 
 Security notes:
 
-- **It is plain HTTP.** The password and everything you do travel unencrypted. On anything beyond a network you trust, put it behind TLS (a reverse proxy such as Caddy or nginx, with `trustProxy: true`) or reach it over a VPN or the ssh tunnel above.
-- Whoever signs in can drive the agent, and with it this machine's shell and files. Pick a long password.
-- Five failed sign-ins from one address in five minutes, or twenty from anywhere, lock sign-in for the rest of those five minutes. Sign-ins and failures are logged with the client address, never the password.
-- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. Changing or clearing the password (`snowpea web password`) signs everyone out at once; other sessions last until they expire or you sign out.
+- **It is plain HTTP.** The access link, the password and everything you do travel unencrypted. On anything beyond a network you trust, put it behind TLS (a reverse proxy such as Caddy or nginx, with `trustProxy: true`) or reach it over a VPN or the ssh tunnel above.
+- Whoever signs in can drive the agent, and with it this machine's shell and files. Pick a long password, and keep the link private.
+- Every connection through the second listener is a **remote sign-in**, with the link or with a password alike. It is you for running work — chats, approvals, MCP servers — but not for security settings: it cannot change Jarvis, the security lists, remote access itself, the daemon or allowlist rules, open an external session unrestricted, or confirm a CLI path. Do those on the machine itself.
+- Five failed sign-ins (wrong passwords and wrong links count together) from one address in five minutes, or twenty from anywhere, lock sign-in for the rest of those five minutes. Sign-ins and failures are logged with the client address, never the password or the token.
+- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. Changing or clearing the password, or rotating the token, signs everyone out at once; other sessions last until they expire or you sign out.
 - A page whose session has ended (it expired, the password changed, or it was signed out elsewhere) goes back to the sign-in screen.
 - The remote listener serves only the page, sign-in and the WebSocket — no `/health`, `/version` or schema — and the WebSocket refuses a page from another origin.
 

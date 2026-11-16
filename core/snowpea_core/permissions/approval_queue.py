@@ -46,6 +46,7 @@ from snowpea_core.permissions.allowlist import (
     Scope as AllowlistScope,
 )
 from snowpea_core.permissions.shell_remember import matchable, propose
+from snowpea_core.security.check import UNCHECKED_REASON
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import ApprovalRemember, ApprovalRequest, ExternalRef
@@ -286,6 +287,9 @@ class ApprovalQueue:
         #: interactive)`` returns ``ApprovalRequest.route`` before the request
         #: goes on the wire, or ``None`` (Jarvis mode off).  Must not block.
         self.router: Any = None
+        #: The daemon's core (set by ``app_server``): the security lists read the
+        #: registered projects and Jarvis's ledger through it.
+        self.core: Any = None
 
     def bind(
         self,
@@ -416,6 +420,67 @@ class ApprovalQueue:
     def timeout_sec(self) -> int:
         return max(1, int(self.settings.approvals.timeoutSec))
 
+    # -- security lists and classification ---------------------------------
+    def _projects(self) -> list[str]:
+        from snowpea_core.security import enforce
+
+        core = self.core
+        if core is not None:
+            return enforce.live_projects(core)
+        sessions = getattr(self.hub, "sessions", None)
+        found: list[str] = []
+        with contextlib.suppress(Exception):
+            for live in sessions.all() if sessions is not None else ():
+                if getattr(live, "workdir", None):
+                    found.append(str(live.workdir))
+        return found
+
+    def _security(
+        self, session: Any, tool: str, args: dict[str, Any], tags: tuple[str, ...] | None
+    ) -> Any:
+        from snowpea_core.security import enforce
+
+        return enforce.judge(
+            settings=self.settings, home=self._home(), workdir=getattr(session, "workdir", None),
+            tool=tool, args=args, tags=tuple(tags or ()), projects=self._projects(),
+        )
+
+    async def _refuse_blocked(
+        self, session: Any, tool: str, args: dict[str, Any], verdict: Any,
+        external: ExternalRef | None,
+    ) -> Decision:
+        """Refuse a blocked call: announced, logged, never posted or cached."""
+        from snowpea_core.security import enforce
+
+        await enforce.announce(
+            hub=self.hub, paths=self.paths, session_id=session.id, tool=tool, args=args,
+            verdict=verdict, surface="external" if external is not None else "approval",
+            core=self.core,
+        )
+        decision = Decision("deny", "once", "security", errors.SECURITY_BLOCKED,
+                            reason=verdict.refusal)
+        record = ApprovalRequest(requestId=f"ap-{uuid.uuid4().hex[:12]}", sessionId=session.id,
+                                 tool=tool, args={}, external=external)
+        self._append_log(record, decision)
+        return decision
+
+    def _classify(
+        self, session: Any, tool: str, args: dict[str, Any], tags: tuple[str, ...] | None,
+        external: ExternalRef | None,
+    ) -> str:
+        """The delegation engine's classification (``never`` when it cannot tell)."""
+        try:
+            from snowpea_core.jarvis.classify import ClassifyRequest, classify
+
+            return classify(ClassifyRequest(
+                tool=tool, args=dict(args or {}), tags=tuple(tags or ()),
+                workdir=getattr(session, "workdir", None), session_id=session.id,
+                home=str(self._home()) if self._home() else None,
+                external=external is not None,
+            )).classification
+        except Exception:  # noqa: BLE001 - unknown is never-delegable
+            return "never"
+
     # -- the ask -------------------------------------------------------
     async def request(
         self,
@@ -450,9 +515,22 @@ class ApprovalQueue:
         ``external`` (1.53.0) marks a prompt bridged from an external CLI
         session (``session.id`` is then ``ext:<cli>:<id>``).
         """
+        # The security lists first (1.54.0): a blocked call is refused here,
+        # never shown, cached, routed or answerable; a call they cannot check is
+        # the person's alone.
+        security = self._security(session, tool, args, tags)
+        if security.blocked:
+            return await self._refuse_blocked(session, tool, args, security, external)
+        unchecked = bool(security.opaque)
+        if unchecked:
+            person_only = True
+            note = f"{security.why or UNCHECKED_REASON}. {note}".strip()
         if person_only:
             cacheable = False
         from snowpea_core.jarvis.classify import escape_text, unclean_text
+
+        classification = self._classify(session, tool, args, tags, external)
+        never = person_only or classification == "never"
 
         escaped = unclean_text(args) or unclean_text(tool)
         if escaped:
@@ -468,7 +546,14 @@ class ApprovalQueue:
         if reason_code == OUTSIDE_REASON and folder is None:
             # Too wide a folder to remember: this call only.
             cacheable = False
-        if cacheable and self.cached(session.id, tool, args, folder):
+        # Security review 4, H3: the session cache is keyed by the first word, so
+        # a guarded or never-delegable call is never served from it (it asks
+        # again).  A write outside the project keyed by its folder (1.30.0) is
+        # exactly what the person allowed and keeps its "for this session".
+        first_word = folder is None
+        if cacheable and not never and not (
+            first_word and classification in ("guarded", "never")
+        ) and self.cached(session.id, tool, args, folder):
             return Decision("allow", "session", "cache")
 
         origin = None if unattended else getattr(session, "origin_conn", None)
@@ -500,6 +585,8 @@ class ApprovalQueue:
             personOnly=True if person_only else None,
             external=external,
             argsEscaped=True if escaped else None,
+            neverDelegable=True if never else None,
+            reason=UNCHECKED_REASON if unchecked else None,
         )
         if self.router is not None:
             try:
@@ -507,6 +594,8 @@ class ApprovalQueue:
             except Exception:  # noqa: BLE001 - a broken router leaves it to the person
                 log.warning("approval router failed for %s", request.requestId, exc_info=True)
                 route = "person"
+            if unchecked and route is not None:
+                route = "person"  # never Jarvis, never auto
             if route is not None:
                 request = request.model_copy(update={"route": route})
         loop = asyncio.get_running_loop()
@@ -632,6 +721,14 @@ class ApprovalQueue:
                 by="origin",
                 reason=str(answer.get("reason") or ""),
             )
+            if allowed and request.personOnly:
+                # The origin is asked like anyone else: a person's connection only.
+                try:
+                    decision.person = _person_answer(request, entry.origin_conn, "origin",
+                                                     self.settings, "allow")
+                    decision.scope = "once"
+                except RpcError:
+                    decision = Decision("deny", "once", "not-a-person", errors.APPROVAL_DENIED)
         except TimeoutError:
             decision = Decision("deny", "once", "timeout", errors.APPROVAL_TIMEOUT)
         except asyncio.CancelledError:
@@ -652,8 +749,13 @@ class ApprovalQueue:
         conn: Any = None,
         reason: str = "",
         actor: str | None = None,
-    ) -> None:
-        """Resolve a pending request (``approval.respond``)."""
+    ) -> Decision | None:
+        """Resolve a pending request (``approval.respond``).
+
+        Returns the decision as it will apply (its ``scope`` after
+        :func:`guard_scope`), or ``None`` when the request was already answered
+        and this call changed nothing.
+        """
         entry = self._pending.get(request_id)
         if entry is None:
             raise RpcError(errors.NOT_FOUND, f"no pending approval {request_id}")
@@ -686,16 +788,18 @@ class ApprovalQueue:
             )
         person = _person_answer(entry.request, conn, by, self.settings, decision)
         if entry.future.done():
-            return
-        entry.future.set_result(
-            Decision(
-                decision="allow" if decision == "allow" else "deny",
-                scope="once" if person is not None else scope,
-                by=by,
-                reason=reason,
-                person=person,
-            )
+            return None
+        answer = Decision(
+            decision="allow" if decision == "allow" else "deny",
+            scope="once" if person is not None else scope,
+            by=by,
+            reason=reason,
+            person=person,
         )
+        entry.future.set_result(answer)
+        # The scope that will apply (``guard_scope`` runs the same rules again
+        # where the request is resolved): approval.respond reports it (1.54.0).
+        return guard_scope(entry.request, answer, entry.workdir)
 
     async def _resolve(
         self,
@@ -727,23 +831,16 @@ class ApprovalQueue:
             self._persist(request, decision.scope, workdir, host)
         self._append_log(request, decision, unattended=unattended)
         if self.hub is not None:
-            await self.hub.notify(
-                "approval.resolved",
-                {
-                    "requestId": request.requestId,
-                    "decision": decision.decision,
-                    "by": decision.by,
-                },
-                exclude=notify_exclude,
-            )
-            await self._tell_observers(
-                "approval.resolved",
-                {
-                    "requestId": request.requestId,
-                    "decision": decision.decision,
-                    "by": decision.by,
-                },
-            )
+            resolved = {
+                "requestId": request.requestId,
+                "decision": decision.decision,
+                "by": decision.by,
+                # The scope actually applied (1.54.0): a widening reply kept to
+                # "once" says so; null for a deny.
+                "scope": decision.scope if decision.allowed else None,
+            }
+            await self.hub.notify("approval.resolved", resolved, exclude=notify_exclude)
+            await self._tell_observers("approval.resolved", dict(resolved))
 
     def _persist(
         self, request: ApprovalRequest, scope: str, workdir: Any, host: str | None = None

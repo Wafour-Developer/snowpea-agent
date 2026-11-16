@@ -45,6 +45,7 @@ from snowpea_core.jarvis.ports import TASK_WORKER_SURFACE
 from snowpea_core.jarvis.service import service_of
 from snowpea_core.scheduler.jobs import Job, JobStatus
 from snowpea_core.scheduler.scheduler import _Collector
+from snowpea_core.session.mode_guard import ModeCaller
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -127,6 +128,8 @@ async def run_worker(
         kind="scheduled",
         job_id=job_id,
         deny_exec=isolated,
+        # A task worker's fixed design mode (M19 WP8), whatever the project default.
+        caller=ModeCaller.internal("jarvis-task-worker"),
     )
     session.unattended = True
     if isolated:

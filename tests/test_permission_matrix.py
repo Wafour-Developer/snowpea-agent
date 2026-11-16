@@ -294,7 +294,11 @@ async def test_allowlist_never_promotes_a_denial(
     """``plan`` still refuses a write; nothing in the allowlist can lift that."""
     client = await connect(http, daemon)
     session_id = await open_session(client, workdir, "plan")
-    await client.ok("permission.allowlist.add", {"pattern": ".*", "scope": "project"})
+    # A catch-all rule is refused outright now (security review 4, H1) …
+    refused = await client.call("permission.allowlist.add", {"pattern": ".*", "scope": "project"})
+    assert refused["error"]["data"]["details"]["reason"] == "catch_all"
+    # … and no rule a person may store lifts plan's refusal either.
+    await client.ok("permission.allowlist.add", {"pattern": "^ls( .*)?$", "scope": "project"})
 
     turn_id = await prompt(client, session_id, "use write_file")
     assert await client.wait_turn(turn_id) == "complete"

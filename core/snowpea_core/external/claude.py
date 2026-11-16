@@ -393,14 +393,16 @@ def preview_diff(tool: str, args: dict[str, Any], cwd: str | None) -> str | None
         return None
     shown = _display_path(path, cwd)
     if tool == "Write" and isinstance(args.get("content"), str):
-        old: list[str] = []
+        old_text = ""
         target = _previewable(path, cwd)
         if target is not None:
             with contextlib.suppress(OSError, UnicodeDecodeError):
                 if target.is_file() and target.stat().st_size <= 1024 * 1024:
-                    old = target.read_text(encoding="utf-8").splitlines()
-        new = args["content"].splitlines()
-        body = "\n".join(difflib.unified_diff(old, new, f"a/{shown}", f"b/{shown}", lineterm=""))
+                    old_text = target.read_text(encoding="utf-8")
+        from snowpea_core.util.udiff import unified
+
+        # On "\n" only, with the no-newline marker (browser peer, 2026-11-16).
+        body = unified(old_text, args["content"], f"a/{shown}", f"b/{shown}").rstrip("\n")
         if target is None:
             # The file is outside the session's folder or a secret / config
             # file: its current contents are never read into the approval card
@@ -419,7 +421,8 @@ def preview_diff(tool: str, args: dict[str, Any], cwd: str | None) -> str | None
     for edit in edits:
         old_text, new_text = edit.get("old_string"), edit.get("new_string")
         if isinstance(old_text, str) and isinstance(new_text, str):
-            chunks.extend(difflib.unified_diff(old_text.splitlines(), new_text.splitlines(),
+            # Fragments, not files: split on "\n" only, no end-of-file marker.
+            chunks.extend(difflib.unified_diff(old_text.split("\n"), new_text.split("\n"),
                                                f"a/{shown}", f"b/{shown}", lineterm=""))
     return "\n".join(chunks) if chunks else None
 

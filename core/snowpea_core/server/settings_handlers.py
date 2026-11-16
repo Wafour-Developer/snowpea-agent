@@ -226,9 +226,13 @@ async def settings_set_handler(
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
 
+    from snowpea_core.server.security_handlers import settings_problems
+
     if params.scope == "project":
         workdir = _require_workdir(params)
         current = ProjectSettings.load(workdir)
+        # The security lists: valid entries only, and a project may only add.
+        settings_problems(params.patch, project_current=current.security, project=True)
         merged = _deep_merge(current.model_dump(mode="json"), params.patch)
         try:
             updated = ProjectSettings.model_validate(merged)
@@ -237,6 +241,7 @@ async def settings_set_handler(
         updated.save(workdir)
         return SettingsResult(settings=_mask_secrets(updated.model_dump(mode="json")))
 
+    settings_problems(params.patch)
     current_global = core.settings.model_dump(mode="json")
     merged_global = _deep_merge(current_global, params.patch)
     try:

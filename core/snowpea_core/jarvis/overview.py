@@ -118,6 +118,10 @@ def build_rows(
                 lastActivityAt=digest.last_activity,
                 # A browser-host session hidden by jarvis.exposeBrowser shows its status only.
                 digest=digest.line() if readable else "",
+                hostToolsFrom=getattr(session, "host_tools_from", None)
+                if session is not None else None,
+                originSurface=getattr(session, "origin_surface", None)
+                if session is not None else None,
             )
         )
     if include_external:

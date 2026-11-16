@@ -72,7 +72,11 @@ class _Sessions:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def set_mode(self, session: Any, mode: str) -> str:
+    async def set_mode(self, session: Any, mode: str, *, caller: Any = None) -> str:
+        from snowpea_core.session import mode_guard
+
+        # The real guard (security review 4): a raise needs a person's answer.
+        mode_guard.check(caller, session, session.mode, mode)
         self.calls.append(mode)
         session.mode = mode
         return mode
@@ -88,9 +92,16 @@ class _Core:
 
 
 class _Origin:
-    """A connection that answers ``question.request`` with a canned reply."""
+    """A person's TUI connection that answers ``question.request`` with a canned reply.
+
+    The mode pickers are person-only (security review 4, C1): only a person's
+    connection's answer counts, so the fake is one.
+    """
 
     closed = False
+    authenticated = True
+    client_kind = "tui"
+    remote_login = False
 
     def __init__(self, reply: dict[str, Any] | None = None, raises: bool = False) -> None:
         self.reply = reply or {"selected": [], "text": None}

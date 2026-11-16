@@ -86,6 +86,23 @@ PERSON_METHODS: dict[str, bool] = {
     "mcp.preset.check": False,
     # A CLI path override runs that executable.
     "external.clis.confirmPath": True,
+    # Security lists (1.54.0): people read and try them (a remote web login
+    # too, read-only: security.get says writable false); only a local person
+    # changes them, through settings.set (settings_gate.PERSON_LOCAL_ONLY).
+    "security.presets.list": False,
+    "security.get": False,
+    "security.check": False,
+    # A typed rule pre-approves before any routing (security review 4, H1): a
+    # local person's only (never a browser, a connector or a remote web login).
+    "permission.allowlist.add": True,
+    # Remote web access (1.54.0): who may reach this machine from elsewhere and
+    # with what — a local person's only (a remote login may not widen its own door).
+    "web.remote.status": True,
+    "web.remote.listen": True,
+    "web.remote.stop": True,
+    "web.remote.setPassword": True,
+    "web.remote.clearPassword": True,
+    "web.remote.rotateToken": True,
 }
 
 

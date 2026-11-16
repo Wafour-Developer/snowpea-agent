@@ -992,6 +992,13 @@ class JarvisService:
         """``QuestionRequest.route``: Jarvis answers how-to questions unless paused."""
         if not self.running:
             return None
+        person_only = (
+            request.get("personOnly") if isinstance(request, dict)
+            else getattr(request, "personOnly", None)
+        )
+        if person_only:
+            # A mode picker (security review 4, C1): before any text rule.
+            return "person"
         if is_task_worker(session):
             return "person"
         project = canonical(session.workdir) if session is not None else None

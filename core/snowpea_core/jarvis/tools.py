@@ -839,7 +839,10 @@ async def approval_decide(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except DecisionRefused as exc:
         await service.change_route("approval", request_id, "person", "refused")
         raise Refused(f"not yours to decide: {exc}; it waits for the person") from exc
-    await core.approvals.respond(request_id, decision, "once", by="jarvis", reason=reason)
+    if await core.approvals.respond(request_id, decision, "once", by="jarvis",
+                                    reason=reason) is None:
+        # The person (or another surface) answered first: nothing was decided here.
+        raise Refused("the request was already answered")
     classification = verdict.verdict.classification
     importance = "low" if decision == "deny" else _IMPORTANCE.get(classification, "normal")
     from snowpea_core.jarvis.external import ledger_ids
@@ -888,6 +891,9 @@ async def question_answer(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     request = core.questions.get(request_id)
     if request is None:
         raise Refused(f"no pending question {request_id}")
+    if request.personOnly:
+        # A mode picker and the like (security review 4, C1): the person's alone.
+        raise Refused("only the person can answer that question")
     target = await _target(service, request.sessionId, read=False)
     session = core.sessions.get(request.sessionId)
     from snowpea_core.jarvis.service import question_text
@@ -906,7 +912,8 @@ async def question_answer(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except DecisionRefused as exc:
         await service.change_route("question", request_id, "person", "refused")
         raise Refused(f"not yours to answer: {exc}") from exc
-    await core.questions.respond(request_id, answers, by="jarvis")
+    if not await core.questions.respond(request_id, answers, by="jarvis"):
+        raise Refused("the question was already answered")
     first = request.questions[0].question if request.questions else "a question"
     service.record_decision(
         kind="question",

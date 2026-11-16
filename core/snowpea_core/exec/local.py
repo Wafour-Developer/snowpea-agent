@@ -37,6 +37,33 @@ FLUSH_INTERVAL = 0.1
 YIELD_POLL = 0.25
 
 
+def sanitized_path(value: str, workdir: Path | str | None) -> str:
+    """``PATH`` without empty or relative entries and without entries inside ``workdir``.
+
+    An empty entry, ``.`` or ``bin`` resolve against the folder a command runs
+    in: a file the project (or the model) put there would run in place of the
+    program the line names (security review 4, M3).
+    """
+    root: Path | None = None
+    if workdir is not None:
+        with contextlib.suppress(OSError, RuntimeError, ValueError):
+            root = Path(workdir).resolve()
+    kept: list[str] = []
+    for entry in value.split(os.pathsep):
+        if not entry or not os.path.isabs(entry):
+            continue
+        if root is not None:
+            try:
+                real = Path(entry).resolve()
+            except (OSError, RuntimeError, ValueError):
+                real = Path(entry)
+            if real == root or root in real.parents:
+                continue
+        if entry not in kept:
+            kept.append(entry)
+    return os.pathsep.join(kept)
+
+
 @dataclass
 class Detached:
     """A command a caller stopped waiting for, still drained into ``captured``."""
@@ -108,12 +135,16 @@ class LocalBackend:
         output and the timeout result are exactly what ``communicate()`` gave.
         """
         workdir = self.resolve(cwd) if cwd else self._cwd
+        merged = {**os.environ, **(env or {})}
+        # Security review 4, M3: no relative PATH entry and none inside the folder
+        # the line runs in, so a planted ``./ls`` never stands for ``ls``.
+        merged["PATH"] = sanitized_path(merged.get("PATH", ""), workdir)
         process = await asyncio.create_subprocess_shell(
             command,
             cwd=str(workdir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, **(env or {})},
+            env=merged,
             start_new_session=True,
         )
         captured: dict[str, list[str]] = {"stdout": [], "stderr": []}

@@ -238,6 +238,42 @@ def _matches_pattern(pattern: str, subject: str) -> bool:
         return False
 
 
+#: Command lines of different programs a typed rule is tried against (security
+#: review 4, H1): one that allows more than one program's is a catch-all.  DATA
+#: only — nothing here runs.
+CATCH_ALL_PROBES: tuple[str, ...] = (
+    "ls -la", "git status", "git push --force", "rm -rf build", "curl https://x.example",
+    "python tool.py", "bash -c x", "npm test", "cat notes.txt", "sudo id", "echo hi",
+    "make", "docker ps", "ssh host", "node app.js", "z9q-unlikely-program x",
+)
+
+
+def catch_all_problem(pattern: str) -> str | None:
+    """Why a shell rule a person types is too wide to store, or ``None``.
+
+    It must name one concrete program: no empty pattern, no leading ``.*`` /
+    ``^\\S*``, and it must not match the command lines of two different
+    programs (:data:`CATCH_ALL_PROBES`).  Rules core proposes from an approval
+    (``shell_remember``) are anchored on one command and never get here.
+    """
+    text = (pattern or "").strip()
+    if not text:
+        return "an allowlist pattern may not be empty"
+    try:
+        compiled = re.compile(text)
+    except re.error as exc:
+        return f"not a regular expression: {exc}"
+    if re.match(r"^\^?(\.\*|\.\+|\\S\*|\\S\+|\[\^\s*\]\*)", text):
+        return "a rule must start with the program it allows, not a wildcard"
+    programs = {probe.split()[0] for probe in CATCH_ALL_PROBES if compiled.search(probe)}
+    if len(programs) > 1:
+        return ("this rule would allow several programs (" + ", ".join(sorted(programs)[:4])
+                + "); name one program, e.g. ^git status( |$)")
+    if compiled.search(""):
+        return "this rule matches an empty command, so it would allow everything"
+    return None
+
+
 @dataclass(frozen=True)
 class AllowlistItem:
     """One stored entry plus the store it came from."""

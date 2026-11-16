@@ -37,7 +37,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-import difflib
 import json
 import logging
 import os
@@ -448,15 +447,10 @@ def _tool_output(update: dict[str, Any]) -> str:
 
 
 def _unified(path: str, old: str | None, new: str) -> str:
-    before = (old or "").splitlines(keepends=True)
-    after = new.splitlines(keepends=True)
+    from snowpea_core.util.udiff import unified
+
     name = path.lstrip("/")
-    return "".join(
-        difflib.unified_diff(
-            before, after, fromfile="/dev/null" if old is None else f"a/{name}",
-            tofile=f"b/{name}",
-        )
-    )
+    return unified(old or "", new, "/dev/null" if old is None else f"a/{name}", f"b/{name}")
 
 
 def _diffs(update: dict[str, Any]) -> list[tuple[str, str]]:

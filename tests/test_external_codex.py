@@ -219,6 +219,28 @@ async def test_discovery_version_login_and_capabilities(env: Env) -> None:
     assert env.adapter.approvals("default", None) == "bridged"
 
 
+async def test_the_shared_server_gets_pass_env_at_discovery(tmp_path: Path) -> None:
+    """Backlog 4: the app-server discovery starts is the one every thread reuses,
+    so it must already carry ``jarvis.external.clis.codex.passEnv``."""
+    setup = Env(tmp_path)
+    setup.settings = _settings(passEnv=["PASSENV_TEST_KEEP"])
+    with env_vars(FAKE_CLI_LOG=str(setup.log), FAKE_CLI_SCENARIO=None,
+                  FAKE_CLI_SCENARIO_FILE=str(setup.scenario), FAKE_CLI_REPLY=None,
+                  FAKE_CLI_DELAY=None, PASSENV_TEST_KEEP="kept", PASSENV_TEST_DROP="gone"):
+        setup.write_scenario(scenario="normal")
+        await setup.manager.start()
+        try:
+            await setup.manager.clis()
+            starts = setup.records("start")
+            assert len(starts) == 1
+            names = starts[0]["data"]["env"]
+            assert "PASSENV_TEST_KEEP" in names
+            assert "PASSENV_TEST_DROP" not in names
+        finally:
+            await setup.manager.shutdown()
+            await setup.adapter.stop_server()
+
+
 async def test_not_logged_in_is_a_problem(env: Env) -> None:
     env.write_scenario(scenario="noauth")
     row = {r["id"]: r for r in await env.manager.clis()}["codex"]
