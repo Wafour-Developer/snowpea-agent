@@ -50,7 +50,7 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     "jarvis.escalations.dismiss": (P, P, R, R),
     "jarvis.ledger": (P, P, R, R),
     "jarvis.delegation.list": (P, P, R, R),
-    "jarvis.delegation.set": (P, P, R, R),
+    "jarvis.delegation.set": (P, R, R, R),  # security review 8, H8-2 (was P for remote)
     "jarvis.delegation.revoke": (P, P, P, P),  # an unknown id: not_found for anyone
     "jarvis.takeover": (P, P, P, P),  # anyone may take authority away
     "jarvis.handback": (P, P, R, R),

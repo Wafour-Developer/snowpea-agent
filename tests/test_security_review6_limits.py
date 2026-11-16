@@ -149,8 +149,10 @@ async def test_remote_login_mcp_handlers(core: Core, tmp_path: Path,
                                          no_processes: list[Any]) -> None:
     work = tmp_path / "project"
     work.mkdir()
-    where = {"scope": "project", "workdir": str(work)}
-    path = mcp_config.config_path("project", core.paths.home, work)
+    # Security review 8, M-4: the project .mcp.json is no remote login's at all
+    # (tests/test_security_review8_misc.py); these rules are the global scope's.
+    where = {"scope": "global", "workdir": str(work)}
+    path = mcp_config.config_path("global", core.paths.home, work)
 
     # A server that runs a command: never from a remote login, and nothing is written.
     with pytest.raises(RpcError) as caught:
