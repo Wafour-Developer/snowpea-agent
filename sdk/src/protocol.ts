@@ -8281,7 +8281,7 @@ export interface WebRemoteClearPasswordResult {
 export interface WebRemoteListenParams {
   /** Address to bind (0.0.0.0, a LAN address, ::). */
   host: string;
-  /** Port; 0 picks a free one. */
+  /** Port 0-65535; 0 picks a free one. Failures (1.55.0) carry details {field: 'host'|'port'|'username', reason: 'in_use'|'bad_address'|'permission'|'out_of_range'|'required'}: in_use and permission answer 'unavailable', the others 'invalid_params'. A failed move keeps the listener where it was. */
   port: number;
   /** Also write web.remote.{enabled,host,port,username} for the next start. */
   save?: boolean;

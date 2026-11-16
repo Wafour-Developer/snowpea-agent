@@ -117,10 +117,17 @@ async def listen_handler(
             allowed_origins=remote.allowedOrigins,
         )
     except ValueError as exc:
-        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+        # The one configuration problem: a password is set without a username.
+        raise RpcError(errors.INVALID_PARAMS, str(exc),
+                       {"field": "username", "reason": "required"}) from exc
+    except web_remote.ListenError as exc:
+        # Stable details (1.55.0): clients match on these, never on the wording.
+        code = errors.UNAVAILABLE if exc.reason in ("in_use", "permission") \
+            else errors.INVALID_PARAMS
+        raise RpcError(code, str(exc), {"field": exc.field, "reason": exc.reason}) from exc
     except OSError as exc:
         raise RpcError(errors.UNAVAILABLE, f"could not listen on {params.host}:{params.port}: "
-                       f"{exc}") from exc
+                       f"{exc}", {"field": "host", "reason": "bad_address"}) from exc
     if params.save:
         listener = _listener(core)
         await _save(core, enabled=True, host=params.host,
@@ -143,7 +150,8 @@ async def set_password_handler(
     if params.username is not None:
         name = params.username.strip()
         if not name:
-            raise RpcError(errors.INVALID_PARAMS, "username must not be empty")
+            raise RpcError(errors.INVALID_PARAMS, "username must not be empty",
+                           {"field": "username", "reason": "required"})
         await _save(core, username=name)
         listener = getattr(core, "web_remote", None)
         if listener is not None and listener.listening:
@@ -151,7 +159,8 @@ async def set_password_handler(
             if listener.auth is not None:
                 listener.auth.username = name
     elif not str(core.settings.web.remote.username or "").strip():
-        raise RpcError(errors.INVALID_PARAMS, "set a username with the password")
+        raise RpcError(errors.INVALID_PARAMS, "set a username with the password",
+                       {"field": "username", "reason": "required"})
     # The hash changes the sessions' fingerprint: everyone is logged out.
     web_remote.set_password(core.paths, params.password)
     await _logout_all(core)

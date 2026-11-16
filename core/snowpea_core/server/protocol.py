@@ -9015,7 +9015,14 @@ class WebRemoteStatus(Payload):
 
 class WebRemoteListenParams(Payload):
     host: str = Field(description="Address to bind (0.0.0.0, a LAN address, ::).")
-    port: int = Field(ge=0, le=65535, description="Port; 0 picks a free one.")
+    port: int = Field(
+        description=(
+            "Port 0-65535; 0 picks a free one. Failures (1.55.0) carry details {field: "
+            "'host'|'port'|'username', reason: 'in_use'|'bad_address'|'permission'|"
+            "'out_of_range'|'required'}: in_use and permission answer 'unavailable', the "
+            "others 'invalid_params'. A failed move keeps the listener where it was."
+        )
+    )
     username: str | None = Field(
         default=None,
         description="Login name for password mode; omitted keeps the configured one.",
