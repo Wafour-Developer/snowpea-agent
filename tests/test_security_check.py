@@ -204,8 +204,13 @@ def test_lines_that_cannot_be_seen_are_put_to_the_person(command: str) -> None:
 
 
 def test_empty_lists_never_judge() -> None:
-    assert check_command("rm -rf /", Lists(), _ctx()) == check_command("ls", Lists(), _ctx())
+    # Review 6, H-1: with empty lists only the always-on control-plane rule is
+    # left (``rm -rf /`` would take snowpea's own home along, so it is not the
+    # example any more; a folder that holds no control file is).
+    assert check_command("rm -rf /srv/data", Lists(), _ctx()) == check_command(
+        "ls", Lists(), _ctx())
     assert not check_command("$X", Lists(), _ctx()).opaque
+    assert check_command("rm -rf /", Lists(), _ctx()).blocked
 
 
 def test_why_is_localized() -> None:

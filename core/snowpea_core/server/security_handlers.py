@@ -90,7 +90,8 @@ async def get_handler(
     stored = global_lists(core.settings)
     project = project_additions(params.workdir) if params.workdir else None
     merged = stored.merged(project) if project is not None else stored
-    ctx = enforce.context(home=getattr(core.paths, "home", None), workdir=params.workdir,
+    ctx = enforce.context(settings=core.settings, home=getattr(core.paths, "home", None),
+                          workdir=params.workdir,
                           projects=enforce.live_projects(core), locale=params.locale)
     resolved = [
         {"path": str(e.path), "level": e.level, "scope": e.scope, "by": e.by,
@@ -112,6 +113,7 @@ async def get_handler(
     items = list(stored.problem_items) + (list(project.problem_items) if project else [])
     return SecurityGetResult.model_validate({
         **_wire(stored),
+        "unknownCode": enforce.unknown_code(core.settings),
         "project": _wire(project) if project is not None and not project.empty else None,
         "effective": effective,
         "writable": connection_kind(conn) == "person",
@@ -143,7 +145,8 @@ async def check_handler(
     if params.workdir:
         lists = lists.merged(project_additions(params.workdir))
     await enforce.refresh_projects(core)
-    ctx = enforce.context(home=getattr(core.paths, "home", None), workdir=params.workdir,
+    ctx = enforce.context(settings=core.settings, home=getattr(core.paths, "home", None),
+                          workdir=params.workdir,
                           projects=enforce.live_projects(core), locale=params.locale)
     cwd = ctx.workdir
     if params.command and params.command.strip():
@@ -169,6 +172,13 @@ def settings_problems(patch: dict[str, Any], *, project_current: Any = None,
     value = patch["security"]
     if value is None and not project:
         return  # back to the defaults, a local person's choice
+    if project and isinstance(value, dict) and "unknownCode" in value:
+        # Review 6, M-1: it takes a question away, so it is never a project's.
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            "security.unknownCode is a global setting; a project cannot change it",
+            {"reason": "global_only", "key": "security.unknownCode"},
+        )
     problems = problems_in(value) if value is not None else []
     if problems:
         raise RpcError(errors.INVALID_PARAMS, "; ".join(problems[:5]), _problem_details(problems))

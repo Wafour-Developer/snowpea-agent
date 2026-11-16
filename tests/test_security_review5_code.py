@@ -43,8 +43,11 @@ def project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _no_tool_writes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(code_mod, "_RECENT_WRITES", {})
+def _no_tool_writes() -> None:
+    # Review 6, M-8: the written paths moved to ``security.written``.
+    from snowpea_core.security import written
+
+    written.reset()
 
 
 def _ctx(project: Path) -> Context:
@@ -68,6 +71,9 @@ BLOCKED = [
     """python -c "__import__('os').system('rm -rf /')\"""",
     """python -c "import os; os.execv('/bin/rm', ['rm', '-rf', '/'])\"""",
     """python3 -c "open('/etc/passwd', 'w').write('x')\"""",
+    # Review 6, H-3: a concatenation of literals is folded, so this is the
+    # command it spells (it was "opaque" while the analysis could not fold).
+    """python3 -c "import os; os.system('rm ' + '-rf /')\"""",
     """python3 -c "from pathlib import Path; Path('/etc/hosts').unlink()\"""",
     """node -e "require('child_process').execSync('rm -rf ~')\"""",
     """node -e "require('child_process').spawnSync('rm', ['-rf', '/'])\"""",
@@ -91,7 +97,7 @@ BLOCKED = [
 OPAQUE = [
     """python -c "import os,sys; os.remove(sys.argv[1])\"""",
     """python -c "import subprocess,sys; subprocess.run(sys.argv[1:])\"""",
-    """python3 -c "import os; os.system('rm ' + '-rf /')\"""",
+    """python3 -c "import os, sys; os.system('rm ' + sys.argv[1])\"""",
     """python -c "exec(input())\"""",
     """node -e "require('child_process').exec(process.argv[1])\"""",
     """node -e "require('fs').rmSync(process.argv[1], {recursive: true})\"""",
@@ -141,7 +147,7 @@ def test_allowed(line: str, project: Path) -> None:
 
 def test_execute_code_bodies(project: Path) -> None:
     ctx = _ctx(project)
-    computed = check_call("execute_code", {"code": 'import os; os.system("rm " + "-rf /")'},
+    computed = check_call("execute_code", {"code": 'import os; os.system("rm " + input())'},
                           ESSENTIAL, ctx)
     assert computed.opaque and not computed.blocked
     literal = check_call("execute_code", {"code": "import shutil\nshutil.rmtree('/home/u')"},
@@ -213,7 +219,8 @@ def test_the_digest_catches_a_swap(project: Path) -> None:
 def test_the_analysis_is_pure_and_bounded() -> None:
     found = code_mod.analyse("import os\n" + "os.remove('a')\n" * 200, "python")
     assert "code:too-many" in found.opaque
-    assert code_mod.analyse("x = (", "python").opaque == []
+    # Review 6, H-3: code that does not parse is not "nothing found" any more.
+    assert code_mod.analyse("x = (", "python").opaque == ["code:parse"]
     assert code_mod.analyse("print('rm -rf /')", "python").commands == []
     assert sh.view("python -c 'print(1)'", cwd=None).opaque == []
 

@@ -719,9 +719,13 @@ async def test_the_config_guard_covers_the_whole_snowpea_home(tmp_path: Path) ->
             # A team's worktrees live under .snowpea/ but hold ordinary source;
             # a worker editing them must not be stopped for approval.
             ".snowpea/worktrees/tm-1/src/main.py",
-            ".snowpea/skills/demo/SKILL.md",
         ):
             assert tag(name, path) == "write", f"{name} {path}"
+        # Security review 5, C1 e: a project's skills (and hooks, agents, commands,
+        # prompts, plugins, MCP files) are control files — a skill may pre-approve
+        # tools or be brought into a turn unasked — so writing one is ``config``:
+        # asked in accept and in auto, never silent.
+        assert tag(name, ".snowpea/skills/demo/SKILL.md") == "config"
         assert tag(name, ".snowpea/worktrees/tm-1/.snowpea/settings.json") == "config"
 
     # read_file has no override at all: showing configuration stays a read.

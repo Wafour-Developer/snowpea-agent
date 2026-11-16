@@ -1001,6 +1001,23 @@ def _coerce_presets(section: str) -> Any:
     return coerce
 
 
+def _coerce_custom(section: str, inner: Any) -> Any:
+    """A ``custom`` that is not a list holds nothing usable; say so (security review 6,
+    L-5: it used to be dropped without a word).  Reported with the preset problems."""
+    key = f"{section}.custom"
+
+    def coerce(value: Any) -> Any:
+        if value is None or isinstance(value, list):
+            SECURITY_PRESET_PROBLEMS.pop(key, None)
+        else:
+            SECURITY_PRESET_PROBLEMS[key] = (
+                f"security.{section}.custom must be a list; {value!r} was ignored (none of "
+                "it is in force)")
+        return inner(value)
+
+    return coerce
+
+
 class SecurityBlockedCommands(_Model):
     """``security.blockedCommands`` (protocol 1.54.0, ``docs/manual/en/security.md``).
 
@@ -1016,7 +1033,8 @@ class SecurityBlockedCommands(_Model):
     custom: list[str] = Field(default_factory=list)
 
     _presets = field_validator("presets", mode="before")(_coerce_presets("blockedCommands"))
-    _strings = field_validator("custom", mode="before")(_coerce_strings)
+    _strings = field_validator("custom", mode="before")(
+        _coerce_custom("blockedCommands", _coerce_strings))
 
 
 class SecurityProtectedPaths(_Model):
@@ -1026,7 +1044,8 @@ class SecurityProtectedPaths(_Model):
     custom: list[SecurityProtectedPath] = Field(default_factory=list)
 
     _strings = field_validator("presets", mode="before")(_coerce_presets("protectedPaths"))
-    _custom = field_validator("custom", mode="before")(_coerce_protected)
+    _custom = field_validator("custom", mode="before")(
+        _coerce_custom("protectedPaths", _coerce_protected))
 
 
 class SecuritySettings(_Model):
@@ -1038,6 +1057,17 @@ class SecuritySettings(_Model):
 
     blockedCommands: SecurityBlockedCommands = Field(default_factory=SecurityBlockedCommands)
     protectedPaths: SecurityProtectedPaths = Field(default_factory=SecurityProtectedPaths)
+    #: Code the check cannot resolve (a write whose target is computed, code it
+    #: cannot parse, a module or stdin it cannot read): ``ask`` (default) puts it
+    #: to the person in every mode, ``allow`` lets it run.  Security review 6,
+    #: M-1.  A local person's only; the control-plane rule and every blocked
+    #: finding apply either way.  Anything but ``"allow"`` reads as ``ask``.
+    unknownCode: str = "ask"
+
+    @field_validator("unknownCode", mode="before")
+    @classmethod
+    def _unknown_code(cls, value: Any) -> Any:
+        return "allow" if value == "allow" else "ask"
 
 
 class Settings(_Model):

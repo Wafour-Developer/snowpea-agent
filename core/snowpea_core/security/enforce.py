@@ -25,6 +25,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.security import written
 from snowpea_core.security.check import Context, Verdict, check_call
 from snowpea_core.security.lists import Lists, effective
 
@@ -89,7 +90,6 @@ def context(
     projects: Iterable[str] = (),
     locale: str | None = None,
 ) -> Context:
-    del settings
     work = None
     if workdir:
         with contextlib.suppress(OSError, RuntimeError, ValueError):
@@ -100,7 +100,17 @@ def context(
         home=Path(str(home)) if home else None,
         projects=tuple(str(p) for p in projects),
         locale=locale,
+        unknown_code=unknown_code(settings),
     )
+
+
+def unknown_code(settings: Any) -> str:
+    """``security.unknownCode`` of the GLOBAL settings (``ask`` unless it says ``allow``).
+
+    A project file cannot set it: it would take a question away.
+    """
+    value = getattr(getattr(settings, "security", None), "unknownCode", "ask")
+    return "allow" if value == "allow" else "ask"
 
 
 def lists_for(settings: Any, workdir: Any) -> Lists:
@@ -126,8 +136,34 @@ def judge(
 ) -> Verdict:
     """The verdict for one call; never raises."""
     lists = lists_for(settings, workdir)
-    ctx = context(home=home, workdir=workdir, projects=projects, locale=locale)
+    ctx = context(settings=settings, home=home, workdir=workdir, projects=projects,
+                  locale=locale)
+    if home:
+        # What the agent wrote is remembered under this home (review 6, M-8).
+        written.set_home(home)
     return check_call(tool, args or {}, lists, ctx, tags=tags)
+
+
+def note_written(core: Any, session: Any, paths: Iterable[str]) -> None:
+    """Record files a session's call wrote or changed (a tool's paths, what the
+    checkpoint scan found changed after a shell line); never raises."""
+    try:
+        home = getattr(getattr(core, "paths", None), "home", None)
+        if home:
+            written.set_home(home)
+        workdir = getattr(session, "workdir", None)
+        found: list[str] = []
+        for raw in paths:
+            path = Path(str(raw)).expanduser()
+            if not path.is_absolute():
+                if not workdir:
+                    continue
+                path = Path(str(workdir)) / path
+            found.append(str(path))
+        if found:
+            written.note(found, getattr(session, "id", None))
+    except Exception:  # noqa: BLE001 - a record that fails never breaks a tool call
+        log.debug("could not record written paths", exc_info=True)
 
 
 def judge_for_core(core: Any, session: Any, tool: str, args: Mapping[str, Any] | None,

@@ -36,17 +36,17 @@ import re
 import stat
 import sys
 import tempfile
-import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from snowpea_core.jarvis import classify as _c
-from snowpea_core.security import catalog
+from snowpea_core.security import catalog, control_plane
 from snowpea_core.security import patterns as pl
 from snowpea_core.security import shell as sh
 from snowpea_core.security.lists import Lists
+from snowpea_core.util import pathcase
 
 log = logging.getLogger("snowpea.security")
 
@@ -93,7 +93,47 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ko": "차단 목록과 대조할 수 없습니다",
     },
     "custom_title": {"en": "your list", "ko": "내 목록"},
+    "control_write": {
+        "en": "{path} is one of snowpea's own control files ({what}); no tool changes it",
+        "ko": "{path} 은(는) snowpea 자체 제어 파일입니다({what}). 도구로는 바꿀 수 없습니다",
+    },
+    "control_read": {
+        "en": "{path} holds snowpea's own secrets ({what}); no tool reads it",
+        "ko": "{path} 에는 snowpea 자체 비밀 정보가 있습니다({what}). 도구로는 읽을 수 없습니다",
+    },
+    "control_ask": {
+        "en": "this changes snowpea's own files ({what}): only you can allow it",
+        "ko": "snowpea 자체 파일({what})을 바꿉니다. 직접 허용해야 합니다",
+    },
+    "control_cli": {
+        "en": "this runs snowpea's own CLI, which acts as you: only you can allow it",
+        "ko": "snowpea 자체 CLI 를 실행합니다(사용자 본인으로 동작). 직접 허용해야 합니다",
+    },
+    "control_code": {
+        "en": "this code uses snowpea's own modules, which act as you: only you can allow it",
+        "ko": "snowpea 자체 모듈을 쓰는 코드입니다(사용자 본인으로 동작). 직접 허용해야 합니다",
+    },
+    "control_mention": {
+        "en": "this code names one of snowpea's own control files ({what}): only you can "
+              "allow it",
+        "ko": "snowpea 자체 제어 파일({what})을 가리키는 코드입니다. 직접 허용해야 합니다",
+    },
+    "unknown_code": {
+        "en": "can't tell what this code changes (a target or a call it computes while it runs)",
+        "ko": "이 코드가 무엇을 바꾸는지 알 수 없습니다(실행 중에 계산되는 대상이나 호출)",
+    },
 }
+
+#: ``reason`` of a request put to the person because it acts on snowpea's own
+#: controls (its CLI, its own files): asked in every mode, never by Jarvis,
+#: never remembered, and no setting switches it off (security review 6, H-1).
+CONTROL_REASON = "acts on snowpea's own controls"
+#: ``reason`` when only code the check cannot resolve is in the way (review 6,
+#: H-3 / M-1): what ``security.unknownCode: "allow"`` switches off.
+UNKNOWN_CODE_REASON = "cannot tell what this code changes"
+#: Every ``reason`` a verdict (and ``ApprovalRequest.reason``) may carry.
+REASONS: tuple[str, ...] = (UNCHECKED_REASON, CONTROL_REASON, UNKNOWN_CODE_REASON)
+UNKNOWN_CODE_VALUES: tuple[str, ...] = ("ask", "allow")
 
 
 def message(key: str, locale: str | None, **values: Any) -> str:
@@ -154,6 +194,10 @@ class Context:
     #: A virtual environment is active for the daemon (``VIRTUAL_ENV``/``CONDA_PREFIX``).
     env_venv: bool | None = None
     locale: str | None = None
+    #: ``security.unknownCode``: ``ask`` (default) puts code the check cannot
+    #: resolve to the person; ``allow`` lets it through (the control-plane rule
+    #: and every blocked finding still apply).
+    unknown_code: str = "ask"
 
     def __post_init__(self) -> None:
         if self.env_venv is None:
@@ -361,11 +405,16 @@ _FOLD_CASE = sys.platform in ("darwin", "win32")
 
 
 def _fold_text(text: str) -> str:
-    return unicodedata.normalize("NFC", text).casefold()
+    return pathcase.fold_text(text)
 
 
 def _fold(path: Path) -> Path:
     return Path(_fold_text(str(path)))
+
+
+def _key(path: Path) -> Path:
+    """``path`` as compared: folded where the file system ignores case."""
+    return _fold(path) if _FOLD_CASE else path
 
 
 def _folded(entry: catalog.PathEntry, shape: _Shape) -> tuple[catalog.PathEntry, _Shape]:
@@ -549,16 +598,136 @@ def _clip(text: str, limit: int = 160) -> str:
 
 
 def check_command(command: str, lists: Lists, ctx: Context, cwd: Path | None = None) -> Verdict:
-    """Judge one shell line run in ``cwd`` (default: the project)."""
-    if lists.empty:
-        return ALLOWED
+    """Judge one shell line run in ``cwd`` (default: the project).
+
+    Even with empty lists the line is read: the control-plane rule is always on.
+    """
     view = sh.view(command, cwd=str(cwd or ctx.workdir) if (cwd or ctx.workdir) else None,
                    home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home))
     return _judge_view(view, lists, ctx)
 
 
+# -- the control plane (security review 6, H-1) -------------------------------------
+
+_HOME_ITSELF = control_plane.ControlEntry("", "write", "snowpea's own folder")
+
+
+def _control_hit(shape: _Shape, effect: sh.Effect,
+                 home: Path) -> tuple[str, control_plane.ControlEntry, str] | None:
+    """``(verdict, entry, shown path)`` when ``effect`` acts on a control file of ``home``."""
+    write = effect.kind == "write"
+    fold = _FOLD_CASE
+    key = _fold(home) if fold else home
+    if shape.pattern is None:
+        access = "read" if not write else ("delete" if effect.destructive else "write")
+        for path in shape.concrete:
+            folded = _fold(path) if fold else path
+            if _under(folded, key):
+                parts = path.parts[len(home.parts):]
+                hit = control_plane.judge_parts(parts, access, recursive=effect.recursive,
+                                                fold=fold)
+                if hit is not None:
+                    return hit[0], hit[1], control_plane.shown(home, parts)
+            elif _under(key, folded) and write and effect.program != "git":
+                # An ancestor of the home: deleting or moving it takes the control
+                # files along; a recursive copy or extraction onto it may land on them.
+                if effect.destructive:
+                    return "blocked", _HOME_ITSELF, "$SNOWPEA_HOME"
+                if effect.recursive:
+                    return "ask", _HOME_ITSELF, "$SNOWPEA_HOME"
+        return None
+    pattern = [_fold_text(p) for p in shape.pattern] if fold else shape.pattern
+    inside = shape.base is not None and _under(_fold(shape.base) if fold else shape.base, key)
+    home_parts = _glob_parts(str(key))
+    for entry in control_plane.CONTROL:
+        if not write and entry.level != "all":
+            continue
+        for name in entry.names or (entry.rel,):
+            target = home_parts + [_fold_text(p) if fold else p for p in name.split("/")]
+            relations = _relations(pattern, shape.open_end, target)
+            soft = "ask" if entry.level == "ask" else "blocked"
+            shown = control_plane.shown(home, tuple(name.split("/")))
+            if relations & {"equal", "under"}:
+                return soft, entry, shown
+            if "ancestor" not in relations:
+                continue
+            if write and effect.destructive and effect.program != "git":
+                return soft, entry, shown
+            if effect.recursive and inside:
+                return soft, entry, shown
+            if write and effect.recursive and effect.program != "git":
+                return "ask", entry, shown
+    return None
+
+
+def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
+                     tool: bool = False) -> tuple[Verdict | None, list[tuple[str, str]]]:
+    """A block for an act on snowpea's control plane, and what must ask a person
+    (``(unseen reason, why)``).  Always on: no list, preset or setting removes it."""
+    asks: list[tuple[str, str]] = []
+    homes = control_plane.homes(ctx.home, ctx.user_home)
+    for effect in effects:
+        shape = _shape(effect.raw, effect.cwd, ctx)
+        if shape is None:
+            continue
+        for home in homes:
+            hit = _control_hit(shape, effect, home)
+            if hit is None:
+                continue
+            verdict, entry, shown = hit
+            write = effect.kind == "write"
+            if tool and write and (entry.tool_edit or verdict == "ask"):
+                # A file tool's write under the home already asks the person
+                # (``config``); settings.json's lists are judged by _settings_tool.
+                continue
+            if verdict == "blocked":
+                key = "control_write" if write else "control_read"
+                return Verdict(True, BY_SETTINGS,
+                               message(key, ctx.locale, path=shown, what=entry.what),
+                               match=shown, kind="control", level=entry.level), asks
+            asks.append((f"control-plane:{entry.rel or 'home'}",
+                         message("control_ask", ctx.locale, what=entry.what)))
+            break
+    return None, asks
+
+
+def _mention_verdict(view: sh.ShellView, ctx: Context) -> tuple[Verdict | None,
+                                                               list[tuple[str, str]]]:
+    """Code that names a control file in a string: a secret is never read; another
+    control file asks, unless the code plainly only opens it to read."""
+    asks: list[tuple[str, str]] = []
+    if not view.mentions:
+        return None, asks
+    homes = control_plane.homes(ctx.home, ctx.user_home)
+    read_only = {effect.raw for effect in view.effects
+                 if effect.kind == "read" and effect.program == "code"}
+    for raw, cwd in view.mentions:
+        # Only a literal that reads as one path: not a pattern (judged where it is
+        # used), not a piece of code or a command line, not an unknown expansion.
+        if re.search(r"[*?\[\];(){}<>|&\n]", raw) or ctx.expand(raw, cwd) is None:
+            continue
+        shape = _shape(raw, cwd, ctx)
+        if shape is None:
+            continue
+        for home in homes:
+            secret = _control_hit(shape, sh.Effect(raw, cwd, "read"), home)
+            if secret is not None:
+                return Verdict(True, BY_SETTINGS,
+                               message("control_read", ctx.locale, path=secret[2],
+                                       what=secret[1].what),
+                               match=secret[2], kind="control", level="all"), asks
+            if raw in read_only:
+                continue
+            hit = _control_hit(shape, sh.Effect(raw, cwd, "write"), home)
+            if hit is not None:
+                asks.append((f"control-plane:{hit[1].rel or 'home'}",
+                             message("control_mention", ctx.locale, what=hit[1].what)))
+                break
+    return None, asks
+
+
 def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
-                extra_effects: Iterable[sh.Effect] = ()) -> Verdict:
+                extra_effects: Iterable[sh.Effect] = (), *, tool: bool = False) -> Verdict:
     compiled = _compile(lists)
     if compiled.presets or compiled.custom:
         verdict = _command_verdict(view, compiled, ctx)
@@ -575,16 +744,41 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
     verdict, path_unseen = _path_verdict(effects, entries, ctx)
     if verdict is not None:
         return verdict
+    # snowpea's own control files: always on, whatever the lists hold (a path the
+    # person's own lists protect too is reported as theirs, above).
+    verdict, asks = _control_verdict(effects, ctx, tool=tool)
+    if verdict is not None:
+        return verdict
+    verdict, named = _mention_verdict(view, ctx)
+    if verdict is not None:
+        return verdict
+    asks.extend(named)
+    for why in view.control:
+        asks.append((why, message("control_code" if why == "snowpea-code" else "control_cli",
+                                  ctx.locale)))
     if not lists.commands_empty:
         unseen.extend(view.opaque)
+    elif not lists.empty:
+        unseen.extend(why for why in view.opaque if why.startswith("code:"))
+    if ctx.unknown_code == "allow":
+        # ``security.unknownCode: "allow"``: code the check cannot resolve is let
+        # through.  Everything blocked above stayed blocked, and what acts on
+        # snowpea's own controls still asks below.
+        unseen = [why for why in unseen if not why.startswith("code:")]
     if entries:
         unseen.extend(path_unseen)
     scripts = tuple(dict.fromkeys(view.scripts))
     _note_writes(effects, ctx)
-    if unseen:
-        return Verdict(opaque=True, reason=UNCHECKED_REASON,
-                       why=message("unchecked", ctx.locale), unseen=tuple(dict.fromkeys(unseen)),
+    if asks:
+        reasons = tuple(dict.fromkeys([why for why, _ in asks] + unseen))
+        return Verdict(opaque=True, reason=CONTROL_REASON, why=asks[0][1], unseen=reasons,
                        scripts=scripts)
+    if unseen:
+        only_code = all(why.startswith("code:") for why in unseen)
+        return Verdict(opaque=True,
+                       reason=UNKNOWN_CODE_REASON if only_code else UNCHECKED_REASON,
+                       why=message("unknown_code" if only_code else "unchecked", ctx.locale),
+                       unseen=tuple(dict.fromkeys(unseen)), scripts=scripts)
     return Verdict(scripts=scripts) if scripts else ALLOWED
 
 
@@ -609,10 +803,13 @@ def scripts_changed(verdict: Verdict) -> list[str]:
 
 def check_path(path: str, lists: Lists, ctx: Context, *, write: bool = True) -> Verdict:
     """Judge a write (or, ``write=False``, a read) of ``path``: the "try it" box."""
-    if lists.paths_empty:
-        return ALLOWED
     effect = sh.Effect(raw=path, cwd=ctx.workdir, kind="write" if write else "read",
                        destructive=write, recursive=True)
+    control, _asks = _control_verdict([effect], ctx)
+    if control is not None:
+        return control
+    if lists.paths_empty:
+        return ALLOWED
     verdict, unseen = _path_verdict([effect], path_entries(lists, ctx), ctx)
     if verdict is not None:
         return verdict
@@ -716,8 +913,11 @@ def _settings_effects(effects: Iterable[sh.Effect], ctx: Context) -> Verdict | N
                     "ancestor" in relations and (effect.destructive or effect.recursive)
                     and len(shape.pattern) >= len(_glob_parts(str(target))) - 1)
             else:
-                hit = any(p == target or (p == target.parent and (effect.destructive
-                                                                   or effect.recursive))
+                # Security review 6, M-7: the same file under another case is the
+                # same file on macOS and Windows.
+                same, parent = _key(target), _key(target.parent)
+                hit = any(_key(p) == same or (_key(p) == parent and (effect.destructive
+                                                                     or effect.recursive))
                           for p in shape.concrete)
             if hit:
                 return Verdict(True, BY_SETTINGS, message("settings", ctx.locale),
@@ -758,7 +958,7 @@ def _settings_tool(tool: str, args: Mapping[str, Any], ctx: Context) -> Verdict 
         if expanded is None:
             continue
         target = _real(Path(expanded))
-        if target not in files:
+        if _key(target) not in {_key(known) for known in files}:
             continue
         try:
             current = target.read_text(encoding="utf-8")
@@ -834,12 +1034,16 @@ def check_call(
 
 def _check_call(tool: str, args: dict[str, Any], lists: Lists, ctx: Context,
                 tags: tuple[str, ...]) -> Verdict:
-    settings = _settings_tool(tool, args, ctx)
+    lower = (tool or "").lower()
+    base = lower.split("__")[-1] if lower.startswith(_c.MCP_PREFIX) else lower
+    # A tool known to only read (its tags say so, or its name is a read tool's)
+    # does not edit the lists: showing settings.json stays an ordinary read.
+    reads_only = bool(tags) and set(tags) <= {"read", "secret"} or base in _c.READ_TOOL_NAMES
+    settings = None if reads_only else _settings_tool(tool, args, ctx)
     if settings is not None:
         return settings
     # Even with empty lists a shell line is read: one that rewrites a settings
     # file may change the lists themselves.
-    lower = (tool or "").lower()
     command = _c._command_text(args)
     is_shell = lower in _c.SHELL_TOOL_NAMES or lower.startswith("process_start") or (
         command is not None and "exec" in tags
@@ -854,21 +1058,24 @@ def _check_call(tool: str, args: dict[str, Any], lists: Lists, ctx: Context,
     if code is None and lower in _c.CODE_TOOL_NAMES:
         code = next((v for v in args.values() if isinstance(v, str)), None)
     view = sh.ShellView()
-    if lists.empty:
-        return ALLOWED
     if code:
         language = args.get("language") or args.get("lang") or "python"
         view = sh.code_view(code, cwd=str(ctx.workdir) if ctx.workdir else None,
                             home=str(ctx.home) if ctx.home else None,
                             user_home=str(ctx.user_home),
                             language=language if isinstance(language, str) else "python")
-    return _judge_view(view, lists, ctx, extra_effects=extra)
+    # Even with empty lists: the control-plane rule judges every tool's paths.
+    return _judge_view(view, lists, ctx, extra_effects=extra, tool=not code)
 
 
 __all__ = [
     "ALLOWED",
     "BY_SETTINGS",
+    "CONTROL_REASON",
+    "REASONS",
     "UNCHECKED_REASON",
+    "UNKNOWN_CODE_REASON",
+    "UNKNOWN_CODE_VALUES",
     "Context",
     "Verdict",
     "check_call",

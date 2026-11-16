@@ -160,8 +160,17 @@ def _clean_presets(raw: Any, known: Iterable[str], where: str,
     return list(dict.fromkeys(out))
 
 
+def _not_a_list(raw: Any, where: str, problems: list[str] | None) -> None:
+    """Security review 6, L-5: a ``custom`` that is not a list used to vanish
+    without a word; ``security.get`` now says its entries are not in force."""
+    if raw is not None and not isinstance(raw, list):
+        _note(problems, f"{where}: custom must be a list; {raw!r} was ignored (none of it is "
+              "in force)", _list_of(where), None, "custom is not a list")
+
+
 def _clean_patterns(raw: Any, where: str, problems: list[str] | None) -> list[str]:
     out: list[str] = []
+    _not_a_list(raw, where, problems)
     for item in raw if isinstance(raw, list) else []:
         problem = pl.validate(item) if isinstance(item, str) else "not text"
         if problem is None:
@@ -174,6 +183,7 @@ def _clean_patterns(raw: Any, where: str, problems: list[str] | None) -> list[st
 
 def _clean_paths(raw: Any, where: str, problems: list[str] | None) -> list[tuple[str, str]]:
     out: dict[str, str] = {}
+    _not_a_list(raw, where, problems)
     for item in raw if isinstance(raw, list) else []:
         if isinstance(item, str):
             item = {"path": item, "level": "write"}
@@ -272,9 +282,13 @@ def problems_in(raw: Any) -> list[str]:
                    "not an object")
         return found
     for key in raw:
-        if key not in ("blockedCommands", "protectedPaths"):
-            found.note(f"security.{key} is not a setting (blockedCommands, protectedPaths)",
-                       None, key, "not a setting")
+        if key == "unknownCode":
+            if raw[key] not in ("ask", "allow", None):
+                found.note(f"security.unknownCode must be 'ask' or 'allow', not {raw[key]!r}",
+                           None, "unknownCode", "must be 'ask' or 'allow'")
+        elif key not in ("blockedCommands", "protectedPaths"):
+            found.note("security." + str(key) + " is not a setting (blockedCommands, "
+                       "protectedPaths, unknownCode)", None, key, "not a setting")
     for name, ids in (("blockedCommands", catalog.COMMAND_PRESET_IDS),
                       ("protectedPaths", catalog.PATH_PRESET_IDS)):
         which = "commands" if name == "blockedCommands" else "paths"
