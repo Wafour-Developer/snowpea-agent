@@ -49,6 +49,9 @@ INT = re.compile(r"[+-]?\d{1,12}[A-Za-z]{0,3}")
 NUM = re.compile(r"[+-]?\d{1,12}(\.\d{1,6})?")
 #: Any literal text (the caller has already refused expansions).
 TEXT = re.compile(r"[^\x00]*", re.DOTALL)
+#: A git ``--format``/``--pretty`` value without the signature placeholders
+#: (``%G?``, ``%GK``, …: they run gpg) — security review 4, M7.
+GIT_FORMAT = re.compile(r"(?![^\x00]*%G)[^\x00]*", re.DOTALL)
 #: A command or user name (``which ls``, ``id root``).
 NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.+-]{0,63}")
 
@@ -138,18 +141,17 @@ TABLE: dict[str, Spec] = {
     ),
     "nproc": Spec(long=frozenset({"--all"}), operands="none"),
     "uptime": Spec(short="ps", long=frozenset({"--pretty", "--since"}), operands="none"),
+    # Security review 4, Low: ``date -d 'TZ="/path" now'`` reads that file as a
+    # zone; ``hostname -i/-f/-d/-A`` ask DNS. Neither is in the table any more.
     "date": Spec(
         short="uR",
-        short_valued={"d": TEXT},
         long=frozenset({"--utc", "--universal", "--rfc-email"}),
-        long_valued={"--date": TEXT},
         operands="date",
         max_operands=1,
     ),
     "hostname": Spec(
-        short="sfiIdA",
-        long=frozenset({"--short", "--fqdn", "--long", "--ip-address", "--all-ip-addresses",
-                        "--domain", "--all-fqdns"}),
+        short="sI",
+        long=frozenset({"--short", "--all-ip-addresses"}),
         operands="none",
     ),
     "which": Spec(short="a", operands="names"),
@@ -395,7 +397,8 @@ _GIT_DIFF_LONG: frozenset[str] = frozenset(
      "--color-words"}
 )
 _GIT_DIFF_LONG_VALUED: dict[str, Value] = {
-    "--format": TEXT, "--pretty": TEXT, "--since": TEXT, "--until": TEXT, "--after": TEXT,
+    "--format": GIT_FORMAT, "--pretty": GIT_FORMAT, "--since": TEXT, "--until": TEXT,
+    "--after": TEXT,
     "--before": TEXT, "--author": TEXT, "--committer": TEXT, "--grep": TEXT,
     "--max-count": INT, "--skip": INT, "--date": TEXT, "--diff-filter": TEXT,
     "--unified": INT, "--diff-algorithm": TEXT, "--word-diff-regex": TEXT,
@@ -509,7 +512,7 @@ GIT: dict[str, Spec] = {
                         "--ignore-case", "--omit-empty", "--no-color", "--no-column",
                         "--no-abbrev"}),
         long_valued={"--contains": TEXT, "--no-contains": TEXT, "--merged": TEXT,
-                     "--no-merged": TEXT, "--sort": TEXT, "--format": TEXT,
+                     "--no-merged": TEXT, "--sort": TEXT, "--format": GIT_FORMAT,
                      "--points-at": TEXT},
         long_optional={"--color": COLOR, "--column": TEXT, "--abbrev": INT},
         operands="branch-list",
@@ -518,17 +521,19 @@ GIT: dict[str, Spec] = {
         short="li",
         long=frozenset({"--list", "--ignore-case", "--no-column"}),
         long_valued={"--contains": TEXT, "--no-contains": TEXT, "--merged": TEXT,
-                     "--no-merged": TEXT, "--sort": TEXT, "--format": TEXT,
+                     "--no-merged": TEXT, "--sort": TEXT, "--format": GIT_FORMAT,
                      "--points-at": TEXT},
         long_optional={"--color": COLOR, "--column": TEXT},
         operands="tag-list",
     ),
-    "for-each-ref": Spec(long_valued={"--format": TEXT, "--sort": TEXT, "--count": INT,
+    "for-each-ref": Spec(long_valued={"--format": GIT_FORMAT, "--sort": TEXT, "--count": INT,
                                       "--points-at": TEXT, "--merged": TEXT,
                                       "--no-merged": TEXT, "--contains": TEXT},
                          operands="revs"),
     "cat-file": Spec(short="tspe", operands="revs", max_operands=1),
-    "remote": Spec(short="v", long=frozenset({"--verbose"}), operands="none"),
+    # ``remote -v`` prints the URLs, which may carry a token (security review 4, M7):
+    # only the bare listing of names is read-like.
+    "remote": Spec(operands="none"),
     "worktree": Spec(short="v", long=frozenset({"--porcelain", "--verbose"}),
                      operands="worktree-list"),
     "stash": Spec(short="p", long=frozenset({"--stat", "--name-only", "--patch"}),
@@ -723,16 +728,41 @@ def _test(program: str, rest: list[str], path: PathCheck) -> Level | None:
         if not words or words[-1] != "]":
             return None
         words = words[:-1]
+    # Security review 4, C2: bash evaluates an array subscript in ``-v 'a[$(id)]'``
+    # (and arithmetic in -eq & co.): only a fixed set of unary file tests and
+    # string comparisons on literal operands, one expression, optionally negated.
+    if words[:1] == ["!"]:
+        words = words[1:]
+    if any(any(c in word for c in "[$`") for word in words):
+        return None
+    operands: list[str] = []
+    if len(words) == 2 and words[0] in _TEST_UNARY:
+        operands = [words[1]]
+        file_test = words[0] not in ("-n", "-z")
+    elif len(words) == 3 and words[1] in ("=", "==", "!="):
+        operands = [words[0], words[2]]
+        file_test = False
+    elif len(words) == 1 and not words[0].startswith("-"):
+        operands = [words[0]]
+        file_test = False
+    else:
+        return None
     level: Level | None = "safe"
-    operators = {"=", "==", "!=", "!", "(", ")", "-a", "-o"}
-    for word in words:
-        if word in operators or re.fullmatch(r"-[a-zA-Z]{1,2}", word):
-            continue
-        if "/" in word or word.startswith((".", "~")):
+    for word in operands:
+        if word.startswith("-") and len(word) > 1:
+            return None
+        if file_test or "/" in word or word.startswith((".", "~")):
             level = _worse(level, path(word, True))
             if level is None:
                 return None
     return level
+
+
+#: ``test``/``[`` unary operators allowed in a ``safe`` line: file tests and -n/-z.
+_TEST_UNARY: frozenset[str] = frozenset(
+    {"-e", "-f", "-d", "-r", "-w", "-x", "-s", "-L", "-h", "-b", "-c", "-p", "-S", "-g", "-u",
+     "-k", "-O", "-G", "-N", "-n", "-z"}
+)
 
 
 def _sed(rest: list[str], path: PathCheck) -> Level | None:

@@ -8,7 +8,7 @@
 snowpea setup --gateway telegram --token 123456:ABC-your-bot-token
 ```
 
-토큰은 `$SNOWPEA_HOME/credentials.json`에 `0600` 권한으로 들어갑니다. 대신 환경 변수로 export한 뒤 바인딩할 때 그 이름을 참조해도 됩니다. 어느 쪽이든 토큰이 `settings.json`에 쓰이는 일은 없고, 로그 한 줄에도 나타나지 않습니다.
+토큰은 `$SNOWPEA_HOME/credentials.json`에 `0600` 권한으로 들어갑니다. 대신 환경 변수로 export한 뒤 바인딩할 때 그 이름을 참조해도 됩니다. 어느 쪽이든 토큰이 `settings.json`에 쓰이는 일은 없고, 로그 한 줄에도 나타나지 않습니다. 토큰을 저장하면(마법사, `settings.set`, 설정 화면 모두) 메신저가 바로 시작되므로 snowpea가 곧바로 해당 플랫폼을 호출합니다(텔레그램은 `getUpdates`). 예상된 외부 요청이며 유출이 아닙니다.
 
 ## 바인딩
 

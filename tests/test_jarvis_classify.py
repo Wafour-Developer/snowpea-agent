@@ -93,7 +93,7 @@ SHELL_TABLE: list[tuple[str, str, set[str]]] = [
     ("node scripts/build.js", "risky", set()),
     ("chmod +x run.sh", "risky", set()),
     ("tar -czf out.tar.gz src", "risky", set()),
-    ("git checkout -b feature", "risky", set()),
+    ("git checkout -b feature", "guarded", ALL),  # review 4 H6: files from a branch
     ("git stash", "risky", set()),
     ("docker compose up -d", "risky", set()),
     ("kill 1234", "risky", set()),
@@ -186,8 +186,8 @@ SHELL_TABLE: list[tuple[str, str, set[str]]] = [
     ("ln -sf $(pwd)/bin ~/.local/bin/tool", "guarded", ALL),
     ("git reset --hard HEAD~3", "guarded", {X}),
     ("git clean -fdx", "guarded", {X}),
-    ("git checkout -- .", "guarded", {X}),
-    ("git restore src/", "guarded", {X}),
+    ("git checkout -- .", "guarded", ALL),  # review 4 H6
+    ("git restore src/", "guarded", ALL),  # review 4 H6
     ("git branch -D old", "guarded", {X}),
     ("git stash drop", "guarded", {X}),
     ("find . -name '*.log' -delete", "guarded", {X}),
@@ -217,8 +217,8 @@ SHELL_TABLE: list[tuple[str, str, set[str]]] = [
     ("sed -i 's/x/y/' /etc/hosts", "guarded", {X}),
     ("tee /etc/hosts < hosts", "guarded", {X}),
     ("git config --global user.name x", "guarded", {X}),
-    ("tar -xzf app.tgz -C /opt", "guarded", {X}),
-    ("unzip bundle.zip -d ~/Downloads/x", "guarded", {X}),
+    ("tar -xzf app.tgz -C /opt", "guarded", ALL),  # review 4 H6: unknown members
+    ("unzip bundle.zip -d ~/Downloads/x", "guarded", ALL),  # review 4 H6
     ("curl -o /usr/local/bin/tool https://x/tool", "guarded", {X, S}),
     ("rm -rf build ~/.cache/app", "guarded", {X}),
     # -- secrets and sending --------------------------------------------------------

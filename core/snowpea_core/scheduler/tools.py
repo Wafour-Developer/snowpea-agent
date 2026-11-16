@@ -81,10 +81,18 @@ OWNED_REFUSAL = "job {id} is owned by its browser; change or cancel it there"
 
 
 async def _needs_approval(ctx: ToolContext, args: dict[str, Any], mode: str) -> str | None:
-    """Ask before registering an ``auto`` job; returns an error string on a denial."""
-    if mode != "auto":
-        return None
+    """Ask before registering a job wider than the default mode; an error string on a denial.
+
+    Its runs will start in that mode with nobody asked, so this is a mode raise
+    (security review 4): only a person may allow it, never Jarvis or a rule.
+    """
+    from snowpea_core.session.mode_guard import raises
+
     session = ctx.session
+    sessions = getattr(ctx.core, "sessions", None)
+    default = sessions.default_mode(session.workdir) if sessions is not None else "accept"
+    if not raises(default, mode):
+        return None
     unattended = getattr(session, "origin_conn", None) is None
     decision = await ctx.core.approvals.request(
         session,
@@ -93,10 +101,11 @@ async def _needs_approval(ctx: ToolContext, args: dict[str, Any], mode: str) -> 
         risk="high",
         unattended=unattended,
         cancel_event=getattr(session, "interrupt", None),
+        person_only=True,
     )
-    if decision.allowed:
+    if decision.allowed and decision.person is not None:
         return None
-    return f"registering an auto-mode job was not approved ({decision.by})"
+    return f"registering a {mode}-mode job was not approved by a person ({decision.by})"
 
 
 async def schedule_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:

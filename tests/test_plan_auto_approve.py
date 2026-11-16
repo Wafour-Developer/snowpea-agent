@@ -76,7 +76,8 @@ async def test_the_handler_sets_the_flag_and_reports_it(daemon: Daemon, tmp_path
         await real(session_id, event)
 
     core.hub.emit_event = record  # type: ignore[method-assign]
-    conn = SimpleNamespace()
+    # A person raises the mode (security review 4: a raise needs one).
+    conn = SimpleNamespace(authenticated=True, closed=False, client_kind="ide", remote_login=False)
     result = await session_set_mode_handler(
         conn,  # type: ignore[arg-type]
         SessionSetModeParams(sessionId=session.id, mode="plan", autoAfterPlan=True),

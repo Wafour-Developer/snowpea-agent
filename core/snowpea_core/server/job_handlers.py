@@ -116,6 +116,16 @@ async def job_schedule_handler(
     from snowpea_core.scheduler.jobs import iso
 
     template = params.sessionTemplate
+    mode = template.mode if template and template.mode else params.mode
+    if mode:
+        # Every run starts in this mode with nobody asked: a mode wider than the
+        # default is a raise, a person's (security review 4; session/mode_guard.py).
+        # A re-created job is a new job: no earlier job vouches for it.
+        from snowpea_core.session import mode_guard
+
+        workdir = params.workdir or str(core.paths.home)
+        mode_guard.check(mode_guard.ModeCaller.from_conn(conn, params.actor), None,
+                         core.sessions.default_mode(workdir), mode)
     owner: str | None = None
     if params.meta is not None:
         owner = _owner_id(conn)

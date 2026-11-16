@@ -516,7 +516,9 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         if verdict is not None:
             return verdict
     effects = [*view.effects, *extra_effects]
-    settings_hit = _settings_effects(effects, ctx)
+    # A shell write to a settings file cannot be read; a file tool's content is
+    # judged by _settings_tool (the lists compared before and after).
+    settings_hit = _settings_effects(view.effects, ctx)
     if settings_hit is not None:
         return settings_hit
     unseen: list[str] = []
@@ -653,11 +655,16 @@ def _settings_effects(effects: Iterable[sh.Effect], ctx: Context) -> Verdict | N
 
 
 def _security_of(text: str) -> Any:
+    """The file's ``security`` section (``None`` when absent or empty; ``...`` unreadable)."""
+    if not text.strip():
+        return None
     try:
         data = json.loads(text)
     except (ValueError, TypeError):
         return ...
-    return data.get("security") if isinstance(data, dict) else ...
+    if not isinstance(data, dict):
+        return ...
+    return data.get("security") or None
 
 
 def _settings_tool(tool: str, args: Mapping[str, Any], ctx: Context) -> Verdict | None:

@@ -433,6 +433,14 @@ async def allowlist_add_handler(
             errors.INVALID_PARAMS,
             "a project allowlist entry needs an open session to locate the project",
         )
+    from snowpea_core.permissions.allowlist import catch_all_problem
+
+    # A rule pre-approves before any routing: one that matches everything (".*")
+    # would silence every ask (security review 4, H1).
+    problem = catch_all_problem(params.pattern)
+    if problem is not None:
+        raise RpcError(errors.INVALID_PARAMS, f"bad allowlist pattern: {problem}",
+                       {"reason": "catch_all"})
     try:
         pattern_id = core.allowlist.add(params.pattern, store, SHELL_TARGET, workdir=workdir)
     except (ValueError, re.error) as exc:

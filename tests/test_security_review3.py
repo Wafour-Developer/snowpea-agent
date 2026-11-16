@@ -497,7 +497,7 @@ def test_an_external_cli_shell_is_never_auto(engine: DelegationEngine) -> None:
 
 def test_external_read_like_and_git_needs_a_known_folder() -> None:
     claude = _tool("Bash", {"command": "cat README.md"}, external=True)
-    assert _level(classify(claude)) == "readlike"
+    assert _level(classify(claude)) == "risky"  # review 4 M2: no cwd, the CLI may have moved
     assert _level(classify(_tool("Bash", {"command": "cat ../x"}, external=True))) == "risky"
     # Claude's Bash keeps a folder of its own: git there is the person's.
     assert _level(classify(_tool("Bash", {"command": "git status"}, external=True))) == "risky"
@@ -732,7 +732,8 @@ def test_browser_rpcs_need_the_marker_and_respect_jarvis_on() -> None:
     assert call("browser+actor", ("providers", "openai"), jarvis_on=True) == "jarvis_on"
     assert call("remote_login", ("providers", "openai"), jarvis_on=True) == "jarvis_on"
     assert call("person", ("providers", "openai"), jarvis_on=True) == "ok"
-    assert call("connector", ("providers", "local")) == "ok"
+    # Security review 4, H4: a connector calls no config method.
+    assert call("connector", ("providers", "local")) == "person_only"
     guard_call(None, None, _core(True), method="mcp.add", key=("mcp", "servers", "x"))
 
 
@@ -892,9 +893,12 @@ METHOD_TABLE: list[tuple[str, dict[str, Any], str, str, str]] = [
      "jarvis_on"),
     ("mcp.remove", {"name": "x"}, "ok", "person_only", "ok"),
     ("mcp.authorize", {"name": "x"}, "ok", "person_only", "ok"),
-    ("skill.install", {"source": "https://example.invalid/x.git"}, "ok", "person_only", "ok"),
-    ("skill.install", {"source": "/opt/browser/plugins/x"}, "ok", "person_only", "ok"),
-    ("skill.install", {"source": "/srv/sp-home/plugins/bundled-x"}, "ok", "ok", "ok"),
+    ("skill.install", {"source": "https://example.invalid/x.git"}, "ok", "not_bundled_plugin",
+     "ok"),
+    ("skill.install", {"source": "/opt/browser/plugins/x"}, "ok", "not_bundled_plugin", "ok"),
+    # 2026-11-16: under $SNOWPEA_HOME/plugins is no longer the bundled plugin.
+    ("skill.install", {"source": "/srv/sp-home/plugins/bundled-x"}, "ok", "not_bundled_plugin",
+     "ok"),
     ("memory.delete", {"id": "m1"}, "ok", "ok", "ok"),
     ("memory.update", {"id": "m1"}, "ok", "person_only", "ok"),
     ("mcp.authorize.complete", {}, "ok", "ok", "ok"),
@@ -908,7 +912,8 @@ METHOD_TABLE: list[tuple[str, dict[str, Any], str, str, str]] = [
     ("approval.respond", {"scope": "session", "decision": "allow"}, "ok", "person_only", "ok"),
     ("memory.delete", {"source": "browser"}, "ok", "ok", "ok"),
     ("permission.allowlist.remove", {}, "ok", "person_only", "ok"),
-    ("permission.allowlist.add", {}, "ok", "person_only", "ok"),
+    # Never from a browser, marked or not (2026-11-16).
+    ("permission.allowlist.add", {}, "person_only", "person_only", "person_only"),
     ("permission.allowlist.list", {}, "ok", "ok", "ok"),
     ("gateway.bind", {}, "ok", "person_only", "jarvis_on"),
     ("gateway.sync", {}, "ok", "ok", "ok"),

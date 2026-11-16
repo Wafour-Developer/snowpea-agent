@@ -36,6 +36,7 @@ from typing import Any, cast
 
 from snowpea_core.permissions.policy import Mode
 from snowpea_core.prompts import tool_descriptions as descriptions
+from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import QuestionItem, QuestionOption
 from snowpea_core.session import events
 from snowpea_core.tools.delegate import delegation_language
@@ -398,6 +399,9 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 )
             ],
             cancel_event=stop,
+            # The answer may raise the mode: a person's alone (security review 4, C1).
+            person_only=True,
+            kind="mode",
         )
     finally:
         watcher.cancel()
@@ -457,7 +461,12 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             meta=meta,
         )
 
-    mode = await ctx.core.sessions.set_mode(ctx.session, cast(Mode, picked))
+    try:
+        mode = await ctx.core.sessions.set_mode(ctx.session, cast(Mode, picked),
+                                                caller=_caller_of(answer))
+    except RpcError as exc:
+        # Not a person's answer: the mode stays (security review 4, C1).
+        return ToolResult(ok=False, error=f"the mode was not changed: {exc.message}", meta=meta)
     flag = bool(getattr(ctx.session, "auto_after_plan", False))
     await ctx.core.hub.emit_event(ctx.session.id, events.mode_changed(mode, auto_after_plan=flag))
     meta["mode"] = mode
@@ -515,6 +524,8 @@ async def _review_plan(
                 )
             ],
             cancel_event=stop,
+            person_only=True,
+            kind="mode",
         )
     finally:
         watcher.cancel()
@@ -549,7 +560,12 @@ async def _review_plan(
         if picked is not None:
             typed = ""
     if picked in ("auto", "accept"):
-        mode = await ctx.core.sessions.set_mode(ctx.session, cast(Mode, picked))
+        try:
+            mode = await ctx.core.sessions.set_mode(ctx.session, cast(Mode, picked),
+                                                    caller=_caller_of(answer))
+        except RpcError as exc:
+            return ToolResult(ok=False, error=f"the mode was not changed: {exc.message}",
+                              meta=meta)
         await ctx.core.hub.emit_event(
             ctx.session.id, events.mode_changed(mode, auto_after_plan=False)
         )
@@ -568,6 +584,13 @@ async def _review_plan(
         return ToolResult(ok=True, output=text["revise_plain"], meta=meta)
     # A decline or a timeout: no permission to start anything.
     return ToolResult(ok=True, output=plain["declined"], meta=meta)
+
+
+def _caller_of(answer: Any) -> Any:
+    """A person-verified answer may raise the mode; anything else only keep or lower it."""
+    from snowpea_core.session.mode_guard import AGENT, PERSON_ANSWER
+
+    return PERSON_ANSWER if getattr(answer, "person", False) else AGENT
 
 
 async def _watch_mode(session: Any, start: str, stop: asyncio.Event) -> None:

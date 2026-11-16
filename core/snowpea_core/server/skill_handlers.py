@@ -125,12 +125,36 @@ async def skill_search_handler(
     return SkillSearchResult(skills=skills, unavailable=unavailable, notIncluded=not_included)
 
 
-async def skill_install_handler(_conn: RpcConnection, params: SkillInstallParams, core: Core) -> Ok:
-    """``skill.install`` — local path, git URL, ``<marketplace>/<plugin>`` or shortcut."""
+async def skill_install_handler(conn: RpcConnection, params: SkillInstallParams, core: Core) -> Ok:
+    """``skill.install`` — local path, git URL, ``<marketplace>/<plugin>`` or shortcut.
+
+    A browser's unmarked call is its bundled plugin (``settings_gate.
+    bundled_plugin_problem``, checked by the dispatcher): checked again here,
+    installed from its real path, and it must land as ``plugins/snowpea-browser``
+    and nothing else.
+    """
+    import os
+
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.person_gate import connection_kind
+
+    source = params.source
+    bundled = connection_kind(conn) == "browser" and not settings_gate.acts_for_person(
+        conn, params.actor
+    )
+    if bundled:
+        problem = ("a link is never the bundled plugin" if params.link
+                   else settings_gate.bundled_plugin_problem(source))
+        if problem is not None:
+            settings_gate.refuse(conn, "call skill.install outside its Settings page",
+                                 reason="not_bundled_plugin", extra={"why": problem})
+        source = os.path.realpath(source)
     try:
-        target = await _loader(core).install(params.source, link=params.link)
+        target = await _loader(core).install(source, link=params.link)
     except InstallError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    if bundled and target.name != settings_gate.BUNDLED_PLUGIN_NAME:  # pragma: no cover
+        log.error("the bundled plugin landed as %s", target)
     log.info("installed %s into %s", params.source, target)
     return Ok(ok=True)
 
@@ -426,7 +450,10 @@ async def skill_create_handler(
     args = f'{name} "{description}"' + (" --global" if global_ else "")
     if params.force:
         args += " --force"
-    turn_id = core.commands.start(core, session, "skill", f"create {args}", turn_conn)
+    # skill.create itself was judged by the dispatcher (BROWSER_PERSON_METHODS,
+    # kind_method_refusal): the command it starts is that caller's.
+    turn_id = core.commands.start(core, session, "skill", f"create {args}", turn_conn,
+                                  caller="internal")
     return SkillCreateResult(turnId=turn_id, sessionId=session.id)
 
 

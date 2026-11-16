@@ -62,6 +62,7 @@ from snowpea_core.server.protocol import (
     Ok,
 )
 from snowpea_core.server.rpc import RpcConnection
+from snowpea_core.session.mode_guard import ModeCaller
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -334,6 +335,8 @@ class NamedAgentRegistry:
             origin_conn=None,
             session_id=session_id,
             kind="agent",
+            # The definition's mode for an agent a person created (agent.create).
+            caller=ModeCaller.internal("named-agent-definition"),
         )
         session.unattended = True
         session.memory_namespace = namespace_for(name)

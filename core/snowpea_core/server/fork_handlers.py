@@ -20,6 +20,7 @@ from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import SessionForkParams, SessionForkResult
 from snowpea_core.session import events
 from snowpea_core.session.manager import persist_history
+from snowpea_core.session.mode_guard import ModeCaller
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -94,6 +95,8 @@ async def session_fork_handler(
         agent=getattr(source, "agent", None),
         origin_surface=getattr(source, "origin_surface", None),
         origin_conn=conn,
+        # The source's own mode: a copy, not a raise.
+        caller=ModeCaller.internal("fork-keeps-mode"),
     )
     at_turn = payload.get("turnId")
     # The fork keeps the source's title unchanged (1.53.0: no " (fork)" suffix,

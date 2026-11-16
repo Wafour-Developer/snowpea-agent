@@ -38,6 +38,7 @@ from snowpea_core.gateway.base import (
     project_callback,
     session_callback,
 )
+from snowpea_core.session.mode_guard import ModeCaller
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.gateway.router import Binding, GatewayRouter
@@ -485,6 +486,8 @@ class ChatCommands:
             mode=(binding.target.get("new_session") or {}).get("mode"),
             origin_surface=f"gateway:{binding.platform}:{message.channel_id}",
             origin_conn=None,
+            # The binding's configured mode, set by its person with gateway.bind.
+            caller=ModeCaller.internal("messenger-binding"),
         )
         await self.router.switch_session(binding, message.channel_id, session)
         await self._say(binding, message, f"New {session.id} · {session.workdir} · {session.mode}")

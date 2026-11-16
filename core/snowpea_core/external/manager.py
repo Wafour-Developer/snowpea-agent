@@ -99,9 +99,11 @@ def _ref(cli: str, session_id: str) -> dict[str, str]:
 
 
 def _call_key(tool: str, args: dict[str, Any], command: str | None) -> tuple[str, str]:
-    """``(tool, the exact call)``: the whole command line, or every argument."""
+    """``(tool, the exact call)``: the whole command line (and the folder it runs in,
+    security review 4 M2: ``cat .env`` elsewhere is another call), or every argument."""
     if command:
-        return (tool, command.strip())
+        cwd = args.get("cwd") if isinstance(args.get("cwd"), str) else ""
+        return (tool, f"{cwd}\x00{command.strip()}" if cwd else command.strip())
     import json
 
     try:

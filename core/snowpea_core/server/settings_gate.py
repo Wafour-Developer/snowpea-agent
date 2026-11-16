@@ -196,8 +196,10 @@ def jarvis_authority(core: Any) -> tuple[Pattern, ...]:
     return tuple(found)
 
 
-def refuse(conn: Any, what: str, *, reason: str = "person_only") -> None:
-    """``jarvis_person_only`` with ``details.reason`` (``person_only`` or ``jarvis_on``)."""
+def refuse(conn: Any, what: str, *, reason: str = "person_only",
+           extra: dict[str, Any] | None = None) -> None:
+    """``jarvis_person_only`` with ``details.reason`` (``person_only``, ``jarvis_on``,
+    ``not_bundled_plugin``, …) and ``extra`` details."""
     from snowpea_core.server.person_gate import connection_kind
 
     kind = connection_kind(conn)
@@ -212,7 +214,8 @@ def refuse(conn: Any, what: str, *, reason: str = "person_only") -> None:
         message = f"only a person may {what}"
     else:
         message = f"a {getattr(conn, 'client_kind', None) or kind} connection cannot {what}"
-    raise RpcError(errors.JARVIS_PERSON_ONLY, message, {"reason": reason, "kind": kind})
+    raise RpcError(errors.JARVIS_PERSON_ONLY, message,
+                   {"reason": reason, "kind": kind, **(extra or {})})
 
 
 def judge_patch(
@@ -279,6 +282,10 @@ def guard_call(
     if kind in ("person", "none"):
         return
     what = method + (f" {'.'.join(key[1:])}" if key else "")
+    if kind == "connector" or (kind == "remote_login" and method not in REMOTE_LOGIN_METHODS):
+        # Security review 4, H4 (also refused by the dispatcher: kind_method_refusal).
+        ledger_settings(core, conn, [what], refused=True, method=method)
+        refuse(conn, f"call {method}")
     if kind == "browser" and not acts_for_person(conn, actor):
         ledger_settings(core, conn, [what], refused=True, method=method)
         refuse(conn, f"call {method} outside its Settings page")
@@ -307,13 +314,13 @@ BROWSER_PERSON_METHODS: frozenset[str] = frozenset({
     "mcp.add", "mcp.update", "mcp.remove", "mcp.reload", "mcp.authorize", "mcp.deauthorize",
     "mcp.test",  # runs a draft server's command
     "skill.create", "skill.learn", "skill.reload", "skill.remove", "skill.write",
-    "skill.install",  # but a bundled source: see _host_may
+    "skill.install",  # but the browser's own bundled plugin: see bundled_plugin_problem
     "memory.update", "permission.allowlist.remove", "team.guide.set", "audio.install",
     "gateway.bind", "lsp.install", "system.reloadSettings",
-    # The host's own page-action and site rules (``host_tools`` tests): a click
-    # on a 0.3.0+ browser; a legacy browser keeps doing it unmarked.
-    "permission.allowlist.add",
 })
+#: Never from a browser connection, any version, marker or not (2026-11-16: no
+#: browser page or host calls it; a typed rule pre-approves before routing).
+BROWSER_NEVER_METHODS: frozenset[str] = frozenset({"permission.allowlist.add"})
 #: What a browser connection may call without the marker (its own runtime and
 #: the pages that send none).  ``job.*`` never touches a ``jarvis-task`` job
 #: (every action on one is a person's: ``job_handlers._guard``); every
@@ -337,33 +344,123 @@ BROWSER_JARVIS_ON_METHODS: frozenset[str] = frozenset({"gateway.bind"})
 ACTOR_METHODS: frozenset[str] = BROWSER_PERSON_METHODS | BROWSER_HOST_METHODS | ANSWER_METHODS
 
 
-def bundled_roots(core: Any) -> list[Any]:
-    """Where the daemon installs and keeps plugins: an unmarked ``skill.install``
-    is the browser's own only from below these (the source kind cannot tell a
-    bundled plugin from any other local folder server-side)."""
+#: The browser's own plugin, the only thing an unmarked ``skill.install`` from a
+#: browser connection may install (browser team, 2026-11-16).
+BUNDLED_PLUGIN_NAME = "snowpea-browser"
+BUNDLED_PLUGIN_DIR = "snowpea-plugin"
+BUNDLED_PLUGIN_PARENT = "snowpea-browser-host"
+#: ``SNOWPEA_BROWSER_DEV_PLUGIN=<abs path>``, read once when the daemon starts:
+#: one more source a developer's browser may install unmarked.
+DEV_PLUGIN_ENV = "SNOWPEA_BROWSER_DEV_PLUGIN"
+
+
+def _dev_plugin_at_start() -> str | None:
+    import os
+
+    raw = os.environ.get(DEV_PLUGIN_ENV, "").strip()
+    return os.path.realpath(raw) if raw and os.path.isabs(raw) else None
+
+
+_DEV_PLUGIN: str | None = _dev_plugin_at_start()
+
+
+def bundled_plugin_problem(source: Any) -> str | None:
+    """Why ``source`` is not the browser's bundled plugin (``None`` when it is).
+
+    All must hold, on the real path: its folder is named ``snowpea-plugin`` and
+    sits in a folder named ``snowpea-browser-host`` (``/opt/…``, an AppImage
+    mount, ``Snowpea.app/Contents/Resources/…``, a versioned Windows folder);
+    it holds ``.claude-plugin/plugin.json`` as a regular file (not a symlink)
+    whose ``name`` is exactly ``snowpea-browser``; and every manifest snowpea
+    reads names that plugin (so the install creates or replaces only it).  The
+    daemon's ``SNOWPEA_BROWSER_DEV_PLUGIN`` folder is the one exception.
+    """
+    import json
+    import os
+    import stat as stat_module
     from pathlib import Path
 
-    home = getattr(getattr(core, "paths", None), "home", None)
-    if home is None:
-        return []
-    return [Path(home) / "plugins", Path(home) / "extensions"]
+    text = str(source or "")
+    if not text or "://" in text or not os.path.isabs(text):
+        return "not a local absolute path"
+    real = os.path.realpath(text)
+    if _DEV_PLUGIN is not None and real == _DEV_PLUGIN:
+        return None
+    root = Path(real)
+    if root.name != BUNDLED_PLUGIN_DIR or root.parent.name != BUNDLED_PLUGIN_PARENT:
+        return f"not <…>/{BUNDLED_PLUGIN_PARENT}/{BUNDLED_PLUGIN_DIR}"
+    manifest = root / ".claude-plugin" / "plugin.json"
+    try:
+        info = os.lstat(manifest)
+    except OSError:
+        return "no .claude-plugin/plugin.json"
+    if not stat_module.S_ISREG(info.st_mode):
+        return ".claude-plugin/plugin.json is not a regular file"
+    try:
+        from snowpea_core.skills.marketplace import MANIFEST_PATHS
+
+        names = []
+        for relative, _fmt in MANIFEST_PATHS:
+            candidate = root / relative
+            if candidate.exists() or candidate.is_symlink():
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+                names.append(data.get("name") if isinstance(data, dict) else None)
+    except (OSError, ValueError, ImportError):
+        return "the plugin manifest cannot be read"
+    if not names or any(name != BUNDLED_PLUGIN_NAME for name in names):
+        return f"the plugin is not named {BUNDLED_PLUGIN_NAME!r}"
+    return None
 
 
 def _host_may(method: str, params: dict[str, Any], core: Any) -> bool:
     """A browser connection's unmarked call that is allowed."""
+    del core
     if method == "skill.install":
-        import os
-        from pathlib import Path
-
-        source = str(params.get("source") or "")
-        if not os.path.isabs(source) or "://" in source:
-            return False
-        real = Path(os.path.realpath(source))
-        return any(
-            real == Path(os.path.realpath(root)) or Path(os.path.realpath(root)) in real.parents
-            for root in bundled_roots(core)
-        )
+        return not params.get("link") and bundled_plugin_problem(params.get("source")) is None
     return method in BROWSER_HOST_METHODS
+
+
+#: Config-writing methods judged by kind (security review 4, H4): every one a
+#: browser needs its marker for, and the ones no browser may call at all.
+CONFIG_METHODS: frozenset[str] = BROWSER_PERSON_METHODS | BROWSER_NEVER_METHODS
+#: Of those, what a remote web login may call: the person, for running work —
+#: the keys of :data:`REMOTE_LOGIN_KEYS` (providers, MCP servers, skills, memory,
+#: language servers, audio, messengers), never security configuration
+#: (jarvis.*, security.*, web.*, daemon, extensions, allowlist rules,
+#: mcp.permissions, CLI paths, unrestricted mode, guarded grants).
+REMOTE_LOGIN_METHODS: frozenset[str] = frozenset({
+    "settings.set",  # judged key by key against REMOTE_LOGIN_KEYS by its handler
+    "provider.configure", "provider.loginWeb", "provider.remove", "provider.visionReset",
+    "mcp.add", "mcp.update", "mcp.remove", "mcp.reload", "mcp.authorize", "mcp.deauthorize",
+    "mcp.test", "skill.create", "skill.learn", "skill.reload", "skill.remove", "skill.write",
+    "skill.install", "memory.update", "audio.install", "gateway.bind", "lsp.install",
+    "system.reloadSettings",
+})
+#: What the remote connector (``snowpea remote up``, clientKind ``connector``)
+#: calls on its own connection: ``system.hello`` only (it hands the daemon's
+#: token to the browser, which connects as itself).  No config method.
+CONNECTOR_METHODS: frozenset[str] = frozenset()
+
+
+def kind_method_refusal(method: str, params: dict[str, Any], conn: Any, core: Any) -> None:
+    """The dispatcher's rule for connectors and remote web logins (security review 4, H4).
+
+    A connector may call no config-writing method; a remote web login only
+    :data:`REMOTE_LOGIN_METHODS`.  A local person and a browser (judged by
+    :func:`browser_method_refusal`) are not judged here.
+    """
+    from snowpea_core.server.person_gate import connection_kind
+
+    if method not in CONFIG_METHODS:
+        return
+    kind = connection_kind(conn)
+    if kind == "connector" and method not in CONNECTOR_METHODS:
+        ledger_settings(core, conn, [method], refused=True, method=method)
+        refuse(conn, f"call {method}")
+    if kind == "remote_login" and method not in REMOTE_LOGIN_METHODS:
+        ledger_settings(core, conn, [method], refused=True, method=method)
+        refuse(conn, f"call {method}")
+    del params
 
 
 def browser_method_refusal(method: str, params: dict[str, Any], conn: Any, core: Any) -> None:
@@ -380,9 +477,8 @@ def browser_method_refusal(method: str, params: dict[str, Any], conn: Any, core:
     person = acts_for_person(conn, actor if isinstance(actor, str) else None)
     if (method.startswith(BROWSER_NEVER_PREFIXES) and method not in BROWSER_NEVER_EXEMPT) or (
         method.startswith("permission.allowlist.")
-        and method not in ("permission.allowlist.remove", "permission.allowlist.add",
-                           "permission.allowlist.list")
-    ):
+        and method not in ("permission.allowlist.remove", "permission.allowlist.list")
+    ) or method in BROWSER_NEVER_METHODS:
         if not method.startswith("jarvis."):  # jarvis.* keeps its own ledger rules
             ledger_settings(core, conn, [method], refused=True, method=method)
         refuse(conn, f"call {method}")
@@ -395,6 +491,11 @@ def browser_method_refusal(method: str, params: dict[str, Any], conn: Any, core:
         return
     if method in BROWSER_PERSON_METHODS and not person and not _host_may(method, params, core):
         ledger_settings(core, conn, [method], refused=True, method=method)
+        if method == "skill.install":
+            why = ("a link is never the bundled plugin" if params.get("link")
+                   else bundled_plugin_problem(params.get("source")))
+            refuse(conn, f"call {method} outside its Settings page", reason="not_bundled_plugin",
+                   extra={"why": why})
         refuse(conn, f"call {method} outside its Settings page")
     authority = jarvis_authority(core)
     if not authority:
@@ -493,10 +594,13 @@ def may_answer(conn: Any, session: Any, *, origin_conn: Any = None, owner: Any =
     kind = _kind(conn)
     if kind not in _WATCHERS:
         return True
-    if kind == "browser" and legacy_browser(conn):
-        return True
+    # Security review 4, M5: a person-only or Jarvis-routed request is never a
+    # browser's, legacy or not (the marker guards against accidents, not a
+    # hostile host — the browser host is trusted code).
     if person_only or route == "jarvis":
         return False
+    if kind == "browser" and legacy_browser(conn):
+        return True
     client_id = getattr(conn, "client_id", None)
     owners = owner if isinstance(owner, tuple) else (owner,)
     if origin_conn is not None and origin_conn is conn:
@@ -563,7 +667,12 @@ def request_event_for(conn: Any, method: str, params: dict[str, Any], sessions: 
             pending["hostToolsFrom"] = host
         return f"{prefix}.pending", pending
     if request is None:
-        return method, public  # a resolution by id alone carries nothing of the request
+        # A resolution by id alone carries nothing of the request — but who
+        # answered: a messenger's bound user id stays with the person's own
+        # surfaces (security review 4, Low).
+        if method.endswith(".resolved") and str(public.get("by") or "").startswith("gateway:"):
+            public = {**public, "by": "messenger"}
+        return method, public
     lookup = getattr(sessions, "get", None)
     session = lookup(str(request.get("sessionId"))) if callable(lookup) else None
     if not list_visible(conn, session, person_only=bool(request.get("personOnly")),

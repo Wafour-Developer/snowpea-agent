@@ -9,7 +9,7 @@ snowpea setup --gateway telegram --token 123456:ABC-your-bot-token --user-id 987
 snowpea            # or: snowpea daemon start
 ```
 
-That is the whole setup. The wizard records the messenger in `settings.json`, and the daemon turns it into a *catch-all* binding when it starts: any chat that messages the bot gets its own session, in `$HOME` unless you set `gateway.telegram.workdir`. `snowpea daemon status` says `messengers   telegram (listening)` once it is up. The token itself is copied into `$SNOWPEA_HOME/credentials.json` with mode `0600` and referred to by name everywhere else, so it never appears in `state.db`, in an RPC result, or in a log line.
+That is the whole setup. The wizard records the messenger in `settings.json`, and the daemon turns it into a *catch-all* binding when it starts: any chat that messages the bot gets its own session, in `$HOME` unless you set `gateway.telegram.workdir`. `snowpea daemon status` says `messengers   telegram (listening)` once it is up. The token itself is copied into `$SNOWPEA_HOME/credentials.json` with mode `0600` and referred to by name everywhere else, so it never appears in `state.db`, in an RPC result, or in a log line. Saving a token (in the wizard, `settings.set` or the Settings screen) starts the messenger at once, so snowpea calls that platform right away (for Telegram, `getUpdates`): an outbound request you should expect, not a leak.
 
 `--user-id` is your own numeric account id on that platform, and it is the only account allowed to answer an approval from chat. Telegram tells you yours if you send `/start` to [@userinfobot](https://t.me/userinfobot). Leave it out and the messenger still talks, but every approval button press is refused, including your own.
 

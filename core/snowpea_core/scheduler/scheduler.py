@@ -52,6 +52,7 @@ from snowpea_core.scheduler.jobs import (
 from snowpea_core.scheduler.nl_parse import Spec, first_run, next_run, parse_spec
 from snowpea_core.server import errors
 from snowpea_core.server.protocol import Mode
+from snowpea_core.session.mode_guard import ModeCaller
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -590,6 +591,9 @@ class Scheduler:
                 parent_session_id=job.origin_session_id,
                 kind="scheduled",
                 job_id=job.id,
+                # The job's stored mode, which only a person may have raised
+                # (job.schedule / job.update, session/mode_guard.py).
+                caller=ModeCaller.internal("scheduled-job"),
                 owned_by=job.owner_client_id if job.owned else None,
             )
         # The contract calls these sessions unattended; the flag is what the

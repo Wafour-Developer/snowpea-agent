@@ -207,17 +207,28 @@ def is_secret_pattern(resolved: Path) -> bool:
     and anything inside a browser profile, keyring or keychain directory.
     """
     parts = resolved.parts
-    if any(part in _SECRET_DIR_PARTS for part in parts):
+    if any(part in _SECRET_DIR_PARTS or part.lower() in _SECRET_DIR_PARTS for part in parts):
         return True
     name = resolved.name
+    # Case-insensitive (a case-insensitive file system opens ``.ENV`` as ``.env``)
+    # and wider (security review 4, M4).
     lower = name.lower()
-    if name == ".env" or name.startswith(".env."):
+    if lower == ".env" or lower.startswith((".env.", ".env-", ".env_")) or lower == ".envrc":
         return True
-    if lower.endswith(_SECRET_SUFFIXES):
+    if lower.endswith(_SECRET_SUFFIXES) or lower.endswith(_MORE_SECRET_SUFFIXES):
         return True
-    if name.startswith(_SECRET_KEY_PREFIXES):
+    if lower.startswith(_SECRET_KEY_PREFIXES) or lower.startswith(("secrets.", "credentials")):
+        return True
+    if lower.startswith("id_") and ("." not in lower or lower.endswith(".pub")):
+        # ``id_*`` key files (``id_work``, ``id_work.pub``), not ``id_card.png``.
         return True
     return lower in _SECRET_FILE_NAMES or _under_secret_root(resolved)
+
+
+#: Security review 4, M4: ``prod.env``, ``terraform.tfvars``, ``.dev.vars`` …
+_MORE_SECRET_SUFFIXES: tuple[str, ...] = (
+    ".env", ".tfvars", ".tfvars.json", ".dev.vars", ".pem", ".key", ".p12", ".pfx", ".keystore",
+)
 
 
 def _is_secret_path(resolved: Path, home: Path) -> bool:

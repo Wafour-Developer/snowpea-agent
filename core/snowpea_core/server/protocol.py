@@ -6605,6 +6605,27 @@ class ApprovalResolvedNotification(Payload):
             "routed back to the person the browser gets approval.pending again."
         ),
     )
+    scope: ApprovalScope | None = Field(
+        default=None,
+        description=(
+            "The scope actually applied (1.54.0): once, session, project, always or site — "
+            "after core's rules (a browser's unmarked widening reply, a person-only request, "
+            "a shell line with no safe rule are kept to 'once'). Null for a deny and with "
+            "outcome 'withdrawn'."
+        ),
+    )
+
+
+class ApprovalRespondResult(Ok):
+    """``approval.respond``'s result (1.54.0: the applied scope)."""
+
+    scope: ApprovalScope | None = Field(
+        default=None,
+        description=(
+            "The scope that applies to this answer (as ApprovalResolvedNotification.scope); "
+            "null for a deny or when the request had already been answered."
+        ),
+    )
 
 
 class ApprovalPendingNotification(Payload):
@@ -9413,7 +9434,7 @@ METHODS: dict[str, RpcMethod] = {
         _m(
             "approval.respond",
             ApprovalRespondParams,
-            Ok,
+            ApprovalRespondResult,
             "Answer a pending approval and unblock the turn.",
         ),
         _m(

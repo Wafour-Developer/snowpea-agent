@@ -721,6 +721,14 @@ class ApprovalQueue:
                 by="origin",
                 reason=str(answer.get("reason") or ""),
             )
+            if allowed and request.personOnly:
+                # The origin is asked like anyone else: a person's connection only.
+                try:
+                    decision.person = _person_answer(request, entry.origin_conn, "origin",
+                                                     self.settings, "allow")
+                    decision.scope = "once"
+                except RpcError:
+                    decision = Decision("deny", "once", "not-a-person", errors.APPROVAL_DENIED)
         except TimeoutError:
             decision = Decision("deny", "once", "timeout", errors.APPROVAL_TIMEOUT)
         except asyncio.CancelledError:
@@ -741,8 +749,13 @@ class ApprovalQueue:
         conn: Any = None,
         reason: str = "",
         actor: str | None = None,
-    ) -> None:
-        """Resolve a pending request (``approval.respond``)."""
+    ) -> Decision | None:
+        """Resolve a pending request (``approval.respond``).
+
+        Returns the decision as it will apply (its ``scope`` after
+        :func:`guard_scope`), or ``None`` when the request was already answered
+        and this call changed nothing.
+        """
         entry = self._pending.get(request_id)
         if entry is None:
             raise RpcError(errors.NOT_FOUND, f"no pending approval {request_id}")
@@ -775,16 +788,18 @@ class ApprovalQueue:
             )
         person = _person_answer(entry.request, conn, by, self.settings, decision)
         if entry.future.done():
-            return
-        entry.future.set_result(
-            Decision(
-                decision="allow" if decision == "allow" else "deny",
-                scope="once" if person is not None else scope,
-                by=by,
-                reason=reason,
-                person=person,
-            )
+            return None
+        answer = Decision(
+            decision="allow" if decision == "allow" else "deny",
+            scope="once" if person is not None else scope,
+            by=by,
+            reason=reason,
+            person=person,
         )
+        entry.future.set_result(answer)
+        # The scope that will apply (``guard_scope`` runs the same rules again
+        # where the request is resolved): approval.respond reports it (1.54.0).
+        return guard_scope(entry.request, answer, entry.workdir)
 
     async def _resolve(
         self,
@@ -816,23 +831,16 @@ class ApprovalQueue:
             self._persist(request, decision.scope, workdir, host)
         self._append_log(request, decision, unattended=unattended)
         if self.hub is not None:
-            await self.hub.notify(
-                "approval.resolved",
-                {
-                    "requestId": request.requestId,
-                    "decision": decision.decision,
-                    "by": decision.by,
-                },
-                exclude=notify_exclude,
-            )
-            await self._tell_observers(
-                "approval.resolved",
-                {
-                    "requestId": request.requestId,
-                    "decision": decision.decision,
-                    "by": decision.by,
-                },
-            )
+            resolved = {
+                "requestId": request.requestId,
+                "decision": decision.decision,
+                "by": decision.by,
+                # The scope actually applied (1.54.0): a widening reply kept to
+                # "once" says so; null for a deny.
+                "scope": decision.scope if decision.allowed else None,
+            }
+            await self.hub.notify("approval.resolved", resolved, exclude=notify_exclude)
+            await self._tell_observers("approval.resolved", dict(resolved))
 
     def _persist(
         self, request: ApprovalRequest, scope: str, workdir: Any, host: str | None = None

@@ -57,6 +57,8 @@ class Answer:
     timed_out: bool = False
     declined: bool = False
     by: str = "unknown"
+    #: The answerer was checked as a person (a ``personOnly`` question, 1.54.0).
+    person: bool = False
 
     @property
     def answered(self) -> bool:
@@ -71,6 +73,8 @@ class _Pending:
     task: asyncio.Task[None] | None = None
     #: A person at a TUI or desktop session is waited for without a clock.
     no_limit: bool = False
+    #: The session asking (who may answer a ``personOnly`` question depends on it).
+    session: Any = None
 
 
 class QuestionQueue:
@@ -140,6 +144,8 @@ class QuestionQueue:
         *,
         timeout_sec: int | None = None,
         cancel_event: asyncio.Event | None = None,
+        person_only: bool = False,
+        kind: str | None = None,
     ) -> list[Answer]:
         """Put a batch of questions to the human; block until they answer.
 
@@ -147,6 +153,12 @@ class QuestionQueue:
         how it walks the user through them, and can let them go back and change
         an earlier answer before submitting.  The returned list always has one
         entry per question, so the caller never has to check a length.
+
+        ``person_only`` (security review 4, C1; ``kind: "mode"`` for a mode
+        picker): only a person may answer — routed to the person, never Jarvis,
+        a connector or an in-process caller; a browser only for a session it
+        hosts (or opened), with ``actor: "person"``.  Every answer that comes
+        back from such a question has ``person`` set.
         """
         if not questions:
             return []
@@ -168,6 +180,9 @@ class QuestionQueue:
             sessionId=session.id,
             questions=list(questions),
             timeoutSec=timeout,
+            personOnly=True if person_only else None,
+            kind=kind if person_only and kind else None,  # type: ignore[arg-type]
+            neverDelegable=True if person_only else None,
         )
         if self.router is not None:
             try:
@@ -175,11 +190,14 @@ class QuestionQueue:
             except Exception:  # noqa: BLE001 - a broken router leaves it to the person
                 log.warning("question router failed for %s", request.requestId, exc_info=True)
                 route = "person"
+            if person_only and route is not None:
+                route = "person"  # before any text rule: never Jarvis
             if route is not None:
                 request = request.model_copy(update={"route": route})
         loop = asyncio.get_running_loop()
         entry = _Pending(
-            request=request, future=loop.create_future(), origin_conn=origin, no_limit=no_limit
+            request=request, future=loop.create_future(), origin_conn=origin, no_limit=no_limit,
+            session=session,
         )
         self._pending[request.requestId] = entry
         host = getattr(session, "host_tools_from", None)
@@ -256,6 +274,17 @@ class QuestionQueue:
                 timeout=None if entry.no_limit else float(request.timeoutSec),
             )
             answers = _answers_from(reply.get("answers"), by="origin")
+            if request.personOnly:
+                actor = reply.get("actor") if isinstance(reply, dict) else None
+                why = person_refusal(entry.origin_conn, entry.session,
+                                     actor if isinstance(actor, str) else None, by="origin")
+                if why is not None:
+                    # Not a person's answer: the card stays; a person answers it
+                    # with question.respond.
+                    log.warning("question %s: origin answer refused (%s)", request.requestId, why)
+                    return
+                for answer in answers:
+                    answer.person = True
         except TimeoutError:
             answers = [
                 Answer(timed_out=True, by="timeout") for _ in range(len(request.questions))
@@ -276,19 +305,41 @@ class QuestionQueue:
         request_id: str,
         answers: list[dict[str, Any]] | None = None,
         by: str = "client",
-    ) -> None:
-        """Resolve a pending question (``question.respond``).
+        *,
+        conn: Any = None,
+        actor: str | None = None,
+    ) -> bool:
+        """Resolve a pending question (``question.respond``); False when it already was.
 
-        Any authenticated surface may answer: unlike an approval, a question
-        carries no authority, so whoever is looking at it may say the word.
+        Any authenticated surface may answer an ordinary question: unlike an
+        approval, it carries no authority.  A ``personOnly`` one (a mode picker)
+        only a person: refused with ``jarvis_person_only`` (``details.reason:
+        "mode_raise"`` for ``kind: "mode"``), and the card stays.
         """
         entry = self._pending.get(request_id)
         if entry is None:
             raise RpcError(errors.NOT_FOUND, f"no pending question {request_id}")
+        person = False
+        if entry.request.personOnly:
+            # A messenger is not a person here: the gateway lets anyone in a chat
+            # answer that chat's own session's questions (no bound-user check),
+            # so a mode picker is answered in the app, the TUI or the web page.
+            why = person_refusal(conn, entry.session, actor, by=by)
+            if why is not None:
+                raise RpcError(
+                    errors.JARVIS_PERSON_ONLY, f"only a person may answer this: {why}",
+                    {"reason": "mode_raise" if entry.request.kind == "mode" else "person_only",
+                     "kind": entry.request.kind},
+                )
+            person = True
         if entry.future.done():
-            return
+            return False
         count = len(entry.request.questions)
-        entry.future.set_result(_padded(_answers_from(answers, by=by), count))
+        parsed = _padded(_answers_from(answers, by=by), count)
+        for answer in parsed:
+            answer.person = person
+        entry.future.set_result(parsed)
+        return True
 
     async def _resolve(self, request: QuestionRequest, answers: list[Answer]) -> None:
         """Tell every surface the batch is over, so nobody keeps showing it."""
@@ -299,6 +350,36 @@ class QuestionQueue:
         tell = getattr(self.hub, "tell_observers", None)
         if tell is not None:
             await tell("question.resolved", {"requestId": request.requestId, "by": by})
+
+
+def person_refusal(conn: Any, session: Any, actor: str | None, *, by: str = "") -> str | None:
+    """Why the answerer of a ``personOnly`` question is not its person; ``None`` if it is.
+
+    A local person or a remote web login (the person, for running work); the
+    browser that hosts the session (or opened it) with ``actor: "person"`` (a
+    legacy browser as before); never a connector, Jarvis, the gateway or any
+    in-process caller.
+    """
+    if conn is None:
+        return f"{by or 'an in-process caller'} is not a person"
+    from snowpea_core.server.person_gate import connection_kind
+    from snowpea_core.server.settings_gate import acts_for_person
+
+    kind = connection_kind(conn)
+    if kind in ("person", "remote_login"):
+        return None
+    if kind == "browser":
+        if not acts_for_person(conn, actor):
+            return "a browser answers this only from a person's click (actor: \"person\")"
+        mine = getattr(conn, "client_id", None)
+        host = getattr(session, "host_tools_from", None) if session is not None else None
+        if host is not None and host != mine:
+            return "another browser's session"
+        if host is None and session is not None and getattr(session, "origin_conn", None) \
+                is not conn:
+            return "a session this browser did not open"
+        return None
+    return f"a {getattr(conn, 'client_kind', None) or kind} connection is not a person"
 
 
 def _answer_from(raw: Any, *, by: str) -> Answer:

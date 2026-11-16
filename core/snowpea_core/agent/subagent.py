@@ -44,6 +44,7 @@ from snowpea_core.prompts.loader import PromptNotFound, load
 from snowpea_core.providers.base import REDACTED, ChatMessage
 from snowpea_core.server.protocol import AgentInfo
 from snowpea_core.session import events
+from snowpea_core.session.mode_guard import ModeCaller
 from snowpea_core.tools.deferred import TOOL_SEARCH
 from snowpea_core.tools.registry import ProgressEmitter
 from snowpea_core.tools.renames import canonical_names
@@ -1397,6 +1398,8 @@ class SubagentManager:
             parent_session_id=parent.id,
             kind="subagent",
             role_default=role_default,
+            # Never wider than the parent's own mode (stricter_mode above).
+            caller=ModeCaller.internal("subagent-inherits-parent"),
         )
         child.unattended = parent.unattended
         child.read_only = read_only

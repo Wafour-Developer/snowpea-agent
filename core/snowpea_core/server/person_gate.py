@@ -92,6 +92,9 @@ PERSON_METHODS: dict[str, bool] = {
     "security.presets.list": False,
     "security.get": False,
     "security.check": False,
+    # A typed rule pre-approves before any routing (security review 4, H1): a
+    # local person's only (never a browser, a connector or a remote web login).
+    "permission.allowlist.add": True,
 }
 
 
