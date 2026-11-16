@@ -171,6 +171,8 @@ class Session:
     agent_definition: str | None = None
     agent_identity: str | None = None
     agent_deferred: list[str] = field(default_factory=list)
+    #: The definition's ``unavailable`` hints (1.55.0, ``tools/tool_hints``).
+    agent_unavailable: dict[str, str] = field(default_factory=dict)
     agent_skills_index: str | None = None
     agent_plugin: str | None = None
     #: What the system prompt was built from, decided once and kept until the
@@ -314,6 +316,11 @@ class Session:
     workspace_dir: str | None = None
     #: Skills ``autoInject`` already brought into this session.
     auto_injected_skills: set[str] = field(default_factory=set)
+    #: Bytes of skill text ``autoInject`` brought in so far (the session cap, 1.55.0).
+    auto_injected_bytes: int = 0
+    #: ``(tool, section)`` manual sections already appended to a failed host
+    #: result (``tools/host_tools.with_help_section``, 1.55.0).
+    help_sections_shown: set[tuple[str, str]] = field(default_factory=set)
     #: Whose host tools this session sees: a clientId or surface id from
     #: ``session.create {hostToolsFrom}``; ``None`` means the origin connection.
     host_tools_from: str | None = None

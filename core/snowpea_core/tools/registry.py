@@ -38,7 +38,15 @@ class ProgressEmitter:
         self._name = name
         self._seq = 0
 
-    async def emit(self, stream: str, chunk: str, *, truncated: bool = False) -> None:
+    async def emit(
+        self,
+        stream: str,
+        chunk: str,
+        *,
+        truncated: bool = False,
+        state: str | None = None,
+        note: str | None = None,
+    ) -> None:
         from snowpea_core.session import events
 
         seq, self._seq = self._seq, self._seq + 1
@@ -49,6 +57,8 @@ class ProgressEmitter:
             chunk=chunk,
             seq=seq,
             truncated=truncated,
+            state=state,
+            note=note,
         )
         try:
             await self._core.hub.emit_event(self._session_id, event)
@@ -133,6 +143,14 @@ class Tool:
     #: Host tools only: a successful call shows the rendered page, which
     #: verify-on-stop counts as a look (``HostToolSpec.look``, 1.29.0).
     look: bool = False
+    #: Host tools only (1.55.0): names that exist inside this tool (a REPL's
+    #: globals), so a call to one as a tool is answered with where it lives.
+    helpers: tuple[str, ...] = ()
+    #: Host tools only (1.55.0): the whole manual when the model was given a
+    #: short description (``descriptionShort``), and its named sections, both
+    #: served by ``tool_help``.
+    manual: str | None = None
+    sections: dict[str, str] | None = None
 
     def info(self) -> ToolInfo:
         # ``mcp:<server>`` is the source an MCP tool is registered with, so the

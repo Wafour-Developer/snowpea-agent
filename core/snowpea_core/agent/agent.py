@@ -512,6 +512,12 @@ def turn_context(
     return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
 
+#: The template variable an agent definition's prompt may use (1.55.0): it is
+#: replaced with :func:`snowpea_core.tools.deferred.deferred_note` for the
+#: session's real deferred tools (empty when nothing is deferred).
+DEFERRED_NOTE_VARIABLE = "{{deferred_tools_note}}"
+
+
 def build_system_prompt(
     session: Session,
     tools: list[ToolSpec],
@@ -541,6 +547,18 @@ def build_system_prompt(
                 spec for spec in deferred_specs if spec.name in plan.loaded
             ]
     persona = getattr(session, "system_prompt", None) or ""
+    if DEFERRED_NOTE_VARIABLE in persona:
+        # An agent prompt that talks about deferred tools says what is really
+        # deferred in this session (1.55.0), never a list written in advance.
+        from snowpea_core.tools.deferred import deferred_note
+
+        persona = persona.replace(
+            DEFERRED_NOTE_VARIABLE,
+            deferred_note(
+                [spec for spec in deferred_specs if spec.name not in plan.loaded],
+                fixed=plan.fixed_list,
+            ),
+        )
     if session.team_agents:
         team_rule = (
             f"Active delegation team: {session.team}. Delegate only to these agents: "

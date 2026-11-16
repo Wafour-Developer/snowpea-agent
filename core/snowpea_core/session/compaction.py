@@ -21,6 +21,7 @@ to would leave the model answering a call it can no longer see.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
@@ -371,9 +372,17 @@ async def emit_context(
             model=model,
             provider=vendor,
             window_source=resolved.source,
+            auto_compact_at=_auto_compact_at_or_none(core, session, resolved.window),
         ),
     )
     return resolved
+
+
+def _auto_compact_at_or_none(core: Core, session: Session, window: int | None) -> int | None:
+    try:
+        return auto_compact_at(core, session, window)
+    except Exception:  # noqa: BLE001 - a partial Core in a test: the field is a bonus
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -668,13 +677,17 @@ async def compact_session(
     instructions: str | None = None,
     *,
     auto: bool = False,
+    reason: str | None = None,
 ) -> CompactionResult:
     """Summarise the conversation and replace the history with it.
 
     Emits ``compaction``, a ``message.done`` carrying the summary as a system
     message, and a fresh ``context``.  A history too short to be worth
     summarising is left alone and reported as ``compacted=False``.
+    ``reason`` (1.55.0) is ``overflow`` (the server refused the request for
+    its length), ``auto`` or ``manual``; unset, ``auto`` decides.
     """
+    reason = reason or ("auto" if auto else "manual")
     keep_last = _keep_last(core)
     messages = session.history.snapshot()
     before = estimate_messages(messages)
@@ -690,7 +703,9 @@ async def compact_session(
     # Summarising takes a provider round-trip.  ``compaction`` reports the
     # outcome, which is too late to say "Compacting…" — and left an automatic
     # compaction invisible until its divider landed (IDE-PROGRESS D3).
-    await core.hub.emit_event(session.id, events.compaction_started(before, auto=auto))
+    await core.hub.emit_event(
+        session.id, events.compaction_started(before, auto=auto, reason=reason)
+    )
 
     try:
         text = await summarise(core, session, head, instructions)
@@ -742,7 +757,7 @@ async def compact_session(
     )
     await core.hub.emit_event(
         session.id,
-        events.compaction(before, after, len(text), auto=auto, kept=len(tail)),
+        events.compaction(before, after, len(text), auto=auto, kept=len(tail), reason=reason),
     )
     await core.hub.emit_event(
         session.id, events.message_done(f"{SUMMARY_HEADING}\n\n{text}", role="system")
@@ -788,17 +803,33 @@ def should_auto_compact(core: Core, session: Session, state: ContextState) -> bo
         return True
     if state.window is None or state.used <= 0:
         return False
+    if len(session.history) <= _keep_last(core):
+        return False
+    at = auto_compact_at(core, session, state.window)
+    return at is not None and state.used >= at
+
+
+def auto_compact_at(core: Core, session: Session, window: int | None) -> int | None:
+    """The ``used`` token count at which the next turn auto-compacts first (1.55.0).
+
+    ``None`` when auto-compaction is off, the window is unknown or the
+    threshold setting is out of range.  :func:`should_auto_compact` compares
+    against exactly this number (besides its message-count rules).
+    """
+    settings: Any = core.settings.context
+    if not getattr(settings, "autoCompact", True) or not window:
+        return None
     try:
         threshold = float(getattr(settings, "autoCompactPercent", 85))
     except (TypeError, ValueError):
         threshold = 85.0
     if threshold <= 0 or threshold >= 100:
-        return False
-    if len(session.history) <= _keep_last(core):
-        return False
-    # The server refuses a prompt plus the output it is asked to leave room for.
-    reserve = _output_reserve(core, session, state.window)
-    return (state.used + reserve) * 100.0 / state.window >= threshold
+        return None
+    # The server refuses a prompt plus the output it is asked to leave room for:
+    # (used + reserve) * 100 / window >= threshold.
+    reserve = _output_reserve(core, session, window)
+    # Rounded before the ceiling so float noise (849.9999999) cannot move it.
+    return max(1, math.ceil(round(threshold * window / 100.0 - reserve, 6)))
 
 
 def _output_reserve(core: Core, session: Session, window: int) -> int:
@@ -874,6 +905,13 @@ def cap_single_results(history: list[ChatMessage], window: int | None) -> list[C
 
 def _tool_output_stub(name: str, chars: int) -> str:
     """What an old tool result becomes in the outgoing request."""
+    if name == "tool_search":
+        # The tools it loaded did not go anywhere; "re-run" sent models
+        # searching for them again every few rounds (1.55.0).
+        return (
+            f"[earlier tool_search output pruned — {chars} chars; the tools it loaded are "
+            "still yours: call them by name]"
+        )
     return (
         f"[earlier {name or 'tool'} output pruned — {chars} chars; "
         "re-run the tool if you need it again]"
@@ -1231,10 +1269,17 @@ def supersede_snapshots(
     A stubbed snapshot stays stubbed; the set only grows every ``batch``-th.
     """
     order: dict[str, list[int]] = {}
+    #: Image views a host result marked as a tab's snapshot (1.55.0), kept
+    #: apart from the text snapshots: ``(message, block)`` per tab, in order.
+    views: dict[str, list[tuple[int, int]]] = {}
     for index, message in enumerate(history):
         if message.role == "tool" and message.snapshot_tab:
             order.setdefault(message.snapshot_tab, []).append(index)
-    if not order:
+        elif message.role == "user" and content.has_blocks(message.content):
+            for block_index, block in enumerate(message.content):  # type: ignore[union-attr]
+                if block.get("type") == "image" and block.get("snapshotTab"):
+                    views.setdefault(str(block["snapshotTab"]), []).append((index, block_index))
+    if not order and not views:
         return history
     step = max(1, batch)
     stale = {
@@ -1242,9 +1287,24 @@ def supersede_snapshots(
         for indexes in order.values()
         for index in indexes[: ((len(indexes) - 1) // step) * step]
     }
-    if not stale:
+    stale_views = {
+        slot
+        for slots in views.values()
+        for slot in slots[: ((len(slots) - 1) // step) * step]
+    }
+    if not stale and not stale_views:
         return history
     out = list(history)
+    for message_index in sorted({slot[0] for slot in stale_views}):
+        message = history[message_index]
+        blocks = []
+        for block_index, block in enumerate(message.content):  # type: ignore[union-attr]
+            if (message_index, block_index) in stale_views:
+                tab = block["snapshotTab"]
+                blocks.append({"type": "text", "text": f"[superseded by a newer view of {tab}]"})
+            else:
+                blocks.append(block)
+        out[message_index] = replace(message, content=blocks)
     for index in sorted(stale):
         message = history[index]
         tab = message.snapshot_tab

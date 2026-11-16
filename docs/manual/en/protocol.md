@@ -84,6 +84,23 @@ A started tool call always ends with a `tool.result`: when the turn is cancelled
 
 A `personOnly` question or approval answered by the asking connection without a person's marker is not dropped: that connection receives `question.pending` / `approval.pending` again with the same request and a `refused` object (`{code: "jarvis_person_only", reason, message}`), and the request stays open for a person to answer.
 
+## Slash commands while a turn runs (1.55.0, capability `commandsBesideTurn`)
+
+Every built-in command is `instant` or `turn` (`core/snowpea_core/commands/kinds.py`). With no turn running, both are a turn of their own, as before (`turn.started` … `turn.done`).
+
+While a turn runs:
+
+- An **instant** command (reads and safe session settings: `/help`, `/tools`, `/approvals`, `/allow`, `/allowlist`, `/busy`, `/model`, `/models`, `/vision`, `/effort`, `/mode`, `/plan`, `/accept`, `/auto` without a request, `/delegation`, `/memory`, `/schedule`, `/desktop`, `/mcp list`, `/agent list`, `/skill list`, `/update check`) runs beside it. `session.prompt` / `command.run` answer `{turnId: "c-…", besideTurn: true}`, and the only session event is one `command.result {commandId, command, ok, text, appliesFrom, runningTurnId}` (plus whatever the change itself announces, such as `mode.changed`). No `turn.started`, `message.done` or `turn.done`, nothing in the history; the running turn keeps its id, `running: true` in `session.list`, and `session.interrupt` still stops it. `appliesFrom` says when a change reaches the running turn: `next_tool_call` (mode, rules, vision model), `next_request` (MCP servers), `next_turn` (model, effort, busy handling, delegation).
+- A **turn** command (everything else, and every skill or command file) waits like a prompt: `turn.queued`, then after the running turn's `turn.done` a `turn.dequeued` and its own turn. `whenBusy` (on `session.prompt`, and on `command.run` since 1.55.0) cannot fold a command into the running request, so `steer` queues it too.
+
+## Host tools since 1.55.0
+
+- `tool.invoke` carries `model: {canSee, contextWindow, localStyle}` for the session's model (capability `toolInvokeModel`).
+- `tool.register` specs take `helpers` (names that live inside the tool, such as a REPL's globals), `descriptionShort` (what the model reads in the schema) and `sections` (named parts of the manual, `description` stays the whole manual). A session that sees such a tool also gets the built-in `tool_help {tool, section?}`; a failed result whose `meta.helpSection` names a section gets that section appended once per session (capability `hostToolManuals`).
+- `tool.progress` takes `state: "waiting" | "running"` and `note`; the `tool.progress` session event repeats them so a card can show "waiting for the page". Any `tool.progress` restarts the call's deadline, and the deadline does not run while the session waits on an approval or a question (capability `toolProgressState`).
+- `llm.sample` takes up to four `images` (`{mime, dataBase64}`) and `modelCategory: "vision"` (only `models.categories.vision`; refused with `unavailable`, `details.reason: "no_vision_model"`, when none is set). A result whose meta says `kind: "snapshot"` and `tab` marks its images as that tab's view too, so newer views replace older ones in a long request (capability `llmSampleImages`).
+- The `context` event has `autoCompactAt`, and `compaction.started` / `compaction` have `reason`: `overflow`, `auto` or `manual` (capability `compactionReason`).
+
 ## Using the SDK
 
 ```ts

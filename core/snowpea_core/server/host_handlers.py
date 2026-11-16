@@ -196,7 +196,11 @@ async def tool_progress_handler(
     conn: RpcConnection, params: ToolProgressParams, core: Core
 ) -> Ok:
     """``tool.progress`` (notification) — re-emit as ``session.event tool.progress``."""
-    return Ok(ok=await HOST_TOOLS.progress(conn, params.callId, params.message))
+    return Ok(
+        ok=await HOST_TOOLS.progress(
+            conn, params.callId, params.message, state=params.state, note=params.note
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

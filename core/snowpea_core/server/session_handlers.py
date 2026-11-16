@@ -713,13 +713,16 @@ async def session_prompt_handler(
         name, args = parsed
         # The command gate (CommandRegistry.start) judges this caller exactly as
         # command.run would; a refusal is the call's error, never model text.
-        turn_id = core.commands.start(core, session, name, args, conn)
+        # While a turn runs it waits or runs beside it (commands/kinds.py).
+        turn_id = core.commands.start(core, session, name, args, conn,
+                                      when_busy=params.whenBusy)
         pending.clear(session.id)
-        return TurnResult(turnId=turn_id)
+        return _command_result(turn_id)
     delegate_match = _DELEGATE_PREFIX.match(raw_text) if raw_text else None
     if delegate_match is not None and delegate_match.group(2) is not None:
         args = f"{delegate_match.group(1)} {delegate_match.group(2)}"
-        turn_id = core.commands.start(core, session, "delegate", args, conn)
+        turn_id = core.commands.start(core, session, "delegate", args, conn,
+                                      when_busy=params.whenBusy)
         pending.clear(session.id)
         return TurnResult(turnId=turn_id)
     prepared = prepare_prompt(
@@ -1067,8 +1070,16 @@ async def command_run_handler(
     # Judged before anything runs, by what it would persist and whether it
     # raises the mode: the one gate in ``CommandRegistry.start`` (security
     # reviews 3 and 4), shared with slash text in session.prompt.
-    turn_id = core.commands.start(core, session, name, params.args, conn, actor=params.actor)
+    turn_id = core.commands.start(core, session, name, params.args, conn, actor=params.actor,
+                                  when_busy=params.whenBusy)
     core.hub.subscribe(conn, session.id)
+    return _command_result(turn_id)
+
+
+def _command_result(turn_id: str) -> TurnResult:
+    """A command's TurnResult; ``besideTurn`` for one that ran beside a turn (1.55.0)."""
+    if turn_id.startswith("c-"):
+        return TurnResult(turnId=turn_id, besideTurn=True)
     return TurnResult(turnId=turn_id)
 
 

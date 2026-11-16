@@ -98,6 +98,17 @@ def _route(core: Core, session: Session | None, category: str) -> ModelRoute:
     if category == "standard":
         route = category_route(core.settings, "standard", workdir=workdir)
         return route if route.resolved() else own
+    if category == "vision":
+        # No fallback (1.55.0): a picture sent to a model that cannot see it
+        # gives an answer that only looks like one.
+        route = category_route(core.settings, "vision", workdir=workdir)
+        if not route.resolved():
+            raise RpcError(
+                errors.UNAVAILABLE,
+                "no vision model is configured: set models.categories.vision",
+                {"reason": "no_vision_model"},
+            )
+        return route
     return own
 
 
@@ -120,11 +131,68 @@ def _messages(params: LlmSampleParams) -> list[ChatMessage]:
         (after if params.schemaAfterInput else system).append(note)
     if params.task and params.task.strip():
         after.insert(0, params.task.strip())
-    user = "\n\n".join([_fenced(params.input), *after])
+    content: Any
+    if params.images:
+        # Page, then its pictures, then what varies per call (1.55.0).
+        content = [{"type": "text", "text": _fenced(params.input)}]
+        for index, image in enumerate(params.images):
+            content.append(
+                {
+                    "type": "image",
+                    "text": f"[image {index + 1} from the page]",
+                    "name": f"sample-{index + 1}.{image.mime.rsplit('/', 1)[-1]}",
+                    "mime": image.mime,
+                    "data": image.dataBase64,
+                }
+            )
+        if after:
+            content.append({"type": "text", "text": "\n\n".join(after)})
+    else:
+        content = "\n\n".join([_fenced(params.input), *after])
     return [
         ChatMessage(role="system", content="\n\n".join(system)),
-        ChatMessage(role="user", content=user),
+        ChatMessage(role="user", content=content),
     ]
+
+
+#: ``llm.sample`` image limits (1.55.0), on the decoded bytes.
+SAMPLE_IMAGE_MAX_BYTES = 6 * 1024 * 1024
+SAMPLE_IMAGES_MAX_BYTES = 12 * 1024 * 1024
+
+
+def _check_images(params: LlmSampleParams) -> None:
+    """Every image decodes and the sizes stay in bounds; else ``invalid_params``."""
+    import base64
+    import binascii
+
+    from snowpea_core.attachments.model import validate_image
+
+    total = 0
+    for index, image in enumerate(params.images or []):
+        try:
+            raw = base64.b64decode(image.dataBase64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise RpcError(
+                errors.INVALID_PARAMS, f"images[{index}] is not valid base64",
+                {"index": index, "reason": "base64"},
+            ) from exc
+        if len(raw) > SAMPLE_IMAGE_MAX_BYTES:
+            raise RpcError(
+                errors.INVALID_PARAMS, f"images[{index}] is larger than 6 MB",
+                {"index": index, "reason": "too_large"},
+            )
+        total += len(raw)
+        problem = validate_image(raw, image.mime, decode=True)
+        if problem:
+            raise RpcError(
+                errors.INVALID_PARAMS, f"images[{index}] cannot be read: {problem}",
+                {"index": index, "reason": "unreadable"},
+            )
+    if total > SAMPLE_IMAGES_MAX_BYTES:
+        raise RpcError(
+            errors.INVALID_PARAMS, "the images are larger than 12 MB together",
+            {"reason": "too_large"},
+        )
 
 
 def parse_json(text: str) -> Any:
@@ -202,6 +270,18 @@ async def llm_sample_handler(
         ) from exc
     vendor = str(getattr(provider, "vendor", "") or route.provider or "")
     model = str(getattr(provider, "model", "") or route.model or "")
+    if params.images:
+        _check_images(params)
+        try:
+            sees = core.providers.vision_for(vendor, model)
+        except Exception:  # noqa: BLE001 - unknown: let the server decide
+            sees = None
+        if sees is False:
+            raise RpcError(
+                errors.UNAVAILABLE,
+                f"{vendor}:{model} does not take images; use modelCategory 'vision'",
+                {"reason": "model_cannot_see", "model": f"{vendor}:{model}"},
+            )
     extra: dict[str, Any] = {}
     if (
         validator is not None

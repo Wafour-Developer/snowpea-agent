@@ -32,9 +32,10 @@ passes through them quickly; none is skipped.
    JS/TS — and call that ad-hoc. Add tests only when asked or when extending an
    existing suite; a bug fix gets a regression test in the suite that exists.
    For a UI: start the dev server, or `python3 -m http.server` for a static
-   page (shell, background: true), wait until it answers, call tool_search with
-   "select:browser_navigate,browser_screenshot,browser_console,
-   browser_press", open the page, take browser_screenshot, read browser_console
+   page (shell, background: true), wait until it answers, load
+   browser_navigate, browser_screenshot, browser_console and browser_press
+   with tool_search if not in your tool list, open the page,
+   take browser_screenshot, read browser_console
    and try the main interaction (browser_press for keys). An API test or a 200
    does not show it renders; a canvas or WebGL page shows nothing in a
    snapshot — only a screenshot you looked at, with a clean console, counts. If

@@ -133,6 +133,9 @@ class CommandContext:
     #: turn. This is especially important for workflow commands such as
     #: ``/ralph`` whose detailed event stream is not otherwise in history.
     history_summary: str | None = None
+    #: An instant command running beside a model turn (1.55.0): its replies
+    #: are collected for one ``command.result`` and never enter the history.
+    beside_turn: bool = False
     _history_recorded: bool = False
     _history_started: bool = False
 
@@ -142,6 +145,8 @@ class CommandContext:
     async def say(self, text: str) -> None:
         """Answer the user with a completed assistant message."""
         self.output_texts.append(text)
+        if self.beside_turn:
+            return
         if self.command_name in {"ralph", "team", "workers"}:
             from snowpea_core.agent.loop import _flush_notices
             from snowpea_core.session.manager import persist_history
@@ -174,7 +179,7 @@ class CommandContext:
         ordinary prompt then had no main-context knowledge of a completed (or
         failed) workflow such as ``/ralph``.
         """
-        if self._history_recorded:
+        if self._history_recorded or self.beside_turn:
             return
         self._history_recorded = True
         line = _redact_command_text(f"/{self.command_name} {self.command_args}".strip())
@@ -235,6 +240,8 @@ class CommandRegistry:
 
     def __init__(self) -> None:
         self._commands: dict[str, Command] = {}
+        #: Instant commands running beside a turn, held so they are not collected.
+        self._beside: set[asyncio.Task[None]] = set()
         #: Names of the commands the core itself ships (``/ralph``, ``/team``,
         #: ``/plan`` …). A skill may never take one of these: a user who has a
         #: Claude Code plugin with a ``ralph`` skill must still get snowpea's
@@ -279,8 +286,16 @@ class CommandRegistry:
         origin: str | None = None,
         actor: str | None = None,
         caller: str | None = None,
+        when_busy: str | None = None,
     ) -> str:
         """Schedule a command in the background and return its turn id.
+
+        While a model turn runs (1.55.0, ``commands/kinds.py``): an ``instant``
+        command runs beside it without touching the turn's bookkeeping and
+        reports with ``command.result`` (the id returned is the command's);
+        a ``turn`` command is queued behind it like a prompt (``turn.queued``;
+        ``when_busy`` ``"steer"`` queues too — a command cannot be folded into
+        a running request).  With no turn running, every command is a turn.
 
         ``origin`` says whose words the command line is (``agent.loop.ORIGINS``);
         a turn the command runs inherits it.  ``actor`` is a browser's
@@ -298,19 +313,99 @@ class CommandRegistry:
             from snowpea_core.server.rpc import current_actor
 
             actor = current_actor()
+        source = getattr(self._commands.get(name), "source", "builtin")
         gate_command(core, session, name, args, conn=conn, actor=actor, caller=caller,
-                     source=getattr(self._commands.get(name), "source", "builtin"))
-        turn_id = f"t-{uuid.uuid4().hex[:12]}"
-        session.current_turn = turn_id
-        if origin:
-            from snowpea_core.agent.loop import note_origin
+                     source=source)
+        from snowpea_core.agent import loop as agent_loop
+        from snowpea_core.commands.kinds import INSTANT, command_kind
 
-            note_origin(session, turn_id, origin)
-        task = asyncio.ensure_future(
-            self.run(core, session, name, args, conn, turn_id, actor=actor, caller=caller)
+        running = session.turn_task
+        busy = running is not None and not running.done()
+        if busy and command_kind(name, args, source) == INSTANT:
+            command_id = f"c-{uuid.uuid4().hex[:12]}"
+            side = asyncio.ensure_future(
+                self.run_beside(core, session, name, args, conn, command_id,
+                                actor=actor, caller=caller)
+            )
+            self._beside.add(side)
+            side.add_done_callback(self._beside.discard)
+            return command_id
+        turn_id = f"t-{uuid.uuid4().hex[:12]}"
+        if origin:
+            agent_loop.note_origin(session, turn_id, origin)
+        queued = agent_loop.QueuedTurn(
+            turn_id=turn_id,
+            text=f"/{name} {args}".strip(),
+            unattended=session.origin_conn is None,
+            attachments=[],
+            origin=origin or "human",
+            command=agent_loop.QueuedCommand(name, args, conn, actor, caller),
         )
-        session.turn_task = task
+        if busy:
+            # A command that starts work waits for the running turn, like a
+            # prompt; it is never folded into it, whatever ``when_busy`` says.
+            session.queued_turns.append(queued)
+            waiting = len(session.queued_turns)
+            agent_loop._emit_soon(core, session, events.turn_queued(turn_id, waiting, waiting))
+            return turn_id
+        session.current_turn = turn_id
+        session.turn_task = asyncio.ensure_future(agent_loop.drain_turns(core, session, queued))
         return turn_id
+
+    async def run_beside(
+        self,
+        core: Core,
+        session: Session,
+        name: str,
+        args: str,
+        conn: Any,
+        command_id: str,
+        *,
+        actor: str | None = None,
+        caller: str | None = None,
+    ) -> None:
+        """Run an instant command beside a running turn; one ``command.result`` (1.55.0).
+
+        No ``turn.started``/``turn.done``/``message.done``, no history and no
+        change to ``current_turn``/``turn_task``: the running turn stays the
+        session's turn, interruptible and ``running`` in ``session.list``.
+        """
+        from snowpea_core.commands.kinds import applies_from
+
+        line = f"/{name} {args}".strip()
+        running_turn = session.current_turn
+        command = self._commands.get(name)
+        if command is None:
+            await core.hub.emit_event(
+                session.id,
+                events.command_result(command_id, line, False, f"unknown command: /{name}",
+                                      running_turn_id=running_turn),
+            )
+            return
+        ctx = CommandContext(
+            core=core, session=session, turn_id=command_id, conn=conn, command_name=name,
+            command_args=args, actor=actor, caller=caller, beside_turn=True,
+        )
+        ok = True
+        try:
+            await command.run(ctx, args)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a broken command reports, never ends the turn
+            log.exception("command /%s failed beside turn %s", name, running_turn)
+            ok = False
+            ctx.output_texts.append(f"Command failed: {type(exc).__name__}: {exc}")
+        await core.hub.emit_event(
+            session.id,
+            events.command_result(
+                command_id,
+                line,
+                ok,
+                "\n\n".join(text for text in ctx.output_texts if text.strip()),
+                applies_from=applies_from(name, args) if ok else None,
+                running_turn_id=running_turn,
+            ),
+        )
 
     async def run(
         self,

@@ -114,6 +114,12 @@ class AgentDefinition:
     #: ``SNOWPEA_AGENT_DEFERRED``) is on, on a provider whose tool list stays
     #: fixed for the session (local-style servers).
     deferred_tools: list[str] = field(default_factory=list)
+    #: What to tell the model when it reaches for a tool this agent does not
+    #: have (frontmatter ``unavailable``, 1.55.0): ``{<namespace or pattern>:
+    #: "<message>"}``, e.g. ``mcp: "MCP tools are not available to this agent;
+    #: call request_code_mode …"``.  Used by unknown-tool and not-allowed
+    #: answers and by a ``tool_search`` that matched nothing.
+    unavailable: dict[str, str] = field(default_factory=dict)
     #: ``"plugin"``: the skills index lists only this definition's plugin's
     #: skills and the built-ins, under a softer header (frontmatter
     #: ``skillsIndex``).  ``None`` lists every visible skill.
@@ -157,6 +163,7 @@ class AgentDefinition:
             "child_context": self.child_context,
             "identity": self.identity,
             "deferred_tools": list(self.deferred_tools),
+            "unavailable": dict(self.unavailable),
             "skills_index": self.skills_index,
             "default_child": self.default_child,
             "prompt": self.prompt,
@@ -310,6 +317,78 @@ def _render_value(value: Any) -> str:
     return text
 
 
+def _unquote(text: str) -> str:
+    value = text.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        if value[0] == '"':
+            try:
+                return str(json.loads(value))
+            except ValueError:
+                pass
+        return value[1:-1]
+    return value
+
+
+def unavailable_map(text: str) -> dict[str, str]:
+    """Frontmatter ``unavailable`` (1.55.0): an inline JSON object or an indented block.
+
+    ::
+
+        unavailable:
+          mcp: "MCP tools are not available to this agent; call request_code_mode"
+          "browser_*": "…"
+
+    The shared front-matter reader keeps no nested maps, so the block is read
+    here from the raw lines.  Anything malformed is skipped, never fatal.
+    """
+    lines = text.splitlines()
+    start = 0
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    if start >= len(lines) or lines[start].strip() != FENCE:
+        return {}
+    block: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.strip() == FENCE:
+            break
+        block.append(line)
+    found: dict[str, str] = {}
+    for index, line in enumerate(block):
+        if not line.startswith("unavailable:"):
+            continue
+        inline = line[len("unavailable:") :].strip()
+        if inline.startswith("{"):
+            try:
+                raw = json.loads(inline)
+            except ValueError:
+                return {}
+            return {
+                str(key): str(value)
+                for key, value in (raw.items() if isinstance(raw, dict) else [])
+                if str(key).strip() and isinstance(value, str) and value.strip()
+            }
+        for row in block[index + 1 :]:
+            if not row.strip() or row.lstrip().startswith("#"):
+                continue
+            if not row[:1].isspace():
+                break
+            stripped = row.strip()
+            if stripped.startswith('"'):
+                end = stripped.find('"', 1)
+                key, rest = stripped[1:end], stripped[end + 1 :]
+            else:
+                key, _, rest = stripped.partition(":")
+                rest = ":" + rest
+            rest = rest.strip()
+            if not rest.startswith(":"):
+                continue
+            value = _unquote(rest[1:])
+            if key.strip() and value:
+                found[key.strip()] = value
+        break
+    return found
+
+
 def render_agent_md(defn: AgentDefinition) -> str:
     """Serialise a definition back to ``agents/<name>.md`` text."""
     fields: list[tuple[str, Any]] = [
@@ -338,6 +417,13 @@ def render_agent_md(defn: AgentDefinition) -> str:
     if defn.default_child:
         fields.append(("defaultChild", defn.default_child))
     head = "\n".join(f"{key}: {_render_value(value)}" for key, value in fields)
+    if defn.unavailable:
+        rows = "\n".join(
+            f"  {json.dumps(str(key), ensure_ascii=False)}: "
+            f"{json.dumps(str(text), ensure_ascii=False)}"
+            for key, text in defn.unavailable.items()
+        )
+        head = f"{head}\nunavailable:\n{rows}"
     return f"{FENCE}\n{head}\n{FENCE}\n\n{defn.prompt.strip()}\n"
 
 
@@ -394,6 +480,7 @@ def parse_agent_text(
         child_context=_child_context(meta.get("childContext", meta.get("child_context"))),
         identity=_choice(meta.get("identity"), ("own", "core")),
         deferred_tools=_names(meta.get("deferredTools", meta.get("deferred_tools"))),
+        unavailable=unavailable_map(text),
         skills_index=_choice(
             meta.get("skillsIndex", meta.get("skills_index")), ("plugin", "all", "none")
         ),

@@ -400,7 +400,9 @@ async def test_slash_command_text_is_not_expanded(
 ) -> None:
     started: list[tuple[str, str]] = []
 
-    def spy_start(core_obj: Any, session: Any, name: str, args: str, conn: Any) -> str:
+    def spy_start(
+        core_obj: Any, session: Any, name: str, args: str, conn: Any, **_kw: Any
+    ) -> str:
         started.append((name, args))
         return "turn-cmd"
 

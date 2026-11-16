@@ -29,14 +29,14 @@ No upstream code was copied. All implementations adapt snowpea's own `Session`, 
 ### 1. Deferred tools and `tool_search` (`tools/deferred.py`, `tools/tool_search.py`, `tools/registry.py`)
 
 - `ToolSpec` and protocol `ToolInfo` gain an additive `deferred: bool` (default `False`).
-- **Eager set**: `read_file`, `write_file`, `edit_file`, `shell`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, plus `tool_search`, and any tools required by session mode/role (`allowed_tools`).
+- **Eager set** (`tools/deferred.py` `EAGER_TOOLS`): `read_file`, `view_image`, `write_file`, `patch`, `shell`, `execute_code`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, plus `tool_search`, every host tool the session sees (and `tool_help` while one of them has a manual, 1.55.0), and any tools required by session mode/role (`allowed_tools`).
 - **Deferred by default**: Browser tools, web search/extract, audio/media tools, git helpers, settings tools, skill management, and all `mcp__*` tools.
 - `tools.deferred` (bool, default `true`): Setting `false` restores the legacy behavior of sending all schemas every round.
 - `tools.eager` (list of strings, default `[]`): Forces specific tool names to be sent eagerly.
 - Built-in tool `tool_search`:
   - `select:name,name` selects exact tool schemas.
   - Keywords rank name and descriptions (`+term` denotes required terms), returning at most 5 tools.
-  - Matched tools join `session.loaded_tools` and are included in all subsequent rounds of that session.
+  - Matched tools join `session.loaded_tools` and are included in all subsequent rounds of that session — except on a local-style provider (fixed tool list), where the result carries their schemas, they stay callable by name and the list never changes.
 - Grouped prompt line in `prompts/fragments/tools.md`:
   `Deferred (load with tool_search): browser (4), git (4), media (5), mcp:<server> (n) …`
   Deferred tools are named by group count only, with no schemas or descriptions in the prompt.
@@ -50,7 +50,7 @@ No upstream code was copied. All implementations adapt snowpea's own `Session`, 
   - No memory guidance or memory recall block (memory tools remain available if permitted).
   - No skills index in prompt (tools still can call `skill_view` by name).
   - Up-front project context limited to the root `AGENTS.md` / `CLAUDE.md`. Nested files attach on-demand when a tool touches that directory.
-  - Read-only child sessions (`explore`, `reviewer`) use a narrowed eager set: `read_file`, `grep`, `glob`, `shell` (if allowed), and `tool_search`.
+  - Read-only child sessions (`explore`, `reviewer`) use a narrowed eager set (`READONLY_EAGER_TOOLS`): `read_file`, `view_image`, `grep`, `glob`, and `tool_search`.
 - Preserves the child's persona/definition prompt, role, and the tool round `BUDGET_LINE`.
 - `"full"` restores the parent's full prompt context.
 

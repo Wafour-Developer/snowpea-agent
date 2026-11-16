@@ -132,6 +132,54 @@ def _description_by(raw: Any) -> dict[str, str] | None:
     return pairs or None
 
 
+#: The built-in that serves host tools' manuals (1.55.0); a session sees it
+#: while one of its host tools has a short description or sections.
+TOOL_HELP = "tool_help"
+MAX_SECTIONS = 50
+SECTION_NAME_MAX = 64
+SECTION_MAX_CHARS = 20_000
+
+
+def _help_fields(
+    name: str, spec: dict[str, Any]
+) -> tuple[tuple[str, ...], str | None, dict[str, str] | None]:
+    """``(helpers, descriptionShort, sections)`` of a spec, checked (1.55.0)."""
+    raw_helpers = spec.get("helpers") or []
+    if not isinstance(raw_helpers, list):
+        raise HostToolError(f"{name}: helpers must be a list of names")
+    helpers = tuple(dict.fromkeys(str(item).strip() for item in raw_helpers if str(item).strip()))
+    short = spec.get("descriptionShort")
+    short = str(short).strip() if isinstance(short, str) and short.strip() else None
+    raw_sections = spec.get("sections")
+    sections: dict[str, str] | None = None
+    if raw_sections is not None:
+        if not isinstance(raw_sections, dict):
+            raise HostToolError(f"{name}: sections must be an object of name -> text")
+        if len(raw_sections) > MAX_SECTIONS:
+            raise HostToolError(f"{name}: at most {MAX_SECTIONS} sections")
+        sections = {}
+        for key, text in raw_sections.items():
+            label = str(key).strip()
+            if not label or len(label) > SECTION_NAME_MAX:
+                raise HostToolError(f"{name}: a section name must be 1-{SECTION_NAME_MAX} chars")
+            if not isinstance(text, str):
+                raise HostToolError(f"{name}: section {label!r} must be text")
+            sections[label] = text[:SECTION_MAX_CHARS]
+        sections = sections or None
+    return helpers, short, sections
+
+
+def _short_description(name: str, short: str, sections: dict[str, str] | None) -> str:
+    """What the model reads for a tool registered with ``descriptionShort``."""
+    if sections:
+        listed = ", ".join(sections)
+        return (
+            f"{short}\n\nMore: {TOOL_HELP} {{\"tool\": \"{name}\", \"section\": …}} "
+            f"returns one part of the manual; sections: {listed}."
+        )
+    return f"{short}\n\nThe full manual: {TOOL_HELP} {{\"tool\": \"{name}\"}}."
+
+
 def _described_for(tool: Tool, agent: str | None) -> Tool:
     """``tool`` with the description written for ``agent``, when it has one."""
     text = tool.description_by.get(agent) if tool.description_by and agent else None
@@ -231,6 +279,7 @@ class HostTools:
                 raise HostToolError(
                     f"{name}: parallel 'safe' is for read or network tools, not {permission}"
                 )
+            helpers, short, sections = _help_fields(name, spec)
             timeout_ms = spec.get("timeoutMs")
             timeout = (
                 float(timeout_ms) / 1000.0
@@ -241,7 +290,11 @@ class HostTools:
                 Tool(
                     name=name,
                     category=str(spec.get("category") or "host"),
-                    description=str(spec.get("description") or name),
+                    description=(
+                        _short_description(name, short, sections)
+                        if short
+                        else str(spec.get("description") or name)
+                    ),
                     input_schema=dict(schema),
                     permission=permission,  # type: ignore[arg-type]
                     run=self._runner(core, conn.surface_id, name, timeout),
@@ -255,6 +308,9 @@ class HostTools:
                         else None
                     ),
                     description_by=_description_by(spec.get("descriptionBy")),
+                    helpers=helpers,
+                    manual=str(spec.get("description") or name) if short else None,
+                    sections=sections,
                 )
             )
         host = self._hosts.get(conn.surface_id)
@@ -397,11 +453,25 @@ class HostTools:
         agent = getattr(session, "agent", None)
         # An agent-scoped tool (1.24.0) stays out of other agents' sessions.
         # Visibility only: it is no boundary for a delegation naming that agent.
-        return {
+        visible = {
             name: _described_for(tool, agent)
             for name, tool in host.tools.items()
             if tool.agents is None or (agent is not None and agent in tool.agents)
         }
+        if TOOL_HELP not in visible and any(
+            getattr(tool, "sections", None) or getattr(tool, "manual", None)
+            for tool in visible.values()
+        ):
+            # The manuals' reader comes with the tools that have one (1.55.0).
+            visible[TOOL_HELP] = TOOL_HELP_TOOL
+        return visible
+
+    def helper_owner(self, session: Any, name: str) -> str | None:
+        """The host tool ``name`` is a helper inside, for ``session`` (1.55.0)."""
+        for tool_name, tool in self.for_session(session).items():
+            if name in (getattr(tool, "helpers", None) or ()):
+                return tool_name
+        return None
 
     def names_for(self, session: Any) -> list[str]:
         return list(self.for_session(session))
@@ -474,6 +544,7 @@ class HostTools:
             **root_turn_context(core, session),
             "attachments": root_attachments(core, session),
             "guard": _guard_of(core, session),
+            "model": model_facts(core, session),
         }
         try:
             answer = await self._call_or_cancel(
@@ -491,7 +562,12 @@ class HostTools:
             return ToolResult(ok=False, error=f"{name}: {exc}")
         finally:
             self._inflight.pop(call_id, None)
-        return result_from_answer(name, answer)
+        result = result_from_answer(name, answer)
+        if not result.ok:
+            host = self._hosts.get(surface_id)
+            tool = host.tools.get(name) if host is not None else None
+            result = with_help_section(session, tool, result)
+        return result
 
     async def _call_or_cancel(
         self,
@@ -624,10 +700,19 @@ class HostTools:
             return blocks
         return await asyncio.to_thread(store.load, session_id, call_id)
 
-    async def progress(self, conn: Any, call_id: str, message: str) -> bool:
+    async def progress(
+        self,
+        conn: Any,
+        call_id: str,
+        message: str,
+        *,
+        state: str | None = None,
+        note: str | None = None,
+    ) -> bool:
         """Re-emit a client's ``tool.progress`` as a session event.
 
-        Only the connection that owns the call may report on it.
+        Only the connection that owns the call may report on it.  A ``state``
+        (1.55.0) goes out on the event too, so a card can show "waiting".
         """
         call = self._inflight.get(call_id)
         if call is None:
@@ -637,13 +722,36 @@ class HostTools:
             return False
         # Any progress, an empty keepalive included, restarts the deadline.
         call.last_seen = asyncio.get_running_loop().time()
-        if message:
-            await call.progress.emit("stdout", message)
+        if message or state:
+            await call.progress.emit("stdout", message, state=state, note=note)
         return True
 
 
 #: How often a waiting host call re-checks its deadline (seconds).
 DEADLINE_POLL_SEC = 1.0
+
+
+def model_facts(core: Any, session: Any) -> dict[str, Any]:
+    """``tool.invoke``'s ``model`` (1.55.0): what the session's model can take."""
+    providers = getattr(core, "providers", None)
+    vendor = str(getattr(session, "provider", None) or "")
+    local = False
+    can_see = False
+    try:
+        if providers is not None:
+            vendor = vendor or str(providers.default_vendor() or "")
+            local = bool(providers.is_local_style(vendor))
+            from snowpea_core.tools.view_image import session_can_see_images
+
+            can_see = bool(session_can_see_images(core, session))
+    except Exception:  # noqa: BLE001 - facts for the host; never fail the call
+        log.debug("could not read the model facts for tool.invoke", exc_info=True)
+    window = getattr(session, "context_window", None)
+    return {
+        "canSee": can_see,
+        "contextWindow": window if isinstance(window, int) and window > 0 else None,
+        "localStyle": local,
+    }
 
 
 def _waiting_on_person(core: Any, session_id: str) -> Callable[[], bool]:
@@ -968,6 +1076,90 @@ def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:
         error=(str(answer["error"]) if answer.get("error") else None),
         meta=meta or None,
     )
+
+
+def with_help_section(session: Any, tool: Tool | None, result: ToolResult) -> ToolResult:
+    """A failed host result with the manual section its meta names, once per session.
+
+    The host puts ``helpSection: "<name>"`` in a failed result's meta (1.55.0)
+    when the model misused the tool in a way that part of the manual covers;
+    core appends that section the first time only, so a model that keeps
+    failing does not pay for the same text again.
+    """
+    meta = result.meta or {}
+    host_meta = meta.get(HOST_META_KEY) if isinstance(meta.get(HOST_META_KEY), dict) else meta
+    wanted = host_meta.get("helpSection") if isinstance(host_meta, dict) else None
+    sections = getattr(tool, "sections", None)
+    if not isinstance(wanted, str) or not isinstance(sections, dict):
+        return result
+    text = sections.get(wanted)
+    if not text:
+        return result
+    shown = getattr(session, "help_sections_shown", None)
+    if not isinstance(shown, set):
+        shown = set()
+        try:
+            session.help_sections_shown = shown
+        except AttributeError:  # pragma: no cover - a frozen stand-in
+            return result
+    name = str(getattr(tool, "name", "") or "")
+    key = (name, wanted)
+    if key in shown:
+        return result
+    shown.add(key)
+    help_text = f"[{name} manual, section {wanted!r}]\n{text}"
+    result.error = f"{result.error or 'failed'}\n\n{help_text}"
+    return result
+
+
+async def tool_help(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """``tool_help {tool, section?}``: one section of a tool's manual, or their list."""
+    name = str(args.get("tool") or "").strip()
+    section = str(args.get("section") or "").strip()
+    if not name:
+        return ToolResult(ok=False, error="tool_help needs a tool name")
+    registry = getattr(ctx.core, "tools", None)
+    tool = registry.get(name, ctx.session) if registry is not None else None
+    if tool is None or name == TOOL_HELP:
+        return ToolResult(ok=False, error=f"{name} is not one of your tools")
+    sections = tool.sections or {}
+    if section:
+        text = sections.get(section)
+        if text is None:
+            listed = ", ".join(sections) or "none"
+            return ToolResult(
+                ok=False, error=f"{name} has no section {section!r}; its sections: {listed}"
+            )
+        return ToolResult(ok=True, output=f"[{name} manual, section {section!r}]\n{text}")
+    if sections:
+        lines = [f"Sections of the {name} manual (tool_help {{tool, section}} returns one):"]
+        lines.extend(
+            f"- {label}: {(text.strip().splitlines() or [''])[0][:120]}"
+            for label, text in sections.items()
+        )
+        return ToolResult(ok=True, output="\n".join(lines))
+    return ToolResult(ok=True, output=tool.manual or tool.description)
+
+
+TOOL_HELP_TOOL = Tool(
+    name=TOOL_HELP,
+    category="tools",
+    description=(
+        "Read the manual of one of your tools: tool_help {tool} lists its sections (or "
+        "returns its whole manual), tool_help {tool, section} returns one section."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "tool": {"type": "string", "description": "The tool's name."},
+            "section": {"type": "string", "description": "A section name, optional."},
+        },
+        "required": ["tool"],
+    },
+    permission="read",
+    run=tool_help,
+    parallel_safe=True,
+)
 
 
 def _invalidate_tool_prompt() -> None:

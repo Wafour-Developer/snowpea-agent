@@ -39,6 +39,7 @@ def apply_prompt_shape(session: Any, defn: AgentDefinition | None) -> None:
     session.agent_definition = getattr(defn, "name", None)
     session.agent_identity = getattr(defn, "identity", None)
     session.agent_deferred = list(getattr(defn, "deferred_tools", None) or [])
+    session.agent_unavailable = dict(getattr(defn, "unavailable", None) or {})
     session.agent_skills_index = getattr(defn, "skills_index", None)
     session.agent_plugin = source.split(":", 1)[1] if source.startswith("plugin:") else None
 

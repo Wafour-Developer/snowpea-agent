@@ -307,6 +307,8 @@ Descriptions are clipped at 60 characters in the index, so write a `description:
 
 `skills.disabled` (capability `skillToggle`) takes skill or command names, or `<plugin>:<name>` for one plugin's copy. A disabled skill leaves the index, the slash commands and `autoInject`, and `skill_view` refuses it; `skill.list` still lists it with `enabled: false`, and `skill.read` and `skill.remove` still reach it. Changing the list with `settings.set` applies at once, the way a skill reload does: new sessions see the new index, and a running session keeps the index it started with until its next compaction. With the list empty the prompt is byte for byte what it was.
 
+**`autoInject` keywords** (`autoInject: {keywords: [gmail, 지메일]}`) bring a skill into a turn whose message mentions one. A keyword counts only as a whole word or phrase, in any case: "gmail" matches "my Gmail." but not "gmailbox". A Korean keyword may carry a particle ("깃허브에서", "블로그를"), but must be at least two characters, and the rest of the word must be the particle: "글" never matches, and "구글" does not match "구글링". At most two skills (12 KB) come in per turn and 40 KB per session; a skill left out by a cap can come in on a later turn. The note names the keyword that matched, and the daemon log says what was injected and why at debug level.
+
 ## Where things are found, and who wins
 
 Roots are scanned in this order, and later wins on a name clash — except that what Claude Code's or Codex's own plugins and Codex's folders bring never replaces an entry already loaded:
