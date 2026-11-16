@@ -56,7 +56,7 @@
 
 | 프리셋 | 보호하는 것 | 수준 |
 |---|---|---|
-| `essential`(기본으로 켜짐) | `/etc`, `/boot`, `/usr`, `/bin`, `/sbin`, `/lib*`, `/var/lib`, `/System` 은 바꾸지 않고, `/` 와 홈 폴더 자체(그리고 홈 위의 모든 폴더)는 삭제·이동·재귀 변경하지 않음 | 변경 금지 |
+| `essential`(기본으로 켜짐) | `/etc`, `/boot`, `/usr`, `/bin`, `/sbin`, `/lib*`, `/var/lib`, `/System` 은 바꾸지 않고, `/` 와 홈 폴더 자체(그리고 홈 위의 모든 폴더)는 삭제·이동·재귀 변경하지 않음. 로그인하거나 셸을 열 때 실행되는 것도 바꾸지 않음: `~/.ssh`, 셸 시작 파일(`~/.bashrc`, `~/.bash_profile`, `~/.bash_login`, `~/.bash_logout`, `~/.profile`, `~/.zshrc`, `~/.zprofile`, `~/.zshenv`, `~/.zlogin`, `~/.config/fish/config.fish`), `~/.config/autostart`, `~/.config/systemd/user`, `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` | 변경 금지 |
 | `credentials` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.docker`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, 비밀번호 저장소, 키링 | 접근 금지 |
 | `snowpea-home` | `$SNOWPEA_HOME`(snowpea 의 계획 파일은 계속 쓸 수 있음) | 변경 금지 |
 | `other-projects` | snowpea 가 아는 모든 프로젝트, 세션이 작업 중인 프로젝트만 제외 | 변경 금지 |
