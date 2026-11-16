@@ -437,6 +437,31 @@ def test_the_essential_preset_covers_login_and_shell_start_up(tmp_path: Path) ->
         assert name in shown, name
 
 
+async def test_a_command_says_why_it_does_not_write_an_invalid_project_file(
+    core: Core, tmp_path: Path
+) -> None:
+    work = tmp_path / "project"
+    (work / ".snowpea").mkdir(parents=True)
+    path = work / ".snowpea" / "settings.json"
+    path.write_text('{"defaultMode": "sideways"}', "utf-8")
+    session = await core.sessions.create(work)
+    said: list[str] = []
+
+    class Subscriber:
+        closed = False
+
+        async def notify(self, method: str, params: dict[str, Any]) -> None:
+            event = params.get("event", params) if method == "session.event" else {}
+            if event.get("kind") == "command.result":
+                said.append(str((event.get("payload") or {}).get("text")))
+
+    core.hub.subscribe(Subscriber(), session.id)
+    await core.commands.run(core, session, "team", "use none")
+    said += [str(m.content) for m in session.history.snapshot()]
+    assert any("is not valid project settings" in text for text in said), said
+    assert path.read_text("utf-8") == '{"defaultMode": "sideways"}'
+
+
 # -- Low ---------------------------------------------------------------------------------------
 
 
