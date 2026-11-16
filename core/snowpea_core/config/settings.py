@@ -17,6 +17,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     ValidationError,
     field_validator,
     model_validator,
@@ -1169,18 +1170,60 @@ class Settings(_Model):
     #: ``{"enabled": bool, "config": {...}}``.  A plugin with no entry is enabled.
     extensions: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
+    #: Top-level sections that did not validate when this was read from disk
+    #: (security review 8, Low): ``system.info``/``web.remote.status``
+    #: ``settingsDegraded``.  ``["*"]``: the whole file was unreadable.
+    _degraded: list[str] = PrivateAttr(default_factory=list)
+
+    def degraded_sections(self) -> list[str]:
+        return list(self._degraded)
+
+    def mark_degraded(self, sections: list[str], *, close: bool = True) -> Settings:
+        """Record ``sections`` as degraded and (``close``) make the gated ones fail CLOSED.
+
+        ``security``: every blocked-command and protected-path preset on and
+        ``unknownCode: "ask"`` (a reload keeps the daemon's last valid lists:
+        ``hot_reload.hold_back``, which is why it records only).  ``web``:
+        remote access off.  ``"*"`` (the file could not be read as an object)
+        counts as both.
+        """
+        self._degraded = sorted(set(sections))
+        if not close:
+            return self
+        every = "*" in sections
+        if every or "security" in sections:
+            from snowpea_core.security.catalog import COMMAND_PRESET_IDS, PATH_PRESET_IDS
+
+            self.security = SecuritySettings.model_validate({
+                "blockedCommands": {"presets": list(COMMAND_PRESET_IDS)},
+                "protectedPaths": {"presets": list(PATH_PRESET_IDS)},
+                "unknownCode": "ask",
+            })
+        if every or "web" in sections:
+            self.web.remote.enabled = False
+        return self
+
     @classmethod
     def load(cls, paths: Paths) -> Settings:
-        """Read ``settings.json``; missing or corrupt files yield defaults."""
+        """Read ``settings.json``; a missing file yields defaults.
+
+        A file that cannot be read as a JSON object, or whose sections do not
+        validate, loads DEGRADED (:meth:`mark_degraded`): the failing sections
+        fail closed or go to their defaults, and say so.
+        """
         path = paths.settings_json
         if not path.exists():
             return cls()
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return cls()
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            raw = None
         if not isinstance(raw, dict):
-            return cls()
+            kept = _keep_invalid_copy(path)
+            log.error("%s cannot be read as settings: every section is at its defaults, the "
+                      "security lists fail closed and remote access stays off%s", path,
+                      f" (the file as it was: {kept})" if kept else "")
+            return cls().mark_degraded(["*"])
         try:
             settings = cls.model_validate(raw)
         except ValidationError as first:
@@ -1220,6 +1263,12 @@ class Settings(_Model):
                     ", ".join(sections) or "every section",
                     f" (the file as it was: {kept})" if kept else "",
                 )
+                # Security review 8, Low: what failed is surfaced, and the
+                # person's own lists and the remote door fail CLOSED.
+                repaired.mark_degraded(sections or ["*"])
+                if "security" in sections or not sections:
+                    log.error("the security section is not valid: every preset is on and "
+                              "unknown code asks until it is fixed")
             settings = repaired
         # Existing installations predate teams. Loading their settings is the
         # first-setup migration point; explicit empty/disabled teams can still

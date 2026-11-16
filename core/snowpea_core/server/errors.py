@@ -277,6 +277,31 @@ def internal_text(error_id: str) -> str:
     return f"internal error (id {error_id})"
 
 
+def failure_class(exc: BaseException) -> str:
+    """A short reason for a failure whose text stays in the log (security review 8):
+    ``timeout``, ``provider error``, ``refused`` or ``internal error``."""
+    import asyncio
+
+    if isinstance(exc, TimeoutError | asyncio.TimeoutError):
+        return "timeout"
+    if isinstance(exc, RpcError | PermissionError):
+        return "refused"
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    modules = {cls.__module__.split(".")[0] for cls in type(exc).__mro__}
+    if "ProviderError" in names or "httpx" in modules or "aiohttp" in modules:
+        return "provider error"
+    return "internal error"
+
+
+def redact_url_queries(text: str) -> str:
+    """``text`` with the query string of every URL in it replaced by ``?…``
+    (a key or a token often rides there)."""
+    import re
+
+    return re.sub(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s?#'\"<>]*)\?[^\s#'\"<>]*", r"\1?…",
+                  str(text))
+
+
 class RpcError(Exception):
     """Raised by handlers; serialised into a JSON-RPC error object."""
 

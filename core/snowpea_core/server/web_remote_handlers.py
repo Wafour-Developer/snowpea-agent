@@ -111,7 +111,29 @@ async def _status(core: Core) -> WebRemoteStatus:
             status.remoteJobs = sum(
                 1 for job in await scheduler.list() if job.created_by == "remote_login"
             )
+    # Security review 8, M-3: everything marked as a remote login's, additively.
+    status.remoteLeft.jobs = status.remoteJobs
+    with contextlib.suppress(Exception):
+        status.remoteLeft.mcpServers = remote_mcp_servers(core)
+    with contextlib.suppress(Exception):
+        from snowpea_core.server.skill_gate import remote_skills
+
+        status.remoteLeft.skills = remote_skills(core.paths.home)
+    status.settingsDegraded = list(getattr(core.settings, "degraded_sections", list)())
     return status
+
+
+def remote_mcp_servers(core: Core) -> int:
+    """MCP entries marked ``savedBy: "remote_login"`` in the global ``.mcp.json`` and
+    ``settings.mcp.servers`` (the scopes a remote login may write)."""
+    from snowpea_core.tools import mcp_config
+    from snowpea_core.tools.mcp_client import SAVED_BY_KEY
+
+    entries = list(mcp_config.read_servers(
+        mcp_config.config_path("global", core.paths.home, None)).values())
+    entries += list((getattr(core.settings.mcp, "servers", None) or {}).values())
+    return sum(1 for entry in entries
+               if isinstance(entry, dict) and entry.get(SAVED_BY_KEY) == "remote_login")
 
 
 async def status_handler(_conn: RpcConnection, _params: Empty, core: Core) -> WebRemoteStatus:

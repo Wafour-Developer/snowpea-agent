@@ -236,7 +236,12 @@ class Core:
         current = hot_reload.stamp(self.paths.settings_json)
         if not force and current == self.settings_stamp:
             return False, []
-        fresh, waiting = hot_reload.hold_back(self.settings, Settings.load(self.paths))
+        loaded = Settings.load(self.paths)
+        fresh, waiting = hot_reload.hold_back(self.settings, loaded)
+        if loaded.degraded_sections() and fresh is not loaded:
+            # Security review 8, Low: what did not validate is still reported
+            # (the held-back sections keep the daemon's last valid values).
+            fresh.mark_degraded(loaded.degraded_sections(), close=False)
         keys = hot_reload.changed_keys(
             self.settings.model_dump(mode="json"), fresh.model_dump(mode="json")
         )
@@ -385,6 +390,7 @@ async def info_handler(conn: RpcConnection, _params: Empty, core: Core) -> InfoR
         restartRequired=core.restart_required,
         platform=sys.platform,
         clients=clients,
+        settingsDegraded=getattr(core.settings, "degraded_sections", list)(),
     )
 
 

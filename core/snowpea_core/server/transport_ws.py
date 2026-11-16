@@ -90,12 +90,21 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
     if hub is not None and hasattr(hub, "register_client"):
         hub.register_client(conn)
     log.info("client %s authenticated (surface %s)", params.clientVersion, conn.surface_id)
+    from snowpea_core.server.person_gate import connection_kind
+
+    # Security review 8, Low: a local person's surface hears at once that
+    # settings.json did not validate (the sections in question run degraded).
+    degraded = (
+        list(getattr(getattr(core, "settings", None), "degraded_sections", list)())
+        if connection_kind(conn) == "person" else []
+    )
     return HelloResult(
         protocolVersion=PROTOCOL_VERSION,
         serverVersion=SERVER_VERSION,
         capabilities=list(CAPABILITIES),
         modelCategories=list(MODEL_CATEGORIES),
         machine=machine_of(core),
+        settingsDegraded=degraded,
     )
 
 
