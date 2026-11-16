@@ -1669,7 +1669,11 @@ _GIT_HARMLESS_CONFIG = re.compile(
     r"algorithm|mnemonicprefix|noprefix|colormoved)|merge\.(conflictstyle|ff)|pull\.(rebase|ff)|"
     r"push\.(default|autosetupremote)|safe\.directory|i18n\..*|gc\.auto|"
     r"maintenance\.auto|rebase\.autostash|status\..*|column\..*|blame\..*|"
-    r"protocol\.version|http\.version)=",
+    r"protocol\.version|http\.version)="
+    # An editor or pager that is exactly a program that does nothing (``git -c
+    # core.editor=true rebase --continue``): nothing else runs.  Any other value
+    # of these keys is a command line (security review 6: now asked in every mode).
+    r"|^(core\.editor|sequence\.editor)=(true|:)$|^core\.pager=(cat|less|more)?$",
     re.IGNORECASE,
 )
 #: git subcommands that write work-tree files out of history (security review 4, H6).

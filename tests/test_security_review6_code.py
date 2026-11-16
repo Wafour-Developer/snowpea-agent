@@ -163,6 +163,11 @@ PYTHON = [
     ("import ctypes", "opaque"),
     ("import pty\npty.spawn(cmd)", "opaque"),
     ("import os, sys\nos.execv(sys.argv[1], sys.argv[1:])", "opaque"),
+    ('import sys, shutil\nsys.modules["shutil"].rmtree(p)', "opaque"),
+    ('__builtins__.__dict__["exec"](code)', "opaque"),
+    ("import shutil\nclass A:\n    r = shutil.rmtree\nA.r(p)", "opaque"),
+    ("import shutil\n(lambda f: f(p))(shutil.rmtree)", "opaque"),
+    ("import shutil\ndef get(): return shutil.rmtree\nget()(p)", "opaque"),
     ("import os\nos.spawnlp(os.P_WAIT, prog, prog)", "opaque"),
     ("import subprocess\nsubprocess.run(cmd, shell=True)", "opaque"),
     ('import os\nos.system("rm " + target)', "opaque"),
@@ -215,6 +220,8 @@ PYTHON = [
      "allowed"),
     ("df = df.rename(columns={\"a\": \"b\"})\ns = s.replace(\"a\", \"b\")", "allowed"),
     ('import os\nprint(os.environ.get("HOME"), os.path.exists("x"))', "allowed"),
+    ('import os, sys\nprint(hasattr(os, "fork"), "json" in sys.modules, dir(os)[:3])',
+     "allowed"),
 ]
 
 
@@ -300,6 +307,7 @@ OTHER = [
     ("""node -e "require('fs').rmSync('dist', {recursive: true, force: true})\"""", "allowed"),
     ("""node -e "require('fs').writeFileSync('out.txt', 'x')\"""", "allowed"),
     ("""node -e "console.log(process.argv[2], process.env.HOME)\"""", "allowed"),
+    ("""node -e "console.log(require('./package.json')['version'])\"""", "allowed"),
     # perl / ruby / php.
     ("""perl -e 'my $q = m/"/; unlink($ARGV[0]); my $z = m/"/;'""", "opaque"),
     ("""perl -e 'print "x"; # it"s\nunlink("/etc/passwd"); # "'""", "blocked"),
@@ -399,6 +407,16 @@ FEEDS = [
     ("python -m timeit -s \"import os\" \"os.remove(p)\"", "opaque"),
     ("python -m cProfile tool.py", "allowed"),
     ("python -m pdb", "opaque"),
+    ("python -m pydoc ./tool.py", "opaque"),       # it imports (runs) what it documents
+    ("python -m coverage report", "allowed"),
+    ("python -m coverage run tool.py", "allowed"),
+    ("python -m coverage run -m pytest -q", "allowed"),
+    ("python -m uv run pytest -q", "allowed"),
+    ("python -m uv run snowpea project trust .", "opaque"),
+    ("python -m uvicorn tool:app --port 8000", "allowed"),
+    ("node --test", "allowed"),
+    ("node --watch missing.js", "opaque"),         # still runs the file: it is read
+    ("node --test missing.test.js", "opaque"),
     ("python -m zipfile -e a.zip /etc", "blocked"),
     ("python -m zipfile -e a.zip out", "allowed"),
     # Clustered flags: the code is the next word.
@@ -453,7 +471,9 @@ FEEDS = [
     ("git -c alias.x='!id' x", "opaque"),
     ("git -c core.pager='sh -c id' log", "opaque"),
     ("git -c core.sshCommand='sh -c id' fetch", "opaque"),
-    ("git -c core.editor=true commit --amend", "opaque"),
+    ("git -c core.editor='sh -c id' commit --amend", "opaque"),
+    ("git -c core.editor=true rebase --continue", "allowed"),
+    ("git -c core.pager=cat log -3", "allowed"),
     ("git -c core.hooksPath=/tmp/h commit -m x", "opaque"),
     ("git -c user.name=me -c user.email=me@example.com commit -m x", "allowed"),
     ("git status", "allowed"),
@@ -600,6 +620,43 @@ def test_a_preload_file_and_a_module_folder_the_agent_wrote(project: Path) -> No
     written.note([str(lib / "sitecustomize.py")])
     assert _state("PYTHONPATH=lib python3 tool.py", project) == "opaque"
     assert _state("PYTHONPATH=$PWD/lib python3 tool.py", project) == "opaque"
+
+
+def test_what_code_imports_from_the_project_is_read_too(project: Path) -> None:
+    """``import helper`` runs helper.py: a snippet cannot hide behind a file it wrote."""
+    helper = project / "helper.py"
+    helper.write_text("import shutil\nshutil.rmtree('/home/u')\n", encoding="utf-8")
+    assert _state(_py("import helper"), project) == "blocked"
+    assert _state(_py("from helper import x"), project) == "blocked"
+    assert _state("python3 - <<'EOF'\nimport helper\nEOF", project) == "blocked"
+    assert _state("python -m uvicorn helper:app", project) == "blocked"
+    (project / "tool.py").write_text("import helper\n", encoding="utf-8")
+    assert _state("python3 tool.py", project) == "blocked"
+    # What the imported file computes counts when the agent wrote it.
+    helper.write_text("import os, sys\nos.remove(sys.argv[1])\n", encoding="utf-8")
+    assert _state(_py("import helper"), project) == "allowed"     # the project's own file
+    written.note([str(helper)])
+    assert _state(_py("import helper"), project) == "opaque"
+    assert _state("python3 tool.py", project) == "opaque"
+    # A package, a script's own folder, and a cycle.
+    pkg = project / "scripts" / "lib"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from . import x\nimport lib.wipe\n", encoding="utf-8")
+    (pkg / "wipe.py").write_text("import shutil, lib\nshutil.rmtree('/home/u')\n",
+                                 encoding="utf-8")
+    (project / "scripts" / "run.py").write_text("import lib\n", encoding="utf-8")
+    assert _state("python3 scripts/run.py", project) == "blocked"
+    # node: a relative require or import.
+    (project / "wipe.js").write_text("require('fs').rmSync('/home/u', {recursive: true})\n",
+                                     encoding="utf-8")
+    assert _state("""node -e "require('./wipe')\"""", project) == "blocked"
+    assert _state("""node -e "require('./wipe.js'); console.log(1)\"""", project) == "blocked"
+    (project / "main.mjs").write_text("import './wipe.js'\n", encoding="utf-8")
+    assert _state("node main.mjs", project) == "blocked"
+    assert _state("""node -e "console.log(require('./package.json').name)\"""",
+                  project) == "allowed"
+    # Nothing local by that name: an installed module, not read.
+    assert _state(_py("import json, requests, numpy"), project) == "allowed"
 
 
 def test_a_module_just_written_is_read_as_a_script(project: Path) -> None:

@@ -92,6 +92,11 @@ _BUILTINS: frozenset[str] = frozenset(
     {"exec", "eval", "compile", "open", "__import__", "getattr", "vars", "globals", "locals",
      "str"}
 )
+#: Builtins that only look at what they are given (a module passed to one is not used).
+_LOOKERS: frozenset[str] = frozenset(
+    {"hasattr", "dir", "help", "print", "type", "id", "repr", "isinstance", "issubclass",
+     "callable"}
+)
 _PATH_CLASSES: frozenset[str] = frozenset(
     {"pathlib.Path", "pathlib.PurePath", "pathlib.PosixPath", "pathlib.WindowsPath",
      "pathlib.PurePosixPath", "pathlib.PureWindowsPath"}
@@ -173,6 +178,22 @@ class _Analysis:
             self.found._hide("code:native")
         if root in SNOWPEA_MODULES:
             self.found._control("snowpea-code")
+        if module and not module.startswith(".") and module not in self.found.imports:
+            # The caller reads a module of that name when the project holds one
+            # (``import helper`` runs helper.py like ``python helper.py`` does).
+            self.found.imports.append(module)
+
+    def _in_class(self, node: ast.AST) -> bool:
+        """``node`` sits directly in a class body: a name bound there is an attribute
+        of the class (``A.r``), not a name the tree can follow."""
+        current = self.parent.get(id(node))
+        while current is not None:
+            if isinstance(current, ast.ClassDef):
+                return True
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                return False
+            current = self.parent.get(id(current))
+        return False
 
     def collect(self) -> bool:
         """Parents, imports and every binding; False when the tree is too large."""
@@ -223,10 +244,10 @@ class _Analysis:
         simple: dict[int, ast.AST] = {}
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(
-                    node.targets[0], ast.Name):
+                    node.targets[0], ast.Name) and not self._in_class(node):
                 simple[id(node.targets[0])] = node.value
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) \
-                    and node.value is not None:
+                    and node.value is not None and not self._in_class(node):
                 simple[id(node.target)] = node.value
             elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)) and isinstance(
                     node.target, ast.Name):
@@ -769,6 +790,19 @@ class _Analysis:
                     getattr(node, "ctx", None), ast.Load):
                 continue
             parent = self.parent.get(id(node))
+            if isinstance(node, ast.Name) and node.id == "__builtins__":
+                self.found._hide("code:namespace")  # every builtin, by name
+                continue
+            whole = self.resolve(node)
+            if whole is not None and (whole == "sys.modules" or whole.endswith(".sys.modules")):
+                # ``sys.modules["shutil"].rmtree``: a module fetched by name (a plain
+                # ``"x" in sys.modules`` test fetches nothing).
+                fetched = isinstance(parent, ast.Subscript) or (
+                    isinstance(parent, ast.Attribute) and parent.attr in (
+                        "get", "pop", "setdefault", "values", "items", "__getitem__"))
+                if fetched:
+                    self.found._hide("code:namespace")
+                continue
             if isinstance(parent, ast.Attribute) and parent.value is node:
                 if not (parent.attr.startswith("__") and parent.attr.endswith("__")):
                     continue
@@ -791,6 +825,9 @@ class _Analysis:
             if dotted in ("builtins.open", "builtins.str", "builtins.compile") and isinstance(
                     node, ast.Name) and isinstance(parent, ast.keyword):
                 continue  # ``type=str``, ``opener=open`` keywords of ordinary calls
+            if isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name) \
+                    and parent.func.id in _LOOKERS and parent.func.id not in self.cands:
+                continue  # ``hasattr(os, "fork")``, ``print(os)``: looked at, not called
             self.found._hide("code:alias")
 
     def _mentions(self) -> None:

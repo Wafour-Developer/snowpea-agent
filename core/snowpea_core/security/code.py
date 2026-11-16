@@ -201,6 +201,10 @@ class Finding:
     reads: list[str] = field(default_factory=list)
     #: Path-like literals it names at all (judged against snowpea's control files).
     mentions: list[str] = field(default_factory=list)
+    #: Modules it imports by name (python) — one the project holds is read too.
+    imports: list[str] = field(default_factory=list)
+    #: Files it loads by a relative path (node ``require('./x')``): read too.
+    requires: list[str] = field(default_factory=list)
     #: Why part of it cannot be seen (``code:delete:non-literal`` …).
     opaque: list[str] = field(default_factory=list)
     #: Why it always asks a person (``snowpea-code``): never switched off.
@@ -215,6 +219,12 @@ class Finding:
         for item in other.mentions:
             if item not in self.mentions:
                 self.mentions.append(item)
+        for item in other.imports:
+            if item not in self.imports:
+                self.imports.append(item)
+        for item in other.requires:
+            if item not in self.requires:
+                self.requires.append(item)
         for why in other.opaque:
             if why not in self.opaque:
                 self.opaque.append(why)
@@ -534,6 +544,13 @@ def _node_extras(text: str, masked: str, found: Finding) -> None:
         value, end = _string_at(text, match.end(), "node")
         if value is None or text[_skip_space(text, end):][:1] != ")":
             found._hide("code:require:non-literal")
+        elif value.startswith(("./", "../", "/")) and not value.endswith(".json") \
+                and value not in found.requires:
+            found.requires.append(value)  # the project's own file: read like a script
+    for match in re.finditer(r"(?:^|[;\n])\s*import\s+(?:[^'\"`;\n]*?\sfrom\s+)?(['\"])(\.{0,2}/"
+                             r"[^'\"\n]*)\1", text):
+        if not match.group(2).endswith(".json") and match.group(2) not in found.requires:
+            found.requires.append(match.group(2))
     if _NODE_REFLECT.search(masked):
         found._hide("code:reflect")
     # A bracketed lookup on a module that carries dangerous calls.
@@ -542,7 +559,9 @@ def _node_extras(text: str, masked: str, found: Finding) -> None:
         aliases.add(match.group(1) or match.group(2))
     lookup = re.compile(r"(?<![\w$.])(?:" + "|".join(re.escape(a) for a in sorted(aliases))
                         + r")\s*(?:\?\.)?\s*\[(?!\s*\d+\s*\])")
-    if re.search(r"\brequire\s*\([^)]*\)\s*(?:\?\.)?\s*\[", masked) or lookup.search(masked):
+    direct = re.search(r"\brequire\s*\(\s*['\"`]" + _NODE_DANGEROUS_MODULE
+                       + r"['\"`]\s*\)\s*(?:\?\.)?\s*\[", text)
+    if direct or lookup.search(masked):
         found._hide("code:computed-member")
     reach = re.search(_NODE_FS, text) or re.search(_NODE_CP, text)
     if not reach:

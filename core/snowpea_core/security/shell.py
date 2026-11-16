@@ -212,23 +212,30 @@ SAFE_MODULES: frozenset[str] = frozenset(
         # the standard library's command-line tools
         "json.tool", "venv", "ensurepip", "compileall", "py_compile", "zipfile", "tarfile",
         "gzip", "base64", "calendar", "platform", "sysconfig", "site", "tokenize", "tabnanny",
-        "ast", "dis", "pickletools", "zipapp", "unittest", "doctest", "pydoc", "uuid",
-        "mimetypes", "filecmp", "pprint", "this", "locale", "quopri", "inspect", "symtable",
+        "ast", "dis", "pickletools", "zipapp", "unittest", "doctest", "uuid",
+        "mimetypes", "filecmp", "pprint", "this", "locale", "quopri", "symtable",
         "keyword", "token", "random", "secrets",
         # test runners, linters, formatters, type checkers, builders
         "pytest", "ruff", "black", "mypy", "flake8", "pylint", "isort", "pyflakes",
         "pycodestyle", "pydocstyle", "bandit", "pyright", "pytype", "autopep8", "yapf",
         "vulture", "radon", "build", "wheel", "tox", "nox", "pre_commit", "sphinx", "mkdocs",
-        "pipdeptree", "pip_audit", "uv", "poetry", "hatch", "pdm", "playwright",
-        # servers and runners of the project's own app
-        "uvicorn", "gunicorn", "hypercorn", "flask", "django", "streamlit", "celery",
-        "fastapi",
+        "pipdeptree", "pip_audit", "playwright",
     }
 )
+#: Servers and runners of the project's own app: the module (``main:app``) or
+#: the file they are pointed at is read as a script; the rest runs as before.
+_APP_MODULES: frozenset[str] = frozenset(
+    {"uvicorn", "gunicorn", "hypercorn", "flask", "django", "streamlit", "celery", "fastapi"}
+)
+#: Modules that are a command runner of the same name (``python -m uv run x``):
+#: judged as that command.
+_COMMAND_MODULES: frozenset[str] = frozenset({"uv", "poetry", "hatch", "pdm", "pipenv", "pipx"})
 #: Modules that run a script they are given: that script is read.
 _RUNNER_MODULES: frozenset[str] = frozenset(
     {"cProfile", "profile", "pdb", "trace", "runpy", "coverage", "kernprof", "memory_profiler"}
 )
+#: Most files one line's code may pull in by import before it counts as unread.
+MAX_IMPORTED = 48
 
 
 @dataclass(frozen=True)
@@ -850,8 +857,14 @@ class _Probe(_c._Judge):
         if found.module is not None:
             self._module(found.module, operands, cwd, depth)
             return
-        if found.info or found.self_run:
+        if found.info or (found.self_run and not operands):
+            # ``--version``; ``node --test`` with nothing named.  (``node --watch
+            # x.js`` and ``node --test x.js`` still run x.js: it is read below.)
             return
+        if found.self_run and family == "php":
+            operands = operands[1:]  # ``php -S host:port [router.php]``
+            if not operands:
+                return
         if family == "php" and "-f" in rest[:found.after]:
             index = rest.index("-f")
             operands = list(zip(rest[index + 1:index + 2], rest_dyn[index + 1:index + 2],
@@ -912,19 +925,65 @@ class _Probe(_c._Judge):
         if cwd is None or _code.written.under(cwd / "node_modules" / package):
             self._opaque("preload")
 
-    def _module_file(self, name: str, cwd: Path | None) -> str | None:
-        """The file ``python -m name`` would run when the project holds it."""
-        if cwd is None or not re.fullmatch(r"[A-Za-z_][\w.]*", name):
+    def _module_file(self, name: str, cwd: Path | None, *, imported: bool = False,
+                     beside: Path | None = None) -> str | None:
+        """The file ``python -m name`` would run (``imported``: the file ``import
+        name`` runs) when the project holds it; ``beside``: the importing script's
+        folder, searched first like Python does."""
+        if not re.fullmatch(r"[A-Za-z_][\w.]*", name):
             return None
         relative = Path(*name.split("."))
-        for base in (cwd, cwd / "src"):
-            for candidate in (base / relative.with_suffix(".py"), base / relative / "__main__.py"):
+        tail = "__init__.py" if imported else "__main__.py"
+        bases = [base for base in (beside, cwd, cwd / "src" if cwd is not None else None)
+                 if base is not None]
+        for base in bases:
+            for candidate in (base / relative.with_suffix(".py"), base / relative / tail):
                 try:
                     if candidate.is_file():
                         return str(candidate)
                 except OSError:
                     continue
         return None
+
+    def _imported(self, finding: _code.Finding, cwd: Path | None, depth: int,
+                  beside: Path | None) -> None:
+        """Project files the code pulls in — ``import helper``, ``require('./x')`` —
+        are read like the script itself: importing a file runs it."""
+        files: list[tuple[str, str]] = []
+        for name in finding.imports:
+            parts = name.split(".")
+            for width in range(1, len(parts) + 1):
+                path = self._module_file(".".join(parts[:width]), cwd, imported=True,
+                                         beside=beside)
+                if path is not None:
+                    files.append((path, "python"))
+        for raw in finding.requires:
+            base = beside if raw.startswith(".") and beside is not None else cwd
+            if base is None and not raw.startswith("/"):
+                continue
+            start = Path(raw) if raw.startswith("/") else base / raw  # type: ignore[operator]
+            for candidate in (start, Path(f"{start}.js"), Path(f"{start}.cjs"),
+                              Path(f"{start}.mjs"), start / "index.js"):
+                try:
+                    if candidate.is_file():
+                        files.append((str(candidate), "node"))
+                        break
+                except OSError:
+                    continue
+        seen = {path for path, _ in self.view.scripts}
+        for path, language in files:
+            if path in seen:
+                continue
+            if len(seen) >= MAX_IMPORTED or depth >= MAX_DEPTH:
+                # Too many, or too deep, to read.  The project's own files are let
+                # be; one the agent wrote that stays unread is not.
+                if _code.is_recent(path):
+                    self._opaque("code:imports")
+                    return
+                continue
+            seen.add(path)
+            self._script(path, cwd, depth + 1, language,
+                         root=beside if language == "python" else None)
 
     def _module(self, module: tuple[str, bool], operands: list[tuple[str, bool]],
                 cwd: Path | None, depth: int) -> None:
@@ -961,6 +1020,28 @@ class _Probe(_c._Judge):
             if statements:
                 self._inline("\n".join(statements), "python", cwd, depth)
             return
+        if root in _COMMAND_MODULES:
+            # ``python -m uv run python x.py`` is ``uv run python x.py``.
+            self.words([root, *[word for word, _ in operands]],
+                       [False, *[dyn for _, dyn in operands]], cwd, depth + 1,
+                       piped_in=False, heredoc=False, stdin_args=False)
+            return
+        if root in _APP_MODULES:
+            # ``uvicorn main:app``, ``streamlit run app.py``, ``flask --app main run``:
+            # the project module or file it is pointed at runs.
+            for word, word_dyn in operands:
+                if word_dyn or word.startswith("-"):
+                    continue
+                target = word.split(":", 1)[0]
+                if word.endswith(".py"):
+                    self._script(word, cwd, depth, "python")
+                elif re.fullmatch(r"[A-Za-z_][\w.]*", target):
+                    path = self._module_file(target, cwd, imported=True)
+                    if path is not None:
+                        self._script(path, cwd, depth, "python")
+            return
+        if root == "coverage" and operands and operands[0][0] != "run":
+            return  # report, html, xml, combine, erase: nothing of the project runs
         if root in _RUNNER_MODULES:
             words = [word for word, _ in operands]
             if "-m" in words and words.index("-m") + 1 < len(operands):
@@ -1095,8 +1176,13 @@ class _Probe(_c._Judge):
 
     # -- code and scripts (security review 5, H4) --------------------------------
     def apply_code(self, finding: _code.Finding, cwd: Path | None, depth: int, *,
-                   count_opaque: bool) -> None:
-        """Add what code would do: its commands, its shell lines, its writes and reads."""
+                   count_opaque: bool, beside: Path | None = None) -> None:
+        """Add what code would do: its commands, its shell lines, its writes and reads.
+
+        ``beside``: the folder of the script the code came from (its imports are
+        looked for there first)."""
+        if finding.imports or finding.requires:
+            self._imported(finding, cwd, depth, beside)
         for words in finding.commands:
             if not words:
                 continue
@@ -1153,7 +1239,8 @@ class _Probe(_c._Judge):
             for why in sub.opaque:
                 self._opaque(why)
 
-    def _script(self, raw: str, cwd: Path | None, depth: int, default: str) -> None:
+    def _script(self, raw: str, cwd: Path | None, depth: int, default: str, *,
+                root: Path | None = None) -> None:
         """Read the script file ``raw`` and judge its text (H4 b)."""
         if depth > MAX_DEPTH:
             self._opaque("nesting")
@@ -1180,7 +1267,8 @@ class _Probe(_c._Judge):
         # A language nothing here reads (lua, R, awk…) comes back ``code:language``:
         # opaque when the script is the agent's own.
         finding = _code.analyse(script.text, script.language, path=script.path)
-        self.apply_code(finding, cwd, depth, count_opaque=script.recent)
+        self.apply_code(finding, cwd, depth, count_opaque=script.recent,
+                        beside=root or Path(script.path).parent)
 
     # -- writes this module judges itself -------------------------------------
     def _own_writes(  # noqa: C901 - one table of the write programs, kept together
