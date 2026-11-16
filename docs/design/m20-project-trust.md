@@ -48,10 +48,16 @@ shell line that writes it is `never` delegable. `trusted` mirrors `externalCli`.
 
 ### Trust pins content
 
-`project.trust.set` records the digest of every control file at that moment. A
+`project.trust.set` records the digest of every control file — as the `digests`
+the status showed say it is (security review 6: `digests` is required, and a
+project that differs from them is `trust_changed`, nothing trusted). A
 file is **active** only while its scope is trusted AND its digest is the pinned
 one. A file changed since, or a new one, waits for the person again — so a
 worker's later write cannot become active silently, even in a trusted project.
+Since review 6 the project files a control file runs (hook scripts, an MCP
+server's program, a skill's folder) are pinned with it, and a rule stored by an
+approval answer re-pins only when a LOCAL person answered; see
+`m19-jarvis-mode.md`, "Review 6 (part A)".
 
 One exception keeps the person's own edits working: when a LOCAL person changes
 `.snowpea/settings.json` or `.mcp.json` through snowpea itself (a rule from an
@@ -81,7 +87,7 @@ Every reader asks the one store (`snowpea_core/trust/projects.py`):
 | Method | Params | Result | Who |
 |---|---|---|---|
 | `project.trust.status` | `{workdir}` | `ProjectTrustStatus` | people (a remote login too) |
-| `project.trust.set` | `{workdir, scopes?}` | `ProjectTrustStatus` | a LOCAL person only |
+| `project.trust.set` | `{workdir, scopes?, digests}` | `ProjectTrustStatus` (error `trust_changed`) | a LOCAL person only |
 | `project.trust.revoke` | `{workdir, scopes?}` | `ProjectTrustStatus` | a LOCAL person only |
 
 `ProjectTrustStatus`: `workdir` (the root), `trusted`, `scopes`, `by`, `at`,
