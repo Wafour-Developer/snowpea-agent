@@ -43,6 +43,7 @@ from typing import Any
 from snowpea_core.jarvis import classify as _c
 from snowpea_core.security import code as _code
 from snowpea_core.security import envvars as _env
+from snowpea_core.security import written
 
 #: Programs whose path operands this module judges itself (the classifier's
 #: generic write handling does not say what is deleted or moved).
@@ -209,6 +210,10 @@ READ_ONLY_PROGRAMS: frozenset[str] = frozenset(
      # a file tool's own read.
      "redirect", "code", "tool"}
 )
+#: ``Effect.program`` of the new name a link gets (``ln``'s destination, ``cp
+#: -s``/``-l``, ``os.symlink``'s second argument): one inside snowpea's home asks
+#: a person in every mode (security review 8, H8-2).
+LINK = "link"
 #: Hosts ``ssh`` reaches on this machine: the remote line runs here (M7-5).
 _LOCAL_HOSTS: frozenset[str] = frozenset(
     {"localhost", "localhost.localdomain", "127.0.0.1", "::1", "[::1]", "0.0.0.0", "0",
@@ -726,6 +731,11 @@ class _Probe(_c._Judge):
                 self._own_writes(program, rest, rest_dyn, cwd)
             if program in ("git",) or family == "git":
                 self._git_tree(rest, rest_dyn, cwd)
+                # Review 8, H8-3 (b): git's settings are read here (``git-program``
+                # marks the ones that run something), so the classifier's coarser
+                # ``git-config`` mark (any mention, reads too) is this analysis's.
+                if self._git_runs(rest, rest_dyn, cwd):
+                    claims.add("git-config")
                 if self._git_alias(rest, rest_dyn, cwd, depth):
                     claims.add("git-alias")
             if program in _c.CONTENT_READERS:
@@ -751,6 +761,12 @@ class _Probe(_c._Judge):
             elif self.literals and "/" in words[0].replace("\\", "/") and not dynamic[0]:
                 # ``./x``, ``scripts/x``, ``/opt/tool/run``: the file itself runs.
                 self._script(words[0], cwd, depth, "shell")
+            elif self.literals and not dynamic[0]:
+                # Security review 8, H8-3 (c): a bare name that PATH resolves to a
+                # file the agent wrote (or one in a temporary folder) is its script.
+                found = path_program(words[0], cwd)
+                if found is not None:
+                    self._script(str(found), cwd, depth, "shell", strict=True)
             if self.literals:
                 self._project_runner(program, rest, rest_dyn, cwd, depth)
                 if program in ("awk", "gawk", "mawk", "nawk", "sed", "gsed"):
@@ -848,6 +864,55 @@ class _Probe(_c._Judge):
         elif any(word in reads for word in rest):
             return
         self._opaque("deferred-run")
+
+    def _git_runs(self, rest: list[str], rest_dyn: list[bool], cwd: Path | None) -> bool:
+        """Security review 8, H8-3 (b): git settings that make git run a program
+        (``-c core.pager=…``, ``git config core.hooksPath …``) and a repository
+        whose hooks or configuration the agent wrote are opaque.  True when no
+        ``-c``/``--config-env`` is on the line (then ``git config`` was read here
+        in full and the classifier's own mark is this analysis's)."""
+        root = cwd
+        index = 0
+        whole = True
+        while index < len(rest):
+            word = rest[index]
+            if word == "-C" and index + 1 < len(rest):
+                root = None if rest_dyn[index + 1] or root is None else _c._resolve(
+                    rest[index + 1], root, self.ctx)
+                index += 2
+                continue
+            if word.startswith(("-c", "--config-env")) and word != "-C":
+                whole = False
+            if word in ("-c", "--config-env") and index + 1 < len(rest):
+                key, _, value = rest[index + 1].partition("=")
+                # ``--config-env=key=ENVVAR``: the value comes from the environment.
+                if rest_dyn[index + 1] or git_risky(key, None if word != "-c" else value):
+                    self._opaque("git-program")
+                index += 2
+                continue
+            if word.startswith("--config-env="):
+                if git_risky(word.split("=", 1)[1].partition("=")[0]):
+                    self._opaque("git-program")
+            if word in ("--git-dir", "--work-tree", "--namespace") or word in _c._GIT_VALUED:
+                if word == "--git-dir":
+                    root = None
+                index += 2
+                continue
+            if word.startswith("--git-dir="):
+                root = None
+            if word.startswith("-"):
+                index += 1
+                continue
+            break
+        if index < len(rest) and rest[index] == "config" and not rest_dyn[index]:
+            tail = rest[index + 1:]
+            if any(rest_dyn[index + 1:]) or any(git_risky(key, value)
+                                                for key, value in git_config_sets(tail)):
+                self._opaque("git-program")
+        why = git_session_risk(root, self.ctx.user_home)
+        if why is not None:
+            self._opaque(why)
+        return whole
 
     def _git_alias(self, rest: list[str], rest_dyn: list[bool], cwd: Path | None,
                    depth: int) -> bool:
@@ -1522,6 +1587,8 @@ class _Probe(_c._Judge):
             # A link to a file: whatever is later done through the new name is done
             # to it (security review 7, H7-5) — an operand of ``ln``, not a read.
             self._effect(raw, cwd, "read", program="ln")
+        for raw in finding.linked:
+            self._effect(raw, cwd, "write", program=LINK)
         for text in finding.lines:
             if count_opaque:
                 self.line(text, cwd, depth + 1)
@@ -1565,14 +1632,19 @@ class _Probe(_c._Judge):
                 self._opaque(why)
 
     def _script(self, raw: str, cwd: Path | None, depth: int, default: str, *,
-                root: Path | None = None) -> None:
-        """Read the script file ``raw`` and judge its text (H4 b)."""
+                root: Path | None = None, strict: bool = False) -> None:
+        """Read the script file ``raw`` and judge its text (H4 b).  ``strict``: it
+        is the agent's own whatever its timestamps say (review 8, H8-3 c)."""
         if depth > MAX_DEPTH:
             self._opaque("nesting")
             return
         script = _code.read_script(raw, cwd, default=default)
         if script is None:
             return
+        if strict and not script.recent:
+            from dataclasses import replace as _replace
+
+            script = _replace(script, recent=True)
         self.view.scripts.append((script.path, script.digest))
         if "snowpea_core" in Path(script.path).parts:
             self._control("snowpea-cli")
@@ -1681,15 +1753,16 @@ class _Probe(_c._Judge):
         deletes = program == "rsync" and any(w.startswith("--del") or w.startswith("--remove")
                                              for w in rest)
         tree = recursive or program == "rsync" or moving
+        made = LINK if program == "ln" or linking else ""
         self._effect(dest[0], cwd, "write", destructive=deletes, recursive=tree,
-                     dynamic=dest[1])
+                     dynamic=dest[1], program=made)
         landing = _landing(dest[0], cwd, target_dir is not None or len(sources) > 1)
         if landing is not None:
             for word, dyn in sources:
                 name = word.rstrip("/").rsplit("/", 1)[-1]
                 if name and not dyn and name not in (".", ".."):
                     self._effect(str(landing / name), None, "write", recursive=tree,
-                                 dynamic=dest[1])
+                                 dynamic=dest[1], program=made)
 
     def _archive_removal(self, program: str, rest: list[str], rest_dyn: list[bool],
                          cwd: Path | None) -> None:
@@ -1849,6 +1922,148 @@ def git_alias(name: str, root: Path | None, user_home: Path) -> str | None:
             elif section == "" and key == f"alias.{wanted}":
                 found = value if sep else ""
     return found
+
+
+# -- security review 8, H8-3: what git and PATH run that the line does not show ----
+
+#: git configuration keys that make git run a program (or load another
+#: configuration).  Setting one — ``git config``, ``git -c``,
+#: ``--config-env`` — is opaque: what the program does is not on the line.
+_GIT_RISKY_KEY = re.compile(
+    r"(?i)^(?:core\.(?:fsmonitor|pager|sshcommand|hookspath|editor|askpass|gitproxy)|"
+    r"diff\.external|diff\..+\.(?:textconv|command)|filter\..+\.(?:clean|smudge|process)|"
+    r"credential\.helper|credential\..+\.helper|gpg\.program|gpg\..+\.program|"
+    r"sequence\.editor|merge\..+\.driver|pager\..+|uploadpack\.packobjectshook|"
+    r"include\.path|includeif\..+\.path|alias\..+|remote\..+\.(?:uploadpack|receivepack)|"
+    r"ssh\.variant|protocol\..+\.allow|sendemail\..*smtpserver|web\.browser|"
+    r"(?:browser|man|difftool|mergetool)\..+\.(?:cmd|path)|submodule\..+\.update|"
+    r"core\.attributesfile|url\..+\.(?:insteadof|pushinsteadof)|.+\.(?:command|cmd))$")
+#: ``git config`` options that take a value of their own.
+_GIT_CONFIG_VALUED = frozenset({"-f", "--file", "--blob", "--type", "--default", "--comment",
+                                "--value", "--url"})
+_GIT_CONFIG_READS = frozenset({"--get", "--get-all", "--get-regexp", "--get-urlmatch", "-l",
+                               "--list", "--get-color", "--get-colorbool"})
+_GIT_CONFIG_WRITES = frozenset({"--add", "--replace-all", "--unset", "--unset-all",
+                                "--rename-section", "--remove-section"})
+
+
+def git_config_sets(args: list[str]) -> list[tuple[str, str | None]]:
+    """``(key, value)`` a ``git config …`` command (``args`` after ``config``) sets
+    or removes (value ``None`` when removed); ``("*", None)`` for ``--edit``."""
+    keys = _git_config_keys(args)
+    positional = [word for word in args if not word.startswith("-")]
+    out: list[tuple[str, str | None]] = []
+    for key in keys:
+        value: str | None = None
+        if key in positional:
+            at = positional.index(key)
+            value = positional[at + 1] if at + 1 < len(positional) else None
+        out.append((key, value))
+    return out
+
+
+def _git_config_keys(args: list[str]) -> list[str]:
+    if any(word in ("-e", "--edit") for word in args):
+        return ["*"]
+    positional: list[str] = []
+    skip = False
+    for word in args:
+        if skip:
+            skip = False
+            continue
+        if word in _GIT_CONFIG_VALUED:
+            skip = True
+            continue
+        if word.startswith("-"):
+            continue
+        positional.append(word)
+    if positional[:1] in (["get"], ["list"]):
+        return []
+    if positional[:1] in (["set"], ["unset"], ["rename-section"], ["remove-section"]):
+        return positional[1:2]
+    if positional[:1] == ["edit"]:
+        return ["*"]
+    if any(word in _GIT_CONFIG_READS for word in args) and not any(
+            word in _GIT_CONFIG_WRITES for word in args):
+        return []
+    if any(word in _GIT_CONFIG_WRITES for word in args):
+        return positional[:1]
+    return positional[:1] if len(positional) >= 2 else []
+
+
+def git_risky(key: str, value: str | None = None) -> bool:
+    """``key`` makes git run a program — unless ``value`` runs nothing (``cat``)."""
+    if value is not None and value.strip() in _env.HARMLESS_VALUES and key != "*":
+        return False
+    return key == "*" or bool(_GIT_RISKY_KEY.match(key.strip()))
+
+
+def git_session_risk(root: Path | None, user_home: Path) -> str | None:
+    """``git-hook`` when the repository's hooks folder holds a file the agent wrote
+    (or changed), ``git-program`` when the agent wrote the repository's
+    configuration and it sets a key that runs a program; ``None`` otherwise."""
+    files = _git_config_files(root, user_home)
+    if not files or len(files) < 4:
+        return None
+    config = files[3]
+    gitdir = config.parent
+    hooks = [gitdir / "hooks"]
+    try:
+        text = config.read_text(encoding="utf-8", errors="replace") if config.is_file() else ""
+    except OSError:
+        text = ""
+    for match in re.finditer(r"(?im)^\s*hookspath\s*=\s*(.+?)\s*$", text):
+        value = match.group(1).strip().strip('"')
+        if value:
+            path = Path(os.path.expanduser(value))
+            hooks.append(path if path.is_absolute() else (root or gitdir) / path)
+    if any(written.under(folder) for folder in hooks):
+        return "git-hook"
+    if written.contains(config) or (len(files) > 4 and written.contains(files[4])):
+        section = ""
+        for raw in text.splitlines():
+            line = raw.strip()
+            header = _GIT_SECTION.match(line)
+            if header is not None:
+                section = header.group(1).lower()
+                sub = re.match(r'^\s*\[\s*[A-Za-z0-9.-]+\s+"([^"]*)"', line)
+                if sub:
+                    section = f"{section}.{sub.group(1).lower()}"
+                continue
+            key = line.partition("=")[0].strip().lower()
+            if key and not line.startswith(("#", ";")) and git_risky(f"{section}.{key}"):
+                return "git-program"
+    return None
+
+
+def path_program(name: str, cwd: Path | None) -> Path | None:
+    """The file a bare program name runs when it is the agent's own (review 8,
+    H8-3 c): found on the PATH the child gets, and written by the agent or in a
+    temporary folder.  ``None`` for everything else (the system's programs)."""
+    import shutil
+
+    from snowpea_core.exec.local import sanitized_path
+
+    if not name or "/" in name or "\\" in name or name in _c.RESERVED_WORDS:
+        return None
+    try:
+        found = shutil.which(name, path=sanitized_path(os.environ.get("PATH", ""), cwd))
+    except (OSError, ValueError):
+        return None
+    if not found:
+        return None
+    real = Path(os.path.realpath(found))
+    if written.contains(real) or written.contains(found) or any(
+            folder == real.parent or folder in real.parents for folder in temporary_dirs()):
+        return real
+    return None
+
+
+def temporary_dirs() -> set[Path]:
+    """Folders anyone (the agent too) can fill: a program found there is not the system's."""
+    import tempfile
+
+    return {Path(os.path.realpath(tempfile.gettempdir())), Path("/tmp"), Path("/var/tmp")}
 
 
 def substitution_bodies(text: str) -> list[str]:

@@ -454,6 +454,12 @@ _CODE_VARIABLES: frozenset[str] = frozenset(
         "CXX", "LD", "MAKEFLAGS", "MAKEFILES", "PYTHONUSERBASE", "RIPGREP_CONFIG_PATH",
         "TAR_OPTIONS", "SQLITE_HISTORY", "PSQLRC", "MYSQL_HISTFILE", "INPUTRC", "TERMINFO",
         "TMPDIR", "SHELL",
+        # Security review 8, M8-2: more variables that load code or point a tool
+        # at a configuration of the line's choosing.
+        "LUA_INIT", "JDK_JAVA_OPTIONS", "DOTNET_STARTUP_HOOKS", "PHPRC", "PHP_INI_SCAN_DIR",
+        "VIMINIT", "EXINIT", "ERL_AFLAGS", "ERL_ZFLAGS", "RSYNC_RSH", "CURL_HOME", "WGETRC",
+        "AWS_CONFIG_FILE", "KUBECONFIG", "DOCKER_CONFIG", "GCONV_PATH", "PYTHONPYCACHEPREFIX",
+        "LESSKEYIN",
     }
 )
 #: ``GIT_*`` variables that only change what git prints (every other one may
