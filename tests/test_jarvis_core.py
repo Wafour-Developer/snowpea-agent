@@ -58,7 +58,7 @@ async def _with_clock(daemon: Any) -> tuple[JarvisService, FakeClock, list[str]]
     core.jarvis = service
     wakes: list[str] = []
 
-    async def deliver(text: str, listener: Any = None) -> bool:
+    async def deliver(text: str, listener: Any = None, who: Any = None) -> bool:
         wakes.append(text)
         return True
 

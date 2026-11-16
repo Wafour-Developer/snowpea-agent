@@ -288,6 +288,35 @@ def human_turn(session: Any) -> bool:
     return turn_origin(session) == "human"
 
 
+def cause(ctx: ToolContext) -> Any:
+    """Who caused the Jarvis turn running now (security review 8, M-2).
+
+    The caller snapshot the turn carries: the connection that prompted Jarvis
+    (a remote web login stays one), the creator of the scheduled job whose
+    wake it is, or the daemon's own (``kind: "none"``, ``caller:
+    "jarvis-own"``) for the intake's wakes.  The owner-bound messenger chat is
+    an in-process caller and is not narrowed.  Tools that start work elsewhere
+    pass it on, so ``web.remote.maxMode`` and job tagging hold whoever is
+    behind Jarvis.
+    """
+    from snowpea_core.agent import loop as agent_loop
+
+    return agent_loop.turn_caller(ctx.core, ctx.session)
+
+
+def refuse_for_cause(who: Any, mode: Any, settings: Any, what: str) -> None:
+    """``web.remote.maxMode`` for work Jarvis starts on behalf of ``who``, as a refusal."""
+    from snowpea_core.server.errors import RpcError
+    from snowpea_core.session import mode_guard
+
+    try:
+        mode_guard.check_remote_max(getattr(who, "kind", "none"), mode, settings, what)
+    except RpcError as exc:
+        raise Refused(
+            f"{exc.message} (this turn was started from a remote sign-in)"
+        ) from exc
+
+
 async def _target(service: JarvisService, session_id: str, *, read: bool) -> Target:
     """Resolve ``session_id`` as Jarvis may see it; refuse what it may not."""
     core = service.core
@@ -616,7 +645,10 @@ async def project_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 # ---------------------------------------------------------------------------
 
 
-def _start(service: JarvisService, session: Any, text: str, when_busy: str | None) -> str:
+def _start(service: JarvisService, session: Any, text: str, when_busy: str | None,
+           who: Any = None) -> str:
+    """Start (or queue) Jarvis's words in ``session``; ``who``: the cause of the
+    Jarvis turn (:func:`cause`), which the new turn carries (review 8, M-2)."""
     from snowpea_core.agent import loop as agent_loop
 
     return agent_loop.start_turn(
@@ -628,7 +660,15 @@ def _start(service: JarvisService, session: Any, text: str, when_busy: str | Non
         when_busy=when_busy,
         origin="jarvis",
         surface="jarvis",
+        who=who if getattr(who, "kind", "none") != "none" else None,
     )
+
+
+def _cause_for(ctx: ToolContext, service: JarvisService, mode: Any, what: str) -> Any:
+    """:func:`cause`, refused when it may not start work in ``mode``."""
+    who = cause(ctx)
+    refuse_for_cause(who, mode, getattr(service.core, "settings", None), what)
+    return who
 
 
 async def session_prompt(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -643,7 +683,10 @@ async def session_prompt(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     _not_paused(service, target.session_id)
     _authorized(service, ctx, target.session_id, target.project)
     session = await _live(service, target)
-    turn_id = _start(service, session, text, when_busy)
+    from snowpea_core.session import mode_guard
+
+    who = _cause_for(ctx, service, mode_guard.effective_mode(session), "prompting a session")
+    turn_id = _start(service, session, text, when_busy, who)
     await service.core.sessions.announce_sessions_changed("prompt", session.id)
     summary = f"asked {target.title or target.session_id}: {text}"
     service.record_decision(
@@ -671,14 +714,21 @@ async def session_steer(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     _not_paused(service, target.session_id)
     _authorized(service, ctx, target.session_id, target.project)
     session = await _live(service, target)
+    from snowpea_core.agent import loop as agent_loop
+    from snowpea_core.session import mode_guard
+
+    who = _cause_for(ctx, service, mode_guard.effective_mode(session), "steering a session")
     task = getattr(session, "turn_task", None)
     running = session.current_turn is not None or (task is not None and not task.done())
     if running:
         session.rpc_steers.append(("jarvis", text))
         session.user_waiting.set()
+        if getattr(who, "kind", "none") != "none":
+            # The steered turn is the cause's too from now on (as session.steer).
+            agent_loop.note_caller(session, session.current_turn or "", who)
         output = f"steered the running turn of {target.session_id}"
     else:
-        turn_id = _start(service, session, text, None)
+        turn_id = _start(service, session, text, None, who)
         await service.core.sessions.announce_sessions_changed("prompt", session.id)
         output = f"{target.session_id} was idle; started turn {turn_id} with it"
     service.record_decision(
@@ -763,6 +813,7 @@ async def session_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         raise Refused("model and mode are for an external CLI session (cli); a snowpea "
                       "session runs in the project's own mode and model")
     core = service.core
+    who = _cause_for(ctx, service, core.sessions.default_mode(root), "starting a session")
     session = await core.sessions.create(workdir=root, origin_surface="jarvis", origin_conn=None)
     if title:
         session.title = title
@@ -775,7 +826,7 @@ async def session_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     target = Target(session.id, session, root, False, title, None)
     turn = None
     if prompt:
-        turn = _start(service, session, prompt, None)
+        turn = _start(service, session, prompt, None, who)
     service.record_decision(
         kind="prompt",
         decided_by="jarvis",

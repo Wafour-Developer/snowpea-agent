@@ -103,6 +103,8 @@ async def briefing_set(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         except JarvisError as exc:
             raise jt.Refused(str(exc)) from exc
     sections = args.get("sections")
+    from snowpea_core.server.errors import RpcError
+
     try:
         result = await briefing.set_briefing(
             service.core,
@@ -111,9 +113,14 @@ async def briefing_set(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             instructions=args.get("instructions"),
             timezone=args.get("timezone"),
             sections=list(sections) if sections is not None else None,
+            # Security review 8, M-2/H8-2: a turn a remote sign-in started may
+            # only turn the briefing off, like jarvis.briefing.set from it.
+            who=jt.cause(ctx),
         )
     except JarvisError as exc:
         raise jt.Refused(str(exc)) from exc
+    except RpcError as exc:
+        raise jt.Refused(exc.message) from exc
     return jt._result(_briefing_text(result))
 
 
@@ -160,20 +167,30 @@ async def schedule_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if root is None or not service.projects.exposed(root) or not Path(root).is_dir():
             raise jt.Refused(f"no exposed project called {project!r}; see project_list")
         workdir = Path(root)
+    from snowpea_core.scheduler.access import schedule_job
+    from snowpea_core.server.errors import RpcError
+
     try:
-        job = await scheduler.schedule(
+        # Security review 8, M-2: through the one entry point, for whoever caused
+        # this Jarvis turn — a remote sign-in's task is tagged as one and never
+        # above web.remote.maxMode.
+        job = await schedule_job(
+            ctx.core,
+            jt.cause(ctx),
             spec,
             task,
+            via="tool",
             mode="accept",
             workdir=str(workdir),
             title=title,
-            created_via="tool",
             target="jarvis-task",
             target_data={"kind": "task", "title": title or task[:60]},
             timezone=zone,
         )
     except ValueError as exc:
         raise jt.Refused(str(exc)) from exc
+    except RpcError as exc:
+        raise jt.Refused(exc.message) from exc
     service.record_decision(
         kind="prompt",
         decided_by="jarvis",

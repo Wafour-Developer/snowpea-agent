@@ -177,11 +177,11 @@ async def sync(core: Core, who: Any = None) -> None:
     task = settings.instructions.strip() or "Jarvis briefing"
     if job is None:
         from snowpea_core.scheduler.access import schedule_job
-        from snowpea_core.server.person_gate import NOBODY
+        from snowpea_core.server.person_gate import NOBODY, snapshot
 
         await schedule_job(
             core,
-            who if who is not None else NOBODY,
+            snapshot(who) if who is not None else NOBODY,
             settings.schedule,
             task,
             via="rpc",
@@ -229,7 +229,12 @@ async def set_briefing(
     from snowpea_core.server import settings_gate
     from snowpea_core.server.person_gate import connection_kind
 
-    if connection_kind(who) not in ("person", "none") and (
+    kind = connection_kind(who)
+    if kind not in ("person", "none", "remote_login"):
+        # A browser, a connector or a closed connection: no part of it (the
+        # dispatcher refuses them too: jarvis.* is a person's).
+        settings_gate.refuse(who, "change the briefing")
+    if kind == "remote_login" and (
         enabled is not False
         or any(value is not None for value in (schedule, instructions, timezone, sections))
     ):
@@ -375,7 +380,11 @@ async def run(
     head = BRIEFING_HEAD.format(when=service.now_iso(), report=report)
     if instructions:
         head += f"\nThe person's words for this briefing: {instructions!r}"
-    delivered, reply = await service.wake_for_reply(f"{head}\n\n{facts}", timeout=REPLY_WAIT_SEC)
+    from snowpea_core.jarvis.service import job_cause
+
+    # Security review 8, M-2: the wake carries the briefing job's creator.
+    delivered, reply = await service.wake_for_reply(f"{head}\n\n{facts}", timeout=REPLY_WAIT_SEC,
+                                                    who=job_cause(job))
     if reply:
         # Jarvis's own words are what the person reads; kept beside the facts.
         with contextlib.suppress(OSError):
