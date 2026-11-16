@@ -47,9 +47,11 @@ def unified_diff(path: str, before: str, after: str, *, created: bool = False) -
     if before == after and not created:
         return ""
     lines = []
+    from snowpea_core.util.udiff import lines as split_lines
+
     for line in difflib.unified_diff(
-        before.splitlines(keepends=True),
-        after.splitlines(keepends=True),
+        split_lines(before),  # on "\n" only: not \f, U+2028, a bare \r …
+        split_lines(after),
         fromfile="/dev/null" if created else f"a/{path}",
         tofile=f"b/{path}",
         n=3,

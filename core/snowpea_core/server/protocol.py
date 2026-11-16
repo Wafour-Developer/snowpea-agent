@@ -8653,6 +8653,15 @@ class ExternalReadResult(Payload):
 class ExternalSendParams(Payload):
     ref: ExternalRef = Field(description="Session to talk to.")
     text: str = Field(min_length=1, description="Prompt text; attachments are not supported in v1.")
+    trust: bool = Field(
+        default=False,
+        description=(
+            "As ExternalOpenParams.trust (1.54.0): continuing a host 'none' session starts the "
+            "CLI, so in a project no person trusted yet the send answers external_unavailable "
+            "with details.reason 'untrusted_project' (show the confirmation, retry with trust: "
+            "true) or 'untrusted_project_person_only'."
+        ),
+    )
 
 
 class ExternalSendResult(Payload):

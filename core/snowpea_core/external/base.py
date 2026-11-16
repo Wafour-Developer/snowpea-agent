@@ -276,6 +276,21 @@ class ExternalAdapter(ABC):
     #: The daemon's supervisor, handed over by the manager; helper processes
     #: (:meth:`helper_supervisor`) and channels run under it.
     supervisor: ProcessSupervisor | None = None
+    #: The environment a process of this CLI starts with (the scrubbed one plus
+    #: ``jarvis.external.clis.<id>.passEnv``), bound by the manager; a process
+    #: started before any channel (a shared server at discovery) uses it too.
+    env_provider: Any = None
+
+    def base_env(self) -> dict[str, str]:
+        """:attr:`env_provider`'s environment, or the scrubbed one without it."""
+        from snowpea_core.external import proc as _proc
+
+        if self.env_provider is not None:
+            try:
+                return dict(self.env_provider())
+            except Exception:  # noqa: BLE001 - a broken provider passes nothing extra
+                return _proc.scrubbed_env()
+        return _proc.scrubbed_env()
 
     # -- discovery ----------------------------------------------------------
     async def discover(self, path_override: str | None = None) -> Discovery:

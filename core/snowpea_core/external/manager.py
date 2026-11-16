@@ -291,9 +291,18 @@ class ExternalManager:
                 self._bind(adapter)
 
     def _bind(self, adapter: ExternalAdapter) -> ExternalAdapter:
-        """Hand the daemon's supervisor to ``adapter`` (helpers, shared servers)."""
+        """Hand the daemon's supervisor (helpers, shared servers) and the CLI's
+        environment (with its ``passEnv``) to ``adapter``."""
         if adapter.supervisor is None:
             adapter.supervisor = self.supervisor
+        if getattr(adapter, "env_provider", None) is None:
+            cli = adapter.id
+
+            def provider() -> dict[str, str]:
+                pass_env = getattr(self._cli_settings(cli), "passEnv", None) or ()
+                return proc.scrubbed_env(pass_env=pass_env)
+
+            adapter.env_provider = provider
         return adapter
 
     # -- settings ---------------------------------------------------------
@@ -1357,8 +1366,12 @@ class ExternalManager:
         self, cli: str, session_id: str, text: str, *, conn: Any = None,
         origin: dict[str, Any] | None = None,
         confirmation: PersonConfirmation | None = None,
+        trust: bool = False,
     ) -> dict[str, str]:
         """``external.send``: start a turn; the reply streams as ``external.event``.
+
+        ``trust`` as on :meth:`open`: continuing a ``host: none`` session in a
+        project no person trusted yet (1.54.0).
 
         A ``host: none`` session is continued first in its current mode, or the
         CLI's ``defaultMode`` (``unrestricted`` only for a person; anyone else
@@ -1371,7 +1384,7 @@ class ExternalManager:
         record, found = await self._load(cli, session_id)
         try:
             return await self._send(record, found, text, conn=conn, origin=origin,
-                                    confirmation=confirmation)
+                                    confirmation=confirmation, trust=trust)
         except ExternalError:
             await self._maybe_forget(record)
             raise
@@ -1379,6 +1392,7 @@ class ExternalManager:
     async def _send(
         self, record: _Record, found: Discovery, text: str, *, conn: Any,
         origin: dict[str, Any] | None, confirmation: PersonConfirmation | None = None,
+        trust: bool = False,
     ) -> dict[str, str]:
         cli = record.cli
         async with record.lock:
@@ -1396,7 +1410,7 @@ class ExternalManager:
                 # explicit choice (external.open / external.setMode), never a send.
                 mode = self._implicit_mode(record)
                 self._require_trust(record.project, record.real_cwd or record.info.cwd,
-                                    conn, False)
+                                    conn, trust)
                 try:
                     await self._start_channel(record, mode, None, found, resume=True)
                 except ExternalError:

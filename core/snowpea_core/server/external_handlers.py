@@ -265,7 +265,8 @@ async def send_handler(
 ) -> ExternalSendResult:
     _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(
-        ensure_manager(core).send(params.ref.cli, params.ref.id, params.text, conn=conn)
+        ensure_manager(core).send(params.ref.cli, params.ref.id, params.text, conn=conn,
+                                  trust=params.trust)
     )
     return ExternalSendResult.model_validate(result)
 

@@ -249,8 +249,12 @@ async function main() {
       [BUNDLE, "--port", String(core.port), "--token", token, "--cwd", workdir, "--mode", "accept", "--no-fullscreen"],
       { name: "xterm-256color", cols, rows: ROWS, cwd: workdir, env: { ...process.env, SNOWPEA_HOME: home } },
     );
+    let lastData = Date.now();
+    let received = 0;
     child.onData((data) => {
       if (data.includes("\u001B[2J")) clears += 1;
+      lastData = Date.now();
+      received += data.length;
       raw.write(data);
       tmux.write(data.replaceAll("\u001B[3J", ""));
     });
@@ -260,26 +264,44 @@ async function main() {
       raw.resize(cols, ROWS);
       tmux.resize(cols, ROWS);
     };
-    await sleep(4000);
+    // Every wait is on a condition, never a fixed sleep alone: right after a
+    // build the first run (a cold bundle, `uv run` syncing) is seconds slower,
+    // and a fixed wait then measured the screen before the answer's last lines
+    // were drawn (the "17 missing lines" seen once) or typed before the input
+    // was ready.  A wait that runs out is "could not run" (exit 2), not a FAIL.
+    const until = async (test, ms, what) => {
+      const end = Date.now() + ms;
+      while (!test()) {
+        if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+        await sleep(20);
+      }
+    };
+    /** The terminal took everything written to it, and the TUI has been quiet for `ms`. */
+    const settled = async (ms, max, what) => {
+      await until(() => received > 0 && Date.now() - lastData >= ms, max, what);
+      await new Promise((resolve) => raw.write("", resolve));
+      await new Promise((resolve) => tmux.write("", resolve));
+    };
+    await settled(1500, 90_000, "the TUI to draw its first screen");
     child.write("긴 답변을 120줄로 써 주세요");
     await sleep(300);
     child.write("\r");
-    const until = async (test, ms) => {
-      const end = Date.now() + ms;
-      while (!test() && Date.now() < end) await sleep(20);
-    };
-    await until(() => model.state.progress > 0.25, 30_000);
+    await until(() => model.state.progress > 0.25, 90_000, "the answer to stream (25%)");
     resize(MID_A);
-    await until(() => model.state.progress > 0.6, 30_000);
+    await until(() => model.state.progress > 0.6, 60_000, "the answer to stream (60%)");
     resize(MID_B);
-    await until(() => model.state.done, 30_000);
-    await sleep(2500);
+    await until(() => model.state.done, 60_000, "the answer to end");
+    // The last line drawn, not just sent by the model.  A line that never shows
+    // is what the check is for: wait for it, then judge (no exit 2 here).
+    const soft = (test, ms, what) => until(test, ms, what).catch(() => undefined);
+    await soft(() => logicalLines(raw).join("\n").includes(`Q${LINES} `), 60_000,
+      `Q${LINES} on screen`);
+    await settled(1500, 60_000, "the TUI to settle after the answer");
     child.write(SECOND);
     await sleep(300);
     child.write("\r");
-    await sleep(3000);
-    await new Promise((resolve) => raw.write("", resolve));
-    await new Promise((resolve) => tmux.write("", resolve));
+    await soft(() => screenText(raw).includes("SECOND-ANSWER"), 60_000, "the second answer");
+    await settled(1000, 30_000, "the TUI to settle after the second answer");
     console.log(
       `bundle ${BUNDLE}\nscenario: ${NARROW ? "narrow" : "widen"} (100 → ${MID_A} → ${MID_B} columns)\n` +
         `clear-terminal frames: ${clears}`,
