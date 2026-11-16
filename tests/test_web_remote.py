@@ -65,6 +65,7 @@ async def _remote(
 ) -> tuple[TestClient, RemoteAuth, Clock]:
     auth = RemoteAuth("owner", 12, paths)
     auth.failure_delay = 0.0
+    auth.penalty_base = 0.0  # the waits over a limit are tested in test_security_review6_remote
     clock = Clock()
     auth.clock = clock
     core = SimpleNamespace(token="daemon-token", hub=None)
@@ -203,11 +204,11 @@ async def test_lockout_per_ip_and_retry_after(
         with caplog.at_level(logging.INFO, logger="snowpea.web.remote"):
             for _ in range(5):
                 assert (await _login(client, password="nope")).status == 401
-            locked = await _login(client)  # even the right password
+            locked = await _login(client, password="nope")
             assert locked.status == 429 and int(locked.headers["Retry-After"]) == 300
             clock.now += 120
-            assert int((await _login(client)).headers["Retry-After"]) == 180
-            clock.now += 181
+            assert int((await _login(client, password="nope")).headers["Retry-After"]) == 180
+            # Security review 6, L-5: the limit costs time, never the right password.
             assert (await _login(client)).status == 200
         messages = " ".join(r.getMessage() for r in caplog.records)
         assert "failed from 127.0.0.1" in messages and "succeeded" in messages

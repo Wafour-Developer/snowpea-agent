@@ -316,9 +316,11 @@ def test_a_connector_calls_no_config_method(method: str) -> None:
 
 def test_a_remote_login_operates_but_never_configures_security() -> None:
     for method in ("mcp.add", "mcp.test", "provider.configure", "skill.install", "lsp.install",
-                   "audio.install", "memory.update", "gateway.bind"):
+                   "audio.install", "memory.update"):
         settings_gate.kind_method_refusal(method, {}, REMOTE, None)
-    for method in ("team.guide.set", "permission.allowlist.remove", "setup.applyDefaults"):
+    # gateway.bind: security review 6, M-4 (a local person's).
+    for method in ("team.guide.set", "permission.allowlist.remove", "setup.applyDefaults",
+                   "gateway.bind"):
         with pytest.raises(RpcError):
             settings_gate.kind_method_refusal(method, {}, REMOTE, None)
     settings_gate.kind_method_refusal("mcp.add", {}, PERSON, None)

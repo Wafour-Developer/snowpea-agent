@@ -591,6 +591,16 @@ async def provider_configure_handler(
         reject_masked_secrets(config)
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    if "base_url" in config:
+        from snowpea_core.server import settings_gate
+        from snowpea_core.server.person_gate import connection_kind
+
+        if connection_kind(_conn) == "remote_login":
+            # Security review 6, M-4: the endpoint decides where every prompt and
+            # credential of this vendor goes (the same rule as settings.set).
+            settings_gate.refuse_local_only(
+                _conn, core, f"change the base URL of provider {params.vendor}",
+                method="provider.configure", detail="base_url")
 
     if config and all(value is None for value in config.values()):
         # A patch of nothing but ``None`` is a deliberate "forget this vendor",
@@ -654,7 +664,10 @@ async def provider_login_web_handler(
         params.vendor,
         params.method or None,
         on_prompt=lambda message: log.info("provider login: %s", message),
-        open_browser=os.environ.get("SNOWPEA_TEST") != "1",
+        # Security review 6, H-1: a remote login starts no program here; its page
+        # opens the consent address from the result (verificationUri) itself.
+        open_browser=os.environ.get("SNOWPEA_TEST") != "1"
+        and not bool(getattr(conn, "remote_login", False)),
         on_progress=on_progress,
     )
 

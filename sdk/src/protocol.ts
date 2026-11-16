@@ -108,6 +108,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
 export type ErrorDetailReason =
   | "catch_all"
   | "jarvis_on"
+  | "local_only"
   | "mode_raise"
   | "model_cannot_see"
   | "no_vision_model"
@@ -120,6 +121,7 @@ export type ErrorDetailReason =
 export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>> = {
   catch_all: "invalid_params",
   jarvis_on: "jarvis_person_only",
+  local_only: "jarvis_person_only",
   mode_raise: "jarvis_person_only",
   model_cannot_see: "unavailable",
   no_vision_model: "unavailable",
@@ -2734,6 +2736,8 @@ export interface JobListResult {
     catchUpWindowMinutes?: number;
     /** Channel that receives the output. */
     channel?: string | null;
+    /** 'remote_login' when a remote web login (web.remote) scheduled the job over job.schedule; null for every other job (1.55.0). Show it: the job keeps running after that login ends. web.remote.status counts them (remoteJobs). */
+    createdBy?: "remote_login" | null;
     /** 'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0). */
     createdVia?: "rpc" | "tool";
     /** False once the job is cancelled or has run out. */
@@ -2929,6 +2933,8 @@ export interface JobUpdateResult {
   catchUpWindowMinutes?: number;
   /** Channel that receives the output. */
   channel?: string | null;
+  /** 'remote_login' when a remote web login (web.remote) scheduled the job over job.schedule; null for every other job (1.55.0). Show it: the job keeps running after that login ends. web.remote.status counts them (remoteJobs). */
+  createdBy?: "remote_login" | null;
   /** 'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0). */
   createdVia?: "rpc" | "tool";
   /** False once the job is cancelled or has run out. */
@@ -8199,7 +8205,7 @@ export interface ToolListResult {
 export interface ToolProgressParams {
   /** The tool.invoke callId this progress belongs to. */
   callId: string;
-  /** Progress text; re-emitted as session.event tool.progress. Any tool.progress, an empty keepalive included, restarts the call's deadline (addendum 15). */
+  /** Progress text; re-emitted as session.event tool.progress. Any tool.progress, an empty keepalive included, restarts the call's deadline (addendum 15). At most 65536 characters; only the connection the call was sent to may report. */
   message?: string;
   /** 1.55.0: what it waits for, one short line ('waiting for the page'). */
   note?: string | null;
@@ -8225,13 +8231,13 @@ export interface ToolRegisterParams {
     category?: string | null;
     /** Name it in the prompt and send its schema only after tool_search loads it, when the daemon has tools.agentDeferred on and the session's provider keeps a fixed tool list (1.21.0). Calling it by name still works. */
     deferred?: boolean;
-    /** What the model reads about the tool. */
+    /** What the model reads about the tool (at most 65536 characters). */
     description: string;
-    /** A description for the sessions of one agent definition (1.35.0), by agent name: a tool a coding agent uses a little can carry a short manual while the browsing agent keeps the long one in description. Other agents read description. */
+    /** A description for the sessions of one agent definition (1.35.0), by agent name: a tool a coding agent uses a little can carry a short manual while the browsing agent keeps the long one in description. Other agents read description. At most 50 entries, names up to 64 characters, each text up to 65536. */
     descriptionBy?: Record<string, string> | null;
     /** 1.55.0: a short description the model gets in the tool schema instead of description; core adds one line pointing at tool_help. description stays the full manual, which tool_help returns. */
     descriptionShort?: string | null;
-    /** 1.55.0: names that exist inside this tool, not as tools (a REPL's globals such as snapshot or click). A call to one of them as a tool, or a tool_search for it, is answered '<name> is not a tool: it is a helper inside <tool>; call it in that tool's code'. */
+    /** 1.55.0: names that exist inside this tool, not as tools (a REPL's globals such as snapshot or click). A call to one of them as a tool, or a tool_search for it, is answered '<name> is not a tool: it is a helper inside <tool>; call it in that tool's code'. Each is an identifier, dotted or not (page.goto): letters, digits, _ and $, up to 64 characters; anything else is invalid_params. */
     helpers?: string[] | null;
     /** JSON Schema of the arguments. */
     inputSchema?: Record<string, unknown>;
@@ -8243,7 +8249,7 @@ export interface ToolRegisterParams {
     parallel?: "safe" | "never";
     /** Permission class checked against the mode. */
     permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside";
-    /** 1.55.0: named parts of the manual (name -> text, names up to 64 chars, at most 50). tool_help {tool, section} returns one; tool_help {tool} lists them. A failed result whose meta carries helpSection: '<name>' gets that section appended, once per session. */
+    /** 1.55.0: named parts of the manual (name -> text, names up to 64 chars, at most 50; a text is kept up to 20000 characters and refused over 65536). tool_help {tool, section} returns one; tool_help {tool} lists them. A failed result whose meta carries helpSection: '<name>' gets that section appended, once per session. */
     sections?: Record<string, string> | null;
     /** How long tool.invoke may stay silent; default 120000. tool.progress restarts it, and it is paused while the session waits on an approval or a question. */
     timeoutMs?: number | null;
@@ -8346,6 +8352,8 @@ export interface WebRemoteClearPasswordResult {
   plainHttp?: boolean;
   /** Bound port (or the configured one). */
   port: number;
+  /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
+  remoteJobs?: number;
   /** Open browser sessions through the listener. */
   sessions?: number;
   /** Turns running now (a stop or restart would cut their watchers). */
@@ -8392,6 +8400,8 @@ export interface WebRemoteListenResult {
   plainHttp?: boolean;
   /** Bound port (or the configured one). */
   port: number;
+  /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
+  remoteJobs?: number;
   /** Open browser sessions through the listener. */
   sessions?: number;
   /** Turns running now (a stop or restart would cut their watchers). */
@@ -8443,6 +8453,8 @@ export interface WebRemoteSetPasswordResult {
   plainHttp?: boolean;
   /** Bound port (or the configured one). */
   port: number;
+  /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
+  remoteJobs?: number;
   /** Open browser sessions through the listener. */
   sessions?: number;
   /** Turns running now (a stop or restart would cut their watchers). */
@@ -8480,6 +8492,8 @@ export interface WebRemoteStatusResult {
   plainHttp?: boolean;
   /** Bound port (or the configured one). */
   port: number;
+  /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
+  remoteJobs?: number;
   /** Open browser sessions through the listener. */
   sessions?: number;
   /** Turns running now (a stop or restart would cut their watchers). */
@@ -8520,6 +8534,8 @@ export interface WebRemoteStopResult {
   plainHttp?: boolean;
   /** Bound port (or the configured one). */
   port: number;
+  /** Scheduled jobs a remote web login created and that still exist (job.list rows with createdBy 'remote_login', 1.55.0): they keep running after the login ends. */
+  remoteJobs?: number;
   /** Open browser sessions through the listener. */
   sessions?: number;
   /** Turns running now (a stop or restart would cut their watchers). */

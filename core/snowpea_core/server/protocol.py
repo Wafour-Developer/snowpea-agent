@@ -1750,6 +1750,11 @@ class ToolListResult(Payload):
     tools: list[ToolInfo] = Field(default_factory=list, description="Registered tools.")
 
 
+#: A helper name inside a host tool: an identifier, dotted or not (``page.goto``).
+#: It is quoted to the model, so it carries nothing but a name (review 6, L-4).
+HELPER_NAME_PATTERN = r"^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$"
+
+
 class HostToolSpec(Payload):
     """One tool a client runs itself (``tool.register``, 1.6.0)."""
 
@@ -1760,7 +1765,10 @@ class HostToolSpec(Payload):
             "that see this connection's tools."
         )
     )
-    description: str = Field(description="What the model reads about the tool.")
+    description: str = Field(
+        max_length=65536,
+        description="What the model reads about the tool (at most 65536 characters).",
+    )
     inputSchema: dict[str, Any] = Field(
         default_factory=lambda: {"type": "object", "properties": {}},
         description="JSON Schema of the arguments.",
@@ -1797,13 +1805,17 @@ class HostToolSpec(Payload):
             "null: every session of this host."
         ),
     )
-    descriptionBy: dict[str, str] | None = Field(
+    descriptionBy: (
+        dict[Annotated[str, Field(max_length=64)], Annotated[str, Field(max_length=65536)]] | None
+    ) = Field(
         default=None,
+        max_length=50,
         description=(
             "A description for the sessions of one agent definition (1.35.0), by agent "
             "name: a tool a coding agent uses a little can carry a short manual while "
             "the browsing agent keeps the long one in description. Other agents read "
-            "description."
+            "description. At most 50 entries, names up to 64 characters, each text up to "
+            "65536."
         ),
     )
     look: bool = Field(
@@ -1815,14 +1827,15 @@ class HostToolSpec(Payload):
             "annotatedScreenshot(, snapshotTabs(, display( or .screenshot( counts too."
         ),
     )
-    helpers: list[Annotated[str, Field(max_length=64)]] | None = Field(
+    helpers: list[Annotated[str, Field(max_length=64, pattern=HELPER_NAME_PATTERN)]] | None = Field(
         default=None,
         max_length=200,
         description=(
             "1.55.0: names that exist inside this tool, not as tools (a REPL's globals such "
             "as snapshot or click). A call to one of them as a tool, or a tool_search for "
             "it, is answered '<name> is not a tool: it is a helper inside <tool>; call it "
-            "in that tool's code'."
+            "in that tool's code'. Each is an identifier, dotted or not (page.goto): "
+            "letters, digits, _ and $, up to 64 characters; anything else is invalid_params."
         ),
     )
     descriptionShort: str | None = Field(
@@ -1834,11 +1847,15 @@ class HostToolSpec(Payload):
             "full manual, which tool_help returns."
         ),
     )
-    sections: dict[str, str] | None = Field(
+    sections: (
+        dict[Annotated[str, Field(max_length=64)], Annotated[str, Field(max_length=65536)]] | None
+    ) = Field(
         default=None,
+        max_length=50,
         description=(
             "1.55.0: named parts of the manual (name -> text, names up to 64 chars, at most "
-            "50). tool_help {tool, section} returns one; tool_help {tool} lists them. A "
+            "50; a text is kept up to 20000 characters and refused over 65536). "
+            "tool_help {tool, section} returns one; tool_help {tool} lists them. A "
             "failed result whose meta carries helpSection: '<name>' gets that section "
             "appended, once per session."
         ),
@@ -2162,9 +2179,11 @@ class ToolProgressParams(Payload):
     callId: str = Field(description="The tool.invoke callId this progress belongs to.")
     message: str = Field(
         default="",
+        max_length=65536,
         description=(
             "Progress text; re-emitted as session.event tool.progress. Any tool.progress, "
-            "an empty keepalive included, restarts the call's deadline (addendum 15)."
+            "an empty keepalive included, restarts the call's deadline (addendum 15). At "
+            "most 65536 characters; only the connection the call was sent to may report."
         ),
     )
     state: Literal["running", "waiting"] | None = Field(
@@ -3905,6 +3924,14 @@ class JobInfo(Payload):
     createdVia: Literal["rpc", "tool"] = Field(
         default="tool",
         description="'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0).",
+    )
+    createdBy: Literal["remote_login"] | None = Field(
+        default=None,
+        description=(
+            "'remote_login' when a remote web login (web.remote) scheduled the job over "
+            "job.schedule; null for every other job (1.55.0). Show it: the job keeps "
+            "running after that login ends. web.remote.status counts them (remoteJobs)."
+        ),
     )
     owned: bool = Field(
         default=False,
@@ -9260,6 +9287,13 @@ class WebRemoteStatus(Payload):
     error: str | None = Field(default=None, description="Why it is not listening, if it should.")
     turnsRunning: int = Field(
         default=0, description="Turns running now (a stop or restart would cut their watchers)."
+    )
+    remoteJobs: int = Field(
+        default=0,
+        description=(
+            "Scheduled jobs a remote web login created and that still exist (job.list rows "
+            "with createdBy 'remote_login', 1.55.0): they keep running after the login ends."
+        ),
     )
 
 

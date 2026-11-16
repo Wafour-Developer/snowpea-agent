@@ -87,7 +87,10 @@ async def open_client(
     keep_alive: bool = False,
     approval_mode: str = "allow",
     approval_scope: str = "once",
+    kind: str = "browser",
 ) -> HostClient:
+    """``kind="ide"``: a local person's connection (security review 6, L-2: only a
+    local person points a session or a job at ANOTHER client's browser)."""
     ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
     client = HostClient(ws, approval_mode=approval_mode, approval_scope=approval_scope)
     client.start()
@@ -95,7 +98,7 @@ async def open_client(
         "token": daemon.token,
         "clientVersion": "browser-test",
         "protocolVersion": PROTOCOL_VERSION,
-        "clientKind": "browser",
+        "clientKind": kind,
         "keepAlive": keep_alive,
     }
     if client_id:
@@ -285,7 +288,7 @@ async def test_host_tools_from_names_another_client(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
 ) -> None:
     host = await open_client(http, daemon, client_id="browser-install-1")
-    driver = await open_client(http, daemon)
+    driver = await open_client(http, daemon, kind="ide")
     try:
         await host.ok("tool.register", {"tools": [spec("host_echo")]})
         host.handlers["host_echo"] = lambda p: {"ok": True, "output": "from the browser"}
@@ -993,7 +996,7 @@ async def test_a_routine_waits_for_its_host_and_runs_when_the_host_registers(
     """Addendum 11: a firing whose host is away is held, not failed, and starts
     as soon as that host registers its tools; job.nextRunForClient tells the
     browser when to wake it."""
-    watcher = await open_client(http, daemon)
+    watcher = await open_client(http, daemon, kind="ide")
     try:
         (tmp_path / "w").mkdir()
         job = await watcher.ok(
@@ -1052,7 +1055,7 @@ async def test_job_update_patches_a_job_and_job_list_shows_a_held_run(
 ) -> None:
     """Addendum 12: job.update is a partial, validated patch; job.list carries
     held and catchUpWindowMinutes."""
-    watcher = await open_client(http, daemon)
+    watcher = await open_client(http, daemon, kind="ide")
     try:
         (tmp_path / "w").mkdir()
         job = await watcher.ok(
@@ -1110,7 +1113,7 @@ async def test_a_held_routine_past_its_window_is_recorded_as_missed(
 
     from snowpea_core.scheduler.jobs import utc_now
 
-    watcher = await open_client(http, daemon)
+    watcher = await open_client(http, daemon, kind="ide")
     try:
         (tmp_path / "w").mkdir()
         job = await watcher.ok(

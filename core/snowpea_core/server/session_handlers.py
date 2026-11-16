@@ -271,6 +271,9 @@ async def session_create_handler(
     conn: RpcConnection, params: SessionCreateParams, core: Core
 ) -> SessionCreateResult:
     """``session.create`` — also subscribes the caller to the session's events."""
+    from snowpea_core.server.settings_gate import host_choice_refusal
+
+    host_choice_refusal(conn, params.hostToolsFrom)  # security review 6, L-2
     await _refresh_settings(core)
     session = await core.sessions.create(
         workdir=params.workdir,
@@ -338,9 +341,16 @@ async def session_resume_handler(
     from snowpea_core.server.person_gate import hide_task_worker
 
     await hide_task_worker(conn, core, params.sessionId)
+    # Security review 6, L-1: a connector only watches; resuming never makes it
+    # the session's origin (the surface approvals and questions are sent to).
+    from snowpea_core.server.person_gate import connection_kind
+
+    watcher = connection_kind(conn) == "connector"
     session = core.sessions.get(params.sessionId)
     if session is None:
-        session = await core.sessions.restore(params.sessionId, origin_conn=conn)
+        session = await core.sessions.restore(
+            params.sessionId, origin_conn=None if watcher else conn
+        )
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     await _load_project_skills(core, session.workdir, session.id)
@@ -356,7 +366,7 @@ async def session_resume_handler(
     core.hub.subscribe(conn, session.id)
 
     # Watching an owned run does not make a client its surface (1.23.0).
-    if not runs_owned_job(core, session) and (
+    if not watcher and not runs_owned_job(core, session) and (
         session.origin_conn is None or getattr(session.origin_conn, "closed", False)
     ):
         session.origin_conn = conn
@@ -607,6 +617,11 @@ async def _last_command_line(core: Core, session_id: str) -> str | None:
 async def session_delete_saved_handler(
     _conn: RpcConnection, params: SessionDeleteParams, core: Core
 ) -> SessionDeleteResult:
+    from snowpea_core.server.rpc import current_actor
+    from snowpea_core.server.settings_gate import browser_session_refusal
+
+    await browser_session_refusal(_conn, core, params.sessionId, method="session.deleteSaved",
+                                  actor=current_actor())
     if core.store is None:
         return SessionDeleteResult()
     # An open thread with nothing running can be deleted outright: close it
@@ -723,6 +738,11 @@ def _live_rows(core: Core) -> list[dict[str, Any]]:
 
 async def session_close_handler(_conn: RpcConnection, params: SessionIdParams, core: Core) -> Ok:
     """``session.close`` — idempotent; closing a session closes its live subagents too."""
+    from snowpea_core.server.rpc import current_actor
+    from snowpea_core.server.settings_gate import browser_session_refusal
+
+    await browser_session_refusal(_conn, core, params.sessionId, method="session.close",
+                                  actor=current_actor())
     children = _subagent_children(_live_rows(core), params.sessionId)
     closed = await core.sessions.close(params.sessionId)
     for child in reversed(children):

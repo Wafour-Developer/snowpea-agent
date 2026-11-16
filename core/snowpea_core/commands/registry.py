@@ -50,6 +50,34 @@ def _clip_command_history(text: str) -> str:
     return f"{head}\n…[command output truncated]\n{tail}"
 
 
+def _refuse_local(conn: Any, core: Any, name: str, args: str, source: str, level: str) -> None:
+    """A command stands for the RPC it performs (security review 6, M-2).
+
+    Refused to a connection that is not a local person's: a ``local`` command
+    (``/update``, ``/desktop``, ``/allow``), and any command whose RPC twin
+    (``persists.COMMAND_TWINS``) the dispatcher's tables refuse to this kind of
+    connection — so ``/update`` reaches ``system.update`` for nobody
+    ``system.update`` itself would refuse.
+    """
+    from snowpea_core.commands.persists import twins
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.errors import RpcError
+    from snowpea_core.server.person_gate import method_refusal
+
+    refused = level == "local"
+    for method in () if refused else twins(name, args, source):
+        try:
+            method_refusal(method, conn)
+            settings_gate.kind_method_refusal(method, {}, conn, None)
+        except RpcError:
+            refused = True
+            break
+    if refused:
+        settings_gate.ledger_settings(core, conn, [f"/{name}"], refused=True, method="command.run")
+        settings_gate.refuse(conn, f"run /{name}", reason=settings_gate.LOCAL_ONLY,
+                             extra={"what": "command"})
+
+
 def gate_command(
     core: Any,
     session: Any,
@@ -66,6 +94,10 @@ def gate_command(
     * a browser: the per-command rule of ``command.run`` (``settings_gate.
       command_refusal``: a persisting command needs ``actor: "person"``);
     * a connector: nothing that persists;
+    * every connection but a local person's (a remote web login, a browser with
+      or without the marker, a connector): no ``local`` command and no command
+      whose RPC twin that connection may not call (:func:`_refuse_local`,
+      ``details.reason: "local_only"``);
     * anyone: a command that raises the session's mode needs a person
       (``session/mode_guard.py``, ``details.reason: "mode_raise"``);
     * no connection: ``caller="messenger"`` (the chat's bound person) and
@@ -87,6 +119,8 @@ def gate_command(
         session, "auto_after_plan", False) else getattr(session, "mode", "accept")
     if conn is not None:
         kind = connection_kind(conn)
+        if kind != "person":
+            _refuse_local(conn, core, name, args, source, what.level)
         command_refusal(conn, core, name, args, source=source, actor=actor)
         if kind == "connector" and what.level != "session":
             raise RpcError(errors.JARVIS_PERSON_ONLY, f"a connector cannot run /{name}",

@@ -58,7 +58,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "fs.write",
         "workspace.list", "workspace.add", "workspace.remove", "workspace.rename",
         "workspace.reorder",
-        "agent.list", "agent.create", "agent.delete", "agent.spawn", "agent.bindChannel",
+        "agent.list", "agent.spawn", "agent.bindChannel",
         "team.start", "team.status", "team.guide.list", "team.guide.get", "team.guide.delete",
         "job.schedule", "job.cancel", "job.delete", "job.runNow", "job.update",
         "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
@@ -88,12 +88,15 @@ TABLE: dict[str, tuple[str, ...]] = {
         "mcp.add", "mcp.update", "mcp.remove", "mcp.reload", "mcp.authorize",
         "mcp.deauthorize", "mcp.test",
         "skill.create", "skill.learn", "skill.reload", "skill.remove", "skill.write",
-        "skill.install", "memory.update", "audio.install", "gateway.bind", "lsp.install",
+        "skill.install", "memory.update", "audio.install", "lsp.install",
     ),
     # Config a browser changes with the marker, but no remote login.
     "ynnyny": ("setup.applyDefaults", "permission.allowlist.remove", "team.guide.set"),
     # People (local and remote): Jarvis, security lists, project trust status.
     "yynnnn": (
+        # Security review 6 (the browser team's source check): no browser calls
+        # these, marker or not, any version.
+        "agent.create", "agent.delete",
         "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
         "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
         "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",
@@ -105,6 +108,9 @@ TABLE: dict[str, tuple[str, ...]] = {
     "ynnnnn": (
         "jarvis.enable", "mcp.preset.apply", "mcp.preset.remove", "external.clis.confirmPath",
         "permission.allowlist.add",
+        # Security review 6, M-4: binding a messenger chat is a local person's
+        # (never a browser since 1.55.0, no longer a remote login either).
+        "gateway.bind",
         "web.remote.status", "web.remote.listen", "web.remote.stop", "web.remote.setPassword",
         "web.remote.clearPassword", "web.remote.rotateToken",
         "extension.enable", "extension.disable", "extension.configure", "extension.reload",

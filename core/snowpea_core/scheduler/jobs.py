@@ -135,6 +135,12 @@ class Job(BaseModel):
     #: ``tool`` an agent's ``schedule_create`` or a ``/schedule`` command.  A
     #: hint for the host, not proof that a person made it (1.23.0).
     created_via: CreatedVia = "tool"
+    #: The connection kind that made the job over RPC (``person``, ``browser``,
+    #: ``remote_login``, ``connector``; security review 6, M-4); ``None`` for a
+    #: tool's or an older job, which count as a local person's or a browser's as
+    #: before.  ``remote_login`` is shown in ``job.list`` and counted in
+    #: ``web.remote.status`` so the owner sees what a remote login left behind.
+    created_by: str | None = None
     #: Opaque data a browser host attached (a standing order's id).  A job
     #: with meta is *owned*: only ``owner_client_id`` may change or run it.
     meta: dict[str, Any] | None = None
@@ -228,6 +234,7 @@ class Job(BaseModel):
             lastStatus=self.last_status,
             catchUpWindowMinutes=self.catch_up_window_min,
             createdVia=self.created_via,
+            createdBy="remote_login" if self.created_by == "remote_login" else None,
             owned=self.owned,
             target=self.target,
             timezone=self.timezone,
@@ -265,6 +272,8 @@ class Job(BaseModel):
             data.update(hostToolsFrom=self.host_tools_from, hostWaitSec=self.host_wait_sec)
         if self.created_via != "tool":
             data["createdVia"] = self.created_via
+        if self.created_by:
+            data["createdBy"] = self.created_by
         if self.meta is not None:
             data.update(meta=self.meta, ownerClientId=self.owner_client_id)
         if self.target:
@@ -317,6 +326,8 @@ def _options_of(row: sqlite3.Row) -> dict[str, Any]:
         options["host_wait_sec"] = int(wait) if wait is not None else 300
     if data.get("createdVia") == "rpc":
         options["created_via"] = "rpc"
+    if data.get("createdBy") in ("person", "browser", "remote_login", "connector"):
+        options["created_by"] = str(data["createdBy"])
     if isinstance(data.get("meta"), dict):
         options["meta"] = data["meta"]
         options["owner_client_id"] = data.get("ownerClientId")

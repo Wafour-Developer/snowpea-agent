@@ -129,6 +129,11 @@ async def checkpoint_restore_handler(
 ) -> CheckpointRestoreResult:
     _validate_id(params.sessionId, "sessionId")
     _validate_id(params.id, "checkpoint id")
+    from snowpea_core.server.settings_gate import browser_session_refusal
+
+    # Security review 6: a browser rewinds only a session it hosts or one a
+    # browser opened (its own click gate stands in for the marker for now).
+    await browser_session_refusal(_conn, core, params.sessionId, method="checkpoint.restore")
     _ensure_idle(core, params.sessionId)
     session = await _session(core, params.sessionId)
     try:

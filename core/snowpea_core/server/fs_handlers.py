@@ -550,12 +550,67 @@ def _roots_for(core: Core, session_id: str) -> Roots:
     return session_roots(core, session)
 
 
+def control_file(target: Path) -> bool:
+    """``target`` decides what runs later: a project control file (hooks, agents,
+    commands, skills, MCP and settings files, the agent CLIs' own config) or git
+    plumbing (``.git/hooks``, ``.git/config``): ``trust.projects.control_path``
+    and the classifier's rules, the ones the write tools ask a person about."""
+    from snowpea_core.jarvis.classify import _git_plumbing, cli_control_path
+    from snowpea_core.trust.projects import control_path
+
+    for candidate in {target, Path(_fold(str(target))), Path(_windows_clean(str(target)))}:
+        if control_path(candidate) or _git_plumbing(candidate) or cli_control_path(candidate):
+            return True
+    return False
+
+
+def _refuse_caller(conn: Any, core: Core, session_id: str, roots: Roots, params: Any,
+                   write: bool) -> None:
+    """Who may use ``fs.*`` on which session, and write what (security review 6, L-6).
+
+    A browser (0.3.0+) reads only a session it hosts, or an unhosted one it
+    opened — another client's is ``not_found``.  A browser of any version
+    WRITES only into a session it hosts (``hostToolsFrom`` is its clientId, its
+    surface id or the alias ``"browser"``; having opened it is not enough),
+    marker or not: ``jarvis_person_only`` otherwise.  A remote web login sees
+    every session (``session.list`` shows them all), so nothing narrower
+    applies to it.  A control file is written only by a local person:
+    ``fs.write`` has no way to ask, so every other kind is refused
+    (``protected``).
+    """
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.person_gate import connection_kind
+
+    kind = connection_kind(conn)
+    if kind == "browser" and write:
+        session = core.sessions.get(session_id)
+        if not settings_gate._names_browser(conn, getattr(session, "host_tools_from", None)):
+            settings_gate.refuse(conn, "write a file in a session this browser does not host")
+    elif kind == "browser" and not settings_gate.legacy_browser(conn):
+        session = core.sessions.get(session_id)
+        mine = getattr(conn, "client_id", None)
+        host = getattr(session, "host_tools_from", None)
+        opened = getattr(session, "origin_conn", None) is conn or (
+            bool(mine) and getattr(session, "origin_client_id", None) == mine
+        )
+        if not (settings_gate._names_browser(conn, host) if host is not None else opened):
+            raise RpcError(errors.NOT_FOUND, f"no such session: {session_id}")
+    if write and kind != "person" and control_file(roots.no_follow(params.path)):
+        raise RpcError(
+            errors.PROTECTED,
+            "a project control file (hooks, agents, commands, skills, MCP, git hooks and "
+            "config) is written only from a local connection",
+            {"reason": settings_gate.LOCAL_ONLY, "kind": kind},
+        )
+
+
 def _handler(
-    work: Callable[[Roots, Any], T],
+    work: Callable[[Roots, Any], T], *, write: bool = False,
 ) -> Callable[[RpcConnection, Any, Core], Any]:
     async def handle(_conn: RpcConnection, params: Any, core: Core) -> T:
         roots = _roots_for(core, params.sessionId)
         try:
+            _refuse_caller(_conn, core, params.sessionId, roots, params, write)
             return await asyncio.to_thread(work, roots, params)
         except RpcError:
             raise
@@ -572,7 +627,7 @@ def register_fs_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("fs.list", _handler(fs_list))
     dispatcher.register("fs.glob", _handler(fs_glob))
     dispatcher.register("fs.read", _handler(fs_read))
-    dispatcher.register("fs.write", _handler(fs_write))
+    dispatcher.register("fs.write", _handler(fs_write, write=True))
     dispatcher.register("fs.hash", _handler(fs_hash))
 
 

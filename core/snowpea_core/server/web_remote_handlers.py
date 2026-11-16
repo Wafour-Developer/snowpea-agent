@@ -101,8 +101,20 @@ async def _save(core: Core, **values: Any) -> None:
     await core.adopt_settings(updated, hot_reload.changed_keys(before, patch))
 
 
+async def _status(core: Core) -> WebRemoteStatus:
+    """:func:`status_of` plus the jobs remote logins left scheduled (review 6, M-4)."""
+    status = status_of(core)
+    scheduler = getattr(core, "scheduler", None)
+    if scheduler is not None:
+        with contextlib.suppress(Exception):  # the status itself must still answer
+            status.remoteJobs = sum(
+                1 for job in await scheduler.list() if job.created_by == "remote_login"
+            )
+    return status
+
+
 async def status_handler(_conn: RpcConnection, _params: Empty, core: Core) -> WebRemoteStatus:
-    return status_of(core)
+    return await _status(core)
 
 
 async def listen_handler(
@@ -132,7 +144,7 @@ async def listen_handler(
         listener = _listener(core)
         await _save(core, enabled=True, host=params.host,
                     port=params.port if params.port else listener.port, username=username)
-    return status_of(core)
+    return await _status(core)
 
 
 async def stop_handler(
@@ -141,7 +153,7 @@ async def stop_handler(
     await _listener(core).stop()
     if params.save:
         await _save(core, enabled=False)
-    return status_of(core)
+    return await _status(core)
 
 
 async def set_password_handler(
@@ -164,7 +176,7 @@ async def set_password_handler(
     # The hash changes the sessions' fingerprint: everyone is logged out.
     web_remote.set_password(core.paths, params.password)
     await _logout_all(core)
-    return status_of(core)
+    return await _status(core)
 
 
 async def clear_password_handler(
@@ -172,7 +184,7 @@ async def clear_password_handler(
 ) -> WebRemoteStatus:
     web_remote.clear_password(core.paths)
     await _logout_all(core)
-    return status_of(core)
+    return await _status(core)
 
 
 async def rotate_token_handler(
@@ -188,8 +200,9 @@ async def _logout_all(core: Core) -> None:
     auth = getattr(listener, "auth", None)
     if auth is None:
         return
-    for token in list(auth.sessions):
-        await auth.drop(token)
+    # Every socket of the listener, not only those of the logins still listed
+    # (security review 6, M-1).
+    await auth.end_all()
 
 
 def register_web_remote_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:

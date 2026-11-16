@@ -66,7 +66,7 @@ from snowpea_core.server.protocol import (
     Ok,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
-from snowpea_core.server.settings_gate import guard_call
+from snowpea_core.server.settings_gate import guard_call, remote_mcp_refusal
 from snowpea_core.tools import mcp_catalog, mcp_client, mcp_config, mcp_oauth, mcp_security
 from snowpea_core.tools.mcp_client import MANAGER, McpServer, McpServerConfig
 
@@ -557,6 +557,7 @@ async def mcp_add_handler(
     # and what a model is sent must not change for a client's sake.
     accept_findings = params.force or params.acceptFindings
     replace_existing = params.force or params.replace
+    remote_mcp_refusal(_conn, core, method="mcp.add", entry=entry, accept=bool(accept_findings))
     warnings = mcp_security.findings(entry, name)
     if warnings and not accept_findings:
         raise RpcError(
@@ -711,6 +712,8 @@ async def mcp_update_handler(
     warnings = mcp_security.findings(entry, params.name)
     known = set(mcp_security.findings(current, params.name))
     accepted = params.force or params.acceptFindings
+    remote_mcp_refusal(_conn, core, method="mcp.update", entry=entry, saved=current,
+                       accept=bool(accepted))
     if any(item not in known for item in warnings) and not accepted:
         raise RpcError(
             errors.MCP_UNSAFE,
@@ -785,6 +788,8 @@ async def mcp_test_handler(
             )
         except mcp_config.McpConfigError as exc:
             raise _invalid(exc) from exc
+        remote_mcp_refusal(_conn, core, method="mcp.test", entry=entry,
+                           saved=row.entry if row is not None else None)
         parsed = McpServerConfig.parse(params.name or "draft", entry, "draft")
         assert parsed is not None
         # A draft of a trusted saved entry may keep using that entry's own

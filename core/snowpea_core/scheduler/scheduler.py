@@ -240,6 +240,7 @@ class Scheduler:
         target: str | None = None,
         target_data: dict[str, Any] | None = None,
         timezone: str | None = None,
+        created_by: str | None = None,
     ) -> Job:
         """Parse ``spec``, store the job and return it. ``ValueError`` if unparseable."""
         if not task.strip():
@@ -260,6 +261,7 @@ class Scheduler:
         if job.next_run is None:
             raise ValueError(f"the schedule {spec!r} has no future firing time")
         job.created_via = created_via
+        job.created_by = created_by
         job.title = (title or "").strip() or None
         job.target, job.target_data = target, target_data
         job.timezone = parsed.tz

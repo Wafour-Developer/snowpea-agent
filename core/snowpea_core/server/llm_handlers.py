@@ -14,6 +14,7 @@ validates against it, or the call fails with ``invalid_output``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -158,6 +159,39 @@ def _messages(params: LlmSampleParams) -> list[ChatMessage]:
 #: ``llm.sample`` image limits (1.55.0), on the decoded bytes.
 SAMPLE_IMAGE_MAX_BYTES = 6 * 1024 * 1024
 SAMPLE_IMAGES_MAX_BYTES = 12 * 1024 * 1024
+#: Width x height one image may have: a few kilobytes can declare a picture
+#: that takes gigabytes to decode (security review 6, L-7).
+SAMPLE_IMAGE_MAX_PIXELS = 50_000_000
+
+
+def _pixels(raw: bytes) -> int | None:
+    """Width x height from the image header (nothing decoded); ``None`` if unknown.
+
+    A PNG's and a GIF's are read by hand; the other types through Pillow's
+    header parse when Pillow is installed (without it nothing is decoded at
+    all, so there is nothing to bound).
+    """
+    if len(raw) >= 24 and raw[:8] == b"\x89PNG\r\n\x1a\n" and raw[12:16] == b"IHDR":
+        return int.from_bytes(raw[16:20], "big") * int.from_bytes(raw[20:24], "big")
+    if len(raw) >= 10 and raw[:6] in (b"GIF87a", b"GIF89a"):
+        return int.from_bytes(raw[6:8], "little") * int.from_bytes(raw[8:10], "little")
+    try:
+        from PIL import Image  # noqa: PLC0415 - optional dependency, imported lazily
+    except ImportError:
+        return None
+    import io
+    import warnings
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with Image.open(io.BytesIO(raw)) as image:
+                width, height = image.size
+    except Image.DecompressionBombError:
+        return SAMPLE_IMAGE_MAX_PIXELS + 1  # past Pillow's own limit: too many
+    except Exception:  # noqa: BLE001 - unreadable: validate_image says why
+        return None
+    return int(width) * int(height)
 
 
 def _check_images(params: LlmSampleParams) -> None:
@@ -182,6 +216,15 @@ def _check_images(params: LlmSampleParams) -> None:
                 {"index": index, "reason": "too_large"},
             )
         total += len(raw)
+        pixels = _pixels(raw)
+        if pixels is not None and pixels > SAMPLE_IMAGE_MAX_PIXELS:
+            # Judged from the header, before anything is decoded (review 6, L-7).
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                f"images[{index}] has more than {SAMPLE_IMAGE_MAX_PIXELS // 1_000_000} "
+                "million pixels",
+                {"index": index, "reason": "too_large"},
+            )
         problem = validate_image(raw, image.mime, decode=True)
         if problem:
             raise RpcError(
@@ -271,7 +314,8 @@ async def llm_sample_handler(
     vendor = str(getattr(provider, "vendor", "") or route.provider or "")
     model = str(getattr(provider, "model", "") or route.model or "")
     if params.images:
-        _check_images(params)
+        # Base64 and a full decode of up to 12 MB: off the event loop (review 6, L-7).
+        await asyncio.to_thread(_check_images, params)
         try:
             sees = core.providers.vision_for(vendor, model)
         except Exception:  # noqa: BLE001 - unknown: let the server decide

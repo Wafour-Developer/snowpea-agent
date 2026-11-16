@@ -703,6 +703,19 @@ class ApprovalQueue:
             return Decision("deny", "once", "interrupted", errors.APPROVAL_DENIED)
         return Decision("deny", "once", "timeout", errors.APPROVAL_TIMEOUT)
 
+    async def _to_shared_queue(self, entry: _Pending, why: str) -> None:
+        """The origin's allow did not count: tell it why and open the request to
+        the other surfaces (``approval.pending``), where a person can answer it."""
+        entry.unattended = True
+        await self._refused_to_origin(entry, why)
+        if self.hub is not None:
+            await self.hub.notify(
+                "approval.pending",
+                {"request": entry.request.model_dump(mode="json"),
+                 "hostToolsFrom": entry.host},
+                exclude=entry.origin_conn,
+            )
+
     async def _ask_origin(self, entry: _Pending) -> None:
         """Send ``approval.request`` to the origin connection and record the answer."""
         request = entry.request
@@ -714,8 +727,17 @@ class ApprovalQueue:
             )
             allowed = answer.get("decision") == "allow"
             scope = str(answer.get("scope", "once"))
+            from snowpea_core.server.person_gate import connection_kind
+
+            if allowed and connection_kind(entry.origin_conn) == "connector":
+                # Security review 6, L-1: a connector (or an unknown client kind)
+                # never approves, origin or not: its allow is no answer.  The
+                # request stays open for a person's surface (approval.respond).
+                log.warning("approval %s: a connector origin's allow is not an answer",
+                            request.requestId)
+                await self._to_shared_queue(entry, "a connector cannot approve")
+                return
             if allowed and scope != "once":
-                from snowpea_core.server.person_gate import connection_kind
                 from snowpea_core.server.settings_gate import acts_for_person
 
                 actor = answer.get("actor")
@@ -745,15 +767,7 @@ class ApprovalQueue:
                     # the card back (it may still decline).  Else it times out.
                     log.warning("approval %s: origin allow refused (%s)", request.requestId,
                                 exc.message)
-                    entry.unattended = True
-                    await self._refused_to_origin(entry, exc.message)
-                    if self.hub is not None:
-                        await self.hub.notify(
-                            "approval.pending",
-                            {"request": request.model_dump(mode="json"),
-                             "hostToolsFrom": entry.host},
-                            exclude=entry.origin_conn,
-                        )
+                    await self._to_shared_queue(entry, exc.message)
                     return
         except TimeoutError:
             decision = Decision("deny", "once", "timeout", errors.APPROVAL_TIMEOUT)

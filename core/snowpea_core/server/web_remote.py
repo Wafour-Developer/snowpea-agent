@@ -69,6 +69,16 @@ FAILURE_DELAY_SEC = 0.3
 RATE_WINDOW_SEC = 300.0
 MAX_FAILURES_PER_IP = 5
 MAX_FAILURES_GLOBAL = 20
+#: Security review 6, M-3/L-5: over a limit an attempt is not refused unchecked
+#: but made to wait first — this long, doubling with every failure over the
+#: limit up to the cap — and then checked, so a right credential still gets in.
+PENALTY_BASE_SEC = 1.0
+PENALTY_MAX_SEC = 30.0
+#: scrypt checks running at once (each takes 32 MiB and a core for ~0.1 s).
+MAX_PARALLEL_CHECKS = 2
+#: Attempts of one address (one /64) that may wait their turn while it is over
+#: its limit; any beyond are answered 429 unchecked.
+MAX_WAITING_PER_IP = 4
 #: A login body is two short strings.
 MAX_BODY_BYTES = 4096
 SWEEP_INTERVAL_SEC = 60.0
@@ -205,6 +215,39 @@ class _Session:
     capability: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
 
 
+def rate_key(ip: str) -> str:
+    """What the per-address limit counts by: the address, or its /64 for IPv6
+    (one subscriber holds a whole /64; security review 6, M-3)."""
+    import ipaddress
+
+    try:
+        address = ipaddress.ip_address(ip.split("%", 1)[0])
+    except ValueError:
+        return ip
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.ip_network((address, 64), strict=False))
+    return str(address)
+
+
+class _Track(set):  # type: ignore[type-arg]
+    """What ``websocket_handler`` tracks a remote socket in: its login's set and
+    the listener's set of every socket (security review 6, M-1)."""
+
+    def __init__(self, *targets: set[web.WebSocketResponse]) -> None:
+        super().__init__()
+        self.targets = targets
+
+    def add(self, ws: web.WebSocketResponse) -> None:
+        for target in self.targets:
+            target.add(ws)
+
+    def discard(self, ws: web.WebSocketResponse) -> None:
+        for target in self.targets:
+            target.discard(ws)
+
+
 class RemoteAuth:
     """In-memory login sessions and failure counters for one daemon run."""
 
@@ -213,6 +256,16 @@ class RemoteAuth:
         self.session_sec = max(1.0, float(session_hours) * 3600.0)
         self.paths = paths
         self.sessions: dict[str, _Session] = {}
+        #: Every open socket of this listener, whichever login opened it and
+        #: whether or not that login is still listed (M-1).
+        self.sockets: set[web.WebSocketResponse] = set()
+        self._closing: set[asyncio.Task[None]] = set()
+        self.penalty_base = PENALTY_BASE_SEC
+        self.penalty_max = PENALTY_MAX_SEC
+        self.sleep = asyncio.sleep
+        self._check_slots = asyncio.Semaphore(MAX_PARALLEL_CHECKS)
+        self._waiting: dict[str, int] = {}
+        self._turns: dict[str, asyncio.Lock] = {}
         self._ip_failures: dict[str, deque[float]] = {}
         self._global_failures: deque[float] = deque()
         self.failure_delay = FAILURE_DELAY_SEC
@@ -265,16 +318,29 @@ class RemoteAuth:
         if found is None:
             return None
         if found.expires <= self.clock():
-            self.sessions.pop(token, None)
+            # Expired: its sockets go with it (security review 6, M-1).
+            self._end(token, found)
             return None
         current = self._current_fingerprint()
         if not current or current != found.fingerprint:
             # The password was changed or cleared: end the session like a logout.
-            self.sessions.pop(token, None)
-            with contextlib.suppress(RuntimeError):
-                asyncio.get_running_loop().create_task(_close_all(found.sockets))
+            self._end(token, found)
             return None
         return found
+
+    def _end(self, token: str, found: _Session) -> None:
+        """Forget a login and close its sockets (from sync code: as a task)."""
+        self.sessions.pop(token, None)
+        with contextlib.suppress(RuntimeError):
+            task = asyncio.get_running_loop().create_task(_close_all(found.sockets))
+            self._closing.add(task)
+            task.add_done_callback(self._closing.discard)
+
+    async def end_all(self) -> None:
+        """Log everyone out: no login stays, and every socket of the listener closes."""
+        for token in list(self.sessions):
+            await self.drop(token)
+        await _close_all(self.sockets)
 
     def capability_ok(self, cookie: str | None, presented: str | None) -> bool:
         """``presented`` is the live login ``cookie``'s capability (constant time)."""
@@ -318,7 +384,7 @@ class RemoteAuth:
 
     def retry_after_ip(self, ip: str) -> int:
         """Seconds until ``ip``'s own failures let it try again (0: now)."""
-        queue = self._ip_failures.get(ip)
+        queue = self._ip_failures.get(rate_key(ip))
         if queue is None:
             return 0
         self._trim(queue)
@@ -339,18 +405,88 @@ class RemoteAuth:
         return max(1, int(self._global_failures[-MAX_FAILURES_GLOBAL] + RATE_WINDOW_SEC
                           - self.clock() + 0.999))
 
-    def record_failure(self, ip: str) -> float:
+    def record_failure(self, ip: str, *, everyone: bool = True) -> float:
         now = self.clock()
-        self._ip_failures.setdefault(ip, deque()).append(now)
-        self._global_failures.append(now)
+        self._ip_failures.setdefault(rate_key(ip), deque()).append(now)
+        if everyone:
+            self._global_failures.append(now)
         return now
 
     def forgive(self, ip: str, stamp: float) -> None:
         """Take back the failure :meth:`record_failure` counted for an attempt that passed."""
-        for queue in (self._ip_failures.get(ip), self._global_failures):
+        for queue in (self._ip_failures.get(rate_key(ip)), self._global_failures):
             with contextlib.suppress(ValueError):
                 if queue is not None:
                     queue.remove(stamp)
+
+    def penalty(self, ip: str) -> float:
+        """Seconds the next attempt from ``ip`` waits before it is checked: 0 under
+        both limits, else ``penalty_base`` doubling per failure over a limit, capped."""
+        self._trim(self._global_failures)
+        queue = self._ip_failures.get(rate_key(ip))
+        if queue is not None:
+            self._trim(queue)
+        over = max(len(queue or ()) - MAX_FAILURES_PER_IP,
+                   len(self._global_failures) - MAX_FAILURES_GLOBAL)
+        if over < 0:
+            return 0.0
+        return float(min(self.penalty_max, self.penalty_base * 2 ** min(over, 16)))
+
+    async def attempt(self, ip: str, check: Any) -> tuple[bool, int]:
+        """One credential attempt from ``ip`` under the limits: ``(passed, retry_after)``.
+
+        Security review 6, M-3/L-5.  The credential is ALWAYS checked (bar the
+        overflow below), so a right one gets in whatever the buckets say and
+        nobody can lock the person out by failing from elsewhere or by claiming
+        their address through a proxy header.  What the limits cost is time:
+        over the per-address limit the address's attempts go one at a time,
+        each after :meth:`penalty`; while the everyone-together bucket is full
+        every attempt waits the penalty first.  A wrong one over a limit is
+        answered ``retry_after`` > 0 (429), as before.  More than
+        :data:`MAX_WAITING_PER_IP` attempts of one address queued at once are
+        answered 429 unchecked.
+        """
+        key = rate_key(ip)
+        ip_wait = self.retry_after_ip(ip)
+        global_wait = self.retry_after_global()
+        delay = self.penalty(ip)
+        if ip_wait and self._waiting.get(key, 0) >= MAX_WAITING_PER_IP:
+            return False, ip_wait
+        # Counted at once (no await since the limits were read), so attempts sent
+        # in parallel cannot all slip under a limit; a right credential takes it
+        # back.  An address already over its own limit no longer adds to the
+        # everyone-together bucket: one address cannot slow everybody down.
+        stamp = self.record_failure(ip, everyone=not ip_wait)
+        started = time.monotonic()
+        if ip_wait:
+            self._waiting[key] = self._waiting.get(key, 0) + 1
+            turn = self._turns.setdefault(key, asyncio.Lock())
+            try:
+                async with turn:
+                    await self.sleep(delay)
+                    passed = bool(await check())
+            finally:
+                left = self._waiting.get(key, 1) - 1
+                if left > 0:
+                    self._waiting[key] = left
+                else:
+                    self._waiting.pop(key, None)
+                    self._turns.pop(key, None)
+        else:
+            if delay:
+                await self.sleep(delay)
+            passed = bool(await check())
+        if passed:
+            self.forgive(ip, stamp)
+            return True, 0
+        await asyncio.sleep(max(0.0, self.failure_delay - (time.monotonic() - started)))
+        # Over a limit before this attempt: 429, with the wait as it stands now.
+        return False, self.retry_after(ip) if (ip_wait or global_wait) else 0
+
+    async def check_password(self, username: str, password: str) -> bool:
+        """:meth:`check` off the event loop, at most :data:`MAX_PARALLEL_CHECKS` at once."""
+        async with self._check_slots:
+            return await asyncio.to_thread(self.check, username, password)
 
     def check(self, username: str, password: str) -> bool:
         """Constant-time username and password check; never says which failed."""
@@ -438,35 +574,32 @@ async def login(request: web.Request) -> web.Response:
     ip = _client_ip(request)
     if request.headers.get("Origin") and not _origin_ok(request):
         return _json({"ok": False, "error": "bad_origin"}, 403)
-    wait = auth.retry_after_ip(ip)
-    if wait:
-        log.warning("web login refused from %s: too many failures (retry in %ds)", ip, wait)
-        return _json({"ok": False, "error": "rate_limited"}, 429, **{"Retry-After": str(wait)})
-    # The global bucket is judged after the check (L1): it refuses wrong passwords only.
-    global_wait = auth.retry_after_global()
-    # Counted at once (no await since the check above), so attempts sent in
-    # parallel cannot all slip under the limit; a good password takes it back.
-    stamp = auth.record_failure(ip)
-    started = time.monotonic()
-    if request.content_type != "application/json":
+    username: Any = None
+    password: Any = None
+    if request.content_type == "application/json":
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            body = None
+        username = body.get("username") if isinstance(body, dict) else None
+        password = body.get("password") if isinstance(body, dict) else None
+    malformed = not isinstance(username, str) or not isinstance(password, str)
+
+    async def check() -> bool:
+        # A malformed body is an attempt too (it counts), and never passes.
+        return not malformed and await auth.check_password(username, password)
+
+    # Both limits are paid in time and judged after the check (review 5 L1,
+    # review 6 M-3/L-5): they refuse wrong passwords only.
+    ok, wait = await auth.attempt(ip, check)
+    if malformed:
         return _json({"ok": False, "error": "bad_request"}, 400)
-    try:
-        body = await request.json()
-    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-        body = None
-    username = body.get("username") if isinstance(body, dict) else None
-    password = body.get("password") if isinstance(body, dict) else None
-    if not isinstance(username, str) or not isinstance(password, str):
-        return _json({"ok": False, "error": "bad_request"}, 400)
-    ok = await asyncio.to_thread(auth.check, username, password)
     if not ok:
         log.warning("web login failed from %s", ip)
-        await asyncio.sleep(max(0.0, auth.failure_delay - (time.monotonic() - started)))
-        if global_wait:
+        if wait:
             return _json({"ok": False, "error": "rate_limited"}, 429,
-                         **{"Retry-After": str(global_wait)})
+                         **{"Retry-After": str(wait)})
         return _json({"ok": False, "error": "invalid_credentials"}, 401)
-    auth.forgive(ip, stamp)
     token = auth.open_session()
     log.info("web login succeeded from %s (user %s)", ip, auth.username)
     response = _json({"ok": True})
@@ -523,7 +656,8 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
     def capability_ok(presented: str | None) -> bool:
         return auth.capability_ok(cookie, presented)
 
-    return await websocket_handler(request, track=found.sockets, capability=capability_ok)
+    return await websocket_handler(request, track=_Track(found.sockets, auth.sockets),
+                                   capability=capability_ok)
 
 
 async def remote_web_redirect(request: web.Request) -> web.Response:
@@ -606,24 +740,21 @@ async def remote_page(request: web.Request) -> web.StreamResponse:
     if auth.password_mode:
         raise web.HTTPFound(target)
     ip = _client_ip(request)
-    wait = auth.retry_after_ip(ip)
-    if wait:
-        log.warning("web access link refused from %s: too many failures", ip)
-        return _json({"ok": False, "error": "rate_limited"}, 429, **{"Retry-After": str(wait)})
-    global_wait = auth.retry_after_global()  # refuses a wrong token only (L1)
-    stamp = auth.record_failure(ip)
-    started = time.monotonic()
-    if not auth.check_token(presented):
+
+    async def check() -> bool:
+        return auth.check_token(presented)
+
+    # The limits refuse a wrong token only (review 5 L1, review 6 M-3/L-5).
+    ok, wait = await auth.attempt(ip, check)
+    if not ok:
         log.warning("web access link with a wrong token from %s", ip)
-        await asyncio.sleep(max(0.0, auth.failure_delay - (time.monotonic() - started)))
-        if global_wait:
+        if wait:
             return _json({"ok": False, "error": "rate_limited"}, 429,
-                         **{"Retry-After": str(global_wait)})
+                         **{"Retry-After": str(wait)})
         if _wants_html(request):
             # A person opened a stale or wrong link: a page, never the token or why.
             return _stale_link_page(request)
         return _json({"ok": False, "error": "invalid_token"}, 401)
-    auth.forgive(ip, stamp)
     session_token = auth.open_session()
     log.info("web access link used from %s", ip)
     response = web.Response(status=302, headers={"Location": target, "Cache-Control": "no-store"})
@@ -810,8 +941,7 @@ class RemoteListener:
         self.runner = None
         self.auth = None
         if auth is not None:
-            for token in list(auth.sessions):
-                await auth.drop(token)
+            await auth.end_all()
         if runner is not None:
             await runner.cleanup()
 
