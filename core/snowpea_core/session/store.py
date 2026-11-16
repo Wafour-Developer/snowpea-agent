@@ -449,20 +449,28 @@ class Store:
         rows = await asyncio.to_thread(self._query, sql)
         return [dict(row) for row in rows]
 
-    def session_workdirs(self, *, limit: int = 50) -> list[str]:
+    def session_workdirs(self, *, limit: int = 50, before: str | None = None) -> list[str]:
         """Distinct workdirs of stored sessions, newest first (M15 §B5a).
 
         Synchronous on purpose: :meth:`SkillLoader.workdirs` is called from the
         synchronous scan that ``wire_core`` runs before the event loop owns the
         daemon, and one indexed ``SELECT`` is cheaper than making the whole
-        scan path async.
+        scan path async.  ``before``: only projects with a session created
+        before that timestamp (the project-trust migration, review 6 M-4).
         """
         try:
-            rows = self._query(
-                "SELECT workdir, MAX(created_at) AS last FROM sessions "
-                "GROUP BY workdir ORDER BY last DESC LIMIT ?",
-                (int(limit),),
-            )
+            if before is not None:
+                rows = self._query(
+                    "SELECT workdir, MAX(created_at) AS last FROM sessions "
+                    "WHERE created_at < ? GROUP BY workdir ORDER BY last DESC LIMIT ?",
+                    (str(before), int(limit)),
+                )
+            else:
+                rows = self._query(
+                    "SELECT workdir, MAX(created_at) AS last FROM sessions "
+                    "GROUP BY workdir ORDER BY last DESC LIMIT ?",
+                    (int(limit),),
+                )
         except (StoreClosed, sqlite3.Error):
             return []
         return [str(row["workdir"]) for row in rows if row["workdir"]]

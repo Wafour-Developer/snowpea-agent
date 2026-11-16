@@ -101,6 +101,12 @@ SECURITY_BLOCKED = "security_blocked"
 #: neededTokens}``).
 HOOK_FAILED = "hook_failed"
 CONTEXT_WINDOW_TOO_SMALL = "context_window_too_small"
+#: 1.55.0 (security review 6, M-5): ``project.trust.set`` was given digests that
+#: are not what is on disk now — a file changed, appeared or went away between
+#: the status the person looked at and the click.  Nothing was trusted;
+#: ``details {changed: [path], added: [path], missing: [path]}``.  Read the
+#: status again and show it.
+TRUST_CHANGED = "trust_changed"
 
 #: ``error.data.details.reason`` values a client may switch on (1.55.0
 #: enumerates them): reason -> (the code it rides on, what it means).
@@ -125,6 +131,11 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
     "project_add_only": (
         INVALID_PARAMS,
         "a project's security lists may only add entries; details.removed names the rest",
+    ),
+    "global_only": (
+        INVALID_PARAMS,
+        "a project scope tried to set a key only the global settings hold "
+        "(security.unknownCode); details.key",
     ),
     "untrusted_project": (
         EXTERNAL_UNAVAILABLE,
@@ -192,6 +203,7 @@ ERROR_CODES: tuple[str, ...] = (
     SECURITY_BLOCKED,
     HOOK_FAILED,
     CONTEXT_WINDOW_TOO_SMALL,
+    TRUST_CHANGED,
 )
 
 # JSON-RPC 2.0 reserved codes.

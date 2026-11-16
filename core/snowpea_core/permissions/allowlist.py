@@ -511,8 +511,16 @@ class Allowlist:
         origin: str | None = None,
         host: str | None = None,
         reason_code: str | None = None,
+        keeps_trust: bool = True,
     ) -> str:
-        """Store ``pattern`` and return its id (existing duplicates are reused)."""
+        """Store ``pattern`` and return its id (existing duplicates are reused).
+
+        ``keeps_trust``: the writer is a local person (a typed rule, the app's
+        own answer), so a project's settings trust follows the new content.  The
+        approval queue passes False for an answer that came from anywhere else
+        (security review 6, L-2): the rule is stored, the project file then
+        waits for a local person to trust it as it is.
+        """
         pattern = pattern.strip()
         if not pattern:
             raise ValueError("an allowlist pattern may not be empty")
@@ -544,7 +552,8 @@ class Allowlist:
             project = ProjectSettings.load(workdir)
             project.allowlist = [*project.allowlist, entry]
             project.save(workdir)
-            self._person_wrote(workdir, before)
+            if keeps_trust:
+                self._person_wrote(workdir, before)
         else:
             self.settings.allowlist = [*self.settings.allowlist, entry]
             self._save_global()

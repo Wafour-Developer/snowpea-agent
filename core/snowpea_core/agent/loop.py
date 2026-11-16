@@ -3112,6 +3112,13 @@ async def _auto_inject_skills(
             continue
         if callable(enabled) and not enabled(skill):
             continue
+        # Security review 6, M-6: a project's skill comes in only for a session
+        # working in that project, and only with the project's ``commands``
+        # trust for the file as it was loaded.
+        may_inject = getattr(loader, "may_inject", None)
+        if getattr(skill, "project", None) is not None and not (
+                callable(may_inject) and may_inject(skill, getattr(session, "workdir", None))):
+            continue
         hit = first_match(list(doc.auto_inject), text)
         if hit is None:
             continue

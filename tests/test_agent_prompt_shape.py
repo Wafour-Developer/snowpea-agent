@@ -88,7 +88,8 @@ async def test_a_plugin_agent_lists_only_its_own_skills(
         ("[plugin:other]", [("lint", "lint it")]),
         ("[builtin]", [("skill-create", "make a skill")]),
     ]
-    monkeypatch.setattr(agent_mod, "skill_groups", lambda core, agent=None: groups)
+    monkeypatch.setattr(agent_mod, "skill_groups",
+                        lambda core, agent=None, workdir=None: groups)
     core, session = await _session(
         daemon, tmp_path, skills="plugin", plugin="snowpea-browser"
     )

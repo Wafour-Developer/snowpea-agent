@@ -176,8 +176,15 @@ async def skill_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         # Only a skill settings.skills.disabled names reads differently (1.34.0).
         return " (disabled)" if callable(enabled) and not enabled(entry) else ""
 
+    # Security review 6, M-6: another project's skills, commands and agents are
+    # not this session's.
+    workdir = getattr(ctx.session, "workdir", None)
+    visible = getattr(loader, "visible", None)
+    agents_for = getattr(loader, "agents_for", None)
+    agents = agents_for(workdir) if callable(agents_for) else list(loader.agents)
     for kind in ("skill", "command"):
-        entries = [entry for entry in loader.skills.values() if entry.kind == kind]
+        entries = [entry for entry in loader.skills.values() if entry.kind == kind
+                   and (not callable(visible) or visible(entry, workdir))]
         if entries:
             lines.append(f"{kind}s:")
             lines.extend(
@@ -185,11 +192,11 @@ async def skill_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 f"{entry.description or 'no description'}"
                 for entry in sorted(entries, key=lambda item: item.name)
             )
-    if loader.agents:
+    if agents:
         lines.append("agents:")
         lines.extend(
             f"- {agent.name} [{agent.source}] — {agent.description or 'no description'}"
-            for agent in sorted(loader.agents, key=lambda item: item.name)
+            for agent in sorted(agents, key=lambda item: item.name)
         )
     lines.append("Read any skill in full with skill_view(name); run one as a command with /name.")
     return ToolResult(ok=True, output="\n".join(lines), meta={"plugins": len(loader.plugins)})
@@ -227,14 +234,21 @@ async def skill_view(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except LoaderMissing as exc:
         return ToolResult(ok=False, error=str(exc))
 
-    skill = loader.skills.get(name)
+    # Security review 6, M-6: the copy this session's project sees (another
+    # project's skill of the same name is not it).
+    workdir = getattr(ctx.session, "workdir", None)
+    find = getattr(loader, "find", None)
+    visible = getattr(loader, "visible", None)
+    shown = {key: item for key, item in loader.skills.items()
+             if not callable(visible) or visible(item, workdir)}
+    skill = find(name, workdir) if callable(find) else shown.get(name)
     if skill is None:
         lowered = name.lower()
         skill = next(
-            (item for key, item in loader.skills.items() if key.lower() == lowered), None
+            (item for item in shown.values() if item.name.lower() == lowered), None
         )
     if skill is None:
-        known = ", ".join(sorted(loader.skills)[:MAX_HITS]) or "none"
+        known = ", ".join(sorted({item.name for item in shown.values()})[:MAX_HITS]) or "none"
         return ToolResult(ok=False, error=f"no skill named {name!r} (installed: {known})")
     enabled = getattr(loader, "enabled", None)
     if callable(enabled) and not enabled(skill):

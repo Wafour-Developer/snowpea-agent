@@ -55,6 +55,7 @@ export type ErrorCode =
   | "steer_slash_command"
   | "too_large"
   | "tool_inactive"
+  | "trust_changed"
   | "unauthorized"
   | "unavailable";
 export const ERROR_CODES: readonly ErrorCode[] = [
@@ -101,12 +102,14 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "steer_slash_command",
   "too_large",
   "tool_inactive",
+  "trust_changed",
   "unauthorized",
   "unavailable",
 ];
 /** Values of `error.data.details.reason` clients may switch on (1.55.0). */
 export type ErrorDetailReason =
   | "catch_all"
+  | "global_only"
   | "jarvis_on"
   | "mode_raise"
   | "model_cannot_see"
@@ -119,6 +122,7 @@ export type ErrorDetailReason =
 /** The error code each `details.reason` rides on. */
 export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>> = {
   catch_all: "invalid_params",
+  global_only: "invalid_params",
   jarvis_on: "jarvis_person_only",
   mode_raise: "jarvis_person_only",
   model_cannot_see: "unavailable",
@@ -350,7 +354,7 @@ export interface ApprovalListResult {
     paths?: string[] | null;
     /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
     personOnly?: boolean | null;
-    /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. */
+    /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. 1.55.0 (security review 6) adds two values: 'acts on snowpea's own controls' (the line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, skills, commands or agents: asked in every mode, whatever the lists and settings say) and 'cannot tell what this code changes' (only code the check cannot resolve is in the way; security.unknownCode: 'allow' switches this one off). note carries the sentence for the person. */
     reason?: string | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
@@ -411,7 +415,7 @@ export interface ApprovalRequestParams {
   paths?: string[] | null;
   /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
   personOnly?: boolean | null;
-  /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. */
+  /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. 1.55.0 (security review 6) adds two values: 'acts on snowpea's own controls' (the line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, skills, commands or agents: asked in every mode, whatever the lists and settings say) and 'cannot tell what this code changes' (only code the check cannot resolve is in the way; security.unknownCode: 'allow' switches this one off). note carries the sentence for the person. */
   reason?: string | null;
   /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
   reasonCode?: string | null;
@@ -4076,20 +4080,64 @@ export interface ProjectTrustRevokeResult {
   changed?: string[];
   /** The project file asks for defaultMode auto. */
   defaultModeAuto?: boolean;
+  /** 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. */
+  digests?: Record<string, string>;
   files?: ({
+    /** The commands it runs (hooks, MCP servers), for a card that shows each. */
+    commands?: ({
+      /** The whole command when it is short; else its first 120 characters. */
+      head: string;
+      /** The hook's event or the server's name. */
+      label?: string;
+      /** The command's full length in characters. */
+      length: number;
+      /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
+      tail?: string;
+    })[];
+    /** 'sha256:<hex>' of the file now ('missing' / 'unreadable' otherwise). */
+    digest?: string;
     /** Relative to the project root. */
     path: string;
     /** What it makes snowpea do. */
     scope: "hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli";
     /** active: trusted and unchanged; untrusted: its scope is not trusted; new: added since the project was trusted; changed: its content differs from what was trusted. */
     state: "active" | "untrusted" | "new" | "changed";
-    /** Hook commands' first 200 characters, MCP servers, allowed-tools, … */
+    /** One line: hook commands, MCP servers, allowed-tools, … A long command is its head, ' … ', its tail and its length (1.55.0: the end is never cut off). */
     summary?: string;
   })[];
   /** Control files not active now (any reason). */
   inactive?: string[];
   /** …and the mode scope lets it apply (else accept). */
   modeActive?: boolean;
+  /** 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. */
+  notPinned?: ({
+    /** The command, as shown. */
+    command: {
+      /** The whole command when it is short; else its first 120 characters. */
+      head: string;
+      /** The hook's event or the server's name. */
+      label?: string;
+      /** The command's full length in characters. */
+      length: number;
+      /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
+      tail?: string;
+    };
+    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read. */
+    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable";
+    /** The control file (path) the command is in. */
+    source: string;
+  })[];
+  /** 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. */
+  runs?: ({
+    /** The control files (paths) that run it. */
+    by?: string[];
+    /** 'sha256:<hex>' of the file now. */
+    digest: string;
+    /** Relative to the project root. */
+    path: string;
+    /** As for a control file. A changed or new one switches off every control file in by until the project is trusted again. */
+    state: "active" | "untrusted" | "new" | "changed";
+  })[];
   scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
   /** Some scope is trusted. */
   trusted: boolean;
@@ -4099,7 +4147,9 @@ export interface ProjectTrustRevokeResult {
 
 /** `project.trust.set` params. Project trust (1.55.0): trust the project for scopes, pinning every control file as it is now. A local person only. */
 export interface ProjectTrustSetParams {
-  /** Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, prompts, settings — not mode (defaultMode: auto from the project file) and not externalCli, which the person names explicitly. Every control file is pinned as it is now. */
+  /** Required (1.55.0, security review 6): project.trust.status's digests object, sent back exactly as it was returned — {path relative to the project: 'sha256:<hex>'} for every control file, every project file one of them runs and the project settings file. What is pinned is what the person was shown: when the project differs now (a digest differs, a file is on disk that is not in digests, a file in digests is gone) nothing is trusted and the call fails with trust_changed, details {changed: [path], added: [path], missing: [path]}. Read the status again, show it, and send the new digests. {} for a project that brings nothing. */
+  digests: Record<string, string>;
+  /** Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, prompts, settings — not mode (defaultMode: auto from the project file) and not externalCli, which the person names explicitly. Every control file is pinned as digests says it is. */
   scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[] | null;
   /** A folder of the project (its real path is the key). */
   workdir: string;
@@ -4115,20 +4165,64 @@ export interface ProjectTrustSetResult {
   changed?: string[];
   /** The project file asks for defaultMode auto. */
   defaultModeAuto?: boolean;
+  /** 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. */
+  digests?: Record<string, string>;
   files?: ({
+    /** The commands it runs (hooks, MCP servers), for a card that shows each. */
+    commands?: ({
+      /** The whole command when it is short; else its first 120 characters. */
+      head: string;
+      /** The hook's event or the server's name. */
+      label?: string;
+      /** The command's full length in characters. */
+      length: number;
+      /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
+      tail?: string;
+    })[];
+    /** 'sha256:<hex>' of the file now ('missing' / 'unreadable' otherwise). */
+    digest?: string;
     /** Relative to the project root. */
     path: string;
     /** What it makes snowpea do. */
     scope: "hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli";
     /** active: trusted and unchanged; untrusted: its scope is not trusted; new: added since the project was trusted; changed: its content differs from what was trusted. */
     state: "active" | "untrusted" | "new" | "changed";
-    /** Hook commands' first 200 characters, MCP servers, allowed-tools, … */
+    /** One line: hook commands, MCP servers, allowed-tools, … A long command is its head, ' … ', its tail and its length (1.55.0: the end is never cut off). */
     summary?: string;
   })[];
   /** Control files not active now (any reason). */
   inactive?: string[];
   /** …and the mode scope lets it apply (else accept). */
   modeActive?: boolean;
+  /** 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. */
+  notPinned?: ({
+    /** The command, as shown. */
+    command: {
+      /** The whole command when it is short; else its first 120 characters. */
+      head: string;
+      /** The hook's event or the server's name. */
+      label?: string;
+      /** The command's full length in characters. */
+      length: number;
+      /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
+      tail?: string;
+    };
+    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read. */
+    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable";
+    /** The control file (path) the command is in. */
+    source: string;
+  })[];
+  /** 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. */
+  runs?: ({
+    /** The control files (paths) that run it. */
+    by?: string[];
+    /** 'sha256:<hex>' of the file now. */
+    digest: string;
+    /** Relative to the project root. */
+    path: string;
+    /** As for a control file. A changed or new one switches off every control file in by until the project is trusted again. */
+    state: "active" | "untrusted" | "new" | "changed";
+  })[];
   scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
   /** Some scope is trusted. */
   trusted: boolean;
@@ -4152,20 +4246,64 @@ export interface ProjectTrustStatusResult {
   changed?: string[];
   /** The project file asks for defaultMode auto. */
   defaultModeAuto?: boolean;
+  /** 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. */
+  digests?: Record<string, string>;
   files?: ({
+    /** The commands it runs (hooks, MCP servers), for a card that shows each. */
+    commands?: ({
+      /** The whole command when it is short; else its first 120 characters. */
+      head: string;
+      /** The hook's event or the server's name. */
+      label?: string;
+      /** The command's full length in characters. */
+      length: number;
+      /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
+      tail?: string;
+    })[];
+    /** 'sha256:<hex>' of the file now ('missing' / 'unreadable' otherwise). */
+    digest?: string;
     /** Relative to the project root. */
     path: string;
     /** What it makes snowpea do. */
     scope: "hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli";
     /** active: trusted and unchanged; untrusted: its scope is not trusted; new: added since the project was trusted; changed: its content differs from what was trusted. */
     state: "active" | "untrusted" | "new" | "changed";
-    /** Hook commands' first 200 characters, MCP servers, allowed-tools, … */
+    /** One line: hook commands, MCP servers, allowed-tools, … A long command is its head, ' … ', its tail and its length (1.55.0: the end is never cut off). */
     summary?: string;
   })[];
   /** Control files not active now (any reason). */
   inactive?: string[];
   /** …and the mode scope lets it apply (else accept). */
   modeActive?: boolean;
+  /** 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. */
+  notPinned?: ({
+    /** The command, as shown. */
+    command: {
+      /** The whole command when it is short; else its first 120 characters. */
+      head: string;
+      /** The hook's event or the server's name. */
+      label?: string;
+      /** The command's full length in characters. */
+      length: number;
+      /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
+      tail?: string;
+    };
+    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read. */
+    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable";
+    /** The control file (path) the command is in. */
+    source: string;
+  })[];
+  /** 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. */
+  runs?: ({
+    /** The control files (paths) that run it. */
+    by?: string[];
+    /** 'sha256:<hex>' of the file now. */
+    digest: string;
+    /** Relative to the project root. */
+    path: string;
+    /** As for a control file. A changed or new one switches off every control file in by until the project is trusted again. */
+    state: "active" | "untrusted" | "new" | "changed";
+  })[];
   scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
   /** Some scope is trusted. */
   trusted: boolean;
@@ -4621,6 +4759,8 @@ export interface SecurityGetResult {
     })[];
     presets?: string[];
   };
+  /** security.unknownCode (1.55.0, security review 6): what happens to code the check cannot resolve — a write whose target is computed while it runs, code it cannot parse, an interpreter fed code it cannot read. 'ask' (default): put to the person in every mode (ApprovalRequest.reason 'cannot tell what this code changes'). 'allow': let through. Either way snowpea's own control files stay protected and every blocked finding stays blocked. Written with settings.set {scope: 'global', patch: {security: {unknownCode}}} by a local person only; a project scope refuses it (invalid_params, details.reason 'global_only'). */
+  unknownCode?: "ask" | "allow";
   /** True only for a local person's connection: the only one settings.set accepts security.* from. A remote web login, a browser or a connector reads only. */
   writable: boolean;
 }
@@ -8707,7 +8847,7 @@ export interface ApprovalPendingPayload {
     paths?: string[] | null;
     /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
     personOnly?: boolean | null;
-    /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. */
+    /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. 1.55.0 (security review 6) adds two values: 'acts on snowpea's own controls' (the line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, skills, commands or agents: asked in every mode, whatever the lists and settings say) and 'cannot tell what this code changes' (only code the check cannot resolve is in the way; security.unknownCode: 'allow' switches this one off). note carries the sentence for the person. */
     reason?: string | null;
     /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
     reasonCode?: string | null;
@@ -9204,9 +9344,10 @@ export interface ProjectTrustChangedPayload {
   by?: string | null;
   /** migration: every project trusted as it was. */
   projects?: string[];
-  reason?: "set" | "revoke" | "migration";
+  /** store_lost (1.55.0, security review 6): the trusted-projects record is missing or unreadable, so no project is trusted until the person trusts it again; security.get.problems carries the sentence. */
+  reason?: "set" | "revoke" | "migration" | "store_lost";
   scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
-  /** The project root ('' for the migration). */
+  /** The project root ('' for the migration and for store_lost). */
   workdir?: string;
 }
 

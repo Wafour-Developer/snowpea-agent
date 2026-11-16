@@ -319,10 +319,12 @@ class McpServerConfig:
         )
 
 
-def _read_config(path: Path, source: str) -> dict[str, McpServerConfig]:
+def _read_config(path: Path, source: str, data: bytes | None = None) -> dict[str, McpServerConfig]:
+    """``data``: the file's bytes as project trust verified them (review 6, M-2)."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        text = data.decode("utf-8") if data is not None else path.read_text(encoding="utf-8")
+        raw = json.loads(text)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
     servers = raw.get("mcpServers") if isinstance(raw, dict) else None
     if not isinstance(servers, dict):
@@ -343,28 +345,34 @@ def discover(home: Path | str | None, workdir: Path | str | None) -> dict[str, M
     for base, source in ((home, "global"), (workdir, "project")):
         if base is None:
             continue
-        if source == "project" and not _project_servers_trusted(home, base):
-            continue
-        found.update(_read_config(Path(base).expanduser() / CONFIG_NAME, source))
+        data: bytes | None = None
+        if source == "project":
+            if not (Path(base).expanduser() / CONFIG_NAME).is_file():
+                continue  # nothing to start
+            # Security review 6, M-2: the bytes project trust verified are the
+            # bytes the servers are read from.
+            data = _project_servers_trusted(home, base)
+            if data is None:
+                continue
+        found.update(_read_config(Path(base).expanduser() / CONFIG_NAME, source, data))
     return found
 
 
-def _project_servers_trusted(home: Path | str | None, workdir: Path | str) -> bool:
+def _project_servers_trusted(home: Path | str | None, workdir: Path | str) -> bytes | None:
     """A project's ``.mcp.json`` starts servers only with the project's ``mcp`` trust,
-    for the file as it is now (security review 5, C1)."""
-    if not (Path(workdir).expanduser() / CONFIG_NAME).is_file():
-        return True  # nothing to start
+    for the file as it is now (security review 5, C1): its verified bytes, else ``None``."""
     try:
         from snowpea_core.trust.projects import default_store, store_for
 
         store = store_for(home) if home is not None else default_store()
-        if store.active(workdir, "mcp", CONFIG_NAME):
-            return True
+        data = store.read_pinned(workdir, "mcp", CONFIG_NAME)
+        if data is not None:
+            return data
     except Exception:  # noqa: BLE001 - trust fails closed
         log.warning("could not read project trust for %s", workdir, exc_info=True)
     log.info("project MCP servers of %s not started: the project is not trusted for them "
-             "(or .mcp.json changed since)", workdir)
-    return False
+             "(or .mcp.json, or a file it runs, changed since)", workdir)
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -341,7 +341,8 @@ def prompt_plan(session: Session, core: Core | None) -> PromptPlan:
     groups: list[tuple[str, list[tuple[str, str]]]] = (
         []
         if is_lean_child(session, core) or getattr(session, "agent_skills_index", None) == "none"
-        else skill_groups(core, getattr(session, "agent", None))
+        else skill_groups(core, getattr(session, "agent", None),
+                          getattr(session, "workdir", None))
     )
     if scoped:
         plugin = getattr(session, "agent_plugin", None)
@@ -370,9 +371,12 @@ def prompt_plan(session: Session, core: Core | None) -> PromptPlan:
 
 
 def skill_groups(
-    core: Core | None, agent: str | None = None
+    core: Core | None, agent: str | None = None, workdir: Any = None
 ) -> list[tuple[str, list[tuple[str, str]]]]:
     """Grouped skills for the prompt index, or ``[]`` when it is switched off.
+
+    ``workdir``: the session's project; another project's skills are not listed
+    (security review 6, M-6).
 
     ``skills.indexInPrompt`` turns the whole block off; the loader caches the
     grouping and drops it on every reload, so building this per turn costs a
@@ -385,7 +389,7 @@ def skill_groups(
         settings = core.settings.skills  # type: ignore[union-attr]
         if not getattr(settings, "indexInPrompt", True):
             return []
-        return loader.index_groups(agent)
+        return loader.index_groups(agent, workdir)
     except Exception:  # noqa: BLE001 - a broken loader must not cost the prompt
         log.debug("could not build the skills index", exc_info=True)
         return []

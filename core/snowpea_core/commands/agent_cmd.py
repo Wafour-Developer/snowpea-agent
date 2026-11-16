@@ -70,10 +70,16 @@ def _home(core: Core) -> Path | None:
     return Path(paths.home) if paths is not None else None
 
 
-def _from_loader(core: Core) -> list[AgentDefinition]:
-    """Definitions the skill loader knows about, normalised to our dataclass."""
+def _from_loader(core: Core, workdir: Path | str | None = None) -> list[AgentDefinition]:
+    """Definitions the skill loader knows about, normalised to our dataclass.
+
+    Security review 6, M-6 / L-1: a project's own definitions only for
+    ``workdir`` inside that project (``SkillLoader.agents_for``).
+    """
     loader = _loader(core)
-    entries = getattr(loader, "agents", None) if loader is not None else None
+    agents_for = getattr(loader, "agents_for", None)
+    entries = agents_for(workdir) if callable(agents_for) else (
+        getattr(loader, "agents", None) if loader is not None else None)
     if not entries:
         return []
     if isinstance(entries, dict):
@@ -140,7 +146,8 @@ def definitions_for(core: Core, workdir: Path | str | None) -> list[AgentDefinit
     for defn in builtin_agent_definitions():
         by_name[defn.name] = defn
     builtin_names = frozenset(by_name)
-    for source_defns in (_from_loader(core), discover_definitions(workdir, _home(core))):
+    for source_defns in (_from_loader(core, workdir),
+                         discover_definitions(workdir, _home(core))):
         for defn in source_defns:
             placed = _without_shadowing(defn, builtin_names)
             if placed is not None:

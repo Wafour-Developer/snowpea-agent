@@ -540,7 +540,7 @@ Ask the client to approve a tool call.
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `paths` | `string[] \| null` | no | With reasonCode: the resolved absolute paths concerned (1.30.0). |
 | `personOnly` | `boolean \| null` | no | True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. |
-| `reason` | `string \| null` | no | Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. |
+| `reason` | `string \| null` | no | Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. 1.55.0 (security review 6) adds two values: 'acts on snowpea's own controls' (the line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, skills, commands or agents: asked in every mode, whatever the lists and settings say) and 'cannot tell what this code changes' (only code the check cannot resolve is in the way; security.unknownCode: 'allow' switches this one off). note carries the sentence for the person. |
 | `reasonCode` | `string \| null` | no | Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. |
 | `remember` | `{ display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null` | no | For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && \|\| \| & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
@@ -2831,9 +2831,12 @@ Project trust (1.55.0): take scopes back (all when omitted). A local person only
 | `by` | `string \| null` | no | Who trusted it (ide, tui, cli, migration). |
 | `changed` | `string[]` | no | Files of a trusted scope that are new or changed since the trust. |
 | `defaultModeAuto` | `boolean` | no | The project file asks for defaultMode auto. |
-| `files` | `({ path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
+| `digests` | `Record<string, string>` | no | 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. |
+| `files` | `({ commands?: ({ head: string; label?: string; length: number; tail?: string; })[]; digest?: string; path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
 | `inactive` | `string[]` | no | Control files not active now (any reason). |
 | `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
+| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
+| `runs` | `({ by?: string[]; digest: string; path: string; state: "active" \| "untrusted" \| "new" \| "changed"; })[]` | no | 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. |
 | `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
 | `trusted` | `boolean` | yes | Some scope is trusted. |
 | `workdir` | `string` | yes | The project root (real path). |
@@ -2848,7 +2851,8 @@ Project trust (1.55.0): trust the project for scopes, pinning every control file
 
 | field | type | required | description |
 |---|---|---|---|
-| `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[] \| null` | no | Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, prompts, settings — not mode (defaultMode: auto from the project file) and not externalCli, which the person names explicitly. Every control file is pinned as it is now. |
+| `digests` | `Record<string, string>` | yes | Required (1.55.0, security review 6): project.trust.status's digests object, sent back exactly as it was returned — {path relative to the project: 'sha256:<hex>'} for every control file, every project file one of them runs and the project settings file. What is pinned is what the person was shown: when the project differs now (a digest differs, a file is on disk that is not in digests, a file in digests is gone) nothing is trusted and the call fails with trust_changed, details {changed: [path], added: [path], missing: [path]}. Read the status again, show it, and send the new digests. {} for a project that brings nothing. |
+| `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[] \| null` | no | Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, prompts, settings — not mode (defaultMode: auto from the project file) and not externalCli, which the person names explicitly. Every control file is pinned as digests says it is. |
 | `workdir` | `string` | yes | A folder of the project (its real path is the key). |
 
 **Result**
@@ -2859,9 +2863,12 @@ Project trust (1.55.0): trust the project for scopes, pinning every control file
 | `by` | `string \| null` | no | Who trusted it (ide, tui, cli, migration). |
 | `changed` | `string[]` | no | Files of a trusted scope that are new or changed since the trust. |
 | `defaultModeAuto` | `boolean` | no | The project file asks for defaultMode auto. |
-| `files` | `({ path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
+| `digests` | `Record<string, string>` | no | 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. |
+| `files` | `({ commands?: ({ head: string; label?: string; length: number; tail?: string; })[]; digest?: string; path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
 | `inactive` | `string[]` | no | Control files not active now (any reason). |
 | `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
+| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
+| `runs` | `({ by?: string[]; digest: string; path: string; state: "active" \| "untrusted" \| "new" \| "changed"; })[]` | no | 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. |
 | `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
 | `trusted` | `boolean` | yes | Some scope is trusted. |
 | `workdir` | `string` | yes | The project root (real path). |
@@ -2886,9 +2893,12 @@ Project trust (1.55.0): what the project's own files would make snowpea do (hook
 | `by` | `string \| null` | no | Who trusted it (ide, tui, cli, migration). |
 | `changed` | `string[]` | no | Files of a trusted scope that are new or changed since the trust. |
 | `defaultModeAuto` | `boolean` | no | The project file asks for defaultMode auto. |
-| `files` | `({ path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
+| `digests` | `Record<string, string>` | no | 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. |
+| `files` | `({ commands?: ({ head: string; label?: string; length: number; tail?: string; })[]; digest?: string; path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
 | `inactive` | `string[]` | no | Control files not active now (any reason). |
 | `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
+| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
+| `runs` | `({ by?: string[]; digest: string; path: string; state: "active" \| "untrusted" \| "new" \| "changed"; })[]` | no | 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. |
 | `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
 | `trusted` | `boolean` | yes | Some scope is trusted. |
 | `workdir` | `string` | yes | The project root (real path). |
@@ -3162,6 +3172,7 @@ Security lists (1.54.0): the stored global lists, a project's additions, the eff
 | `problems` | `string[]` | no | Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. |
 | `project` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; } \| null` | no | What the workdir's .snowpea/settings.json adds; null without. |
 | `protectedPaths` | `{ custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }` | no |  |
+| `unknownCode` | `"ask" \| "allow"` | no | security.unknownCode (1.55.0, security review 6): what happens to code the check cannot resolve — a write whose target is computed while it runs, code it cannot parse, an interpreter fed code it cannot read. 'ask' (default): put to the person in every mode (ApprovalRequest.reason 'cannot tell what this code changes'). 'allow': let through. Either way snowpea's own control files stay protected and every blocked finding stays blocked. Written with settings.set {scope: 'global', patch: {security: {unknownCode}}} by a local person only; a project scope refuses it (invalid_params, details.reason 'global_only'). |
 | `writable` | `boolean` | yes | True only for a local person's connection: the only one settings.set accepts security.* from. A remote web login, a browser or a connector reads only. |
 
 ### `security.presets.list`
@@ -5295,9 +5306,9 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `by` | `string \| null` | no |  |
 | `projects` | `string[]` | no | migration: every project trusted as it was. |
-| `reason` | `"set" \| "revoke" \| "migration"` | no |  |
+| `reason` | `"set" \| "revoke" \| "migration" \| "store_lost"` | no | store_lost (1.55.0, security review 6): the trusted-projects record is missing or unreadable, so no project is trusted until the person trusts it again; security.get.problems carries the sentence. |
 | `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
-| `workdir` | `string` | no | The project root ('' for the migration). |
+| `workdir` | `string` | no | The project root ('' for the migration and for store_lost). |
 
 ### `provider.loginProgress`
 
@@ -5946,6 +5957,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `steer_slash_command` |  |
 | `too_large` |  |
 | `tool_inactive` | The tool exists but is disabled for this session. |
+| `trust_changed` |  |
 | `unauthorized` | Missing or invalid token, or a call before `system.hello`. |
 | `unavailable` |  |
 
@@ -5956,6 +5968,7 @@ Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a 
 | reason | on code | meaning |
 |---|---|---|
 | `catch_all` | `invalid_params` | an allowlist pattern that would match every command |
+| `global_only` | `invalid_params` | a project scope tried to set a key only the global settings hold (security.unknownCode); details.key |
 | `jarvis_on` | `jarvis_person_only` | the change is part of Jarvis's authority and Jarvis mode is on: the app or the TUI only |
 | `mode_raise` | `jarvis_person_only` | raising a session's mode (plan < accept < auto) needs a person; details.from/to |
 | `model_cannot_see` | `unavailable` | llm.sample images for a model known not to take images |

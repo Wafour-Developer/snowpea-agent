@@ -103,6 +103,12 @@ async def get_handler(
 
     problems = (list(SECURITY_PRESET_PROBLEMS.values()) + list(stored.problems)
                 + (list(project.problems) if project else []))
+    # Security review 6, M-4: a lost trusted-projects record is said here too.
+    from snowpea_core.server.trust_handlers import store_problem
+
+    lost = store_problem(core)
+    if lost:
+        problems.append(lost)
     items = list(stored.problem_items) + (list(project.problem_items) if project else [])
     return SecurityGetResult.model_validate({
         **_wire(stored),

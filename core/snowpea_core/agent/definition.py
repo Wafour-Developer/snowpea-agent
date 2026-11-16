@@ -25,6 +25,7 @@ block lists.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
 from collections.abc import Iterator
@@ -35,6 +36,8 @@ from typing import Any
 from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.tools.renames import canonical, canonical_names
+
+log = logging.getLogger("snowpea.agent.definition")
 
 #: Frontmatter delimiter.
 FENCE = "---"
@@ -629,6 +632,7 @@ def discover_definitions(
 ) -> list[AgentDefinition]:
     """Scan the definition directories; later roots win on a name clash."""
     found: dict[str, AgentDefinition] = {}
+    project_sources = {source for _, source in PROJECT_DIRS}
     for directory, source in definition_dirs(workdir, home):
         if not directory.is_dir():
             continue
@@ -637,8 +641,26 @@ def discover_definitions(
                 defn = parse_agent_md(path, source=source)
             except DefinitionError:
                 continue
+            if workdir and source in project_sources and not _project_definition_active(
+                    workdir, home, path, defn):
+                log.info("agent %r of %s is not active: the project is not trusted for "
+                         "agents (or the file changed since)", defn.name, workdir)
+                continue
             found[defn.name] = defn
     return list(found.values())
+
+
+def _project_definition_active(workdir: Path | str, home: Path | str | None, path: Path,
+                               defn: AgentDefinition) -> bool:
+    """Security review 6, L-1: a project definition with a ``permission`` of its own,
+    or one that would replace a built-in agent, needs the project's ``agents`` trust."""
+    try:
+        from snowpea_core.trust.projects import agent_definition_active, store_for
+
+        store = store_for(home) if home else None
+        return agent_definition_active(workdir, path, defn.name, defn.permission, store)
+    except Exception:  # noqa: BLE001 - trust fails closed
+        return False
 
 
 def write_definition(defn: AgentDefinition, workdir: Path | str) -> Path:

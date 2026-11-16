@@ -61,14 +61,21 @@ def _projects_trusted_for_their_content(request: pytest.FixtureRequest) -> Itera
             or request.node.get_closest_marker("real_trust") is not None):
         yield
         return
+    from snowpea_core.trust import projects as trust_projects
     from snowpea_core.trust.projects import TrustStore
 
-    original = TrustStore.active
+    def read_pinned(self, root, scope, rel):  # type: ignore[no-untyped-def]
+        # Review 6, M-2: readers load the bytes the trust check verified.
+        return trust_projects.read_digest(trust_projects.project_root(root) / rel)[0]
+
+    original = (TrustStore.active, TrustStore.read_pinned, TrustStore.pinned_as)
     TrustStore.active = lambda self, root, scope, rel=None: True  # type: ignore[method-assign]
+    TrustStore.read_pinned = read_pinned  # type: ignore[method-assign]
+    TrustStore.pinned_as = lambda self, root, scope, rel, digest: True  # type: ignore[method-assign]
     try:
         yield
     finally:
-        TrustStore.active = original  # type: ignore[method-assign]
+        TrustStore.active, TrustStore.read_pinned, TrustStore.pinned_as = original  # type: ignore[method-assign]
 
 
 @pytest.fixture(autouse=True)

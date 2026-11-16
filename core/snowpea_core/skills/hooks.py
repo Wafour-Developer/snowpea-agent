@@ -84,6 +84,9 @@ class Hook:
     #: sessions working in that project (security review 5, C1).  ``None``: a
     #: global or plugin hook, for every session.
     project: Path | None = None
+    #: A project hook's file, relative to the project: trust is checked again
+    #: before each run, with the scripts it runs (security review 6, M-3).
+    rel: str = ""
 
     def applies_to(self, workdir: Any) -> bool:
         """This hook runs for a session in ``workdir``."""
@@ -140,14 +143,19 @@ class HookRegistry:
         return sum(len(items) for items in self.hooks.values())
 
     def load_file(self, path: Path, *, plugin: str = "", root: Path | None = None,
-                  project: Path | None = None) -> int:
+                  project: Path | None = None, data: bytes | None = None,
+                  rel: str = "") -> int:
         """Read one ``hooks.json``; returns how many hooks it contributed.
 
         ``project``: the hooks are that project's own (they run only there).
+        ``data``: the file's bytes as project trust verified them — parsed
+        instead of reading the file again (security review 6, M-2); ``rel``: the
+        file's path in the project, kept on each hook for the check before a run.
         """
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            text = data.decode("utf-8") if data is not None else path.read_text(encoding="utf-8")
+            raw = json.loads(text)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             log.info("ignoring unreadable hooks file %s: %s", path, exc)
             return 0
         table = raw.get("hooks") if isinstance(raw, dict) else None
@@ -180,6 +188,7 @@ class HookRegistry:
                             timeout=float(timeout) if timeout else DEFAULT_TIMEOUT_SEC,
                             fail_closed=bool(spec.get("failClosed")),
                             project=project,
+                            rel=rel,
                         )
                     )
                     added += 1
@@ -575,7 +584,21 @@ def security_refusal(core: Any, session: Any, hook: Hook) -> str | None:
 
     A hook command is a shell line like any other: one the lists block does not
     run and counts as a failed hook (a fail-closed guard then blocks its call).
+    A project's hook whose file — or a project script it runs — is not as the
+    person trusted it any more does not run either (security review 6, M-3).
     """
+    if hook.project is not None and hook.rel:
+        try:
+            from snowpea_core.trust.projects import store_for
+
+            if not store_for(core.paths.home).active(hook.project, "hooks", hook.rel):
+                log.warning("hook %s not run: %s (or a script it runs) changed since the "
+                            "project was trusted", hook.command, hook.rel)
+                return ("the project's hooks, or a script they run, changed since you trusted "
+                        "the project")
+        except Exception:  # noqa: BLE001 - trust fails closed
+            log.warning("could not check project trust for hook %s", hook.command, exc_info=True)
+            return "project trust could not be checked for this hook"
     try:
         from snowpea_core.security import enforce
 

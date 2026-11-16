@@ -36,7 +36,7 @@ SKILLS = (("[project]", (("deploy", "How this project ships."),)),)
 
 
 class FakeSkills:
-    def index_groups(self, agent: str | None = None) -> object:
+    def index_groups(self, agent: str | None = None, workdir: object = None) -> object:
         return SKILLS
 
 
