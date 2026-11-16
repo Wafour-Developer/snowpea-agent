@@ -49,6 +49,15 @@ export interface EffectivePath {
   exempt: string[];
 }
 
+export type UnknownCode = "ask" | "allow";
+
+/** One entry core refused or skipped: which list it was in, which entry, and why. */
+export interface ProblemItem {
+  list: Tab | null;
+  entry: string | null;
+  reason: string;
+}
+
 /** `security.get`, normalised. */
 export interface SecurityConfig {
   blockedCommands: { presets: string[]; custom: string[] };
@@ -59,8 +68,12 @@ export interface SecurityConfig {
   };
   /** False for a connection that may not change the lists (a remote login, a browser, a connector). */
   writable: boolean;
-  /** Entries core skipped as unusable (a hand-edited file). */
+  /** Entries core skipped as unusable (a hand-edited file), in words. */
   problems: string[];
+  /** The same, structured (1.55.0 `problemItems`); empty from an older core. */
+  problemItems: ProblemItem[];
+  /** What happens to code the check cannot resolve (1.55.0): put to the person, or let through. */
+  unknownCode: UnknownCode;
   /** The project's own additions, shown read-only as a count. */
   projectAdds: number;
 }
@@ -132,10 +145,31 @@ function additions(raw: any): number {
   );
 }
 
+/** `problemItems` (1.55.0), normalised; an item with no reason is dropped. */
+export function normalizeProblemItems(value: unknown): ProblemItem[] {
+  return (Array.isArray(value) ? value : [])
+    .map((item: any): ProblemItem => ({
+      list: item?.list === "commands" || item?.list === "paths" ? item.list : null,
+      entry: typeof item?.entry === "string" && item.entry !== "" ? sanitizeText(item.entry) : null,
+      reason: text(item?.reason),
+    }))
+    .filter((item: ProblemItem) => item.reason !== "");
+}
+
+/** A problem item as a sentence: no parsing of core's English, only its fields. */
+export function problemItemText(item: ProblemItem): string {
+  const what = item.list === "commands" ? "blocked command" : item.list === "paths" ? "protected path" : "entry";
+  return `${what}${item.entry ? ` ${JSON.stringify(item.entry)}` : ""}: ${item.reason}`;
+}
+
 export function normalizeConfig(raw: SecurityGet | null | undefined): SecurityConfig {
+  const problemItems = normalizeProblemItems((raw as any)?.problemItems);
   return {
     writable: (raw as any)?.writable !== false,
-    problems: texts((raw as any)?.problems),
+    // The structured form wins; an older core sent only the sentences.
+    problems: problemItems.length > 0 ? problemItems.map(problemItemText) : texts((raw as any)?.problems),
+    problemItems,
+    unknownCode: (raw as any)?.unknownCode === "allow" ? "allow" : "ask",
     projectAdds: additions((raw as any)?.project),
     blockedCommands: {
       presets: texts(raw?.blockedCommands?.presets),
@@ -395,11 +429,21 @@ const unescapePython = (value: string): string => value.replace(/\\(.)/g, "$1");
  * one entry (shown on its row) and the rest (shown as they are).
  */
 export function saveProblems(error: unknown): { entries: EntryProblem[]; others: string[] } {
-  const raw = error as { message?: string; data?: { details?: { problems?: unknown } | null } } | null;
-  const listed = raw?.data?.details?.problems;
-  const lines = Array.isArray(listed) && listed.length > 0 ? texts(listed) : [text(raw?.message ?? String(error))];
+  const raw = error as { message?: string; data?: { details?: { problems?: unknown; problemItems?: unknown } | null } } | null;
   const entries: EntryProblem[] = [];
   const others: string[] = [];
+  // 1.55.0: core says which list and which entry in fields; nothing is read out of its English.
+  const items = normalizeProblemItems(raw?.data?.details?.problemItems);
+  if (items.length > 0) {
+    for (const item of items) {
+      if (item.list !== null && item.entry !== null) entries.push({ tab: item.list, text: item.entry, reason: item.reason });
+      else others.push(problemItemText(item));
+    }
+    return { entries, others };
+  }
+  // An older core sent sentences only (`details.problems`).
+  const listed = raw?.data?.details?.problems;
+  const lines = Array.isArray(listed) && listed.length > 0 ? texts(listed) : [text(raw?.message ?? String(error))];
   for (const line of lines) {
     const match = PROBLEM.exec(line);
     if (!match) {
@@ -440,6 +484,38 @@ export const PATTERN_HELP: ReadonlyArray<{ kind: "head" | "line" | "example"; te
   { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." },
 ];
 
+// --- code snowpea cannot read (1.55.0 `security.unknownCode`) --------------------------
+
+export const UNKNOWN_CODE_LABEL = "Code snowpea can't tell about";
+
+/** One line saying snowpea's own files are protected whichever way the switch is set. */
+export const OWN_FILES_LINE = "snowpea's own files stay protected either way, and anything on your block lists stays blocked.";
+
+/** `ask` puts such code to you in every mode; `allow` lets it through. */
+export function unknownCodeSegments(value: UnknownCode): Segment[] {
+  const pick = (one: UnknownCode): Segment =>
+    one === value ? { text: `[${one}]`, bold: true, color: one === "allow" ? "yellow" : "green" } : { text: one, dimColor: true };
+  return [{ text: `${UNKNOWN_CODE_LABEL}: ` }, pick("ask"), { text: " / " }, pick("allow")];
+}
+
+export function unknownCodeMeaning(value: UnknownCode): string {
+  return value === "ask"
+    ? "ask: code it cannot read (a computed target, a script it cannot follow) is put to you in every mode."
+    : "allow: such code runs without asking. Control-plane asks and blocked findings still apply.";
+}
+
+/** Before letting unreadable code through, say what that gives up. */
+export const UNKNOWN_CODE_ALLOW_CONFIRM: readonly string[] = [
+  "Let code snowpea can't tell about run without asking?",
+  "A write whose target is computed while it runs, or a script it cannot follow, will no longer ask you. Blocked commands and protected folders still apply.",
+  "Allow it? (y/n)",
+];
+
+/** The `settings.set` patch for the switch; global only, by a local person. */
+export function unknownCodePatch(value: UnknownCode): Record<string, unknown> {
+  return { security: { unknownCode: value } };
+}
+
 /** The summary `/security status` prints. */
 export function statusLines(config: SecurityConfig, catalog: PresetCatalog | null): string[] {
   const title = (id: string, entries: Preset[]) => entries.find((entry) => entry.id === id)?.title ?? id;
@@ -451,6 +527,7 @@ export function statusLines(config: SecurityConfig, catalog: PresetCatalog | nul
     `Blocked commands: ${config.blockedCommands.presets.length} presets on (${names(commandOn)}), ${config.blockedCommands.custom.length} of your own`,
     `Protected folders: ${config.protectedPaths.presets.length} presets on (${names(pathOn)}), ${config.protectedPaths.custom.length} of your own`,
     `In force now: ${config.effective.commands.length} command patterns, ${config.effective.paths.length} folders`,
+    `${UNKNOWN_CODE_LABEL}: ${config.unknownCode === "allow" ? "allow (runs without asking)" : "ask (put to you)"}. ${OWN_FILES_LINE}`,
     ...(config.projectAdds > 0 ? [`This project adds ${config.projectAdds} entries of its own (they cannot remove yours).`] : []),
     ...(problemNote(config.problems) ? [`! ${problemNote(config.problems)}`] : []),
     config.writable ? "Change them with /security. They apply to sessions that go through snowpea." : READ_ONLY_LINE,

@@ -18,9 +18,14 @@ import { textWidth } from "../layout/text-width.js";
 import type { Line, Segment } from "../layout/transcript.js";
 import {
   NOTHING_RUN,
+  OWN_FILES_LINE,
   PATTERN_HELP,
   READ_ONLY_LINE,
   SECURITY_LIMITS,
+  UNKNOWN_CODE_ALLOW_CONFIRM,
+  unknownCodeMeaning,
+  unknownCodeSegments,
+  type UnknownCode,
   addCustom,
   bodyLines,
   cycleLevel,
@@ -80,6 +85,8 @@ export interface SecurityScreenProps {
   onCheck: (what: "command" | "path", text: string, draft: Lists | null) => Promise<CheckResult>;
   /** Reads the lists again (`security.get`). */
   onReload?: () => Promise<SecurityConfig>;
+  /** Switches `security.unknownCode` (global `settings.set`); resolves with the settings as the daemon now has them. */
+  onSetUnknownCode?: (value: UnknownCode) => Promise<SaveResult>;
   /** Counts `settings.changed` events that touched the security settings while the screen is open. */
   changeSeq?: number;
   onClose: () => void;
@@ -102,6 +109,7 @@ export function SecurityScreen({
   onSave,
   onCheck,
   onReload,
+  onSetUnknownCode,
   changeSeq = 0,
   onClose,
   isActive = true,
@@ -220,6 +228,30 @@ export function SecurityScreen({
         setMode({ k: "browse" });
         say(`Not saved: ${String((error as Error)?.message ?? error)}`, "red");
       });
+  };
+
+  /** Flip `security.unknownCode`; letting code through asks first. */
+  const switchUnknownCode = () => {
+    if (!onSetUnknownCode || locked()) return;
+    const next: UnknownCode = base.unknownCode === "ask" ? "allow" : "ask";
+    const run = () => {
+      setMode({ k: "saving" });
+      setNotes([{ text: "Saving…", dim: true }]);
+      void onSetUnknownCode(next).then((result) => {
+        setMode({ k: "browse" });
+        if (result.ok) {
+          setBase((current) => ({ ...current, unknownCode: result.config.unknownCode }));
+          setNotes([{ text: unknownCodeMeaning(result.config.unknownCode), color: "green" }]);
+        } else if (result.readOnly) {
+          setReadOnly(result.readOnly);
+          say(result.readOnly, "yellow");
+        } else {
+          say(`Not saved: ${result.message}`, "red");
+        }
+      });
+    };
+    if (next === "allow") confirm([...UNKNOWN_CODE_ALLOW_CONFIRM], run);
+    else run();
   };
 
   const toggle = () => {
@@ -368,6 +400,8 @@ export function SecurityScreen({
           }
           if (locked()) return;
           return apply(cycleLevel(draft, row.index));
+        case "u":
+          return switchUnknownCode();
         case "v":
           setNotes([]);
           setEffCursor(0);
@@ -414,10 +448,12 @@ export function SecurityScreen({
         one === tab ? { text: `[${TAB_TITLE[one]}]`, bold: true, color: "cyan" } : { text: ` ${TAB_TITLE[one]} `, dimColor: true },
       ]),
     },
+    ...wrapSegments("unknown", unknownCodeSegments(base.unknownCode), inner, "  "),
   ];
   const intro: Line[] = [
     ...wrapSegments("intro", [{ text: INTRO[tab], dimColor: true }], inner, ""),
     ...wrapSegments("limits", [{ text: SECURITY_LIMITS, dimColor: true }], inner, ""),
+    ...wrapSegments("own", [{ text: OWN_FILES_LINE, dimColor: true }], inner, ""),
   ];
   const skipped = problemNote(base.problems);
   const lock: Line[] = [
@@ -463,6 +499,7 @@ export function SecurityScreen({
                 readOnly ? null : "Space toggle",
                 readOnly ? null : "a add · e edit · d delete",
                 readOnly || tab !== "paths" ? null : "l level",
+                readOnly ? null : "u unreadable code",
                 "v effective",
                 "c check",
                 "r reload",

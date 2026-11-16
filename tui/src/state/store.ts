@@ -23,6 +23,7 @@ import { applyMcpChange, type McpServerRow } from "./mcp.js";
 import { replayTurnSummaryLine } from "./working.js";
 import { alwaysAsksYou } from "./person-only.js";
 import { sessionErrorView } from "./errors.js";
+import { commandResultText } from "./command-result.js";
 
 /**
  * `note` is this surface talking, not the conversation: the `✓ Done` line a
@@ -52,6 +53,18 @@ export interface Message {
   retryNotice?: boolean;
   /** A line about something the security lists refused: drawn in red. */
   blocked?: boolean;
+  /**
+   * A command that ran beside the running turn (`command.result`, 1.55.0): a
+   * compact aside, not a turn. It never counts as a waiting prompt.
+   */
+  side?: boolean;
+}
+
+/** Why a reply to an approval or question was refused (1.55.0 `refused`); the prompt stays open. */
+export interface Refusal {
+  code: string;
+  message: string;
+  reason: string;
 }
 
 export type ToolCallState = "running" | "ok" | "error";
@@ -85,6 +98,11 @@ export interface ToolCallEntry {
   progress?: ProgressLine[];
   /** True once the daemon said it stopped sending output for this call. */
   progressTruncated?: boolean;
+  /**
+   * A host tool said it is waiting (1.55.0 `tool.progress` `state: "waiting"`):
+   * the card shows "waiting" with the host's note. `"running"` clears it.
+   */
+  waiting?: { note: string };
 }
 
 export interface DiffEntry {
@@ -107,6 +125,8 @@ export interface ContextUsage {
   percent: number | null;
   /** True when the daemon counted tokens approximately rather than exactly. */
   estimated: boolean;
+  /** The `used` value at which the next turn compacts first (1.55.0); null when auto-compaction is off or the window is unknown. */
+  autoCompactAt?: number | null;
 }
 
 /** One compaction, so the transcript can show where history was folded away. */
@@ -114,6 +134,8 @@ export interface CompactionEntry {
   id: string;
   before: number;
   after: number;
+  /** Why it ran (1.55.0): the server refused the request for its length, the threshold, or asked for. */
+  reason?: "overflow" | "auto" | "manual";
 }
 
 /** Team task states, counted for the board line (contract §1, team.task.update). */
@@ -228,6 +250,8 @@ export interface State {
   toolCalls: ToolCallEntry[];
   diffs: DiffEntry[];
   timeline: TimelineItem[];
+  /** Refusals core announced for requests still open, by request id (1.55.0). */
+  refusals: Record<string, Refusal>;
   /** Interactive prompt (from `onRequest`), at most one at a time. */
   pendingApproval: ApprovalEntry | null;
   /** Unattended backlog, seeded from `approval.list`. */
@@ -358,6 +382,7 @@ export const initialState: State = {
   toolCalls: [],
   diffs: [],
   timeline: [],
+  refusals: {},
   pendingApproval: null,
   heldApprovals: [],
   heldQuestions: [],
@@ -444,6 +469,8 @@ export type Action =
   | { type: "approval/request"; request: ApprovalRequestParams }
   | { type: "approval/list"; requests: ApprovalRequestParams[] }
   | { type: "approval/resolved"; requestId: string }
+  /** The re-announcement of an open approval or question whose reply was refused (1.55.0 `refused`). */
+  | { type: "refusal"; requestId: string; refused: Refusal | null }
   /** `approval.route.changed`: a waiting approval was routed to Jarvis, or came back to the person. */
   | { type: "approval/route"; requestId: string; route: ApprovalRequestParams["route"] }
   /** `question.route.changed`. */
@@ -706,6 +733,8 @@ export function waitingPrompts(state: State): QueuedPrompt[] {
   const rows = state.queued.slice();
   const extra: QueuedPrompt[] = [];
   for (const message of state.deferredPrompts) {
+    // An aside from a command that ran beside the turn is not a waiting prompt.
+    if (message.side) continue;
     let at = rows.findIndex((entry) => entry.text === message.text);
     // A row whose text has not arrived yet is this prompt's, too.
     if (at === -1) at = rows.findIndex((entry) => entry.text === "");
@@ -1106,9 +1135,17 @@ function applySessionEvent(
             ? (used / window) * 100
             : null
           : Number(payload.percent);
+      const autoAt = payload.autoCompactAt;
       return {
         ...base,
-        context: { used, window, percent, estimated: payload.estimated === true },
+        context: {
+          used,
+          window,
+          percent,
+          estimated: payload.estimated === true,
+          // 1.55.0: null when auto-compaction is off or the window is unknown; absent from an older core.
+          autoCompactAt: typeof autoAt === "number" && Number.isFinite(autoAt) && autoAt > 0 ? autoAt : null,
+        },
       };
     }
 
@@ -1118,6 +1155,7 @@ function applySessionEvent(
         id: nextId("compaction"),
         before: Number(payload.before ?? payload.from ?? 0),
         after: Number(payload.after ?? payload.to ?? 0),
+        ...(payload.reason === "overflow" || payload.reason === "auto" || payload.reason === "manual" ? { reason: payload.reason } : {}),
       };
       return {
         ...base,
@@ -1237,7 +1275,19 @@ function applySessionEvent(
       if (index === -1) return base;
       const stream: ProgressLine["stream"] = progressed.stream === "stderr" ? "stderr" : "stdout";
       const arriving = (progressed.chunk ?? "").split("\n").filter((line) => line.length > 0);
-      if (arriving.length === 0 && progressed.truncated !== true) return base;
+      // A host tool that reports a state (1.55.0): "waiting" shows the card as
+      // waiting with the host's note, "running" clears it.
+      const heldNote = base.toolCalls[index].waiting;
+      const waiting =
+        progressed.state === "waiting"
+          ? typeof progressed.note === "string" && heldNote?.note === progressed.note
+            ? heldNote
+            : { note: typeof progressed.note === "string" ? progressed.note : "" }
+          : progressed.state === "running"
+            ? undefined
+            : base.toolCalls[index].waiting;
+      const waitingChanged = waiting !== base.toolCalls[index].waiting;
+      if (arriving.length === 0 && progressed.truncated !== true && !waitingChanged) return base;
       const call = base.toolCalls[index];
       const progress = [...(call.progress ?? []), ...arriving.map((text) => ({ text, stream }))];
       const toolCalls = base.toolCalls.slice();
@@ -1245,6 +1295,7 @@ function applySessionEvent(
         ...call,
         progress: progress.slice(-PROGRESS_TAIL),
         progressTruncated: call.progressTruncated || progressed.truncated === true,
+        waiting,
       };
       return { ...base, toolCalls };
     }
@@ -1283,6 +1334,28 @@ function applySessionEvent(
       const text = hookContinueLine(payload);
       if (!text) return base;
       const message: Message = { id: nextId("msg"), role: "system", text, streaming: false };
+      return {
+        ...base,
+        messages: [...base.messages, message],
+        timeline: pushTimeline(base, { kind: "message", id: message.id }),
+      };
+    }
+
+    // An instant command that ran beside the running turn (1.55.0). It is an
+    // aside: no turn starts, nothing is queued and the stream is not touched.
+    // Mid-answer it waits for the open message to close, like a typed prompt.
+    case "command.result": {
+      const message: Message = {
+        id: nextId("msg"),
+        role: "system",
+        text: commandResultText(payload),
+        streaming: false,
+        side: true,
+        ...(payload.ok === false ? { blocked: true } : {}),
+      };
+      if (base.messages.some((m) => m.streaming)) {
+        return { ...base, deferredPrompts: [...base.deferredPrompts, message] };
+      }
       return {
         ...base,
         messages: [...base.messages, message],
@@ -1390,6 +1463,12 @@ function nextAutoAfterPlan(state: State, mode: Mode, flag: boolean | undefined):
   if (mode !== "plan") return false;
   if (flag !== undefined) return flag;
   return state.mode === "plan" ? state.autoAfterPlan : false;
+}
+
+function withoutKey<T>(map: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in map)) return map;
+  const { [key]: _gone, ...rest } = map;
+  return rest;
 }
 
 export function reducer(state: State, action: Action): State {
@@ -1633,9 +1712,19 @@ export function reducer(state: State, action: Action): State {
       return pending ? { ...state, pendingQuestion: { ...pending, route } } : state;
     }
 
+    case "refusal": {
+      if (action.refused === null) {
+        if (!(action.requestId in state.refusals)) return state;
+        const { [action.requestId]: _gone, ...rest } = state.refusals;
+        return { ...state, refusals: rest };
+      }
+      return { ...state, refusals: { ...state.refusals, [action.requestId]: action.refused } };
+    }
+
     case "approval/resolved":
       return {
         ...state,
+        refusals: withoutKey(state.refusals, action.requestId),
         pendingApproval:
           state.pendingApproval?.requestId === action.requestId ? null : state.pendingApproval,
         approvalQueue: state.approvalQueue.filter((r) => r.requestId !== action.requestId),
@@ -1672,6 +1761,7 @@ export function reducer(state: State, action: Action): State {
       const next = pending ? undefined : held.find((r) => r.route !== "jarvis");
       return {
         ...state,
+        refusals: withoutKey(state.refusals, action.requestId),
         pendingQuestion: pending ?? next ?? null,
         heldQuestions: held.filter((r) => r !== next),
       };

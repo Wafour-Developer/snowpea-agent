@@ -44,6 +44,8 @@ export interface WebStatus {
   accessUrl: string | null;
   sessions: number;
   turnsRunning: number;
+  /** Scheduled jobs a remote login created that still exist (1.55.0); they keep running after the login ends. */
+  remoteJobs: number;
   /** Why it is not listening though it should. */
   error: string | null;
   /** settings.json says otherwise than what runs. */
@@ -69,6 +71,7 @@ export function normalizeStatus(raw: Partial<WebRemoteStatus> | null | undefined
     accessUrl: typeof raw?.accessUrl === "string" && raw.accessUrl !== "" ? sanitizeText(raw.accessUrl) : null,
     sessions: typeof raw?.sessions === "number" ? raw.sessions : 0,
     turnsRunning: typeof raw?.turnsRunning === "number" ? raw.turnsRunning : 0,
+    remoteJobs: typeof raw?.remoteJobs === "number" && raw.remoteJobs > 0 ? Math.floor(raw.remoteJobs) : 0,
     error: text(raw?.error) || null,
     needsRestart: raw?.needsRestart === true,
     warning: text(raw?.warning) || null,
@@ -113,6 +116,23 @@ export function sessionsLine(status: WebStatus): string {
   return status.turnsRunning > 0 ? `${people} · ${status.turnsRunning} turn${status.turnsRunning === 1 ? "" : "s"} running` : people;
 }
 
+/**
+ * "2 scheduled jobs made from a remote login" (1.55.0), or null when there are
+ * none. The jobs keep running after that login ends, so they are worth a line.
+ */
+export function remoteJobsLine(status: WebStatus): string | null {
+  if (status.remoteJobs <= 0) return null;
+  const n = status.remoteJobs;
+  return `${n} scheduled job${n === 1 ? "" : "s"} made from a remote login ${n === 1 ? "keeps" : "keep"} running after that login ends (/schedule).`;
+}
+
+/** The tag a job list shows for a job a remote login created (`createdBy: "remote_login"`); empty otherwise. */
+export const REMOTE_JOB_TAG = "[remote]";
+
+export function jobTag(createdBy: unknown): string {
+  return createdBy === "remote_login" ? REMOTE_JOB_TAG : "";
+}
+
 export const RESTART_LINE = "settings.json says otherwise than what runs: the next daemon start will differ. Start with “remember” to keep what runs.";
 
 /** What `/web status` prints (the token stays masked). */
@@ -122,6 +142,8 @@ export function summaryLines(status: WebStatus): string[] {
     for (const url of status.listenUrls) lines.push(`Open: ${url}`);
     lines.push(sessionsLine(status));
   }
+  const jobs = remoteJobsLine(status);
+  if (jobs) lines.push(jobs);
   lines.push(modeLine(status));
   if (status.listening && status.mode === "token" && status.accessUrl) lines.push(`Access link: ${maskLink(status.accessUrl)}  (reveal it in /web)`);
   if (status.needsRestart) lines.push(RESTART_LINE);
@@ -170,6 +192,18 @@ export function listenParams(form: ListenForm): { host: string; port: number; sa
 }
 
 /**
+ * `web.remote.listen` failures carry `details {field, reason}` (1.55.0): the
+ * reason alone names the field when `field` is missing.
+ */
+const REASON_FIELD: Record<string, ListenField> = {
+  in_use: "port",
+  permission: "port",
+  out_of_range: "port",
+  bad_address: "host",
+  required: "username",
+};
+
+/**
  * The field a refusal from core belongs to, with its words: `details.field`
  * when core names one, else the message (a port in use is the port's, a bad
  * address the host's, a name the username's). Anything else belongs to the form.
@@ -180,6 +214,9 @@ export function fieldError(error: unknown): { field: ListenField | null; message
   const details = raw?.data?.details && typeof raw.data.details === "object" ? (raw.data.details as Record<string, unknown>) : {};
   const named = [details["field"], details["param"]].find((value) => typeof value === "string") as string | undefined;
   if (named === "host" || named === "port" || named === "username") return { field: named, message };
+  // 1.55.0: core says why in `details.reason` (typed), so the field is known without reading its English.
+  const byReason = REASON_FIELD[String(details["reason"] ?? "")];
+  if (byReason) return { field: byReason, message };
   if (/in use|EADDRINUSE|already|\bport\b/i.test(message)) return { field: "port", message };
   if (/\buser(name)?\b/i.test(message)) return { field: "username", message };
   if (/address|host|resolve|bind|assign|invalid|unreachable/i.test(message)) return { field: "host", message };

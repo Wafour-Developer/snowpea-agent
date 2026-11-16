@@ -8,7 +8,7 @@
  * resort.
  */
 
-import { contextSegment } from "./bottom.js";
+import { autoCompactSegment, contextSegment } from "./bottom.js";
 import { currentAccent } from "./palette.js";
 import { lspColor, lspLabel, serversFor, type LspServer } from "../state/lsp.js";
 import { mcpColor, mcpLabel, type McpServerRow } from "../state/mcp.js";
@@ -246,6 +246,11 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   const context = contextSegment(input.context ?? null);
   if (context) {
     segments.push({ key: "ctx", ...context, priority: 1 });
+  }
+  // Where the next turn compacts on its own; the first thing to go on a narrow line.
+  const autoCompact = autoCompactSegment(input.context ?? null);
+  if (autoCompact) {
+    segments.push({ key: "ctxAuto", ...autoCompact, priority: 7 });
   }
 
   segments.push({

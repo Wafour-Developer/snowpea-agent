@@ -33,6 +33,7 @@ import { mouseReports } from "../input/mouse.js";
 import { currentAccent } from "../layout/palette.js";
 import { textWidth } from "../layout/text-width.js";
 import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
+import { refusalWords } from "../state/errors.js";
 import { ALWAYS_ASKS, alwaysAsksYou } from "../state/person-only.js";
 import type { QuestionEntry } from "../state/store.js";
 import { ChoiceList } from "./ChoiceList.js";
@@ -69,6 +70,8 @@ export interface QuestionPromptProps {
   isActive?: boolean;
   /** Name of the session asking, when it is not the one the person is in (1.53.0). */
   label?: string | null;
+  /** Core refused the last answer and left the question open (1.55.0 `refused`). */
+  refusal?: { code: string; message: string; reason: string } | null;
 }
 
 /** A blank answer; the shape the daemon reads as "not answered". */
@@ -117,6 +120,7 @@ export function QuestionPrompt({
   onAnswer,
   isActive = true,
   label = null,
+  refusal = null,
 }: QuestionPromptProps): React.ReactElement {
   const questions = useMemo(() => request.questions ?? [], [request]);
   const alwaysAsks = alwaysAsksYou(request);
@@ -294,6 +298,12 @@ export function QuestionPrompt({
         </Text>
       )}
       <Text wrap="wrap">{clampQuestion(current?.question ?? "")}</Text>
+      {refusal ? (
+        <Text bold color="red" wrap="wrap">
+          {"✗ "}
+          {refusalWords(refusal)}
+        </Text>
+      ) : null}
       <Box marginTop={1} flexDirection="column">
         <ChoiceList
           options={options.map((option) => ({

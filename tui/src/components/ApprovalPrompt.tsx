@@ -16,6 +16,7 @@ import { Box, Text, useInput } from "ink";
 import { mouseReports } from "../input/mouse.js";
 
 import type { ApprovalDecision, ApprovalScope, Mode } from "../rpc/sdk.js";
+import { refusalWords } from "../state/errors.js";
 import { ALWAYS_ASKS, alwaysAsksReason, alwaysAsksYou } from "../state/jarvis.js";
 import { type ApprovalEntry } from "../state/store.js";
 import { ConfirmMenu, type ConfirmOption } from "./ConfirmMenu.js";
@@ -137,6 +138,7 @@ export function ApprovalPrompt({
   label = null,
   crossSession = false,
   onceOnly = false,
+  refusal = null,
 }: {
   request: ApprovalEntry;
   onDecide: (answer: ApprovalAnswer, reason?: string) => void;
@@ -149,6 +151,8 @@ export function ApprovalPrompt({
   crossSession?: boolean;
   /** A request only this answer may settle, once: no session/project/always rows (1.53 `personOnly`). */
   onceOnly?: boolean;
+  /** Core refused the last reply and left this request open (1.55.0 `refused`). */
+  refusal?: { code: string; message: string; reason: string } | null;
 }): React.ReactElement {
   const options = approvalOptions(mode, request).filter(
     (option) =>
@@ -193,10 +197,16 @@ export function ApprovalPrompt({
         {label ? `Approval required · ${label}` : "Approval required"}
         {alwaysAsks ? <Text color="red">{`  [${ALWAYS_ASKS}]`}</Text> : null}
       </Text>
-      {alwaysAsks && why ? (
-        <Text color="red" wrap="truncate-end">
+      {why ? (
+        <Text color={alwaysAsks ? "red" : "yellow"} wrap="truncate-end">
           {"  "}
           {why}
+        </Text>
+      ) : null}
+      {refusal ? (
+        <Text bold color="red" wrap="wrap">
+          {"  ✗ "}
+          {refusalWords(refusal)}
         </Text>
       ) : null}
       <Text>

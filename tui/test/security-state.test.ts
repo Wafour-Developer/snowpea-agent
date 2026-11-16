@@ -73,6 +73,8 @@ describe("security contract normalisation", () => {
       effective: { commands: [], paths: [] },
       writable: true,
       problems: [],
+      problemItems: [],
+      unknownCode: "ask",
       projectAdds: 0,
     });
     expect(normalizeVerdict({ blocked: true, by: "x", why: "y", level: "all" })).toEqual({ blocked: true, opaque: false, by: "x", why: "y", level: "all" });
@@ -251,6 +253,7 @@ describe("verdicts and status", () => {
       "Blocked commands: 1 presets on (Essential safety), 1 of your own",
       "Protected folders: 1 presets on (System), 1 of your own",
       "In force now: 2 command patterns, 2 folders",
+      "Code snowpea can't tell about: ask (put to you). snowpea's own files stay protected either way, and anything on your block lists stays blocked.",
       "Change them with /security. They apply to sessions that go through snowpea.",
     ]);
   });

@@ -237,7 +237,8 @@ export function workingLine(input: WorkingLineInput): string | null {
   if (phase.kind === "compacting") {
     // Compaction can run between turns, when the turn clock says nothing, so
     // this phase carries no stats.
-    return `${spinner} ${phase.reason === "auto" ? "Compacting (auto)" : "Compacting"}…`;
+    // `overflow` (1.55.0): the server refused the request for its length; the turn retries once after this.
+    return `${spinner} ${phase.reason === "auto" ? "Compacting (auto)" : phase.reason === "overflow" ? "Compacting (the request was too long)" : "Compacting"}…`;
   }
   if (phase.kind === "tool") return `${spinner} ${phase.label}… ${stats}`;
   if (phase.kind === "subagents") {

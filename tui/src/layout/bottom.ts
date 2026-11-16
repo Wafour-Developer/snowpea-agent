@@ -82,6 +82,18 @@ export function contextSegment(context: ContextUsage | null): Painted | null {
 }
 
 /**
+ * Where the next turn compacts on its own (1.55.0 `autoCompactAt`), beside the
+ * context figure: `auto-compact at 85%`, or in tokens when the window is not
+ * known. Null when core did not say (auto-compaction off, or an older core).
+ */
+export function autoCompactSegment(context: ContextUsage | null): Painted | null {
+  const at = context?.autoCompactAt;
+  if (!context || typeof at !== "number" || !(at > 0)) return null;
+  const where = context.window && context.window > 0 ? `${Math.round((at / context.window) * 100)}%` : formatTokens(at);
+  return { text: `auto-compact at ${where}`, dimColor: true };
+}
+
+/**
  * The row that only appears when the window is nearly full.
  *
  * It names the threshold it crossed and what to do about it, because "96%" on
@@ -123,8 +135,12 @@ export function summaryLine({ mode, shells, agents }: SummaryLineInput): Painted
 }
 
 /** `— compacted (12.3k → 2.1k tokens) —`, sized to the terminal. */
-export function compactionDivider(before: number, after: number, width: number): string {
-  const label = ` compacted (${formatTokens(before)} → ${formatTokens(after)} tokens) `;
+export function compactionDivider(before: number, after: number, width: number, reason?: "overflow" | "auto" | "manual"): string {
+  // `overflow` (1.55.0): the server refused the request for its length, so history was folded and the turn retried.
+  const label =
+    reason === "overflow"
+      ? ` compacted: request too long (${formatTokens(before)} → ${formatTokens(after)} tokens) `
+      : ` compacted (${formatTokens(before)} → ${formatTokens(after)} tokens) `;
   const room = Math.max(0, Math.floor(width) - label.length);
   const left = Math.floor(room / 2);
   return `${"─".repeat(left)}${label}${"─".repeat(room - left)}`;

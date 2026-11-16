@@ -33,6 +33,7 @@ import {
   localPersonOnlyLine,
   modeLine,
   passwordProblem,
+  remoteJobsLine,
   sessionsLine,
   shownLink,
   validateForm,
@@ -396,6 +397,8 @@ export function WebScreen({
     status.listenUrls.slice(0, 3).forEach((url, index) => body.push(...wrap(`url-${index}`, [{ text: "Open  ", dimColor: true }, { text: url, color: "cyan" }], "        ")));
     body.push(...wrap("sessions", [{ text: sessionsLine(status) }]));
   }
+  const remoteJobs = remoteJobsLine(status);
+  if (remoteJobs) body.push(...wrap("remote-jobs", [{ text: remoteJobs, color: "yellow" }]));
   body.push(...wrap("mode", [{ text: modeLine(status) }]));
   if (status.listening && status.mode === "token") {
     body.push(

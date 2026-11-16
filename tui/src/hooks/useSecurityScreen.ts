@@ -31,11 +31,14 @@ import {
   securitySupported,
   settingsPatch,
   statusLines,
+  unknownCodePatch,
   verdictLine,
   type Lists,
   type PresetCatalog,
   type SecurityConfig,
+  type UnknownCode,
 } from "../state/security.js";
+import { rpcErrorText } from "../state/errors.js";
 import { sanitizeText } from "../util/sanitize.js";
 
 export interface SecurityUi {
@@ -139,6 +142,26 @@ export function useSecurityScreen(deps: SecurityDeps) {
     [client, loadConfig],
   );
 
+  /** `security.unknownCode`: global only, by a local person; a project scope would answer `global_only`. */
+  const setUnknownCode = useCallback(
+    async (value: UnknownCode): Promise<SaveResult> => {
+      try {
+        await client.call("settings.set", { scope: "global", patch: unknownCodePatch(value) });
+      } catch (error) {
+        if (rpcErrorFacts(error).code === "jarvis_person_only") {
+          return { ok: false, message: rpcErrorText(error), readOnly: personOnlyReadOnlyLine(error) };
+        }
+        return { ok: false, message: rpcErrorText(error) };
+      }
+      try {
+        return { ok: true, config: await loadConfig() };
+      } catch (error) {
+        return { ok: false, message: `saved, but could not read the setting back — ${errorText(error)}` };
+      }
+    },
+    [client, loadConfig],
+  );
+
   const check = useCallback(
     async (what: "command" | "path", text: string, draft: Lists | null = null): Promise<CheckResult> => {
       try {
@@ -220,6 +243,7 @@ export function useSecurityScreen(deps: SecurityDeps) {
     close: useCallback(() => setUi(null), []),
     handleCommand,
     save,
+    setUnknownCode,
     check,
     reload: loadConfig,
     changeSeq,

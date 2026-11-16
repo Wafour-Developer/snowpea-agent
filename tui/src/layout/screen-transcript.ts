@@ -236,7 +236,7 @@ export function screenTranscriptLines(
     if (item.kind === "compaction") {
       const entry = state.compactions.find((c) => c.id === item.id);
       if (entry) {
-        push([{ key: `compaction-${entry.id}`, segments: [{ text: compactionDivider(entry.before, entry.after, width), dimColor: true }] }], "block", true);
+        push([{ key: `compaction-${entry.id}`, segments: [{ text: compactionDivider(entry.before, entry.after, width, entry.reason), dimColor: true }] }], "block", true);
       }
       return;
     }

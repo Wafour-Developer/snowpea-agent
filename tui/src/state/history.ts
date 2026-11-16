@@ -44,6 +44,30 @@ export interface SessionRecord {
 }
 
 /**
+ * One row of `session.list { includeClosed: true }` as a picker record.
+ *
+ * Since 1.55.0 a closed (stored) row carries `title` and `lastActivityAt` like a
+ * live one: the title is what the picker shows when it has one (else the last
+ * prompt), and the age is the last activity (else when it was created).
+ */
+export function recordOfListRow(row: any): SessionRecord {
+  const title = typeof row?.title === "string" ? row.title.trim() : "";
+  return {
+    sessionId: String(row?.sessionId),
+    workdir: String(row?.workdir),
+    firstPrompt: title || (typeof row?.lastPrompt === "string" ? row.lastPrompt : ""),
+    at: Date.parse(String(row?.lastActivityAt)) || Date.parse(String(row?.createdAt)) || 0,
+    kind: typeof row?.kind === "string" ? row.kind : "chat",
+    parentSessionId: typeof row?.parentSessionId === "string" ? row.parentSessionId : undefined,
+    agentFields: {
+      hostToolsFrom: row?.hostToolsFrom,
+      browserProvider: row?.browserProvider,
+      originSurface: row?.originSurface,
+    },
+  };
+}
+
+/**
  * The marker the `/sessions` picker puts in front of a row that is not a
  * human's own thread: a scheduled run, a spawned subagent, or a persistent
  * named agent. A chat row keeps its bare session id, so the common case reads

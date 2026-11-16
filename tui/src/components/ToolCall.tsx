@@ -3,7 +3,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
-import { toolLineCount, visibleToolBodyLines } from "../layout/transcript.js";
+import { toolLineCount, visibleToolBodyLines, waitingText } from "../layout/transcript.js";
 import { diagnosticLineColor } from "../state/lsp.js";
 import type { ToolCallEntry } from "../state/store.js";
 
@@ -48,6 +48,12 @@ export function ToolCall({
         <Text dimColor> {summarizeArgs(call.args)}</Text>
         {count ? <Text dimColor>{count}</Text> : null}
       </Text>
+      {call.state === "running" && call.waiting ? (
+        <Text color="yellow" dimColor wrap="truncate-end">
+          {"  "}
+          {waitingText(call.waiting.note)}
+        </Text>
+      ) : null}
       {tail.map((line, index) => (
         <Text
           key={`${call.callId}-p${index}`}

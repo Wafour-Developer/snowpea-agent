@@ -286,6 +286,15 @@ export function messageLines(message: Message, width = 80): Line[] {
       else segments = inlineSegments(raw);
     }
     const mark = index === 0 ? roleMark(message.role) : { text: "  " };
+    // A command that ran beside the running turn (1.55.0): a quiet aside.
+    if (message.side && !message.blocked) {
+      out.push({
+        key,
+        segments: [index === 0 ? { text: "↳ ", color: "cyan" } : { text: "  " }, ...segments.map((segment) => ({ ...segment, dimColor: true }))],
+        source: index,
+      });
+      continue;
+    }
     if (message.blocked) {
       out.push({
         key,
@@ -298,6 +307,11 @@ export function messageLines(message: Message, width = 80): Line[] {
   }
 
   return out;
+}
+
+/** The line a tool card shows while its host says it is waiting: `waiting` plus the host's note. */
+export function waitingText(note: string): string {
+  return note.trim() === "" ? "waiting…" : `waiting: ${note.trim()}`;
 }
 
 /** Compact one-line rendering of the tool arguments. */
@@ -348,6 +362,10 @@ export function toolCallLines(call: ToolCallEntry, expanded: boolean): Line[] {
   if (count) head.push({ text: count, dimColor: true });
 
   const out: Line[] = [{ key: `${call.callId}-h`, segments: head }];
+  // A host tool that is waiting (1.55.0) says so, with its own note.
+  if (call.state === "running" && call.waiting) {
+    out.push({ key: `${call.callId}-wait`, segments: [{ text: `  ${waitingText(call.waiting.note)}`, color: "yellow", dimColor: true }] });
+  }
   // While the call is in flight the daemon streams its output; the tail says
   // the thing is alive and what it is chewing on. The final result replaces it.
   if (call.state === "running") {
