@@ -37,6 +37,7 @@ import { installAltScreen } from "./layout/screen.js";
 import { splitKeypresses } from "./input/keys.js";
 import { TuiClient } from "./rpc/client.js";
 import type { Mode } from "./rpc/sdk.js";
+import { rpcCode, rpcErrorText } from "./state/errors.js";
 import { TUI_VERSION } from "./version.js";
 
 const CLIENT_VERSION = TUI_VERSION;
@@ -284,7 +285,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       originSurface: "tui",
     }));
   } catch (error) {
-    process.stderr.write(`snowpea-tui: cannot connect to daemon: ${(error as Error).message}\n`);
+    // A refusal of the starting mode (--mode wider than the project's default) is core's answer, not a lost connection.
+    process.stderr.write(
+      rpcCode(error) === "jarvis_person_only"
+        ? `snowpea-tui: ${rpcErrorText(error)}\n`
+        : `snowpea-tui: cannot connect to daemon: ${(error as Error).message}\n`,
+    );
     await client.close().catch(() => undefined);
     return 1;
   }

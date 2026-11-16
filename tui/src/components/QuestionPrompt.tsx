@@ -33,6 +33,7 @@ import { mouseReports } from "../input/mouse.js";
 import { currentAccent } from "../layout/palette.js";
 import { textWidth } from "../layout/text-width.js";
 import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
+import { ALWAYS_ASKS, alwaysAsksYou } from "../state/person-only.js";
 import type { QuestionEntry } from "../state/store.js";
 import { ChoiceList } from "./ChoiceList.js";
 
@@ -118,6 +119,7 @@ export function QuestionPrompt({
   label = null,
 }: QuestionPromptProps): React.ReactElement {
   const questions = useMemo(() => request.questions ?? [], [request]);
+  const alwaysAsks = alwaysAsksYou(request);
   const [tab, setTab] = useState(0);
   const [answers, setAnswers] = useState<QuestionAnswerItem[]>(() => questions.map(() => blank()));
   const [cursor, setCursor] = useState(0);
@@ -283,10 +285,12 @@ export function QuestionPrompt({
               </Text>
             );
           })}
+          {alwaysAsks ? <Text color="yellow">{`  [${ALWAYS_ASKS}]`}</Text> : null}
         </Box>
       ) : (
         <Text bold color="cyan">
           {current?.header || "질문 / Question"}
+          {alwaysAsks ? <Text color="yellow">{`  [${ALWAYS_ASKS}]`}</Text> : null}
         </Text>
       )}
       <Text wrap="wrap">{clampQuestion(current?.question ?? "")}</Text>

@@ -26,8 +26,9 @@ import type {
 import { fit, spread } from "../layout/fit.js";
 import { textWidth } from "../layout/text-width.js";
 import { cliLabel } from "./external.js";
-import { agentOfExternal } from "./agent-tag.js";
+import { agentOfExternal, agentOfSession, type AgentIdentity } from "./agent-tag.js";
 import { NOT_APPLIED_NOTE } from "./security.js";
+import { ALWAYS_ASKS, alwaysAsksReason, alwaysAsksYou } from "./person-only.js";
 
 // --- capability gating -------------------------------------------------------
 
@@ -71,6 +72,8 @@ export interface WaitingItem {
   label: string;
   /** One line: the tool and what it wants, or the first question. */
   summary: string;
+  /** Only a person may decide it, whatever the mode (`neverDelegable`, `personOnly`, a mode picker). */
+  alwaysAsks: boolean;
   request: ApprovalRequestParams | QuestionRequestParams;
 }
 
@@ -240,7 +243,7 @@ function withRequests(state: JarvisState, requests: WaitingItem[]): JarvisState 
     ...state,
     requests,
     waiting: requests.filter((item) => needsPerson(item.request)),
-    deciding: requests.filter((item) => routeOf(item.request) === "jarvis").length,
+    deciding: requests.filter((item) => routeOf(item.request) === "jarvis" && !alwaysAsksYou(item.request)).length,
   };
 }
 
@@ -264,9 +267,13 @@ function routeOf(request: ApprovalRequestParams | QuestionRequestParams): string
  * allowed already.
  */
 export function needsPerson(request: ApprovalRequestParams | QuestionRequestParams): boolean {
+  // What only a person may settle is theirs whatever its route says.
+  if (alwaysAsksYou(request)) return true;
   const route = routeOf(request);
   return route === null || route === "person";
 }
+
+export { ALWAYS_ASKS, alwaysAsksReason, alwaysAsksYou };
 
 function rowFor(
   rows: readonly JarvisOverviewRow[],
@@ -287,18 +294,27 @@ export function baseName(path: string | null | undefined): string {
   return trimmed.split(/[\\/]/).pop() || trimmed;
 }
 
-/** The name a session goes by on this screen: title, else project, else id. */
-export function sessionLabel(
-  row: Pick<JarvisOverviewRow, "title" | "project" | "external" | "sessionId">,
-): string {
+type LabelRow = Pick<JarvisOverviewRow, "title" | "project" | "external" | "sessionId"> &
+  Partial<Pick<JarvisOverviewRow, "hostToolsFrom" | "originSurface">>;
+
+/** Who a row belongs to: an external CLI, a browser host (`[web]`) or plain snowpea (no tag). */
+export function rowAgent(row: LabelRow): AgentIdentity {
+  return row.external ? agentOfExternal(row.external.cli) : agentOfSession(row);
+}
+
+/** The name a session goes by, without its agent tag: title, else project, else id. */
+export function sessionName(row: LabelRow): string {
   const where = baseName(row.project);
   const title = (row.title ?? "").trim();
   const name = title && where ? `${where} · ${title}` : title || where;
-  if (row.external) {
-    const tag = agentOfExternal(row.external.cli).tag;
-    return `${tag} ${name || row.external.id.slice(0, 8)}`;
-  }
+  if (row.external) return name || row.external.id.slice(0, 8);
   return name || (row.sessionId ?? "").slice(0, 8) || "session";
+}
+
+/** The name a session goes by on this screen; `[cc]` / `[web]` first when it has one. */
+export function sessionLabel(row: LabelRow): string {
+  const tag = rowAgent(row).tag;
+  return tag ? `${tag} ${sessionName(row)}` : sessionName(row);
 }
 
 export function externalOfRequest(
@@ -328,6 +344,7 @@ function waitingFrom(
     external,
     label,
     summary: kind === "approval" ? approvalSummary(request as ApprovalRequestParams) : questionSummary(request as QuestionRequestParams),
+    alwaysAsks: alwaysAsksYou(request),
     request,
   };
 }
@@ -412,7 +429,7 @@ export function rowStatus(row: JarvisOverviewRow, now: number): RowStatus {
   const waiting = row.waitingOnPerson ?? 0;
   const left = formatRemaining(row.pausedUntil, now);
   if (waiting > 0) return { glyph: "!", color: "yellow", text: `waits for you (${waiting})` };
-  if (row.takenOver) return { glyph: "✋", color: "cyan", text: "yours" };
+  if (row.takenOver) return { glyph: "◉", color: "cyan", text: "yours" };
   if (left) return { glyph: "‖", color: "cyan", text: `paused ${left}` };
   switch (row.status) {
     case "running":
@@ -440,6 +457,8 @@ export function rowChips(row: JarvisOverviewRow, width: number): string[] {
     chips.push(hostChip(row.host) ?? "external");
     if (row.approvals === "person") chips.push("you answer");
   }
+  // The lists cannot reach what this session runs (core's `securityListsApply`).
+  if (row.securityListsApply === false) chips.push("no security lists");
   if (row.level && width >= 44) chips.push(row.level);
   return chips;
 }
@@ -488,9 +507,9 @@ export interface PanelLine {
  * the external colour; the rest keeps `color`. The text is unchanged, so the
  * tag reads without colour.
  */
-export function tagSegments(text: string, external: ExternalRef | null | undefined, color?: string): PanelLine["segments"] {
-  const identity = external ? agentOfExternal(external.cli) : null;
-  const at = identity ? text.indexOf(identity.tag) : -1;
+export function tagSegments(text: string, external: ExternalRef | AgentIdentity | null | undefined, color?: string): PanelLine["segments"] {
+  const identity: AgentIdentity | null = !external ? null : "kind" in external ? external : agentOfExternal(external.cli);
+  const at = identity && identity.tag ? text.indexOf(identity.tag) : -1;
   if (!identity || at < 0) return [{ text, color }];
   const end = at + identity.tag.length;
   return [
@@ -510,7 +529,6 @@ export function panelLines(
   width: number,
   maxRows: number,
   now: number,
-  securityLists = false,
 ): PanelLine[] {
   const lines: PanelLine[] = [];
   const status = state.status;
@@ -552,8 +570,8 @@ export function panelLines(
   );
   // One line saying what an uncontrolled session means for Jarvis, when there is room.
   const uncontrolledNote = rows.some((row) => row.external && row.controlled === false) && sessionRoomBefore >= 3;
-  // With security lists set, the same sessions are not covered by them either.
-  const securityNote = uncontrolledNote && securityLists && sessionRoomBefore >= 4;
+  // Core says which sessions the security lists cannot reach (`securityListsApply: false`).
+  const securityNote = rows.some((row) => row.securityListsApply === false) && sessionRoomBefore >= (uncontrolledNote ? 4 : 3);
   const sessionRoom = sessionRoomBefore - (uncontrolledNote ? 1 : 0) - (securityNote ? 1 : 0);
   const hasMore = rows.length > sessionRoom;
   const sessionShown = budget(rows.length, hasMore ? Math.max(0, sessionRoom - 1) : sessionRoom);
@@ -572,7 +590,7 @@ export function panelLines(
       const left = `${String(index + 1).padStart(2)} ${st.glyph} ${sessionLabel(row)}`;
       // A session snowpea does not gate is red unless it waits on the person.
       const color = row.controlled === false && st.color !== "yellow" ? "red" : st.color;
-      lines.push({ key: `row-${index}`, segments: tagSegments(spread(left, right, w), row.external, color) });
+      lines.push({ key: `row-${index}`, segments: tagSegments(spread(left, right, w), rowAgent(row), color) });
     });
     if (uncontrolledNote) {
       lines.push({ key: "uncontrolled-note", segments: [{ text: fit(UNCONTROLLED_NOTE, w), color: "red" }] });
@@ -597,9 +615,10 @@ export function panelLines(
     });
     waiting.slice(0, waitingShown).forEach((item, index) => {
       const mark = item.kind === "approval" ? "!" : "?";
+      const asks = item.alwaysAsks ? `[${ALWAYS_ASKS}] ` : "";
       lines.push({
         key: `wait-${index}`,
-        segments: tagSegments(fit(` ${mark} ${item.label} — ${item.summary}`, w), item.external, "yellow"),
+        segments: tagSegments(fit(` ${mark} ${item.label} — ${asks}${item.summary}`, w), item.external, "yellow"),
       });
     });
     if (waiting.length > waitingShown) {
@@ -663,6 +682,59 @@ export function resolvedLine(
   if ((by !== "jarvis" && by !== "jarvis:auto") || !request) return null;
   const who = by === "jarvis:auto" ? "Jarvis (auto)" : "Jarvis";
   return `${who} ${decision === "deny" ? "denied" : "allowed"} ${approvalSummary(request)}`;
+}
+
+const SCOPE_RANK: Record<string, number> = { once: 0, session: 1, project: 2, site: 2, always: 3 };
+const SCOPE_WORDS: Record<string, string> = {
+  once: "once only",
+  session: "for this session only",
+  project: "for this project only",
+  site: "for this site only",
+};
+
+/** What the person chose for each request they allowed, until core says what it applied. */
+const chosenScopes = new Map<string, string>();
+
+export function rememberChosenScope(requestId: string, decision: string, scope: string): void {
+  if (decision !== "allow") return;
+  chosenScopes.set(requestId, scope);
+  // A request that is never reported back must not pile up.
+  if (chosenScopes.size > 200) chosenScopes.delete(chosenScopes.keys().next().value as string);
+}
+
+export function takeChosenScope(requestId: string): string | undefined {
+  const scope = chosenScopes.get(requestId);
+  chosenScopes.delete(requestId);
+  return scope;
+}
+
+/** True when the scope core applied is narrower than the one the person chose. */
+export function scopeNarrowed(chosen: string | undefined, applied: string | null | undefined): boolean {
+  if (!chosen || !applied) return false;
+  const a = SCOPE_RANK[applied];
+  const c = SCOPE_RANK[chosen];
+  return a !== undefined && c !== undefined && a < c;
+}
+
+/**
+ * The transcript line for `approval.resolved`, or null when nothing needs
+ * saying. A withdrawn request (no decision, outcome `withdrawn`) was never
+ * decided: it closes quietly. Jarvis's answers are named; a person's allow that
+ * core kept narrower than chosen says "Allowed once only".
+ */
+export function approvalResolvedNote(
+  payload: { by?: string; decision?: string | null; outcome?: string | null; scope?: string | null },
+  request: ApprovalRequestParams | undefined,
+  chosenScope?: string,
+): string | null {
+  if (payload.outcome === "withdrawn" || payload.decision === null || payload.decision === undefined) return null;
+  const jarvis = resolvedLine(payload.by, payload.decision, request);
+  if (jarvis) return jarvis;
+  if (payload.decision === "allow" && scopeNarrowed(chosenScope, payload.scope)) {
+    const words = SCOPE_WORDS[payload.scope as string] ?? `as ${payload.scope}`;
+    return `Allowed ${words} — core kept it narrower than "${chosenScope}"${request ? ` (${approvalSummary(request)})` : ""}`;
+  }
+  return null;
 }
 
 /** The one quiet line a supervised session shows when Jarvis looked at or instructed it. */
@@ -901,6 +973,6 @@ export function statusLines(status: JarvisStatus, now: number): string[] {
     );
   }
   if ((status.hiddenProjects ?? []).length > 0) lines.push(`hidden from Jarvis: ${(status.hiddenProjects ?? []).map(baseName).join(", ")}`);
-  for (const problem of status.problems ?? []) lines.push(`⚠ ${problem}`);
+  for (const problem of status.problems ?? []) lines.push(`! ${problem}`);
   return lines;
 }

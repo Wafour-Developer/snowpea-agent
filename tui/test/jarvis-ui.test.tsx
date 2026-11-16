@@ -6,6 +6,7 @@
  */
 
 import React from "react";
+import chalk from "chalk";
 import { render } from "ink";
 import { describe, expect, it } from "vitest";
 
@@ -1883,5 +1884,392 @@ describe("the security-driven contract", () => {
     app.stdin.write("n");
     expect(await answer).toMatchObject({ decision: "deny" });
     app.done();
+  });
+});
+
+/** Protocol 1.54.0: approvals, questions, errors, trust on send, and who a session belongs to. */
+describe("protocol 1.54.0", () => {
+  const person = (patch: Record<string, unknown> = {}) => ({ requestId: "a-1", sessionId: "s-1", tool: "shell", args: { command: "pytest -q" }, route: "person", risk: "low", ...patch });
+  const sessionEvent = (client: any, seq: number, kind: string, payload: Record<string, unknown>) =>
+    client.emit("onSessionEvent", { sessionId: "s-1", seq, kind, payload });
+
+  describe("approval.resolved", () => {
+    it("closes a withdrawn request quietly: no decision, no line in the transcript", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      void client.ask(person());
+      await sleep(250);
+      expect(app.view()).toContain("Approval required");
+      client.emit("onApprovalResolved", { requestId: "a-1", by: "rerouted", decision: null, outcome: "withdrawn", scope: null });
+      await sleep(250);
+      expect(app.view()).not.toContain("Approval required");
+      expect(app.view()).not.toMatch(/allowed|denied|Jarvis (allowed|denied)/i);
+      expect(client.responded).toEqual([]);
+      app.done();
+    });
+
+    it("says 'Allowed once only' when core kept an allow narrower than the one chosen", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      const answer = client.ask(person());
+      await sleep(250);
+      app.stdin.write("a");
+      expect(await answer).toMatchObject({ decision: "allow", scope: "session" });
+      client.emit("onApprovalResolved", { requestId: "a-1", by: "tui", decision: "allow", outcome: null, scope: "once" });
+      await sleep(250);
+      expect(app.view()).toContain("Allowed once only");
+      expect(app.view()).toContain('narrower than "session"');
+      app.done();
+    });
+
+    it("says nothing when the applied scope is the one chosen, or wider, or when it was denied", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      const first = client.ask(person());
+      await sleep(250);
+      app.stdin.write("a");
+      await first;
+      client.emit("onApprovalResolved", { requestId: "a-1", by: "tui", decision: "allow", scope: "session" });
+      const second = client.ask(person({ requestId: "a-2" }));
+      await sleep(250);
+      app.stdin.write("y");
+      await second;
+      client.emit("onApprovalResolved", { requestId: "a-2", by: "tui", decision: "allow", scope: "project" });
+      const third = client.ask(person({ requestId: "a-3" }));
+      await sleep(250);
+      app.stdin.write("n");
+      await third;
+      client.emit("onApprovalResolved", { requestId: "a-3", by: "tui", decision: "deny", scope: null });
+      await sleep(250);
+      expect(app.view()).not.toContain("only");
+      app.done();
+    });
+
+    it("still names a Jarvis answer", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      void client.ask(person({ requestId: "a-j", route: "jarvis" }));
+      await sleep(200);
+      client.emit("onApprovalResolved", { requestId: "a-j", by: "jarvis", decision: "allow", scope: "once" });
+      await sleep(250);
+      expect(app.view()).toContain("Jarvis allowed");
+      app.done();
+    });
+  });
+
+  describe("requests only a person may decide", () => {
+    it("tags the prompt 'always asks you' with core's reason, even when its route says Jarvis", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      const answer = client.ask(
+        person({ requestId: "a-n", route: "jarvis", personOnly: true, neverDelegable: true, reason: "cannot be checked against your block list", args: { command: "$CMD --now" } }),
+      );
+      await sleep(250);
+      const view = app.view();
+      expect(view).toContain("Approval required");
+      expect(view).toContain("[always asks you]");
+      expect(view).toContain("cannot be checked against your block list");
+      expect(view).not.toContain("Jarvis is deciding");
+      // personOnly: one scope only.
+      expect(view).not.toContain("this session only");
+      app.stdin.write("n");
+      expect(await answer).toMatchObject({ decision: "deny" });
+      app.done();
+    });
+
+    it("tags a neverDelegable request that is not personOnly, and keeps it from being held for Jarvis", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      void client.ask(person({ requestId: "a-d", route: "jarvis", neverDelegable: true, args: { command: "snowpea settings set x" } }));
+      await sleep(250);
+      expect(app.view()).toContain("[always asks you]");
+      expect(app.view()).toContain("Approval required");
+      app.done();
+    });
+
+    it("tags it in the waiting list and in the unattended backlog", async () => {
+      const approvals = [person({ requestId: "a-w", sessionId: "s-2", neverDelegable: true, args: { command: "$CMD x" } })];
+      const client = fakeClient({ approvals, rows: [row()] });
+      const app = await mount(client, { startScreen: "jarvis" }, 100, 40);
+      await sleep(500);
+      const view = app.view();
+      expect(view).toContain("Waiting for you (1)");
+      expect(view).toContain("[always asks you]");
+      expect(view).toContain("Unattended approvals (1)");
+      expect(view.match(/\[always asks you\]/g)?.length).toBeGreaterThanOrEqual(2);
+      app.done();
+    });
+
+    it("never shows a mode picker as 'Jarvis is deciding'", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      const answer = client.askQuestion({
+        requestId: "q-m",
+        sessionId: "s-1",
+        route: "jarvis",
+        personOnly: true,
+        kind: "mode",
+        questions: [{ header: "Mode", question: "Switch to auto mode?", options: [{ label: "Yes" }, { label: "No" }], multiSelect: false }],
+      });
+      await sleep(300);
+      const view = app.view();
+      expect(view).toContain("Switch to auto mode?");
+      expect(view).toContain("[always asks you]");
+      expect(view).not.toContain("Jarvis is deciding");
+      app.stdin.write("\r");
+      await sleep(150);
+      app.stdin.write("\r");
+      expect(await answer).toBeTruthy();
+      app.done();
+    });
+
+    it("still hands an ordinary question to Jarvis when it is routed there", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      void client.askQuestion({
+        requestId: "q-j",
+        sessionId: "s-1",
+        route: "jarvis",
+        questions: [{ header: "DB", question: "Which database?", options: [{ label: "postgres" }, { label: "sqlite" }], multiSelect: false }],
+      });
+      await sleep(300);
+      expect(app.view()).not.toContain("Which database?");
+      expect(app.view()).toContain("Jarvis is deciding");
+      app.done();
+    });
+  });
+
+  describe("raising the mode", () => {
+    const refusal = () => Object.assign(new Error("only a person may raise the mode"), { data: { code: "jarvis_person_only", details: { reason: "mode_raise" } } });
+
+    it("keeps working from the TUI (Shift+Tab raises accept to auto)", async () => {
+      const client = fakeClient();
+      const calls: string[] = [];
+      client.setMode = async (_id: string, mode: string) => {
+        calls.push(mode);
+        return { mode };
+      };
+      const app = await mount(client);
+      app.stdin.write("\x1b[Z");
+      await sleep(250);
+      expect(calls).toEqual(["auto"]);
+      expect(app.view()).toContain("Mode: AUTO");
+      app.done();
+    });
+
+    it("shows core's refusal plainly and puts the mode back", async () => {
+      const client = fakeClient();
+      client.setMode = async () => {
+        throw refusal();
+      };
+      const app = await mount(client);
+      app.stdin.write("\x1b[Z");
+      await sleep(300);
+      const view = app.view();
+      expect(view).toContain("The mode was not raised");
+      expect(view).toContain("raising the permission mode needs a person");
+      expect(view).toContain("Mode: ACCEPT");
+      expect(view).not.toContain("Error: only a person may raise");
+      app.done();
+    });
+  });
+
+  describe("slash text", () => {
+    it("goes through command.run, never session.steer, and shows a gate's refusal", async () => {
+      const client = fakeClient({
+        fail: { "command.run": { code: "jarvis_person_only", message: "gated", details: { reason: "mode_raise" } } },
+      });
+      const app = await mount(client);
+      await submit(app, "/ralph go");
+      await sleep(250);
+      expect(client.calls.find((c: any) => c.method === "command.run")?.params).toEqual({ sessionId: "s-1", name: "ralph", args: "go" });
+      expect(methods(client)).not.toContain("session.steer");
+      expect(app.view()).toContain("The mode was not raised");
+      app.done();
+    });
+
+    it("words steer_slash_command and a catch-all allowlist rule", async () => {
+      const client = fakeClient({ fail: { "command.run": { code: "steer_slash_command", message: "a steer is plain text" } } });
+      const app = await mount(client);
+      await submit(app, "/ralph go");
+      await sleep(250);
+      expect(app.view()).toContain("A slash command cannot be sent as a steer");
+      app.done();
+    });
+  });
+
+  describe("session errors", () => {
+    it("shows hook_failed as one notice that names the plugin and points at /skill hooks", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      sessionEvent(client, 1, "error", { code: "hook_failed", message: "a plugin guard hook is not running: lintguard — exit 2: boom" });
+      await sleep(250);
+      const view = app.view();
+      expect(view).toContain("a plugin guard hook is not running: lintguard — exit 2: boom  (/skill hooks)");
+      // A notice, not a failed turn: no red error line.
+      expect(view).not.toContain("hook_failed:");
+      app.done();
+    });
+
+    it("states both numbers of context_window_too_small and gives no retry hint", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      sessionEvent(client, 1, "turn.started", { turnId: "t1" });
+      sessionEvent(client, 2, "error", {
+        code: "context_window_too_small",
+        message: "the model's context window is 4096 tokens, but snowpea's system prompt and tool definitions alone need about 9800; use a model or server setting with a larger context window",
+      });
+      await sleep(250);
+      const view = app.view();
+      expect(view).toContain("4,096 tokens");
+      expect(view).toContain("about 9,800");
+      expect(view).toContain("larger context window");
+      expect(view).not.toMatch(/retrying|trying again|summaris/i);
+      app.done();
+    });
+
+    it("reads the numbers from details when core sends them, and copes with none", async () => {
+      const client = fakeClient();
+      const app = await mount(client);
+      sessionEvent(client, 1, "error", { code: "context_window_too_small", message: "the window is too small", details: { windowTokens: 2048, neededTokens: 7000 } });
+      await sleep(250);
+      expect(app.view()).toContain("2,048 tokens");
+      expect(app.view()).toContain("about 7,000");
+      app.done();
+    });
+  });
+
+  describe("external.send trust", () => {
+    const sessions = [ext()];
+    const untrustedSend = (method: string, params: any) =>
+      method === "external.send" && !params.trust
+        ? { code: "external_unavailable", message: "first session in this project", details: { reason: "untrusted_project", project: "/work/web" } }
+        : null;
+    const open = async (client: any) => {
+      const app = await mount(client);
+      await submit(app, "/external");
+      await sleep(250);
+      app.stdin.write("\r");
+      await sleep(300);
+      return app;
+    };
+
+    it("asks the same y/n and retries the send with trust: true after a yes", async () => {
+      const client = fakeClient({ externals: sessions, failWhen: untrustedSend });
+      const app = await open(client);
+      await submit(app, "continue the docs");
+      await sleep(250);
+      expect(app.view()).toContain("This CLI will load this project's own settings and hooks.");
+      expect(app.view()).toContain("Open external sessions in /work/web?");
+      let sends = client.calls.filter((c: any) => c.method === "external.send");
+      expect(sends).toHaveLength(1);
+      expect(sends[0].params.trust).toBeUndefined();
+      app.stdin.write("y");
+      await sleep(300);
+      sends = client.calls.filter((c: any) => c.method === "external.send");
+      expect(sends).toHaveLength(2);
+      expect(sends[1].params).toEqual({ ref: sessions[0].ref, text: "continue the docs", trust: true });
+      app.done();
+    });
+
+    it("sends nothing after a no, and says so", async () => {
+      const client = fakeClient({ externals: sessions, failWhen: untrustedSend });
+      const app = await open(client);
+      await submit(app, "continue the docs");
+      await sleep(250);
+      app.stdin.write("n");
+      await sleep(250);
+      expect(client.calls.filter((c: any) => c.method === "external.send")).toHaveLength(1);
+      expect(app.view()).toContain("your message was not sent");
+      expect(app.view()).not.toContain("Open external sessions in");
+      app.done();
+    });
+
+    it("only says so when a person alone can trust the project", async () => {
+      const client = fakeClient({
+        externals: sessions,
+        fail: { "external.send": { code: "external_unavailable", message: "x", details: { reason: "untrusted_project_person_only", project: "/work/web" } } },
+      });
+      const app = await open(client);
+      await submit(app, "continue the docs");
+      await sleep(250);
+      expect(app.view()).toContain("only you can allow it");
+      expect(app.view()).not.toContain("Open external sessions in");
+      app.done();
+    });
+  });
+
+  describe("[web] sessions in the Jarvis views", () => {
+    const web = (patch: Record<string, unknown> = {}) => row({ sessionId: "s-w", title: "browser chat", hostToolsFrom: "profile-1", originSurface: "browser", ...patch });
+
+    it("tags a browser session [web] in the panel, and only that one", async () => {
+      const client = fakeClient({ rows: [web(), row({ sessionId: "s-3", title: "plain one" })] });
+      const app = await mount(client);
+      await submit(app, "/jarvis");
+      await sleep(400);
+      const view = app.view();
+      expect(view).toMatch(/\[web\] snowpea · browser chat/);
+      expect(view).not.toMatch(/\[web\] snowpea · plain one/);
+      app.done();
+    });
+
+    it("tags it in /jarvis sessions too, and keeps 60 columns", async () => {
+      const client = fakeClient({ rows: [web(), row({ sessionId: "s-3", title: "plain one" }), row({ sessionId: null, external: { cli: "claude", id: "abc12345" }, title: "docs", host: "tmux", controlled: true })] });
+      const app = await mount(client, {}, 60, 40);
+      await submit(app, "/jarvis sessions");
+      await sleep(350);
+      const view = app.view();
+      expect(view).toContain("[web]");
+      expect(view).toContain("[cc]");
+      expect(view).toContain("browser chat");
+      for (const line of screen(app.stdout.text(), 40)) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+      app.done();
+    });
+
+    it("draws the sessions list in the panel's colours: tag colour, status colour, red when not gated", async () => {
+      const level = chalk.level;
+      chalk.level = 3;
+      try {
+        const client = fakeClient({
+          rows: [
+            row({ sessionId: "s-3", title: "plain one" }),
+            web({ waitingOnPerson: 1 }),
+            row({ sessionId: null, external: { cli: "claude", id: "abc12345" }, title: "free", host: "snowpea", controlled: false, status: "running" }),
+          ],
+        });
+        const app = await mount(client, {}, 100, 40);
+        await submit(app, "/jarvis sessions");
+        await sleep(350);
+        const out = app.stdout.text();
+        // [web] in the browser colour (#5b7cfa), [cc] in the external one (#d2691e).
+        expect(out).toContain("\u001b[38;2;91;124;250m[web]");
+        expect(out).toContain("\u001b[38;2;210;105;30m[cc]");
+        // The row that waits on you is yellow; the ungated external one is red.
+        const colorOf = (needle: string): number | null => {
+          const at = out.lastIndexOf(needle);
+          let code: number | null = null;
+          for (const match of out.slice(0, at).matchAll(/\u001b\[(\d+)m/g)) {
+            const n = Number(match[1]);
+            if ((n >= 30 && n <= 37) || n === 39) code = n;
+          }
+          return code;
+        };
+        expect(colorOf(" 2. snowpea · browser chat")).toBe(33);
+        expect(colorOf(" 3. snowpea · free")).toBe(31);
+        app.done();
+      } finally {
+        chalk.level = level;
+      }
+    });
+
+    it("lets core's securityListsApply replace the local guess, on rows and chips", async () => {
+      const client = fakeClient({ rows: [web({ securityListsApply: false })] });
+      const app = await mount(client, {}, 100, 40);
+      await submit(app, "/jarvis");
+      await sleep(400);
+      expect(app.view()).toContain("no security lists");
+      expect(app.view()).toContain("security lists do not apply to this session");
+      app.done();
+    });
   });
 });

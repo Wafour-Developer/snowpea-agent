@@ -9,6 +9,7 @@ import { RECORD_KEY } from "../state/voice.js";
 import type { CommandInfo } from "../rpc/sdk.js";
 import { rankCommandMatches } from "../state/slash-completion.js";
 import { SECURITY_REQUIRES_SUMMARY } from "../state/security.js";
+import { WEB_REQUIRES_SUMMARY } from "../state/web-remote.js";
 
 const SURFACE_COMMANDS: CommandInfo[] = [
   {
@@ -60,6 +61,11 @@ const SURFACE_COMMANDS: CommandInfo[] = [
   {
     name: "external",
     summary: "Claude Code, Codex, agy and Cursor sessions (beta): pick one, or /external new.",
+    source: "tui",
+  },
+  {
+    name: "web",
+    summary: "Remote web access: listen for other machines, the access link, password: /web, /web status.",
     source: "tui",
   },
 ];
@@ -122,7 +128,11 @@ function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
     ...commands,
     ...SURFACE_COMMANDS.filter((command) => !names.has(command.name)).map((command) =>
       unsupportedSurface.has(command.name)
-        ? { ...command, summary: command.name === "security" ? SECURITY_REQUIRES_SUMMARY : REQUIRES_CORE_SUMMARY }
+        ? {
+            ...command,
+            summary:
+              command.name === "security" ? SECURITY_REQUIRES_SUMMARY : command.name === "web" ? WEB_REQUIRES_SUMMARY : REQUIRES_CORE_SUMMARY,
+          }
         : command,
     ),
   ];

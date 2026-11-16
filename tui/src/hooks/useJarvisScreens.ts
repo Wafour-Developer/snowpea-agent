@@ -54,6 +54,7 @@ import {
   jarvisMarker,
   jarvisReducer,
   panelLines,
+  rememberChosenScope,
   requiresLine,
   sessionLabel,
   statusLines,
@@ -444,9 +445,16 @@ export function useJarvisScreens(deps: ScreensDeps) {
    */
   const callTrusted = useCallback(
     (
-      method: "external.open" | "external.create",
+      method: "external.open" | "external.create" | "external.send",
       params: Record<string, unknown>,
-      options: { cli: string; project: string; onResult: (result: any) => void; onError: (error: unknown) => void },
+      options: {
+        cli: string;
+        project: string;
+        onResult: (result: any) => void;
+        onError: (error: unknown) => void;
+        /** What a "n" does besides closing the question (the default says no session was opened). */
+        onDeclined?: () => void;
+      },
     ) => {
       const run = (trust: boolean): void => {
         void client
@@ -465,7 +473,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
                 },
                 onNo: () => {
                   setUi(null);
-                  showToast("project not trusted — no external session was opened");
+                  if (options.onDeclined) options.onDeclined();
+                  else showToast("project not trusted — no external session was opened");
                 },
               });
               return;
@@ -691,6 +700,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
   const answerApproval = useCallback(
     (requestId: string, decision: ApprovalDecision, scope: ApprovalScope, reason?: string) => {
       afterAnswer(requestId);
+      rememberChosenScope(requestId, decision, scope);
       void client
         .respondApproval(requestId, decision, scope, reason)
         .catch((error: unknown) => note(`approval.respond failed: ${errorText(error)}`));
@@ -845,14 +855,29 @@ export function useJarvisScreens(deps: ScreensDeps) {
         return;
       }
       viewDispatch({ type: "sent", text });
-      void client.call("external.send", { ref: view.ref, text }).catch((error: unknown) => {
-        const message = describeExternalError(error, view.ref.cli);
-        viewDispatch({ type: "failed", message });
-        // The reason (a turn is running, a prompt is open in the pane, someone is typing) is what to act on.
-        showToast(message);
-      });
+      // Continuing a session no person has trusted yet asks the same y/n as opening one (1.54.0 `trust`).
+      callTrusted(
+        "external.send",
+        { ref: view.ref, text },
+        {
+          cli: view.ref.cli,
+          project: (view.session as { project?: string | null }).project ?? workdir,
+          onResult: () => undefined,
+          onError: (error: unknown) => {
+            const message = describeExternalError(error, view.ref.cli);
+            viewDispatch({ type: "failed", message });
+            // The reason (a turn is running, a prompt is open in the pane, someone is typing) is what to act on.
+            showToast(message);
+          },
+          onDeclined: () => {
+            const message = "project not trusted — your message was not sent";
+            viewDispatch({ type: "failed", message });
+            showToast(message);
+          },
+        },
+      );
     },
-    [client, showToast],
+    [callTrusted, showToast, workdir],
   );
 
   const interruptExternal = useCallback(() => {
@@ -1153,8 +1178,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
   }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId]);
 
   const panel = useCallback(
-    (width: number, maxRows: number, securityLists = false): PanelLine[] =>
-      onJarvisScreen ? panelLines(jarvis, width, maxRows, now, securityLists) : [],
+    (width: number, maxRows: number): PanelLine[] =>
+      onJarvisScreen ? panelLines(jarvis, width, maxRows, now) : [],
     [jarvis, now, onJarvisScreen],
   );
 

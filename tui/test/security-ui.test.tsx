@@ -10,13 +10,18 @@
 
 import React from "react";
 import { render } from "ink";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Ink only writes colour codes when chalk has a level; the colour checks read them.
+vi.hoisted(() => {
+  process.env["FORCE_COLOR"] = "1";
+});
 
 import { App } from "../src/app.js";
 import { textWidth } from "../src/layout/text-width.js";
 import { fakeStdin, fakeStdout, screen, sleep, type } from "./tty.js";
 
-const CAPS = ["securityLists", "jarvis", "jarvisDelegation", "externalSessions"];
+const CAPS =["securityLists", "jarvis", "jarvisDelegation", "externalSessions"];
 
 const CATALOG = {
   locale: "en",
@@ -47,6 +52,10 @@ interface Opts {
   check?: (params: any) => any;
   externals?: any[];
   rows?: any[];
+  /** `security.get.writable`. */
+  writable?: boolean;
+  /** `security.get.problems`. */
+  problems?: string[];
 }
 
 const DEFAULT_SAVED = (): Saved => ({
@@ -60,19 +69,20 @@ function fakeClient(opts: Opts = {}) {
   let saved = opts.saved ?? DEFAULT_SAVED();
   let listeners: any = {};
   const calls: Array<{ method: string; params: any }> = [];
+  // The real shapes (protocol 1.54.0): `by` is `commands:<id>` / `paths:<id>` / `custom`; a path has a scope.
   const effective = () => ({
     commands: [
       ...saved.blockedCommands.presets.flatMap((id) =>
-        (catalog.commands.find((p) => p.id === id)?.examples ?? [id]).map((pattern) => ({ pattern, by: id })),
+        (catalog.commands.find((p) => p.id === id)?.examples ?? [id]).map((pattern) => ({ pattern, by: `commands:${id}` })),
       ),
-      ...saved.blockedCommands.custom.map((pattern) => ({ pattern, by: pattern })),
+      ...saved.blockedCommands.custom.map((pattern) => ({ pattern, by: "custom" })),
     ],
     paths: [
       ...saved.protectedPaths.presets.flatMap((id) => {
         const preset = catalog.paths.find((p) => p.id === id);
-        return (preset?.paths ?? [id]).map((path) => ({ path, level: preset?.level ?? "write", by: id }));
+        return (preset?.paths ?? [id]).map((path) => ({ path, level: preset?.level ?? "write", by: `paths:${id}`, scope: "tree" }));
       }),
-      ...saved.protectedPaths.custom.map((entry) => ({ path: entry.path, level: entry.level, by: entry.path })),
+      ...saved.protectedPaths.custom.map((entry) => ({ path: entry.path, level: entry.level, by: "custom", scope: "tree" })),
     ],
   });
   const status = { enabled: false, running: false, folder: "/home/me/Snowpea/Jarvis", delegationDefault: "staged", sessionId: null, model: "fast" };
@@ -98,10 +108,16 @@ function fakeClient(opts: Opts = {}) {
         case "security.presets.list":
           return catalog;
         case "security.get":
-          return { ...saved, effective: effective() };
+          return { ...saved, effective: effective(), writable: opts.writable !== false, problems: opts.problems ?? [], project: null };
         case "settings.set": {
           if (opts.setFail) {
             throw Object.assign(new Error(opts.setFail.message), { data: { code: opts.setFail.code, details: opts.setFail.details } });
+          }
+          // Core's own validation: a bad custom command pattern is refused with every reason in details.problems.
+          const bad = (params.patch.security?.blockedCommands?.custom ?? []).filter((pattern: string) => /^\*/.test(pattern));
+          if (bad.length > 0) {
+            const problems = bad.map((pattern: string) => `blocked command '${pattern}': the program cannot be only a wildcard: that would block every command`);
+            throw Object.assign(new Error(problems.join("; ")), { data: { code: "invalid_params", details: { problems } } });
           }
           const patch = params.patch.security;
           saved = {
@@ -176,6 +192,18 @@ const UP = "\x1b[A";
 const ESC = "\x1b";
 const TAB = "\t";
 const ENTER = "\r";
+
+/** The foreground colour code (31 red, 32 green, 33 yellow…) in force where the last `needle` was drawn; 39 is "default". */
+function colorOf(output: string, needle: string): number | null {
+  const at = output.lastIndexOf(needle);
+  if (at < 0) return null;
+  let code: number | null = null;
+  for (const match of output.slice(0, at).matchAll(/\u001b\[(\d+)m/g)) {
+    const n = Number(match[1]);
+    if ((n >= 30 && n <= 37) || (n >= 90 && n <= 97) || n === 39) code = n;
+  }
+  return code;
+}
 
 const methods = (client: any) => client.calls.map((call: any) => call.method);
 const sets = (client: any) => client.calls.filter((call: any) => call.method === "settings.set");
@@ -429,7 +457,7 @@ describe("the security screen", () => {
     let view = app.view();
     expect(view).toContain("In force now: Blocked commands");
     expect(view).toContain("rm -rf ~  ← Essential safety");
-    expect(view).toContain("npm publish  ← npm publish");
+    expect(view).toContain("npm publish  ← your own entry");
     expect(view).toContain("cannot see inside scripts");
     await press(app, TAB);
     view = app.view();
@@ -445,9 +473,9 @@ describe("the security screen", () => {
 describe("checking text", () => {
   const check = (params: any) =>
     params.command?.includes("push --force")
-      ? { blocked: true, by: "git-destructive", why: "force pushes rewrite shared history" }
+      ? { blocked: true, by: "commands:git-destructive", why: "force pushes rewrite shared history" }
       : params.path === "/home/me/.ssh/id_ed25519"
-        ? { blocked: true, by: "credentials", why: "keys and tokens", level: "all" }
+        ? { blocked: true, by: "paths:credentials", why: "keys and tokens", level: "all" }
         : { blocked: false, by: null, why: "" };
 
   it("judges a command from the screen and says nothing was run", async () => {
@@ -460,7 +488,8 @@ describe("checking text", () => {
     expect(app.view()).toContain("BLOCKED by Destructive git: force pushes rewrite shared history");
     expect(app.view()).toContain("Nothing was run");
     const call = client.calls.find((c: any) => c.method === "security.check");
-    expect(call.params).toEqual({ command: "git push --force origin main", workdir: "/tmp/project" });
+    // Nothing unsaved: no draft, so the saved lists judge.
+    expect(call.params).toEqual({ command: "git push --force origin main", workdir: "/tmp/project", locale: "en" });
     await press(app, "c");
     await type(app.stdin, "ls -la", 8);
     await press(app, ENTER, 200);
@@ -477,19 +506,85 @@ describe("checking text", () => {
     await type(app.stdin, "/home/me/.ssh/id_ed25519", 8);
     await press(app, ENTER, 200);
     expect(app.view()).toContain("BLOCKED by Credentials (no access): keys and tokens");
-    expect(client.calls.find((c: any) => c.method === "security.check").params).toEqual({ path: "/home/me/.ssh/id_ed25519", workdir: "/tmp/project" });
+    expect(client.calls.find((c: any) => c.method === "security.check").params).toEqual({ path: "/home/me/.ssh/id_ed25519", workdir: "/tmp/project", locale: "en" });
     app.done();
   });
 
-  it("notes that the screen judges the saved lists when changes are pending", async () => {
+  it("judges unsaved edits: the draft goes with the check, and the note says so", async () => {
     const client = fakeClient({ check });
     const app = await open(client);
     await press(app, DOWN);
     await press(app, " ");
+    await press(app, "a");
+    await type(app.stdin, "terraform apply", 8);
+    await press(app, ENTER);
+    await press(app, "c");
+    await type(app.stdin, "ls", 8);
+    await press(app, ENTER, 200);
+    expect(app.view()).toContain("Judged against your unsaved edits");
+    expect(app.view()).not.toContain("Judged against the saved lists");
+    const call = client.calls.find((c: any) => c.method === "security.check");
+    expect(call.params.draft).toEqual({
+      blockedCommands: { presets: ["essential", "mass-delete"], custom: ["terraform apply"] },
+      protectedPaths: { presets: ["essential"], custom: [] },
+    });
+    // Nothing was saved by checking.
+    expect(sets(client)).toHaveLength(0);
+    app.done();
+  });
+
+  it("says the saved lists judged when nothing is unsaved", async () => {
+    const client = fakeClient({ check });
+    const app = await open(client);
     await press(app, "c");
     await type(app.stdin, "ls", 8);
     await press(app, ENTER, 200);
     expect(app.view()).toContain("Judged against the saved lists");
+    app.done();
+  });
+
+  it("marks an opaque line as not refused but put to you (yellow, not BLOCKED)", async () => {
+    const client = fakeClient({
+      check: () => ({ blocked: false, opaque: true, reason: "cannot be checked against your block list", why: "the program comes from a variable" }),
+    });
+    const app = await open(client);
+    await press(app, "c");
+    await type(app.stdin, "$CMD --now", 8);
+    await press(app, ENTER, 200);
+    const view = app.view();
+    expect(view).toContain("OPAQUE");
+    expect(view).toContain("cannot be checked against your list; snowpea will ask you");
+    expect(view).not.toContain("BLOCKED by");
+    // Yellow, as the SGR stream shows it.
+    expect(colorOf(app.stdout.text(), "OPAQUE")).toBe(33);
+    app.done();
+  });
+
+  it("draws a blocked verdict red and a clean one green", async () => {
+    const client = fakeClient({ check });
+    const app = await open(client);
+    await press(app, "c");
+    await type(app.stdin, "git push --force", 8);
+    await press(app, ENTER, 200);
+    expect(colorOf(app.stdout.text(), "BLOCKED by Destructive git")).toBe(31);
+    await press(app, "c");
+    await type(app.stdin, "ls", 8);
+    await press(app, ENTER, 200);
+    expect(colorOf(app.stdout.text(), "not blocked")).toBe(32);
+    app.done();
+  });
+
+  it("shows the error of a check core refused (an invalid draft) instead of a verdict", async () => {
+    const client = fakeClient({
+      check: () => {
+        throw Object.assign(new Error("blocked command '*': the program cannot be only a wildcard"), { data: { code: "invalid_params" } });
+      },
+    });
+    const app = await open(client);
+    await press(app, "c");
+    await type(app.stdin, "ls", 8);
+    await press(app, ENTER, 200);
+    expect(app.view()).toContain("Could not check: blocked command '*'");
     app.done();
   });
 
@@ -507,9 +602,9 @@ describe("checking text", () => {
     await sleep(150);
     expect(app.view()).toContain("not blocked");
     expect(client.calls.filter((c: any) => c.method === "security.check").map((c: any) => Object.keys(c.params).sort())).toEqual([
-      ["command", "workdir"],
-      ["path", "workdir"],
-      ["command", "workdir"],
+      ["command", "locale", "workdir"],
+      ["locale", "path", "workdir"],
+      ["command", "locale", "workdir"],
     ]);
     app.done();
   });
@@ -586,7 +681,7 @@ describe("sessions the lists do not cover", () => {
   });
 
   it("says so on an unrestricted external session while lists are set", async () => {
-    const client = fakeClient({ externals: [ext({ mode: "unrestricted", controlled: false })] });
+    const client = fakeClient({ externals: [ext({ mode: "unrestricted", controlled: false, securityListsApply: false })] });
     const app = await mount(client, 100, 40, { startScreen: "external" });
     await sleep(300);
     await press(app, ENTER, 300);
@@ -596,7 +691,7 @@ describe("sessions the lists do not cover", () => {
   });
 
   it("does not say it for a gated session, nor when no list is set", async () => {
-    const gated = fakeClient({ externals: [ext()] });
+    const gated = fakeClient({ externals: [ext({ securityListsApply: true })] });
     const first = await mount(gated, 100, 40, { startScreen: "external" });
     await sleep(300);
     await press(first, ENTER, 300);
@@ -604,7 +699,7 @@ describe("sessions the lists do not cover", () => {
     first.done();
 
     const empty = fakeClient({
-      externals: [ext({ mode: "unrestricted", controlled: false })],
+      externals: [ext({ mode: "unrestricted", controlled: false, securityListsApply: null })],
       saved: { blockedCommands: { presets: [], custom: [] }, protectedPaths: { presets: [], custom: [] } },
     });
     const second = await mount(empty, 100, 40, { startScreen: "external" });
@@ -671,7 +766,7 @@ describe("narrow terminals", () => {
 describe("Jarvis panel", () => {
   it("says the lists do not apply to an uncontrolled external session", async () => {
     const client = fakeClient({
-      rows: [{ sessionId: "ext:claude:abc", project: "/work/p", title: "ext one", status: "running", level: "full", external: { cli: "claude", id: "abc" }, controlled: false }],
+      rows: [{ sessionId: "ext:claude:abc", project: "/work/p", title: "ext one", status: "running", level: "full", external: { cli: "claude", id: "abc" }, controlled: false, securityListsApply: false }],
     });
     client.call = ((original) => async (method: string, params: any) => {
       if (method === "jarvis.status") return { enabled: true, running: true, folder: "/j", delegationDefault: "staged", sessionId: "s-1", model: "fast" };
@@ -681,6 +776,176 @@ describe("Jarvis panel", () => {
     await sleep(500);
     expect(app.view()).toContain("UNCONTROLLED");
     expect(app.view()).toContain("security lists do not apply to this session");
+    app.done();
+  });
+});
+
+describe("a connection that may only read (security.get writable: false)", () => {
+  it("opens read-only with one line why, and changes nothing", async () => {
+    const client = fakeClient({ writable: false });
+    const app = await open(client);
+    const view = app.view();
+    expect(view).toContain("Read-only:");
+    expect(view).toContain("local connection");
+    expect(view).toContain("[x] Essential safety");
+    expect(view).not.toContain("Space toggle");
+    await press(app, DOWN);
+    await press(app, " ");
+    expect(app.view()).toContain("[ ] Mass delete");
+    await press(app, "a");
+    expect(app.view()).not.toContain("Command pattern to block:");
+    await press(app, "s", 200);
+    expect(sets(client)).toHaveLength(0);
+    // It can still look and try.
+    await press(app, "v");
+    expect(app.view()).toContain("In force now");
+    app.done();
+  });
+});
+
+describe("core's validation of a custom pattern", () => {
+  it("marks the refused row with core's reason and keeps the edit", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    await press(app, "a");
+    await type(app.stdin, "*", 8);
+    await press(app, ENTER);
+    await press(app, "s", 250);
+    expect(sets(client)).toHaveLength(1);
+    const view = app.view();
+    expect(view).toContain("✗ the program cannot be only a wildcard");
+    expect(view).toContain("Not saved: an entry was refused");
+    expect(view).toContain("unsaved changes");
+    expect(colorOf(app.stdout.text(), "the program cannot be only a wildcard")).toBe(31);
+    app.done();
+  });
+
+  it("clears the mark once the entry is edited", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    await press(app, "a");
+    await type(app.stdin, "*", 8);
+    await press(app, ENTER);
+    await press(app, "s", 250);
+    await press(app, "e");
+    await type(app.stdin, "x", 8);
+    await press(app, ENTER);
+    expect(app.view()).not.toContain("the program cannot be only a wildcard");
+    app.done();
+  });
+
+  it("opens a one-screen help of the pattern syntax with ? and closes it with Esc", async () => {
+    const client = fakeClient();
+    const app = await open(client, 100, 40);
+    await press(app, "?");
+    const view = app.view();
+    expect(view).toContain("Custom command patterns");
+    expect(view).toContain("re:<regex>");
+    expect(view).toContain("docker * prune");
+    expect(view).toContain("↑↓ scroll");
+    await press(app, ESC);
+    expect(app.view()).toContain("[Blocked commands]");
+    expect(app.view()).not.toContain("Custom command patterns");
+    app.done();
+  });
+
+  it("fits the help in 60 columns", async () => {
+    const client = fakeClient();
+    const app = await open(client, 60, 30);
+    await press(app, "?");
+    for (const line of screen(app.stdout.text(), 30)) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+    app.done();
+  });
+});
+
+describe("settings.changed", () => {
+  it("refreshes an open screen that has no unsaved edits", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    const before = methods(client).filter((m: string) => m === "security.get").length;
+    // Another surface turned on a preset.
+    client.savedNow().blockedCommands.presets.push("mass-delete");
+    client.emit("onSettingsChanged", { keys: ["security"], scope: "global" });
+    await sleep(250);
+    expect(methods(client).filter((m: string) => m === "security.get").length).toBeGreaterThan(before);
+    expect(app.view()).toContain("[x] Mass delete");
+    expect(app.view()).not.toContain("changed elsewhere");
+    app.done();
+  });
+
+  it("with unsaved edits, says it changed elsewhere and reloads on r after a yes", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    await press(app, DOWN);
+    await press(app, DOWN);
+    await press(app, " ");
+    expect(app.view()).toContain("[x] Destructive git");
+    client.savedNow().blockedCommands.presets.push("mass-delete");
+    client.emit("onSettingsChanged", { keys: ["security.blockedCommands"] });
+    await sleep(250);
+    expect(app.view()).toContain("changed elsewhere — r to reload");
+    // The edit is still there.
+    expect(app.view()).toContain("[x] Destructive git");
+    expect(app.view()).toContain("[ ] Mass delete");
+    await press(app, "r");
+    expect(app.view()).toContain("Reload the lists and drop your unsaved changes?");
+    await press(app, "y", 250);
+    expect(app.view()).toContain("[x] Mass delete");
+    expect(app.view()).toContain("[ ] Destructive git");
+    expect(app.view()).not.toContain("changed elsewhere");
+    expect(app.view()).not.toContain("unsaved changes");
+    app.done();
+  });
+
+  it("ignores a change to other settings", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    await press(app, DOWN);
+    await press(app, " ");
+    client.emit("onSettingsChanged", { keys: ["providers"] });
+    await sleep(200);
+    expect(app.view()).not.toContain("changed elsewhere");
+    app.done();
+  });
+
+  it("does not mistake its own save for a change elsewhere", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    await press(app, DOWN);
+    await press(app, " ");
+    await press(app, "s", 250);
+    client.emit("onSettingsChanged", { keys: ["security"] });
+    await sleep(250);
+    expect(app.view()).not.toContain("changed elsewhere");
+    expect(app.view()).toContain("[x] Mass delete");
+    app.done();
+  });
+});
+
+describe("entries core skipped", () => {
+  it("says so once, on the screen and in /security status", async () => {
+    const client = fakeClient({ problems: ["unknown preset 'old-preset'"] });
+    const app = await open(client);
+    expect(app.view()).toContain("core skipped an unusable entry: unknown preset 'old-preset'");
+    await press(app, ESC, 150);
+    await submit(app, "/security status");
+    await sleep(150);
+    expect(app.view()).toContain("core skipped an unusable entry");
+    app.done();
+  });
+});
+
+describe("the refusal in a tool result", () => {
+  it("shows a call the lists stopped in red, in the tool card", async () => {
+    const client = fakeClient();
+    const app = await mount(client);
+    const send = (kind: string, payload: Record<string, unknown>, seq: number) =>
+      client.emit("onSessionEvent", { sessionId: "s-1", seq, kind, payload });
+    send("tool.call", { callId: "c1", name: "shell", arguments: { command: "git push --force" } }, 1);
+    send("tool.result", { callId: "c1", name: "shell", ok: false, error: "blocked by the security list: commands:git-destructive — force pushes rewrite shared history" }, 2);
+    await sleep(250);
+    expect(app.view()).toContain("blocked by the security list: commands:git-destructive");
+    expect(colorOf(app.stdout.text(), "blocked by the security list")).toBe(31);
     app.done();
   });
 });

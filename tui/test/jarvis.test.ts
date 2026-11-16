@@ -347,7 +347,7 @@ describe("/jarvis status", () => {
     expect(text).toContain("2/30 wakes this hour, 10/1000 tokens today");
     expect(text).toContain("paused (you typed): s-1, returns in 5 min");
     expect(text).toContain("hidden from Jarvis: private");
-    expect(text).toContain("⚠ no model");
+    expect(text).toContain("! no model");
     expect(statusLines(status({ enabled: false }), NOW).join("\n")).toContain("/jarvis on");
   });
 });

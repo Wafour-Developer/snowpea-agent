@@ -16,15 +16,18 @@ import { parseSecurityCommand } from "../slash/security.js";
 import { rpcErrorFacts } from "../state/external.js";
 import {
   NOTHING_RUN,
+  READ_ONLY_LINE,
   SECURITY_REQUIRES_LINE,
   blockedLine,
   blockedToast,
+  draftOf,
   listsAreSet,
   normalizeBlocked,
   normalizeCatalog,
   normalizeConfig,
   normalizeVerdict,
   personOnlyReadOnlyLine,
+  saveProblems,
   securitySupported,
   settingsPatch,
   statusLines,
@@ -66,6 +69,10 @@ export function useSecurityScreen(deps: SecurityDeps) {
   const [ui, setUi] = useState<SecurityUi | null>(null);
   const [listsSet, setListsSet] = useState(false);
   const opening = useRef(false);
+  /** Counts `settings.changed` events that touched the security settings; an open screen follows it. */
+  const [changeSeq, setChangeSeq] = useState(0);
+  const openRef = useRef(false);
+  openRef.current = ui !== null;
   const catalogRef = useRef<PresetCatalog | null>(null);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
@@ -99,7 +106,8 @@ export function useSecurityScreen(deps: SecurityDeps) {
     showToast("Loading security lists…");
     try {
       const [catalog, config] = await Promise.all([loadCatalog(), loadConfig()]);
-      setUi({ catalog, config, readOnly: null });
+      setUi({ catalog, config, readOnly: config.writable ? null : READ_ONLY_LINE });
+      setChangeSeq(0);
     } catch (error) {
       note(`Security lists: could not load them — ${errorText(error)}`);
     } finally {
@@ -115,6 +123,11 @@ export function useSecurityScreen(deps: SecurityDeps) {
         if (rpcErrorFacts(error).code === "jarvis_person_only") {
           return { ok: false, message: errorText(error), readOnly: personOnlyReadOnlyLine(error) };
         }
+        // `invalid_params` carries every reason in `details.problems`; the ones that name an entry go on its row.
+        if (rpcErrorFacts(error).code === "invalid_params") {
+          const { entries, others } = saveProblems(error);
+          return { ok: false, message: errorText(error), entries, others };
+        }
         return { ok: false, message: errorText(error) };
       }
       try {
@@ -127,9 +140,15 @@ export function useSecurityScreen(deps: SecurityDeps) {
   );
 
   const check = useCallback(
-    async (what: "command" | "path", text: string): Promise<CheckResult> => {
+    async (what: "command" | "path", text: string, draft: Lists | null = null): Promise<CheckResult> => {
       try {
-        const raw = await client.call("security.check", { [what]: text, workdir });
+        // `draft` judges the edits not saved yet instead of the saved lists.
+        const raw = await client.call("security.check", {
+          [what]: text,
+          workdir,
+          locale: uiLanguage(),
+          ...(draft ? { draft: draftOf(draft) } : {}),
+        });
         return normalizeVerdict(raw);
       } catch (error) {
         return { error: errorText(error) };
@@ -177,7 +196,7 @@ export function useSecurityScreen(deps: SecurityDeps) {
   /** `security.blocked`: a red line in the session on screen, a toast for any other. */
   const onBlocked = useCallback(
     (raw: unknown) => {
-      const event = normalizeBlocked(raw);
+      const event = normalizeBlocked(raw as never);
       if (event.summary === "") return;
       if (event.sessionId === sessionIdRef.current) warn(blockedLine(event));
       else showToast(blockedToast(event, event.sessionId === viewingRef.current));
@@ -187,7 +206,10 @@ export function useSecurityScreen(deps: SecurityDeps) {
 
   const onSettingsChanged = useCallback(
     (params: { keys?: string[] }) => {
-      if (!params.keys || params.keys.some((key) => key.startsWith("security"))) refreshListsSet();
+      if (!params.keys || params.keys.some((key) => key.startsWith("security"))) {
+        refreshListsSet();
+        if (openRef.current) setChangeSeq((seq) => seq + 1);
+      }
     },
     [refreshListsSet],
   );
@@ -199,6 +221,8 @@ export function useSecurityScreen(deps: SecurityDeps) {
     handleCommand,
     save,
     check,
+    reload: loadConfig,
+    changeSeq,
     onBlocked,
     onSettingsChanged,
     /** True while lists are in force, so ungated sessions can say they are not covered. */

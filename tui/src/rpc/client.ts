@@ -15,6 +15,7 @@ import {
   connect as sdkConnect,
   type ApprovalRequestParams,
   type ApprovalResponse,
+  type ApprovalResolved,
   type ApprovalRouteChanged,
   type QuestionRouteChanged,
   type ConnectFn,
@@ -104,7 +105,8 @@ export interface TuiClientListeners {
   onStatus?: (status: ConnectionStatus) => void;
   onReconnecting?: (params: { attempt: number }) => void;
   onReconnected?: (params: { attempts: number; sessions: string[] }) => void;
-  onApprovalResolved?: (params: { requestId: string; decision: string; by?: string }) => void;
+  /** `decision` is null for a withdrawn request (`outcome: "withdrawn"`); `scope` is what core applied (1.54.0). */
+  onApprovalResolved?: (params: ApprovalResolved) => void;
   /** An unattended request joined the shared queue; re-read `approval.list`. */
   onApprovalPending?: (params: { request: ApprovalRequestParams }) => void;
   /** A question was answered elsewhere, or gave up; stop showing it. */

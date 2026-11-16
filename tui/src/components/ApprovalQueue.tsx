@@ -18,6 +18,7 @@ import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { ApprovalDecision, ApprovalScope } from "../rpc/sdk.js";
 import { APPROVAL_SCOPES, type ApprovalEntry } from "../state/store.js";
 import { agentOfExternal } from "../state/agent-tag.js";
+import { ALWAYS_ASKS, alwaysAsksYou } from "../state/jarvis.js";
 import { ChoiceList } from "./ChoiceList.js";
 
 export type ApprovalQueueRespond = (
@@ -27,10 +28,11 @@ export type ApprovalQueueRespond = (
 ) => void;
 
 /** `[Codex] ` for an external CLI's request, `[Jarvis deciding] ` while Jarvis has it (1.53.0). */
-export function queueBadge(request: Pick<ApprovalEntry, "external" | "route" | "personOnly">): string {
+export function queueBadge(request: Pick<ApprovalEntry, "external" | "route" | "personOnly" | "neverDelegable">): string {
   const cli = request.external ? `${agentOfExternal(request.external.cli).tag} ` : "";
-  const route = request.route === "jarvis" ? "[Jarvis deciding] " : "";
-  const person = request.personOnly ? "[only you] " : "";
+  // What only a person may decide is never "Jarvis deciding", whatever its route says.
+  const route = request.route === "jarvis" && !alwaysAsksYou(request) ? "[Jarvis deciding] " : "";
+  const person = alwaysAsksYou(request) ? `[${ALWAYS_ASKS}] ` : "";
   return `${cli}${route}${person}`;
 }
 

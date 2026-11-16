@@ -34,6 +34,8 @@ export interface ChoiceOption {
   badgeColor?: string;
   /** Draw the label bold even when the cursor is elsewhere. */
   bold?: boolean;
+  /** Label colour while the cursor is elsewhere (a status colour); the row is then not dimmed. */
+  color?: string;
   /** Agent tag column drawn before the label (`[cc] `, or blanks); the text is the cue, `tagColor` only a second one. */
   tag?: string;
   tagColor?: string;
@@ -113,7 +115,7 @@ export function ChoiceList({
     const held = checked?.has(index) ?? false;
     const mark = multi ? (held ? "[x] " : "[ ] ") : radio ? (held ? "● " : "○ ") : "";
     const number = numbered ? `${index + 1}. ` : "";
-    const rowColor = option.danger ? "red" : here ? color : undefined;
+    const rowColor = option.danger ? "red" : here ? color : option.color;
     return (
       <Box key={`${index}-${option.label}`} flexDirection="column">
         <Box>
@@ -132,7 +134,7 @@ export function ChoiceList({
               inverse={here}
               bold={here || option.bold}
               color={rowColor}
-              dimColor={!here && !held && !option.danger}
+              dimColor={!here && !held && !option.danger && !option.color}
               wrap="truncate-end"
             >
               {` ${number}${mark}${option.label} `}

@@ -45,6 +45,15 @@ import type {
   JarvisStatePayload,
   JarvisStatusResult,
   QuestionListResult,
+  ApprovalResolvedPayload,
+  QuestionResolvedPayload,
+  SecurityBlockedPayload,
+  SecurityCheckParams,
+  SecurityCheckResult,
+  SecurityGetResult,
+  SecurityPresetsListResult,
+  WebRemoteStatusResult,
+  WebRemoteListenParams,
 } from "@snowpea/sdk";
 
 export { connect, defaultResolveEndpoint } from "@snowpea/sdk";
@@ -150,3 +159,19 @@ export type JarvisDecisionEvent = JarvisDecisionPayload;
 export type JarvisEscalationEvent = JarvisEscalationPayload;
 export type JarvisDelegationEvent = JarvisDelegationChangedPayload;
 export type QuestionList = QuestionListResult;
+
+/** `approval.resolved` (1.54.0 adds `scope`; `decision` is null for a withdrawn request). */
+export type ApprovalResolved = ApprovalResolvedPayload;
+/** `question.resolved`. */
+export type QuestionResolved = QuestionResolvedPayload;
+
+/** Security lists (1.54.0, capability `securityLists`). */
+export type SecurityGet = SecurityGetResult;
+export type SecurityPresets = SecurityPresetsListResult;
+export type SecurityCheck = SecurityCheckResult;
+export type SecurityCheckDraft = NonNullable<SecurityCheckParams["draft"]>;
+export type SecurityBlocked = SecurityBlockedPayload;
+
+/** Remote web access (1.54.0, capability `webRemoteControl`): every `web.remote.*` call but rotateToken answers this shape. */
+export type WebRemoteStatus = WebRemoteStatusResult;
+export type WebRemoteListen = WebRemoteListenParams;

@@ -2,18 +2,19 @@
  * Security lists (capability `securityLists`): commands that never run and
  * folders that are protected, chosen from presets plus manual entries.
  *
- * The contract types are declared here, in one place shaped exactly like the
- * wire, to be swapped for the SDK's generated types once core ships them.
- * Everything below is pure: the screen, the slash command and the tests all
- * read the same functions.
+ * The wire shapes are the SDK's (`SecurityGetResult`, `SecurityPresetsListResult`,
+ * `SecurityCheckResult`, `SecurityBlockedPayload`); the functions below turn
+ * them into the plain, sanitised values the screen draws. Everything here is
+ * pure: the screen, the slash command and the tests all read the same functions.
  */
 
+import type { SecurityBlocked, SecurityCheck, SecurityCheckDraft, SecurityGet, SecurityPresets } from "../rpc/sdk.js";
 import { sanitizeText } from "../util/sanitize.js";
 import { fit } from "../layout/fit.js";
 import { wrapLine, type Line, type Segment } from "../layout/transcript.js";
 import { rpcErrorFacts } from "./external.js";
 
-// --- contract (additive, capability `securityLists`) --------------------------
+// --- view models (what the screen keeps of the contract) ----------------------
 
 export type PathLevel = "write" | "all";
 
@@ -27,7 +28,7 @@ export interface Preset {
 
 export type PathPreset = Preset & { level: PathLevel; paths: string[] };
 
-/** `security.presets.list { locale }` result. */
+/** `security.presets.list { locale }`, normalised. */
 export interface PresetCatalog {
   commands: Preset[];
   paths: PathPreset[];
@@ -39,22 +40,39 @@ export interface CustomPath {
   level: PathLevel;
 }
 
-/** `security.get {}` result. */
+/** One protected path in force: `scope` "self" is the folder itself only, `exempt` the folders below it that stay usable. */
+export interface EffectivePath {
+  path: string;
+  level: PathLevel;
+  by: string;
+  scope: "tree" | "self";
+  exempt: string[];
+}
+
+/** `security.get`, normalised. */
 export interface SecurityConfig {
   blockedCommands: { presets: string[]; custom: string[] };
   protectedPaths: { presets: string[]; custom: CustomPath[] };
   effective: {
     commands: Array<{ pattern: string; by: string }>;
-    paths: Array<{ path: string; level: PathLevel; by: string }>;
+    paths: EffectivePath[];
   };
+  /** False for a connection that may not change the lists (a remote login, a browser, a connector). */
+  writable: boolean;
+  /** Entries core skipped as unusable (a hand-edited file). */
+  problems: string[];
+  /** The project's own additions, shown read-only as a count. */
+  projectAdds: number;
 }
 
-/** `security.check { command?, path?, workdir? }` result. */
+/** `security.check`, normalised: blocked, opaque (cannot be seen, snowpea asks) or neither. */
 export interface SecurityVerdict {
   blocked: boolean;
+  opaque: boolean;
   by: string | null;
   why: string;
   level?: PathLevel;
+  match?: string;
 }
 
 /** Notification `security.blocked`. */
@@ -93,7 +111,7 @@ function preset(raw: any): Preset {
   };
 }
 
-export function normalizeCatalog(raw: any): PresetCatalog {
+export function normalizeCatalog(raw: SecurityPresets | null | undefined): PresetCatalog {
   return {
     commands: (Array.isArray(raw?.commands) ? raw.commands : []).map(preset).filter((entry: Preset) => entry.id !== ""),
     paths: (Array.isArray(raw?.paths) ? raw.paths : [])
@@ -103,8 +121,22 @@ export function normalizeCatalog(raw: any): PresetCatalog {
   };
 }
 
-export function normalizeConfig(raw: any): SecurityConfig {
+/** How many entries a project's additions hold. */
+function additions(raw: any): number {
+  if (!raw || typeof raw !== "object") return 0;
+  return (
+    (raw.blockedCommands?.presets?.length ?? 0) +
+    (raw.blockedCommands?.custom?.length ?? 0) +
+    (raw.protectedPaths?.presets?.length ?? 0) +
+    (raw.protectedPaths?.custom?.length ?? 0)
+  );
+}
+
+export function normalizeConfig(raw: SecurityGet | null | undefined): SecurityConfig {
   return {
+    writable: (raw as any)?.writable !== false,
+    problems: texts((raw as any)?.problems),
+    projectAdds: additions((raw as any)?.project),
     blockedCommands: {
       presets: texts(raw?.blockedCommands?.presets),
       custom: texts(raw?.blockedCommands?.custom),
@@ -120,22 +152,35 @@ export function normalizeConfig(raw: any): SecurityConfig {
         .map((entry: any) => ({ pattern: text(entry?.pattern), by: text(entry?.by) }))
         .filter((entry: { pattern: string }) => entry.pattern !== ""),
       paths: (Array.isArray(raw?.effective?.paths) ? raw.effective.paths : [])
-        .map((entry: any) => ({ path: text(entry?.path), level: level(entry?.level), by: text(entry?.by) }))
+        .map(
+          (entry: any): EffectivePath => ({
+            path: text(entry?.path),
+            level: level(entry?.level),
+            by: text(entry?.by),
+            scope: entry?.scope === "self" ? "self" : "tree",
+            exempt: texts(entry?.exempt),
+          }),
+        )
         .filter((entry: { path: string }) => entry.path !== ""),
     },
   };
 }
 
-export function normalizeVerdict(raw: any): SecurityVerdict {
+export function normalizeVerdict(raw: SecurityCheck | null | undefined): SecurityVerdict {
+  const reason = text(raw?.reason);
+  const blocked = raw?.blocked === true;
   return {
-    blocked: raw?.blocked === true,
+    blocked,
+    // A blocked verdict is never also opaque.
+    opaque: !blocked && raw?.opaque === true,
     by: typeof raw?.by === "string" && raw.by !== "" ? sanitizeText(raw.by) : null,
-    why: text(raw?.why),
+    why: text(raw?.why) || reason,
     ...(raw?.level === "write" || raw?.level === "all" ? { level: raw.level as PathLevel } : {}),
+    ...(typeof raw?.match === "string" && raw.match !== "" ? { match: sanitizeText(raw.match) } : {}),
   };
 }
 
-export function normalizeBlocked(raw: any): SecurityBlockedEvent {
+export function normalizeBlocked(raw: SecurityBlocked | null | undefined): SecurityBlockedEvent {
   return { sessionId: text(raw?.sessionId), tool: text(raw?.tool), summary: text(raw?.summary), by: text(raw?.by) };
 }
 
@@ -287,20 +332,113 @@ export function weakening(tab: Tab, catalog: PresetCatalog, before: Lists, after
 
 // --- verdicts and status text ---------------------------------------------------
 
-/** The title of the preset `by` names, else `by` itself (a custom pattern or path). */
+/**
+ * What `by` names, in words: `commands:<id>` / `paths:<id>` give the preset's
+ * title, `custom` is one of the person's own entries, `security` is the lists'
+ * own protection (an edit of the security lists themselves).
+ */
 export function byLabel(by: string | null, catalog: PresetCatalog | null): string {
   if (by === null || by === "") return "your list";
-  const found = [...(catalog?.commands ?? []), ...(catalog?.paths ?? [])].find((entry) => entry.id === by);
-  return found ? found.title : by;
+  if (by === "custom") return "your own entry";
+  if (by === "security") return "the security lists' own protection";
+  const at = by.indexOf(":");
+  const kind = at > 0 ? by.slice(0, at) : "";
+  const id = at > 0 ? by.slice(at + 1) : by;
+  const pool = kind === "commands" ? catalog?.commands : kind === "paths" ? catalog?.paths : [...(catalog?.commands ?? []), ...(catalog?.paths ?? [])];
+  const found = (pool ?? []).find((entry) => entry.id === id);
+  return found ? found.title : kind === "commands" || kind === "paths" ? id : by;
 }
 
 export const NOTHING_RUN = "Nothing was run — the text was only checked against your lists.";
 
-export function verdictLine(verdict: SecurityVerdict, catalog: PresetCatalog | null): { text: string; blocked: boolean } {
-  if (!verdict.blocked) return { text: verdict.why ? `not blocked — ${verdict.why}` : "not blocked", blocked: false };
-  const level = verdict.level ? ` (${LEVEL_LABEL[verdict.level]})` : "";
-  return { text: `BLOCKED by ${byLabel(verdict.by, catalog)}${level}: ${verdict.why}`, blocked: true };
+/** What an opaque verdict says: not refused, but put to the person. */
+export const OPAQUE_LINE = "cannot be checked against your list; snowpea will ask you";
+
+export type VerdictKind = "blocked" | "opaque" | "ok";
+
+/** The verdict as one line and a kind: BLOCKED (red), OPAQUE (yellow) or not blocked. */
+export function verdictLine(verdict: SecurityVerdict, catalog: PresetCatalog | null): { text: string; kind: VerdictKind; blocked: boolean } {
+  if (verdict.blocked) {
+    const level = verdict.level ? ` (${LEVEL_LABEL[verdict.level]})` : "";
+    const hit = verdict.match ? ` [${verdict.match}]` : "";
+    return { text: `BLOCKED by ${byLabel(verdict.by, catalog)}${level}${hit}: ${verdict.why}`, kind: "blocked", blocked: true };
+  }
+  if (verdict.opaque) {
+    return { text: `OPAQUE — ${OPAQUE_LINE}${verdict.why ? ` (${verdict.why})` : ""}`, kind: "opaque", blocked: false };
+  }
+  return { text: verdict.why ? `not blocked — ${verdict.why}` : "not blocked", kind: "ok", blocked: false };
 }
+
+/** The unsaved edits as the `draft` of a `security.check`. */
+export function draftOf(lists: Lists): SecurityCheckDraft {
+  return {
+    blockedCommands: { presets: lists.commandPresets, custom: lists.commandCustom },
+    protectedPaths: { presets: lists.pathPresets, custom: lists.pathCustom.map((entry) => ({ path: entry.path, level: entry.level })) },
+  };
+}
+
+// --- what core says about an entry it refuses ------------------------------------
+
+/** A custom entry core refused on save, with its reason (`details.problems`). */
+export interface EntryProblem {
+  tab: Tab;
+  text: string;
+  reason: string;
+}
+
+const PROBLEM = /^(blocked command|protected path) (?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"): ([\s\S]*)$/;
+const unescapePython = (value: string): string => value.replace(/\\(.)/g, "$1");
+
+/**
+ * The refusal of a `settings.set` that carried a bad entry: the reasons core
+ * listed (`details.problems`, else the message), split into the ones that name
+ * one entry (shown on its row) and the rest (shown as they are).
+ */
+export function saveProblems(error: unknown): { entries: EntryProblem[]; others: string[] } {
+  const raw = error as { message?: string; data?: { details?: { problems?: unknown } | null } } | null;
+  const listed = raw?.data?.details?.problems;
+  const lines = Array.isArray(listed) && listed.length > 0 ? texts(listed) : [text(raw?.message ?? String(error))];
+  const entries: EntryProblem[] = [];
+  const others: string[] = [];
+  for (const line of lines) {
+    const match = PROBLEM.exec(line);
+    if (!match) {
+      others.push(line);
+      continue;
+    }
+    entries.push({
+      tab: match[1] === "blocked command" ? "commands" : "paths",
+      text: unescapePython(match[2] ?? match[3] ?? ""),
+      reason: match[4],
+    });
+  }
+  return { entries, others };
+}
+
+/** The same split for the entries core skipped when it read a hand-edited file (`security.get.problems`). */
+export function problemNote(problems: readonly string[]): string | null {
+  if (problems.length === 0) return null;
+  const first = problems[0];
+  return problems.length === 1 ? `core skipped an unusable entry: ${first}` : `core skipped ${problems.length} unusable entries, e.g. ${first}`;
+}
+
+/** The pattern syntax in one screen (docs/manual/en/security.md, "Your own blocked commands"). */
+export const PATTERN_HELP: ReadonlyArray<{ kind: "head" | "line" | "example"; text: string }> = [
+  { kind: "head", text: "Custom command patterns" },
+  { kind: "line", text: "One pattern per entry. It is matched against every command a line would run: through sudo, env, xargs, find -exec, inside sh -c '…', on both sides of pipes and &&." },
+  { kind: "line", text: "The first word is the program, by its name (/usr/bin/rm is rm). It may use wildcards (mkfs*) but cannot be only a wildcard." },
+  { kind: "line", text: "Options (words starting with -) must all be present, in any order. -rf means -r and -f, however written. --force also matches --forc and --force=…" },
+  { kind: "line", text: "Other words must appear in the same order, not necessarily next to each other. * is any one word. A word starting with / or ~ is a path, compared after resolving it." },
+  { kind: "line", text: "re:<regex> matches the command's text (its words joined by spaces). A regex that matches an empty command is refused." },
+  { kind: "head", text: "Examples" },
+  { kind: "example", text: "rm -rf               blocks rm -rf x, rm -r -f x, sudo rm --recursive --force x" },
+  { kind: "example", text: "git push --force     blocks git push -f; not --force-with-lease" },
+  { kind: "example", text: "docker * prune       blocks docker system prune, docker image prune -a" },
+  { kind: "example", text: "mkfs*                blocks mkfs.ext4 /dev/sdb1" },
+  { kind: "example", text: "re:^ssh .*prod       blocks ssh deploy@prod.example" },
+  { kind: "head", text: "Protected folders" },
+  { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." },
+];
 
 /** The summary `/security status` prints. */
 export function statusLines(config: SecurityConfig, catalog: PresetCatalog | null): string[] {
@@ -313,9 +451,15 @@ export function statusLines(config: SecurityConfig, catalog: PresetCatalog | nul
     `Blocked commands: ${config.blockedCommands.presets.length} presets on (${names(commandOn)}), ${config.blockedCommands.custom.length} of your own`,
     `Protected folders: ${config.protectedPaths.presets.length} presets on (${names(pathOn)}), ${config.protectedPaths.custom.length} of your own`,
     `In force now: ${config.effective.commands.length} command patterns, ${config.effective.paths.length} folders`,
-    "Change them with /security. They apply to sessions that go through snowpea.",
+    ...(config.projectAdds > 0 ? [`This project adds ${config.projectAdds} entries of its own (they cannot remove yours).`] : []),
+    ...(problemNote(config.problems) ? [`! ${problemNote(config.problems)}`] : []),
+    config.writable ? "Change them with /security. They apply to sessions that go through snowpea." : READ_ONLY_LINE,
+    ...(config.writable ? [] : ["They apply to sessions that go through snowpea."]),
   ];
 }
+
+/** Why a connection that reads the lists cannot change them. */
+export const READ_ONLY_LINE = "Read-only: only a person on a local connection (this TUI, the IDE, the CLI, the local web page) can change these lists.";
 
 export function personOnlyReadOnlyLine(error: unknown): string {
   const kind = rpcErrorFacts(error).kind;
@@ -345,7 +489,7 @@ export interface BodyLines {
  * The list of one tab as lines. The highlighted row shows its examples (or
  * folders) beneath it, wrapped.
  */
-export function bodyLines(rows: SecurityRow[], cursor: number, width: number): BodyLines {
+export function bodyLines(rows: SecurityRow[], cursor: number, width: number, problems: ReadonlyMap<string, string> = new Map()): BodyLines {
   const lines: Line[] = [];
   let start = 0;
   let end = 0;
@@ -367,6 +511,8 @@ export function bodyLines(rows: SecurityRow[], cursor: number, width: number): B
       const segments: Segment[] = [pointer, { text: "• ", color: "magenta" }, { text: row.text, bold: here }];
       if (row.level) segments.push({ text: `  (${LEVEL_LABEL[row.level]})`, color: row.level === "all" ? "red" : "yellow" });
       lines.push(...wrapSegments(`row-${index}`, segments, width, "      "));
+      const problem = problems.get(row.text);
+      if (problem) lines.push(...wrapSegments(`problem-${index}`, [{ text: "      ✗ ", color: "red", bold: true }, { text: problem, color: "red" }], width, "        "));
     }
     if (here) {
       start = from;
@@ -395,6 +541,8 @@ export function effectiveLines(tab: Tab, config: SecurityConfig, catalog: Preset
             { text: "  " },
             { text: entry.path, color: "cyan" },
             { text: ` (${LEVEL_LABEL[entry.level]})`, color: entry.level === "all" ? "red" : "yellow" },
+            ...(entry.scope === "self" ? [{ text: " · the folder itself only", dimColor: true }] : []),
+            ...(entry.exempt.length > 0 ? [{ text: ` · except ${entry.exempt.join(", ")}`, dimColor: true }] : []),
             { text: `  ← ${byLabel(entry.by, catalog)}`, dimColor: true },
           ],
           width,

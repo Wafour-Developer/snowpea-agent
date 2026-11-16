@@ -16,6 +16,7 @@ import { Box, Text, useInput } from "ink";
 import { mouseReports } from "../input/mouse.js";
 
 import type { ApprovalDecision, ApprovalScope, Mode } from "../rpc/sdk.js";
+import { ALWAYS_ASKS, alwaysAsksReason, alwaysAsksYou } from "../state/jarvis.js";
 import { type ApprovalEntry } from "../state/store.js";
 import { ConfirmMenu, type ConfirmOption } from "./ConfirmMenu.js";
 
@@ -160,6 +161,8 @@ export function ApprovalPrompt({
     (option) => option.value.decision === "allow" && option.value.scope === request.scopeHint,
   );
   const [reason, setReason] = useState<string | null>(null);
+  const alwaysAsks = alwaysAsksYou(request);
+  const why = alwaysAsksReason(request);
 
   // The reason field owns the keyboard once it is open: Enter sends the
   // refusal, Esc goes back to the menu, and nothing leaks into the chat draft.
@@ -188,7 +191,14 @@ export function ApprovalPrompt({
     <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
       <Text bold color="yellow" wrap="truncate-end">
         {label ? `Approval required · ${label}` : "Approval required"}
+        {alwaysAsks ? <Text color="red">{`  [${ALWAYS_ASKS}]`}</Text> : null}
       </Text>
+      {alwaysAsks && why ? (
+        <Text color="red" wrap="truncate-end">
+          {"  "}
+          {why}
+        </Text>
+      ) : null}
       <Text>
         <Text bold>{request.tool}</Text>
         <Text dimColor> risk=</Text>
@@ -197,7 +207,7 @@ export function ApprovalPrompt({
       </Text>
       {request.note ? (
         <Text bold color="red">
-          {"  ⚠ "}
+          {"  ▲ "}
           {request.note}
         </Text>
       ) : null}

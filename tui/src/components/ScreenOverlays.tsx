@@ -17,7 +17,8 @@ import { EXTERNAL_NEW_ROWS, ExternalNewForm } from "./ExternalNewForm.js";
 import { EXTERNAL_PICKER_TOTAL_ROWS, ExternalPicker } from "./ExternalPicker.js";
 import { QuestionPrompt, questionPromptRows } from "./QuestionPrompt.js";
 import { UnrestrictedConfirm, unrestrictedConfirmRows } from "./UnrestrictedConfirm.js";
-import { rowStatus, sessionLabel, personOnlyView } from "../state/jarvis.js";
+import { fitChips, personOnlyView, rowAgent, rowChips, rowStatus, sessionName } from "../state/jarvis.js";
+import { tagCell, tagColumnWidth } from "../state/agent-tag.js";
 import { spread } from "../layout/fit.js";
 import type { ApprovalEntry } from "../state/store.js";
 
@@ -100,14 +101,28 @@ export function ScreenOverlays({
   }
 
   if (ui.kind === "sessions") {
-    const inner = Math.max(20, width - 8);
+    const shown = screens.jarvis.rows.slice(0, 20);
+    const agents = shown.map(rowAgent);
+    const column = tagColumnWidth(agents);
+    // The tag, the status and the colours are the panel's: a tag in its own
+    // colour, a session snowpea does not gate in red unless it waits on you.
+    const inner = Math.max(20, width - 8 - column);
     return (
       <ConfirmMenu<number | null>
         options={[
-          ...screens.jarvis.rows.slice(0, 20).map((row, index) => ({
-            label: spread(`${index + 1}. ${sessionLabel(row)}`, rowStatus(row, now).text, inner),
-            value: index as number | null,
-          })),
+          ...shown.map((row, index) => {
+            const status = rowStatus(row, now);
+            const color = row.controlled === false && status.color !== "yellow" ? "red" : status.color;
+            const chips = rowChips(row, width);
+            const right = fitChips([status.text, ...chips], Math.max(12, Math.floor(inner / 2)));
+            return {
+              label: spread(`${String(index + 1).padStart(2)}. ${sessionName(row)}`, right, inner),
+              value: index as number | null,
+              tag: column > 0 ? tagCell(agents[index], column) : undefined,
+              tagColor: agents[index].color,
+              color,
+            };
+          }),
           { label: "Cancel", value: null },
         ]}
         escapeValue={null}

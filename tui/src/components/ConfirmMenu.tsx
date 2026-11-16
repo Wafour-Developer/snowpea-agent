@@ -32,6 +32,14 @@ export interface ConfirmOption<T> {
   danger?: boolean;
   /** Extra words under the row, for options that need explaining. */
   hint?: string;
+  /** Agent tag drawn before the label (`[cc] `, `[web] `) and its colour. */
+  tag?: string;
+  tagColor?: string;
+  /** Label colour while the cursor is elsewhere. */
+  color?: string;
+  /** Trailing marker (a status) and its colour. */
+  badge?: string;
+  badgeColor?: string;
 }
 
 export interface ConfirmMenuProps<T> {
@@ -99,6 +107,11 @@ export function ConfirmMenu<T>({
     description: option.hint,
     shortcut: option.shortcut,
     danger: option.danger,
+    tag: option.tag,
+    tagColor: option.tagColor,
+    color: option.color,
+    badge: option.badge,
+    badgeColor: option.badgeColor,
   }));
 
   return (

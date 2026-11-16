@@ -21,6 +21,8 @@ import { uiLanguage } from "../layout/language.js";
 import type { FileDiagnostics, LspServer } from "./lsp.js";
 import { applyMcpChange, type McpServerRow } from "./mcp.js";
 import { replayTurnSummaryLine } from "./working.js";
+import { alwaysAsksYou } from "./person-only.js";
+import { sessionErrorView } from "./errors.js";
 
 /**
  * `note` is this surface talking, not the conversation: the `✓ Done` line a
@@ -1141,12 +1143,41 @@ function applySessionEvent(
       return { ...base, teamTasks };
     }
 
-    case "error":
+    case "error": {
+      const view = sessionErrorView(
+        typeof payload.code === "string" ? payload.code : undefined,
+        typeof payload.message === "string" ? payload.message : "",
+        payload.details,
+      );
+      // A plugin hook that is not running, or a refusal by the security lists,
+      // is something to read in the transcript, not a failed turn.
+      if (view.kind !== "error") {
+        const message: Message = {
+          id: nextId("msg"),
+          role: "system",
+          text: view.text,
+          streaming: false,
+          ...(view.kind === "blocked" ? { blocked: true } : {}),
+        };
+        return {
+          ...base,
+          messages: [...base.messages, message],
+          timeline: pushTimeline(base, { kind: "message", id: message.id }),
+        };
+      }
+      // The status line is one truncated row; a long explanation is also written out, wrapped.
+      const detail: Message | null = view.detail
+        ? { id: nextId("msg"), role: "system", text: view.detail, streaming: false, blocked: true }
+        : null;
       return {
         ...base,
-        errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`],
-        lastTurnError: `${payload.code ?? "error"}: ${payload.message ?? ""}`,
+        errors: [...base.errors, view.text],
+        lastTurnError: view.text,
+        ...(detail
+          ? { messages: [...base.messages, detail], timeline: pushTimeline(base, { kind: "message", id: detail.id }) }
+          : {}),
       };
+    }
 
     // A language server published for a file this session touched. Only the
     // counts arrive: the text of every diagnostic is already in the tool result
@@ -1506,7 +1537,7 @@ export function reducer(state: State, action: Action): State {
     case "approval/request": {
       // Routed to Jarvis: it decides, the person is not asked. A person-only
       // request is never Jarvis's, whatever its route says.
-      if (action.request.route === "jarvis" && !action.request.personOnly) {
+      if (action.request.route === "jarvis" && !alwaysAsksYou(action.request)) {
         const rest = state.heldApprovals.filter((r) => r.requestId !== action.request.requestId);
         return { ...state, heldApprovals: [...rest, { ...action.request, source: "interactive" }] };
       }
@@ -1549,7 +1580,7 @@ export function reducer(state: State, action: Action): State {
         // Jarvis decides: an interactive prompt on screen is withdrawn (the
         // daemon still waits on this connection's answer, which it may give
         // later); a person-only request is never Jarvis's.
-        if (pending && !pending.personOnly) {
+        if (pending && !alwaysAsksYou(pending)) {
           return {
             ...state,
             pendingApproval: null,
@@ -1584,7 +1615,7 @@ export function reducer(state: State, action: Action): State {
       const held = state.heldQuestions.find((r) => r.requestId === requestId);
       const pending = state.pendingQuestion?.requestId === requestId ? state.pendingQuestion : null;
       if (route === "jarvis") {
-        if (!pending) return state;
+        if (!pending || alwaysAsksYou(pending)) return state;
         return {
           ...state,
           pendingQuestion: null,
@@ -1612,7 +1643,8 @@ export function reducer(state: State, action: Action): State {
       };
 
     case "question/request":
-      if (action.request.route === "jarvis") {
+      // A mode picker or any personOnly question is the person's, never Jarvis's.
+      if (action.request.route === "jarvis" && !alwaysAsksYou(action.request)) {
         const rest = state.heldQuestions.filter((r) => r.requestId !== action.request.requestId);
         return { ...state, heldQuestions: [...rest, action.request] };
       }

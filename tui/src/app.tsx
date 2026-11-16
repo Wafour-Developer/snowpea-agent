@@ -44,6 +44,10 @@ import { SecurityScreen } from "./components/SecurityScreen.js";
 import { useSecurityScreen, type SecurityScreenHook } from "./hooks/useSecurityScreen.js";
 import { NOT_APPLIED_NOTE, securitySupported } from "./state/security.js";
 import { securitySubCommands } from "./slash/security.js";
+import { WebScreen } from "./components/WebScreen.js";
+import { useWebScreen, type WebScreenHook } from "./hooks/useWebScreen.js";
+import { webRemoteSupported } from "./state/web-remote.js";
+import { webSubCommands } from "./slash/web.js";
 import {
   cliLabel,
   extSessionId,
@@ -53,7 +57,8 @@ import {
   ungatedWarning,
   viewOnlyReason,
 } from "./state/external.js";
-import { JARVIS_DECIDING, personOnlyView, requestLabel, resolvedLine, supportOf } from "./state/jarvis.js";
+import { rpcErrorText } from "./state/errors.js";
+import { JARVIS_DECIDING, approvalResolvedNote, personOnlyView, rememberChosenScope, requestLabel, supportOf, takeChosenScope } from "./state/jarvis.js";
 import {
   bannerText,
   cancel as cancelUpdate,
@@ -558,6 +563,9 @@ export function App({
   const activeSessionRef = useRef(initialSessionId);
   const resumingRef = useRef(false);
   const [state, dispatch] = useReducer(reducer, initialState);
+  /** The mode as last shown, so a refused change can be put back. */
+  const modeRef = useRef(state.mode);
+  modeRef.current = state.mode;
   /** Every approval this surface knows, for notification handlers bound once per session. */
   const knownApprovalsRef = useRef<ApprovalRequestParams[]>([]);
   knownApprovalsRef.current = [
@@ -755,6 +763,8 @@ export function App({
   const screensRef = useRef<ReturnType<typeof useJarvisScreens> | null>(null);
   /** The security-lists hook, for the same reason. */
   const securityRef = useRef<SecurityScreenHook | null>(null);
+  /** The remote-access hook, for the same reason. */
+  const webRef = useRef<WebScreenHook | null>(null);
 
   const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
   /**
@@ -890,6 +900,7 @@ export function App({
       ...(featureSupport.jarvis ? [] : ["jarvis"]),
       ...(featureSupport.external ? [] : ["external"]),
       ...(securitySupported(client.serverCapabilities?.()) ? [] : ["security"]),
+      ...(webRemoteSupported(client.serverCapabilities?.()) ? [] : ["web"]),
     ]);
 
     client.setListeners({
@@ -1021,6 +1032,7 @@ export function App({
       onSettingsChanged: (params) => {
         refreshCapabilities();
         securityRef.current?.onSettingsChanged(params);
+        webRef.current?.onSettingsChanged(params);
       },
       // An MCP server moved: the HUD follows the payload at once, and the full
       // list is re-read for the tools it carries. A server that broke is said
@@ -1047,10 +1059,12 @@ export function App({
           const next = (phase ?? "started") as "started" | "done" | "failed";
           return updateProgress(current, next, message ?? "");
         }),
-      onApprovalResolved: ({ requestId, decision, by }) => {
-        // Jarvis answered: say so once, in words, so the request does not just vanish.
+      onApprovalResolved: ({ requestId, decision, by, outcome, scope }) => {
+        // Jarvis answered, or core kept an allow narrower than chosen: say so once,
+        // in words, so the request does not just vanish. A withdrawn request
+        // (re-routed, nothing decided) closes quietly.
         const known = knownApprovalsRef.current.find((request) => request.requestId === requestId);
-        const line = resolvedLine(by, decision, known);
+        const line = approvalResolvedNote({ by, decision, outcome, scope }, known, takeChosenScope(requestId));
         if (line) dispatch({ type: "note", text: line });
         dispatch({ type: "approval/resolved", requestId });
         // Another surface may have answered one of ours, or freed a slot that
@@ -1118,7 +1132,7 @@ export function App({
     void registryRef.current
       .load()
       .then((commands: CommandInfo[]) => dispatch({ type: "commands", commands }))
-      .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+      .catch((error: unknown) => dispatch({ type: "error", message: rpcErrorText(error) }));
 
     refreshApprovals();
 
@@ -1160,7 +1174,7 @@ export function App({
   // Ink 5 removes F1 from useInput entirely. Read only its raw sequences here.
   useEffect(() => {
     const onData = (data: Buffer | string) => {
-      if (state.pendingQuestion || state.pendingApproval || securityRef.current?.ui) return;
+      if (state.pendingQuestion || state.pendingApproval || securityRef.current?.ui || webRef.current?.ui) return;
       if (update.phase === "confirm" || update.phase === "running") return;
       if (["\u001bOP", "\u001b[11~", "\u001b[[A"].includes(data.toString())) {
         setShowHelp(current => !current);
@@ -1390,7 +1404,7 @@ export function App({
         showToast("new session");
       })
       .catch((error: unknown) =>
-        dispatch({ type: "error", message: `new session failed: ${String(error)}` }),
+        dispatch({ type: "error", message: `new session failed: ${rpcErrorText(error)}` }),
       )
       .finally(() => {
         resumingRef.current = false;
@@ -1401,11 +1415,15 @@ export function App({
   const changeMode = useCallback(
     (next: Mode) => {
       setModeHintVisible(false);
+      const previous = modeRef.current;
       dispatch({ type: "mode", mode: next });
       showToast(`mode: ${next.toUpperCase()}`);
-      void client
-        .setMode(sessionId, next)
-        .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+      void client.setMode(sessionId, next).catch((error: unknown) => {
+        // Core refused (a raise it will not take from this connection): the mode did not change.
+        dispatch({ type: "mode", mode: previous });
+        showToast(`mode: ${previous.toUpperCase()}`);
+        dispatch({ type: "error", message: rpcErrorText(error) });
+      });
     },
     [client, sessionId, showToast],
   );
@@ -1434,6 +1452,7 @@ export function App({
       ...voiceSubCommands(draft),
       ...jarvisSubCommands(draft),
       ...securitySubCommands(draft),
+      ...webSubCommands(draft),
       ...externalSubCommands(draft),
       ...registryRef.current.complete(draft),
     ];
@@ -1473,6 +1492,8 @@ export function App({
     warn,
   });
   securityRef.current = security;
+  const web = useWebScreen({ client, note, showToast, write: (data) => void stdout.write(data) });
+  webRef.current = web;
   const externalWarning = externalOpen ? ungatedWarning(externalOpen.session) : null;
   const externalViewOnly = externalOpen ? viewOnlyReason(externalOpen.session) : null;
 
@@ -1701,10 +1722,10 @@ export function App({
   const showLogo = !fullscreen;
   // Rows the Jarvis panel and the screens' pickers add to the bottom block.
   const jarvisPanelLines = useMemo(
-    () => screens.panel(contentWidth, Math.max(6, Math.min(12, Math.floor(usableRows(terminal.rows) / 3))), security.listsSet),
+    () => screens.panel(contentWidth, Math.max(6, Math.min(12, Math.floor(usableRows(terminal.rows) / 3)))),
     // `screens.panel` changes with the Jarvis state and the clock.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [screens.panel, contentWidth, terminal.rows, security.listsSet],
+    [screens.panel, contentWidth, terminal.rows],
   );
   const overlayRows = screenOverlayRows(screens, contentWidth);
   const approvalLabel = requestLabel(state.pendingApproval, screens.jarvis.rows, sessionId);
@@ -1756,7 +1777,7 @@ export function App({
   // With security lists set, an ungated session says it is not covered by them.
   const externalNoteLine = externalOpen
     ? [
-        security.listsSet && ungatedWarning(externalOpen.session) ? NOT_APPLIED_NOTE : null,
+        externalOpen.session.securityListsApply === false ? NOT_APPLIED_NOTE : null,
         externalNote(externalOpen.session),
       ]
         .filter(Boolean)
@@ -2125,7 +2146,7 @@ export function App({
               submit(`/effort ${wanted}`);
               return;
             }
-            dispatch({ type: "error", message: String(error) });
+            dispatch({ type: "error", message: rpcErrorText(error) });
           });
         return;
       }
@@ -2145,7 +2166,7 @@ export function App({
             submit(`/model ${ref}`);
             return;
           }
-          dispatch({ type: "error", message: String(error) });
+          dispatch({ type: "error", message: rpcErrorText(error) });
         });
     },
     [client, sessionId, showToast, state.effort, state.efforts, state.model],
@@ -2436,6 +2457,10 @@ export function App({
         history?.add(text, workdir);
         return;
       }
+      if (webRef.current?.handleCommand(text)) {
+        history?.add(text, workdir);
+        return;
+      }
       if (screensNow?.handleCommand(text)) {
         history?.add(text, workdir);
         return;
@@ -2462,7 +2487,7 @@ export function App({
             if (turnId) dispatch({ type: "prompt/turn", turnId, text });
             return result;
           })
-          .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+          .catch((error: unknown) => dispatch({ type: "error", message: rpcErrorText(error) }));
         return;
       }
       // `$executor fix the tests` goes through the prompt like anything else.
@@ -2734,7 +2759,7 @@ export function App({
         })
         .catch((error: unknown) => {
           setRunningCommand(null);
-          dispatch({ type: "error", message: String(error) });
+          dispatch({ type: "error", message: rpcErrorText(error) });
         });
     },
     [
@@ -2789,7 +2814,7 @@ export function App({
         })
         .catch((error: unknown) => {
           setRunningCommand(null);
-          dispatch({ type: "error", message: String(error) });
+          dispatch({ type: "error", message: rpcErrorText(error) });
         });
     },
     [client, history, sessionId, workdir],
@@ -2884,9 +2909,11 @@ export function App({
     setModeHintVisible(false);
     dispatch({ type: "mode", mode: "plan", autoAfterPlan: true });
     showToast("mode: PLAN→AUTO");
-    void client
-      .setMode(sessionId, "plan", { autoAfterPlan: true })
-      .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+    const previous = modeRef.current;
+    void client.setMode(sessionId, "plan", { autoAfterPlan: true }).catch((error: unknown) => {
+      dispatch({ type: "mode", mode: previous });
+      dispatch({ type: "error", message: rpcErrorText(error) });
+    });
   }, [client, sessionId, showToast]);
 
   const decideApproval = useCallback(
@@ -2902,6 +2929,7 @@ export function App({
       // `reason` is only ever set by "No, with reason"; the daemon quotes it
       // back to the model as the tool's refusal (M15b §1).
       const { decision, scope } = answer;
+      if (requestId) rememberChosenScope(requestId, decision, scope);
       resolve?.(reason ? { decision, scope, reason } : { decision, scope });
     },
     [changeMode, planThenAuto, state.mode, state.pendingApproval],
@@ -2923,9 +2951,10 @@ export function App({
       dispatch({ type: "approval/resolved", requestId });
       // A request only a person may settle is settled once, whatever the scope row says.
       const personOnly = state.approvalQueue.find((entry) => entry.requestId === requestId)?.personOnly === true;
+      rememberChosenScope(requestId, decision, personOnly ? "once" : scope);
       void client
         .respondApproval(requestId, decision, personOnly ? "once" : scope, reason)
-        .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+        .catch((error: unknown) => dispatch({ type: "error", message: rpcErrorText(error) }));
     },
     [client, state.approvalQueue],
   );
@@ -2967,7 +2996,8 @@ export function App({
       update.phase === "confirm" ||
       modelPicker ||
       screens.ui !== null ||
-      security.ui !== null
+      security.ui !== null ||
+      web.ui !== null
     ) {
       return;
     }
@@ -3426,7 +3456,7 @@ export function App({
             setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null}
         />
       )}
     </>
@@ -3497,7 +3527,27 @@ export function App({
       height={fullscreen ? layout.transcriptRows : Math.max(8, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
       onSave={security.save}
       onCheck={security.check}
+      onReload={security.reload}
+      changeSeq={security.changeSeq}
       onClose={security.close}
+      isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
+    />
+  ) : null;
+
+  const webNode = web.ui ? (
+    <WebScreen
+      status={web.ui.status}
+      width={contentWidth}
+      height={fullscreen ? layout.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
+      onListen={web.listen}
+      onStop={web.stop}
+      onRotate={web.rotate}
+      onSetPassword={web.setPassword}
+      onClearPassword={web.clearPassword}
+      onRefresh={web.refresh}
+      onCopy={web.copy}
+      changeSeq={web.changeSeq}
+      onClose={web.close}
       isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
     />
   ) : null;
@@ -3540,7 +3590,7 @@ export function App({
         lines={viewport.lines}
         banner={bannerText(update)}
         scrollIndicator={scrollIndicator(viewport)}
-        overlay={helpNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
+        overlay={helpNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
           <LaunchBanner
             width={terminal.columns - 2}
             terminalRows={terminal.rows}
@@ -3671,7 +3721,7 @@ export function App({
           oldest rows go, clipped at the top, and the newest stay. Whatever is
           clipped is still live, so it reaches the scrollback whole later. */}
       <Box flexDirection="column" flexShrink={1} overflowY="hidden" justifyContent="flex-end">
-      {showHelp || securityNode ? null : externalNode ? externalNode : openAgent ? (
+      {showHelp || securityNode || webNode ? null : externalNode ? externalNode : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}
@@ -3704,6 +3754,8 @@ export function App({
       {helpNode}
 
       {securityNode}
+
+      {webNode}
 
       {bottomNode}
 

@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { messageLines } from "../src/layout/transcript.js";
+import { textWidth } from "../src/layout/text-width.js";
 import { parseSecurityCommand, securitySubCommands } from "../src/slash/security.js";
 import {
   addCustom,
   blockedLine,
   byLabel,
+  PATTERN_HELP,
   cycleLevel,
+  draftOf,
   editCustom,
   hasCustom,
   listsAreSet,
@@ -15,9 +18,12 @@ import {
   normalizeCatalog,
   normalizeConfig,
   normalizeVerdict,
+  problemNote,
   removeCustom,
+  saveProblems,
   sameLists,
   scrollInto,
+  wrapSegments,
   securitySupported,
   settingsPatch,
   statusLines,
@@ -40,10 +46,21 @@ const catalog = normalizeCatalog({
   ],
 });
 
+// The real shapes: `by` is `commands:<id>` / `paths:<id>` / `custom`, a path carries its scope.
 const config = normalizeConfig({
+  writable: true,
   blockedCommands: { presets: ["essential"], custom: ["npm publish"] },
   protectedPaths: { presets: ["essential"], custom: [{ path: "/srv/data", level: "write" }] },
-  effective: { commands: [{ pattern: "rm -rf ~", by: "essential" }], paths: [{ path: "/etc", level: "write", by: "essential" }] },
+  effective: {
+    commands: [
+      { pattern: "rm -rf ~", by: "commands:essential" },
+      { pattern: "npm publish", by: "custom" },
+    ],
+    paths: [
+      { path: "/etc", level: "write", by: "paths:essential", scope: "tree" },
+      { path: "/home/me", level: "write", by: "paths:essential", scope: "self", exempt: ["/home/me/project"] },
+    ],
+  },
 });
 
 describe("security contract normalisation", () => {
@@ -54,9 +71,40 @@ describe("security contract normalisation", () => {
       blockedCommands: { presets: [], custom: [] },
       protectedPaths: { presets: [], custom: [] },
       effective: { commands: [], paths: [] },
+      writable: true,
+      problems: [],
+      projectAdds: 0,
     });
-    expect(normalizeVerdict({ blocked: true, by: "x", why: "y", level: "all" })).toEqual({ blocked: true, by: "x", why: "y", level: "all" });
-    expect(normalizeVerdict({ blocked: "yes" }).blocked).toBe(false);
+    expect(normalizeVerdict({ blocked: true, by: "x", why: "y", level: "all" })).toEqual({ blocked: true, opaque: false, by: "x", why: "y", level: "all" });
+    expect(normalizeVerdict({ blocked: "yes" } as never).blocked).toBe(false);
+  });
+
+  it("reads writable, the skipped entries and the project's additions from security.get", () => {
+    const read = normalizeConfig({
+      writable: false,
+      problems: ["unknown preset 'x'", 3 as never],
+      project: { blockedCommands: { custom: ["a", "b"] }, protectedPaths: { presets: ["credentials"] } },
+    });
+    expect(read.writable).toBe(false);
+    expect(read.problems).toEqual(["unknown preset 'x'"]);
+    expect(read.projectAdds).toBe(3);
+    expect(normalizeConfig({ writable: true, project: null }).projectAdds).toBe(0);
+  });
+
+  it("keeps a path's scope and exemptions", () => {
+    expect(config.effective.paths[1]).toEqual({ path: "/home/me", level: "write", by: "paths:essential", scope: "self", exempt: ["/home/me/project"] });
+    expect(config.effective.paths[0]).toMatchObject({ scope: "tree", exempt: [] });
+  });
+
+  it("tells blocked, opaque and not blocked apart (opaque is never also blocked)", () => {
+    expect(normalizeVerdict({ blocked: false, opaque: true, reason: "cannot be checked against your block list" })).toMatchObject({
+      blocked: false,
+      opaque: true,
+      why: "cannot be checked against your block list",
+    });
+    expect(normalizeVerdict({ blocked: true, opaque: true, by: "custom", why: "w" })).toMatchObject({ blocked: true, opaque: false });
+    expect(normalizeVerdict({ blocked: false })).toMatchObject({ blocked: false, opaque: false, by: null });
+    expect(normalizeVerdict({ blocked: true, by: "paths:credentials", match: "~/.ssh", level: "all", why: "w" })).toMatchObject({ match: "~/.ssh" });
   });
 
   it("strips terminal escapes from every server string", () => {
@@ -154,15 +202,47 @@ describe("weakening", () => {
 });
 
 describe("verdicts and status", () => {
+  const verdict = (over: Record<string, unknown>) => ({ blocked: false, opaque: false, by: null, why: "", ...over }) as never;
+
   it("writes BLOCKED by <preset title>: <why>, with the level for a folder", () => {
-    expect(verdictLine({ blocked: true, by: "essential", why: "deletes your home", level: undefined }, catalog)).toEqual({
+    expect(verdictLine(verdict({ blocked: true, by: "commands:essential", why: "deletes your home" }), catalog)).toEqual({
       text: "BLOCKED by Essential safety: deletes your home",
+      kind: "blocked",
       blocked: true,
     });
-    expect(verdictLine({ blocked: true, by: "credentials", why: "keys", level: "all" }, catalog).text).toBe("BLOCKED by Credentials (no access): keys");
-    expect(verdictLine({ blocked: true, by: "npm publish", why: "your entry" }, catalog).text).toBe("BLOCKED by npm publish: your entry");
-    expect(verdictLine({ blocked: false, by: null, why: "" }, catalog)).toEqual({ text: "not blocked", blocked: false });
+    expect(verdictLine(verdict({ blocked: true, by: "paths:credentials", why: "keys", level: "all" }), catalog).text).toBe("BLOCKED by Credentials (no access): keys");
+    expect(verdictLine(verdict({ blocked: true, by: "custom", why: "your entry", match: "npm publish" }), catalog).text).toBe(
+      "BLOCKED by your own entry [npm publish]: your entry",
+    );
+    expect(verdictLine(verdict({ blocked: true, by: "security", why: "the lists guard themselves" }), catalog).text).toContain("the security lists' own protection");
+    expect(verdictLine(verdict({}), catalog)).toEqual({ text: "not blocked", kind: "ok", blocked: false });
     expect(byLabel(null, catalog)).toBe("your list");
+  });
+
+  it("names the preset for each `by` form, in the catalog the id belongs to", () => {
+    // `essential` is a commands preset AND a paths preset: the prefix says which.
+    expect(byLabel("commands:essential", catalog)).toBe("Essential safety");
+    expect(byLabel("paths:essential", catalog)).toBe("System");
+    expect(byLabel("paths:credentials", catalog)).toBe("Credentials");
+    expect(byLabel("commands:unknown", catalog)).toBe("unknown");
+    expect(byLabel("custom", catalog)).toBe("your own entry");
+    expect(byLabel("security", catalog)).toContain("security lists");
+    expect(byLabel("commands:essential", null)).toBe("essential");
+  });
+
+  it("words an opaque verdict as not refused but put to you", () => {
+    const line = verdictLine(verdict({ opaque: true, why: "cannot be checked against your block list" }), catalog);
+    expect(line.kind).toBe("opaque");
+    expect(line.blocked).toBe(false);
+    expect(line.text).toContain("cannot be checked against your list; snowpea will ask you");
+  });
+
+  it("sends unsaved edits as the draft of a check", () => {
+    const lists = listsOf(config);
+    expect(draftOf({ ...lists, commandCustom: ["git push --force"], pathCustom: [{ path: "~/x", level: "all" }] })).toEqual({
+      blockedCommands: { presets: ["essential"], custom: ["git push --force"] },
+      protectedPaths: { presets: ["essential"], custom: [{ path: "~/x", level: "all" }] },
+    });
   });
 
   it("summarises counts and the presets that are on", () => {
@@ -170,9 +250,62 @@ describe("verdicts and status", () => {
       "Security lists",
       "Blocked commands: 1 presets on (Essential safety), 1 of your own",
       "Protected folders: 1 presets on (System), 1 of your own",
-      "In force now: 1 command patterns, 1 folders",
+      "In force now: 2 command patterns, 2 folders",
       "Change them with /security. They apply to sessions that go through snowpea.",
     ]);
+  });
+
+  it("says when the connection can only read, and what core skipped", () => {
+    const readOnly = normalizeConfig({ writable: false, problems: ["unknown preset 'x'"] });
+    const text = statusLines(readOnly, catalog).join("\n");
+    expect(text).toContain("Read-only");
+    expect(text).toContain("core skipped an unusable entry: unknown preset 'x'");
+  });
+});
+
+describe("what core says about an entry it refused", () => {
+  const refusal = (problems: string[]) => Object.assign(new Error(problems.join("; ")), { data: { code: "invalid_params", details: { problems } } });
+
+  it("splits the reasons into the ones that name an entry and the rest", () => {
+    const { entries, others } = saveProblems(
+      refusal([
+        "blocked command 'rm': the program cannot be only a wildcard: that would block every command",
+        "protected path '/tmp/x y': must be absolute",
+        "security.blockedCommands.presets: unknown preset 'nope' (known: essential)",
+      ]),
+    );
+    expect(entries).toEqual([
+      { tab: "commands", text: "rm", reason: "the program cannot be only a wildcard: that would block every command" },
+      { tab: "paths", text: "/tmp/x y", reason: "must be absolute" },
+    ]);
+    expect(others).toEqual(["security.blockedCommands.presets: unknown preset 'nope' (known: essential)"]);
+  });
+
+  it("reads a Python-quoted entry with an apostrophe or a backslash", () => {
+    const { entries } = saveProblems(refusal([`blocked command "it's": a pattern is one line`, `blocked command 're:a\\\\b(': the regular expression does not compile: x`]));
+    expect(entries.map((entry) => entry.text)).toEqual(["it's", "re:a\\b("]);
+  });
+
+  it("falls back to the message when there are no details", () => {
+    expect(saveProblems(new Error("boom"))).toEqual({ entries: [], others: ["boom"] });
+  });
+
+  it("has a one-screen syntax help that fits 60 columns once wrapped", () => {
+    const text = PATTERN_HELP.map((entry) => entry.text).join("\n");
+    expect(text).toContain("re:");
+    expect(text).toContain("wildcard");
+    expect(text).toContain("rm -rf");
+    for (const entry of PATTERN_HELP) {
+      for (const line of wrapSegments("h", [{ text: entry.text }], 56, entry.kind === "example" ? "                     " : "  ")) {
+        expect(textWidth(line.segments.map((segment) => segment.text).join(""))).toBeLessThanOrEqual(56);
+      }
+    }
+  });
+
+  it("notes the skipped entries once, briefly", () => {
+    expect(problemNote([])).toBeNull();
+    expect(problemNote(["a"])).toBe("core skipped an unusable entry: a");
+    expect(problemNote(["a", "b"])).toBe("core skipped 2 unusable entries, e.g. a");
   });
 
   it("words the block line for the session on screen", () => {
@@ -227,16 +360,31 @@ describe("red lines", () => {
 });
 
 describe("Jarvis panel", () => {
-  const state = {
+  const row = (apply: boolean | null | undefined) => ({
+    sessionId: "ext:claude:a",
+    project: "/p",
+    title: "t",
+    status: "running",
+    level: "full",
+    external: { cli: "claude", id: "a" },
+    controlled: false,
+    ...(apply === undefined ? {} : { securityListsApply: apply }),
+  });
+  const state = (apply: boolean | null | undefined) => ({
     ...initialJarvis,
     status: { enabled: true, running: true, folder: "/j", delegationDefault: "staged", sessionId: "j", model: "fast" } as any,
-    rows: [{ sessionId: "ext:claude:a", project: "/p", title: "t", status: "running", level: "full", external: { cli: "claude", id: "a" }, controlled: false }] as any,
-  };
-  const text = (securityLists: boolean) => panelLines(state, 80, 12, Date.now(), securityLists).map((line) => line.segments.map((s) => s.text).join(""));
+    rows: [row(apply)] as any,
+  });
+  const text = (apply: boolean | null | undefined) => panelLines(state(apply), 80, 12, Date.now()).map((line) => line.segments.map((s) => s.text).join(""));
 
-  it("adds the not-covered line under UNCONTROLLED only when lists are set", () => {
+  it("takes the not-covered line from core's securityListsApply, not from a guess", () => {
     expect(text(false).join("\n")).toContain("UNCONTROLLED");
-    expect(text(false).join("\n")).not.toContain("security lists do not apply");
-    expect(text(true).join("\n")).toContain("security lists do not apply to this session");
+    expect(text(false).join("\n")).toContain("security lists do not apply to this session");
+    expect(text(false).join("\n")).toContain("no security lists");
+    // null: both lists are empty; true: they reach the session; absent: an older core.
+    for (const apply of [null, true, undefined]) {
+      expect(text(apply).join("\n"), String(apply)).not.toContain("security lists do not apply");
+      expect(text(apply).join("\n"), String(apply)).not.toContain("no security lists");
+    }
   });
 });
