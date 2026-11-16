@@ -404,14 +404,22 @@ async def test_an_edited_settings_file_reconfigures_without_a_restart(core: Any)
         data["extensions"] = {"cfg": {"enabled": enabled, "config": config}}
         settings.write_text(json.dumps(data), encoding="utf-8")
 
+    async def reload() -> None:
+        # Security review 8, M8-5: ``extensions`` is the daemon's own code, so an
+        # edit of the file waits for a local person (changed expectation: it used
+        # to apply by itself); accepting it reconfigures without a restart.
+        await core.reload_settings(force=True)
+        assert any(key.startswith("extensions") for key in core.settings_waiting)
+        await core.accept_disk_settings(True)
+
     write({"ticket": "SP-1"})
-    await core.reload_settings(force=True)
+    await reload()
     assert "SP-1 x5" in compose.build_system_prompt()
     write({"ticket": "SP-2", "limit": 9})
-    await core.reload_settings(force=True)
+    await reload()
     assert "SP-2 x9" in compose.build_system_prompt()
     write({"ticket": "SP-2", "limit": 9}, enabled=False)
-    await core.reload_settings(force=True)
+    await reload()
     assert core.extensions.extensions["cfg"].state == "disabled"
     assert "SP-2" not in compose.build_system_prompt()
 
