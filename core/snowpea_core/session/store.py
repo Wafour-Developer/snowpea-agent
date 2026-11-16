@@ -721,6 +721,31 @@ class Store:
         value = rows[0]["m"] if rows else None
         return int(value) if value is not None else 0
 
+    async def last_events(self, session_ids: list[str]) -> dict[str, tuple[int, str]]:
+        """``{sessionId: (last seq, its ts)}`` for many sessions at once (1.55.0).
+
+        ``session.list {includeClosed}`` for stored rows: one grouped query per
+        500 ids. ``MAX(seq)`` per session is answered from the
+        ``(session_id, seq)`` primary key, and the ``ts`` is read from that one
+        row, so no session's events are scanned.
+        """
+        out: dict[str, tuple[int, str]] = {}
+        ids = [str(item) for item in session_ids]
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            marks = ",".join("?" for _ in chunk)
+            rows = await asyncio.to_thread(
+                self._query,
+                "SELECT e.session_id AS sid, e.seq AS seq, e.ts AS ts FROM events e JOIN "
+                "(SELECT session_id, MAX(seq) AS m FROM events "
+                f"WHERE session_id IN ({marks}) GROUP BY session_id) last "
+                "ON e.session_id = last.session_id AND e.seq = last.m",
+                tuple(chunk),
+            )
+            for row in rows:
+                out[str(row["sid"])] = (int(row["seq"]), str(row["ts"]))
+        return out
+
     # -- messages ------------------------------------------------------
     async def append_message(self, session_id: str, idx: int, role: str, content: Any) -> None:
         await asyncio.to_thread(

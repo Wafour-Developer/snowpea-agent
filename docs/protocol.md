@@ -3390,7 +3390,7 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | Only sessions owned by this client (a browser profile's clientId); omit for every session (addendum 8). |
-| `includeClosed` | `boolean` | no | Include persisted closed sessions. |
+| `includeClosed` | `boolean` | no | Include persisted closed sessions. Since 1.55.0 their rows carry running false, status 'idle', title (the stored title; for a scheduled run without one, the job's title or the first line of its task), lastActivityAt (time of the last stored event), lastUserAt and seq, like live rows. |
 | `includeUnhosted` | `boolean` | no | With hostToolsFrom: also return sessions with no host (IDE, TUI, CLI), which a browser shows in every profile. |
 | `kinds` | `string[] \| null` | no | Only sessions of these kinds; omit for every kind. A surface that shows human threads asks for ["chat"] (CORE-session-kind). |
 | `workdir` | `string \| null` | no | Only sessions rooted here. |

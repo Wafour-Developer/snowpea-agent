@@ -409,11 +409,31 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
         rows = live
     else:
         by_id = {row.sessionId: row for row in live}
-        for stored in await core.store.list_sessions(include_closed=True):
+        closed = [
+            stored for stored in await core.store.list_sessions(include_closed=True)
+            if str(stored["id"]) not in by_id
+        ]
+        # Stored rows get what live rows show (1.55.0), from grouped queries
+        # for all of them: the last event (seq and time) and the last human
+        # prompt time.  A stored row is never running: status "idle".
+        closed_ids = [str(stored["id"]) for stored in closed]
+        last_events = await core.store.last_events(closed_ids)
+        last_user: dict[str, str] = {}
+        for start in range(0, len(closed_ids), 500):
+            last_user.update(await core.store.last_user_times(closed_ids[start : start + 500]))
+        job_titles = await _job_titles(core) if any(s.get("job_id") for s in closed) else {}
+        for stored in closed:
             session_id = str(stored["id"])
-            if session_id in by_id:
-                continue
+            seq, last_ts = last_events.get(session_id, (0, None))
+            title = stored.get("title") or (
+                job_titles.get(str(stored.get("job_id"))) if stored.get("job_id") else None
+            )
             by_id[session_id] = SessionSummary(
+                running=False,
+                status="idle",
+                title=title,
+                lastActivityAt=last_ts,
+                lastUserAt=last_user.get(session_id),
                 sessionId=session_id,
                 workdir=str(stored["workdir"]),
                 mode=stored["mode"],
@@ -422,7 +442,7 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
                 model=stored.get("model"),
                 originSurface=stored.get("origin_surface"),
                 createdAt=str(stored["created_at"]),
-                seq=await core.store.max_seq(session_id),
+                seq=seq,
                 kind=stored.get("kind") or "chat",
                 parentSessionId=stored.get("parent_session_id"),
                 jobId=stored.get("job_id"),
@@ -464,6 +484,27 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
     if jarvis is not None:  # SessionSummary.role / .jarvis (1.53.0)
         rows = [jarvis.decorate(row) for row in rows]
     return sorted(rows, key=lambda row: row.createdAt, reverse=True)
+
+
+async def _job_titles(core: Core) -> dict[str, str]:
+    """``{jobId: name}``: the job's title, else the first line of its task (1.55.0)."""
+    scheduler = getattr(core, "scheduler", None)
+    if scheduler is None:
+        return {}
+    try:
+        jobs = await scheduler.list()
+    except Exception:  # noqa: BLE001 - a listing never fails over a job lookup
+        log.debug("could not list jobs for session titles", exc_info=True)
+        return {}
+    names: dict[str, str] = {}
+    for job in jobs:
+        name = (getattr(job, "title", None) or "").strip()
+        if not name:
+            task = str(getattr(job, "task", "") or "").strip()
+            name = (task.splitlines() or [""])[0][:80]
+        if name:
+            names[str(job.id)] = name
+    return names
 
 
 def _effort_fields(core: Core, session: Session) -> dict[str, Any]:

@@ -5052,7 +5052,7 @@ export interface SessionLineageResult {
 export interface SessionListParams {
   /** Only sessions owned by this client (a browser profile's clientId); omit for every session (addendum 8). */
   hostToolsFrom?: string | null;
-  /** Include persisted closed sessions. */
+  /** Include persisted closed sessions. Since 1.55.0 their rows carry running false, status 'idle', title (the stored title; for a scheduled run without one, the job's title or the first line of its task), lastActivityAt (time of the last stored event), lastUserAt and seq, like live rows. */
   includeClosed?: boolean;
   /** With hostToolsFrom: also return sessions with no host (IDE, TUI, CLI), which a browser shows in every profile. */
   includeUnhosted?: boolean;

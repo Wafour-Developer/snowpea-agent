@@ -316,11 +316,14 @@ BROWSER_PERSON_METHODS: frozenset[str] = frozenset({
     "skill.create", "skill.learn", "skill.reload", "skill.remove", "skill.write",
     "skill.install",  # but the browser's own bundled plugin: see bundled_plugin_problem
     "memory.update", "permission.allowlist.remove", "team.guide.set", "audio.install",
-    "gateway.bind", "lsp.install", "system.reloadSettings",
+    "lsp.install", "system.reloadSettings",
 })
 #: Never from a browser connection, any version, marker or not (2026-11-16: no
-#: browser page or host calls it; a typed rule pre-approves before routing).
-BROWSER_NEVER_METHODS: frozenset[str] = frozenset({"permission.allowlist.add"})
+#: browser page or host calls them).  ``permission.allowlist.add``: a typed rule
+#: pre-approves before routing.  ``gateway.bind`` (1.55.0): binding a messenger
+#: chat to a session is the person's binding identity; the browser refuses it on
+#: every page, and core now does too.
+BROWSER_NEVER_METHODS: frozenset[str] = frozenset({"permission.allowlist.add", "gateway.bind"})
 #: What a browser connection may call without the marker (its own runtime and
 #: the pages that send none).  ``job.*`` never touches a ``jarvis-task`` job
 #: (every action on one is a person's: ``job_handlers._guard``); every

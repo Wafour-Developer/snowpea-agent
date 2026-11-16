@@ -1254,7 +1254,15 @@ class SessionListResult(Payload):
 
 
 class SessionListParams(Payload):
-    includeClosed: bool = Field(default=False, description="Include persisted closed sessions.")
+    includeClosed: bool = Field(
+        default=False,
+        description=(
+            "Include persisted closed sessions. Since 1.55.0 their rows carry running false, "
+            "status 'idle', title (the stored title; for a scheduled run without one, the "
+            "job's title or the first line of its task), lastActivityAt (time of the last "
+            "stored event), lastUserAt and seq, like live rows."
+        ),
+    )
     workdir: str | None = Field(default=None, description="Only sessions rooted here.")
     kinds: list[str] | None = Field(
         default=None,
