@@ -659,9 +659,18 @@ _TRANSIENT_PROVIDER = re.compile(
 _CONTEXT_OVERFLOW = re.compile(
     r"maximum context length|context length|context window|context_length_exceeded|"
     r"prompt is too long|too many tokens|exceeds the (?:model'?s? )?(?:maximum|context)|"
+    r"exceeds the available context|exceed_context_size_error|"
     r"input is too long|reduce the length",
     re.IGNORECASE,
 )
+
+#: Error code (``error`` event, turn ends with reason ``error``) for a model
+#: whose context window cannot hold snowpea's fixed parts — the system prompt
+#: and the tool schemas — so no request can ever fit.  Stable; clients may
+#: localise it.  The message names both numbers ("…window of 4096 tokens…
+#: needs about 9800…"); the raised error carries them as
+#: ``details = {"windowTokens": …, "neededTokens": …}``.
+CONTEXT_WINDOW_TOO_SMALL = "context_window_too_small"
 OVERFLOW_NOTE = (
     "The conversation outgrew the model's context window; summarising earlier turns and "
     "trying again."
@@ -674,17 +683,21 @@ def context_overflow(exc: BaseException) -> bool:
 
 
 _OVERFLOW_NUMBERS = re.compile(
-    r"prompt[^0-9]{0,20}\((\d+)\)|exceeds the (?:available )?context[^0-9]{0,20}\((\d+)\)"
+    # "prompt (246410 tokens) + …" (vLLM), "request (31724 tokens) exceeds …"
+    # (llama.cpp), "prompt is too long: 9000" …
+    r"(?:prompt|request)[^0-9]{0,20}\((\d+)(?: tokens)?\)"
+    r"|exceeds the (?:available )?context[^0-9]{0,20}\((\d+)(?: tokens)?\)"
     r"|maximum context length is (\d+)",
     re.IGNORECASE,
 )
 
+#: llama.cpp's JSON body states both numbers as fields.
+_N_CTX = re.compile(r'"n_ctx"\s*:\s*(\d+)')
+_N_PROMPT = re.compile(r'"n_prompt_tokens"\s*:\s*(\d+)')
 
-def _learn_overflow(
-    core: Core, session: Session, exc: BaseException, sent: list[ChatMessage]
-) -> None:
-    """Keep what a context-overflow 400 says: the real window and the real prompt size."""
-    text = str(exc)
+
+def overflow_numbers(text: str) -> tuple[int, int]:
+    """``(prompt_tokens, window_tokens)`` an overflow error states; 0 for unknown."""
     prompt = window = 0
     for match in _OVERFLOW_NUMBERS.finditer(text):
         if match.group(1):
@@ -693,6 +706,47 @@ def _learn_overflow(
             window = int(match.group(2))
         if match.group(3):
             window = int(match.group(3))
+    if found := _N_PROMPT.search(text):
+        prompt = int(found.group(1))
+    if found := _N_CTX.search(text):
+        window = int(found.group(1))
+    return prompt, window
+
+
+def fixed_tokens(messages: list[ChatMessage]) -> int:
+    """Estimated tokens of the system messages in ``messages`` (the fixed prompt)."""
+    return estimate_messages([m for m in messages if m.role == "system"])
+
+
+def window_too_small(window: int, needed: int) -> ProviderError | None:
+    """The plain error for a window below what snowpea's fixed parts need, else ``None``."""
+    if window <= 0 or needed <= 0 or window > needed:
+        return None
+    error = ProviderError(
+        CONTEXT_WINDOW_TOO_SMALL,
+        f"the model's context window is {window} tokens, but snowpea's system prompt "
+        f"and tool definitions alone need about {needed}; use a model or server "
+        "setting with a larger context window",
+    )
+    error.details = {"windowTokens": window, "neededTokens": needed}  # type: ignore[attr-defined]
+    return error
+
+
+def _learn_overflow(
+    core: Core,
+    session: Session,
+    exc: BaseException,
+    sent: list[ChatMessage],
+    specs: list[Any] | None = None,
+) -> ProviderError | None:
+    """Keep what a context-overflow 400 says: the real window and the real prompt size.
+
+    Returns the :data:`CONTEXT_WINDOW_TOO_SMALL` error when the window it
+    names cannot even hold the system prompt and tool schemas — compacting
+    the conversation cannot help then, so the turn should end with that.
+    """
+    prompt, window = overflow_numbers(str(exc))
+    needed = fixed_tokens(sent) + _spec_tokens(specs)
     if prompt:
         compaction.learn_from_overflow(session, prompt, estimate_messages(sent))
         _note_prompt_refused(core, session, prompt)
@@ -703,6 +757,18 @@ def _learn_overflow(
             session.context_window = window
         except Exception:  # noqa: BLE001 - learning is a bonus
             log.debug("could not keep the window an overflow named", exc_info=True)
+    return window_too_small(window, needed)
+
+
+def _spec_tokens(specs: list[Any] | None) -> int:
+    """Estimated tokens of the tool schemas sent with every request."""
+    if not specs:
+        return 0
+    try:
+        text = json.dumps([getattr(s, "__dict__", s) for s in specs], default=str)
+    except (TypeError, ValueError):
+        return 0
+    return history_mod.estimate_tokens(text)
 
 
 def _note_prompt_accepted(core: Core, session: Session, tokens: int) -> None:
@@ -2599,7 +2665,9 @@ async def _drive(
                 raise
             else:
                 overflow_retried = True
-                _learn_overflow(core, session, exc, messages)
+                too_small = _learn_overflow(core, session, exc, messages, specs)
+                if too_small is not None:
+                    raise too_small from exc
                 await hub.emit_event(
                     session.id, events.hook_continue(OVERFLOW_NOTE, 1, "overflow", 1)
                 )
