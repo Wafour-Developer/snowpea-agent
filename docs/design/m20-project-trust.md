@@ -174,6 +174,23 @@ in-process caller may not start it). Installed commands (global, plugins) stay
   host's sessions); `tool.register` is refused there.
 - No access log on either listener (`AppRunner(access_log=None)`): the access
   link's `?t=` and the local page's `?token=` never reach a log.
+- A stale or wrong access link opened in a browser (`GET` accepting `text/html`)
+  answers a small self-contained page, status 401, in English or Korean by
+  `Accept-Language`, saying the link no longer works and to ask for a new one —
+  no token echoed, no reason given. Other clients keep
+  `401 {"ok": false, "error": "invalid_token"}`. It counts toward the limits
+  either way. (In password mode the link is dropped and the sign-in page shows.)
+- `web.remote.listen` binds the new address first and stops the old one only
+  once it is bound; a failed move leaves the listener and its sessions where
+  they were. The address it already listens on (`port` 0 included) updates the
+  options in place. Failures carry stable `error.data.details`:
+  `{field: "port", reason: "in_use"}` and `{field: "port", reason: "permission"}`
+  with code `unavailable`; `{field: "host", reason: "bad_address"}`,
+  `{field: "port", reason: "out_of_range"}` (outside 0–65535) and
+  `{field: "username", reason: "required"}` (a password without a username)
+  with code `invalid_params`. `web.remote.setPassword` without a username (none
+  given, none configured, or an empty one) answers `invalid_params` with
+  `{field: "username", reason: "required"}`.
 - Rate limits: the per-address bucket refuses before checking; the global bucket
   is judged after the credential — a correct link or password is never refused
   by failures from elsewhere.
