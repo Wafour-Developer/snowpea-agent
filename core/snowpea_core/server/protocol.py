@@ -577,7 +577,16 @@ class SessionCreateParams(Payload):
         default=None, description="Override for concurrent subagents."
     )
     originSurface: str | None = Field(
-        None, description="Surface that owns approvals for this session (TUI, gateway, ...)."
+        None,
+        description=(
+            "Surface that owns approvals for this session (TUI, gateway, ...). The server "
+            "decides what is recorded (1.55.0): a browser connection's session is always "
+            "'browser'; a remote web login keeps one of ide/desktop/tui/cli/web/app and "
+            "otherwise gets its connection's surface id; a local person's value is kept; the "
+            "core's own surfaces (jarvis-task, jarvis, scheduler, skill, connector, gateway:*, "
+            "agent:*) are invalid_params for every caller. The creating connection's clientId "
+            "is recorded with the session: a browser's own session is one it hosts or created."
+        ),
     )
     denyExec: bool | None = Field(
         default=None,
@@ -1501,7 +1510,15 @@ class AudioCapabilitiesResult(Payload):
 class AudioTranscribeParams(Payload):
     """Turn recorded audio into text.  Give either ``path`` or ``data``."""
 
-    path: str | None = Field(default=None, description="Audio file on the daemon's machine.")
+    path: str | None = Field(
+        default=None,
+        description=(
+            "Audio file on the daemon's machine. From a remote web login, a browser or a "
+            "connector (1.55.0): only a recording or an attachment of a session (a file "
+            "under the daemon's audio or attachments folder, as audio.record.stop answers); "
+            "any other path is outside_root. Inline data is not affected."
+        ),
+    )
     data: str | None = Field(default=None, description="Base64 (or data-URI) audio.")
     mime: str | None = Field(default=None, description="Media type of the audio, e.g. audio/wav.")
     language: str | None = Field(default=None, description="BCP-47 hint for the backend.")
@@ -2477,7 +2494,14 @@ class ApprovalListResult(Payload):
 class ApprovalRespondParams(Payload):
     requestId: str = Field(description="Request being answered.")
     decision: Decision = Field(description="allow runs the tool, deny ends the turn.")
-    scope: ApprovalScope = Field(default="once", description="How long the decision applies.")
+    scope: ApprovalScope = Field(
+        default="once",
+        description=(
+            "How long the decision applies. From a remote web login (and a connector) an "
+            "allow never stores a rule (1.55.0): 'project', 'always' and 'site' are applied "
+            "as 'session'; the result's scope and approval.resolved say what applied."
+        ),
+    )
     actor: Literal["person"] | None = Field(
         default=None,
         description=(
@@ -3681,7 +3705,13 @@ class JobScheduleParams(Payload):
     )
     mode: Mode = Field(default="accept", description="Permission mode for the unattended run.")
     channel: str | None = Field(
-        default=None, description="Gateway channel that receives the output."
+        default=None,
+        description=(
+            "Gateway channel that receives the output. One rule for job.schedule, /schedule "
+            "and the schedule_create tool (1.55.0): a job made by a remote web login — or in "
+            "a turn one prompted — is createdBy 'remote_login', reports in the app or the "
+            "log only, and is never above settings web.remote.maxMode."
+        ),
     )
     agent: str | None = Field(default=None, description="Named agent that runs the task.")
     workdir: str | None = Field(
@@ -5305,7 +5335,16 @@ class SkillWriteParams(Payload):
         default=None, description="Browser marker (security review 3): see ActorParams."
     )
     name: str = Field(description="Skill to write.")
-    content: str = Field(description="Full SKILL.md text to save.")
+    content: str = Field(
+        description=(
+            "Full SKILL.md text to save. From a remote web login (1.55.0, also skill.create "
+            "and skill.learn): only a global skill; the project scope is 'protected' (a "
+            "control file, details.reason 'local_only'), a global agent or command, a name a "
+            "built-in uses, and front matter with allowed-tools, autoInject, permission(s), "
+            "hooks, model or tools are jarvis_person_only (details {reason: 'local_only', "
+            "what: 'agent'|'command'|'builtin_name'|'front_matter', keys?})."
+        )
+    )
     workdir: str | None = Field(
         default=None,
         description=(
@@ -5374,7 +5413,19 @@ class SettingsSetParams(Payload):
     )
     patch: dict[str, Any] = Field(description="Fields to deep-merge into the existing settings.")
     workdir: str | None = Field(
-        default=None, description='Project root; required when scope is "project".'
+        default=None,
+        description=(
+            'Project root; required when scope is "project". snowpea\'s own home, a folder '
+            "inside it, and a folder whose .snowpea directory is the home (with the default "
+            "home: the user's home directory) are not projects (1.55.0): invalid_params with "
+            "details {reason: 'snowpea_home', field: 'workdir', what: 'home'|'parent'}, for "
+            "every caller and every method that writes a project's .snowpea files "
+            "(settings.set, permission.allowlist.add, skill.create|write|learn, "
+            "team.guide.set|delete, project.trust.set); session.create, job.schedule, "
+            "external.create and a project-scope mcp.add|update|remove refuse the home and "
+            "folders inside it. A remote web login writes only defaultMode, agents.* and "
+            "models.* in the project scope."
+        ),
     )
 
 
@@ -7469,7 +7520,19 @@ class McpEntryFields(Payload):
             "server, merge it key by key into the saved env (1.33.0); envRemove deletes keys."
         ),
     )
-    url: str | None = Field(default=None, description="Endpoint for an http or sse server.")
+    url: str | None = Field(
+        default=None,
+        description=(
+            "Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW "
+            "url server may be added, without any ${VAR} in its fields (jarvis_person_only, "
+            "details {reason: 'local_only', what: 'variable'}); the url, headers and oauth "
+            "of a SAVED server are a local person's to change (what: 'target') — in mcp.add "
+            "with replace, mcp.update, mcp.test with overrides and settings.set "
+            "mcp.servers.*. An entry a remote login adds is saved with savedBy: "
+            "'remote_login' and never expands a credentials.json value. No entry expands a "
+            "SNOWPEA_* environment variable."
+        ),
+    )
     headers: dict[str, str] | None = Field(
         default=None,
         description=(
@@ -9301,6 +9364,17 @@ class WebRemoteStatus(Payload):
             "with createdBy 'remote_login', 1.55.0): they keep running after the login ends."
         ),
     )
+    maxMode: Literal["plan", "accept", "auto"] = Field(
+        default="auto",
+        description=(
+            "settings web.remote.maxMode (1.55.0): the widest mode a remote web login may "
+            "use. It cannot raise a session or a job above it, nor create, prompt, steer or "
+            "run one already above it: jarvis_person_only with details {reason: 'mode_raise', "
+            "max: <this value>}. 'auto' is no limit. A local person changes it with "
+            "settings.set; it applies at once. It stops unattended runs, not the holder of "
+            "the link, who still answers each approval."
+        ),
+    )
 
 
 class WebRemoteListenParams(Payload):
@@ -10247,14 +10321,16 @@ METHODS: dict[str, RpcMethod] = {
             "agent.create",
             AgentCreateParams,
             AgentCreateResult,
-            "Define a named agent from a description.",
+            "Define a named agent from a description. A local person's only (1.55.0): it "
+            "writes the project's agent definition, a control file.",
         ),
         _m("agent.spawn", AgentSpawnParams, AgentSpawnResult, "Run a named agent on a task."),
         _m(
             "agent.bindChannel",
             AgentBindChannelParams,
             Ok,
-            "Route a gateway channel to a named agent.",
+            "Route a gateway channel to a named agent. A local person's only (1.55.0), "
+            "like gateway.bind.",
         ),
         _m("agent.delete", AgentDeleteParams, Ok, "Delete a named agent."),
         _m("team.start", TeamStartParams, TeamStartResult, "Split a task across parallel workers."),
@@ -10275,7 +10351,8 @@ METHODS: dict[str, RpcMethod] = {
             "team.guide.delete",
             TeamGuideDeleteParams,
             Ok,
-            "Delete a team guide from the project or global home.",
+            "Delete a team guide from the project or global home. As team.guide.set "
+            "(1.55.0): a local person, or a browser with actor 'person'; not a remote web login.",
         ),
         _m(
             "team.guide.list",

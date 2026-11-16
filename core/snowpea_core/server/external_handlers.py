@@ -292,6 +292,10 @@ async def interrupt_handler(
 async def create_handler(
     conn: RpcConnection, params: ExternalCreateParams, core: Core
 ) -> ExternalCreateResult:
+    # Security review 7, H-2: no external CLI is started inside snowpea's own home.
+    from snowpea_core.server.project_gate import require_project
+
+    require_project(core, params.project, dot=False, field="project")
     result = await _call(
         ensure_manager(core).create(
             params.cli,

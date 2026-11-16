@@ -152,6 +152,10 @@ class Session:
     #: ``turn id -> origin`` (``agent.loop.ORIGINS``) for the latest turns, so a
     #: command's nested run inherits whose words started it.
     turn_origins: dict[str, str] = field(default_factory=dict)
+    #: ``turn id -> caller snapshot`` (``person_gate.CallerSnapshot``, security
+    #: review 7 H-1): who started each of the latest turns, as it was when the
+    #: prompt or command was accepted (``agent.loop.note_caller``).
+    turn_callers: dict[str, Any] = field(default_factory=dict)
     #: ``turn id -> {"kind", "surface"}``: the ``message.user`` origin
     #: (1.53.0) a turn's prompt is published with, kept beside
     #: :attr:`turn_origins` and trimmed with it.

@@ -142,6 +142,34 @@ def _remembered(request: ApprovalRequest) -> ApprovalRemember | None:
     )
 
 
+#: Connection kinds whose allow never stores a rule (security review 7, M-3): a
+#: remote web login (not re-authenticated), a connector, a connection that has
+#: closed.  A browser keeps its own rule (a wider scope only from a person's
+#: click, ``actor: "person"``); the owner-bound messenger answers in-process.
+NO_STORED_RULE_KINDS: frozenset[str] = frozenset({"remote_login", "connector", "closed"})
+#: What a persisting scope becomes for them: remembered until the session ends.
+CLAMPED_SCOPE = "session"
+
+
+def clamp_scope(conn: Any, scope: str) -> str:
+    """``scope`` as ``conn``'s allow may apply it (security review 7, M-3).
+
+    ``project``, ``always`` and ``site`` store an allowlist rule that outlives
+    the answer and pre-approves for everyone: from a :data:`NO_STORED_RULE_KINDS`
+    connection they become ``session``.  ``approval.respond`` and
+    ``approval.resolved`` report the scope that applied.
+    """
+    if scope not in PERSISTING_SCOPES or conn is None:
+        return scope
+    try:
+        from snowpea_core.server.person_gate import connection_kind
+
+        kind = connection_kind(conn)
+    except Exception:  # noqa: BLE001 - unknown is not a local person
+        return CLAMPED_SCOPE
+    return CLAMPED_SCOPE if kind in NO_STORED_RULE_KINDS else scope
+
+
 def _local_person(conn: Any) -> bool:
     """``conn`` is a local person's own connection (not a remote web login, a
     browser host, a connector or no connection at all)."""
@@ -762,6 +790,7 @@ class ApprovalQueue:
                     # A browser's wider answer counts only from a click (``actor:
                     # "person"``); otherwise it allows this call alone.
                     scope = "once"
+                scope = clamp_scope(entry.origin_conn, scope)
             decision = Decision(
                 decision="allow" if allowed else "deny",
                 scope=scope,
@@ -864,7 +893,7 @@ class ApprovalQueue:
             return None
         answer = Decision(
             decision="allow" if decision == "allow" else "deny",
-            scope="once" if person is not None else scope,
+            scope="once" if person is not None else clamp_scope(conn, scope),
             by=by,
             reason=reason,
             person=person,

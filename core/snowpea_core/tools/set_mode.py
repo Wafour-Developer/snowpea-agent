@@ -588,9 +588,15 @@ async def _review_plan(
 
 def _caller_of(answer: Any) -> Any:
     """A person-verified answer may raise the mode; anything else only keep or lower it."""
-    from snowpea_core.session.mode_guard import AGENT, PERSON_ANSWER
+    from snowpea_core.session.mode_guard import AGENT, PERSON_ANSWER, ModeCaller
 
-    return PERSON_ANSWER if getattr(answer, "person", False) else AGENT
+    if not getattr(answer, "person", False):
+        return AGENT
+    if getattr(answer, "person_kind", None) == "remote_login":
+        # A remote web login's answer: a person's, within web.remote.maxMode
+        # (security review 7; ``mode_guard.check`` applies the limit to this kind).
+        return ModeCaller(kind="remote_login", why="answer")
+    return PERSON_ANSWER
 
 
 async def _watch_mode(session: Any, start: str, stop: asyncio.Event) -> None:

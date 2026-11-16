@@ -224,6 +224,13 @@ def test_a_request_built_without_remember_is_judged_by_its_command() -> None:
 
 
 class _Origin:
+    """A local person's open connection (a closed one is nobody: review 7, H-1)."""
+
+    authenticated = True
+    closed = False
+    client_kind = "tui"
+    remote_login = False
+
     def __init__(self, answer: dict[str, Any]) -> None:
         self.answer = answer
         self.asked: list[dict[str, Any]] = []

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import uuid
 from pathlib import Path
@@ -17,6 +18,60 @@ Mode = Literal["plan", "accept", "auto"]
 
 PROJECT_DIR_NAME = ".snowpea"
 PROJECT_SETTINGS_NAME = "settings.json"
+
+#: The message of every refusal of snowpea's own home as a project (review 7, H-2).
+NOT_A_PROJECT = "this folder is snowpea's own home, not a project"
+
+#: The homes of the daemons in this process (:func:`register_home`).
+_HOMES: set[Path] = set()
+
+
+def register_home(home: Path | str) -> None:
+    """Remember a daemon's home, so no project file is ever read from or written
+    into it (:func:`home_problem`, :meth:`ProjectSettings.load`/``save``)."""
+    _HOMES.add(Path(os.path.realpath(Path(home).expanduser())))
+
+
+def _known_homes() -> set[Path]:
+    from snowpea_core.config.paths import resolve_home
+
+    try:
+        return _HOMES | {Path(os.path.realpath(resolve_home()))}
+    except (OSError, RuntimeError, ValueError):  # no home directory to expand
+        return _HOMES
+
+
+def home_problem(workdir: Path | str, home: Path | str | None = None) -> str | None:
+    """Why ``workdir`` is not a project folder, or ``None`` when it is one.
+
+    Security review 7, H-2 — on real paths (symlinks resolved):
+
+    ``"home"``
+        ``workdir`` is snowpea's own home or a folder inside it.
+    ``"parent"``
+        ``workdir``'s ``.snowpea`` directory IS the home or lies inside it
+        (with the default home, ``workdir`` is the user's home directory): its
+        "project" settings, skills, agents and commands are the GLOBAL ones.
+
+    ``home``: one home to judge against; default every registered one and the
+    home this process would use (``$SNOWPEA_HOME``, else ``~/.snowpea``) — so
+    the CLI, which builds no daemon, is covered too.
+    """
+    homes = (
+        {Path(os.path.realpath(Path(home).expanduser()))} if home is not None else _known_homes()
+    )
+    if not homes:
+        return None
+    try:
+        real = Path(os.path.realpath(Path(workdir).expanduser()))
+        dot = Path(os.path.realpath(real / PROJECT_DIR_NAME))
+    except (OSError, ValueError):
+        return "home"  # a path nobody can resolve is not a project either
+    if not homes.isdisjoint((real, *real.parents)):
+        return "home"
+    if not homes.isdisjoint((dot, *dot.parents)):
+        return "parent"
+    return None
 
 
 class AllowlistEntry(BaseModel):
@@ -187,7 +242,14 @@ class ProjectSettings(BaseModel):
 
     @classmethod
     def load(cls, workdir: Path | str) -> ProjectSettings:
-        """Read ``<workdir>/.snowpea/settings.json``; absent or bad -> defaults."""
+        """Read ``<workdir>/.snowpea/settings.json``; absent or bad -> defaults.
+
+        A folder that is snowpea's own home, or whose ``.snowpea`` is
+        (:func:`home_problem`), has no project settings: the file there is the
+        global ``settings.json``, never read as a project's.
+        """
+        if home_problem(workdir) is not None:
+            return cls()
         path = cls.path_for(workdir)
         if not path.exists():
             return cls()
@@ -241,6 +303,8 @@ class ProjectSettings(BaseModel):
         be read, parsed or validated: hidden — a broken file never shows a
         project the person may have hidden.
         """
+        if home_problem(workdir) is not None:
+            return True  # not a project: the file there is the global one
         path = cls.path_for(workdir)
         try:
             if not path.exists():
@@ -253,7 +317,14 @@ class ProjectSettings(BaseModel):
             return False
 
     def save(self, workdir: Path | str) -> Path:
-        """Write the project settings file, creating ``.snowpea/`` if needed."""
+        """Write the project settings file, creating ``.snowpea/`` if needed.
+
+        ``ValueError`` for snowpea's own home (:func:`home_problem`): a project
+        document is never written over the global ``settings.json`` (security
+        review 7, H-2), whichever caller forgot to check.
+        """
+        if home_problem(workdir) is not None:
+            raise ValueError(NOT_A_PROJECT)
         path = self.path_for(workdir)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
@@ -263,6 +334,9 @@ class ProjectSettings(BaseModel):
 
 
 __all__ = [
+    "NOT_A_PROJECT",
+    "home_problem",
+    "register_home",
     "PROJECT_DIR_NAME",
     "PROJECT_SETTINGS_NAME",
     "AGENT_NAME_RE",

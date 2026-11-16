@@ -73,15 +73,29 @@ class McpError(RuntimeError):
     """A server could not be started, or a call to it failed."""
 
 
-def _variable_source(home: Path | str | None) -> Callable[[str], str | None]:
+#: Environment variables no entry ever expands, whoever wrote it (security
+#: review 7, H-3): snowpea's own (``SNOWPEA_WEB_PASSWORD``, a daemon token, the
+#: home) are the daemon's, never a server's.
+RESERVED_ENV_PREFIXES: tuple[str, ...] = ("SNOWPEA_",)
+#: ``savedBy`` on an entry (security review 7, H-3): written by ``mcp.add`` when
+#: the caller is not a local person.  Such an entry is never one of the user's
+#: own, whatever file it sits in: no ``credentials.json`` value, and only the
+#: ``settings.mcp.allowVars`` names from the environment.
+SAVED_BY_KEY = "savedBy"
+
+
+def _variable_source(home: Path | str | None, *, stored_secrets: bool = True
+                     ) -> Callable[[str], str | None]:
     """``credentials.json`` keys first, then the daemon's environment.
 
     The same order :meth:`CredentialStore.resolve` uses for a gateway's
     ``credentialsRef``, so one stored secret serves both.  Only string values
-    count; an object-valued credential is not a variable.
+    count; an object-valued credential is not a variable.  ``stored_secrets``
+    false leaves ``credentials.json`` out (an entry a local person did not
+    save); the environment never answers a :data:`RESERVED_ENV_PREFIXES` name.
     """
     stored: dict[str, Any] = {}
-    if home is not None:
+    if home is not None and stored_secrets:
         from snowpea_core.config.credentials import CredentialStore
         from snowpea_core.config.paths import Paths
 
@@ -91,6 +105,8 @@ def _variable_source(home: Path | str | None) -> Callable[[str], str | None]:
         value = stored.get(name)
         if isinstance(value, str):
             return value
+        if name.upper().startswith(RESERVED_ENV_PREFIXES):
+            return None
         return os.environ.get(name)
 
     return lookup
@@ -168,11 +184,15 @@ def resolve_config(
     """
     if not any("$" in item for item in expandable_fields(config)):
         return config
-    lookup = _variable_source(home)
+    # Security review 7, H-3: an entry a local person did not save (``savedBy``)
+    # is not the user's own even in a trusted file — the allow-list only, and
+    # nothing from credentials.json.
+    foreign = bool(config.saved_by)
+    lookup = _variable_source(home, stored_secrets=not foreign)
     name = config.name
     allowed: Callable[[str], bool] | None = None
-    if config.source not in TRUSTED_SOURCES:
-        permitted = set(allow_vars) | set(config.inherited_vars)
+    if config.source not in TRUSTED_SOURCES or foreign:
+        permitted = set(allow_vars) | (set() if foreign else set(config.inherited_vars))
         allowed = permitted.__contains__
 
     def one(value: str) -> str:
@@ -241,6 +261,9 @@ class McpServerConfig:
     #: Names a draft may expand because the trusted saved entry it edits
     #: already uses them (``mcp.test`` on a global server).
     inherited_vars: tuple[str, ...] = ()
+    #: The entry's ``savedBy`` (:data:`SAVED_BY_KEY`): who saved it when that
+    #: was not a local person (``"remote_login"``); ``None`` for the user's own.
+    saved_by: str | None = None
 
     @property
     def transport(self) -> str:
@@ -287,6 +310,8 @@ class McpServerConfig:
             entry["tools"] = tools
         if self.oauth:
             entry["oauth"] = dict(self.oauth)
+        if self.saved_by:
+            entry[SAVED_BY_KEY] = self.saved_by
         return entry
 
     @classmethod
@@ -316,6 +341,7 @@ class McpServerConfig:
             tools_exclude=_str_list(tools.get("exclude")),
             oauth=_str_map(raw.get("oauth")),
             source=source,
+            saved_by=str(raw[SAVED_BY_KEY]) if raw.get(SAVED_BY_KEY) else None,
         )
 
 

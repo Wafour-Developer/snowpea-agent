@@ -190,6 +190,13 @@ class Core:
     #: built by ``server.external_handlers.ensure_manager``.
     external: Any = None
 
+    def __post_init__(self) -> None:
+        # Security review 7, H-2: this daemon's home is never a project folder
+        # (``config/project.py``): no project file is read from or written to it.
+        from snowpea_core.config.project import register_home
+
+        register_home(self.paths.home)
+
     # -- settings hot reload (CORE-settings-reload) ---------------------
 
     def mark_settings_saved(self) -> None:
@@ -435,6 +442,12 @@ async def allowlist_add_handler(
             errors.INVALID_PARAMS,
             "a project allowlist entry needs an open session to locate the project",
         )
+    if store == "project":
+        # Security review 7, H-2: the "project" rules of snowpea's own home
+        # would be written into the global settings.json.
+        from snowpea_core.server.project_gate import require_project
+
+        require_project(core, workdir)
     from snowpea_core.permissions.allowlist import catch_all_problem
 
     # A rule pre-approves before any routing: one that matches everything (".*")

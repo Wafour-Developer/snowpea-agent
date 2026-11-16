@@ -11,6 +11,10 @@ The address looks like `http://127.0.0.1:<port>/web/?token=…`. The token is th
 
 ## From another machine
 
+> **Anyone who has the link (or the username and password) can use snowpea as you, including running commands on this computer. Treat the link like an SSH key: share it with nobody, prefer the password mode, and put HTTPS (a tunnel or reverse proxy) in front of it.**
+
+A remote sign-in is not a limited account. It can open a session in any folder, switch it to `auto`, prompt it and answer its own approvals — which is a shell on this computer, as you. What it cannot do through snowpea's own screens is listed under [What stays on this computer](#what-stays-on-this-computer); that list keeps a mistake or a borrowed session from changing those things by a click. It is not a security boundary against someone who holds the link.
+
 The simplest way is still an ssh tunnel: nothing else listens, and the connection is encrypted.
 
 ```bash
@@ -55,28 +59,60 @@ You can still set it in `settings.json` and restart the daemon:
 | `username` | `""` | The one account that may sign in. |
 | `sessionHours` | `12` | How long a sign-in lasts. |
 | `allowedOrigins` | `[]` | Extra page origins the WebSocket accepts, e.g. `https://snowpea.example.com` behind a proxy. |
-| `trustProxy` | `false` | Believe `X-Forwarded-Proto` / `X-Forwarded-For` from a reverse proxy you run. Turn it on only when nothing but that proxy can reach the port (bind it to loopback or the proxy's network, or firewall it): anyone who reaches the port directly can claim any client address. |
+| `trustProxy` | `false` | Believe `X-Forwarded-Proto` / `X-Forwarded-For` from a reverse proxy you run. See [Behind a reverse proxy](#behind-a-reverse-proxy) before turning it on. |
+| `maxMode` | `auto` | The widest mode a remote sign-in may use: `plan`, `accept` or `auto`. See [Limiting the mode](#limiting-the-mode-maxmode). Applies at once, without a restart. |
 
 If a password is set without a username, the daemon starts on loopback only, writes why to its log, and `snowpea web` says so.
 
-Security notes:
+### What a remote sign-in is
 
-- **It is plain HTTP.** The access link, the password and everything you do travel unencrypted. On anything beyond a network you trust, put it behind TLS (a reverse proxy such as Caddy or nginx, with `trustProxy: true`) or reach it over a VPN or the ssh tunnel above.
-- Whoever signs in can drive the agent, and with it this machine's shell and files. Pick a long password, and keep the link private.
-- Every connection through the second listener is a **remote sign-in**, with the link or with a password alike. It is you for running work — chats, approvals, MCP servers that are a URL — but not for security settings: it cannot change Jarvis, the security lists, remote access itself, the daemon or allowlist rules, open an external session unrestricted, or confirm a CLI path. Do those on the machine itself.
-- A remote sign-in also cannot make this machine start a program of its choosing, or leave a way in behind. From a remote sign-in these are refused (the page says the change needs a local connection):
-  - adding or changing an MCP server that runs a command (`command`, `args`, `env`, `cwd`), and accepting a security warning about a server. A server that is only a URL can be added, tested and changed; a command server you saved locally can be tested and switched off and on;
-  - installing a skill or plugin from a folder, a link or a git URL. Only the registry (`registry:<name>`) and a marketplace's plugin (`<marketplace>/<plugin>`) install remotely;
-  - setting a language server's command, an audio command engine, player or recorder, and the skill registry's address;
-  - a messenger's token, user and channel ids and its on/off switch, and binding a chat to a session;
-  - a provider's base URL (it decides where every prompt goes). Keys and models can still be changed;
-  - `/update`, `/desktop`, `/allow`, `/setup` and `/allowlist remove`;
-  - writing a project's control files through the file panel (`.snowpea` and `.claude` hooks, commands, skills and agents, `.mcp.json`, `.git/hooks`, `.git/config`).
-- A scheduled task a remote sign-in creates is marked as such in the task list, and `snowpea web status` counts them: such a task keeps running after that sign-in ends, so look at the list after someone else used the page. A remote sign-in's task reports in the app only (it cannot be sent to a messenger chat), and a remote sign-in can change, switch off, cancel or delete only the tasks it created: tasks you made locally it can see and run as they are, nothing more.
-- Five failed sign-ins (wrong passwords and wrong links count together) from one address in five minutes, or twenty from anywhere, slow sign-in down for the rest of those five minutes: each further attempt waits first (a second, doubling up to thirty) and attempts from that address go one at a time. The right password or link still gets in after its wait, so nobody can lock you out by failing on purpose; a wrong one is answered "too many attempts". An IPv6 network (/64) counts as one address. Sign-ins and failures are logged with the client address, never the password or the token.
-- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. Changing or clearing the password, or rotating the token, signs everyone out at once and closes every open page's connection; other sessions last until they expire or you sign out, and an expired one loses its connection too.
-- A page whose session has ended (it expired, the password changed, or it was signed out elsewhere) goes back to the sign-in screen.
+Every connection through the second listener is a **remote sign-in**, with the link or with a password alike. It is you: it opens sessions in any folder, sets their mode, prompts them, answers their approvals and reads and writes the files of their folders. Whoever holds the link or the password can therefore run programs on this computer as you. Pick a long password, keep the link private, and turn remote access off when you do not need it (a client's Remote access settings screen, or `web.remote.enabled: false` and a daemon restart).
+
+**It is plain HTTP.** The access link, the password and everything you do travel unencrypted. On anything beyond a network you trust, put it behind TLS (a reverse proxy such as Caddy or nginx) or reach it over a VPN or the ssh tunnel above.
+
+### What stays on this computer
+
+Some things a remote sign-in cannot do through snowpea's own screens; the page says the change needs a local connection. They are kept on this computer so that a mistake, or a session someone borrowed for a minute, cannot change them by a click. This is not a wall against a person who holds the link — that person can run commands — so do not count on it as one.
+
+- **Remote access itself**: the listener, its address, the password, the link, `maxMode`. Also the daemon's settings, updates, restarts and extensions.
+- **Jarvis**: turning Jarvis mode on, handing it guarded classes, an external CLI's path, opening an external session unrestricted.
+- **The security lists** (blocked commands, protected paths) and **project trust**.
+- **Allowlist rules.** A remote sign-in cannot add a rule, and when it answers an approval with "always" or "for this project" the answer holds until the session ends and no rule is stored.
+- **Messengers**: a token, the user and channel ids, the on/off switch, binding a chat to a session or to a named agent.
+- **Programs this computer starts**: an MCP server that runs a command (`command`, `args`, `env`, `cwd`) and accepting a security warning about a server; a language server's command; an audio command engine, player or recorder; the media studio server (`media.*`). A command server you saved locally can still be tested and switched off and on.
+- **Where your stored secrets are sent.** A remote sign-in can add an MCP server that is only a URL, but not one that uses a `${VARIABLE}`, and it cannot change the URL, headers or OAuth settings of a server that is already saved: snowpea fills such variables from `credentials.json` and would send them wherever the entry points. A server it adds never receives a stored credential. The same holds for a provider's base URL (it decides where every prompt and key goes) and the skill registry's address. A provider's key and model can still be changed.
+- **Skills, agents and commands.** A remote sign-in can write a global skill that only describes how to do something. It cannot write a project's skills, agents or commands, a global agent or command, anything that takes the name of a built-in one, or a skill whose header sets `allowed-tools`, `autoInject`, `permission`, `hooks`, `model` or `tools`. It cannot create an agent or change a team guide, and it installs skills and plugins only from the registry (`registry:<name>`) or a marketplace (`<marketplace>/<plugin>`), never from a folder, a link or a git URL.
+- **Project files that decide what runs**, through the file panel: `.snowpea` and `.claude` hooks, commands, skills and agents, `.mcp.json`, `.git/hooks`, `.git/config`. In a project's settings it can change only the default mode, teams and model routing.
+- The commands `/update`, `/desktop`, `/allow`, `/setup`, `/allowlist remove` and `/agent create`.
+
+What a remote sign-in writes into a project folder — through the agent or the file panel — can change a file you trusted for that project. snowpea then stops applying that trusted content (hooks, MCP servers, the project's default mode) until you look at it again on this computer and trust it again.
+
+### Limiting the mode (`maxMode`)
+
+`web.remote.maxMode` is the widest mode a remote sign-in may use. With `accept`, a remote sign-in cannot switch a session to `auto` (or to "plan, then auto"), cannot create a session or a scheduled task in `auto`, and cannot prompt, steer or run a session or task that is already in `auto` — it can read it, lower its mode and answer its approvals. With `plan` the same holds for `accept` too. A task a remote sign-in scheduled does not run above the limit either, also when you lower the limit later.
+
+```bash
+snowpea web max-mode accept   # on this computer; applies at once
+snowpea web max-mode          # show it (also in `snowpea web status`)
+snowpea web max-mode auto     # no limit again (the default)
+```
+
+Be clear about what this buys. It stops **unattended** work from a remote sign-in: nothing it starts runs without someone approving each command. It does not stop the person holding the link, who is the one answering those approvals. It is set on this computer only — a remote sign-in cannot change it.
+
+### Scheduled tasks
+
+A scheduled task a remote sign-in creates — with the schedule screen, with `/schedule`, or by asking the agent to schedule something — is marked as such in the task list, and `snowpea web status` counts them: such a task keeps running after that sign-in ends, so look at the list after someone else used the page. A remote sign-in's task reports in the app only (it cannot be sent to a messenger chat), and a remote sign-in can change, switch off, cancel or delete only the tasks it created: tasks you made locally it can see and run as they are, nothing more.
+
+### Sign-in limits
+
+- Five failed sign-ins (wrong passwords and wrong links count together) from one address in five minutes, or twenty from anywhere, slow sign-in down for the rest of those five minutes: each further attempt waits first (a second, doubling up to thirty), and attempts from that address go one at a time — past four waiting, each waits the full thirty seconds. Every attempt is checked after its wait: the right password or link always gets in, so nobody can lock you out by failing on purpose, also not from behind the same office address. A wrong one is answered "too many attempts". An IPv6 network (/64) counts as one address.
+- These limits slow down one address. They do not stop someone who can try from very many addresses at once: the daemon checks two passwords at a time, which allows roughly twenty guesses a second in total. A short password does not survive that; a long one does, and so does the access link (a 256-bit key). Sign-ins and failures are logged with the client address, never the password or the token.
+- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. Changing or clearing the password, or rotating the token, signs everyone out at once and closes every open page's connection. A sign-in that expires stops working with its next request, and its open pages go back to the sign-in screen.
 - The remote listener serves only the page, sign-in and the WebSocket — no `/health`, `/version` or schema — and the WebSocket refuses a page from another origin.
+
+### Behind a reverse proxy
+
+Put TLS in front with a reverse proxy you run (Caddy, nginx), list the page's address in `allowedOrigins`, and set `trustProxy: true` so the daemon takes the visitor's address and the `https` scheme from the proxy's headers. Turn `trustProxy` on **only** when nothing but that proxy can reach the port — bind the listener to loopback (`--host 127.0.0.1`) or to the proxy's network, or firewall it. Anyone who can reach the port directly can otherwise claim any client address, and so get around the per-address sign-in limit.
 
 ## The screen
 

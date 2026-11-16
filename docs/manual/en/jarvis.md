@@ -232,14 +232,16 @@ You can open snowpea web from another machine (see [snowpea web](web.md#from-ano
 - Without a password it prints an **access link**, `http://<address>:<n>/web/?t=<token>`. The token in the link is a separate web access token, not the daemon's. The first visit exchanges it for a sign-in cookie and removes it from the address.
 - For a sign-in page instead, set a username and a password: `--user <name>` with `--password-stdin`, the `SNOWPEA_WEB_PASSWORD` variable, or `--password` (visible in your shell history). `snowpea web password` sets or changes it later.
 
-Every connection that comes in through the remote listener is a **remote sign-in**, whether it used the link or the password. A remote sign-in is you for running work: chats, approvals, answers to Jarvis. It is not you for the things that decide what runs unattended. It cannot:
+Every connection that comes in through the remote listener is a **remote sign-in**, whether it used the link or the password. A remote sign-in is you: anyone who has the link or the password can use snowpea as you, including running commands on this computer. It is not a limited account.
+
+A few things are kept on this computer all the same, so that a mistake or a borrowed session cannot change them by a click. Through snowpea's own screens a remote sign-in cannot:
 
 - turn Jarvis mode on, or change Jarvis settings;
 - hand a guarded kind over in a delegation grant;
 - change the security lists or the remote-access settings themselves;
 - open an external session unrestricted, or confirm the path of an external CLI.
 
-Do those on the machine itself. The remote page is also plain HTTP; read the warnings in [snowpea web](web.md) before you open it on a network you do not trust.
+Do those on the machine itself. This list is not a security boundary against someone who holds the link; [snowpea web](web.md#what-stays-on-this-computer) has the whole list and says what it is for. The remote page is also plain HTTP; read the warnings there before you open it on a network you do not trust.
 
 ## Assistant features
 

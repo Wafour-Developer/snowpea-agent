@@ -70,7 +70,7 @@ async def cmd_update(ctx: CommandContext, args: str) -> None:
         await ctx.say(f"Update available: v{latest} (current v{current}). Run /update to install.")
         return
 
-    result = await update_handler(ctx.conn, Empty(), core)
+    result = await update_handler(None, Empty(), core)  # the command gate judged the caller
     if not result.started:
         await ctx.say(f"Could not start the update: {result.error}")
         return

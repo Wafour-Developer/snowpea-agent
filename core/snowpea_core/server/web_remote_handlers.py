@@ -88,6 +88,7 @@ def status_of(core: Core) -> WebRemoteStatus:
         needsRestart=needs_restart, plainHttp=True,
         warning=web_remote.PLAIN_HTTP_WARNING if listening else None,
         error=listener.error if listener is not None else None, turnsRunning=turns,
+        maxMode=remote.maxMode,
     )
 
 

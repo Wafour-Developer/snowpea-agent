@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.definition import DefinitionError
 from snowpea_core.agent.team_guide import (
@@ -122,10 +122,20 @@ async def team_guide_get_handler(
     )
 
 
+def _project_scope(core: Core, scope: Any, workdir: Path) -> None:
+    """Security review 7, H-2: a project-scope guide is never written into (or
+    deleted from) snowpea's own home, whose ``.snowpea`` is the global scope."""
+    if scope == "project":
+        from snowpea_core.server.project_gate import require_project
+
+        require_project(core, workdir)
+
+
 async def team_guide_set_handler(
     conn: RpcConnection, params: TeamGuideSetParams, core: Core
 ) -> TeamGuideSetResult:
     workdir = _workdir(core, conn, params)
+    _project_scope(core, params.scope, workdir)
     routing = [(row.when, row.agent) for row in params.routing]
     try:
         path = save_guide(
@@ -153,6 +163,7 @@ async def team_guide_delete_handler(
     conn: RpcConnection, params: TeamGuideDeleteParams, core: Core
 ) -> Ok:
     workdir = _workdir(core, conn, params)
+    _project_scope(core, params.scope, workdir)
     try:
         deleted = delete_guide(
             core.paths.home, workdir, params.team, scope=params.scope

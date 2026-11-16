@@ -42,6 +42,12 @@ async def team_start_handler(
     session = core.sessions.get(params.sessionId)
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
+    # Security review 7, H-1: the workers run for this caller (and a remote
+    # login starts none in a session above web.remote.maxMode).
+    from snowpea_core.agent.loop import note_spawner
+    from snowpea_core.server.person_gate import accept_work
+
+    note_spawner(session, accept_work(_conn, core, session, "starting a team"))
     try:
         team_id = await get_manager_for(core).start(session, params.n, params.task)
     except TeamError as exc:

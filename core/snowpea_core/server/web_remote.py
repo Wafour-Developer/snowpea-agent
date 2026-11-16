@@ -442,23 +442,32 @@ class RemoteAuth:
         over the per-address limit the address's attempts go one at a time,
         each after :meth:`penalty`; while the everyone-together bucket is full
         every attempt waits the penalty first.  A wrong one over a limit is
-        answered ``retry_after`` > 0 (429), as before.  More than
-        :data:`MAX_WAITING_PER_IP` attempts of one address queued at once are
-        answered 429 unchecked.
+        answered ``retry_after`` > 0 (429), as before.
+
+        Security review 7, Low 2: with :data:`MAX_WAITING_PER_IP` attempts of
+        one address queued already, a further one used to be answered 429
+        UNCHECKED — four queued wrong attempts locked out everyone behind that
+        address (an office NAT), the owner's right password included.  It now
+        skips the queue: it waits the longest penalty (:attr:`penalty_max`) and
+        is then checked like any other (password checks stay
+        :data:`MAX_PARALLEL_CHECKS` at a time).  No credential is ever refused
+        unchecked.
         """
         key = rate_key(ip)
         ip_wait = self.retry_after_ip(ip)
         global_wait = self.retry_after_global()
         delay = self.penalty(ip)
-        if ip_wait and self._waiting.get(key, 0) >= MAX_WAITING_PER_IP:
-            return False, ip_wait
+        overflow = bool(ip_wait) and self._waiting.get(key, 0) >= MAX_WAITING_PER_IP
         # Counted at once (no await since the limits were read), so attempts sent
         # in parallel cannot all slip under a limit; a right credential takes it
         # back.  An address already over its own limit no longer adds to the
         # everyone-together bucket: one address cannot slow everybody down.
         stamp = self.record_failure(ip, everyone=not ip_wait)
         started = time.monotonic()
-        if ip_wait:
+        if overflow:
+            await self.sleep(self.penalty_max)
+            passed = bool(await check())
+        elif ip_wait:
             self._waiting[key] = self._waiting.get(key, 0) + 1
             turn = self._turns.setdefault(key, asyncio.Lock())
             try:
@@ -656,8 +665,13 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
     def capability_ok(presented: str | None) -> bool:
         return auth.capability_ok(cookie, presented)
 
+    def alive() -> bool:
+        # Security review 7, Low 3: the login behind this socket still stands
+        # (not expired, its password or link unchanged) — a clock compare.
+        return auth.session(cookie) is not None
+
     return await websocket_handler(request, track=_Track(found.sockets, auth.sockets),
-                                   capability=capability_ok)
+                                   capability=capability_ok, alive=alive)
 
 
 async def remote_web_redirect(request: web.Request) -> web.Response:
@@ -816,10 +830,20 @@ def create_remote_app(
     return app
 
 
+#: What a remote sign-in is, in plain words (security review 7: the limits on it
+#: are "not by a click", never a boundary against whoever holds the link).
+REMOTE_ACCESS_WARNING = (
+    "Anyone who has the link (or the username and password) can use snowpea as you, "
+    "including running commands on this computer. Treat the link like an SSH key: share it "
+    "with nobody, prefer the password mode, and put HTTPS (a tunnel or reverse proxy) in "
+    "front of it."
+)
+#: The warning ``web.remote.status`` carries while the listener is open, which
+#: every client shows: who can do what with the link, then the transport.
 PLAIN_HTTP_WARNING = (
-    "plain HTTP: the access link, the password and everything on the page travel "
-    "unencrypted; put it behind TLS (a reverse proxy) or a VPN/ssh tunnel when it is "
-    "reachable beyond a trusted network"
+    f"{REMOTE_ACCESS_WARNING} This listener is plain HTTP: the access link, the password and "
+    "everything on the page travel unencrypted; put it behind TLS (a reverse proxy) or a "
+    "VPN/ssh tunnel when it is reachable beyond a trusted network"
 )
 
 
@@ -959,6 +983,7 @@ def _bound_port(runner: web.AppRunner, requested: int) -> int:
 __all__ = [
     "ACCESS_TOKEN_KEY",
     "PLAIN_HTTP_WARNING",
+    "REMOTE_ACCESS_WARNING",
     "RemoteListener",
     "access_token",
     "rotate_access_token",

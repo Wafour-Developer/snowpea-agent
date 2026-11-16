@@ -104,12 +104,16 @@ async def websocket_handler(
     *,
     track: set[web.WebSocketResponse] | None = None,
     capability: Callable[[str | None], bool] | None = None,
+    alive: Callable[[], bool] | None = None,
 ) -> web.WebSocketResponse:
     """aiohttp route handler: bridge one socket to the RPC dispatcher.
 
     ``track`` also holds the socket while it is open (the remote listener's
     login session, so logging out closes it); ``capability`` checks what its
     ``system.hello`` presents (that login's capability, never the daemon token).
+    ``alive`` (security review 7, Low 3) says whether that login still stands:
+    asked before every frame is dispatched, so an expired login's socket takes
+    no further call — it used to keep working until the next sweep (up to 60 s).
     """
     dispatcher = request.app[DISPATCHER_KEY]
     connections = request.app[CONNECTIONS_KEY]
@@ -132,6 +136,9 @@ async def websocket_handler(
     hub = getattr(dispatcher.core, "hub", None)
     try:
         async for msg in ws:
+            if alive is not None and not alive():
+                await ws.close(code=4401, message=b"logged out")
+                break
             if msg.type is WSMsgType.TEXT:
                 await dispatcher.handle_message(conn, msg.data)
             elif msg.type is WSMsgType.BINARY:

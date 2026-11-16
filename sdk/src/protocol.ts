@@ -118,6 +118,7 @@ export type ErrorDetailReason =
   | "not_bundled_plugin"
   | "person_only"
   | "project_add_only"
+  | "snowpea_home"
   | "untrusted_project"
   | "untrusted_project_person_only";
 /** The error code each `details.reason` rides on. */
@@ -132,6 +133,7 @@ export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>
   not_bundled_plugin: "jarvis_person_only",
   person_only: "jarvis_person_only",
   project_add_only: "invalid_params",
+  snowpea_home: "invalid_params",
   untrusted_project: "external_unavailable",
   untrusted_project_person_only: "external_unavailable",
 };
@@ -141,6 +143,7 @@ export type PersonOnlyKind =
   | "remote_login"
   | "browser"
   | "connector"
+  | "closed"
   | "none"
   | "agent"
   | "mode";
@@ -149,7 +152,7 @@ export type PersonOnlyKind =
 // Method params / results
 // ---------------------------------------------------------------------------
 
-/** `agent.bindChannel` params. Route a gateway channel to a named agent. */
+/** `agent.bindChannel` params. Route a gateway channel to a named agent. A local person's only (1.55.0), like gateway.bind. */
 export interface AgentBindChannelParams {
   /** Gateway channel that will reach the agent. */
   channel: string;
@@ -165,7 +168,7 @@ export interface AgentBindChannelResult {
   ok?: boolean;
 }
 
-/** `agent.create` params. Define a named agent from a description. */
+/** `agent.create` params. Define a named agent from a description. A local person's only (1.55.0): it writes the project's agent definition, a control file. */
 export interface AgentCreateParams {
   /** Natural-language brief the daemon turns into an agent. */
   description: string;
@@ -472,7 +475,7 @@ export interface ApprovalRespondParams {
   reason?: string;
   /** Request being answered. */
   requestId: string;
-  /** How long the decision applies. */
+  /** How long the decision applies. From a remote web login (and a connector) an allow never stores a rule (1.55.0): 'project', 'always' and 'site' are applied as 'session'; the result's scope and approval.resolved say what applied. */
   scope?: "once" | "session" | "project" | "always" | "site";
 }
 
@@ -633,7 +636,7 @@ export interface AudioTranscribeParams {
   language?: string | null;
   /** Media type of the audio, e.g. audio/wav. */
   mime?: string | null;
-  /** Audio file on the daemon's machine. */
+  /** Audio file on the daemon's machine. From a remote web login, a browser or a connector (1.55.0): only a recording or an attachment of a session (a file under the daemon's audio or attachments folder, as audio.record.stop answers); any other path is outside_root. Inline data is not affected. */
   path?: string | null;
   /** Session the audio belongs to. */
   sessionId?: string | null;
@@ -2869,7 +2872,7 @@ export interface JobScheduleParams {
   actor?: "person" | null;
   /** Named agent that runs the task. */
   agent?: string | null;
-  /** Gateway channel that receives the output. */
+  /** Gateway channel that receives the output. One rule for job.schedule, /schedule and the schedule_create tool (1.55.0): a job made by a remote web login — or in a turn one prompted — is createdBy 'remote_login', reports in the app or the log only, and is never above settings web.remote.maxMode. */
   channel?: string | null;
   /** Opaque data for the host, at most 4 KB of JSON (1.23.0). Only a connection whose system.hello said clientKind 'browser' with a clientId may set it; the job is then owned by that clientId: only it may update, cancel, delete or run it now, see its meta, and no agent tool can change or cancel it. */
   meta?: Record<string, unknown> | null;
@@ -3170,7 +3173,7 @@ export interface McpAddParams {
   toolsInclude?: string[] | null;
   /** Force a transport instead of inferring it. */
   type?: "stdio" | "http" | "sse" | null;
-  /** Endpoint for an http or sse server. */
+  /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added, without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
   url?: string | null;
   /** Project directory for scope=project. */
   workdir?: string | null;
@@ -3705,7 +3708,7 @@ export interface McpTestParams {
   type?: "stdio" | "http" | "sse" | null;
   /** Probe with these optional keys cleared, as mcp.update would (1.33.0). */
   unset?: ("args" | "cwd" | "disabled" | "env" | "headers" | "timeoutSec" | "toolTimeoutSec" | "toolsExclude" | "toolsInclude" | "type" | "oauth")[] | null;
-  /** Endpoint for an http or sse server. */
+  /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added, without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
   url?: string | null;
   /** Project directory for scope=project. */
   workdir?: string | null;
@@ -3788,7 +3791,7 @@ export interface McpUpdateParams {
     toolsInclude?: string[] | null;
     /** Force a transport instead of inferring it. */
     type?: "stdio" | "http" | "sse" | null;
-    /** Endpoint for an http or sse server. */
+    /** Endpoint for an http or sse server. From a remote web login (1.55.0): a NEW url server may be added, without any ${VAR} in its fields (jarvis_person_only, details {reason: 'local_only', what: 'variable'}); the url, headers and oauth of a SAVED server are a local person's to change (what: 'target') — in mcp.add with replace, mcp.update, mcp.test with overrides and settings.set mcp.servers.*. An entry a remote login adds is saved with savedBy: 'remote_login' and never expands a credentials.json value. No entry expands a SNOWPEA_* environment variable. */
     url?: string | null;
   };
   /** Which file to rewrite; omitted, the one that declares it. */
@@ -4979,7 +4982,7 @@ export interface SessionCreateParams {
   mode?: "plan" | "accept" | "auto" | null;
   /** Model id; defaults to the provider's default. */
   model?: string | null;
-  /** Surface that owns approvals for this session (TUI, gateway, ...). */
+  /** Surface that owns approvals for this session (TUI, gateway, ...). The server decides what is recorded (1.55.0): a browser connection's session is always 'browser'; a remote web login keeps one of ide/desktop/tui/cli/web/app and otherwise gets its connection's surface id; a local person's value is kept; the core's own surfaces (jarvis-task, jarvis, scheduler, skill, connector, gateway:*, agent:*) are invalid_params for every caller. The creating connection's clientId is recorded with the session: a browser's own session is one it hosts or created. */
   originSurface?: string | null;
   /** Chat provider vendor; defaults to configured. */
   provider?: string | null;
@@ -5812,7 +5815,7 @@ export interface SettingsSetParams {
   patch: Record<string, unknown>;
   /** "global" writes $SNOWPEA_HOME/settings.json; "project" writes <workdir>/.snowpea/settings.json. */
   scope?: "global" | "project";
-  /** Project root; required when scope is "project". */
+  /** Project root; required when scope is "project". snowpea's own home, a folder inside it, and a folder whose .snowpea directory is the home (with the default home: the user's home directory) are not projects (1.55.0): invalid_params with details {reason: 'snowpea_home', field: 'workdir', what: 'home'|'parent'}, for every caller and every method that writes a project's .snowpea files (settings.set, permission.allowlist.add, skill.create|write|learn, team.guide.set|delete, project.trust.set); session.create, job.schedule, external.create and a project-scope mcp.add|update|remove refuse the home and folders inside it. A remote web login writes only defaultMode, agents.* and models.* in the project scope. */
   workdir?: string | null;
 }
 
@@ -7799,7 +7802,7 @@ export interface SkillSearchResult {
 export interface SkillWriteParams {
   /** Browser marker (security review 3): see ActorParams. */
   actor?: "person" | null;
-  /** Full SKILL.md text to save. */
+  /** Full SKILL.md text to save. From a remote web login (1.55.0, also skill.create and skill.learn): only a global skill; the project scope is 'protected' (a control file, details.reason 'local_only'), a global agent or command, a name a built-in uses, and front matter with allowed-tools, autoInject, permission(s), hooks, model or tools are jarvis_person_only (details {reason: 'local_only', what: 'agent'|'command'|'builtin_name'|'front_matter', keys?}). */
   content: string;
   /** Write an agent or a command instead of a skill (1.36.0): the file is agents/<name>.md or commands/<name>.md in the same places a skill's directory would be. Omitted or 'skill', the SKILL.md as before. */
   kind?: "skill" | "agent" | "command" | null;
@@ -7999,7 +8002,7 @@ export interface SystemUpdateResult {
   started: boolean;
 }
 
-/** `team.guide.delete` params. Delete a team guide from the project or global home. */
+/** `team.guide.delete` params. Delete a team guide from the project or global home. As team.guide.set (1.55.0): a local person, or a browser with actor 'person'; not a remote web login. */
 export interface TeamGuideDeleteParams {
   /** Which copy to delete. */
   scope: "project" | "global";
@@ -8482,6 +8485,8 @@ export interface WebRemoteClearPasswordResult {
   listenUrls?: string[];
   /** The external listener is open now. */
   listening: boolean;
+  /** settings web.remote.maxMode (1.55.0): the widest mode a remote web login may use. It cannot raise a session or a job above it, nor create, prompt, steer or run one already above it: jarvis_person_only with details {reason: 'mode_raise', max: <this value>}. 'auto' is no limit. A local person changes it with settings.set; it applies at once. It stops unattended runs, not the holder of the link, who still answers each approval. */
+  maxMode?: "plan" | "accept" | "auto";
   /** 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. */
   mode: "token" | "password";
   /** settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. */
@@ -8530,6 +8535,8 @@ export interface WebRemoteListenResult {
   listenUrls?: string[];
   /** The external listener is open now. */
   listening: boolean;
+  /** settings web.remote.maxMode (1.55.0): the widest mode a remote web login may use. It cannot raise a session or a job above it, nor create, prompt, steer or run one already above it: jarvis_person_only with details {reason: 'mode_raise', max: <this value>}. 'auto' is no limit. A local person changes it with settings.set; it applies at once. It stops unattended runs, not the holder of the link, who still answers each approval. */
+  maxMode?: "plan" | "accept" | "auto";
   /** 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. */
   mode: "token" | "password";
   /** settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. */
@@ -8583,6 +8590,8 @@ export interface WebRemoteSetPasswordResult {
   listenUrls?: string[];
   /** The external listener is open now. */
   listening: boolean;
+  /** settings web.remote.maxMode (1.55.0): the widest mode a remote web login may use. It cannot raise a session or a job above it, nor create, prompt, steer or run one already above it: jarvis_person_only with details {reason: 'mode_raise', max: <this value>}. 'auto' is no limit. A local person changes it with settings.set; it applies at once. It stops unattended runs, not the holder of the link, who still answers each approval. */
+  maxMode?: "plan" | "accept" | "auto";
   /** 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. */
   mode: "token" | "password";
   /** settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. */
@@ -8622,6 +8631,8 @@ export interface WebRemoteStatusResult {
   listenUrls?: string[];
   /** The external listener is open now. */
   listening: boolean;
+  /** settings web.remote.maxMode (1.55.0): the widest mode a remote web login may use. It cannot raise a session or a job above it, nor create, prompt, steer or run one already above it: jarvis_person_only with details {reason: 'mode_raise', max: <this value>}. 'auto' is no limit. A local person changes it with settings.set; it applies at once. It stops unattended runs, not the holder of the link, who still answers each approval. */
+  maxMode?: "plan" | "accept" | "auto";
   /** 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. */
   mode: "token" | "password";
   /** settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. */
@@ -8664,6 +8675,8 @@ export interface WebRemoteStopResult {
   listenUrls?: string[];
   /** The external listener is open now. */
   listening: boolean;
+  /** settings web.remote.maxMode (1.55.0): the widest mode a remote web login may use. It cannot raise a session or a job above it, nor create, prompt, steer or run one already above it: jarvis_person_only with details {reason: 'mode_raise', max: <this value>}. 'auto' is no limit. A local person changes it with settings.set; it applies at once. It stops unattended runs, not the holder of the link, who still answers each approval. */
+  maxMode?: "plan" | "accept" | "auto";
   /** 'token': the access link (a web access token in ?t=, traded for a cookie on the first request) opens the page; 'password': a username and password are set and the login page is required — the link alone is not enough. */
   mode: "token" | "password";
   /** settings.json says otherwise than what runs (enabled/host/port/username): the next daemon start will differ. web.remote.listen applies at once and can save. */

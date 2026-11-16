@@ -110,6 +110,9 @@ async def test_the_approval_carries_the_reason_and_a_folder_answer_is_kept(
     answer = {"decision": "allow", "scope": "session"}
 
     class _Origin:
+        # A local person's open connection (a closed one is nobody: review 7, H-1).
+        authenticated, closed, client_kind, remote_login = True, False, "tui", False
+
         async def call(self, method: str, params: dict[str, Any], timeout: float = 0) -> Any:
             asked.append(params)
             return answer

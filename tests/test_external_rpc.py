@@ -114,9 +114,14 @@ async def test_end_to_end_with_an_adapter(daemon: Daemon, http: aiohttp.ClientSe
         refused = await agent.call("external.create", {"cli": "claude", "project": str(project),
                                                        "mode": "unrestricted"})
         assert _code(refused) == "jarvis_person_only"
+        (tmp_path / "elsewhere").mkdir()
         outside = await ide.call("external.create", {"cli": "claude",
-                                                     "project": str(tmp_path / "home")})
+                                                     "project": str(tmp_path / "elsewhere")})
         assert _code(outside) == "outside_root"
+        # snowpea's own home is never a project (security review 7, H-2).
+        home = await ide.call("external.create", {"cli": "claude",
+                                                  "project": str(daemon.paths.home)})
+        assert _code(home) == "invalid_params"
         with env_vars(FAKE_CLI_SCENARIO="approval"):
             session = (await ide.ok("external.create",
                                     {"cli": "claude", "project": str(project)}))["session"]

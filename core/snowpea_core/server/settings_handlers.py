@@ -125,10 +125,22 @@ def guard_patch(
         # Security review 6, H-1/M-4: programs to run, messenger identity, a
         # provider's endpoint, the skill registry — a local person's, either scope.
         local = gate.remote_login_local_keys(patch)
+        if not project:
+            # Security review 7, H-3: a saved server's url/headers/oauth, and any
+            # ``${VAR}`` (the daemon would fill it from credentials.json).
+            mcp_settings = getattr(getattr(core, "settings", None), "mcp", None)
+            local += gate.remote_mcp_settings_keys(patch, getattr(mcp_settings, "servers", None))
         if local:
             gate.ledger_settings(core, conn, local, refused=True, method="settings.set")
             gate.refuse(conn, f"change {', '.join(local[:6])}", reason=gate.LOCAL_ONLY,
                         extra={"what": "settings", "keys": local[:20]})
+        if project and patch.get("defaultMode"):
+            # web.remote.maxMode (security review 7): no default above it either.
+            from snowpea_core.session import mode_guard
+
+            mode_guard.check_remote_max(kind, patch["defaultMode"],
+                                        getattr(core, "settings", None),
+                                        "making a project's default mode")
     authority = gate.jarvis_authority(core) if core is not None else ()
     refused, jarvis_on, relevant = gate.judge_patch(
         kind, patch, project=project,
@@ -211,6 +223,26 @@ def _person_wrote_project(conn: Any, core: Any, workdir: str, before: str) -> No
         log.warning("could not re-pin the project settings of %s", workdir, exc_info=True)
 
 
+def _invalid(conn: Any, exc: ValidationError) -> RpcError:
+    """``invalid_params`` for a document that does not validate.
+
+    Security review 7, Low 5: pydantic's text quotes the input values — other
+    keys of the stored document included, secrets among them.  A local person
+    gets it; everyone else the fields and what is wrong with them, no values.
+    """
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(conn) == "person":
+        return RpcError(errors.INVALID_PARAMS, str(exc))
+    problems = [
+        {"field": ".".join(str(part) for part in item.get("loc", ())), "problem": item.get("type")}
+        for item in exc.errors(include_url=False, include_input=False, include_context=False)
+    ][:20]
+    fields = ", ".join(p["field"] for p in problems[:6] if p["field"])
+    return RpcError(errors.INVALID_PARAMS, f"the settings are not valid: {fields or 'see details'}",
+                    {"problems": problems})
+
+
 def _require_workdir(params: SettingsGetParams | SettingsSetParams) -> str:
     if not params.workdir:
         raise RpcError(errors.INVALID_PARAMS, 'workdir is required when scope is "project"')
@@ -234,6 +266,12 @@ async def settings_set_handler(
     """``settings.set`` — deep-merge ``patch`` into settings and persist it."""
     if not isinstance(params.patch, dict):
         raise RpcError(errors.INVALID_PARAMS, "patch must be an object")
+    if params.scope == "project":
+        # Security review 7, H-2: snowpea's own home is not a project (for every
+        # caller): its "project" settings file IS the global settings.json.
+        from snowpea_core.server.project_gate import require_project
+
+        require_project(core, _require_workdir(params))
     relevant = guard_patch(
         conn,
         params.patch,
@@ -261,7 +299,7 @@ async def settings_set_handler(
         try:
             updated = ProjectSettings.model_validate(merged)
         except ValidationError as exc:
-            raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+            raise _invalid(conn, exc) from exc
         from snowpea_core.permissions.allowlist import _project_digest
 
         before = _project_digest(workdir)
@@ -275,7 +313,7 @@ async def settings_set_handler(
     try:
         updated_settings = Settings.model_validate(merged_global)
     except ValidationError as exc:
-        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+        raise _invalid(conn, exc) from exc
     unknown = _unknown_profile_vendors(params.patch, updated_settings)
     if unknown:
         raise RpcError(errors.INVALID_PARAMS, unknown)

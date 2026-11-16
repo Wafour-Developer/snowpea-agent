@@ -16,8 +16,9 @@ import shlex
 from typing import Any
 
 from snowpea_core.commands.registry import Command, CommandContext
-from snowpea_core.scheduler import services
+from snowpea_core.scheduler import access, services
 from snowpea_core.scheduler.tools import OWNED_REFUSAL, format_job
+from snowpea_core.server.errors import RpcError
 
 MODES = ("plan", "accept", "auto")
 
@@ -103,15 +104,23 @@ async def cmd_schedule(ctx: CommandContext, args: str) -> None:
         if job is not None and job.owned:
             await ctx.say(OWNED_REFUSAL.format(id=job_id))
             return
+        try:
+            await access.guard_job(ctx.core, _who(ctx), job_id, "cancel")
+        except RpcError as exc:
+            await ctx.say(str(exc.message))
+            return
         cancelled = await scheduler.cancel(job_id)
         await ctx.say(f"cancelled {job_id}" if cancelled else f"no such job: {job_id}")
         return
 
     try:
         parsed = parse_args(text)
-        job = await scheduler.schedule(
+        job = await access.schedule_job(
+            ctx.core,
+            _who(ctx),
             parsed["spec"],
             parsed["task"],
+            via="tool",
             mode=parsed["mode"],
             channel=parsed["channel"],
             origin_session_id=ctx.session.id,
@@ -121,7 +130,24 @@ async def cmd_schedule(ctx: CommandContext, args: str) -> None:
     except ValueError as exc:
         await ctx.say(f"{exc}\n\n{USAGE}")
         return
+    except RpcError as exc:
+        await ctx.say(str(exc.message))
+        return
     await ctx.say(f"scheduled {format_job(job)}")
+
+
+def _who(ctx: CommandContext) -> Any:
+    """The command's caller, as it was when the command was accepted.
+
+    Security review 7, M-2: the scheduler's one entry point judges it, so
+    ``/schedule`` gets ``job.schedule``'s rules.  The owner-bound messenger
+    chat and a handler that judged its own caller are in-process callers.
+    """
+    from snowpea_core.server.person_gate import snapshot
+
+    who = getattr(ctx, "who", None)
+    return who if who is not None else snapshot(getattr(ctx, "conn", None),
+                                                getattr(ctx, "actor", None))
 
 
 COMMANDS: tuple[Command, ...] = (

@@ -388,9 +388,13 @@ async def _configure_team(ctx: CommandContext, words: list[str]) -> None:
     """Manage the project roster without disturbing legacy team execution."""
     from snowpea_core.agent.team_config import teams_for, teams_with_source
     from snowpea_core.commands.agent_cmd import definitions_for
-    from snowpea_core.config.project import ProjectSettings
+    from snowpea_core.config.project import NOT_A_PROJECT, ProjectSettings, home_problem
 
     action = words[0]
+    if action != "list" and home_problem(ctx.session.workdir) is not None:
+        # Security review 7, H-2: its "project" settings are the global file.
+        await ctx.say(f"team: {NOT_A_PROJECT}; set the team in the global settings instead")
+        return
     project = ProjectSettings.load(ctx.session.workdir)
     all_teams = teams_for(ctx.core.settings, ctx.session.workdir)
     if action == "list":

@@ -11,12 +11,13 @@ re-authenticated, so it may not widen what runs unattended.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 
-ConnectionKind = Literal["person", "remote_login", "browser", "connector", "none"]
+ConnectionKind = Literal["person", "remote_login", "browser", "connector", "closed", "none"]
 
 
 def _open(conn: Any) -> bool:
@@ -27,12 +28,122 @@ def _open(conn: Any) -> bool:
     )
 
 
+@dataclass(frozen=True, eq=False)
+class CallerSnapshot:
+    """Who asked, as it was when the work was accepted (security review 7, H-1).
+
+    Work that runs later than the call that asked for it — a queued command or
+    prompt, a tool call of the turn, a scheduled job — is judged by this, never
+    by the live connection: a connection that has closed since, or that says
+    something else now, changes nothing.  Every gate that takes a connection
+    takes a snapshot in its place (:func:`connection_kind` reads ``kind`` from
+    it; the identity attributes are copied).  ``conn`` is the connection
+    itself, kept for identity (``session.origin_conn is caller.conn``) only.
+    """
+
+    kind: ConnectionKind
+    #: A browser's ``actor: "person"`` marker on the call.
+    actor: str | None = None
+    client_kind: str | None = None
+    client_id: str | None = None
+    surface_id: str | None = None
+    client_version: str | None = None
+    #: With no connection: the in-process identity (``"messenger"``, ``"internal"``).
+    caller: str | None = None
+    #: Whose words started the work (``agent.loop.ORIGINS``), when known.
+    origin: str | None = None
+    conn: Any = None
+
+    # -- what the gates read from a connection --------------------------
+    @property
+    def authenticated(self) -> bool:
+        return self.kind not in ("none", "closed")
+
+    @property
+    def closed(self) -> bool:
+        return self.kind == "closed"
+
+    @property
+    def remote_login(self) -> bool:
+        return self.kind == "remote_login"
+
+    @property
+    def local_person(self) -> bool:
+        return self.kind == "person"
+
+
+#: No connection and no named in-process identity.
+NOBODY = CallerSnapshot(kind="none")
+
+
+def snapshot(conn: Any, actor: str | None = None, *, caller: str | None = None,
+             origin: str | None = None) -> CallerSnapshot:
+    """The :class:`CallerSnapshot` of ``conn`` now (a snapshot stays what it is).
+
+    ``actor``, ``caller`` and ``origin`` fill what a given snapshot left unset.
+    """
+    if isinstance(conn, CallerSnapshot):
+        updates = {
+            name: value
+            for name, value in (("actor", actor), ("caller", caller), ("origin", origin))
+            if value is not None and getattr(conn, name) is None
+        }
+        return replace(conn, **updates) if updates else conn
+    if conn is None:
+        return CallerSnapshot(kind="none", actor=actor, caller=caller, origin=origin)
+    return CallerSnapshot(
+        kind=connection_kind(conn),
+        actor=actor,
+        client_kind=getattr(conn, "client_kind", None),
+        client_id=getattr(conn, "client_id", None),
+        surface_id=getattr(conn, "surface_id", None),
+        client_version=getattr(conn, "client_version", None),
+        caller=caller,
+        origin=origin,
+        conn=conn,
+    )
+
+
+def accept_work(conn: Any, core: Any, session: Any, what: str) -> CallerSnapshot:
+    """An RPC that starts work in ``session`` or adds to it: who asks, as of now.
+
+    Returns the caller's snapshot for the turn to carry (security review 7,
+    H-1), after refusing a remote web login that would start work in a session
+    above ``web.remote.maxMode`` (``jarvis_person_only``, ``mode_raise``,
+    ``details.max``).  The one place ``session.continue``, ``goal.set|resume``,
+    ``agent.spawn`` and ``team.start`` take their caller from.
+    """
+    from snowpea_core.server.rpc import current_actor
+    from snowpea_core.session import mode_guard
+
+    who = snapshot(conn, current_actor(), origin="human")
+    mode_guard.check_remote_max(who.kind, mode_guard.effective_mode(session),
+                                getattr(core, "settings", None), what)
+    return who
+
+
+def live_conn(conn: Any) -> Any:
+    """The connection behind ``conn`` (itself, or a snapshot's), for identity checks."""
+    return conn.conn if isinstance(conn, CallerSnapshot) else conn
+
+
 def connection_kind(conn: Any) -> ConnectionKind:
-    """``person``, ``remote_login``, ``browser``, ``connector`` (other non-person) or ``none``."""
+    """``person``, ``remote_login``, ``browser``, ``connector`` (other non-person),
+    ``closed`` or ``none``.
+
+    ``none`` is an in-process caller only (``conn is None``).  A connection that
+    has closed, or never authenticated, is ``closed``: it is nobody, and never
+    an in-process caller (security review 7, H-1).  A :class:`CallerSnapshot`
+    answers with the kind it was taken with.
+    """
     from snowpea_core.jarvis.delegation import HUMAN_CLIENT_KINDS
 
-    if not _open(conn):
+    if isinstance(conn, CallerSnapshot):
+        return conn.kind
+    if conn is None:
         return "none"
+    if not _open(conn):
+        return "closed"
     if bool(getattr(conn, "remote_login", False)):
         # Security review 5, M3: the remote listener's connections are remote
         # web logins whatever ``clientKind`` they declared.
@@ -56,7 +167,7 @@ def require_person(conn: Any, what: str, *, local: bool = False) -> None:
         return
     if kind == "remote_login":
         reason = f"{what} needs a local connection (IDE, TUI or the local web page)"
-    elif kind == "none":
+    elif kind in ("none", "closed"):
         reason = f"only a person may {what}"
     else:
         reason = f"a {getattr(conn, 'client_kind', None) or kind} connection cannot {what}"
@@ -161,8 +272,12 @@ async def hide_task_worker(conn: Any, core: Any, session_id: str) -> None:
 
 
 __all__ = [
+    "NOBODY",
+    "CallerSnapshot",
     "ConnectionKind",
     "connection_kind",
+    "live_conn",
+    "snapshot",
     "hide_task_worker",
     "is_person",
     "is_task_worker",

@@ -2362,15 +2362,20 @@ async def test_only_the_owning_browser_answers_an_owned_runs_approval(
             break
         await asyncio.sleep(0.02)
     request_id = core.approvals.list(session.id)[0].requestId
+    # Open, signed-in connections (one that is closed or never signed in is
+    # nobody: security review 7, H-1).
+    live = {"authenticated": True, "closed": False}
     impostors = (
         None,
-        SimpleNamespace(client_kind="tui", client_id="snowpea-browser-S"),
-        SimpleNamespace(client_kind="browser", client_id="snowpea-browser-T"),
+        SimpleNamespace(client_kind="tui", client_id="snowpea-browser-S", **live),
+        SimpleNamespace(client_kind="browser", client_id="snowpea-browser-T", **live),
+        SimpleNamespace(client_kind="browser", client_id="snowpea-browser-S",
+                        authenticated=True, closed=True),  # the owner's, closed
     )
     for conn in impostors:
         with pytest.raises(RpcError):
             await core.approvals.respond(request_id, "allow", conn=conn)
-    owner = SimpleNamespace(client_kind="browser", client_id="snowpea-browser-S")
+    owner = SimpleNamespace(client_kind="browser", client_id="snowpea-browser-S", **live)
     await core.approvals.respond(request_id, "allow", conn=owner)
     assert (await asyncio.wait_for(asking, 5)).decision == "allow"
 

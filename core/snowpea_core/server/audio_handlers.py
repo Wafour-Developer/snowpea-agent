@@ -26,6 +26,7 @@ from snowpea_core.audio.player import AudioError
 from snowpea_core.audio.player import play as play_audio
 from snowpea_core.audio.recorder import Recorder
 from snowpea_core.config.paths import utc_now
+from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     AudioCapabilitiesResult,
@@ -203,12 +204,39 @@ async def audio_transcribe_handler(
             str(reasons.get("stt", "no transcription backend is configured")),
             {"audio": "no_stt"},
         )
+    _refuse_foreign_path(_conn, core, params.path)
     path = _audio_input(core, params)
     try:
         transcript = await provider.transcribe(path, params.mime)
     except AudioError as exc:
         raise _rpc_error(exc) from exc
     return AudioTranscribeResult(text=transcript.text, provider=transcript.provider)
+
+
+def _refuse_foreign_path(conn: Any, core: Core, raw: str | None) -> None:
+    """``audio.transcribe {path}`` from anyone but a local person (review 7, Info).
+
+    The file is handed to a speech engine — a command, or a service on the
+    network — so a path is a way to send any file this user can read there.
+    A remote web login, a browser and a connector may name only what snowpea
+    recorded or was given: a file under the audio folder (``audio.record.stop``
+    answers one) or the attachments folder.  Anything else is ``outside_root``;
+    inline ``data`` is not affected.
+    """
+    import os
+
+    from snowpea_core.server.person_gate import connection_kind
+
+    if not raw or connection_kind(conn) in ("person", "none"):
+        return
+    real = Path(os.path.realpath(Path(raw).expanduser()))
+    for root in (core.paths.audio_dir, core.paths.attachments_dir):
+        base = Path(os.path.realpath(root))
+        if base in real.parents:
+            return
+    raise RpcError(errors.OUTSIDE_ROOT,
+                   "audio.transcribe takes a recording or an attachment of a session, "
+                   "not another file, from this connection")
 
 
 def _audio_input(core: Core, params: AudioTranscribeParams) -> Path:

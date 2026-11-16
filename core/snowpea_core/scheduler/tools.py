@@ -117,21 +117,48 @@ async def schedule_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     mode = str(args.get("mode") or "accept")
     if mode not in ("plan", "accept", "auto"):
         return ToolResult(ok=False, error=f"unknown mode {mode!r}")
+    # Security review 7, M-2: judged for whoever started this turn, through the
+    # scheduler's one entry point (``scheduler/access.py``) — a job the model
+    # makes in a turn a remote web login prompted is that login's job.
+    from snowpea_core.agent.loop import turn_caller
+    from snowpea_core.scheduler import access
+    from snowpea_core.server.errors import RpcError
+    from snowpea_core.session import mode_guard
+
+    who = turn_caller(ctx.core, ctx.session)
+    channel = args.get("channel")
+    try:
+        # Before anyone is asked: what this caller may not schedule at all.
+        mode_guard.check_remote_max(who.kind, mode, getattr(ctx.core, "settings", None),
+                                    "scheduling a job")
+        if who.kind == "remote_login" and (
+            (str(channel) if channel else None) not in access.REMOTE_LOGIN_JOB_CHANNELS
+        ):
+            return ToolResult(ok=False, error=(
+                "a job scheduled from a remote sign-in reports in the app only; "
+                "it cannot deliver to a messenger channel"))
+    except RpcError as exc:
+        return ToolResult(ok=False, error=str(exc.message))
     denied = await _needs_approval(ctx, dict(args), mode)
     if denied is not None:
         return ToolResult(ok=False, error=denied)
-    channel = args.get("channel")
     try:
-        job = await _scheduler(ctx).schedule(
+        job = await access.schedule_job(
+            ctx.core,
+            who,
             spec,
             task,
-            mode=mode,  # type: ignore[arg-type]
+            via="tool",
+            mode=mode,
             channel=str(channel) if channel else None,
+            mode_judged=True,
             origin_session_id=ctx.session.id,
             workdir=str(ctx.session.workdir),
         )
     except ValueError as exc:
         return ToolResult(ok=False, error=str(exc))
+    except RpcError as exc:
+        return ToolResult(ok=False, error=str(exc.message))
     return ToolResult(ok=True, output=f"scheduled {format_job(job)}")
 
 
@@ -151,6 +178,15 @@ async def schedule_cancel(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     job = await _scheduler(ctx).get(job_id)
     if job is not None and job.owned:
         return ToolResult(ok=False, error=OWNED_REFUSAL.format(id=job_id))
+    from snowpea_core.agent.loop import turn_caller
+    from snowpea_core.scheduler import access
+    from snowpea_core.server.errors import RpcError
+
+    try:
+        # Whoever started this turn must be allowed to cancel it (review 7, M-2).
+        await access.guard_job(ctx.core, turn_caller(ctx.core, ctx.session), job_id, "cancel")
+    except RpcError as exc:
+        return ToolResult(ok=False, error=str(exc.message))
     cancelled = await _scheduler(ctx).cancel(job_id)
     if not cancelled:
         return ToolResult(ok=False, error=f"no such job: {job_id}")

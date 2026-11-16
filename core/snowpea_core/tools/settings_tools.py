@@ -84,7 +84,10 @@ async def settings_set(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             updated_project = ProjectSettings.model_validate(merged)
         except ValidationError as exc:
             return ToolResult(ok=False, error=f"invalid settings: {exc}")
-        updated_project.save(ctx.session.workdir)
+        try:
+            updated_project.save(ctx.session.workdir)
+        except ValueError as exc:  # snowpea's own home is not a project (review 7, H-2)
+            return ToolResult(ok=False, error=f"{exc}; use the global scope here")
         return ToolResult(
             ok=True,
             output=f"set {key} in the project settings",

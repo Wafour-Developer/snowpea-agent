@@ -863,7 +863,7 @@ async def _stop_mid_turn_is_clean(home: Path, http: aiohttp.ClientSession, caplo
     """
     with fake_provider(SHUTDOWN_FIXTURE):
         daemon = await make_daemon(home)
-        workdir = home / "project"
+        workdir = home.parent / "project"  # not inside snowpea's home (review 7, H-2)
         workdir.mkdir(parents=True, exist_ok=True)
         client = await connect(http, daemon)
         session_id = await start_session(client, workdir)

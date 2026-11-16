@@ -58,8 +58,8 @@ TABLE: dict[str, tuple[str, ...]] = {
         "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "fs.write",
         "workspace.list", "workspace.add", "workspace.remove", "workspace.rename",
         "workspace.reorder",
-        "agent.list", "agent.spawn", "agent.bindChannel",
-        "team.start", "team.status", "team.guide.list", "team.guide.get", "team.guide.delete",
+        "agent.list", "agent.spawn",
+        "team.start", "team.status", "team.guide.list", "team.guide.get",
         "job.schedule", "job.cancel", "job.delete", "job.runNow", "job.update",
         "settings.get", "setup.catalog", "setup.status", "provider.list", "provider.models",
         "provider.test", "mcp.list", "mcp.catalog", "mcp.authorize.complete",
@@ -91,12 +91,15 @@ TABLE: dict[str, tuple[str, ...]] = {
         "skill.install", "memory.update", "audio.install", "lsp.install",
     ),
     # Config a browser changes with the marker, but no remote login.
-    "ynnyny": ("setup.applyDefaults", "permission.allowlist.remove", "team.guide.set"),
+    # Security review 7, Low 8: team.guide.delete is the class of team.guide.set
+    # (it was yynyyy: a remote login and an unmarked browser call could delete).
+    "ynnyny": ("setup.applyDefaults", "permission.allowlist.remove", "team.guide.set",
+               "team.guide.delete"),
     # People (local and remote): Jarvis, security lists, project trust status.
     "yynnnn": (
         # Security review 6 (the browser team's source check): no browser calls
         # these, marker or not, any version.
-        "agent.create", "agent.delete",
+        "agent.delete",
         "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
         "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
         "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",
@@ -111,6 +114,11 @@ TABLE: dict[str, tuple[str, ...]] = {
         # Security review 6, M-4: binding a messenger chat is a local person's
         # (never a browser since 1.55.0, no longer a remote login either).
         "gateway.bind",
+        # Security review 7, M-1/Low 8: agent.create (was yynnnn: it writes a
+        # project's agent definition, a control file, and a named agent runs
+        # unattended) and agent.bindChannel (was yynyyy: a messenger binding,
+        # judged by nobody) are a local person's.
+        "agent.create", "agent.bindChannel",
         "web.remote.status", "web.remote.listen", "web.remote.stop", "web.remote.setPassword",
         "web.remote.clearPassword", "web.remote.rotateToken",
         "extension.enable", "extension.disable", "extension.configure", "extension.reload",

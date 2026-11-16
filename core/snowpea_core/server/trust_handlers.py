@@ -160,6 +160,9 @@ async def project_trust_set_handler(conn: RpcConnection, params: ProjectTrustSet
     from snowpea_core.server.person_gate import require_person
 
     require_person(conn, "trust a project", local=True)
+    from snowpea_core.server.project_gate import require_project
+
+    require_project(core, params.workdir)  # review 7, H-2: snowpea's home is no project
     root = _root(params.workdir)
     by = str(getattr(conn, "client_kind", None) or "local")
     from snowpea_core.trust.projects import TrustChanged

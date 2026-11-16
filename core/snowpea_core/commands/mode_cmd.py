@@ -111,7 +111,10 @@ async def _set_mode(ctx: CommandContext, mode: str, auto_after_plan: bool | None
 
     # Raising needs a person (security review 4, H2): the command's own caller,
     # judged already by the command gate (CommandRegistry.start).
-    conn = getattr(ctx, "conn", None)
+    # Security review 7, H-1: by the snapshot taken when the command was
+    # accepted (``ctx.who``), not by what the connection is now.
+    who = getattr(ctx, "who", None)
+    conn = who if getattr(who, "kind", "none") != "none" else getattr(ctx, "conn", None)
     started_by = getattr(ctx, "caller", None)
     caller = (ModeCaller.from_conn(conn, getattr(ctx, "actor", None)) if conn is not None
               else ModeCaller.internal(f"command-{started_by}") if started_by in (
@@ -149,7 +152,11 @@ async def cmd_mode(ctx: CommandContext, args: str) -> None:
     if target == "save":
         project = ProjectSettings.load(ctx.session.workdir)
         project.defaultMode = ctx.session.mode  # type: ignore[assignment]
-        path = project.save(ctx.session.workdir)
+        try:
+            path = project.save(ctx.session.workdir)
+        except ValueError as exc:  # snowpea's own home is not a project (review 7, H-2)
+            await ctx.say(f"Could not save the mode: {exc}.")
+            return
         await ctx.say(f"Default mode for this project is now '{ctx.session.mode}' ({path}).")
         return
     if target.split() == ["plan", "auto"]:
@@ -312,7 +319,7 @@ async def cmd_allow(ctx: CommandContext, args: str) -> None:
             return
     from snowpea_core.server.person_gate import connection_kind
 
-    if connection_kind(ctx.conn) != "person":
+    if connection_kind(getattr(ctx, "who", None) or ctx.conn) != "person":
         # A rule pre-approves before any routing (security review 4, H1): a local
         # person's only, never a remote login, a connector, a messenger or a browser.
         await ctx.say("Only you, on a local connection (IDE, TUI, CLI), can add an "

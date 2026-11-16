@@ -567,14 +567,24 @@ async def mcp_add_handler(
         )
 
     workdir = workdir_of(core, params.sessionId, params.workdir)
+    _require_project_scope(core, params.scope, workdir)
     try:
         path = mcp_config.config_path(params.scope, core.paths.home, workdir)
     except mcp_config.McpConfigError as exc:
         raise _invalid(exc) from exc
-    if params.name in mcp_config.read_servers(path) and not replace_existing:
+    existing = mcp_config.read_servers(path).get(params.name)
+    if existing is not None and not replace_existing:
         raise RpcError(
             errors.MCP_EXISTS, f"'{name}' is already declared in {path}; pass force to replace it"
         )
+    if existing is not None:
+        # Replacing a saved entry is changing it (security review 7, H-3).
+        remote_mcp_refusal(_conn, core, method="mcp.add", entry=entry, saved=existing)
+    saved_by = _saved_by(_conn)
+    if saved_by is not None:
+        # Not the user's own entry, whatever file holds it: it never expands a
+        # stored credential (``mcp_client.resolve_config``).
+        entry = {**entry, mcp_client.SAVED_BY_KEY: saved_by}
 
     config = McpServerConfig.parse(name, entry, params.scope)
     assert config is not None  # validate_entry guarantees a command or a url
@@ -582,6 +592,7 @@ async def mcp_add_handler(
     MANAGER.bind(core)
     if params.test and not config.disabled:
         ok, tools, error, _elapsed = await probe(config)
+        error = _shown_error(_conn, error)
         # A server that wants a sign-in is saved anyway (1.34.0): there is no
         # token before the entry exists, and mcp.authorize needs the entry.
         if not ok and not needs_auth(error):
@@ -608,6 +619,42 @@ async def mcp_add_handler(
         error=info.error,
         auth=info.auth,
     )
+
+
+def _require_project_scope(core: Core, scope: str | None, workdir: Path | None) -> None:
+    """Security review 7, H-2: with snowpea's own home as the workdir, the
+    "project" ``.mcp.json`` IS the global one — refused for every caller."""
+    if scope == "project" and workdir is not None:
+        from snowpea_core.server.project_gate import require_project
+
+        require_project(core, workdir, dot=False)
+
+
+def _saved_by(conn: Any) -> str | None:
+    """``savedBy`` for an entry ``conn`` adds: its kind when it is a remote web
+    login (security review 7, H-3); ``None`` for the user's own entries."""
+    from snowpea_core.server.person_gate import connection_kind
+
+    kind = connection_kind(conn)
+    return kind if kind == "remote_login" else None
+
+
+def _shown_error(conn: Any, error: str | None) -> str | None:
+    """A probe's failure as ``conn`` may read it (security review 7, Low 5).
+
+    The text of a failed start can quote a command line, a path or what the
+    server answered: a local person (and an in-process caller) gets it; anyone
+    else the "needs authorization" marker or an id, with the text in the log.
+    """
+    from snowpea_core.server.person_gate import connection_kind
+
+    if not error or connection_kind(conn) in ("person", "none") or needs_auth(error):
+        return error
+    if "did not answer within" in error:
+        return error  # our own words: the name and the time limit
+    error_id = errors.new_error_id()
+    log.warning("mcp probe failed (error id %s): %s", error_id, error)
+    return f"the server could not be started (id {error_id})"
 
 
 def _project_digest(scope: str, path: Path) -> str | None:
@@ -659,6 +706,7 @@ def _writable(core: Core, name: str, scope: str, workdir: Path) -> Path:
             errors.MCP_READ_ONLY,
             f"'{name}' is declared by the {row.scope} scope{detail} and cannot be edited here",
         )
+    _require_project_scope(core, scope, workdir)
     try:
         return mcp_config.config_path(scope, core.paths.home, workdir)
     except mcp_config.McpConfigError as exc:
@@ -706,6 +754,11 @@ async def mcp_update_handler(
         entry = mcp_config.validate_entry(merged)
     except mcp_config.McpConfigError as exc:
         raise _invalid(exc) from exc
+    # ``savedBy`` (security review 7, H-3) stays while someone who is not a local
+    # person edits the entry; a local person's edit makes the entry theirs.
+    entry.pop(mcp_client.SAVED_BY_KEY, None)
+    if _saved_by(_conn) is not None and current.get(mcp_client.SAVED_BY_KEY):
+        entry[mcp_client.SAVED_BY_KEY] = current[mcp_client.SAVED_BY_KEY]
     # The same check as mcp.add, on what would be saved (1.33.0).  Only a
     # finding the patch brings in asks again: disabling an entry that was
     # added with acceptFindings does not.
@@ -801,6 +854,7 @@ async def mcp_test_handler(
         config = replace(parsed, inherited_vars=tuple(sorted(inherited)))
     MANAGER.bind(core)
     ok, tools, error, elapsed = await probe(config)
+    error = _shown_error(_conn, error)
     auth = auth_of(core.paths.home, config, None)
     if not ok and needs_auth(error):
         auth = McpAuthInfo(required=True, state="needs_auth", clientId=auth.clientId)

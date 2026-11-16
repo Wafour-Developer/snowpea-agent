@@ -63,14 +63,24 @@ class ModeCaller:
     actor: str | None = None
     #: For ``internal``: which legitimate path it is (for the log and the tests).
     why: str = ""
+    #: The caller snapshot ``kind`` came from, when the work was deferred
+    #: (``person_gate.CallerSnapshot``): its attributes are read, not ``conn``'s.
+    who: Any = None
 
     @classmethod
     def from_conn(cls, conn: Any, actor: str | None = None) -> ModeCaller:
         if conn is None:
             return NOBODY
-        from snowpea_core.server.person_gate import connection_kind
+        from snowpea_core.server.person_gate import CallerSnapshot, connection_kind
         from snowpea_core.server.rpc import current_actor
 
+        if isinstance(conn, CallerSnapshot):
+            # Security review 7, H-1: deferred work is judged by who asked for
+            # it when it was accepted; the connection is kept for identity only.
+            if conn.kind == "none":
+                return NOBODY
+            return cls(kind=conn.kind, conn=conn.conn, actor=conn.actor or actor,
+                       who=conn)
         # The dispatcher records every call's ``actor`` (any method): read it
         # from there when the handler's model does not carry it.
         return cls(kind=connection_kind(conn), conn=conn, actor=actor or current_actor())
@@ -91,17 +101,68 @@ PERSON_ANSWER = ModeCaller(kind="answer")
 def _browser_may(caller: ModeCaller, session: Any) -> bool:
     from snowpea_core.server.settings_gate import acts_for_person, legacy_browser
 
-    if legacy_browser(caller.conn):
+    subject = caller.who if caller.who is not None else caller.conn
+    if legacy_browser(subject):
         return True  # a browser from before the marker: as before
-    if not acts_for_person(caller.conn, caller.actor):
+    if not acts_for_person(subject, caller.actor):
         return False
     if session is None:
         return True  # a session it is creating now
-    mine = getattr(caller.conn, "client_id", None)
+    mine = getattr(subject, "client_id", None)
     host = getattr(session, "host_tools_from", None)
     if host is not None:
         return host == mine
-    return getattr(session, "origin_conn", None) is caller.conn
+    return caller.conn is not None and getattr(session, "origin_conn", None) is caller.conn
+
+
+#: ``web.remote.maxMode`` (security review 7): the widest mode a remote web
+#: login may put a session or a job in, or start work in.  ``auto`` (the
+#: default) is no limit.
+DEFAULT_REMOTE_MAX = "auto"
+
+
+def remote_max(settings: Any) -> str:
+    """``web.remote.maxMode`` of ``settings`` (missing or unknown: ``auto``, no limit)."""
+    remote = getattr(getattr(settings, "web", None), "remote", None)
+    value = getattr(remote, "maxMode", None)
+    return str(value) if value in MODE_ORDER else DEFAULT_REMOTE_MAX
+
+
+def effective_mode(session: Any) -> str:
+    """The mode ``session`` runs in (plan with "then auto" runs as ``auto``)."""
+    mode = getattr(session, "mode", None)
+    if mode == "plan" and getattr(session, "auto_after_plan", False):
+        return "auto"
+    return str(mode or "accept")
+
+
+def above_remote_max(kind: Any, mode: Any, settings: Any) -> str | None:
+    """The limit when a ``remote_login`` caller would run ``mode`` above it, else ``None``."""
+    if kind != "remote_login" or settings is None:
+        return None
+    limit = remote_max(settings)
+    return limit if rank(mode) > rank(limit) else None
+
+
+def check_remote_max(kind: Any, mode: Any, settings: Any, what: str, *,
+                     current: Any = None) -> None:
+    """Refuse a remote web login's ``what`` in ``mode`` above ``web.remote.maxMode``.
+
+    ``jarvis_person_only`` with ``details.reason: "mode_raise"`` and
+    ``details.max`` (the limit).  Other kinds are not judged.
+    """
+    limit = above_remote_max(kind, mode, settings)
+    if limit is None:
+        return
+    details = {"reason": REASON, "kind": "remote_login", "to": str(mode), "max": limit}
+    if current is not None:
+        details["from"] = str(current)
+    raise RpcError(
+        errors.JARVIS_PERSON_ONLY,
+        f"{what} in {mode} mode is above what a remote sign-in may use here "
+        f"(web.remote.maxMode: {limit}); do it on this computer",
+        details,
+    )
 
 
 def refusal(caller: ModeCaller | None, session: Any, current: Any, wanted: Any) -> str | None:
@@ -122,10 +183,21 @@ def refusal(caller: ModeCaller | None, session: Any, current: Any, wanted: Any) 
     return f"only a person may raise a session's mode to {wanted}"
 
 
-def check(caller: ModeCaller | None, session: Any, current: Any, wanted: Any) -> None:
-    """Raise ``jarvis_person_only`` (``details.reason: "mode_raise"``) for a refused raise."""
+def check(caller: ModeCaller | None, session: Any, current: Any, wanted: Any, *,
+          settings: Any = None) -> None:
+    """Raise ``jarvis_person_only`` (``details.reason: "mode_raise"``) for a refused raise.
+
+    With ``settings``: a remote web login's raise above ``web.remote.maxMode``
+    is refused too (``details.max``); for a new session or job (``session``
+    ``None``) so is starting above it at all, raise or not.
+    """
     reason = refusal(caller, session, current, wanted)
     if reason is None:
+        kind = (caller or NOBODY).kind
+        if session is None or raises(current, wanted):
+            check_remote_max(kind, wanted, settings,
+                             "starting work" if session is None else "raising a session",
+                             current=current)
         return
     kind = (caller or NOBODY).kind
     raise RpcError(errors.JARVIS_PERSON_ONLY, reason,
@@ -139,7 +211,11 @@ __all__ = [
     "PERSON_ANSWER",
     "REASON",
     "ModeCaller",
+    "above_remote_max",
     "check",
+    "check_remote_max",
+    "effective_mode",
+    "remote_max",
     "raises",
     "rank",
     "refusal",

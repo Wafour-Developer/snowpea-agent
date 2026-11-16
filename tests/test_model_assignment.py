@@ -179,16 +179,22 @@ def test_settings_set_still_rejects_an_unknown_profile() -> None:
         Settings.model_validate({"agents": {"models": {"executor": "nope"}}})
 
 
-def test_a_genuinely_broken_settings_file_still_raises(tmp_path: Path) -> None:
-    """Only model references are repaired; other errors are real errors."""
-    from pydantic import ValidationError
-
+def test_a_genuinely_broken_settings_file_no_longer_stops_the_daemon(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Security review 7, H-2: a file that does not validate loads degraded — the
+    failing section back to its defaults, the rest kept, the file as it was copied
+    beside it — instead of raising out of ``load`` (it used to: the daemon did not
+    start).  A live ``settings.set`` is still ``invalid_params`` (above)."""
     paths = Paths.create(tmp_path / "home")
-    paths.settings_json.write_text(
-        json.dumps({"agents": {"teams": {"delivery": "not-a-list"}}}), encoding="utf-8"
-    )
-    with pytest.raises(ValidationError):
-        Settings.load(paths)
+    text = json.dumps({"agents": {"teams": {"delivery": "not-a-list"}},
+                       "search": {"provider": "ddgs"}})
+    paths.settings_json.write_text(text, encoding="utf-8")
+    with caplog.at_level("ERROR"):
+        loaded = Settings.load(paths)
+    assert "delivery" not in loaded.agents.teams and loaded.search.provider == "ddgs"
+    assert "is not valid" in caplog.text and "agents" in caplog.text
+    assert paths.settings_json.with_name("settings.json.invalid").read_text("utf-8") == text
 
 
 # ---------------------------------------------------------------------------

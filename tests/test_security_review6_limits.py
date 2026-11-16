@@ -90,7 +90,10 @@ URL = {"url": "https://mcp.example.com/sse"}
     [
         (URL, None, False, False),  # a url-only server: add
         (URL, URL, False, False),
-        ({**URL, "headers": {"X": "y"}}, URL, False, False),
+        # Security review 7, H-3: a saved server's url/headers/oauth are a local
+        # person's to change (the daemon fills ${VAR} from credentials.json there).
+        ({**URL, "headers": {"X": "y"}}, URL, False, True),
+        ({**URL, "headers": {"X": "y"}}, None, False, False),  # a new one, no variable
         (URL, None, True, True),  # force / acceptFindings is a local person's
         (STDIO, None, False, True),  # a new server that runs a command
         ({"command": "prog"}, None, False, True),
@@ -101,7 +104,9 @@ URL = {"url": "https://mcp.example.com/sse"}
         ({**STDIO, "cwd": "/somewhere"}, STDIO, False, True),
         ({"command": "other", "args": ["--serve"]}, STDIO, False, True),
         (STDIO, URL, False, True),  # a url server turned into a command
-        (URL, STDIO, False, False),  # a command server turned into a url: takes away
+        # A command server turned into a url: a new target for a saved entry
+        # (security review 7, H-3; it was allowed as "takes away" in review 6).
+        (URL, STDIO, False, True),
     ],
 )
 def test_remote_mcp_rule(entry: dict[str, Any], saved: dict[str, Any] | None, accept: bool,
@@ -445,16 +450,19 @@ STARTS_A_PROCESS: dict[str, str] = {
     "mcp.add": "narrowed", "mcp.update": "narrowed", "mcp.test": "narrowed",
     "settings.set": "narrowed", "skill.install": "narrowed", "provider.configure": "narrowed",
     "job.schedule": "narrowed",
+    # Security review 7: a path only of a recording or an attachment (Info);
+    # only a global skill that widens nothing (M-1).
+    "audio.transcribe": "narrowed", "skill.create": "narrowed", "skill.learn": "narrowed",
     "mcp.reload": "fixed", "mcp.remove": "fixed", "session.create": "fixed",
     "session.resume": "fixed", "lsp.install": "fixed", "lsp.restart": "fixed",
-    "audio.install": "fixed", "audio.speak": "fixed", "audio.transcribe": "fixed",
+    "audio.install": "fixed", "audio.speak": "fixed",
     "audio.record.start": "fixed", "audio.record.stop": "fixed",
     "provider.loginWeb": "fixed", "external.create": "fixed", "external.open": "fixed",
     "external.send": "fixed", "checkpoint.restore": "fixed", "checkpoint.diff": "fixed",
     "file.complete": "fixed", "gateway.sync": "fixed", "system.reloadSettings": "fixed",
     "session.prompt": "turn", "session.steer": "turn", "session.continue": "turn",
     "command.run": "turn", "job.runNow": "turn", "agent.spawn": "turn", "team.start": "turn",
-    "skill.create": "turn", "skill.learn": "turn", "agent.create": "turn",
+    "agent.create": "refused",  # security review 7, M-1 (it was "turn")
     "system.update": "refused", "system.restart": "refused", "system.shutdown": "refused",
     "extension.enable": "refused", "extension.configure": "refused",
     "extension.reload": "refused", "external.clis.confirmPath": "refused",
@@ -664,8 +672,7 @@ async def test_exception_text_stays_with_a_local_person(
 @pytest.mark.parametrize(
     ("method", "browser"),
     [
-        ("agent.create", False),  # no browser calls these (the browser team's source check)
-        ("agent.delete", False),
+        ("agent.delete", False),  # no browser calls it (the browser team's source check)
         ("fs.write", True),  # ... the host's saves, into a session it hosts (test_fs_by_kind)
         ("checkpoint.restore", True),  # ... its own sessions only (below)
         ("session.deleteSaved", True),
