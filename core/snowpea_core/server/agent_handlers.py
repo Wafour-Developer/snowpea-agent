@@ -182,6 +182,12 @@ async def agent_spawn_handler(
     task = params.task.strip()
     if not task:
         raise RpcError(errors.INVALID_PARAMS, "agent.spawn needs a non-empty task")
+    # Security review 7, H-1: the child runs for this caller (and a remote login
+    # starts none in a session above web.remote.maxMode).
+    from snowpea_core.agent.loop import note_spawner
+    from snowpea_core.server.person_gate import accept_work
+
+    note_spawner(session, accept_work(conn, core, session, "starting a subagent"))
     agent_id, _runner = get_manager(core).spawn(
         session,
         task,

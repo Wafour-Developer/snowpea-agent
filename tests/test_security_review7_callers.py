@@ -402,6 +402,86 @@ async def test_session_prompt_and_steer_record_the_caller(core: Core, tmp_path: 
     session.turn_task.cancel()
 
 
+@pytest.mark.parametrize("name", ["person", "remote_login"])
+async def test_every_other_way_an_rpc_starts_work_carries_its_caller(
+    core: Core, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """``session.continue``, ``goal.set|resume``, ``agent.spawn``, ``team.start``."""
+    from snowpea_core.agent import subagent
+    from snowpea_core.server import agent_handlers, goal_handlers, team_handlers
+    from snowpea_core.server.host_handlers import session_continue_handler
+    from snowpea_core.server.protocol import (
+        AgentSpawnParams,
+        GoalControlParams,
+        GoalSetParams,
+        SessionContinueParams,
+        TeamStartParams,
+    )
+
+    conn, _actor = _callers()[name]
+    work = tmp_path / "project"
+    work.mkdir()
+    session = await core.sessions.create(work, origin_conn=conn)
+    started: list[Any] = []
+
+    def start_turn(_core: Any, _session: Any, _text: str, **kwargs: Any) -> str:
+        started.append(kwargs.get("who"))
+        return "t-new"
+
+    monkeypatch.setattr(agent_loop, "start_turn", start_turn)
+    await session_continue_handler(
+        conn, SessionContinueParams(sessionId=session.id, note="the tab is back"), core)
+    await goal_handlers.goal_set_handler(
+        conn, GoalSetParams(sessionId=session.id, objective="ship it", start=True), core)
+    await goal_handlers.goal_pause_handler(conn, GoalControlParams(sessionId=session.id), core)
+    await goal_handlers.goal_resume_handler(conn, GoalControlParams(sessionId=session.id), core)
+    assert [who.kind for who in started] == [name] * 3
+
+    # agent.spawn and team.start: the children answer with who asked the parent.
+    monkeypatch.setattr(subagent.SubagentManager, "spawn",
+                        lambda *_a, **_k: ("a-1", None), raising=False)
+    await agent_handlers.agent_spawn_handler(
+        conn, AgentSpawnParams(sessionId=session.id, name="", task="look around"), core)
+    child = SimpleNamespace(current_turn="t-child", turn_callers={},
+                            parent_session_id=session.id)
+    assert agent_loop.turn_caller(core, child).kind == name
+    session.turn_callers.clear()
+
+    class Teams:
+        async def start(self, *_a: Any, **_k: Any) -> str:
+            return "team-1"
+
+    monkeypatch.setattr(team_handlers, "get_manager_for", lambda _core: Teams())
+    await team_handlers.team_start_handler(
+        conn, TeamStartParams(sessionId=session.id, n=2, task="split it"), core)
+    assert agent_loop.turn_caller(core, child).kind == name
+    # The parent itself, idle, answers nobody: the record is for its children.
+    assert agent_loop.turn_caller(core, session) is person_gate.NOBODY
+
+    if name != "remote_login":
+        return
+    # ... and none of them starts work above web.remote.maxMode.
+    session.mode = "auto"
+    core.settings.web.remote.maxMode = "accept"
+    calls = [
+        lambda: session_continue_handler(
+            conn, SessionContinueParams(sessionId=session.id, note="again"), core),
+        lambda: goal_handlers.goal_set_handler(
+            conn, GoalSetParams(sessionId=session.id, objective="more", start=True), core),
+        lambda: goal_handlers.goal_resume_handler(
+            conn, GoalControlParams(sessionId=session.id), core),
+        lambda: agent_handlers.agent_spawn_handler(
+            conn, AgentSpawnParams(sessionId=session.id, name="", task="look"), core),
+        lambda: team_handlers.team_start_handler(
+            conn, TeamStartParams(sessionId=session.id, n=2, task="split it"), core),
+    ]
+    for call in calls:
+        with pytest.raises(RpcError) as caught:
+            await call()
+        assert caught.value.data["reason"] == "mode_raise"
+        assert caught.value.data["max"] == "accept"
+
+
 async def test_the_mcp_add_tool_is_judged_for_who_started_the_turn(
     core: Core, tmp_path: Path, no_processes: list[Any]
 ) -> None:

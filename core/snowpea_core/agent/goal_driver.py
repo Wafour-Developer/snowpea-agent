@@ -45,15 +45,20 @@ async def publish(core: Core, session: Session) -> None:
     await core.hub.emit_event(session.id, events.goal_changed(view(session)))
 
 
-def start_round(core: Core, session: Session) -> bool:
-    """Count and start the next round now, or block at the cap. True if one started."""
+def start_round(core: Core, session: Session, who: Any = None) -> bool:
+    """Count and start the next round now, or block at the cap. True if one started.
+
+    ``who``: the caller snapshot of the RPC that armed or resumed the goal — the
+    rounds run for that caller (security review 7, H-1).
+    """
     from snowpea_core.agent import loop
 
     began = goals.begin_round(session)
     if began is None:
         return False
     _goal, text = began
-    loop.start_turn(core, session, text, initiator="system", reason="goal")
+    loop.start_turn(core, session, text, initiator="system", reason="goal",
+                    **({"who": who} if who is not None else {}))
     return True
 
 

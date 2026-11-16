@@ -806,6 +806,12 @@ async def session_continue_handler(
         raise RpcError(errors.UNAUTHORIZED, "only the session's own surfaces may continue it")
     if session.is_subagent or getattr(session, "kind", "chat") != "chat":
         raise RpcError(errors.INVALID_PARAMS, f"{session.id} is not a chat session")
+    from snowpea_core.agent import loop as agent_loop
+    from snowpea_core.server.person_gate import accept_work
+
+    # Security review 7, H-1: the note is this caller's words — the turn that
+    # reads it is this caller's (and within web.remote.maxMode).
+    who = accept_work(conn, core, session, "continuing a session")
     key = (params.idempotencyKey or "").strip()
     if key and key in session.continue_keys:
         return SessionContinueResult(started=False, duplicate=True)
@@ -817,6 +823,7 @@ async def session_continue_handler(
     task = getattr(session, "turn_task", None)
     running = session.current_turn is not None or (task is not None and not task.done())
     if running:
+        agent_loop.note_caller(session, session.current_turn or "", who)
         session.pending_notices.append(f"({reason}) {note}")
         return SessionContinueResult(started=False, queued=True)
     now = time.monotonic()
@@ -826,8 +833,6 @@ async def session_continue_handler(
         session.pending_notices.append(f"({reason}) {note}")
         return SessionContinueResult(started=False, queued=True)
     session.last_system_start = now
-    from snowpea_core.agent import loop as agent_loop
-
     turn_id = agent_loop.start_turn(
         core,
         session,
@@ -835,6 +840,7 @@ async def session_continue_handler(
         model_text=f"[system] ({reason}) {note}",
         initiator="system",
         reason=reason,
+        who=who,
     )
     return SessionContinueResult(started=True, turnId=turn_id)
 

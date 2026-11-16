@@ -104,6 +104,24 @@ def snapshot(conn: Any, actor: str | None = None, *, caller: str | None = None,
     )
 
 
+def accept_work(conn: Any, core: Any, session: Any, what: str) -> CallerSnapshot:
+    """An RPC that starts work in ``session`` or adds to it: who asks, as of now.
+
+    Returns the caller's snapshot for the turn to carry (security review 7,
+    H-1), after refusing a remote web login that would start work in a session
+    above ``web.remote.maxMode`` (``jarvis_person_only``, ``mode_raise``,
+    ``details.max``).  The one place ``session.continue``, ``goal.set|resume``,
+    ``agent.spawn`` and ``team.start`` take their caller from.
+    """
+    from snowpea_core.server.rpc import current_actor
+    from snowpea_core.session import mode_guard
+
+    who = snapshot(conn, current_actor(), origin="human")
+    mode_guard.check_remote_max(who.kind, mode_guard.effective_mode(session),
+                                getattr(core, "settings", None), what)
+    return who
+
+
 def live_conn(conn: Any) -> Any:
     """The connection behind ``conn`` (itself, or a snapshot's), for identity checks."""
     return conn.conn if isinstance(conn, CallerSnapshot) else conn

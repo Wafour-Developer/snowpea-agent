@@ -77,13 +77,18 @@ async def goal_set_handler(
 ) -> GoalResult:
     session = _live(core, params.sessionId)
     _may_drive(session)
+    # Security review 7: who arms the goal (its rounds run for that caller),
+    # within web.remote.maxMode.
+    from snowpea_core.server.person_gate import accept_work
+
+    who = accept_work(_conn, core, session, "setting a goal")
     try:
         goals.start(session, params.objective, params.maxRounds)
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     # goal.changed goes out before the round's turn.started (1.50.0).
     await goal_driver.publish(core, session)
-    if params.start and _idle(session) and not goal_driver.start_round(core, session):
+    if params.start and _idle(session) and not goal_driver.start_round(core, session, who):
         await goal_driver.publish(core, session)
     return _result(session)
 
@@ -104,13 +109,16 @@ async def goal_resume_handler(
     _may_drive(session)
     if getattr(session, "goal", None) is None:
         raise RpcError(errors.NOT_FOUND, "this session has no goal")
+    from snowpea_core.server.person_gate import accept_work
+
+    who = accept_work(_conn, core, session, "resuming a goal")
     goal = goals.resume(session, max(0, int(params.extraRounds or 0)))
     await goal_driver.publish(core, session)
     if (
         goal is not None
         and goal.phase == "active"
         and _idle(session)
-        and not goal_driver.start_round(core, session)
+        and not goal_driver.start_round(core, session, who)
     ):
         await goal_driver.publish(core, session)
     return _result(session)

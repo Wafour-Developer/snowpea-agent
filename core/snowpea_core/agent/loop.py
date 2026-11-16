@@ -1665,7 +1665,7 @@ def note_caller(session: Session, turn_id: str, who: Any) -> None:
     local person replaces a local person's or an unknown one, never the reverse.
     """
     callers = getattr(session, "turn_callers", None)
-    if who is None or callers is None or not turn_id:
+    if who is None or callers is None or not turn_id:  # ("" is SPAWNER: note_spawner's)
         return
     known = callers.get(turn_id)
     if known is not None and (
@@ -1675,7 +1675,24 @@ def note_caller(session: Session, turn_id: str, who: Any) -> None:
         return
     callers[turn_id] = who
     while len(callers) > 64:
-        callers.pop(next(iter(callers)))
+        callers.pop(next(key for key in callers if key != SPAWNER))
+
+
+#: ``Session.turn_callers`` key for work started in an IDLE session's name by an
+#: RPC (``agent.spawn``, ``team.start``): the children it runs have no turn of
+#: the parent to answer for them.
+SPAWNER = ""
+
+
+def note_spawner(session: Session, who: Any) -> None:
+    """Record who asked ``session`` to run children or workers (``agent.spawn``,
+    ``team.start``): they answer with this caller while the session has no turn
+    of its own running, and a running turn is that caller's too from now on."""
+    callers = getattr(session, "turn_callers", None)
+    if who is None or callers is None:
+        return
+    callers[SPAWNER] = who
+    note_caller(session, getattr(session, "current_turn", None) or "", who)
 
 
 def turn_caller(core: Any, session: Any) -> Any:
@@ -1683,18 +1700,20 @@ def turn_caller(core: Any, session: Any) -> Any:
 
     A delegated child, a team worker or a fork answers with its parent's: the
     chain of ``parent_session_id`` is followed to the first session whose
-    running turn has a recorded caller.  Nobody recorded (a messenger turn, an
-    in-process start): ``person_gate.NOBODY``.
+    running turn has a recorded caller (for a parent with no turn running: who
+    last asked it to run children, :func:`note_spawner`).  Nobody recorded (a
+    messenger turn, an in-process start): ``person_gate.NOBODY``.
     """
     from snowpea_core.server.person_gate import NOBODY
 
     sessions = getattr(core, "sessions", None)
     current = session
-    for _ in range(16):
+    for depth in range(16):
         if current is None:
             break
         turn = getattr(current, "current_turn", None)
-        who = getattr(current, "turn_callers", {}).get(turn) if turn else None
+        callers = getattr(current, "turn_callers", {})
+        who = callers.get(turn) if turn else (callers.get(SPAWNER) if depth else None)
         if who is not None:
             return who
         parent = getattr(current, "parent_session_id", None)
