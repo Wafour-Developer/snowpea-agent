@@ -101,7 +101,7 @@ async def _guard(conn: RpcConnection, core: Core, job_id: str, action: str) -> N
         raise RpcError(
             errors.UNAUTHORIZED, f"job {job_id} is owned by its browser; cannot {action} it"
         )
-    if job is not None and job.target == "jarvis-task" and action in ("update", "run"):
+    if job is not None and job.target == "jarvis-task":
         # A Jarvis task's prompt runs unattended and is handed to Jarvis: only a
         # person rewrites or fires it (security review M6/M9).
         from snowpea_core.server.person_gate import require_person

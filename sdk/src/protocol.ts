@@ -287,6 +287,8 @@ export interface ApprovalListResult {
   requests?: ({
     /** Arguments it wants to use. */
     args?: Record<string, unknown>;
+    /** True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). */
+    argsEscaped?: boolean | null;
     /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
     diff?: string | null;
     /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
@@ -342,6 +344,8 @@ export interface ApprovalListResult {
 export interface ApprovalRequestParams {
   /** Arguments it wants to use. */
   args?: Record<string, unknown>;
+  /** True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). */
+  argsEscaped?: boolean | null;
   /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
   diff?: string | null;
   /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
@@ -394,6 +398,8 @@ export interface ApprovalRequestParams {
 
 /** `approval.request` result. */
 export interface ApprovalRequestResult {
+  /** A browser host (clientKind 'browser', clientVersion 0.3.0 or later) sets 'person' when the answer came from a click; without it an allow wider than 'once' counts as 'once' (security review 3). Ignored for other kinds. */
+  actor?: "person" | null;
   /** The human's decision. */
   decision: "allow" | "deny";
   /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
@@ -404,6 +410,8 @@ export interface ApprovalRequestResult {
 
 /** `approval.respond` params. Answer a pending approval and unblock the turn. */
 export interface ApprovalRespondParams {
+  /** A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set 'person' (a click) to allow with a scope wider than 'once' (security review 3); ignored for other kinds. */
+  actor?: "person" | null;
   /** allow runs the tool, deny ends the turn. */
   decision: "allow" | "deny";
   /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
@@ -465,6 +473,8 @@ export interface AudioCapabilitiesResult {
 
 /** `audio.install` params. Install a local voice engine (or one of its voices) and re-run detection. */
 export interface AudioInstallParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Engine id from the setup catalog: faster-whisper (or local-whisper), piper, edge-tts. A system package (espeak-ng, say, powershell) answers ok=false with a hint instead. */
   engine: string;
   /** Install one of the engine's voices rather than the engine itself, e.g. piper's ko_KR-kss-medium. Same staged progress; installing a voice does not select it. */
@@ -755,6 +765,8 @@ export interface CommandListResult {
 
 /** `command.run` params. Run a slash command; the only execution path for them. */
 export interface CommandRunParams {
+  /** Browser marker (security review 3): a browser 0.3.0+ must send 'person' to run a command that persists a marker-required setting (commands/persists.py); ignored for other kinds. */
+  actor?: "person" | null;
   /** Raw argument string, as typed after the name. */
   args?: string;
   /** Command name without the leading slash. */
@@ -1658,6 +1670,8 @@ export interface FsWriteResult {
 
 /** `gateway.bind` params. Attach the daemon to a chat platform channel. */
 export interface GatewayBindParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Restrict the binding to one chat, channel or room. */
   channelId?: string | null;
   /** Name of the credential to use: a key in credentials.json or an env var. */
@@ -2358,6 +2372,8 @@ export interface JarvisLedgerResult {
     kind: "approval" | "question" | "continue" | "prompt" | "interrupt" | "escalate" | "unrestricted";
     /** Project root of that session. */
     project?: string | null;
+    /** True on a 'risky' approval the engine judged read-only but would not allow alone (rule 'exec:read-like', 1.53.0): a read-only git form at the project's top level, an inspection from an external CLI's shell, or one with a glob, a recursive or symlink-following option or an expansion. Jarvis decides these at either level, once. */
+    readOnly?: boolean | null;
     /** Why, as Jarvis or the engine stated it. */
     reason?: string;
     /** Approval or question id, when one. */
@@ -2605,6 +2621,8 @@ export interface JarvisTakeoverResult {
 
 /** `job.cancel` params. Cancel a scheduled job. */
 export interface JobCancelParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Target job. */
   jobId: string;
 }
@@ -2617,6 +2635,8 @@ export interface JobCancelResult {
 
 /** `job.delete` params. Delete a job, its schedule and run history; optionally its run sessions. */
 export interface JobDeleteParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Also delete the sessions its runs opened, with their workspaces, as session.deleteSaved does. A run still in progress is left alone. */
   deleteRuns?: boolean;
   /** Job to delete, with its schedule and run history. */
@@ -2720,6 +2740,8 @@ export interface JobPreviewResult {
 
 /** `job.runNow` params. Fire a scheduled job immediately. */
 export interface JobRunNowParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Target job. */
   jobId: string;
 }
@@ -2763,6 +2785,8 @@ export interface JobRunsResult {
 
 /** `job.schedule` params. Schedule a prompt to run unattended. */
 export interface JobScheduleParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Named agent that runs the task. */
   agent?: string | null;
   /** Gateway channel that receives the output. */
@@ -2806,6 +2830,8 @@ export interface JobScheduleResult {
 
 /** `job.update` params. Change an existing job (addendum 12). */
 export interface JobUpdateParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** False pauses the job (no next firing); true resumes it from now on its schedule. */
   enabled?: boolean | null;
   /** Job to change. */
@@ -2945,6 +2971,8 @@ export interface LspCatalogResult {
 
 /** `lsp.install` params. Install language servers the user asked for, even with lsp.autoInstall off. */
 export interface LspInstallParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Server ids to install. Null: every installable server that is enabled and not available. Runs even with lsp.autoInstall false: the request is the consent. */
   ids?: string[] | null;
 }
@@ -3004,6 +3032,8 @@ export interface LspStatusResult {
 export interface McpAddParams {
   /** Add the entry despite the security findings mcp_unsafe reported (1.33.0). Does not let it overwrite a name already declared in the file. */
   acceptFindings?: boolean;
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Arguments, argv style; never a shell string. */
   args?: string[] | null;
   /** Executable for a stdio server. */
@@ -3089,6 +3119,8 @@ export interface McpAddResult {
 
 /** `mcp.authorize` params. Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0). */
 export interface McpAuthorizeParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Server name. */
   name: string;
   /** OAuth scopes to ask for; default: the entry's oauth.scope, then the server's WWW-Authenticate scope, then its advertised scopes_supported. */
@@ -3171,6 +3203,8 @@ export interface McpCatalogResult {
 
 /** `mcp.deauthorize` params. Forget a remote MCP server's stored OAuth tokens (1.34.0). */
 export interface McpDeauthorizeParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Server name. */
   name: string;
   /** Forget the sign-in of this scope's declaration; omitted, the one in effect, or every record of the name when none is declared. */
@@ -3495,6 +3529,8 @@ export interface McpPresetRemoveResult {
 
 /** `mcp.reload` params. Restart one MCP server, or every configured one. */
 export interface McpReloadParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Server to restart; all of them when absent. */
   name?: string | null;
   /** Session whose workdir to use. */
@@ -3513,6 +3549,8 @@ export interface McpReloadResult {
 
 /** `mcp.remove` params. Delete an MCP server entry and stop the server. */
 export interface McpRemoveParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Server name. */
   name: string;
   /** Which file to rewrite; omitted, the one that declares it. */
@@ -3531,6 +3569,8 @@ export interface McpRemoveResult {
 
 /** `mcp.test` params. Probe a saved MCP server or an unsaved draft and report its tools. */
 export interface McpTestParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Arguments, argv style; never a shell string. */
   args?: string[] | null;
   /** Executable for a stdio server. */
@@ -3614,6 +3654,8 @@ export interface McpTestResult {
 export interface McpUpdateParams {
   /** Save the entry although the patch brings in a security finding; without it that is mcp_unsafe, as in mcp.add (1.33.0). */
   acceptFindings?: boolean;
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Environment variables to delete from the saved entry (1.33.0). */
   envRemove?: string[] | null;
   /** Same as acceptFindings here (1.33.0). */
@@ -3813,6 +3855,8 @@ export interface MemorySearchResult {
 
 /** `memory.update` params. Edit one stored memory in place; it becomes confirmed (1.28.0). */
 export interface MemoryUpdateParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Memory id. */
   id: string;
   /** The new text; refused like memory.write when it holds a value. */
@@ -3868,6 +3912,8 @@ export interface MemoryWriteResult {
 
 /** `permission.allowlist.add` params. Promote a pattern from ask to allow. */
 export interface PermissionAllowlistAddParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Glob or command prefix promoted from ask to allow. */
   pattern: string;
   /** Where the pattern is stored. */
@@ -3917,6 +3963,8 @@ export interface PermissionAllowlistListResult {
 
 /** `permission.allowlist.remove` params. Delete an allowlist pattern by id. */
 export interface PermissionAllowlistRemoveParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** When given, a global entry is removed only if it belongs to this browser profile (addendum 8). */
   hostToolsFrom?: string | null;
   /** Pattern to delete. */
@@ -3933,6 +3981,8 @@ export interface PermissionAllowlistRemoveResult {
 
 /** `provider.configure` params. Store settings and credentials for a provider. */
 export interface ProviderConfigureParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Vendor-specific settings, including credentials. */
   config?: Record<string, unknown>;
   /** Vendor to configure. */
@@ -3985,6 +4035,8 @@ export interface ProviderListResult {
 
 /** `provider.loginWeb` params. Start a browser-based login flow for a provider. */
 export interface ProviderLoginWebParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Login flow to start: 'browser_pkce' or 'google_oauth' (browser), 'device_code' or 'google_adc' (headless), 'oauth_pkce' (OpenRouter). 'web' or an empty value picks the best flow this machine can complete. */
   method: string;
   /** Vendor to log into. */
@@ -4051,6 +4103,8 @@ export interface ProviderModelsResult {
 
 /** `provider.remove` params. Forget a configured provider, typically a named local server. */
 export interface ProviderRemoveParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Provider to forget: its credentials, its model profiles and the agent assignments that used them. */
   vendor: string;
 }
@@ -4089,6 +4143,8 @@ export interface ProviderTestResult {
 
 /** `provider.visionReset` params. Forget the learned vision answer for a model so the next picture is tried again (1.41.0, capability 'visionNotice'). A configured providers.<v>.vision wins as before. */
 export interface ProviderVisionResetParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Model whose learned 'cannot see images' answer is forgotten; null: the vendor's current model. */
   model?: string | null;
   /** Vendor to reset; defaults to the configured one. */
@@ -4209,6 +4265,8 @@ export interface QuestionRequestResult {
 
 /** `question.respond` params. Answer a pending question and unblock the turn. */
 export interface QuestionRespondParams {
+  /** A browser host sets 'person' when a click answered another session's question (security review 3); a browser or connector otherwise answers only its own sessions' questions (not_found). Ignored for other kinds. */
+  actor?: "person" | null;
   /** One entry per question, in question order; empty declines the batch. */
   answers?: ({
     /** Labels the human picked, in the order offered. */
@@ -5211,6 +5269,8 @@ export interface SettingsGetResult {
 
 /** `settings.set` params. Deep-merge a patch into global or project settings and persist it. */
 export interface SettingsSetParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
   /** Fields to deep-merge into the existing settings. */
   patch: Record<string, unknown>;
   /** "global" writes $SNOWPEA_HOME/settings.json; "project" writes <workdir>/.snowpea/settings.json. */
@@ -5227,6 +5287,8 @@ export interface SettingsSetResult {
 
 /** `setup.applyDefaults` params. Apply the profile's defaults for everything optional; idempotent. */
 export interface SetupApplyDefaultsParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Which defaults to apply. */
   profile?: "default" | "browser";
 }
@@ -6981,6 +7043,8 @@ export interface SiteStatsResult {
 
 /** `skill.create` params. Write a new SKILL.md, generated from a brief or supplied verbatim. */
 export interface SkillCreateParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** A complete SKILL.md body. When given, it is validated and written directly — no model turn runs. */
   content?: string | null;
   /** Natural-language brief. Used only when 'content' is omitted: the daemon starts the same generating turn '/skill create' runs and answers with a turnId rather than waiting for it. */
@@ -7011,6 +7075,8 @@ export interface SkillCreateResult {
 
 /** `skill.install` params. Install a skill from a path, URL or registry. */
 export interface SkillInstallParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Local plugin directory only: install it as a symlink instead of a copy, so edits are live after skill.reload (development). skill.remove drops the link and leaves the directory alone. */
   link?: boolean;
   /** Path, URL or registry name to install from. */
@@ -7025,6 +7091,8 @@ export interface SkillInstallResult {
 
 /** `skill.learn` params. Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.28.0). Answers when it is written and loaded. */
 export interface SkillLearnParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Overwrite a SKILL.md already at the target; otherwise that is refused. */
   force?: boolean;
   /** Skill name; omit to let the model name it. */
@@ -7111,7 +7179,10 @@ export interface SkillReadResult {
 }
 
 /** `skill.reload` params. Reload skills from disk without restarting. */
-export type SkillReloadParams = Record<string, unknown>;
+export interface SkillReloadParams {
+  /** 'person' when a browser host (clientKind 'browser', clientVersion 0.3.0 or later; capability 'browserActor') makes the call from its own Settings page under a user gesture. Required from such a browser on the marker methods (jarvis_person_only otherwise); accepted and ignored from every other connection. Any other value is invalid_params. */
+  actor?: "person" | null;
+}
 
 /** `skill.reload` result. */
 export interface SkillReloadResult {
@@ -7121,6 +7192,8 @@ export interface SkillReloadResult {
 
 /** `skill.remove` params. Delete a plugin, or a global or project skill, agent or command (1.33.0). */
 export interface SkillRemoveParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Only this kind of entry (1.33.0): a skill directory, an agent or command .md file, or a plugin. */
   kind?: "skill" | "agent" | "command" | "plugin" | null;
   /** Entry to delete: a skill, agent or command name, or a plugin's directory or manifest name as skill.list shows it (1.33.0). */
@@ -7187,6 +7260,8 @@ export interface SkillSearchResult {
 
 /** `skill.write` params. Save a skill's SKILL.md verbatim; says where, and whether it is in effect. */
 export interface SkillWriteParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** Full SKILL.md text to save. */
   content: string;
   /** Write an agent or a command instead of a skill (1.36.0): the file is agents/<name>.md or commands/<name>.md in the same places a skill's directory would be. Omitted or 'skill', the SKILL.md as before. */
@@ -7339,7 +7414,10 @@ export interface SystemInfoResult {
 }
 
 /** `system.reloadSettings` params. Re-read settings.json and rebind the daemon's in-memory state. */
-export type SystemReloadSettingsParams = Record<string, unknown>;
+export interface SystemReloadSettingsParams {
+  /** 'person' when a browser host (clientKind 'browser', clientVersion 0.3.0 or later; capability 'browserActor') makes the call from its own Settings page under a user gesture. Required from such a browser on the marker methods (jarvis_person_only otherwise); accepted and ignored from every other connection. Any other value is invalid_params. */
+  actor?: "person" | null;
+}
 
 /** `system.reloadSettings` result. */
 export interface SystemReloadSettingsResult {
@@ -7476,6 +7554,8 @@ export interface TeamGuideListResult {
 
 /** `team.guide.set` params. Write a team guide to the project or global home. */
 export interface TeamGuideSetParams {
+  /** Browser marker (security review 3): see ActorParams. */
+  actor?: "person" | null;
   /** One-line summary. */
   description?: string | null;
   /** Persona body to store. */
@@ -7974,6 +8054,8 @@ export interface ApprovalPendingPayload {
   request: {
     /** Arguments it wants to use. */
     args?: Record<string, unknown>;
+    /** True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). */
+    argsEscaped?: boolean | null;
     /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
     diff?: string | null;
     /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
@@ -8027,10 +8109,12 @@ export interface ApprovalPendingPayload {
 
 /** `approval.resolved` notification payload. */
 export interface ApprovalResolvedPayload {
-  /** Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session decided within its delegation) and 'jarvis:auto' (the delegation engine allowed a safe request without a model call). */
+  /** Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session decided within its delegation), 'jarvis:auto' (the delegation engine allowed a safe request without a model call) and 'rerouted' (with outcome 'withdrawn'). */
   by: string;
-  /** The decision that was recorded. */
-  decision: "allow" | "deny";
+  /** The decision that was recorded; null only with outcome 'withdrawn' (1.53.0). */
+  decision?: "allow" | "deny" | null;
+  /** 'withdrawn' (1.53.0, security review 3): the request is no longer this connection's to show — sent only to a browser connection when a request it showed was routed to Jarvis. Nothing was decided; stop showing it. If it is routed back to the person the browser gets approval.pending again. */
+  outcome?: "withdrawn" | null;
   /** Request that was resolved. */
   requestId: string;
 }
@@ -8261,6 +8345,8 @@ export interface JarvisDecisionPayload {
     kind: "approval" | "question" | "continue" | "prompt" | "interrupt" | "escalate" | "unrestricted";
     /** Project root of that session. */
     project?: string | null;
+    /** True on a 'risky' approval the engine judged read-only but would not allow alone (rule 'exec:read-like', 1.53.0): a read-only git form at the project's top level, an inspection from an external CLI's shell, or one with a glob, a recursive or symlink-following option or an expansion. Jarvis decides these at either level, once. */
+    readOnly?: boolean | null;
     /** Why, as Jarvis or the engine stated it. */
     reason?: string;
     /** Approval or question id, when one. */
@@ -8545,8 +8631,10 @@ export interface QuestionPendingPayload {
 
 /** `question.resolved` notification payload. */
 export interface QuestionResolvedPayload {
-  /** Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session answered within its delegation). */
+  /** Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session answered within its delegation) and 'rerouted' (with outcome 'withdrawn'). */
   by: string;
+  /** 'withdrawn' (1.53.0, security review 3): sent only to a browser connection when a question it showed was routed to Jarvis; nothing was answered. */
+  outcome?: "withdrawn" | null;
   /** Question that was resolved. */
   requestId: string;
 }

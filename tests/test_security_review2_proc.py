@@ -175,7 +175,12 @@ def test_a_trusted_record_kills_only_its_own_group(
 ) -> None:
     home = tmp_path / "home"
     _record(home, f"{child.pid}.json", **_good(child.pid))
-    assert ProcessSupervisor(home).reap_orphans() == 1
+    supervisor = ProcessSupervisor(home)
+    assert supervisor.reap_orphans() == 0  # nothing pinned for claude (review 3, N15)
+    assert signals == []
+    _record(home, f"{child.pid}.json", **_good(child.pid))
+    supervisor.pin("claude", sys.executable)
+    assert supervisor.reap_orphans() == 1
     assert ("killpg", child.pid, 9) in signals
     assert ("kill", child.pid, 9) in signals
     assert all(target == child.pid for _name, target, _sig in signals)

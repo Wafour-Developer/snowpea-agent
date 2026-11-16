@@ -1058,6 +1058,15 @@ class ProcessSupervisor:
         self.helpers_started = 0
         self._helper_slots: asyncio.Semaphore | None = None
         self._closed = False
+        #: cli -> the executables snowpea pinned for it (discovery, spawns).  An
+        #: orphan is killed only when it runs one of these, never by what its
+        #: own pid record says (security review 3, N15).
+        self._pinned: dict[str, set[str]] = {}
+
+    def pin(self, cli: str, executable: str | None) -> None:
+        """Remember ``executable`` as ``cli``'s configured, pinned binary."""
+        if isinstance(executable, str) and os.path.isabs(executable):
+            self._pinned.setdefault(cli, set()).add(executable)
 
     @property
     def max_processes(self) -> int:
@@ -1197,6 +1206,7 @@ class ProcessSupervisor:
             ) from exc
         finally:
             self._reserved -= 1
+        self.pin(cli, argv[0])
         pid_file = self._write_pid_file(proc.pid, cli, ref, exe=argv[0])
         handle = ExternalProcess(proc, cli=cli, ref=ref, supervisor=self, pid_file=pid_file)
         self._live[proc.pid] = handle
@@ -1280,7 +1290,7 @@ class ProcessSupervisor:
                 continue
             if pid in mine:
                 continue
-            if self._same_process(pid, record):
+            if self._same_process(pid, record, self._pinned):
                 self._kill_now(pid, record.get("pgid"))
                 killed += 1
                 log.info("stopped an orphaned %s process (pid %d)", record.get("cli"), pid)
@@ -1289,7 +1299,12 @@ class ProcessSupervisor:
         return killed
 
     @staticmethod
-    def _same_process(pid: int, record: Mapping[str, Any]) -> bool:
+    def _same_process(
+        pid: int, record: Mapping[str, Any], pinned: Mapping[str, set[str]] | None = None
+    ) -> bool:
+        """The live ``pid`` is the CLI ``record`` names, by start time and by the
+        executable snowpea pinned for ``record["cli"]`` (N15): the record's own
+        ``exe`` is only a hint a forged file could fill with anything."""
         if not _killable_pid(pid) or not pid_alive(pid):
             return False
         daemon = record.get("daemonPid")
@@ -1302,10 +1317,11 @@ class ProcessSupervisor:
             return False  # no identity stamp: never killed
         if process_start_time(pid) != recorded:
             return False
-        exe = record.get("exe")
-        if not isinstance(exe, str) or not os.path.isabs(exe):
-            return False
-        return process_runs(pid, exe)
+        cli = record.get("cli")
+        expected = (pinned or {}).get(cli) if isinstance(cli, str) else None
+        if not expected:
+            return False  # nothing pinned for that CLI: never killed
+        return any(process_runs(pid, exe, argv_words=2) for exe in sorted(expected))
 
     @staticmethod
     def _kill_now(pid: int, pgid: Any) -> None:
@@ -1402,8 +1418,11 @@ def _orphan_group(pid: int, pgid: Any) -> int | None:
     return pgid
 
 
-def process_runs(pid: int, exe: str) -> bool:
-    """True when ``pid`` runs ``exe`` (directly or as a script its interpreter runs)."""
+def process_runs(pid: int, exe: str, argv_words: int = 3) -> bool:
+    """True when ``pid`` runs ``exe`` (directly or as a script its interpreter runs).
+
+    ``argv_words``: how many leading ``argv`` words may name it (a node-script
+    CLI is ``node <script>``)."""
     want = os.path.realpath(exe)
     if sys.platform.startswith("linux"):
         with contextlib.suppress(OSError):
@@ -1413,7 +1432,8 @@ def process_runs(pid: int, exe: str) -> bool:
             raw = Path(f"/proc/{pid}/cmdline").read_bytes()
         except OSError:
             return False
-        head = [part.decode("utf-8", "replace") for part in raw.split(b"\x00")[:3] if part]
+        head = [part.decode("utf-8", "replace")
+                for part in raw.split(b"\x00")[:argv_words] if part]
         return any(
             part in (exe, want) or (os.path.isabs(part) and os.path.realpath(part) == want)
             for part in head

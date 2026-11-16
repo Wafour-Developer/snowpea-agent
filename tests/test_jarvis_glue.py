@@ -350,7 +350,7 @@ async def test_requests_pending_at_enable_are_routed_and_reach_the_chat_once(rig
     )
     safe = asyncio.ensure_future(
         core.approvals.request(
-            worker, "shell", {"command": "git status"}, unattended=True, tags=("exec",)
+            worker, "shell", {"command": "ls -la"}, unattended=True, tags=("exec",)
         )
     )
     await _wait(lambda: len(core.approvals.list()) == 2)

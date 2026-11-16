@@ -732,6 +732,13 @@ def _host_tools_connection(session: Any) -> Any:
 
 #: Daemon-wide events only people's connections receive (security review L6).
 PERSON_ONLY_EVENTS: frozenset[str] = frozenset({"external.state", "external.clis.changed"})
+#: Events about one pending approval or question: a browser or the connector
+#: gets them only for requests it may see, and a browser never sees Jarvis's
+#: routing (security review 3, ``settings_gate.request_event_for``).
+REQUEST_EVENTS: frozenset[str] = frozenset({
+    "approval.pending", "question.pending", "approval.resolved", "question.resolved",
+    "approval.route.changed", "question.route.changed",
+})
 
 
 def person_only_event(method: str) -> bool:
@@ -895,6 +902,10 @@ class EventHub:
         people_only = person_only_event(method)
         if people_only:
             from snowpea_core.server.person_gate import is_person
+        request_event = method in REQUEST_EVENTS
+        public = params
+        if request_event and "_request" in params:
+            public = {k: v for k, v in params.items() if k != "_request"}
         for conn in targets:
             if conn is exclude or any(other is conn for other in seen):
                 continue
@@ -904,9 +915,17 @@ class EventHub:
                 # A client connection that is not a person (in-process listeners,
                 # which have no client kind, still hear everything).
                 continue
+            out_method, out_params = method, public
+            if request_event and hasattr(conn, "client_kind"):
+                from snowpea_core.server.settings_gate import request_event_for
+
+                translated = request_event_for(conn, method, params, self.sessions)
+                if translated is None:
+                    continue
+                out_method, out_params = translated
             seen.append(conn)
             try:
-                await conn.notify(method, params)
+                await conn.notify(out_method, out_params)
             except Exception:  # noqa: BLE001
                 log.debug("dropping %s for a closed connection", method, exc_info=True)
 

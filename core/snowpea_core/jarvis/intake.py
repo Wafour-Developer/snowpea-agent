@@ -577,9 +577,14 @@ class Intake:
             await self._auto_allow(digest, request, session, decision, label, summary)
             return
         if route == "jarvis":
+            marker = (
+                " [read-like]"
+                if decision is not None and getattr(decision.verdict, "read_only", False)
+                else ""
+            )
             self._queue_routed(
                 WakeItem(
-                    _one_line(f"{kind} {request_id} in {label}: {summary}", LINE_MAX),
+                    _one_line(f"{kind} {request_id}{marker} in {label}: {summary}", LINE_MAX),
                     session_id=session_id,
                     request_id=request_id,
                     reason="question" if kind == "question" else _escalation_reason(decision),

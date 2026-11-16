@@ -134,6 +134,8 @@ def adopt_hello(core: Core, conn: RpcConnection, params: Any) -> None:
     connection its origin again, so approvals and ``tool.invoke`` reach it.
     """
     conn.client_kind = params.clientKind
+    #: The client's own version (the browser gate's legacy cut-over, settings_gate).
+    conn.client_version = getattr(params, "clientVersion", None)
     conn.client_id = params.clientId
     conn.instance_id = params.instanceId
     if params.clientId:

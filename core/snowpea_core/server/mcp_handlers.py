@@ -66,6 +66,7 @@ from snowpea_core.server.protocol import (
     Ok,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
+from snowpea_core.server.settings_gate import guard_call
 from snowpea_core.tools import mcp_catalog, mcp_client, mcp_config, mcp_oauth, mcp_security
 from snowpea_core.tools.mcp_client import MANAGER, McpServer, McpServerConfig
 
@@ -395,14 +396,26 @@ def preset_entry(preset: str | None) -> dict[str, Any]:
     return dict(row["entry"])
 
 
-def _guard_read_tag(conn: RpcConnection | None, permission: str | None) -> None:
+def _guard_read_tag(
+    conn: RpcConnection | None, permission: str | None, actor: str | None = None,
+    core: Any = None,
+) -> None:
     """Tagging a server ``read`` makes its tools run unasked (and safe for Jarvis):
     only a person at a local connection may do that over RPC (security review H2).
     Narrower tags (``network``, ``send``, ``secret``) stay open to every caller."""
     if conn is None or permission != "read":
         return
-    from snowpea_core.server.person_gate import require_person
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.person_gate import connection_kind, require_person
 
+    if (
+        connection_kind(conn) == "browser"
+        and settings_gate.acts_for_person(conn, actor)
+        and not settings_gate.jarvis_authority(core)
+    ):
+        # The browser's own MCP page, for its person, while Jarvis mode is off
+        # (browser team's inventory; with Jarvis on it is the dispatcher's jarvis_on).
+        return
     require_person(conn, "tag an MCP server 'read'", local=True)
 
 
@@ -531,7 +544,8 @@ async def mcp_add_handler(
     _conn: RpcConnection | None, params: McpAddParams, core: Core
 ) -> McpAddResult:
     """``mcp.add`` — validate, probe, write the file, then start the server."""
-    _guard_read_tag(_conn, params.permission)
+    guard_call(_conn, params.actor, core, method="mcp.add", key=("mcp", "servers", params.name))
+    _guard_read_tag(_conn, params.permission, params.actor, core)
     try:
         name = mcp_config.validate_name(params.name)
         entry = mcp_config.validate_entry(entry_from(params, preset_entry(params.preset)))
@@ -625,6 +639,8 @@ async def mcp_remove_handler(
     _conn: RpcConnection | None, params: McpRemoveParams, core: Core
 ) -> Ok:
     """``mcp.remove`` — drop the entry, stop the server, drop its tools."""
+    guard_call(_conn, params.actor, core, method="mcp.remove",
+               key=("mcp", "servers", params.name))
     workdir = workdir_of(core, params.sessionId, params.workdir)
     scope = scope_for(core, params.name, params.scope, workdir)
     path = _writable(core, params.name, scope, workdir)
@@ -639,7 +655,9 @@ async def mcp_update_handler(
     _conn: RpcConnection | None, params: McpUpdateParams, core: Core
 ) -> Ok:
     """``mcp.update`` — merge a patch into an entry and restart the server."""
-    _guard_read_tag(_conn, params.patch.permission)
+    guard_call(_conn, params.actor, core, method="mcp.update",
+               key=("mcp", "servers", params.name))
+    _guard_read_tag(_conn, params.patch.permission, params.actor, core)
     workdir = workdir_of(core, params.sessionId, params.workdir)
     scope = scope_for(core, params.name, params.scope, workdir)
     path = _writable(core, params.name, scope, workdir)
@@ -688,6 +706,9 @@ async def mcp_test_handler(
     saved entry is that scope's declaration, not whichever wins; a scope that
     has none probes the draft on its own, with nothing merged in.
     """
+    # A draft's command runs: judged like mcp.add (security review 3).
+    guard_call(_conn, params.actor, core, method="mcp.test",
+               key=("mcp", "servers", params.name) if params.name else None)
     workdir = workdir_of(core, params.sessionId, params.workdir)
     row: Declared | None = None
     if params.name and params.scope is not None:

@@ -307,6 +307,30 @@ class JarvisService:
         await self.emit_state("enabled")
         if started:
             await self.route_pending()
+        if started:
+            await self._preapproved_notice()
+
+    async def _preapproved_notice(self) -> None:
+        """When Jarvis mode comes on: what already runs unasked (browser-team design).
+
+        MCP servers and tools tagged ``read`` run without a prompt, and remembered
+        allowlist rules answer prompts by themselves; the person sees both once.
+        """
+        settings = self.core.settings
+        permissions = getattr(getattr(settings, "mcp", None), "permissions", None) or {}
+        read = sorted(name for name, tag in permissions.items() if tag == "read")
+        rules = len(getattr(settings, "allowlist", None) or [])
+        if not read and not rules:
+            return
+        shown = ", ".join(read[:6]) + (f" (+{len(read) - 6} more)" if len(read) > 6 else "")
+        parts = []
+        if read:
+            parts.append(f"MCP tagged read (auto-allowed): {shown}")
+        if rules:
+            parts.append(f"{rules} allowlist rule(s) pre-approve commands")
+        with contextlib.suppress(Exception):
+            await self.escalate(reason="jarvis", summary="; ".join(parts)[:300],
+                                importance="normal")
 
     async def disable(self) -> None:
         """``jarvis.disable``: clear the switch and park the session (kept)."""
@@ -838,7 +862,11 @@ class JarvisService:
                 if not getattr(conn, "closed", False):
                     await conn.notify(method, params)
             else:
-                await self.core.hub.notify(method, params)
+                # ``_request`` is never sent as is: the hub turns the change into
+                # *.pending / *.resolved for browsers (security review 3).
+                await self.core.hub.notify(
+                    method, {**params, "_request": entry.request.model_dump(mode="json")}
+                )
         tell = getattr(self.core.hub, "tell_observers", None)
         if tell is not None:
             with contextlib.suppress(Exception):

@@ -452,6 +452,14 @@ class ApprovalQueue:
         """
         if person_only:
             cacheable = False
+        from snowpea_core.jarvis.classify import escape_text, unclean_text
+
+        escaped = unclean_text(args) or unclean_text(tool)
+        if escaped:
+            # What runs holds characters a surface strips (security review 3, N3):
+            # the card shows them written out, nothing remembers or caches the
+            # answer, and Jarvis's router judges it opaque.
+            cacheable = False
         folder = (
             outside_folder(paths, workdir=getattr(session, "workdir", None), home=self._home())
             if reason_code == OUTSIDE_REASON
@@ -474,8 +482,8 @@ class ApprovalQueue:
         request = ApprovalRequest(
             requestId=f"ap-{uuid.uuid4().hex[:12]}",
             sessionId=session.id,
-            tool=tool,
-            args=args,
+            tool=escape_text(tool) if escaped else tool,
+            args=escape_text(args) if escaped else args,
             risk=risk,
             timeoutSec=timeout,
             scopeHint=scope_hint,  # type: ignore[arg-type]
@@ -491,6 +499,7 @@ class ApprovalQueue:
             ),
             personOnly=True if person_only else None,
             external=external,
+            argsEscaped=True if escaped else None,
         )
         if self.router is not None:
             try:
@@ -604,9 +613,22 @@ class ApprovalQueue:
                 request.model_dump(mode="json"),
                 timeout=None if entry.no_limit else float(request.timeoutSec),
             )
+            allowed = answer.get("decision") == "allow"
+            scope = str(answer.get("scope", "once"))
+            if allowed and scope != "once":
+                from snowpea_core.server.person_gate import connection_kind
+                from snowpea_core.server.settings_gate import acts_for_person
+
+                actor = answer.get("actor")
+                if connection_kind(entry.origin_conn) == "browser" and not acts_for_person(
+                    entry.origin_conn, actor if isinstance(actor, str) else None
+                ):
+                    # A browser's wider answer counts only from a click (``actor:
+                    # "person"``); otherwise it allows this call alone.
+                    scope = "once"
             decision = Decision(
-                decision="allow" if answer.get("decision") == "allow" else "deny",
-                scope=str(answer.get("scope", "once")),
+                decision="allow" if allowed else "deny",
+                scope=scope,
                 by="origin",
                 reason=str(answer.get("reason") or ""),
             )
@@ -629,11 +651,24 @@ class ApprovalQueue:
         by: str = "client",
         conn: Any = None,
         reason: str = "",
+        actor: str | None = None,
     ) -> None:
         """Resolve a pending request (``approval.respond``)."""
         entry = self._pending.get(request_id)
         if entry is None:
             raise RpcError(errors.NOT_FOUND, f"no pending approval {request_id}")
+        if conn is not None:
+            # A browser or connector answers its own sessions' requests; another
+            # session's only for its person; a person-only one never (review 3).
+            from snowpea_core.server.settings_gate import answer_refusal
+
+            sessions = getattr(self.hub, "sessions", None)
+            lookup = getattr(sessions, "get", None)
+            session = lookup(entry.request.sessionId) if callable(lookup) else None
+            answer_refusal(conn, session, request_id, "approval",
+                           origin_conn=entry.origin_conn, owner=(entry.owner, entry.host),
+                           person_only=bool(entry.request.personOnly), actor=actor,
+                           route=entry.request.route)
         if not entry.unattended and entry.origin_conn is not None and conn is not None:
             if conn is not entry.origin_conn:
                 raise RpcError(

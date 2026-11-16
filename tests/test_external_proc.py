@@ -373,6 +373,8 @@ async def test_orphans_of_a_dead_daemon_are_reaped(tmp_path: Path) -> None:
         (home / "external" / "garbage.json").write_text("{not json")
         # The next daemon on this home starts and sweeps.
         second = ProcessSupervisor(home)
+        # Killed only by the executable pinned for its CLI (security review 3, N15).
+        second.pin("claude", _argv()[0])
         assert await asyncio.to_thread(second.reap_orphans) == 1
         assert await asyncio.to_thread(_wait_dead, orphan.pid)
         assert await asyncio.to_thread(_wait_dead, grandchild)

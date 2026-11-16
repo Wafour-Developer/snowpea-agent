@@ -156,7 +156,8 @@ def test_slack_dms_and_edits() -> None:
     assert slack.parse_envelope(edited) is None
     group = {"type": "events_api", "payload": {"event": {
         "type": "message", "channel": "C1", "user": "U1", "text": "x", "ts": "2"}}}
-    assert slack.parse_envelope(group).metadata["chat_type"] == "channel"
+    # Without Slack's own channel_type nothing is assumed (security review 3, F3).
+    assert slack.parse_envelope(group).metadata["chat_type"] == ""
 
 
 def test_discord_dms_edits_and_forwards() -> None:
@@ -184,7 +185,7 @@ def test_private_chat_per_platform() -> None:
     assert router.private_chat(tg_group) is None
     sl = SimpleNamespace(id="b3", platform="slack", user_id="U1", channel_id=None)
     assert router.private_chat(sl) is None
-    router._private_chat["b3"] = "D9"
+    router._remember_private_chat(sl, "D9")  # type: ignore[arg-type]
     assert router.private_chat(sl) == "D9"
     nobody: Any = SimpleNamespace(id="b4", platform="slack", user_id=None, channel_id=None)
     assert router.private_chat(nobody) is None

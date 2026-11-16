@@ -24,16 +24,16 @@ root) to a :class:`Verdict`:
 ``safe``
     Allowed by the engine with nobody asked, so it must not be able to write,
     run project- or worker-controlled code, read a secret or snowpea's own
-    files, or send anything out — by every parse path.  It is an explicit
-    allowlist of its own (:meth:`_Judge.safe_line`), deliberately not plan
-    mode's "read-only" helpers: a worker can write project files, so a test
-    run, a linter or a build is never ``safe``.  A tool tagged ``read`` whose
-    paths all lie in the project, or a shell line made only of the
-    inspections listed at :data:`SAFE_CONTENT_READERS` / :data:`SAFE_META`
-    and the read-only ``git`` forms (:data:`SAFE_GIT_SUBCOMMANDS`), on
-    literal paths inside the project.
+    files, or send anything out — by every parse path.  A tool tagged ``read``
+    whose paths all lie in the project, or (security review 3) a line from
+    snowpea's own ``shell`` tool whose every command and option is in the
+    exact tables of :mod:`snowpea_core.jarvis.inspect_table`, on literal
+    paths that stay inside the project.  git is never ``safe``.
 ``risky``
-    Everything else.
+    Everything else.  A ``risky`` shell line that the same tables call
+    read-only but that is not eligible for ``safe`` (git at the project's top
+    level, an external CLI's shell, a glob, a recursive option) carries
+    :attr:`Verdict.read_only` (rule ``exec:read-like``): Jarvis may decide it.
 
 A request in several classes reports all of them (:attr:`Verdict.guarded`).
 A shell line this module cannot see through — a command substitution, a pipe
@@ -102,6 +102,12 @@ class ClassifyRequest:
     read_only_hint: bool | None = None
     home: str | None = None
     user_home: str | None = None
+    #: The call comes from an external CLI's tool (``ApprovalRequest.external``, or a
+    #: ``ext:`` session id): its shell's folder and state are the CLI's, never ``safe``.
+    external: bool = False
+    #: The arguments held characters a surface strips (``ApprovalRequest.argsEscaped``):
+    #: ``args`` is the escaped copy, so what really runs was never seen (N3).
+    args_escaped: bool = False
 
     @classmethod
     def from_approval(
@@ -127,6 +133,8 @@ class ClassifyRequest:
             reason_code=getattr(request, "reasonCode", None),
             read_only_hint=read_only_hint,
             home=str(home) if home else None,
+            external=getattr(request, "external", None) is not None,
+            args_escaped=bool(getattr(request, "argsEscaped", None)),
         )
 
 
@@ -141,6 +149,10 @@ class Verdict:
     #: Every rule that matched, most decisive first (``tag:config``,
     #: ``exec:git-push``, ``exec:opaque:substitution``, ``tag:read``, ...).
     rules: tuple[str, ...] = ()
+    #: A ``risky`` shell line that is read-only by the table's knowledge but not
+    #: eligible for ``safe`` (rule ``exec:read-like``): Jarvis may allow it once
+    #: at either level (security review 3, D2).
+    read_only: bool = False
 
     @property
     def rule(self) -> str | None:
@@ -247,7 +259,22 @@ _EXTRA_SECRET_NAMES: frozenset[str] = frozenset(
         "secrets.yaml", "secrets.yml", "secrets.toml", ".vault-token", "service-account.json",
         "application_default_credentials.json", "access_tokens.db", "hosts.yml",
         "shadow", "gshadow", "master.key", ".boto", ".s3cfg", ".dockercfg",
+        # Agent CLIs' own login state (security review 3, N4).
+        ".claude.json", ".claude.json.backup", ".credentials.json", "oauth_creds.json",
+        "google_accounts.json", "mcp-oauth-tokens.json",
+        # Shell and REPL histories: commands typed with tokens in them.
+        ".bash_history", ".zsh_history", ".history", ".histfile", ".sh_history",
+        ".python_history", ".node_repl_history", ".psql_history", ".mysql_history",
+        ".sqlite_history", ".lesshst", ".rediscli_history", ".irb_history", "fish_history",
     }
+)
+#: ``(folder parts, file name)``: a credential file inside a CLI's folder.
+_SECRET_FILES_IN: tuple[tuple[tuple[str, ...], str], ...] = (
+    ((".codex",), "auth.json"),
+    ((".claude",), ".credentials.json"),
+    ((".gemini",), "oauth_creds.json"),
+    ((".config", "cursor"), "auth.json"),
+    ((".cursor",), "cli-config.json"),
 )
 #: Credential directories (as consecutive path parts) beyond the shared list.
 _EXTRA_SECRET_DIRS: tuple[tuple[str, ...], ...] = (
@@ -264,6 +291,23 @@ _EXTRA_SECRET_DIRS: tuple[tuple[str, ...], ...] = (
     (".terraform.d",),
     (".config", "op"),
     (".1password",),
+    # security review 3 (N4): cloud CLIs, keyrings, browser profiles, the
+    # owner's secrets folder.
+    (".config", "snowpea-secrets"),
+    (".config", "doctl"),
+    (".config", "hcloud"),
+    (".config", "heroku"),
+    (".config", "configstore"),
+    (".oci",),
+    (".fly",),
+    (".local", "share", "keyrings"),
+    ("Library", "Keychains"),
+    (".mozilla",),
+    (".config", "google-chrome"),
+    (".config", "chromium"),
+    (".config", "BraveSoftware"),
+    (".config", "microsoft-edge"),
+    (".config", "cursor"),
 )
 
 
@@ -291,6 +335,10 @@ def is_secret_path(path: Path) -> bool:
         for index in range(len(parts) - width + 1):
             if tuple(parts[index : index + width]) == run:
                 return True
+    for run, name in _SECRET_FILES_IN:
+        width = len(run)
+        if path.name == name and tuple(parts[-1 - width : -1]) == run:
+            return True
     return False
 
 
@@ -1448,6 +1496,39 @@ OUTPUT_FLAGS: dict[str, frozenset[str]] = {
     "ffmpeg": frozenset({"-passlogfile"}),
     "ssh-keygen": frozenset({"-f"}),
 }
+#: Options whose value is a file the program reads (security review 3, N4):
+#: ``(long names, short letters)``.  The value is judged as a read (a secret is
+#: ``secret_send``); long names count in any abbreviation.
+FILE_READ_OPTIONS: dict[str, tuple[frozenset[str], str]] = {
+    "diff": (frozenset({"--from-file", "--to-file", "--exclude-from"}), "X"),
+    "date": (frozenset({"--file", "--reference"}), "fr"),
+    "touch": (frozenset({"--reference"}), "r"),
+    "file": (frozenset({"--magic-file", "--files-from"}), "mf"),
+    "grep": (frozenset({"--file", "--exclude-from"}), "f"),
+    "egrep": (frozenset({"--file", "--exclude-from"}), "f"),
+    "fgrep": (frozenset({"--file", "--exclude-from"}), "f"),
+    "rg": (frozenset({"--file", "--ignore-file"}), "f"),
+    "sort": (frozenset({"--files0-from", "--random-source"}), ""),
+    "wc": (frozenset({"--files0-from"}), ""),
+    "du": (frozenset({"--files0-from", "--exclude-from"}), "X"),
+    "jq": (frozenset({"--from-file", "--rawfile", "--slurpfile", "--library-path"}), "fL"),
+    "tar": (frozenset({"--files-from", "--exclude-from"}), "TX"),
+    "tree": (frozenset({"--fromfile"}), ""),
+    "chmod": (frozenset({"--reference"}), ""),
+    "chown": (frozenset({"--reference"}), ""),
+}
+#: Programs whose command-running options (``shell_remember.EXEC_FLAGS``) are
+#: checked before their own handler runs (security review 3, N10).
+_EXEC_FLAG_FAMILIES: frozenset[str] = frozenset(
+    {"rsync", "zip", "sort", "npm", "pnpm", "yarn", "bun", "cargo", "go", "kubectl", "helm"}
+)
+#: Of those, the ones whose file is a list of further names to read: what is
+#: then read is known to nobody (``sort --files0-from=-``).
+_NAME_LIST_OPTIONS: frozenset[str] = frozenset({"--files0-from", "--files-from", "--fromfile"})
+#: Short letters of the same kind, per program.
+_NAME_LIST_LETTERS: dict[str, str] = {"file": "f", "tar": "T"}
+#: jq's options that take a name and then a file.
+_TWO_VALUE_OPTIONS: frozenset[str] = frozenset({"--rawfile", "--slurpfile"})
 #: Of :data:`OUTPUT_FLAGS`, those that take their value only as ``--flag=value``.
 _EQUALS_ONLY_FLAGS: frozenset[str] = frozenset({"--debug"})
 #: Long ``--flag=value`` options any program may use to name a file it writes.
@@ -1482,106 +1563,6 @@ DIR_FLAGS: dict[str, frozenset[str]] = {
     "terraform": frozenset({"-chdir"}),
     "bazel": frozenset({"--output_base", "--output_user_root"}),
 }
-
-
-# -- safe: the allowlist (C1) ---------------------------------------------------
-#
-# ``safe`` routes to ``auto``: nobody is asked.  So a command is here only if,
-# with the argument checks in :meth:`_Judge._safe_command`, it cannot write a
-# file, run code a worker could have written (no test runner, linter, build,
-# package script, interpreter, pager, editor), read a secret or snowpea's own
-# files, or reach the network.
-
-#: Programs that take no path at all (or only print what they are given).
-SAFE_NO_PATHS: frozenset[str] = frozenset(
-    {"pwd", "true", "false", "test", "[", "[[", "echo", "printf", "sleep", "whoami", "id",
-     "uname", "nproc", "uptime", "arch", "date", "hostname", "which", "type", "basename",
-     "dirname", "seq", "expr", "yes", "groups", "tty", "locale", "getconf"}
-)
-#: Programs that show only metadata (names, sizes, kinds): their paths may lie
-#: anywhere outside snowpea's home; recursive ones (``ls -R``, ``du``,
-#: ``tree``) only in the project.
-SAFE_META: frozenset[str] = frozenset(
-    {"ls", "stat", "realpath", "readlink", "file", "df", "du", "tree"}
-)
-#: Programs that print file contents: their files must lie in the project.
-SAFE_CONTENT_READERS: frozenset[str] = frozenset(
-    {"cat", "tac", "head", "tail", "wc", "nl", "md5sum", "sha1sum", "sha256sum", "sha512sum",
-     "shasum", "b2sum", "cksum", "cmp", "diff", "cut", "column", "fold", "rev", "comm", "join",
-     "paste", "expand", "unexpand", "od", "hexdump", "strings", "grep", "egrep", "fgrep",
-     "rg", "sort", "uniq", "xxd", "jq", "sed", "tr"}
-)
-#: ``find`` primaries that only test or print (the next word is their value).
-FIND_SAFE_VALUED: frozenset[str] = frozenset(
-    {"-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-regex", "-iregex",
-     "-lname", "-ilname", "-type", "-xtype", "-maxdepth", "-mindepth", "-size", "-perm",
-     "-user", "-group", "-uid", "-gid", "-mtime", "-mmin", "-atime", "-amin", "-ctime",
-     "-cmin", "-newer", "-anewer", "-cnewer", "-inum", "-links", "-samefile", "-used",
-     "-printf", "-regextype", "-fstype", "-context"}
-)
-FIND_SAFE_FLAGS: frozenset[str] = frozenset(
-    {"-print", "-print0", "-ls", "-prune", "-quit", "-empty", "-true", "-false", "-not", "-a",
-     "-and", "-o", "-or", "-depth", "-d", "-mount", "-xdev", "-noleaf", "-readable",
-     "-writable", "-executable", "-nouser", "-nogroup", "-daystart", "-follow",
-     "-ignore_readdir_race", "-noignore_readdir_race"}
-)
-#: Read-only git subcommands (further limited per subcommand).
-SAFE_GIT_SUBCOMMANDS: frozenset[str] = frozenset(
-    {"status", "diff", "log", "show", "blame", "annotate", "ls-files", "ls-tree", "rev-parse",
-     "rev-list", "describe", "shortlog", "merge-base", "show-ref", "count-objects",
-     "check-ignore", "name-rev", "cherry", "whatchanged", "version", "branch", "tag", "stash",
-     "reflog", "grep", "worktree", "diff-tree", "diff-index", "diff-files", "range-diff",
-     "show-branch", "cat-file", "for-each-ref", "remote"}
-)
-#: Long options of the diff/log family that only shape what is printed.  Git
-#: accepts abbreviations of long options, so nothing but an exact name counts.
-SAFE_GIT_DIFF_LONG: frozenset[str] = frozenset(
-    {"--oneline", "--stat", "--shortstat", "--numstat", "--name-only", "--name-status",
-     "--format", "--pretty", "--graph", "--decorate", "--decorate-refs", "--no-decorate",
-     "--all", "--branches", "--tags", "--remotes", "--no-color", "--color", "--abbrev-commit",
-     "--no-abbrev-commit", "--abbrev", "--no-abbrev", "--patch", "--no-patch", "--cached",
-     "--staged", "--since", "--until", "--after", "--before", "--author", "--committer",
-     "--grep", "--max-count", "--skip", "--reverse", "--first-parent", "--no-merges",
-     "--merges", "--follow", "--date", "--summary", "--word-diff", "--word-diff-regex",
-     "--color-words", "--check", "--diff-filter", "--relative", "--no-relative",
-     "--ignore-all-space", "--ignore-space-change", "--ignore-blank-lines",
-     "--ignore-space-at-eol", "--ignore-cr-at-eol", "--unified", "--minimal", "--patience",
-     "--histogram", "--diff-algorithm", "--raw", "--full-index", "--binary", "--no-ext-diff",
-     "--no-textconv", "--dirstat", "--left-right", "--cherry-pick", "--cherry-mark",
-     "--cherry", "--source", "--compact-summary", "--exit-code", "--quiet", "--no-renames",
-     "--find-renames", "--find-copies", "--find-copies-harder", "--topo-order",
-     "--date-order", "--author-date-order", "--boundary", "--simplify-by-decoration",
-     "--all-match", "--invert-grep", "--regexp-ignore-case", "--basic-regexp",
-     "--extended-regexp", "--fixed-strings", "--perl-regexp", "--pickaxe-all",
-     "--pickaxe-regex", "--full-history", "--ancestry-path", "--no-walk", "--walk-reflogs",
-     "--parents", "--children", "--no-prefix", "--src-prefix", "--dst-prefix",
-     "--line-prefix", "--submodule", "--ignore-submodules", "--stat-width",
-     "--stat-name-width", "--stat-count", "--stat-graph-width", "--mailmap", "--no-mailmap",
-     "--use-mailmap", "--encoding", "--notes", "--no-notes", "--show-notes", "--expand-tabs",
-     "--no-expand-tabs", "--count", "--remerge-diff", "--diff-merges", "--cc", "--no-index",
-     "--merge-base", "--irreversible-delete", "--break-rewrites", "--inter-hunk-context",
-     "--function-context", "--anchored", "--indent-heuristic", "--no-indent-heuristic",
-     "--color-moved", "--no-color-moved", "--porcelain", "--line-porcelain", "--incremental",
-     "--show-name", "--show-number", "--show-email", "--root", "--numbered", "--email",
-     "--group", "--nul", "--null"}
-)
-SAFE_GIT_STATUS_LONG: frozenset[str] = frozenset(
-    {"--short", "--branch", "--porcelain", "--long", "--verbose", "--untracked-files",
-     "--ignored", "--ignore-submodules", "--column", "--no-column", "--ahead-behind",
-     "--no-ahead-behind", "--renames", "--no-renames", "--find-renames", "--show-stash",
-     "--null"}
-)
-SAFE_GIT_BRANCH_OPTIONS: frozenset[str] = frozenset(
-    {"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--list", "-l",
-     "--show-current", "--contains", "--no-contains", "--merged", "--no-merged", "--sort",
-     "--format", "--points-at", "--no-color", "--color", "--column", "--no-column", "-i",
-     "--ignore-case", "--omit-empty", "--abbrev", "--no-abbrev"}
-)
-SAFE_GIT_TAG_OPTIONS: frozenset[str] = frozenset(
-    {"-l", "--list", "-n", "--contains", "--no-contains", "--merged", "--no-merged",
-     "--points-at", "--sort", "--format", "--column", "--no-column", "-i", "--ignore-case",
-     "--color"}
-)
 
 
 def _chdir_of(judge: Any, rest: list[str], rest_dyn: list[bool], cwd: Path | None) -> Path | None:
@@ -1795,6 +1776,9 @@ _GLOB_SAMPLES: tuple[str, ...] = (
     "secrets.json", "secrets.yaml", "service-account.json", "hosts.yml", "config.json",
     "settings.json", "delegation.db", "ledger.jsonl", "jarvis", "mcp-oauth.json", "environ",
     "cmdline", "mem", "proc", "self", "shadow", "master.key", "access_tokens.db",
+    ".codex", "auth.json", ".claude", ".credentials.json", ".claude.json", ".gemini",
+    "oauth_creds.json", ".bash_history", ".zsh_history", ".python_history", ".mozilla",
+    "snowpea-secrets", "keyrings",
 )
 #: Most concrete paths one glob is expanded into before it counts as unknown.
 GLOB_LIMIT = 512
@@ -1876,6 +1860,127 @@ def _git_plumbing(path: Path) -> bool:
     return False
 
 
+#: Folders whose files decide what an agent CLI may do unasked (permission
+#: rules, hooks, commands, MCP servers): writing them is ``never`` for every
+#: tool and redirection (security review 3, N6).  Matched as path parts
+#: anywhere (the project's own and the user's home alike).
+_CLI_CONTROL_DIRS: tuple[tuple[str, ...], ...] = (
+    (".claude", "hooks"),
+    (".claude", "commands"),
+    (".claude", "agents"),
+    (".claude", "skills"),
+    (".claude", "plugins"),
+    (".codex",),
+    (".cursor",),
+    (".gemini",),
+    (".agy",),
+    (".config", "claude"),
+    (".config", "cursor"),
+    (".config", "codex"),
+)
+#: Single files of the same kind.
+_CLI_CONTROL_NAMES: frozenset[str] = frozenset(
+    {".mcp.json", ".claude.json", ".cursorrules", ".cursorignore", ".geminiignore"}
+)
+
+
+def cli_control_path(path: Path, user_home: Path | None = None) -> bool:
+    """``path`` is an agent CLI's permission, hook or config file (N6)."""
+    parts = path.parts
+    if path.name in _CLI_CONTROL_NAMES:
+        return True
+    for index, part in enumerate(parts[:-1]):
+        if part == ".claude" and index == len(parts) - 2:
+            name = parts[-1]
+            if name.startswith("settings") and name.endswith(".json"):
+                return True
+    for run in _CLI_CONTROL_DIRS:
+        width = len(run)
+        for index in range(len(parts) - width + 1):
+            if tuple(parts[index : index + width]) == run:
+                return True
+    del user_home  # the same names count everywhere, not only under the home
+    return False
+
+
+def git_control_path(path: Path) -> bool:
+    """A write that turns later git commands into code (security review 3, N5).
+
+    Attribute and config files git reads (``.gitattributes``, ``.gitconfig``,
+    ``.git/info/attributes``), any ``HEAD`` outside a ``.git`` folder, and a
+    ``config`` / ``objects`` / ``refs`` entry that would make a folder a bare
+    repository (a ``config``/``HEAD`` next to ``objects``/``refs``, or anything
+    under an ``objects``/``refs`` folder next to a ``HEAD``/``config``).
+    """
+    parts = path.parts
+    if path.name in (".gitattributes", ".gitconfig", ".gitmodules"):
+        return True
+    if ".git" in parts:
+        rest = parts[parts.index(".git") + 1 :]
+        return rest[:2] == ("info", "attributes")
+    if path.name in ("HEAD", "commondir", "gitdir"):
+        return True
+    with contextlib.suppress(OSError):
+        if path.name in ("config", "packed-refs") and any(
+            (path.parent / sibling).exists() for sibling in ("objects", "refs", "HEAD")
+        ):
+            return True
+        for index in range(1, len(parts)):
+            if parts[index] in ("objects", "refs"):
+                folder = Path(*parts[:index])
+                if any((folder / name).exists() for name in ("HEAD", "config")):
+                    return True
+    return False
+
+
+#: ``NAME=``, ``NAME+=``, ``NAME[i]=``: an assignment, not a program.
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=")
+
+#: Characters a surface would strip or that change how text reads (security
+#: review 3, N3): C0 controls but tab and newline, DEL, C1 controls (U+0080 to
+#: U+009F, including the 8-bit CSI/OSC introducers), ESC sequences, and the
+#: Unicode bidi and invisible format controls.
+_UNCLEAN = re.compile(
+    r"[\x00-\x08\x0b-\x1f\x7f-\x9f؜​-‏‪-‮⁠-⁤"
+    r"⁦-⁩﻿]"
+)
+
+
+def unclean_text(value: Any, depth: int = 0) -> bool:
+    """True when a string (or any string or key inside ``value``) holds such a character."""
+    if isinstance(value, str):
+        return bool(_UNCLEAN.search(value))
+    if depth > 64:
+        return True
+    if isinstance(value, Mapping):
+        return any(unclean_text(k, depth + 1) or unclean_text(v, depth + 1)
+                   for k, v in value.items())
+    if isinstance(value, list | tuple):
+        return any(unclean_text(item, depth + 1) for item in value)
+    return False
+
+
+def escape_text(value: Any, depth: int = 0) -> Any:
+    """``value`` with every such character written out (``\\x9d``, ``\\u202e``), for a card."""
+    if isinstance(value, str):
+        return _UNCLEAN.sub(lambda m: repr(m.group(0))[1:-1], value)
+    if depth > 64:
+        return value
+    if isinstance(value, Mapping):
+        return {escape_text(k, depth + 1): escape_text(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        return [escape_text(item, depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return tuple(escape_text(item, depth + 1) for item in value)
+    return value
+
+
+def _worse_level(first: str | None, second: str | None) -> str | None:
+    if first is None or second is None:
+        return None
+    return "readlike" if "readlike" in (first, second) else "safe"
+
+
 def _looks_like_path(word: str) -> bool:
     return (
         "/" in word
@@ -1895,6 +2000,19 @@ class _Judge:
         self.writes = False
         #: A program got an argument only the shell knows (``cat $F``): never ``safe``.
         self.unknown_args = False
+        #: From an external CLI's tool: never ``safe`` (D1).
+        self.external = bool(request.external) or str(request.session_id or "").startswith(
+            "ext:"
+        )
+        #: The folder a shell line runs in is known: snowpea's own shell (a fresh
+        #: ``sh -c`` per call, in ``args.cwd`` or the project), or a CLI that sent
+        #: its ``cwd`` with the call.
+        self._cwd_known = not self.external
+        #: The line is read-only by the table's knowledge, but not ``safe`` (D2).
+        self.read_like = False
+        #: :meth:`_table_path` accepts the snowpea home's content/own folders (only
+        #: to tell a plain read of them from a write; never for a verdict).
+        self._home_relaxed = False
         workdir: Path | None = None
         if request.workdir:
             try:
@@ -1957,7 +2075,11 @@ class _Judge:
                          ".config/gcloud", ".config/hub", ".config/op", ".password-store",
                          ".terraform.d", ".1password", ".netrc", ".npmrc", ".pypirc",
                          ".git-credentials", ".pgpass", ".my.cnf", ".vault-token", ".boto",
-                         ".s3cfg", ".local/share/keyrings", "Library/Keychains")
+                         ".s3cfg", ".local/share/keyrings", "Library/Keychains",
+                         ".codex/auth.json", ".claude/.credentials.json", ".claude.json",
+                         ".gemini/oauth_creds.json", ".config/cursor", ".config/snowpea-secrets",
+                         ".bash_history", ".zsh_history", ".python_history", ".mozilla",
+                         ".config/google-chrome", ".config/chromium", ".oci", ".fly")
         ]
         self.secret_roots = (*secret_roots, Path("/proc"), Path("/root"), Path("/etc/ssh"))
 
@@ -2072,6 +2194,10 @@ class _Judge:
             self.outside_read = True
         if is_secret_path(path):
             self.hits.guard(SECRET, f"{rule}:secret-path")
+        elif cli_control_path(path, self.ctx.user_home):
+            # A CLI's settings may hold an ``env`` block with keys: never read unasked.
+            self.risky_read = True
+            self.hits.risky.append(f"{rule}:cli-control-read")
         if recursive:
             self._recursive_read(path, rule)
 
@@ -2199,8 +2325,14 @@ class _Judge:
             if self._is_config(path):
                 self.hits.never_("path:snowpea-config")
                 continue
+            if cli_control_path(path, self.ctx.user_home):
+                # An agent CLI's permission, hook or MCP file: after such a write
+                # the CLI stops asking while its row still says controlled (N6).
+                self.hits.never_(f"{rule}:cli-control")
             if _git_plumbing(path):
                 self.hits.guard_all(f"{rule}:git-plumbing")
+            if git_control_path(path):
+                self.hits.guard_all(f"{rule}:git-control")
             if is_secret_path(path):
                 self.hits.guard(SECRET, f"{rule}:secret-path")
             if self._outside(path):
@@ -2218,6 +2350,9 @@ class _Judge:
             self.hits.never_("never:jarvis-session")
         if request.browser_owned:
             self.hits.never_("never:browser-owned")
+        if request.args_escaped or unclean_text(request.args) or unclean_text(tool):
+            # What runs is not what a surface shows or a cache keys on (N3).
+            self.hits.guard_all("exec:opaque:control-chars")
         if lower in NEVER_TOOL_NAMES or lower.startswith("jarvis."):
             self.hits.never_("never:delegation")
         if ("config" in tags or request.reason_code == "config") and not self._home_content_only(
@@ -2340,6 +2475,14 @@ class _Judge:
         if shell:
             if safe_rule and not hits.network and not self.risky_read:
                 return Verdict("safe", (), (safe_rule,))
+            if (
+                self.read_like
+                and not hits.network
+                and not self.risky_read
+                and not self.outside_read
+                and not hits.risky
+            ):
+                return Verdict("risky", (), ("exec:read-like",), read_only=True)
             return Verdict("risky", (), tuple(hits.risky) or ("exec:command",))
         if tags == {"read"} and not hits.network:
             if self.risky_read:
@@ -2358,6 +2501,8 @@ class _Judge:
         raw_cwd = args.get("cwd") or args.get("workdir") or args.get("dir")
         if isinstance(raw_cwd, str) and raw_cwd.strip():
             cwd = _resolve(raw_cwd, cwd, self.ctx)
+            if self.external and raw_cwd.strip().startswith("/"):
+                self._cwd_known = True  # the CLI said where this call runs (Codex)
             if cwd is not None and home_area(cwd, self.home_roots) in ("secret", "root"):
                 self.hits.never_("exec:snowpea-home")
         self._raw_scan(command)
@@ -2380,12 +2525,38 @@ class _Judge:
             self._home_content_written()
             return None
         try:
-            safe = self.safe_line(command, cwd)
+            level = self.inspect_line(command, cwd)
         except Exception:  # noqa: BLE001 - a failure here only costs the safe verdict
-            safe = None
-        if safe is None:
-            self._home_content_written()
-        return safe
+            level = None
+        if level == "safe" and not self._vouched():
+            level = "readlike"
+        if level is None:
+            self._home_relaxed = True
+            try:
+                plain = self.inspect_line(command, cwd)
+            except Exception:  # noqa: BLE001
+                plain = None
+            finally:
+                self._home_relaxed = False
+            if plain is None:
+                # Not a plain inspection: it may write a home content path it names.
+                self._home_content_written()
+            # A plain inspection of the snowpea home's content or own folders
+            # reads outside the project: ``risky`` (D4), never safe or read-like.
+            return None
+        if level == "readlike":
+            self.read_like = True
+            return None
+        return "exec:inspection"
+
+    def _vouched(self) -> bool:
+        """snowpea's own ``shell`` tool: a fresh ``sh -c`` per call (``exec/local.py``),
+        in ``args.cwd`` or the project, with the daemon's environment — no earlier
+        line can have moved it or changed ``PATH``, aliases or functions (F2).
+        Any other shell (an external CLI's, an extension's, a background
+        process) is never ``safe``."""
+        request = self.request
+        return request.tool == "shell" and not self.external and not request.jarvis_session
 
     def _home_content_written(self) -> None:
         """A line that is not a plain inspection may write a home content path it names."""
@@ -2451,7 +2622,7 @@ class _Judge:
         # what runs is spelled by the expansion, not by a word anyone wrote.
         start = 0
         while start < len(words) and (
-            words[start] in RESERVED_WORDS or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[start])
+            words[start] in RESERVED_WORDS or _ASSIGNMENT.match(words[start])
         ):
             start += 1
         if start < len(words) and start < len(braced) and braced[start]:
@@ -2485,8 +2656,10 @@ class _Judge:
                 return cwd  # ``for name in words``: the loop's body is judged on its own
             words, dynamic = words[1:], dynamic[1:]
         # Leading NAME=value assignments.
-        while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+        while words and _ASSIGNMENT.match(words[0]):
             name, _, value = words[0].partition("=")
+            # ``PATH+=x`` and ``PATH[0]=x`` (bash) assign PATH too.
+            name = name.rstrip("+").split("[", 1)[0]
             if _is_code_variable(name):
                 hits.guard_all("exec:opaque:env-code")
             elif _SECRET_NAME.search(name):
@@ -2549,6 +2722,12 @@ class _Judge:
             hits.guard(OUTSIDE, "exec:force-flag")
         self._output_flags(program, family, rest, rest_dyn, cwd)
         self._dir_flags(program, family, rest, rest_dyn, cwd)
+        self._file_options(program, rest, rest_dyn, cwd)
+        if family in _EXEC_FLAG_FAMILIES and self._runs_commands([family, *rest]):
+            # ``rsync --rsync-p=…``, ``npm --script-sh=…``: any abbreviation of an
+            # option that runs a command keeps the line opaque (N10), whichever
+            # handler below judges the rest.
+            hits.guard_all("exec:opaque:runs-commands")
         if program == "shopt" and any("dotglob" in w or "globstar" in w for w in rest):
             self.dotglob = True
         if program == "ps" and _ps_shows_environment(rest):
@@ -2573,7 +2752,10 @@ class _Judge:
             for w in rest
         ):
             hits.guard(SECRET, "exec:env-dump")
-        if program == "sort" and any(w.startswith("--compress-program") for w in rest):
+        if program == "sort" and any(
+            w.startswith("--") and _long_match(w, ("--compress-program",)) is not None
+            for w in rest
+        ):
             hits.guard_all("exec:opaque:runs-commands")
 
         # -- wrappers and runners -------------------------------------
@@ -2608,12 +2790,31 @@ class _Judge:
             if program == "export" and rest == ["-p"]:
                 hits.guard(SECRET, "exec:env-dump")
             for word in rest:
-                name = word.split("=", 1)[0]
-                if name in _CODE_VARIABLES:
+                name = word.split("=", 1)[0].rstrip("+").split("[", 1)[0]
+                if _is_code_variable(name):
                     hits.guard_all("exec:opaque:env-code")
             return cwd
+        if program == "printf":
+            # ``printf -v NAME`` (any spelling: ``-vPATH``, ``-v`` in a cluster)
+            # assigns a variable, which may be PATH or HOME for what follows (N8).
+            for word in rest:
+                if word == "--" or not word.startswith("-") or word == "-":
+                    break
+                if "v" in word[1:]:
+                    hits.guard_all("exec:opaque:printf-v")
+                    return cwd
+        if program in ("read", "mapfile", "readarray", "getopts"):
+            # They assign the names they are given (``read PATH < f``).
+            names = [w.split("[", 1)[0] for w in rest if not w.startswith("-")]
+            if any(_is_code_variable(name) for name in names):
+                hits.guard_all("exec:opaque:env-code")
+            return cwd
+        if program == "hash" and any(w.startswith("-") and "p" in w for w in rest):
+            # ``hash -p ./x ls``: ``ls`` now runs ./x.
+            hits.guard_all("exec:opaque:hash-path")
+            return cwd
         if program in ("true", "false", ":", "test", "[", "[[", "echo", "printf", "sleep",
-                       "wait", "read", "exit", "return", "break", "continue", "shift",
+                       "wait", "exit", "return", "break", "continue", "shift",
                        "pwd", "type", "hash", "jobs", "fg", "bg", "disown", "times"):
             if program in ("echo", "printf") and any(
                 re.search(r"\\(x[0-9a-fA-F]|[0-7]{3}|u[0-9a-fA-F])", w) for w in rest
@@ -3337,6 +3538,32 @@ class _Judge:
                 self.check_write_path(target, cwd, "exec", tdyn)
                 index += 1 if eq else 2
                 continue
+            read_file = None
+            if word.startswith("--"):
+                read_file = _long_match(word, ("--contents", "--ignore-revs-file", "--orderfile",
+                                               "--file", "--exclude-from", "--pathspec-from-file",
+                                               "--stdin-paths"))
+            elif sub in ("blame", "annotate") and word.startswith("-S"):
+                read_file = "-S"
+            elif sub in ("diff", "log", "show", "diff-tree", "diff-index", "diff-files") and (
+                word.startswith("-O")
+            ):
+                read_file = "-O"
+            elif sub == "grep" and word.startswith("-f"):
+                read_file = "-f"
+            if read_file is not None and read_file != "--stdin-paths":
+                # A file git reads (``blame -S revs``, ``--contents F``): judged as a read (N4).
+                if word.startswith("--") and eq:
+                    target, tdyn = value, dyn
+                elif not word.startswith("--") and len(word) > 2:
+                    target, tdyn = word[2:], dyn
+                else:
+                    target, tdyn = value_at(index + 1)
+                    index += 1
+                if target != "-":
+                    self.check_read_path(target, cwd, "exec:git-file-option", dynamic=tdyn)
+                index += 1
+                continue
             if word == "-o" and sub in ("format-patch", "archive", "bundle"):
                 target, tdyn = value_at(index + 1)
                 self.writes = True
@@ -3455,7 +3682,7 @@ class _Judge:
     ) -> None:
         """grep / rg and friends: a recursive search reads every file under its roots."""
         hits = self.hits
-        if any(w in ("--pre", "--hostname-bin") or w.startswith(("--pre=", "--hostname-bin="))
+        if any(w.startswith("--") and _long_match(w, ("--pre", "--hostname-bin")) is not None
                for w in rest):
             hits.guard_all("exec:opaque:runs-commands")
         if program in ("rg", "ag", "ack", "ugrep"):
@@ -3509,6 +3736,13 @@ class _Judge:
             name, eq, value = word.partition("=")
             if word == "--":
                 break
+            if spec and word.startswith("--"):
+                # ``--o=FILE`` / ``--outp FILE`` abbreviate ``--output`` (N2, N10).
+                matched = _long_match(word, spec)
+                if matched is not None:
+                    name = matched
+                    if not eq:
+                        word = matched
             if spec and word in spec and word not in _EQUALS_ONLY_FLAGS:
                 if index + 1 < len(rest):
                     targets.append((rest[index + 1], rest_dyn[index + 1]))
@@ -3544,6 +3778,59 @@ class _Judge:
                 self.writes = True
                 self.check_write_path(outputs[-1][0], cwd, "exec", outputs[-1][1])
 
+    def _file_options(
+        self, program: str, rest: list[str], rest_dyn: list[bool], cwd: Path | None
+    ) -> None:
+        """Files named by options (``date -f F``, ``diff --from-file=F``), read (N4)."""
+        spec = FILE_READ_OPTIONS.get(program)
+        if spec is None:
+            return
+        longs, letters = spec
+        lists = _NAME_LIST_LETTERS.get(program, "")
+        index = 0
+        while index < len(rest):
+            word = rest[index]
+            index += 1
+            if word == "--":
+                break
+            values: list[tuple[str, bool]] = []
+            name_list = False
+            if word.startswith("--"):
+                matched = _long_match(word, longs)
+                if matched is None:
+                    continue
+                name_list = matched in _NAME_LIST_OPTIONS
+                if "=" in word:
+                    values.append((word.split("=", 1)[1], rest_dyn[index - 1]))
+                else:
+                    count = 2 if matched in _TWO_VALUE_OPTIONS else 1
+                    for _ in range(count):
+                        if index < len(rest):
+                            values.append((rest[index], rest_dyn[index]))
+                            index += 1
+            elif word.startswith("-") and len(word) > 1:
+                # A cluster (``-uf F``, ``-fF``): the first file letter's value is
+                # the rest of the word or the next one.
+                for position, letter in enumerate(word[1:], start=1):
+                    if letter not in letters:
+                        continue
+                    name_list = letter in lists
+                    remainder = word[position + 1 :]
+                    if remainder:
+                        values.append((remainder, rest_dyn[index - 1]))
+                    elif index < len(rest):
+                        values.append((rest[index], rest_dyn[index]))
+                        index += 1
+                    break
+            for value, dyn in values:
+                if value == "-" and not name_list:
+                    continue
+                if value != "-":
+                    self.check_read_path(value, cwd, "exec:file-option", dynamic=dyn)
+                if name_list:
+                    # The files read are the names in that list: anyone's.
+                    self.dynamic_read("", cwd, "exec:name-list")
+
     def _dir_flags(
         self, program: str, family: str, rest: list[str], rest_dyn: list[bool], cwd: Path | None
     ) -> None:
@@ -3555,6 +3842,12 @@ class _Judge:
         while index < len(rest):
             word = rest[index]
             name, eq, value = word.partition("=")
+            if word.startswith("--"):
+                matched = _long_match(word, spec)
+                if matched is not None:
+                    name = matched
+                    if not eq:
+                        word = matched
             target: tuple[str, bool] | None = None
             if word in spec and index + 1 < len(rest):
                 target = (rest[index + 1], rest_dyn[index + 1])
@@ -3573,308 +3866,115 @@ class _Judge:
                         self.hits.never_("exec:snowpea-config")
             index += 1
 
-    # -- safe: Jarvis's own allowlist ---------------------------------------
-    def safe_line(self, command: str, cwd: Path) -> str | None:
-        """``exec:inspection`` when every command of the line is on the allowlist.
+    # -- safe / read-like: the exact table (security review 3) -------------
+    def inspect_line(self, command: str, cwd: Path) -> str | None:
+        """``safe``, ``readlike`` or ``None`` for a line that raised nothing else.
 
-        Called only once the line raised nothing at all.  Every part must be
-        an inspection from :data:`SAFE_NO_PATHS`, :data:`SAFE_META`,
-        :data:`SAFE_CONTENT_READERS`, ``find`` with listing primaries only, or a
-        read-only ``git`` form, on literal paths inside the project (metadata
-        anywhere); no assignment, no expansion but in ``echo``/``printf``, no
-        redirection but into ``/dev/null``, no here-document, no wrapper.
+        Every simple command must pass :func:`inspect_table.judge_command`
+        (exact option allowlists), every operand :meth:`_table_path`; no
+        assignment, no here-document, no wrapper, redirections only into
+        ``/dev/null`` (or from a file in the project), expansions only in
+        ``echo``/``printf`` (and then read-like).  ``git`` is read-like at most
+        and only at the project's top level.
         """
+        from snowpea_core.jarvis import inspect_table
+
         workdir = self.ctx.workdir
         if workdir is None:
             return None
         parsed = parse_line(command)
         if parsed.substitution or parsed.function or not parsed.commands:
             return None
+        level: str | None = "safe"
         here = cwd
         for cmd in parsed.commands:
-            # Brace-expanded arguments are fine: each expanded word is checked
-            # below like any other (a braced program never got this far).
             if cmd.heredoc or not cmd.words or (cmd.braced and cmd.braced[0]):
                 return None
             for operator, target, unknown in cmd.redirects:
                 if unknown:
                     return None
                 if operator == "<":
-                    if not self._safe_path(target, here, content=True):
-                        return None
-                elif target not in _DEVICES:
+                    level = _worse_level(level, self._table_path(target, here, True))
+                elif operator not in (">", ">>", "&>", "&>>", ">|") or target != "/dev/null":
+                    return None
+                if level is None:
                     return None
             words, dynamic = cmd.words, cmd.dynamic
             head = words[0]
-            if dynamic[0] or "/" in head or head in RESERVED_WORDS or re.match(
-                r"^[A-Za-z_][A-Za-z0-9_]*=", head
-            ):
+            if dynamic[0] or head in RESERVED_WORDS or _ASSIGNMENT.match(head):
                 return None
-            program = head
             rest, rest_dyn = words[1:], dynamic[1:]
-            if program == "cd":
+            if head == "cd":
                 if len(rest) != 1 or rest_dyn[0] or rest[0].startswith("-"):
                     return None
+                level = _worse_level(level, self._table_path(rest[0], here, True))
                 moved = _resolve(rest[0], here, self.ctx)
-                if moved is None or not _under(moved, workdir):
+                if level is None or moved is None:
                     return None
                 here = moved
                 continue
-            if any(rest_dyn) and program not in ("echo", "printf"):
+            if any(rest_dyn):
+                if head not in ("echo", "printf"):
+                    return None
+                level = _worse_level(level, "readlike")
+            if head == "git" and (here != workdir or not self._cwd_known):
+                # A bare repository in a subfolder, or a shell whose folder
+                # nobody knows: git there may run what a worker wrote.
                 return None
-            if not self._safe_command(program, rest, here):
-                return None
-        return "exec:inspection"
+            base = here
 
-    def _safe_path(self, raw: str, cwd: Path, *, content: bool) -> bool:
-        """A literal path that is neither snowpea's nor a secret (and in the project)."""
-        if "$" in raw or "`" in raw or not raw.strip():
-            return False
-        paths = self._candidates(raw, cwd)
-        if not paths:
-            return False
+            def check(raw: str, dir_ok: bool, base: Path = base) -> str | None:
+                return self._table_path(raw, base, dir_ok)
+
+            level = _worse_level(level, inspect_table.judge_command(head, rest, check))
+            if level is None:
+                return None
+        return level
+
+    def _table_path(self, raw: str, cwd: Path, dir_ok: bool) -> str | None:
+        """An operand of a table command: ``safe`` (a literal path that stays in the
+        project, resolved and unresolved), ``readlike`` (a glob in the project, or a
+        directory where ``dir_ok`` is false) or ``None``."""
         workdir = self.ctx.workdir
+        if workdir is None or not raw or "$" in raw or "`" in raw or "\x00" in raw:
+            return None
+        if raw == "-":
+            return "safe"
+        if raw.startswith("~") and not self._home_relaxed:
+            return None  # the user's home: outside the project
+        level = "safe"
+        if self.external and not self._cwd_known and not raw.startswith("/") and (
+            ".." in raw.split("/")
+        ):
+            return None  # the CLI's shell keeps a folder nobody told us about
+        if _has_glob(raw):
+            paths = self._candidates(raw, cwd)
+            if not paths:
+                return None
+            level = "readlike"
+        else:
+            lexical = Path(posixpath.normpath(str(cwd / raw) if not raw.startswith("/") else raw))
+            if not _under(lexical, workdir) and not self._home_relaxed:
+                return None
+            resolved = _resolve(raw, cwd, self.ctx)
+            if resolved is None:
+                return None
+            paths = [resolved]
         for path in paths:
             area = self._area(path)
-            if area is not None:
-                # The snowpea home's content and own folders read like the project.
-                if area not in ("own", "content") or is_secret_path(path):
-                    return False
-                continue
-            if self._is_config(path) or is_secret_path(path):
-                return False
-            if content and (workdir is None or not _under(path, workdir)):
-                return False
-        return True
-
-    def _safe_command(self, program: str, rest: list[str], cwd: Path) -> bool:  # noqa: C901
-        if program in SAFE_NO_PATHS:
-            if program == "date":
-                return not any(w.startswith(("-s", "--set", "-f", "--file", "-r",
-                                             "--reference")) for w in rest)
-            if program == "hostname":
-                return all(w in ("-f", "-s", "-i", "-I", "-d", "-A", "--fqdn", "--short")
-                           for w in rest)
-            if program in ("printf",):
-                return not any(w == "-v" for w in rest)
-            return True
-        if program in SAFE_META:
-            recursive = program in ("du", "tree") or (
-                program == "ls"
-                and any(w in ("-R", "--recursive")
-                        or (w.startswith("-") and not w.startswith("--") and "R" in w)
-                        for w in rest)
-            )
-            if program == "tree" and any(
-                w.startswith(("-o", "-R", "--fromfile", "-H")) for w in rest
-            ):
-                return False
-            if program == "file" and any(
-                w.startswith(("-C", "-m", "-f", "--compile", "--magic-file", "--files-from"))
-                for w in rest
-            ):
-                return False
-            operands = [w for w in rest if not w.startswith("-")]
-            if recursive and not operands:
-                operands = ["."]
-            return all(self._safe_path(w, cwd, content=recursive) for w in operands)
-        if program in SAFE_CONTENT_READERS:
-            return self._safe_reader(program, rest, cwd)
-        if program == "find":
-            return self._safe_find(rest, cwd)
-        if program == "git":
-            return self._safe_git(rest, cwd)
-        return False
-
-    def _safe_reader(self, program: str, rest: list[str], cwd: Path) -> bool:
-        if program == "tr":
-            return True  # character sets, never files
-        lowered = [w.lower() for w in rest]
-        deny: tuple[str, ...] = ()
-        if program == "sort":
-            deny = ("-o", "--output", "-T", "--temporary-directory", "--compress-program",
-                    "--files0-from")
-        elif program in ("grep", "egrep", "fgrep"):
-            deny = ("-R", "--dereference-recursive")
-        elif program == "rg":
-            deny = ("--pre", "--pre-glob", "-L", "--follow", "-z", "--search-zip",
-                    "--hostname-bin")
-        elif program == "jq":
-            deny = ("-f", "--from-file", "--rawfile", "--slurpfile", "-L")
-            if any("env" in w or "input_filename" in w or "$__loc__" in w or "$__prog" in w
-                   for w in lowered):
-                return False
-        elif program == "xxd":
-            deny = ("-r", "-revert")
-        elif program == "sed":
-            return self._safe_sed(rest, cwd)
-        for word in rest:
-            name = word.split("=", 1)[0]
-            if name in deny:
-                return False
-            if (not word.startswith("--") and word.startswith("-") and len(word) > 1
-                    and any(len(d) == 2 and d[1] in word[1:] for d in deny)):
-                return False
-        operands = _reader_operands(program, rest, [False] * len(rest))
-        if program in ("uniq", "xxd") and len(operands) > 1:
-            return False
-        recursive = program == "rg" or (
-            program in ("grep", "egrep", "fgrep")
-            and any(w in ("-r", "--recursive") or (w.startswith("-") and not w.startswith("--")
-                                                   and "r" in w[1:]) for w in rest)
-        ) or (program == "diff" and any(w in ("-r", "--recursive") for w in rest))
-        files = [w for w, _ in operands]
-        if not files and recursive:
-            files = ["."]
-        # Pattern and ignore files named by options are read too.
-        for index, word in enumerate(rest):
-            if word in ("-f", "--file", "--exclude-from", "--ignore-file", "-X") and (
-                program not in ("cut", "uniq")
-            ) and index + 1 < len(rest):
-                files.append(rest[index + 1])
-            elif word.startswith(("--file=", "--exclude-from=", "--ignore-file=")):
-                files.append(word.split("=", 1)[1])
-        return all(self._safe_path(w, cwd, content=True) for w in files)
-
-    def _safe_sed(self, rest: list[str], cwd: Path) -> bool:
-        """``sed -n '1,20p' file``: printing lines, nothing else."""
-        scripts: list[str] = []
-        index = 0
-        files: list[str] = []
-        quiet = False
-        while index < len(rest):
-            word = rest[index]
-            if word in ("-n", "--quiet", "--silent"):
-                quiet = True
-            elif word in ("-E", "-r", "--regexp-extended"):
-                pass
-            elif word in ("-e", "--expression") and index + 1 < len(rest):
-                scripts.append(rest[index + 1])
-                index += 1
-            elif word.startswith("-"):
-                return False
-            elif not scripts:
-                scripts.append(word)
-            else:
-                files.append(word)
-            index += 1
-        if not quiet or not scripts:
-            return False
-        line = r"(\d+|\$)"
-        if not all(re.fullmatch(rf"{line}(,{line})?p", s.strip()) for s in scripts):
-            return False
-        return all(self._safe_path(w, cwd, content=True) for w in files)
-
-    def _safe_find(self, rest: list[str], cwd: Path) -> bool:
-        index = 0
-        while index < len(rest) and rest[index] in ("-L", "-H", "-P"):
-            index += 1
-        roots: list[str] = []
-        while index < len(rest) and not rest[index].startswith(("-", "(", "!", ")")):
-            roots.append(rest[index])
-            index += 1
-        if not all(self._safe_path(r, cwd, content=True) for r in roots or ["."]):
-            return False
-        while index < len(rest):
-            word = rest[index]
-            if word in ("(", ")", "!", ","):
-                index += 1
-                continue
-            if word in FIND_SAFE_VALUED or word.startswith(("-newer",)):
-                if word in ("-newer", "-anewer", "-cnewer", "-samefile") and (
-                    index + 1 >= len(rest) or not self._safe_path(rest[index + 1], cwd,
-                                                                  content=True)
-                ):
-                    return False
-                index += 2
-                continue
-            if word in FIND_SAFE_FLAGS:
-                index += 1
-                continue
-            return False
-        return True
-
-    def _safe_git(self, rest: list[str], cwd: Path) -> bool:  # noqa: C901
-        workdir = self.ctx.workdir
-        assert workdir is not None
-        index = 0
-        here = cwd
-        while index < len(rest):
-            word = rest[index]
-            if word in ("--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs",
-                        "--no-replace-objects", "--glob-pathspecs", "--noglob-pathspecs",
-                        "--icase-pathspecs"):
-                index += 1
-                continue
-            if word == "-C" and index + 1 < len(rest):
-                moved = _resolve(rest[index + 1], here, self.ctx)
-                if moved is None or not _under(moved, workdir):
-                    return False
-                here = moved
-                index += 2
-                continue
-            if word.startswith("-"):
-                return False
-            break
-        if index >= len(rest):
-            return False
-        sub = rest[index]
-        args = rest[index + 1 :]
-        if sub not in SAFE_GIT_SUBCOMMANDS:
-            return False
-        for word in args:
-            name = word.split("=", 1)[0]
-            if name in ("--output", "--ext-diff", "--textconv", "--filters",
-                        "--open-files-in-pager", "--contents", "--ignore-revs-file", "--exec",
-                        "--upload-pack", "--show-signature", "--paginate") or name.startswith(
-                "--ou"
-            ):
-                return False
-        if sub in ("diff", "log", "show", "whatchanged", "shortlog", "blame", "annotate",
-                   "rev-list", "range-diff", "diff-tree", "diff-index", "diff-files", "reflog",
-                   "status", "grep"):
-            allowed = SAFE_GIT_STATUS_LONG if sub == "status" else SAFE_GIT_DIFF_LONG
-            for word in args:
-                if word == "--":
-                    break
-                if word.startswith("--"):
-                    if sub != "grep" and word.split("=", 1)[0] not in allowed:
-                        return False
-                elif word.startswith("-") and len(word) > 1 and word[1] in "oO":
-                    return False
-            if sub == "reflog" and args[:1] not in ([], ["show"]) and not args[0].startswith("-"):
-                return False
-            if "--no-index" in args and not all(
-                self._safe_path(w, here, content=True) for w in args if not w.startswith("-")
-            ):
-                return False
-            return True
-        if sub == "branch":
-            listing = any(w in ("--list", "-l", "--contains", "--no-contains", "--merged",
-                                "--no-merged", "--points-at") for w in args)
-            for word in args:
-                if word.startswith("-"):
-                    if word.split("=", 1)[0] not in SAFE_GIT_BRANCH_OPTIONS:
-                        return False
-                elif not listing:
-                    return False
-            return True
-        if sub == "tag":
-            listing = any(w in ("-l", "--list") for w in args)
-            for word in args:
-                if word.startswith("-"):
-                    if word.split("=", 1)[0] not in SAFE_GIT_TAG_OPTIONS:
-                        return False
-                elif not listing and word not in ("--contains", "--points-at"):
-                    return False
-            return True
-        if sub == "stash":
-            return args[:1] in (["list"], ["show"])
-        if sub == "worktree":
-            return args[:1] == ["list"]
-        if sub == "remote":
-            return all(w in ("-v", "--verbose") for w in args)
-        return True  # ls-files, ls-tree, rev-parse, describe, … (read-only, no file options)
+            if self._home_relaxed and area in ("own", "content") and not is_secret_path(path):
+                continue  # only to tell a plain read of a content folder from a write
+            if not _under(path, workdir):
+                return None
+            if area is not None or self._is_config(path) or is_secret_path(path):
+                return None
+            if cli_control_path(path, self.ctx.user_home):
+                return None
+            if not dir_ok and level == "safe":
+                with contextlib.suppress(OSError):
+                    if path.is_dir():
+                        level = "readlike"
+        return level
 
     def _forge(self, program: str, rest: list[str]) -> None:
         hits = self.hits
@@ -4611,11 +4711,31 @@ class _Judge:
 
 def _flag_hit(word: str, flag: str) -> bool:
     """``word`` is ``flag``, ``flag=value``, or a short flag inside a cluster (``-qx``)."""
-    if word == flag or word.startswith(flag + "="):
+    if word == flag or word.startswith(flag + "=") or _long_abbrev(word, flag):
         return True
     if len(flag) == 2 and flag[0] == "-" and flag[1] != "-":
         return word.startswith("-") and not word.startswith("--") and flag[1] in word[1:]
     return False
+
+
+def _long_abbrev(word: str, flag: str) -> bool:
+    """``--o`` / ``--outp=x`` stand for ``--output``: getopt_long and git's
+    parse-options accept any unambiguous prefix, so every prefix counts (N10)."""
+    if not (flag.startswith("--") and word.startswith("--")):
+        return False
+    name = word.split("=", 1)[0]
+    return len(name) > 2 and flag.startswith(name)
+
+
+def _long_match(word: str, spec: Iterable[str]) -> str | None:
+    """The long option of ``spec`` that ``word`` (``--name`` / ``--name=value``) spells."""
+    name = word.split("=", 1)[0]
+    if name in spec:
+        return name
+    for flag in spec:
+        if _long_abbrev(word, flag):
+            return flag
+    return None
 
 
 def _leading_options(words: list[str], valued: frozenset[str] = frozenset()) -> list[str]:
@@ -4751,7 +4871,8 @@ def classify(request: ClassifyRequest) -> Verdict:
         import logging
 
         logging.getLogger("snowpea.jarvis").exception("classifier failed on %s", request.tool)
-        return Verdict("guarded", GUARDED_CLASSES, ("internal:classifier-error",))
+        # Never delegable: the person answers what the classifier could not read (N12).
+        return Verdict("never", GUARDED_CLASSES, ("internal:classifier-error",))
 
 
 __all__ = [
