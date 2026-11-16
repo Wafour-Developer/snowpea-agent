@@ -807,3 +807,59 @@ async def test_the_status_reports_the_limit_and_only_a_local_person_sets_it(
     # It applies at once, to the session manager's own copy of the settings too.
     assert mode_guard.remote_max(core.sessions.settings) == "plan"
     assert person_gate.PERSON_METHODS["web.remote.status"] is True  # the owner's screen
+
+
+async def test_the_cli_shows_and_sets_the_limit(
+    core: Core, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``snowpea web max-mode [plan|accept|auto]``: the owner's way to set it."""
+    from snowpea_core.cli import commands as cli
+    from snowpea_core.cli.main import build_parser
+    from snowpea_core.server import settings_handlers, web_remote_handlers
+    from snowpea_core.server.protocol import SettingsSetParams
+
+    async def call(_home: Any, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        local = _conn("cli")  # the CLI is a local person's connection
+        if method == "settings.set":
+            result: Any = await settings_handlers.settings_set_handler(
+                local, SettingsSetParams(**params), core)
+        else:
+            assert method == "web.remote.status"
+            result = await web_remote_handlers.status_handler(local, Empty(), core)
+        return dict(result.model_dump(mode="json"))
+
+    monkeypatch.setattr(cli, "_call", call)
+    assert await cli.web_max_mode_command(None) == 0
+    assert "auto (no limit)" in capsys.readouterr().out
+    assert await cli.web_max_mode_command(None, "accept") == 0
+    assert "accept" in capsys.readouterr().out
+    assert core.settings.web.remote.maxMode == "accept"
+    assert Settings.load(core.paths).web.remote.maxMode == "accept"
+    assert await cli.web_status_command(None) == 0
+    assert "max mode:      accept" in capsys.readouterr().out
+    args = build_parser().parse_args(["web", "max-mode", "plan"])
+    assert (args.action, args.max_mode) == ("max-mode", "plan")
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["web", "max-mode", "everything"])
+
+
+def test_the_warning_every_client_shows_says_what_a_remote_sign_in_is() -> None:
+    from snowpea_core.cli.commands import REMOTE_WEB_WARNING
+    from snowpea_core.server.web_remote import PLAIN_HTTP_WARNING, REMOTE_ACCESS_WARNING
+
+    assert REMOTE_ACCESS_WARNING == (
+        "Anyone who has the link (or the username and password) can use snowpea as you, "
+        "including running commands on this computer. Treat the link like an SSH key: share "
+        "it with nobody, prefer the password mode, and put HTTPS (a tunnel or reverse proxy) "
+        "in front of it."
+    )
+    assert PLAIN_HTTP_WARNING.startswith(REMOTE_ACCESS_WARNING)  # web.remote.status.warning
+    assert "running commands on this computer" in REMOTE_WEB_WARNING
+    for page in ("en", "ko"):
+        text = (Path(__file__).parent.parent / "docs" / "manual" / page / "web.md").read_text(
+            "utf-8")
+        assert "maxMode" in text and "max-mode" in text and "trustProxy" in text
+    english = (Path(__file__).parent.parent / "docs" / "manual" / "en" / "web.md").read_text(
+        "utf-8")
+    assert REMOTE_ACCESS_WARNING in english
+    assert "not a security boundary" in english

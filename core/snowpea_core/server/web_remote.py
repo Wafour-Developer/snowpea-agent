@@ -830,10 +830,20 @@ def create_remote_app(
     return app
 
 
+#: What a remote sign-in is, in plain words (security review 7: the limits on it
+#: are "not by a click", never a boundary against whoever holds the link).
+REMOTE_ACCESS_WARNING = (
+    "Anyone who has the link (or the username and password) can use snowpea as you, "
+    "including running commands on this computer. Treat the link like an SSH key: share it "
+    "with nobody, prefer the password mode, and put HTTPS (a tunnel or reverse proxy) in "
+    "front of it."
+)
+#: The warning ``web.remote.status`` carries while the listener is open, which
+#: every client shows: who can do what with the link, then the transport.
 PLAIN_HTTP_WARNING = (
-    "plain HTTP: the access link, the password and everything on the page travel "
-    "unencrypted; put it behind TLS (a reverse proxy) or a VPN/ssh tunnel when it is "
-    "reachable beyond a trusted network"
+    f"{REMOTE_ACCESS_WARNING} This listener is plain HTTP: the access link, the password and "
+    "everything on the page travel unencrypted; put it behind TLS (a reverse proxy) or a "
+    "VPN/ssh tunnel when it is reachable beyond a trusted network"
 )
 
 

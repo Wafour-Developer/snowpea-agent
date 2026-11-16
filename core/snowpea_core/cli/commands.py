@@ -61,7 +61,10 @@ def _print_json(payload: Any) -> None:
 
 
 REMOTE_WEB_WARNING = (
-    "warning: this is plain HTTP; put it behind TLS (a reverse proxy) or a VPN/ssh tunnel "
+    "warning: anyone who has the link (or the username and password) can use snowpea as you, "
+    "including running commands on this computer. Treat the link like an SSH key: share it "
+    "with nobody, prefer the password mode, and put HTTPS (a tunnel or reverse proxy) in "
+    "front of it. This is plain HTTP; put it behind TLS (a reverse proxy) or a VPN/ssh tunnel "
     "when it is reachable beyond a trusted network"
 )
 
@@ -207,6 +210,28 @@ async def web_command(
     return 0
 
 
+async def web_max_mode_command(home: Path | str | None, mode: str | None = None) -> int:
+    """``snowpea web max-mode [plan|accept|auto]``: ``web.remote.maxMode`` (review 7).
+
+    The widest mode a remote sign-in may raise a session or a job to, or start
+    work in.  Set here, on this computer (a local person's setting); it applies
+    at once.  It stops unattended runs, not whoever holds the link.
+    """
+    try:
+        if mode is not None:
+            await _call(home, "settings.set", {
+                "scope": "global", "patch": {"web": {"remote": {"maxMode": mode}}}})
+        status = await _call(home, "web.remote.status", {})
+    except RpcCallError as exc:
+        return _fail(f"web max-mode: {exc.message}", EXIT_USAGE)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    limit = status.get("maxMode") or "auto"
+    print(f"remote sign-ins may use up to: {limit}"
+          + (" (no limit)" if limit == "auto" else ""))
+    return EXIT_OK
+
+
 async def web_token_command(home: Path | str | None, *, rotate: bool = False) -> int:
     """``snowpea web token [--rotate]``: print (or replace) the remote access link."""
     try:
@@ -340,6 +365,7 @@ async def web_status_command(home: Path | str | None, *, as_json: bool = False) 
         print(f"username:      {live.get('username') or '(not set)'}")
         print(f"password:      {'set' if live.get('passwordSet') else 'not set'}")
         print(f"sessions:      {live.get('sessions', 0)}")
+        print(f"max mode:      {live.get('maxMode') or 'auto'}")
         if live.get("listening"):
             print(f"warning:       {live.get('warning') or REMOTE_WEB_WARNING}")
         if live.get("needsRestart"):
@@ -3266,6 +3292,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     web_token = web_sub.add_parser("token", help="print the remote access link")
     web_token.add_argument("--rotate", dest="rotate", action="store_true",
                            help="replace the token; every open remote session ends")
+    web_max_mode = web_sub.add_parser(
+        "max-mode",
+        help="show or set the widest mode a remote sign-in may use (web.remote.maxMode)",
+    )
+    web_max_mode.add_argument("max_mode", nargs="?", choices=("plan", "accept", "auto"),
+                              help="plan, accept or auto (auto: no limit); omit to show it")
     web_status = web_sub.add_parser(
         "status", help="show remote access: bind address, username, password, sessions"
     )
@@ -3586,6 +3618,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             return await web_status_command(home, as_json=as_json)
         if action == "token":
             return await web_token_command(home, rotate=bool(getattr(args, "rotate", False)))
+        if action == "max-mode":
+            return await web_max_mode_command(home, getattr(args, "max_mode", None))
         return await web_command(
             home,
             open_browser=not bool(getattr(args, "no_open", False)),

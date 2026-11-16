@@ -217,7 +217,7 @@ snowpea web password --stdin
 snowpea web password --clear
 ```
 
-`web`은 데몬이 실행 중인지 확인하고, [snowpea web](web.md) — 데몬이 서비스하는, 브라우저에서 보는 IDE 화면 — 의 주소를 출력한 뒤 엽니다. 주소에는 데몬 토큰이 들어 있으니 남에게 보여 주지 마세요. `--no-open`은 주소만 출력합니다. [원격 접속](web.md)을 켜면 다른 컴퓨터용 주소도 출력합니다. `web status`는 원격 접속 상태(listen 주소, 사용자 이름, 비밀번호 설정 여부, 열린 로그인 수)를 보여 줍니다. `web password`는 원격 로그인 비밀번호를 정하고(두 번 묻고, `--stdin`은 한 줄을 읽음) `--clear`는 지웁니다. `credentials.json`에 scrypt 해시만 저장됩니다.
+`web`은 데몬이 실행 중인지 확인하고, [snowpea web](web.md) — 데몬이 서비스하는, 브라우저에서 보는 IDE 화면 — 의 주소를 출력한 뒤 엽니다. 주소에는 데몬 토큰이 들어 있으니 남에게 보여 주지 마세요. `--no-open`은 주소만 출력합니다. [원격 접속](web.md)을 켜면 다른 컴퓨터용 주소도 출력합니다. `web status`는 원격 접속 상태(listen 주소, 사용자 이름, 비밀번호 설정 여부, 열린 로그인 수)를 보여 줍니다. `web password`는 원격 로그인 비밀번호를 정하고(두 번 묻고, `--stdin`은 한 줄을 읽음) `--clear`는 지웁니다. `credentials.json`에 scrypt 해시만 저장됩니다. `web max-mode [plan|accept|auto]`는 원격 로그인이 쓸 수 있는 가장 넓은 모드([`web.remote.maxMode`](web.md#모드-제한-maxmode))를 보여 주거나 정합니다. `auto`는 제한 없음입니다.
 
 ### 벤더
 
