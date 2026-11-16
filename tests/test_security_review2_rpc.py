@@ -80,7 +80,9 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     "job.runNow": (P, P, R, R),  # on a jarvis-task job
     "job.delete": (P, P, P, R),
     "job.nextRunForClient": (P, P, P, P),
-    "job.update": (P, P, R, R),  # on a jarvis-task job
+    # On a jarvis-task job. A remote login changes only the jobs it created
+    # (review 6 part B, M-4): this one was made locally, so it is refused.
+    "job.update": (P, R, R, R),
     "job.runs": (P, P, P, P),
 }
 
