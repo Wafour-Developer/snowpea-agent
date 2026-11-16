@@ -1,17 +1,19 @@
 """snowpea's own control files: one table, always on (security review 6, H-1).
 
-The files below decide what snowpea trusts and who may talk to the daemon.  No
-tool changes them and no tool reads the secrets among them, whatever the mode,
-the presets or the person's lists say — this rule set is not a preset and no
-setting removes it.  The same table answers for every path that reaches a
-tool: shell effects and code effects (:mod:`snowpea_core.security.check`), the
-file tools (the same check, and :mod:`snowpea_core.tools.config_guard`), and
-the ``fs.*`` methods through :func:`control_plane_effect`.
+The files below decide what snowpea trusts and who may talk to the daemon.  A
+call that snowpea reads is refused (or put to a person) when it would change
+them or read the secrets among them, whatever the mode, the presets or the
+person's lists say — this rule set is not a preset and no setting removes it.
+It judges what a call says, not what the programs it starts do later.  The
+same table answers for every path that reaches a tool: shell effects and code
+effects (:mod:`snowpea_core.security.check`), the file tools (the same check,
+and :mod:`snowpea_core.tools.config_guard`), and the ``fs.*`` methods through
+:func:`control_plane_effect`.
 
 Levels:
 
 ``all``
-    A secret: never read, listed, copied, written, deleted or moved.
+    A secret: a call that reads, lists, copies, writes, deletes or moves it is refused.
 ``write``
     Never written, deleted, moved or re-moded; reading it is an ordinary read.
 ``ask``
