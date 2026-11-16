@@ -72,7 +72,7 @@ async def test_stopping_mid_turn_writes_exactly_one_interrupted_turn_done(
     home = tmp_path / "home"
     with fake_provider(FIXTURE):
         daemon = await make_daemon(home)
-        workdir = home / "project"
+        workdir = home.parent / "project"  # not inside snowpea's home (review 7, H-2)
         workdir.mkdir(parents=True, exist_ok=True)
         client = await connect(http, daemon, timeout=TIMEOUT)
         session_id = await start_session(client, workdir)
@@ -106,7 +106,7 @@ async def test_a_restart_after_a_stop_mid_turn_adds_nothing(
     home = tmp_path / "home"
     with fake_provider(FIXTURE):
         daemon = await make_daemon(home)
-        workdir = home / "project"
+        workdir = home.parent / "project"  # not inside snowpea's home (review 7, H-2)
         workdir.mkdir(parents=True, exist_ok=True)
         client = await connect(http, daemon, timeout=TIMEOUT)
         session_id = await start_session(client, workdir)
@@ -265,7 +265,7 @@ async def test_session_list_reports_the_running_turn(
     home = tmp_path / "home"
     with fake_provider(FIXTURE):
         daemon = await make_daemon(home)
-        workdir = home / "project"
+        workdir = home.parent / "project"  # not inside snowpea's home (review 7, H-2)
         workdir.mkdir(parents=True, exist_ok=True)
         try:
             client = await connect(http, daemon, timeout=TIMEOUT)
@@ -335,7 +335,7 @@ async def test_an_interrupted_turn_keeps_its_prompt_for_resume(
     home = tmp_path / "home"
     with fake_provider(FIXTURE):
         daemon = await make_daemon(home)
-        workdir = home / "project"
+        workdir = home.parent / "project"  # not inside snowpea's home (review 7, H-2)
         workdir.mkdir(parents=True, exist_ok=True)
         client = await connect(http, daemon, timeout=TIMEOUT)
         session_id = await start_session(client, workdir)
@@ -365,7 +365,7 @@ async def test_session_resume_after_daemon_died_mid_turn_has_synthetic_interrupt
     interrupted turn.done in replay.
     """
     home = tmp_path / "home"
-    workdir = home / "project"
+    workdir = home.parent / "project"  # not inside snowpea's home (review 7, H-2)
     workdir.mkdir(parents=True, exist_ok=True)
 
     with fake_provider(FIXTURE):
