@@ -217,14 +217,19 @@ async def agent_create_handler(
         raise RpcError(errors.JARVIS_PERSON_ONLY,
                        "only a person may create a named agent (agent.create named: true)",
                        {"reason": "person_only", "kind": caller.kind})
+    from snowpea_core.server.person_gate import is_person
+
+    # Security review 8, M8-1: only a local person's own request pins the file.
+    pin = is_person(conn, local=True)
     try:
-        defn = await create_definition(core, session, params.description)
+        defn = await create_definition(core, session, params.description, pin=pin)
         if defn.permission in named_agents.MODES:
             # A definition wider than the project's default is a raise: a person's.
             mode_guard.check(caller, None, core.sessions.default_mode(session.workdir),
                              defn.permission)
         if params.name:
-            defn = await named_agents.rename_definition(core, session, defn, params.name)
+            defn = await named_agents.rename_definition(core, session, defn, params.name,
+                                                        pin=pin)
         if params.named:
             await named_agents.registry(core).create(defn.name, defn, parent=session)
     except DefinitionError as exc:

@@ -14,9 +14,7 @@ Nothing in this module starts a server or touches the registry; that is
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -122,27 +120,13 @@ def read_servers(path: Path) -> dict[str, dict[str, Any]]:
 
 
 def write_document(path: Path, document: dict[str, Any]) -> Path:
-    """Replace ``path`` atomically: temp file in the same directory, then rename."""
+    """Replace ``path`` atomically: temp file in the same directory, then rename;
+    never through a link (security review 8, H8-2)."""
+    from snowpea_core.util.atomic import write_atomic
+
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
-    handle = tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=target.parent,
-        prefix=target.name + ".",
-        suffix=".tmp",
-        delete=False,
-    )
-    try:
-        with handle as stream:
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(handle.name, target)
-    except BaseException:
-        Path(handle.name).unlink(missing_ok=True)
-        raise
+    write_atomic(target, text)
     return target
 
 

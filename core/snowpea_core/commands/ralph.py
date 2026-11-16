@@ -320,7 +320,9 @@ def _backup_prd(session: Session) -> Path | None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     target = path.with_name(f"prd-{stamp}.json")
     try:
-        target.write_bytes(path.read_bytes())
+        from snowpea_core.util.atomic import read_owned, write_atomic
+
+        write_atomic(target, read_owned(path), mode=0o644)
     except OSError:
         return None
     return target
@@ -334,14 +336,17 @@ def write_prd(session: Session, task: str, stories: list[Story], iteration: int)
         "stories": [story.to_json() for story in stories],
         "allPassed": all(story.passed for story in stories) if stories else False,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    from snowpea_core.util.atomic import write_atomic
+
+    write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n", mode=0o644)
     return path
 
 
 def append_progress(session: Session, lines: list[str]) -> Path:
+    from snowpea_core.util.atomic import append_text
+
     path = state_dir(session) / PROGRESS_NAME
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write("\n".join(lines) + "\n")
+    append_text(path, "\n".join(lines) + "\n", mode=0o644)
     return path
 
 

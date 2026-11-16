@@ -33,6 +33,7 @@ from snowpea_core import __version__
 from snowpea_core.config.paths import Paths, resolve_home
 from snowpea_core.server.home_lock import home_is_locked
 from snowpea_core.server.protocol import PROTOCOL_VERSION
+from snowpea_core.util.atomic import open_append, read_owned
 
 #: Seconds to wait for a freshly spawned daemon to publish ``daemon.json``.
 SPAWN_TIMEOUT_SEC = 15.0
@@ -97,7 +98,7 @@ def read_daemon_json(home: Path | str | None = None) -> DaemonInfo | None:
     """Return the advertised daemon, or ``None`` when the file is absent/corrupt."""
     path = Paths(home=resolve_home(home)).daemon_json
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(read_owned(path).decode("utf-8"))  # review 8, H8-2
     except (OSError, ValueError):
         return None
     try:
@@ -190,7 +191,7 @@ def _spawn_daemon(home: Path) -> subprocess.Popen[bytes]:
     paths.ensure()
     log_file = paths.logs_dir / "daemon.out"
     command = _spawn_command(home)
-    handle = log_file.open("ab")
+    handle = open_append(log_file, binary=True)  # security review 8, H8-2
     # The remote-access password a CLI may carry in its environment never reaches
     # the daemon (whose shell tool hands its environment to every command).
     env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV_VARS}

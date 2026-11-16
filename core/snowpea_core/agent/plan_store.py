@@ -304,9 +304,9 @@ def _rederive(plan: Plan) -> None:
 
 def _replace(target: Path, text: str) -> None:
     """Write ``text`` whole and rename it into place: never half a file."""
-    temp = target.with_name(target.name + ".tmp")
-    temp.write_text(text, encoding="utf-8")
-    temp.replace(target)
+    from snowpea_core.util.atomic import write_atomic
+
+    write_atomic(target, text)
 
 
 def _write(workdir: Path | str, plan: Plan, *, markdown: bool = False) -> None:
@@ -362,10 +362,9 @@ def _copy_to_archive(workdir: Path | str) -> Path | None:
     base = archive / f"{stamp}-{_slug(plan.title)}"
     plan.status = "archived"
     plan.updatedAt = utc_now()
-    base.with_suffix(".json").write_text(
-        json.dumps(plan.to_json(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    base.with_suffix(".md").write_text(plan.markdown, encoding="utf-8")
+    _replace(base.with_suffix(".json"),
+             json.dumps(plan.to_json(), ensure_ascii=False, indent=2) + "\n")
+    _replace(base.with_suffix(".md"), plan.markdown)
     return base.with_suffix(".md")
 
 

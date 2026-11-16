@@ -619,8 +619,9 @@ async def skill_write_handler(
             raise RpcError(errors.INVALID_PARAMS, f"an empty {kind} file is not saved")
         base = Path(core.paths.home) if global_ else (workdir or Path(core.paths.home)) / ".snowpea"
         path = base / _ENTRY_DIRS[kind] / f"{name}.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(params.content.strip() + "\n", encoding="utf-8")
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(path, params.content.strip() + "\n", mode=0o644)
     loader = getattr(core, "skills", None)
     if loader is not None:
         await loader.reload()

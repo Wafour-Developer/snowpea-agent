@@ -67,10 +67,9 @@ class AttachmentStore:
         if target.exists() and target.stat().st_size == attachment.size:
             return replace(attachment, path=target, data=None)
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_suffix(target.suffix + ".tmp")
-            tmp.write_bytes(attachment.read_bytes())
-            tmp.replace(target)
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(target, attachment.read_bytes())
         except OSError as exc:
             raise AttachmentError("internal", f"attachment: could not store: {exc}") from exc
         return replace(attachment, path=target, data=None)
@@ -109,10 +108,10 @@ class AttachmentStore:
         return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
     def _write_listing(self, session_id: str, rows: list[dict[str, Any]]) -> None:
+        from snowpea_core.util.atomic import write_atomic
+
         index = self.files_dir(session_id) / INDEX_NAME
-        tmp = index.with_suffix(".tmp")
-        tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(index)
+        write_atomic(index, json.dumps(rows, ensure_ascii=False, indent=1))
 
     def keep_original(
         self, session_id: str, name: str, data: bytes | None, mime: str, source: Path | None = None
@@ -147,10 +146,9 @@ class AttachmentStore:
                 )
             target = self._free_name(session_id, safe_name(name))
             try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                tmp = target.with_name(target.name + ".tmp")
-                tmp.write_bytes(payload)
-                tmp.replace(target)
+                from snowpea_core.util.atomic import write_atomic
+
+                write_atomic(target, payload)
             except OSError as exc:
                 raise AttachmentError("internal", f"attachment: could not store: {exc}") from exc
         if not any(row.get("path") == str(target) for row in rows):

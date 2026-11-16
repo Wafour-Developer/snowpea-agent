@@ -45,6 +45,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from snowpea_core.util.atomic import open_append
+
 log = logging.getLogger("snowpea.skills.marketplace")
 
 SOURCE_CLAUDE = "claude-marketplace"
@@ -184,12 +186,10 @@ def load_marketplaces(home: Path | str) -> list[dict[str, str]]:
 
 
 def save_marketplaces(home: Path | str, entries: list[dict[str, str]]) -> None:
-    path = marketplaces_path(home)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({"marketplaces": entries}, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    from snowpea_core.util.atomic import write_atomic
+
+    write_atomic(marketplaces_path(home),
+                 json.dumps({"marketplaces": entries}, indent=2, ensure_ascii=False) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -857,7 +857,8 @@ def _extract_zip_safely(content: bytes, target: Path) -> None:
                 name = name[len(prefix) :]
             path = _safe_join(target, name)
             path.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info) as src, path.open("wb") as dst:
+            path.unlink(missing_ok=True)  # security review 8, H8-2: never through a link
+            with archive.open(info) as src, open_append(path, binary=True, mode=0o644) as dst:
                 shutil.copyfileobj(src, dst)
 
 

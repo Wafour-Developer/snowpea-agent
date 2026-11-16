@@ -76,8 +76,9 @@ def machine_id(home: Path | str) -> str:
             if _valid(existing):
                 return existing
         with contextlib.suppress(OSError):
-            path.write_text(fresh + "\n", encoding="utf-8")
-            path.chmod(0o600)
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(path, fresh + "\n")
         return fresh
     except OSError:
         return fresh  # a read-only home: an id that lasts this run

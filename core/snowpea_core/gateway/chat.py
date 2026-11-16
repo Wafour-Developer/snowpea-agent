@@ -39,6 +39,7 @@ from snowpea_core.gateway.base import (
     session_callback,
 )
 from snowpea_core.session.mode_guard import ModeCaller
+from snowpea_core.util.atomic import write_atomic
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.gateway.router import Binding, GatewayRouter
@@ -146,10 +147,7 @@ class ChatSessionMemory:
 
     def _write(self, data: dict[str, str]) -> None:
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-            tmp.replace(self.path)
+            write_atomic(self.path, json.dumps(data, indent=2) + "\n")
         except OSError as exc:  # pragma: no cover - unwritable home
             log.warning("could not remember the chat session in %s: %s", self.path, exc)
 

@@ -253,7 +253,9 @@ def _audio_input(core: Core, params: AudioTranscribeParams) -> Path:
     suffix = tts_backends.extension_for(params.mime or "audio/wav")
     target = directory / f"upload-{utc_now().replace(':', '-')}{suffix}"
     try:
-        target.write_bytes(decode_base64(params.data))
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(target, decode_base64(params.data))
     except (OSError, ValueError) as exc:
         raise RpcError("invalid_params", f"audio.transcribe: {exc}") from exc
     return target

@@ -580,11 +580,12 @@ def test_an_agent_snowpea_wrote_for_the_person_is_pinned_as_written(core: Core,
     project = tmp_path / "proj"
     project.mkdir()
     defn = AgentDefinition(name="mine", description="mine", prompt="Be brief.")
-    write_definition(defn, project)
+    # Review 8, M8-1: pinned only when a local person asked (``pin=True``).
+    write_definition(defn, project, pin=True)
     assert _names(_loader(core, project), project) == ["mine"]
     # One that asks for a permission of its own still waits for the person.
     bold = AgentDefinition(name="bold", description="bold", prompt="x", permission="auto")
-    write_definition(bold, project)
+    write_definition(bold, project, pin=True)
     assert _names(_loader(core, project), project) == ["mine"]
 
 

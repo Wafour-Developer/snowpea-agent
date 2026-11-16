@@ -1254,15 +1254,10 @@ class ProcessSupervisor:
             if not self._secure_dir():
                 log.warning("the external pid-file directory is not safe; %s not recorded", cli)
                 return None
+            from snowpea_core.util.atomic import write_atomic
+
             path = self.dir / f"{pid}.json"
-            tmp = self.dir / f".{pid}.json.tmp"
-            with contextlib.suppress(FileNotFoundError):
-                tmp.unlink()  # unlink never follows a symlink
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-            fd = os.open(tmp, flags, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(json.dumps(record))
-            os.replace(tmp, path)
+            write_atomic(path, json.dumps(record))
             return path
         except OSError:
             log.warning("could not write the pid file for %s", cli, exc_info=True)

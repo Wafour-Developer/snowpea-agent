@@ -25,7 +25,6 @@ user a memory.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -91,12 +90,13 @@ def _write_private(path: Path, text: str, *, append: bool = False) -> None:
     A mirror can hold personal facts, so a new file is mode 0600; an existing
     one is narrowed too.
     """
-    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
-    fd = os.open(path, flags, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(text)
-    if os.name != "nt":
-        path.chmod(0o600)
+    from snowpea_core.util.atomic import append_text, write_atomic
+
+    # Security review 8, H8-2: never through a link planted in its place.
+    if append:
+        append_text(path, text)
+    else:
+        write_atomic(path, text)
 
 
 #: What the browser tags every page line with.

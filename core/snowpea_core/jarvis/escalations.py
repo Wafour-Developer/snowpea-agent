@@ -49,23 +49,10 @@ class EscalationBook:
 
     def _save(self) -> None:
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".json.tmp")
-            # Created owner-only: the text is never readable by others, even
-            # for the moment before a chmod.
-            # A fresh file every time, never through a symlink left in its place.
-            with contextlib.suppress(FileNotFoundError):
-                tmp.unlink()
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-            fd = os.open(tmp, flags, 0o600)
-            try:
-                with contextlib.suppress(OSError, AttributeError):
-                    os.fchmod(fd, 0o600)
-                os.write(fd, json.dumps({"open": self._items}, ensure_ascii=False)
-                         .encode("utf-8"))
-            finally:
-                os.close(fd)
-            tmp.replace(self.path)
+            from snowpea_core.util.atomic import write_atomic
+
+            # Owner-only from the first byte, a random temp name, never through a link.
+            write_atomic(self.path, json.dumps({"open": self._items}, ensure_ascii=False))
         except OSError:
             log.warning("could not write %s", self.path, exc_info=True)
 

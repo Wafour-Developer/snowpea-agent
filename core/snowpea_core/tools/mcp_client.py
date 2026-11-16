@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.attachments.model import MAX_BYTES
 from snowpea_core.server.protocol import McpState, PermissionTag
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
+from snowpea_core.util.atomic import read_owned
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -348,7 +349,7 @@ class McpServerConfig:
 def _read_config(path: Path, source: str, data: bytes | None = None) -> dict[str, McpServerConfig]:
     """``data``: the file's bytes as project trust verified them (review 6, M-2)."""
     try:
-        text = data.decode("utf-8") if data is not None else path.read_text(encoding="utf-8")
+        text = (data if data is not None else read_owned(path)).decode("utf-8")
         raw = json.loads(text)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}

@@ -326,10 +326,11 @@ class ProjectSettings(BaseModel):
         if home_problem(workdir) is not None:
             raise ValueError(NOT_A_PROJECT)
         path = self.path_for(workdir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
-        tmp.replace(path)
+        from snowpea_core.util.atomic import write_atomic
+
+        # Security review 8, L8-2: never through a planted link or ``settings.json.tmp``.
+        write_atomic(path, json.dumps(self.model_dump(mode="json"), indent=2) + "\n",
+                     mode=0o644)
         return path
 
 

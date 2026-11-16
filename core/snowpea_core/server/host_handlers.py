@@ -860,8 +860,9 @@ def _setup_state(core: Core) -> dict[str, Any]:
 
 
 def _save_setup_state(core: Core, state: dict[str, Any]) -> None:
-    path = core.paths.home / SETUP_STATE_FILE
-    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    from snowpea_core.util.atomic import write_atomic
+
+    write_atomic(core.paths.home / SETUP_STATE_FILE, json.dumps(state, indent=2))
 
 
 def _configured_providers(core: Core) -> list[str]:

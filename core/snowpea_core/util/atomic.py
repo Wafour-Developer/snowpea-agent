@@ -24,6 +24,7 @@ import os
 import secrets
 import stat
 from pathlib import Path
+from typing import Any
 
 #: Owner read/write only: the default for every file in the home.
 PRIVATE = 0o600
@@ -92,6 +93,37 @@ def write_atomic(path: str | os.PathLike[str], data: bytes | str, *, mode: int =
     return info
 
 
+def open_append(path: str | os.PathLike[str], *, mode: int = PRIVATE,
+                binary: bool = False, encoding: str = "utf-8") -> Any:
+    """A file object appending to ``path`` (a log): created owner-only, never
+    through a link, never anything but a regular file."""
+    target = Path(os.fspath(path))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | _NOFOLLOW | _CLOEXEC | _BINARY
+    try:
+        fd = os.open(target, flags, mode)
+    except OSError as exc:
+        if os.path.islink(target):
+            raise UnsafePath(f"{target} is a symbolic link; snowpea does not write through "
+                             "it") from exc
+        raise
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise UnsafePath(f"{target} is not a regular file")
+    except BaseException:
+        os.close(fd)
+        raise
+    if binary:
+        return os.fdopen(fd, "ab")
+    return os.fdopen(fd, "a", encoding=encoding)
+
+
+def append_text(path: str | os.PathLike[str], text: str, *, mode: int = PRIVATE) -> None:
+    """Append ``text`` to ``path`` the way :func:`open_append` opens it."""
+    with open_append(path, mode=mode) as handle:
+        handle.write(text)
+
+
 def read_owned(path: str | os.PathLike[str], *, limit: int | None = None) -> bytes:
     """The bytes of ``path``, read once without following a link.
 
@@ -122,4 +154,5 @@ def read_owned(path: str | os.PathLike[str], *, limit: int | None = None) -> byt
     return data
 
 
-__all__ = ["PRIVATE", "UnsafePath", "read_owned", "refuse_link", "write_atomic"]
+__all__ = ["PRIVATE", "UnsafePath", "append_text", "open_append", "read_owned", "refuse_link",
+           "write_atomic"]

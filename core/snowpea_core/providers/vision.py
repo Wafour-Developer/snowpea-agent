@@ -184,8 +184,9 @@ class VisionMemory:
             for key, (saved_at, value) in self._known.items()
         }
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(document), encoding="utf-8")
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(path, json.dumps(document))
         except OSError:  # pragma: no cover - read-only home
             log.debug("could not persist the vision cache", exc_info=True)
 

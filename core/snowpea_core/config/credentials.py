@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from snowpea_core.config.paths import Paths
+from snowpea_core.util.atomic import UnsafePath, read_owned, write_atomic
 
 log = logging.getLogger("snowpea.credentials")
 
@@ -46,22 +47,24 @@ class CredentialStore:
     def load(self) -> dict[str, Any]:
         """Whole file, or ``{}`` when it is missing or unreadable."""
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            # Security review 8, H8-2: never a linked file or one not the user's.
+            raw = json.loads(read_owned(self.path).decode("utf-8"))
         except FileNotFoundError:
             return {}
-        except (OSError, json.JSONDecodeError):
+        except UnsafePath as exc:
+            log.error("%s; no stored credential is used until it is a plain file", exc)
+            return {}
+        except (OSError, ValueError):
             log.warning("could not read %s; treating it as empty", self.path)
             return {}
         return raw if isinstance(raw, dict) else {}
 
     def save(self, data: dict[str, Any]) -> None:
-        """Write the file atomically and leave it at 0600."""
+        """Write the file atomically at 0600: a random temp name, never through a
+        link (security review 8, H8-2)."""
         self.paths.ensure()
-        tmp = self.path.with_name(self.path.name + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        os.chmod(tmp, FILE_MODE)
-        tmp.replace(self.path)
-        os.chmod(self.path, FILE_MODE)
+        write_atomic(self.path, json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                     mode=FILE_MODE)
 
     def set(self, ref: str, value: Any) -> None:
         """Store one credential under ``ref``."""

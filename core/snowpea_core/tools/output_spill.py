@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from snowpea_core.config.paths import resolve_home
+from snowpea_core.util.atomic import write_atomic
 
 log = logging.getLogger("snowpea.tools.spill")
 
@@ -86,7 +87,7 @@ def spill(
     target = directory / f"{kind}-{uuid.uuid4().hex[:12]}.txt"
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+        write_atomic(target, text)
         _sweep(directory)
     except OSError as exc:  # pragma: no cover - disk full / read-only home
         log.debug("could not spill %s output: %s", kind, exc)
@@ -122,7 +123,7 @@ def spill_chars(
     target = directory / f"{kind}-{uuid.uuid4().hex[:12]}.txt"
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+        write_atomic(target, text)
         _sweep(directory)
     except OSError as exc:  # pragma: no cover - disk full / read-only home
         log.debug("could not spill %s output: %s", kind, exc)

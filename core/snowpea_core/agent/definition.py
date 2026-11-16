@@ -675,23 +675,30 @@ def _project_definition_active(workdir: Path | str, home: Path | str | None, pat
         return False
 
 
-def write_definition(defn: AgentDefinition, workdir: Path | str) -> Path:
+def write_definition(defn: AgentDefinition, workdir: Path | str, *, pin: bool = False) -> Path:
     """Write ``defn`` to ``<workdir>/.snowpea/agents/<name>.md`` and return it.
 
-    snowpea writes this file itself, for the person who asked for the agent
-    (``/agent create``): like a rule or a setting the person changes through
-    snowpea, it is pinned as written when what was there before was trusted or
-    nothing was there (:meth:`TrustStore.person_wrote`).  A definition with a
-    ``permission`` of its own still waits for the person's trust.
+    ``pin``: a local person asked for this agent on their own command line
+    (``/agent create`` they typed, ``agent.create`` from their own surface).
+    Then, like a rule or a setting the person changes through snowpea, it is
+    pinned when what was there before was trusted or nothing was there
+    (:meth:`TrustStore.person_wrote`) — pinned as the bytes snowpea rendered,
+    not as whatever is on disk afterwards (security review 8, M8-1).  A
+    definition with a ``permission`` of its own, one asked for by the agent or
+    a tool, and one taking a built-in's name still wait for the person's trust.
     """
+    import hashlib
+
+    from snowpea_core.util.atomic import write_atomic
+
     directory = Path(workdir) / PROJECT_DIRS[0][0]
-    directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{defn.name}.md"
     before = _digest(path)
-    path.write_text(render_agent_md(defn), encoding="utf-8")
+    rendered = render_agent_md(defn).encode("utf-8")
+    write_atomic(path, rendered, mode=0o644)
     defn.path = path
     defn.source = "project"
-    if defn.permission in (None, "", "inherit"):
+    if pin and defn.permission in (None, "", "inherit"):
         try:
             from snowpea_core.trust.projects import (
                 builtin_agent_names,
@@ -703,7 +710,8 @@ def write_definition(defn: AgentDefinition, workdir: Path | str) -> Path:
                 return path  # it would take a built-in agent's place: the person decides
             base = project_root(workdir)
             rel = os.path.relpath(os.path.realpath(path), base).replace(os.sep, "/")
-            default_store().person_wrote(base, rel, before)
+            default_store().person_wrote(
+                base, rel, before, digest="sha256:" + hashlib.sha256(rendered).hexdigest())
         except Exception:  # noqa: BLE001 - unpinned: it waits for the person's trust
             log.debug("could not pin the new agent definition", exc_info=True)
     return path

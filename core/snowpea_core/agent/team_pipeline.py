@@ -479,8 +479,9 @@ def spill_diff(text: str, home: Path | str | None = None, cap: int = MAX_REVIEW_
     directory = output_spill.spill_dir(home)
     target = directory / f"diff-{uuid.uuid4().hex[:12]}.txt"
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(target, text)
         output_spill._sweep(directory)
     except OSError as exc:
         log.debug("could not spill diff: %s", exc)
@@ -976,8 +977,9 @@ class TeamPipeline:
         run.handoff_notes[stage] = extracted
         try:
             path = Path(self.session.workdir) / ".snowpea" / "handoffs" / run.id / f"{stage}.md"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(extracted + "\n", encoding="utf-8")
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(path, extracted + "\n", mode=0o644)
             run.handoff_paths[stage] = str(path)
         except OSError as exc:
             log.debug("could not write handoff file: %s", exc)

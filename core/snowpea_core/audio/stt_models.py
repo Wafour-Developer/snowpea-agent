@@ -265,7 +265,11 @@ async def download_file(
                     return False
                 total = _total(response, have)
                 written = have
-                with partial.open("ab" if have else "wb") as handle:
+                from snowpea_core.util.atomic import open_append
+
+                if not have:
+                    partial.unlink(missing_ok=True)  # a fresh start, never through a link
+                with open_append(partial, binary=True) as handle:
                     async for chunk in response.aiter_bytes():
                         handle.write(chunk)
                         written += len(chunk)
@@ -425,7 +429,9 @@ async def ensure_model(
         if progress is not None:
             await progress(f"{model.id} is missing {', '.join(missing)} after unpacking")
         return False
-    (directory / STAMP_NAME).write_text(model.asset, encoding="utf-8")
+    from snowpea_core.util.atomic import write_atomic
+
+    write_atomic(directory / STAMP_NAME, model.asset)
     return True
 
 

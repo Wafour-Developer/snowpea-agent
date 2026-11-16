@@ -49,6 +49,7 @@ import httpx
 
 from snowpea_core.audio import runtime
 from snowpea_core.audio.player import AudioError
+from snowpea_core.util.atomic import write_atomic
 
 log = logging.getLogger("snowpea.audio.tts")
 
@@ -288,7 +289,7 @@ async def materialise(
                         "synthesis_failed",
                         f"speech download failed: HTTP {response.status_code}",
                     )
-                target.write_bytes(response.content)
+                write_atomic(target, response.content)
         except httpx.HTTPError as exc:
             raise AudioError("synthesis_failed", f"speech download failed: {exc}") from exc
         return Speech(path=target, mime=mime)
@@ -311,7 +312,7 @@ async def materialise(
     except (binascii.Error, ValueError) as exc:
         raise AudioError("synthesis_failed", f"speech payload is not base64: {exc}") from exc
     target = out_dir / f"{stem}{extension_for(mime)}"
-    target.write_bytes(raw)
+    write_atomic(target, raw)
     return Speech(path=target, mime=mime)
 
 
@@ -442,7 +443,7 @@ class OpenAITTS:
                 "synthesis_failed", f"openai: HTTP {response.status_code}: {response.text[:300]}"
             )
         target = out_dir / f"{_stem_for(body, stem)}.mp3"
-        target.write_bytes(response.content)
+        write_atomic(target, response.content)
         if target.stat().st_size == 0:
             raise AudioError("synthesis_failed", "openai returned an empty audio body")
         return Speech(

@@ -32,7 +32,6 @@ import contextlib
 import ipaddress
 import json
 import logging
-import os
 import re
 import secrets
 import time
@@ -44,6 +43,8 @@ from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 import httpx2
+
+from snowpea_core.util.atomic import read_owned, write_atomic
 
 log = logging.getLogger("snowpea.tools.mcp.oauth")
 
@@ -108,10 +109,10 @@ class TokenStore:
 
     def load(self) -> dict[str, dict[str, Any]]:
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            raw = json.loads(read_owned(self.path).decode("utf-8"))
         except FileNotFoundError:
             return {}
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             log.warning("could not read %s; treating it as empty", self.path)
             return {}
         servers = raw.get("servers") if isinstance(raw, dict) else None
@@ -130,17 +131,8 @@ class TokenStore:
         return out
 
     def _save(self, servers: dict[str, dict[str, Any]]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".tmp")
         text = json.dumps({"servers": servers}, indent=2, ensure_ascii=False) + "\n"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(tmp, FILE_MODE)
-        tmp.replace(self.path)
-        os.chmod(self.path, FILE_MODE)
+        write_atomic(self.path, text, mode=FILE_MODE)  # security review 8, H8-2
 
     def get(self, name: str, url: str | None) -> dict[str, Any] | None:
         """The record for ``name`` at ``url``, only while it was issued for that URL."""

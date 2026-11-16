@@ -579,7 +579,9 @@ async def download_voice(
                     if progress is not None:
                         await progress(f"HTTP {response.status_code} for {url}")
                     return None
-                target.write_bytes(response.content)
+                from snowpea_core.util.atomic import write_atomic
+
+                write_atomic(target, response.content)
     except Exception as exc:  # noqa: BLE001 - a missing voice is not a failed install
         if progress is not None:
             await progress(f"could not download the voice: {type(exc).__name__}: {exc}")
@@ -800,8 +802,9 @@ async def warmup_supertonic(
         return False
     stamp = runtime.runtime_dir(home_path) / SUPERTONIC_WARMUP_STAMP
     try:
-        stamp.parent.mkdir(parents=True, exist_ok=True)
-        stamp.write_text("ok", encoding="utf-8")
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(stamp, "ok")
     except OSError as exc:
         await log.say(f"could not write warmup stamp: {exc}")
         return False

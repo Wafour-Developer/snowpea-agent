@@ -252,10 +252,9 @@ def write_cache(paths: Paths, payload: dict[str, Any]) -> None:
     """Persist one answer; a write failure is never fatal."""
     try:
         paths.ensure()
-        target = paths.update_check_json
-        tmp = target.with_name(target.name + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(target)
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(paths.update_check_json, json.dumps(payload, indent=2) + "\n")
     except OSError:  # pragma: no cover - disk failure
         log.debug("could not write %s", paths.update_check_json, exc_info=True)
 
@@ -559,7 +558,9 @@ def write_install_json(paths: Paths, method: str, source: str) -> None:
     """Record how snowpea was installed (used by the installers and tests)."""
     paths.ensure()
     payload = {"method": method, "source": source, "time": _utc_now()}
-    paths.install_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    from snowpea_core.util.atomic import write_atomic
+
+    write_atomic(paths.install_json, json.dumps(payload, indent=2) + "\n")
 
 
 #: The official uv installers, the same ones ``installer/install.sh`` runs.
@@ -727,7 +728,9 @@ def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
     own dup of it, so a long upgrade never keeps a file object alive here.
     """
     paths.ensure()
-    handle = paths.update_log.open("ab")
+    from snowpea_core.util.atomic import open_append
+
+    handle = open_append(paths.update_log, binary=True)
     try:
         handle.write(f"\n=== {_utc_now()} {shlex.join(command)}\n".encode())
         handle.flush()
@@ -834,11 +837,14 @@ def start_windows_update(
     launchers above it, upgrades, and starts the new core on the same port.
     """
     paths.ensure()
+    from snowpea_core.util.atomic import write_atomic
+
     helper = paths.home / "update-helper.ps1"
-    helper.write_text(WINDOWS_UPDATE_HELPER, encoding="utf-8")
+    write_atomic(helper, WINDOWS_UPDATE_HELPER)
     # Data goes through a file: JSON on a PowerShell command line loses its quotes.
     plan = paths.home / "update-plan.json"
-    plan.write_text(
+    write_atomic(
+        plan,
         json.dumps(
             {
                 "pid": pid,
@@ -852,7 +858,9 @@ def start_windows_update(
         ),
         encoding="utf-8",
     )
-    with paths.update_log.open("ab") as handle:
+    from snowpea_core.util.atomic import open_append
+
+    with open_append(paths.update_log, binary=True) as handle:
         handle.write(
             f"\n=== {_utc_now()} (after the core exits) {shlex.join(command)}\n".encode()
         )

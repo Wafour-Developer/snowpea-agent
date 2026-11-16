@@ -320,8 +320,10 @@ def scaffold(home: Path | str, name: str) -> Path:
     if folder.exists():
         raise FileExistsError(f"{folder} already exists")
     folder.mkdir(parents=True)
+    from snowpea_core.util.atomic import write_atomic
+
     for file_name, text in render_template(name).items():
-        (folder / file_name).write_text(text, encoding="utf-8")
+        write_atomic(folder / file_name, text, mode=0o644)
     return folder
 
 

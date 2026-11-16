@@ -1279,15 +1279,10 @@ class GatewayRouter:
             for binding_id, channel in self._private_chat.items()
         }
         try:
+            from snowpea_core.util.atomic import write_atomic
+
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            tmp = path.with_name(f".{path.name}.tmp")
-            with contextlib.suppress(FileNotFoundError):
-                tmp.unlink()
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-            fd = os.open(tmp, flags, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(json.dumps(data, indent=2) + "\n")
-            os.replace(tmp, path)
+            write_atomic(path, json.dumps(data, indent=2) + "\n")
         except OSError as exc:  # pragma: no cover - unwritable home
             log.warning("could not remember the private chats in %s: %s", path, exc)
 

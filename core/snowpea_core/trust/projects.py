@@ -132,6 +132,10 @@ def read_digest(path: Path) -> tuple[bytes | None, str]:
         info = path.stat()
     except OSError:
         return None, "missing"
+    if path.is_symlink():
+        # Security review 8, H8-2: a control file that is a link is not read
+        # (what it points to can change without the project changing).
+        return None, "unreadable"
     if info.st_size > MAX_FILE_BYTES:
         return None, "unreadable"
     try:
@@ -1029,13 +1033,15 @@ class TrustStore:
 
         return self._mutate(base, change)
 
-    def person_wrote(self, root: str | os.PathLike[str], rel: str, before: str) -> None:
+    def person_wrote(self, root: str | os.PathLike[str], rel: str, before: str, *,
+                     digest: str | None = None) -> None:
         """A local person changed ``rel`` through snowpea itself (a rule, a setting).
 
         The new content stays active when what was there before was trusted
         (its digest the pinned one) or there was nothing (``before`` is
         ``missing``): the person's own change, on top of what they trusted.
-        Anything else waits for :meth:`set`.
+        Anything else waits for :meth:`set`.  ``digest``: of the bytes snowpea
+        wrote — pinned instead of what the disk holds by now (review 8, M8-1).
         """
         base = project_root(root)
         scope = scope_of(rel) or "settings"
@@ -1044,7 +1050,8 @@ class TrustStore:
         trusted_before = scope in (entry.get("scopes") or []) and pinned == before
         if not trusted_before and before != "missing":
             return
-        digest = digest_of(base / rel)
+        if digest is None:
+            digest = digest_of(base / rel)
         if not digest.startswith("sha256:"):
             return
 

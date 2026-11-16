@@ -536,7 +536,9 @@ def save_guide(
     directory = _teams_dir(base)
     directory.mkdir(parents=True, exist_ok=True)
     path = _guide_path(base, name)
-    path.write_text(_serialize_guide(guide), encoding="utf-8")
+    from snowpea_core.util.atomic import write_atomic
+
+    write_atomic(path, _serialize_guide(guide), mode=0o644 if scope == "project" else 0o600)
     _cached_load.cache_clear()
     return path
 

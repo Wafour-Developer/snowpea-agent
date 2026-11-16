@@ -201,10 +201,9 @@ class Budget:
 
     def _save(self) -> None:
         with contextlib.suppress(OSError):
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps({"day": self._day, "tokens": self._tokens}), encoding="utf-8")
-            tmp.replace(self.path)
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(self.path, json.dumps({"day": self._day, "tokens": self._tokens}))
 
     def wakes_this_hour(self) -> int:
         horizon = self.service.clock.monotonic() - 3600.0

@@ -424,7 +424,9 @@ async def _install_server(
         # on the next install into the same prefix.
         manifest = root / "package.json"
         if not manifest.exists():
-            manifest.write_text('{"name": "snowpea-lsp", "private": true}\n')
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(manifest, '{"name": "snowpea-lsp", "private": true}\n', mode=0o644)
         ok, error = await _exec(
             [tool, "install", "--prefix", str(root), spec.package, *spec.extra],  # type: ignore[list-item]
             on_line=on_line,
