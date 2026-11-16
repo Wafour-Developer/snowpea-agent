@@ -107,6 +107,25 @@ async def _guard(conn: RpcConnection, core: Core, job_id: str, action: str) -> N
         from snowpea_core.server.person_gate import require_person
 
         require_person(conn, f"{action} Jarvis's scheduled task {job_id}")
+    if job is not None and action not in REMOTE_LOGIN_ANY_JOB:
+        # Security review 6, M-4: a remote login changes, cancels, re-enables or
+        # deletes only the jobs it created; a local person's or a browser's it may
+        # read and run as saved (the same class as prompting a session).
+        from snowpea_core.server import settings_gate
+        from snowpea_core.server.person_gate import connection_kind
+
+        if connection_kind(conn) == "remote_login" and job.created_by != "remote_login":
+            settings_gate.refuse_local_only(
+                conn, core, f"{action} a scheduled job it did not create",
+                method=f"job.{_ACTION_METHOD.get(action, action)}", detail="job")
+
+
+#: ``_guard`` actions a remote web login may take on a job it did not create.
+REMOTE_LOGIN_ANY_JOB: frozenset[str] = frozenset({"run"})
+_ACTION_METHOD = {"run": "runNow"}
+#: Delivery channels a remote login may give a job: none (in-app: the session
+#: that made it, else the log) or the log.  A messenger chat leaves the machine.
+REMOTE_LOGIN_JOB_CHANNELS: frozenset[str | None] = frozenset({None, "", "log"})
 
 
 async def job_schedule_handler(
@@ -141,6 +160,13 @@ async def job_schedule_handler(
     from snowpea_core.server.settings_gate import host_choice_refusal
 
     host_choice_refusal(conn, template.hostToolsFrom if template is not None else None)
+    if creator == "remote_login" and params.channel not in REMOTE_LOGIN_JOB_CHANNELS:
+        # M-4: no delivery that leaves the machine (job.update cannot change a
+        # channel at all, so a saved one stays as a local person set it).
+        from snowpea_core.server import settings_gate
+
+        settings_gate.refuse_local_only(conn, core, "schedule a job that delivers to a messenger",
+                                        method="job.schedule", detail="channel")
     try:
         job = await services(core).schedule(
             params.spec,

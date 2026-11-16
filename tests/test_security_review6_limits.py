@@ -542,61 +542,81 @@ def test_the_control_file_classifier(tmp_path: Path) -> None:
     assert fs_handlers.control_file(tmp_path / ".GIT" / "Hooks" / "pre-commit")  # folded
 
 
+MARKED = _conn("browser", client_id="b-1")  # the marker changes nothing for fs.write
+NOT_HOSTED = errors.JARVIS_PERSON_ONLY
+
+
 @pytest.mark.parametrize(
-    ("conn", "hosted_by", "control", "plain"),
+    ("conn", "hosted_by", "opened_by", "control", "plain", "read"),
     [
-        (PERSON, None, None, None),
-        (REMOTE, None, errors.PROTECTED, None),
-        (BROWSER, "b-1", errors.PROTECTED, None),  # its own session
-        (BROWSER, "b-other", errors.NOT_FOUND, errors.NOT_FOUND),  # another browser's
-        (BROWSER, None, errors.NOT_FOUND, errors.NOT_FOUND),  # an IDE session it did not open
-        (LEGACY, None, errors.PROTECTED, None),  # before the marker: sessions as before
+        (PERSON, None, None, None, None, None),
+        (REMOTE, None, None, errors.PROTECTED, None, None),
+        # A browser writes only into a session it hosts, and never a control file.
+        (BROWSER, "b-1", None, errors.PROTECTED, None, None),
+        (BROWSER, "browser", None, errors.PROTECTED, None, None),  # the alias
+        (BROWSER, None, "b-1", NOT_HOSTED, NOT_HOSTED, None),  # opened, not hosted: reads only
+        (BROWSER, "b-other", None, NOT_HOSTED, NOT_HOSTED, errors.NOT_FOUND),
+        (BROWSER, None, None, NOT_HOSTED, NOT_HOSTED, errors.NOT_FOUND),  # an IDE's session
+        # A legacy browser: the same rule for writes; reads as before.
+        (LEGACY, "b-legacy", None, errors.PROTECTED, None, None),
+        (LEGACY, None, None, NOT_HOSTED, NOT_HOSTED, None),
     ],
 )
-async def test_fs_write_by_kind(core: Core, tmp_path: Path, conn: Any, hosted_by: str | None,
-                                control: str | None, plain: str | None) -> None:
+async def test_fs_by_kind(core: Core, tmp_path: Path, conn: Any, hosted_by: str | None,
+                          opened_by: str | None, control: str | None, plain: str | None,
+                          read: str | None) -> None:
+    from snowpea_core.server.protocol import FsPathParams
+    from snowpea_core.server.rpc import CURRENT_ACTOR
+
     work = tmp_path / "project"
     (work / ".git" / "hooks").mkdir(parents=True)
     session = await core.sessions.create(work)
-    session.host_tools_from = hosted_by
+    session.host_tools_from, session.origin_client_id = hosted_by, opened_by
     write = fs_handlers._handler(fs_handlers.fs_write, write=True)
-    read = fs_handlers._handler(fs_handlers.fs_stat)
+    stat = fs_handlers._handler(fs_handlers.fs_stat)
 
-    async def attempt(path: str, expected: str | None) -> None:
-        params = FsWriteParams(sessionId=session.id, path=path, dataBase64="aGk=",
-                               mode="overwrite")
+    async def attempt(path: str, expected: str | None, mode: str = "overwrite") -> None:
+        params = FsWriteParams(sessionId=session.id, path=path, dataBase64="aGk=", mode=mode)
         if expected is None:
             await write(conn, params, core)
             assert (work / path).read_bytes() == b"hi"
+            (work / path).unlink()
             return
         with pytest.raises(RpcError) as caught:
             await write(conn, params, core)
         assert caught.value.code == expected
+        if expected == NOT_HOSTED:
+            assert caught.value.data["reason"] == "person_only"
+        if expected == errors.PROTECTED:
+            assert caught.value.data["reason"] == "local_only"
         assert not (work / path).exists()
 
-    await attempt(".git/hooks/pre-commit", control)
-    await attempt(".mcp.json", control)
-    await attempt("notes.txt", plain)
-    # Reading follows the same session rule.
-    from snowpea_core.server.protocol import FsPathParams
-
-    stat = read(conn, FsPathParams(sessionId=session.id, path="."), core)
-    if plain == errors.NOT_FOUND:
-        with pytest.raises(RpcError) as caught:
-            await stat
-        assert caught.value.code == errors.NOT_FOUND
+    for marked in (False, True):  # marker or not: the same answers
+        token = CURRENT_ACTOR.set("person" if marked else None)
+        try:
+            await attempt(".git/hooks/pre-commit", control)
+            await attempt(".git/config", control)
+            await attempt(".mcp.json", control)
+            await attempt(".snowpea/hooks.json", control)
+            await attempt("notes.txt", plain)
+            await attempt("artifacts/report.pdf", plain, mode="create")  # the host's saves
+        finally:
+            CURRENT_ACTOR.reset(token)
+    # A path outside the session's folders is refused for everyone who gets that far.
+    outside = FsWriteParams(sessionId=session.id, path=str(tmp_path / "elsewhere.txt"),
+                            dataBase64="aGk=", mode="create")
+    with pytest.raises(RpcError) as caught:
+        await write(conn, outside, core)
+    assert caught.value.code == (plain or errors.OUTSIDE_ROOT)
+    assert not (tmp_path / "elsewhere.txt").exists()
+    # Reading: a session it hosts, or an unhosted one it opened.
+    reading = stat(conn, FsPathParams(sessionId=session.id, path="."), core)
+    if read is None:
+        await reading
     else:
-        await stat
-
-
-async def test_a_browser_keeps_the_unhosted_session_it_opened(core: Core,
-                                                              tmp_path: Path) -> None:
-    session = await core.sessions.create(tmp_path)
-    session.origin_client_id = "b-1"
-    write = fs_handlers._handler(fs_handlers.fs_write, write=True)
-    await write(BROWSER, FsWriteParams(sessionId=session.id, path="notes.txt",
-                                       dataBase64="aGk=", mode="create"), core)
-    assert (tmp_path / "notes.txt").read_bytes() == b"hi"
+        with pytest.raises(RpcError) as caught:
+            await reading
+        assert caught.value.code == read
 
 
 # -- Info: an unhandled handler error ------------------------------------------------------------
@@ -644,9 +664,9 @@ async def test_exception_text_stays_with_a_local_person(
 @pytest.mark.parametrize(
     ("method", "browser"),
     [
-        ("fs.write", False),  # no browser calls these (the browser team's source check)
-        ("agent.create", False),
+        ("agent.create", False),  # no browser calls these (the browser team's source check)
         ("agent.delete", False),
+        ("fs.write", True),  # ... the host's saves, into a session it hosts (test_fs_by_kind)
         ("checkpoint.restore", True),  # ... its own sessions only (below)
         ("session.deleteSaved", True),
         ("session.close", True),
@@ -814,6 +834,112 @@ async def test_a_jobs_host_is_judged_for_its_creator(core: Core, tmp_path: Path,
     job = await core.scheduler.get(made.jobId)
     # What the scheduler's in-process session will use: judged now, kept with its creator.
     assert job.host_tools_from == host and job.created_by == creator
+
+
+@pytest.mark.parametrize(
+    ("conn", "channel", "allowed"),
+    [
+        (REMOTE, None, True),  # in-app: the session that made it, else the log
+        (REMOTE, "log", True),
+        (REMOTE, "telegram:12345", False),  # leaves the machine
+        (REMOTE, "slack:C0123", False),
+        (REMOTE, "discord:99", False),
+        (REMOTE, "anything-else", False),
+        (PERSON, "telegram:12345", True),
+        (BROWSER, "telegram:12345", True),
+    ],
+)
+async def test_a_remote_logins_job_delivers_in_app_only(core: Core, tmp_path: Path, conn: Any,
+                                                        channel: str | None,
+                                                        allowed: bool) -> None:
+    from snowpea_core.server import job_handlers
+    from snowpea_core.server.session_handlers import wire_core
+
+    wire_core(core)
+    params = JobScheduleParams(spec="every day at 9:00", task="x", workdir=str(tmp_path),
+                               channel=channel)
+    if allowed:
+        made = await job_handlers.job_schedule_handler(conn, params, core)
+        assert (await core.scheduler.get(made.jobId)).channel == channel
+        return
+    with pytest.raises(RpcError) as caught:
+        await job_handlers.job_schedule_handler(conn, params, core)
+    _local_only(caught)
+    assert await core.scheduler.list() == []
+
+
+#: job action (``job_handlers._guard``) -> may a remote login take it on a job
+#: made by: itself, a local person, a browser, nobody recorded (an older job).
+REMOTE_JOB_ACTIONS: dict[str, str] = {
+    "update": "ynnn", "cancel": "ynnn", "delete": "ynnn", "run": "yyyy",
+}
+JOB_MAKERS = ("remote_login", "person", "browser", None)
+
+
+@pytest.mark.parametrize(("action", "expected"), sorted(REMOTE_JOB_ACTIONS.items()))
+async def test_a_remote_login_changes_only_the_jobs_it_created(core: Core, tmp_path: Path,
+                                                               action: str,
+                                                               expected: str) -> None:
+    from snowpea_core.server import job_handlers
+    from snowpea_core.server.session_handlers import wire_core
+
+    wire_core(core)
+    got = ""
+    for maker in JOB_MAKERS:
+        job = await core.scheduler.schedule("every day at 9:00", "x", workdir=str(tmp_path),
+                                            created_via="rpc", created_by=maker)
+        try:
+            await job_handlers._guard(REMOTE, core, job.id, action)
+            got += "y"
+        except RpcError as exc:
+            assert exc.code == errors.JARVIS_PERSON_ONLY and exc.data["reason"] == "local_only"
+            got += "n"
+        # Nobody else is narrowed by who made the job.
+        for other in (PERSON, BROWSER):
+            await job_handlers._guard(other, core, job.id, action)
+    assert got == expected
+
+
+async def test_the_job_handlers_apply_the_ownership_rule(core: Core, tmp_path: Path) -> None:
+    from snowpea_core.server import job_handlers
+    from snowpea_core.server.protocol import JobIdParams, JobUpdateParams
+    from snowpea_core.server.session_handlers import wire_core
+
+    wire_core(core)
+    params = JobScheduleParams(spec="every day at 9:00", task="the owner's task",
+                               workdir=str(tmp_path), channel="telegram:12345")
+    owners = (await job_handlers.job_schedule_handler(PERSON, params, core)).jobId
+    calls = (
+        job_handlers.job_update_handler(REMOTE, JobUpdateParams(jobId=owners, task="mine"), core),
+        job_handlers.job_update_handler(
+            REMOTE, JobUpdateParams(jobId=owners, enabled=False), core),
+        job_handlers.job_cancel_handler(REMOTE, JobIdParams(jobId=owners), core),
+        job_handlers.job_delete_handler(
+            REMOTE, job_handlers.JobDeleteParams(jobId=owners), core),
+    )
+    for call in calls:
+        with pytest.raises(RpcError) as caught:
+            await call
+        _local_only(caught)
+    kept = await core.scheduler.get(owners)
+    assert kept.task == "the owner's task" and kept.enabled and kept.channel == "telegram:12345"
+    # It reads it, and its own job is its to change, disable and delete.
+    listed = (await job_handlers.job_list_handler(REMOTE, Empty(), core)).jobs
+    assert [row.jobId for row in listed] == [owners]
+    mine = (await job_handlers.job_schedule_handler(REMOTE, JobScheduleParams(
+        spec="every day at 9:00", task="x", workdir=str(tmp_path)), core)).jobId
+    await job_handlers.job_update_handler(REMOTE, JobUpdateParams(jobId=mine, task="y"), core)
+    await job_handlers.job_update_handler(REMOTE, JobUpdateParams(jobId=mine, enabled=False), core)
+    await job_handlers.job_delete_handler(REMOTE, job_handlers.JobDeleteParams(jobId=mine), core)
+    assert await core.scheduler.get(mine) is None
+
+
+def test_job_update_cannot_change_a_channel() -> None:
+    """So a channel a local person saved stays as saved, whoever updates the job."""
+    from snowpea_core.server.protocol import JobUpdateParams, JobUpdateTemplate
+
+    assert "channel" not in JobUpdateParams.model_fields
+    assert "channel" not in JobUpdateTemplate.model_fields
 
 
 def test_a_stored_job_without_a_creator_loads_as_before() -> None:

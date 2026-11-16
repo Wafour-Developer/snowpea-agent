@@ -503,13 +503,14 @@ BROWSER_PERSON_METHODS: frozenset[str] = frozenset({
 #: pre-approves before routing.  ``gateway.bind`` (1.55.0): binding a messenger
 #: chat to a session is the person's binding identity; the browser refuses it on
 #: every page, and core now does too.
-#: ``fs.write``, ``agent.create``, ``agent.delete`` (security review 6, the
-#: browser team's source check): no browser calls them.  Of the calls re-decided
-#: with them, ``checkpoint.restore``, ``session.deleteSaved`` and
-#: ``session.close`` stay open to a browser for its own sessions
-#: (:data:`BROWSER_OWN_SESSION_METHODS`).
+#: ``agent.create``, ``agent.delete`` (security review 6, the browser team's
+#: source check): no browser calls them.  Of the calls re-decided with them,
+#: ``checkpoint.restore``, ``session.deleteSaved`` and ``session.close`` stay
+#: open to a browser for its own sessions (:data:`BROWSER_OWN_SESSION_METHODS`),
+#: and ``fs.write`` (the host's saves into a remote session's workdir) only for
+#: a session it hosts, never a control file (``fs_handlers._refuse_caller``).
 BROWSER_NEVER_METHODS: frozenset[str] = frozenset({
-    "permission.allowlist.add", "gateway.bind", "fs.write", "agent.create", "agent.delete",
+    "permission.allowlist.add", "gateway.bind", "agent.create", "agent.delete",
 })
 #: What a browser connection may call without the marker (its own runtime and
 #: the pages that send none).  ``job.*`` never touches a ``jarvis-task`` job
@@ -727,7 +728,7 @@ BROWSER_OPEN_METHODS: frozenset[str] = frozenset({
     "command.list", "tool.list", "tool.unregister", "tool.progress", "turn.outcome",
     "file.complete", "usage.summary", "approval.list", "question.list", "approval.ask",
     "approval.evaluate",
-    "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "workspace.list",
+    "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "fs.write", "workspace.list",
     "agent.list", "agent.spawn", "agent.bindChannel",
     "team.start", "team.status", "team.guide.list", "team.guide.get", "team.guide.delete",
     "job.list", "job.preview", "job.runs", "job.nextRunForClient",

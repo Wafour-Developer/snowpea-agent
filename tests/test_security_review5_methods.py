@@ -55,7 +55,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         "checkpoint.list", "checkpoint.diff", "checkpoint.restore", "checkpoint.delete",
         "command.list", "command.run", "tool.list", "file.complete", "usage.summary",
         "approval.list", "approval.respond", "question.list", "question.respond",
-        "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash",
+        "fs.list", "fs.glob", "fs.stat", "fs.read", "fs.hash", "fs.write",
         "workspace.list", "workspace.add", "workspace.remove", "workspace.rename",
         "workspace.reorder",
         "agent.list", "agent.spawn", "agent.bindChannel",
@@ -96,7 +96,7 @@ TABLE: dict[str, tuple[str, ...]] = {
     "yynnnn": (
         # Security review 6 (the browser team's source check): no browser calls
         # these, marker or not, any version.
-        "fs.write", "agent.create", "agent.delete",
+        "agent.create", "agent.delete",
         "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
         "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
         "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",

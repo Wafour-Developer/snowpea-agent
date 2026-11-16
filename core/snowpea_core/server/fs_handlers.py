@@ -568,24 +568,32 @@ def _refuse_caller(conn: Any, core: Core, session_id: str, roots: Roots, params:
                    write: bool) -> None:
     """Who may use ``fs.*`` on which session, and write what (security review 6, L-6).
 
-    A browser (0.3.0+): only a session it hosts, or an unhosted one it opened —
-    another client's is ``not_found``.  A remote web login sees every session
-    (``session.list`` shows them all), so nothing narrower applies to it.  A
-    control file is written only by a local person: ``fs.write`` has no way to
-    ask, so every other kind is refused (``protected``).
+    A browser (0.3.0+) reads only a session it hosts, or an unhosted one it
+    opened — another client's is ``not_found``.  A browser of any version
+    WRITES only into a session it hosts (``hostToolsFrom`` is its clientId, its
+    surface id or the alias ``"browser"``; having opened it is not enough),
+    marker or not: ``jarvis_person_only`` otherwise.  A remote web login sees
+    every session (``session.list`` shows them all), so nothing narrower
+    applies to it.  A control file is written only by a local person:
+    ``fs.write`` has no way to ask, so every other kind is refused
+    (``protected``).
     """
     from snowpea_core.server import settings_gate
     from snowpea_core.server.person_gate import connection_kind
 
     kind = connection_kind(conn)
-    if kind == "browser" and not settings_gate.legacy_browser(conn):
+    if kind == "browser" and write:
+        session = core.sessions.get(session_id)
+        if not settings_gate._names_browser(conn, getattr(session, "host_tools_from", None)):
+            settings_gate.refuse(conn, "write a file in a session this browser does not host")
+    elif kind == "browser" and not settings_gate.legacy_browser(conn):
         session = core.sessions.get(session_id)
         mine = getattr(conn, "client_id", None)
         host = getattr(session, "host_tools_from", None)
         opened = getattr(session, "origin_conn", None) is conn or (
             bool(mine) and getattr(session, "origin_client_id", None) == mine
         )
-        if not (host == mine if host is not None else opened):
+        if not (settings_gate._names_browser(conn, host) if host is not None else opened):
             raise RpcError(errors.NOT_FOUND, f"no such session: {session_id}")
     if write and kind != "person" and control_file(roots.no_follow(params.path)):
         raise RpcError(
