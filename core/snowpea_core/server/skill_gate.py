@@ -77,12 +77,20 @@ def front_matter_keys(text: str) -> set[str]:
 
 
 def builtin_names(core: Any) -> set[str]:
-    """Names the core itself ships: commands, agent definitions and skills."""
+    """Names the core itself ships: commands, agent definitions, roles and skills."""
+    from pathlib import Path
+
+    from snowpea_core import prompts
     from snowpea_core.agent.definition import BUILTIN_DIR
+    from snowpea_core.agent.named import RESERVED_NAMES
+    from snowpea_core.config.settings import DEFAULT_AGENT_TEAM
 
     names = {str(name) for name in getattr(getattr(core, "commands", None), "protected", ())}
-    if BUILTIN_DIR.is_dir():
-        names |= {path.stem for path in BUILTIN_DIR.glob("*.md")}
+    names |= set(DEFAULT_AGENT_TEAM) | set(RESERVED_NAMES)
+    roles = Path(prompts.__file__).resolve().parent / "roles"
+    for folder in (BUILTIN_DIR, roles):
+        if folder.is_dir():
+            names |= {path.stem for path in folder.glob("*.md")}
     loader = getattr(core, "skills", None)
     for name, loaded in dict(getattr(loader, "skills", {}) or {}).items():
         if getattr(loaded, "source", None) == "builtin":

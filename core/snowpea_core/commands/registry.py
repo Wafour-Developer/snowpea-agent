@@ -452,11 +452,17 @@ class CommandRegistry:
             core=core, session=session, turn_id=command_id, conn=conn, command_name=name,
             command_args=args, actor=actor, caller=caller, beside_turn=True, who=who,
         )
+        from snowpea_core.server.errors import RpcError
+
         ok = True
         try:
             await command.run(ctx, args)
         except asyncio.CancelledError:
             raise
+        except RpcError as exc:
+            # A refusal (a typed error of our own wording): the command's answer.
+            ok = False
+            ctx.output_texts.append(str(exc.message))
         except Exception:  # noqa: BLE001 - a broken command reports, never ends the turn
             # Security review 7, Low 5: the event reaches every subscriber; the
             # exception's text stays in the log under the id.
@@ -497,11 +503,11 @@ class CommandRegistry:
         allowed when it was queued may not be when its turn comes (Jarvis mode
         turned on, the session's mode, a limit set meanwhile).
         """
+        from snowpea_core.server.errors import RpcError
+
         turn_id = turn_id or f"t-{uuid.uuid4().hex[:12]}"
         command = self._commands.get(name)
         if who is not None and command is not None:
-            from snowpea_core.server.errors import RpcError
-
             try:
                 gate_command(core, session, name, args,
                              conn=who if who.kind != "none" else None, actor=who.actor,
@@ -565,6 +571,18 @@ class CommandRegistry:
             await ctx.record_history(reason="interrupted")
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
             raise
+        except RpcError as exc:
+            # A refusal raised inside the command (a typed error of our own
+            # wording, e.g. a mode the caller may not set): shown as it is.
+            ctx.set_history_summary(f"Command failed: {exc.message}")
+            await ctx.record_history(reason="error")
+            await core.hub.emit_event(
+                session.id,
+                events.error(exc.code, str(exc.message),
+                             exc.data if isinstance(exc.data, dict) else None),
+            )
+            await core.hub.emit_event(session.id, events.turn_done(turn_id, "error"))
+            return turn_id
         except Exception:  # noqa: BLE001 - a broken command ends its own turn
             # Security review 7, Low 5: an id for everyone, the text in the log.
             error_id = errors.new_error_id()
