@@ -39,6 +39,8 @@ export interface SessionRecord {
   kind?: string;
   /** The thread that scheduled the job, or the parent that spawned the child. */
   parentSessionId?: string;
+  /** What `session.list` said about where it was opened (browser host); read only by the picker's tag. */
+  agentFields?: { hostToolsFrom?: string | null; browserProvider?: string | null; originSurface?: string | null };
 }
 
 /**

@@ -30,6 +30,9 @@ import type {
   SessionEvent,
 } from "./rpc/sdk.js";
 import { defaultResolveEndpoint } from "./rpc/sdk.js";
+import type { ExternalSessionRow } from "./rpc/sdk.js";
+import { agentOfExternal, agentOfSession, type AgentIdentity } from "./state/agent-tag.js";
+import { SessionPicker, SESSION_PICKER_CHROME_ROWS } from "./components/SessionPicker.js";
 import { SlashRegistry, setSurfaceSupport, ttsSubCommands, voiceSubCommands } from "./slash/registry.js";
 import { externalSubCommands, jarvisSubCommands } from "./slash/jarvis.js";
 import { useJarvisScreens } from "./hooks/useJarvisScreens.js";
@@ -618,6 +621,8 @@ export function App({
    * simply omits the tag rather than guessing "global".
    */
   const [sessionModelSource, setSessionModelSource] = useState<string | null>(null);
+  /** Snowpea or browser, from `session.list` (an external CLI session is read from `externalOpen`). */
+  const [sessionAgent, setSessionAgent] = useState<AgentIdentity>(() => agentOfSession(null));
   /** `agents.models`: which model profile each agent is assigned. */
   const [agentModels, setAgentModels] = useState<Record<string, string>>({});
   /** Options for the `/model` picker, or null while it is closed. */
@@ -666,6 +671,13 @@ export function App({
   const [resumeChoices, setResumeChoices] = useState<SessionRecord[] | null>(null);
   /** `/resume` opens on this directory's sessions; this reveals the rest. */
   const [resumeElsewhere, setResumeElsewhere] = useState(false);
+  /** The picker lists this folder's external CLI sessions too; remembered for the run. */
+  const [resumeIncludeExternal, setResumeIncludeExternal] = useState(false);
+  const [resumeExternals, setResumeExternals] = useState<{
+    rows: ExternalSessionRow[];
+    loading: boolean;
+    error: string | null;
+  }>({ rows: [], loading: false, error: null });
   const [modePicker, setModePicker] = useState(false);
   /** Lines the open agent's transcript is scrolled back from its newest line. */
   const [agentScroll, setAgentScroll] = useState(0);
@@ -1055,6 +1067,7 @@ export function App({
         const sessions = Array.isArray(result?.sessions) ? result.sessions : [];
         const mine = sessions.find((entry: any) => entry?.sessionId === sessionId);
         setSessionModelSource(modelSource(mine));
+        setSessionAgent(agentOfSession(mine));
       })
       .catch(() => {
         /* advisory: the HUD just leaves the tag off. */
@@ -1470,6 +1483,11 @@ export function App({
   }, [externalId]);
 
   const version = update.current || TUI_VERSION;
+  /** Whose session is on screen: an open external CLI session, else this one (browser or snowpea). */
+  const hudAgent = useMemo(
+    () => (externalOpen ? agentOfExternal(externalOpen.ref.cli) : sessionAgent),
+    [externalOpen?.ref.cli, sessionAgent],
+  );
   const hudSegments = useMemo(
     () =>
       buildHudSegments({
@@ -1508,8 +1526,11 @@ export function App({
         modeHint: modeHintVisible,
         jarvis: state.heldApprovals.length + state.heldQuestions.filter((q) => q.route === "jarvis").length > 0 ? JARVIS_DECIDING : screens.marker,
         externalWarning,
+        agentTag: hudAgent.tag || null,
+        agentColor: hudAgent.color,
       }),
     [
+      hudAgent,
       state.status,
       reconnectAttempt,
       daemonGone,
@@ -2212,6 +2233,23 @@ export function App({
     resumeSession(lastSession.sessionId, "main");
   }, [lastSession, resumeSession, showToast]);
 
+  /** The current folder's external CLI sessions, for the picker's combined list. */
+  const loadResumeExternals = useCallback(() => {
+    setResumeExternals((current) => ({ ...current, loading: true, error: null }));
+    void client
+      .call("external.list", { cwd: workdir, allProjects: false, limit: 50 })
+      .then((result) =>
+        setResumeExternals({ rows: (result?.sessions ?? []) as ExternalSessionRow[], loading: false, error: null }),
+      )
+      .catch((error: unknown) =>
+        setResumeExternals({
+          rows: [],
+          loading: false,
+          error: (error instanceof Error ? error.message : String(error)).slice(0, 60),
+        }),
+      );
+  }, [client, workdir]);
+
   const openResumePicker = useCallback(() => {
     showToast("loading saved sessions");
     void client.call("session.list", { includeClosed: true }).then((result) => {
@@ -2225,6 +2263,11 @@ export function App({
           kind: typeof row.kind === "string" ? row.kind : "chat",
           parentSessionId:
             typeof row.parentSessionId === "string" ? row.parentSessionId : undefined,
+          agentFields: {
+            hostToolsFrom: row.hostToolsFrom,
+            browserProvider: row.browserProvider,
+            originSurface: row.originSurface,
+          },
         }));
       const rows = resumeRows(choices, workdir);
       if (rows.length === 0) {
@@ -2233,10 +2276,11 @@ export function App({
       }
       setResumeElsewhere(false);
       setResumeChoices(rows);
+      if (resumeIncludeExternal) loadResumeExternals();
     }).catch((error: unknown) =>
       dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` }),
     );
-  }, [client, workdir, showToast]);
+  }, [client, workdir, showToast, resumeIncludeExternal, loadResumeExternals]);
 
   /**
    * `mcp.test` on a draft the form is still collecting.
@@ -3290,41 +3334,37 @@ export function App({
           }}
         />
       ) : resumeChoices ? (
-        <ConfirmMenu<string | null>
+        <SessionPicker
           // Re-mounted when the rest is revealed, so the cursor starts at the top.
           key={resumeElsewhere ? "resume-all" : "resume-here"}
-          options={(() => {
-            const view = resumeView(resumeChoices, workdir, resumeElsewhere);
-            return [
-              ...view.rows.map((entry) => ({
-                label: resumeLabel(entry, 48, workdir),
-                value: entry.sessionId,
-              })),
-              ...(view.hiddenElsewhere > 0
-                ? [
-                    {
-                      label: `▸ Sessions from other directories (${view.hiddenElsewhere})…`,
-                      value: RESUME_ELSEWHERE,
-                    },
-                  ]
-                : []),
-              { label: "Cancel", value: null },
-            ];
-          })()}
-          escapeValue={null}
-          // The menu shares the screen with the mode line, the HUD, the agent
-          // panel and its own two "more" lines and hint — seventeen rows in
-          // all. Anything taller pushes the top of the menu, cursor included,
-          // off the screen, which is the bug this window exists to prevent.
-          windowSize={Math.max(5, terminal.rows - 17)}
-          onChoose={(target) => {
-            if (target === RESUME_ELSEWHERE) {
-              setResumeElsewhere(true);
-              return;
-            }
-            setResumeChoices(null);
-            if (target) resumeSession(target, "main");
+          records={resumeChoices}
+          externals={resumeExternals.rows}
+          externalsLoading={resumeExternals.loading}
+          externalsError={resumeExternals.error}
+          includeExternal={resumeIncludeExternal}
+          onToggleExternal={() => {
+            const next = !resumeIncludeExternal;
+            setResumeIncludeExternal(next);
+            if (next) loadResumeExternals();
           }}
+          workdir={workdir}
+          showElsewhere={resumeElsewhere}
+          onRevealElsewhere={() => setResumeElsewhere(true)}
+          onOpenSession={(target) => {
+            setResumeChoices(null);
+            resumeSession(target, "main");
+          }}
+          onOpenExternal={(row) => {
+            setResumeChoices(null);
+            screensRef.current?.openExternalRef(row.ref);
+          }}
+          onCancel={() => setResumeChoices(null)}
+          width={contentWidth}
+          // The picker shares the screen with the mode line, the HUD, the agent
+          // panel and its own "more" lines, header, legend and hint — twenty
+          // rows in all. Anything taller pushes the top of the menu, cursor
+          // included, off the screen, which is the bug this window exists to prevent.
+          windowSize={Math.max(5, terminal.rows - 17 - SESSION_PICKER_CHROME_ROWS + 1)}
         />
       ) : (
         <Chat
@@ -3464,7 +3504,9 @@ export function App({
 
   const externalNode = externalOpen ? (
     <ExternalTranscript
-      title={`${cliLabel(externalOpen.ref.cli)} · ${(externalOpen.session.title ?? "").trim() || externalOpen.ref.id.slice(0, 8)}`}
+      title={(externalOpen.session.title ?? "").trim() || externalOpen.ref.id.slice(0, 8)}
+      tag={hudAgent.tag}
+      tagColor={hudAgent.color}
       status={[
         externalOpen.state.turnActive ? "running" : externalOpen.session.status,
         hostLabel(externalOpen.session),

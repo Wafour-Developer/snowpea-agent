@@ -211,6 +211,71 @@ async function submit(app: { stdin: any }, text: string) {
 
 const methods = (client: any) => client.calls.map((call: any) => call.method);
 
+describe("which agent a session belongs to", () => {
+  const saved = (id: string, prompt: string, patch: Record<string, unknown> = {}) => ({
+    sessionId: id,
+    workdir: "/tmp/project",
+    createdAt: "2026-11-15T09:00:00Z",
+    lastPrompt: prompt,
+    ...patch,
+  });
+
+  it("combines external sessions into /sessions on e, opens one on the external screen, and tags browser sessions", async () => {
+    const externals = [ext()];
+    const client = fakeClient({
+      sessions: [saved("aaaaaaaa-1", "fix the login bug"), saved("bbbbbbbb-2", "browser research", { hostToolsFrom: "profile-1" })],
+      externals,
+      openResult: () => ({ session: externals[0], events: [], hasMore: false }),
+    });
+    const app = await mount(client, {}, 60, 40);
+    await submit(app, "/sessions");
+    await sleep(250);
+    let view = app.view();
+    expect(view).toMatch(/\[web\]\s+browser research/);
+    expect(view).toContain("[web] Browser");
+    expect(view).not.toContain("write the docs");
+    expect(methods(client)).not.toContain("external.list");
+    app.stdin.write("e");
+    await sleep(300);
+    view = app.view();
+    expect(client.calls.find((c: any) => c.method === "external.list")?.params).toMatchObject({ cwd: "/tmp/project", allProjects: false });
+    expect(view).toMatch(/\[cc\]\s+write the docs/);
+    expect(view).toContain("[cc] Claude Code  [web] Browser");
+    for (const line of view.split("\n")) expect(textWidth(line), line).toBeLessThanOrEqual(60);
+    app.stdin.write("f");
+    await sleep(100);
+    app.stdin.write("f");
+    await sleep(100);
+    expect(app.view()).toContain("filter: claude code");
+    app.stdin.write("\r");
+    await sleep(300);
+    expect(client.calls.find((c: any) => c.method === "external.open")?.params.ref).toEqual({ cli: "claude", id: "abcdef012345" });
+    expect(methods(client)).not.toContain("session.resume");
+    app.done();
+  });
+
+  it("names the agent in the status line of a browser session and of an open external one", async () => {
+    const externals = [ext()];
+    const client = fakeClient({
+      sessions: [{ sessionId: "s-1", workdir: "/tmp/project", createdAt: "2026-11-15T09:00:00Z", hostToolsFrom: "profile-1" }],
+      externals,
+      openResult: () => ({ session: externals[0], events: [], hasMore: false }),
+    });
+    const app = await mount(client, {}, 100, 40);
+    await sleep(200);
+    expect(app.view()).toContain("[web]");
+    await submit(app, "/external");
+    await sleep(250);
+    app.stdin.write("\r");
+    await sleep(300);
+    const view = app.view();
+    expect(view).toMatch(/◈ \[cc\] write the docs/);
+    expect(view).toContain("| [cc]");
+    expect(view).not.toContain("[web]");
+    app.done();
+  });
+});
+
 describe("an older daemon", () => {
   it("answers /jarvis and /external with the one requires-core-1.53 line and calls nothing", async () => {
     const client = fakeClient({ caps: ["audio"] });
@@ -482,15 +547,15 @@ describe("external sessions", () => {
     expect(client.calls.find((c: any) => c.method === "external.list")?.params).toMatchObject({ cwd: "/tmp/project", allProjects: false });
     const view = app.view();
     expect(view).toContain("External sessions");
-    expect(view).toContain("[Claude Code] write the docs");
-    expect(view).toContain("[Codex] port the parser");
+    expect(view).toContain("[cc] write the docs");
+    expect(view).toContain("[cx] port the parser");
     expect(view).toContain("other terminal · view only");
     expect(view).toContain("unavailable: Codex (not installed)");
     app.stdin.write("\r");
     await sleep(300);
     expect(client.calls.find((c: any) => c.method === "external.open")?.params.ref).toEqual({ cli: "claude", id: "abcdef012345" });
     const opened = app.view();
-    expect(opened).toContain("Claude Code · write the docs");
+    expect(opened).toContain("[cc] write the docs");
     expect(opened).toContain("document the api");
     expect(opened).toContain("The API has three endpoints.");
     app.done();
@@ -506,7 +571,7 @@ describe("external sessions", () => {
     await sleep(100);
     const view = app.view();
     expect(view).toContain("search: parser");
-    expect(view).toContain("[Codex] port the parser");
+    expect(view).toContain("[cx] port the parser");
     expect(view).not.toContain("write the docs");
     app.done();
   });
@@ -550,7 +615,7 @@ describe("external sessions", () => {
     // Leaving only stops watching; the process keeps running until /external stop.
     expect(methods(client)).toContain("external.unwatch");
     expect(methods(client)).not.toContain("external.close");
-    expect(app.view()).not.toContain("Claude Code · write the docs");
+    expect(app.view()).not.toContain("[cc] write the docs");
     app.done();
   });
 
@@ -584,13 +649,13 @@ describe("external sessions", () => {
     await sleep(250);
     app.stdin.write("\r");
     await sleep(300);
-    expect(app.view()).toContain("Claude Code · write the docs");
+    expect(app.view()).toContain("[cc] write the docs");
     app.stdin.write("\x1b");
     await sleep(250);
     expect(methods(client)).toContain("external.unwatch");
     expect(methods(client)).not.toContain("external.close");
     expect(methods(client)).not.toContain("external.interrupt");
-    expect(app.view()).not.toContain("Claude Code · write the docs");
+    expect(app.view()).not.toContain("[cc] write the docs");
     app.done();
   });
 
@@ -659,7 +724,7 @@ describe("external sessions", () => {
       risk: "medium",
     });
     await sleep(200);
-    expect(app.view()).toContain("Approval required · Claude Code abcdef01");
+    expect(app.view()).toContain("Approval required · [cc] abcdef01");
     expect(app.view()).not.toContain("Allow Everything");
     app.stdin.write("\r");
     expect(await answer).toEqual({ decision: "allow", scope: "once" });
@@ -851,7 +916,7 @@ describe("full screen", () => {
     app.stdin.write("\r");
     await sleep(300);
     const view = app.view();
-    expect(view).toContain("Claude Code · write the docs");
+    expect(view).toContain("[cc] write the docs");
     expect(view).toContain("FULLSCREEN-ANSWER");
     expect(view).toContain("UNRESTRICTED");
     expect(view).toContain("message Claude Code");
@@ -1179,7 +1244,7 @@ describe("external sessions, final contract", () => {
     await openFirst(client, app);
     await submit(app, "/external stop");
     expect(client.calls.find((c: any) => c.method === "external.close")?.params).toEqual({ ref });
-    expect(app.view()).not.toContain("Claude Code · write the docs");
+    expect(app.view()).not.toContain("[cc] write the docs");
     app.done();
   });
 
@@ -1191,7 +1256,7 @@ describe("external sessions, final contract", () => {
     await sleep(250);
     expect(client.calls.find((c: any) => c.method === "external.get")?.params).toEqual({ ref });
     expect(methods(client).indexOf("external.get")).toBeLessThan(methods(client).indexOf("external.open"));
-    expect(app.view()).toContain("Claude Code · write the docs");
+    expect(app.view()).toContain("[cc] write the docs");
     app.done();
     const stale = fakeClient({ fail: { "external.get": { code: "not_found", message: "no such session" } } });
     const second = await mount(stale);
@@ -1345,11 +1410,11 @@ describe("external sessions, final contract", () => {
     await sleep(200);
     expect(methods(client)).not.toContain("external.interrupt");
     expect(app.view()).toContain("runs in another terminal");
-    expect(app.view()).toContain("Claude Code · write the docs");
+    expect(app.view()).toContain("[cc] write the docs");
     app.stdin.write("\x1b");
     await sleep(200);
     expect(methods(client)).toContain("external.unwatch");
-    expect(app.view()).not.toContain("Claude Code · write the docs");
+    expect(app.view()).not.toContain("[cc] write the docs");
     app.done();
   });
 
@@ -1451,7 +1516,7 @@ describe("external sessions, final contract", () => {
       reject();
       await sleep(250);
       expect(app.view()).toContain("stays view only");
-      expect(app.view()).toContain("Claude Code · write the docs");
+      expect(app.view()).toContain("[cc] write the docs");
       app.done();
     });
 

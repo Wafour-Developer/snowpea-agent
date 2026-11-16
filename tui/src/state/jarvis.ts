@@ -26,6 +26,7 @@ import type {
 import { fit, spread } from "../layout/fit.js";
 import { textWidth } from "../layout/text-width.js";
 import { cliLabel } from "./external.js";
+import { agentOfExternal } from "./agent-tag.js";
 import { NOT_APPLIED_NOTE } from "./security.js";
 
 // --- capability gating -------------------------------------------------------
@@ -294,8 +295,8 @@ export function sessionLabel(
   const title = (row.title ?? "").trim();
   const name = title && where ? `${where} · ${title}` : title || where;
   if (row.external) {
-    const cli = cliLabel(row.external.cli);
-    return name ? `${cli} · ${name}` : `${cli} ${row.external.id.slice(0, 8)}`;
+    const tag = agentOfExternal(row.external.cli).tag;
+    return `${tag} ${name || row.external.id.slice(0, 8)}`;
   }
   return name || (row.sessionId ?? "").slice(0, 8) || "session";
 }
@@ -318,7 +319,7 @@ function waitingFrom(
   const label = row
     ? sessionLabel(row)
     : external
-      ? `${cliLabel(external.cli)} ${external.id.slice(0, 8)}`
+      ? `${agentOfExternal(external.cli).tag} ${external.id.slice(0, 8)}`
       : (request.sessionId ?? "").slice(0, 8);
   return {
     requestId: request.requestId,
@@ -467,7 +468,7 @@ function noticeColor(entry: JarvisEscalationEvent): string | undefined {
 /** `✓ snowpea · fix login — tests pass` */
 export function noticeLine(entry: JarvisEscalationEvent): string {
   const name = (entry.title ?? "").trim() || baseName(entry.project) || (entry.sessionId ?? "").slice(0, 8);
-  const who = entry.external ? `${cliLabel(entry.external.cli)} ${name}`.trim() : name;
+  const who = entry.external ? `${agentOfExternal(entry.external.cli).tag} ${name}`.trim() : name;
   const head = `${NOTICE_GLYPH[entry.reason] ?? "•"} ${who ? `${who} — ` : ""}`;
   return `${head}${entry.summary}`;
 }
@@ -480,6 +481,23 @@ function budget(total: number, room: number): number {
 export interface PanelLine {
   key: string;
   segments: { text: string; color?: string; dimColor?: boolean; bold?: boolean }[];
+}
+
+/**
+ * `text` as segments with the external agent tag it contains (if any) drawn in
+ * the external colour; the rest keeps `color`. The text is unchanged, so the
+ * tag reads without colour.
+ */
+export function tagSegments(text: string, external: ExternalRef | null | undefined, color?: string): PanelLine["segments"] {
+  const identity = external ? agentOfExternal(external.cli) : null;
+  const at = identity ? text.indexOf(identity.tag) : -1;
+  if (!identity || at < 0) return [{ text, color }];
+  const end = at + identity.tag.length;
+  return [
+    ...(at > 0 ? [{ text: text.slice(0, at), color }] : []),
+    { text: identity.tag, color: identity.color, bold: true },
+    ...(end < text.length ? [{ text: text.slice(end), color }] : []),
+  ];
 }
 
 /**
@@ -554,7 +572,7 @@ export function panelLines(
       const left = `${String(index + 1).padStart(2)} ${st.glyph} ${sessionLabel(row)}`;
       // A session snowpea does not gate is red unless it waits on the person.
       const color = row.controlled === false && st.color !== "yellow" ? "red" : st.color;
-      lines.push({ key: `row-${index}`, segments: [{ text: spread(left, right, w), color }] });
+      lines.push({ key: `row-${index}`, segments: tagSegments(spread(left, right, w), row.external, color) });
     });
     if (uncontrolledNote) {
       lines.push({ key: "uncontrolled-note", segments: [{ text: fit(UNCONTROLLED_NOTE, w), color: "red" }] });
@@ -581,7 +599,7 @@ export function panelLines(
       const mark = item.kind === "approval" ? "!" : "?";
       lines.push({
         key: `wait-${index}`,
-        segments: [{ text: fit(` ${mark} ${item.label} — ${item.summary}`, w), color: "yellow" }],
+        segments: tagSegments(fit(` ${mark} ${item.label} — ${item.summary}`, w), item.external, "yellow"),
       });
     });
     if (waiting.length > waitingShown) {
@@ -600,7 +618,7 @@ export function panelLines(
     notices.slice(0, noticeShown).forEach((entry, index) => {
       lines.push({
         key: `notice-${index}`,
-        segments: [{ text: fit(` ${index + 1}. ${noticeLine(entry)}`, w), color: noticeColor(entry) }],
+        segments: tagSegments(fit(` ${index + 1}. ${noticeLine(entry)}`, w), entry.external, noticeColor(entry)),
       });
     });
     if (notices.length > noticeShown) {
@@ -876,7 +894,7 @@ export function statusLines(status: JarvisStatus, now: number): string[] {
     lines.push(`budget: ${budget.wakesThisHour ?? 0}/${budget.wakesPerHour} wakes this hour, ${tokens}${budget.exhausted ? " — USED UP, everything goes to you" : ""}`);
   }
   for (const pause of status.paused ?? []) {
-    const who = pause.external ? `${cliLabel(pause.external.cli)} ${pause.external.id.slice(0, 8)}` : (pause.sessionId ?? "").slice(0, 8);
+    const who = pause.external ? `${agentOfExternal(pause.external.cli).tag} ${pause.external.id.slice(0, 8)}` : (pause.sessionId ?? "").slice(0, 8);
     const left = formatRemaining(pause.until, now);
     lines.push(
       `${pause.reason === "typing" ? "paused (you typed)" : "taken over"}: ${who}${left ? `, returns in ${left}` : pause.reason === "takeover" ? " until /jarvis handback" : ""}`,

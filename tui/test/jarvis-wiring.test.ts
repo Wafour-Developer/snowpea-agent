@@ -92,7 +92,7 @@ describe("the unattended queue", () => {
   it("badges a request that belongs to an external CLI or that Jarvis is deciding", async () => {
     const { queueBadge } = await import("../src/components/ApprovalQueue.js");
     expect(queueBadge({})).toBe("");
-    expect(queueBadge({ external: { cli: "codex", id: "x" } })).toBe("[Codex] ");
+    expect(queueBadge({ external: { cli: "codex", id: "x" } })).toBe("[cx] ");
     expect(queueBadge({ route: "jarvis" })).toBe("[Jarvis deciding] ");
     expect(queueBadge({ route: "person" })).toBe("");
   });

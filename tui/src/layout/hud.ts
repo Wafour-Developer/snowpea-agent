@@ -159,6 +159,9 @@ export interface HudInput {
   jarvis?: string | null;
   /** An open external session that snowpea does not gate; never dropped from the row. */
   externalWarning?: string | null;
+  /** `[cc]` / `[web]` for an external or browser session; absent for a plain snowpea one. */
+  agentTag?: string | null;
+  agentColor?: string;
 }
 
 /**
@@ -304,6 +307,10 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
       dimColor: true,
       priority: 8,
     });
+  }
+
+  if (input.agentTag) {
+    segments.push({ key: "agent", text: input.agentTag, color: input.agentColor, bold: true, priority: 2 });
   }
 
   segments.push({

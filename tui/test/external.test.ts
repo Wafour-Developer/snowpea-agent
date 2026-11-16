@@ -234,8 +234,8 @@ describe("the picker", () => {
   });
 
   it("labels each row with CLI, status, where it runs and view-only", () => {
-    expect(pickerLabel(rows[0], 80, false)).toMatch(/^\[Codex\] fix the build +running · other terminal · view only$/);
-    expect(pickerLabel(rows[1], 80, true)).toContain("[Claude Code] write docs (web)");
+    expect(pickerLabel(rows[0], 80, false)).toMatch(/^\[cx\] fix the build +running · other terminal · view only$/);
+    expect(pickerLabel(rows[1], 80, true)).toContain("[cc] write docs (web)");
     expect(pickerLabel(rows[1], 80, false)).toContain("opened by snowpea");
     expect(pickerLabel(rows[2], 80, false)).toContain("UNRESTRICTED");
     expect(hostLabel({ host: "tmux", tmux: { session: "dev", pane: "%1" } })).toBe("tmux dev");

@@ -15,8 +15,11 @@ import { fit, spread } from "../layout/fit.js";
 import type { Line } from "../layout/transcript.js";
 
 export interface ExternalTranscriptProps {
-  /** `Codex · fix the build`. */
+  /** `fix the build`. */
   title: string;
+  /** `[cx]`, drawn before the title in `tagColor`. */
+  tag?: string;
+  tagColor?: string;
   /** `running · other terminal · default`. */
   status: string;
   /** Persistent red line when the session is not gated; else null. */
@@ -46,6 +49,8 @@ export function externalExtraRows(
 
 function ExternalTranscriptInner({
   title,
+  tag = "",
+  tagColor,
   status,
   warning,
   viewOnly,
@@ -68,7 +73,10 @@ function ExternalTranscriptInner({
     >
       <Text wrap="truncate-end">
         <Text bold color="blue">{"◈ "}</Text>
-        <Text bold>{spread(title, scrollIndicator ? `${scrollIndicator} · ${status}` : status, inner - 2)}</Text>
+        {tag ? <Text bold color={tagColor}>{`${tag} `}</Text> : null}
+        <Text bold>
+          {spread(title, scrollIndicator ? `${scrollIndicator} · ${status}` : status, inner - 2 - (tag ? tag.length + 1 : 0))}
+        </Text>
       </Text>
       {warning ? (
         <Text bold color="red" wrap="truncate-end">{`! ${fit(warning, inner - 2)}`}</Text>

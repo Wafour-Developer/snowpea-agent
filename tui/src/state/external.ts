@@ -11,6 +11,7 @@
  */
 
 import { fit, spread, wrapWords } from "../layout/fit.js";
+import { agentOfExternal, cliName } from "./agent-tag.js";
 import type {
   ExternalCli,
   ExternalCliInfo,
@@ -26,15 +27,8 @@ import { initialState, reducer, type State } from "./store.js";
 
 export const EXTERNAL_CLIS: readonly ExternalCli[] = ["claude", "codex", "agy", "cursor"];
 
-const LABELS: Record<ExternalCli, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  agy: "agy",
-  cursor: "Cursor",
-};
-
 export function cliLabel(cli: string): string {
-  return LABELS[cli as ExternalCli] ?? cli;
+  return cliName(cli);
 }
 
 export function refKey(ref: ExternalRef): string {
@@ -247,14 +241,14 @@ export function searchRows(rows: readonly ExternalSessionRow[], query: string): 
   });
 }
 
-/** `[Codex] title … running · other terminal · view only`, cut to `width` cells. */
+/** `[cx] title … running · other terminal · view only`, cut to `width` cells. */
 export function pickerLabel(row: ExternalSessionRow, width: number, showFolder: boolean): string {
   const title = (row.title ?? "").trim() || (row.preview ?? "").trim() || row.ref.id.slice(0, 8);
   const folder = showFolder ? ` (${row.cwd.split(/[\\/]/).filter(Boolean).pop() ?? row.cwd})` : "";
   const bits = [statusWord(row), hostLabel(row)];
   if (row.canSend === false) bits.push("view only");
   if (row.mode === "unrestricted") bits.push("UNRESTRICTED");
-  return spread(`[${cliLabel(row.ref.cli)}] ${title}${folder}`, bits.join(" · "), width);
+  return spread(`${agentOfExternal(row.ref.cli).tag} ${title}${folder}`, bits.join(" · "), width);
 }
 
 // --- the converter -----------------------------------------------------------------

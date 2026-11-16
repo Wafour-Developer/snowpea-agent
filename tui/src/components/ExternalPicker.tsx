@@ -15,13 +15,14 @@ import { fit } from "../layout/fit.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { ExternalCliInfo, ExternalSessionRow } from "../rpc/sdk.js";
 import { PENDING_PATH_ROWS, pendingPathLines, pickerLabel, searchRows } from "../state/external.js";
+import { agentOfExternal, legendLine } from "../state/agent-tag.js";
 import { ChoiceList } from "./ChoiceList.js";
 
 /** Rows shown at once. */
 export const EXTERNAL_PICKER_ROWS = 8;
 
 /** Rows the picker occupies at most, so the full-screen layout can reserve them. */
-export const EXTERNAL_PICKER_TOTAL_ROWS = 2 + 1 + 1 + EXTERNAL_PICKER_ROWS + 2 + 1 + 1 + PENDING_PATH_ROWS;
+export const EXTERNAL_PICKER_TOTAL_ROWS = 2 + 1 + 1 + EXTERNAL_PICKER_ROWS + 2 + 1 + 1 + 1 + PENDING_PATH_ROWS;
 
 export interface ExternalPickerProps {
   rows: ExternalSessionRow[];
@@ -116,6 +117,7 @@ export function ExternalPicker({
   });
 
   const inner = Math.max(20, width - 8);
+  const legend = legendLine(shown.map((row) => agentOfExternal(row.ref.cli)), width - 4);
   return (
     <Box flexDirection="column" width={width} borderStyle="round" borderColor="blue" paddingX={1}>
       <Text bold color="blue" wrap="truncate-end">
@@ -138,16 +140,23 @@ export function ExternalPicker({
         </Text>
       ) : (
         <ChoiceList
-          options={shown.map((row) => ({
-            label: pickerLabel(row, inner, allProjects),
-            danger: false,
-          }))}
+          options={shown.map((row) => {
+            const agent = agentOfExternal(row.ref.cli);
+            // The label starts with the tag; it is drawn on its own to take the colour.
+            return {
+              tag: agent.tag,
+              tagColor: agent.color,
+              label: pickerLabel(row, inner, allProjects).slice(agent.tag.length + 1),
+              danger: false,
+            };
+          })}
           selectedIndex={index}
           color={currentAccent()}
           windowSize={EXTERNAL_PICKER_ROWS}
           hint={null}
         />
       )}
+      {legend ? <Text dimColor wrap="truncate-end">{legend}</Text> : null}
       {unavailable.length > 0 ? (
         <Text dimColor wrap="truncate-end">{fit(`unavailable: ${unavailable.join(", ")}`, width - 4)}</Text>
       ) : null}

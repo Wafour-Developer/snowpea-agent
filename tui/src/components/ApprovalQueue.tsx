@@ -17,7 +17,7 @@ import { Box, Text } from "ink";
 import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { ApprovalDecision, ApprovalScope } from "../rpc/sdk.js";
 import { APPROVAL_SCOPES, type ApprovalEntry } from "../state/store.js";
-import { cliLabel } from "../state/external.js";
+import { agentOfExternal } from "../state/agent-tag.js";
 import { ChoiceList } from "./ChoiceList.js";
 
 export type ApprovalQueueRespond = (
@@ -28,7 +28,7 @@ export type ApprovalQueueRespond = (
 
 /** `[Codex] ` for an external CLI's request, `[Jarvis deciding] ` while Jarvis has it (1.53.0). */
 export function queueBadge(request: Pick<ApprovalEntry, "external" | "route" | "personOnly">): string {
-  const cli = request.external ? `[${cliLabel(request.external.cli)}] ` : "";
+  const cli = request.external ? `${agentOfExternal(request.external.cli).tag} ` : "";
   const route = request.route === "jarvis" ? "[Jarvis deciding] " : "";
   const person = request.personOnly ? "[only you] " : "";
   return `${cli}${route}${person}`;

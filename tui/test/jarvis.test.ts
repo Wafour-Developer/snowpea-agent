@@ -130,8 +130,8 @@ describe("jarvisReducer", () => {
     );
     expect(state.waiting.map((item) => item.label)).toEqual([
       "snowpea · fix auth",
-      "Codex · web · docs",
-      "Claude Code zzzzzzzz",
+      "[cx] web · docs",
+      "[cc] zzzzzzzz",
     ]);
     expect(state.waiting[0].summary).toBe("shell: git push");
   });
@@ -288,7 +288,7 @@ describe("labels", () => {
     expect(requestLabel(approval({ sessionId: undefined }), rows, "s-9")).toBeNull();
     expect(
       requestLabel(approval({ sessionId: "ext:agy:1234567890", external: { cli: "agy", id: "1234567890" } }), rows, "s-1"),
-    ).toBe("agy 12345678");
+    ).toBe("[ag] 12345678");
     expect(requestLabel(null, rows, "s-1")).toBeNull();
   });
 });

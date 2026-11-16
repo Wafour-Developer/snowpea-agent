@@ -34,6 +34,9 @@ export interface ChoiceOption {
   badgeColor?: string;
   /** Draw the label bold even when the cursor is elsewhere. */
   bold?: boolean;
+  /** Agent tag column drawn before the label (`[cc] `, or blanks); the text is the cue, `tagColor` only a second one. */
+  tag?: string;
+  tagColor?: string;
 }
 
 export interface ChoiceListProps {
@@ -121,6 +124,9 @@ export function ChoiceList({
               the user is choosing between, so it never gives up width: a long
               summary used to squeeze `/oh-my-claudecode:ralph` down to
               `/oh-my-claudecode:ra`, hiding the very part that was typed. */}
+          {option.tag ? (
+            <Text color={option.tagColor} bold wrap="truncate-end">{option.tag}</Text>
+          ) : null}
           <Box flexShrink={descriptionMode === "inline" ? 0 : 1}>
             <Text
               inverse={here}
