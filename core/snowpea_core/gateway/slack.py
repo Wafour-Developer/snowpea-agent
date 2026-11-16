@@ -95,7 +95,9 @@ def parse_envelope(envelope: dict[str, Any]) -> InboundMessage | None:
             attachments=list(event.get("files") or []),
             message_id=str(event.get("ts", "")) or None,
             reply_to=str(event.get("thread_ts")) if event.get("thread_ts") else None,
-            metadata={"chat_type": str(event.get("channel_type") or _chat_type(channel))},
+            # Slack's own field only (security review 3, F3): a message without it
+            # is never taken for a private chat.
+            metadata={"chat_type": str(event.get("channel_type") or "")},
         )
     if kind == "interactive":
         actions = payload.get("actions") or []
@@ -111,7 +113,7 @@ def parse_envelope(envelope: dict[str, Any]) -> InboundMessage | None:
             text="",
             callback_data=str(action.get("value", "")) or None,
             callback_id=str(envelope.get("envelope_id", "")) or None,
-            metadata={"chat_type": _chat_type(channel)},
+            metadata={"chat_type": _chat_type((payload.get("channel") or {}).get("name"))},
         )
     if kind == "slash_commands":
         # Slack intercepts anything starting with "/", so this *is* the typed
@@ -127,14 +129,18 @@ def parse_envelope(envelope: dict[str, Any]) -> InboundMessage | None:
             user_id=str(payload.get("user_id") or ""),
             text=f"{command} {args}".rstrip(),
             callback_id=str(envelope.get("envelope_id", "")) or None,
-            metadata={"chat_type": _chat_type(channel)},
+            metadata={"chat_type": _chat_type(payload.get("channel_name"))},
         )
     return None
 
 
-def _chat_type(channel: Any) -> str:
-    """``im`` for a direct-message channel (Slack DM ids start with ``D``), else ``channel``."""
-    return "im" if str(channel or "").startswith("D") else "channel"
+def _chat_type(channel_name: Any) -> str:
+    """``im`` when Slack names the conversation ``directmessage`` in the payload
+    (interactive ``channel.name``, slash command ``channel_name``), else ``channel``.
+
+    Taken only from that payload field (security review 3, F3), never from the
+    shape of a channel id."""
+    return "im" if str(channel_name or "") == "directmessage" else "channel"
 
 
 def slack_manifest(bot_name: str = "snowpea") -> dict[str, Any]:

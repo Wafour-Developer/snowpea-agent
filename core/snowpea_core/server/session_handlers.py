@@ -1053,8 +1053,16 @@ async def command_run_handler(
     conn: RpcConnection, params: CommandRunParams, core: Core
 ) -> TurnResult:
     session = _session(core, params.sessionId)
-    core.hub.subscribe(conn, session.id)
     name = params.name[1:] if params.name.startswith("/") else params.name
+    # A browser's command is judged by what it would persist, before it runs
+    # (security review 3, ``commands/persists.py``): no partial effect.
+    from snowpea_core.server.settings_gate import command_refusal
+
+    command = core.commands.get(name)
+    command_refusal(conn, core, name, params.args,
+                    source=getattr(command, "source", "builtin") if command else "builtin",
+                    actor=params.actor)
+    core.hub.subscribe(conn, session.id)
     return TurnResult(turnId=core.commands.start(core, session, name, params.args, conn))
 
 
@@ -1081,7 +1089,15 @@ async def tool_list_handler(
 async def approval_list_handler(
     _conn: RpcConnection, params: OptionalSessionParams, core: Core
 ) -> ApprovalListResult:
-    return ApprovalListResult(requests=core.approvals.list(params.sessionId))
+    requests = core.approvals.list(params.sessionId)
+    from snowpea_core.server import settings_gate
+
+    requests = [
+        r for r in requests
+        if settings_gate.list_visible(_conn, core.sessions.get(r.sessionId),
+                                      person_only=bool(r.personOnly), route=r.route)
+    ]
+    return ApprovalListResult(requests=requests)
 
 
 async def approval_respond_handler(
@@ -1094,6 +1110,7 @@ async def approval_respond_handler(
         by=conn.surface_id,
         conn=conn,
         reason=params.reason,
+        actor=params.actor,
     )
     return Ok(ok=True)
 
@@ -1106,13 +1123,30 @@ async def approval_respond_handler(
 async def question_list_handler(
     _conn: RpcConnection, params: OptionalSessionParams, core: Core
 ) -> QuestionListResult:
-    return QuestionListResult(requests=core.questions.list(params.sessionId))
+    requests = core.questions.list(params.sessionId)
+    from snowpea_core.server import settings_gate
+
+    requests = [r for r in requests
+                if settings_gate.list_visible(_conn, core.sessions.get(r.sessionId),
+                                              route=r.route)]
+    return QuestionListResult(requests=requests)
 
 
 async def question_respond_handler(
     conn: RpcConnection, params: QuestionRespondParams, core: Core
 ) -> Ok:
-    """Answer a batch from any surface; a question carries no authority."""
+    """Answer a batch from any person's surface; a question carries no authority.
+
+    A browser or connector answers its own sessions' questions, another
+    session's only for its person (security review 3, ``settings_gate.may_answer``).
+    """
+    from snowpea_core.server.settings_gate import answer_refusal
+
+    pending = core.questions._pending.get(params.requestId)  # noqa: SLF001
+    if pending is not None:
+        answer_refusal(conn, core.sessions.get(pending.request.sessionId), params.requestId,
+                       "question", origin_conn=pending.origin_conn, actor=params.actor,
+                       route=pending.request.route)
     await core.questions.respond(
         params.requestId,
         [answer.model_dump(mode="json") for answer in params.answers],

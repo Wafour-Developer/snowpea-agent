@@ -43,6 +43,7 @@ Server capabilities advertised in the `system.hello` result:
 - `approvals`
 - `audio`
 - `batchedFileTools`
+- `browserActor`
 - `browserMemoryList`
 - `checkpoints`
 - `commands`
@@ -496,7 +497,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -509,6 +510,7 @@ Ask the client to approve a tool call.
 | field | type | required | description |
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments it wants to use. |
+| `argsEscaped` | `boolean \| null` | no | True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). |
 | `diff` | `string \| null` | no | For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. |
 | `external` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null` | no | Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. |
 | `folder` | `string \| null` | no | For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. |
@@ -531,6 +533,7 @@ Ask the client to approve a tool call.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | A browser host (clientKind 'browser', clientVersion 0.3.0 or later) sets 'person' when the answer came from a click; without it an allow wider than 'once' counts as 'once' (security review 3). Ignored for other kinds. |
 | `decision` | `"allow" \| "deny"` | yes | The human's decision. |
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
 | `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | How long the decision applies. |
@@ -545,6 +548,7 @@ Answer a pending approval and unblock the turn.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set 'person' (a click) to allow with a scope wider than 'once' (security review 3); ignored for other kinds. |
 | `decision` | `"allow" \| "deny"` | yes | allow runs the tool, deny ends the turn. |
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
 | `requestId` | `string` | yes | Request being answered. |
@@ -599,6 +603,7 @@ Install a local voice engine (or one of its voices) and re-run detection.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `engine` | `string` | yes | Engine id from the setup catalog: faster-whisper (or local-whisper), piper, edge-tts. A system package (espeak-ng, say, powershell) answers ok=false with a hint instead. |
 | `voice` | `string \| null` | no | Install one of the engine's voices rather than the engine itself, e.g. piper's ko_KR-kss-medium. Same staged progress; installing a voice does not select it. |
 | `warmup` | `boolean` | no | When true, download first-run assets only — Supertonic's ONNX models — with staged progress, without reinstalling the package. |
@@ -838,6 +843,7 @@ Run a slash command; the only execution path for them.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): a browser 0.3.0+ must send 'person' to run a command that persists a marker-required setting (commands/persists.py); ignored for other kinds. |
 | `args` | `string` | no | Raw argument string, as typed after the name. |
 | `name` | `string` | yes | Command name without the leading slash. |
 | `sessionId` | `string` | yes | Session to run the command in. |
@@ -1349,6 +1355,7 @@ Attach the daemon to a chat platform channel.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `channelId` | `string \| null` | no | Restrict the binding to one chat, channel or room. |
 | `credentialsRef` | `string` | yes | Name of the credential to use: a key in credentials.json or an env var. |
 | `platform` | `string` | yes | Chat platform key: telegram, discord or slack. |
@@ -1776,7 +1783,7 @@ Jarvis mode (1.53.0, WP2): decisions made for supervised sessions, newest first,
 
 | field | type | required | description |
 |---|---|---|---|
-| `entries` | `({ classification?: "safe" \| "risky" \| "guarded" \| "never" \| null; decidedBy: "jarvis" \| "person" \| "auto"; decision?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; guardedClass?: "deploy" \| "outside_destructive" \| "secret_send" \| null; id: string; importance?: "low" \| "normal" \| "high" \| "urgent"; kind: "approval" \| "question" \| "continue" \| "prompt" \| "interrupt" \| "escalate" \| "unrestricted"; project?: string \| null; reason?: string; requestId?: string \| null; rule?: string \| null; sessionId?: string \| null; summary: string; tool?: string \| null; ts: string; })[]` | no | Newest first. |
+| `entries` | `({ classification?: "safe" \| "risky" \| "guarded" \| "never" \| null; decidedBy: "jarvis" \| "person" \| "auto"; decision?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; guardedClass?: "deploy" \| "outside_destructive" \| "secret_send" \| null; id: string; importance?: "low" \| "normal" \| "high" \| "urgent"; kind: "approval" \| "question" \| "continue" \| "prompt" \| "interrupt" \| "escalate" \| "unrestricted"; project?: string \| null; readOnly?: boolean \| null; reason?: string; requestId?: string \| null; rule?: string \| null; sessionId?: string \| null; summary: string; tool?: string \| null; ts: string; })[]` | no | Newest first. |
 | `nextBefore` | `string \| null` | no | Cursor for the next page; null at the end. |
 
 ### `jarvis.overview`
@@ -1911,6 +1918,7 @@ Cancel a scheduled job.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `jobId` | `string` | yes | Target job. |
 
 **Result**
@@ -1929,6 +1937,7 @@ Delete a job, its schedule and run history; optionally its run sessions.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `deleteRuns` | `boolean` | no | Also delete the sessions its runs opened, with their workspaces, as session.deleteSaved does. A run still in progress is left alone. |
 | `jobId` | `string` | yes | Job to delete, with its schedule and run history. |
 
@@ -2003,6 +2012,7 @@ Fire a scheduled job immediately.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `jobId` | `string` | yes | Target job. |
 
 **Result**
@@ -2040,6 +2050,7 @@ Schedule a prompt to run unattended.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `agent` | `string \| null` | no | Named agent that runs the task. |
 | `channel` | `string \| null` | no | Gateway channel that receives the output. |
 | `meta` | `Record<string, unknown> \| null` | no | Opaque data for the host, at most 4 KB of JSON (1.23.0). Only a connection whose system.hello said clientKind 'browser' with a clientId may set it; the job is then owned by that clientId: only it may update, cancel, delete or run it now, see its meta, and no agent tool can change or cancel it. |
@@ -2068,6 +2079,7 @@ Change an existing job (addendum 12).
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `enabled` | `boolean \| null` | no | False pauses the job (no next firing); true resumes it from now on its schedule. |
 | `jobId` | `string` | yes | Job to change. |
 | `schedule` | `string \| null` | no | A new schedule spec, parsed like job.schedule's spec; the next run is recomputed. |
@@ -2156,6 +2168,7 @@ Install language servers the user asked for, even with lsp.autoInstall off.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `ids` | `string[] \| null` | no | Server ids to install. Null: every installable server that is enabled and not available. Runs even with lsp.autoInstall false: the request is the consent. |
 
 **Result**
@@ -2209,6 +2222,7 @@ Write an MCP server into the project or global .mcp.json and start it.
 | field | type | required | description |
 |---|---|---|---|
 | `acceptFindings` | `boolean` | no | Add the entry despite the security findings mcp_unsafe reported (1.33.0). Does not let it overwrite a name already declared in the file. |
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `args` | `string[] \| null` | no | Arguments, argv style; never a shell string. |
 | `command` | `string \| null` | no | Executable for a stdio server. |
 | `cwd` | `string \| null` | no | Working directory for a stdio server. |
@@ -2254,6 +2268,7 @@ Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0)
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `name` | `string` | yes | Server name. |
 | `oauthScope` | `string \| null` | no | OAuth scopes to ask for; default: the entry's oauth.scope, then the server's WWW-Authenticate scope, then its advertised scopes_supported. |
 | `redirectUri` | `string \| null` | no | Redirect URI the host catches itself (its own tab) and hands back with mcp.authorize.complete: http on 127.0.0.1, localhost or [::1] (any port), https, or a private-use scheme; never javascript:, data:, file: or a fragment (invalid_params). Omitted, the daemon listens on http://127.0.0.1:<random port>/callback and completes on its own. |
@@ -2322,6 +2337,7 @@ Forget a remote MCP server's stored OAuth tokens (1.34.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `name` | `string` | yes | Server name. |
 | `scope` | `"project" \| "global" \| null` | no | Forget the sign-in of this scope's declaration; omitted, the one in effect, or every record of the name when none is declared. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
@@ -2454,6 +2470,7 @@ Restart one MCP server, or every configured one.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `name` | `string \| null` | no | Server to restart; all of them when absent. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `workdir` | `string \| null` | no | Project directory to rediscover from. |
@@ -2475,6 +2492,7 @@ Delete an MCP server entry and stop the server.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `name` | `string` | yes | Server name. |
 | `scope` | `"project" \| "global" \| null` | no | Which file to rewrite; omitted, the one that declares it. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
@@ -2496,6 +2514,7 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `args` | `string[] \| null` | no | Arguments, argv style; never a shell string. |
 | `command` | `string \| null` | no | Executable for a stdio server. |
 | `cwd` | `string \| null` | no | Working directory for a stdio server. |
@@ -2540,6 +2559,7 @@ Merge a patch into an existing MCP server entry.
 | field | type | required | description |
 |---|---|---|---|
 | `acceptFindings` | `boolean` | no | Save the entry although the patch brings in a security finding; without it that is mcp_unsafe, as in mcp.add (1.33.0). |
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `envRemove` | `string[] \| null` | no | Environment variables to delete from the saved entry (1.33.0). |
 | `force` | `boolean` | no | Same as acceptFindings here (1.33.0). |
 | `headersRemove` | `string[] \| null` | no | HTTP headers to delete from the saved entry (1.33.0). |
@@ -2670,6 +2690,7 @@ Edit one stored memory in place; it becomes confirmed (1.28.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `id` | `string` | yes | Memory id. |
 | `text` | `string` | yes | The new text; refused like memory.write when it holds a value. |
 
@@ -2709,6 +2730,7 @@ Promote a pattern from ask to allow.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `pattern` | `string` | yes | Glob or command prefix promoted from ask to allow. |
 | `scope` | `"session" \| "project" \| "always"` | no | Where the pattern is stored. |
 | `workdir` | `string \| null` | no | Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). |
@@ -2749,6 +2771,7 @@ Delete an allowlist pattern by id.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `hostToolsFrom` | `string \| null` | no | When given, a global entry is removed only if it belongs to this browser profile (addendum 8). |
 | `patternId` | `string` | yes | Pattern to delete. |
 | `workdir` | `string \| null` | no | Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). |
@@ -2769,6 +2792,7 @@ Store settings and credentials for a provider.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `config` | `Record<string, unknown>` | no | Vendor-specific settings, including credentials. |
 | `vendor` | `string` | yes | Vendor to configure. |
 
@@ -2804,6 +2828,7 @@ Start a browser-based login flow for a provider.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `method` | `string` | yes | Login flow to start: 'browser_pkce' or 'google_oauth' (browser), 'device_code' or 'google_adc' (headless), 'oauth_pkce' (OpenRouter). 'web' or an empty value picks the best flow this machine can complete. |
 | `vendor` | `string` | yes | Vendor to log into. |
 
@@ -2854,6 +2879,7 @@ Forget a configured provider, typically a named local server.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `vendor` | `string` | yes | Provider to forget: its credentials, its model profiles and the agent assignments that used them. |
 
 **Result**
@@ -2897,6 +2923,7 @@ Forget the learned vision answer for a model so the next picture is tried again 
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `model` | `string \| null` | no | Model whose learned 'cannot see images' answer is forgotten; null: the vendor's current model. |
 | `vendor` | `string \| null` | no | Vendor to reset; defaults to the configured one. |
 
@@ -2959,6 +2986,7 @@ Answer a pending question and unblock the turn.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | A browser host sets 'person' when a click answered another session's question (security review 3); a browser or connector otherwise answers only its own sessions' questions (not_found). Ignored for other kinds. |
 | `answers` | `({ selected?: string[]; text?: string \| null; })[]` | no | One entry per question, in question order; empty declines the batch. |
 | `requestId` | `string` | yes | Batch being answered. |
 
@@ -3598,6 +3626,7 @@ Deep-merge a patch into global or project settings and persist it.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `patch` | `Record<string, unknown>` | yes | Fields to deep-merge into the existing settings. |
 | `scope` | `"global" \| "project"` | no | "global" writes $SNOWPEA_HOME/settings.json; "project" writes <workdir>/.snowpea/settings.json. |
 | `workdir` | `string \| null` | no | Project root; required when scope is "project". |
@@ -3618,6 +3647,7 @@ Apply the profile's defaults for everything optional; idempotent.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `profile` | `"default" \| "browser"` | no | Which defaults to apply. |
 
 **Result**
@@ -3940,6 +3970,7 @@ Write a new SKILL.md, generated from a brief or supplied verbatim.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `content` | `string \| null` | no | A complete SKILL.md body. When given, it is validated and written directly — no model turn runs. |
 | `description` | `string \| null` | no | Natural-language brief. Used only when 'content' is omitted: the daemon starts the same generating turn '/skill create' runs and answers with a turnId rather than waiting for it. |
 | `force` | `boolean` | no | Overwrite an existing SKILL.md at the target; without it an existing one answers skill_exists (1.33.0), in draft mode before any turn starts. |
@@ -3967,6 +3998,7 @@ Install a skill from a path, URL or registry.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `link` | `boolean` | no | Local plugin directory only: install it as a symlink instead of a copy, so edits are live after skill.reload (development). skill.remove drops the link and leaves the directory alone. |
 | `source` | `string` | yes | Path, URL or registry name to install from. |
 
@@ -3986,6 +4018,7 @@ Turn a session's history into a SKILL.md, as /skill learn does, in the project o
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `force` | `boolean` | no | Overwrite a SKILL.md already at the target; otherwise that is refused. |
 | `name` | `string \| null` | no | Skill name; omit to let the model name it. |
 | `scope` | `"project" \| "global"` | no | "global" writes it to the user's skills under the snowpea home, so every later session loads it; "project" under the session workdir's .snowpea/skills. |
@@ -4050,7 +4083,9 @@ Reload skills from disk without restarting.
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `actor` | `"person" \| null` | no | 'person' when a browser host (clientKind 'browser', clientVersion 0.3.0 or later; capability 'browserActor') makes the call from its own Settings page under a user gesture. Required from such a browser on the marker methods (jarvis_person_only otherwise); accepted and ignored from every other connection. Any other value is invalid_params. |
 
 **Result**
 
@@ -4068,6 +4103,7 @@ Delete a plugin, or a global or project skill, agent or command (1.33.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `kind` | `"skill" \| "agent" \| "command" \| "plugin" \| null` | no | Only this kind of entry (1.33.0): a skill directory, an agent or command .md file, or a plugin. |
 | `name` | `string` | yes | Entry to delete: a skill, agent or command name, or a plugin's directory or manifest name as skill.list shows it (1.33.0). |
 | `scope` | `"project" \| "global" \| "plugin" \| null` | no | Look only here (1.33.0): 'plugin' ($SNOWPEA_HOME/plugins), 'global' ($SNOWPEA_HOME skills/, agents/, commands/) or 'project' (the workdir's .snowpea, then .claude). Omitted, the copy in effect goes: the project (with a workdir), then global, then plugins, so a skill wins over a plugin of the same name. Within a scope a skill, then an agent, then a command. |
@@ -4109,6 +4145,7 @@ Save a skill's SKILL.md verbatim; says where, and whether it is in effect.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `content` | `string` | yes | Full SKILL.md text to save. |
 | `kind` | `"skill" \| "agent" \| "command" \| null` | no | Write an agent or a command instead of a skill (1.36.0): the file is agents/<name>.md or commands/<name>.md in the same places a skill's directory would be. Omitted or 'skill', the SKILL.md as before. |
 | `name` | `string` | yes | Skill to write. |
@@ -4228,7 +4265,9 @@ Re-read settings.json and rebind the daemon's in-memory state.
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `actor` | `"person" \| null` | no | 'person' when a browser host (clientKind 'browser', clientVersion 0.3.0 or later; capability 'browserActor') makes the call from its own Settings page under a user gesture. Required from such a browser on the marker methods (jarvis_person_only otherwise); accepted and ignored from every other connection. Any other value is invalid_params. |
 
 **Result**
 
@@ -4360,6 +4399,7 @@ Write a team guide to the project or global home.
 
 | field | type | required | description |
 |---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `description` | `string \| null` | no | One-line summary. |
 | `persona` | `string` | yes | Persona body to store. |
 | `routing` | `({ agent: string; when: string; })[]` | no | Routing rules to store. |
@@ -4688,14 +4728,15 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
-| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 
 | field | type | required | description |
 |---|---|---|---|
-| `by` | `string` | yes | Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session decided within its delegation) and 'jarvis:auto' (the delegation engine allowed a safe request without a model call). |
-| `decision` | `"allow" \| "deny"` | yes | The decision that was recorded. |
+| `by` | `string` | yes | Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session decided within its delegation), 'jarvis:auto' (the delegation engine allowed a safe request without a model call) and 'rerouted' (with outcome 'withdrawn'). |
+| `decision` | `"allow" \| "deny" \| null` | no | The decision that was recorded; null only with outcome 'withdrawn' (1.53.0). |
+| `outcome` | `"withdrawn" \| null` | no | 'withdrawn' (1.53.0, security review 3): the request is no longer this connection's to show — sent only to a browser connection when a request it showed was routed to Jarvis. Nothing was decided; stop showing it. If it is routed back to the person the browser gets approval.pending again. |
 | `requestId` | `string` | yes | Request that was resolved. |
 
 ### `approval.route.changed`
@@ -4788,7 +4829,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `entry` | `{ classification?: "safe" \| "risky" \| "guarded" \| "never" \| null; decidedBy: "jarvis" \| "person" \| "auto"; decision?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; guardedClass?: "deploy" \| "outside_destructive" \| "secret_send" \| null; id: string; importance?: "low" \| "normal" \| "high" \| "urgent"; kind: "approval" \| "question" \| "continue" \| "prompt" \| "interrupt" \| "escalate" \| "unrestricted"; project?: string \| null; reason?: string; requestId?: string \| null; rule?: string \| null; sessionId?: string \| null; summary: string; tool?: string \| null; ts: string; }` | yes | The decision. |
+| `entry` | `{ classification?: "safe" \| "risky" \| "guarded" \| "never" \| null; decidedBy: "jarvis" \| "person" \| "auto"; decision?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; guardedClass?: "deploy" \| "outside_destructive" \| "secret_send" \| null; id: string; importance?: "low" \| "normal" \| "high" \| "urgent"; kind: "approval" \| "question" \| "continue" \| "prompt" \| "interrupt" \| "escalate" \| "unrestricted"; project?: string \| null; readOnly?: boolean \| null; reason?: string; requestId?: string \| null; rule?: string \| null; sessionId?: string \| null; summary: string; tool?: string \| null; ts: string; }` | yes | The decision. |
 
 ### `jarvis.delegation.changed`
 
@@ -4900,7 +4941,8 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `by` | `string` | yes | Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session answered within its delegation). |
+| `by` | `string` | yes | Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session answered within its delegation) and 'rerouted' (with outcome 'withdrawn'). |
+| `outcome` | `"withdrawn" \| null` | no | 'withdrawn' (1.53.0, security review 3): sent only to a browser connection when a question it showed was routed to Jarvis; nothing was answered. |
 | `requestId` | `string` | yes | Question that was resolved. |
 
 ### `question.route.changed`

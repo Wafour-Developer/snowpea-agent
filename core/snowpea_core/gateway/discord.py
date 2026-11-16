@@ -131,8 +131,22 @@ def parse_event(frame: dict[str, Any]) -> InboundMessage | None:
 
 
 def _chat_type(data: dict[str, Any]) -> str:
-    """``dm`` for a direct message (no guild), else ``guild``."""
-    return "guild" if data.get("guild_id") else "dm"
+    """``dm`` for a one-to-one direct message, ``group`` for a group DM, else ``guild``.
+
+    Payload fields only (security review 3, F3): ``guild_id``; an interaction's
+    ``channel.type`` (1 = DM, 3 = group DM) or ``context`` (1 = the bot's DM);
+    a ``MESSAGE_CREATE`` without a guild is a DM with the bot (bots are never
+    members of group DMs).
+    """
+    if data.get("guild_id"):
+        return "guild"
+    channel = data.get("channel")
+    kind = channel.get("type") if isinstance(channel, dict) else data.get("channel_type")
+    if kind is not None:
+        return "dm" if kind == 1 else "group"
+    if "context" in data:
+        return "dm" if data.get("context") == 1 else "group"
+    return "dm"
 
 
 def command_text(inner: dict[str, Any]) -> str:

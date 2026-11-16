@@ -273,6 +273,17 @@ class RpcDispatcher:
         if not isinstance(raw_params, dict):
             raise RpcError(errors.INVALID_PARAMS, "params must be an object")
         model = self._params[method]
+        from snowpea_core.server import settings_gate
+
+        gated = raw_params
+        if method in settings_gate.ACTOR_METHODS and "actor" in raw_params and (
+            "actor" not in getattr(model, "model_fields", {})
+        ):
+            # ``actor`` is a dispatcher-level param on these methods (security
+            # review 3): judged below, not part of the handler's own params.
+            if raw_params["actor"] not in (None, "person"):
+                raise RpcError(errors.INVALID_PARAMS, "actor must be 'person' when given")
+            raw_params = {k: v for k, v in raw_params.items() if k != "actor"}
         try:
             params = model.model_validate(raw_params)
         except ValidationError as exc:
@@ -283,6 +294,7 @@ class RpcDispatcher:
         from snowpea_core.server.person_gate import method_refusal
 
         method_refusal(method, conn)
+        settings_gate.browser_method_refusal(method, gated, conn, self.core)
         result = await handler(conn, params, self.core)
         return _as_dict(result)
 

@@ -53,6 +53,11 @@ COMPLEX_MARKS: tuple[str, ...] = (";", "&", "|", "<", ">", "`", "$", "\n", "\r")
 #: glob (which can expand into a file named ``--pre=sh``), an escape.  Inside
 #: single quotes they are literal; inside double quotes only ``\\`` is not.
 UNQUOTED_MARKS: frozenset[str] = frozenset("(){}*?[\\")
+#: Control, bidi and invisible format characters (security review 3, N3).
+_CONTROL = re.compile(
+    r"[\x00-\x08\x0b-\x1f\x7f-\x9f؜​-‏‪-‮⁠-⁤"
+    r"⁦-⁩﻿]"
+)
 
 #: ``NAME=value cmd``: an environment prefix can change what the program does
 #: (``GIT_SSH_COMMAND``, ``LD_PRELOAD``), so it is never remembered or matched.
@@ -323,6 +328,9 @@ def plain_words(command: str | None) -> list[str] | None:
     text = (command or "").strip()
     if not text or any(mark in text for mark in COMPLEX_MARKS):
         return None
+    if _CONTROL.search(text):
+        # A character a surface strips: the card never showed what runs (N3).
+        return None
     quote = ""
     for char in text:
         if quote == "'":
@@ -363,6 +371,12 @@ def _subcommand(family: str, rest: list[str]) -> str | None:
 def _hits(word: str, flag: str) -> bool:
     if word == flag or word.startswith(flag + "="):
         return True
+    if flag.startswith("--") and word.startswith("--"):
+        # GNU getopt_long and git's parse-options take any unambiguous prefix
+        # (``--to-com=`` is ``--to-command=``): every prefix counts (N10).
+        name = word.split("=", 1)[0]
+        if len(name) > 2 and flag.startswith(name):
+            return True
     if len(flag) == 2 and flag[0] == "-" and flag[1] != "-":
         # A short flag inside a cluster (-qc) or with its value attached (-cfoo).
         return word.startswith("-") and not word.startswith("--") and flag[1] in word[1:]

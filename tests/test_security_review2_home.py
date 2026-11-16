@@ -76,8 +76,10 @@ def test_secret_area_is_never_for_reads_and_writes(rel: str) -> None:
 def test_content_area_reads_like_the_project_and_writes_are_guarded(rel: str) -> None:
     path = f"{HOME}/{rel}"
     assert _tool("read_file", {"path": path}, ("read",)).classification == "safe", rel
-    assert _shell(f"cat {path}").classification == "safe", rel
-    assert _shell(f"cat ~/.snowpea/{rel}").classification == "safe", rel
+    # Security review 3 (D1/D4): a shell line reads outside the project here, so it
+    # is risky — never safe or read-like — but not a write either.
+    assert _shell(f"cat {path}").classification == "risky", rel
+    assert _shell(f"cat ~/.snowpea/{rel}").classification == "risky", rel
     for tags in (("write",), ("config",)):  # core tags a write under the home "config"
         verdict = _tool("write_file", {"path": path}, tags)
         assert verdict.classification == "guarded" and set(verdict.guarded) == {X}, (rel, verdict)
@@ -123,7 +125,7 @@ def test_globs_and_recursion_take_the_strictest_area() -> None:
     assert _tool("grep", {"pattern": "x", "path": f"{HOME}/skills"},
                  ("read",)).classification in ("risky", "safe")
     assert _shell("grep -r x ~/.snowpea/skills").classification not in ("safe", "never")
-    assert _shell("ls ~/.snowpea/skills").classification == "safe"
+    assert _shell("ls ~/.snowpea/skills").classification == "risky"  # outside the project
     # An interpreter naming a content path may write it: not safe, outside.
     verdict = _shell("python3 tool.py ~/.snowpea/skills/a.md")
     assert verdict.classification in ("guarded", "never") and X in verdict.guarded

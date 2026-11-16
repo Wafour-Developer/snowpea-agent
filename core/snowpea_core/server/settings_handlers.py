@@ -66,14 +66,6 @@ _mask_secrets = mask_secrets
 _deep_merge = deep_merge
 
 
-#: Global settings only a person at a local connection may change over RPC
-#: (security review H2): every Jarvis switch, and the MCP tags that decide
-#: which tools read and which send.  Project scope: its ``jarvis`` block.
-PERSON_ONLY_KEYS: tuple[tuple[str, ...], ...] = (
-    ("jarvis",),
-    ("mcp", "permissions"),
-    ("mcp", "allowVars"),
-)
 #: Settings changes written to the Jarvis ledger (who changed what).
 _LEDGERED: tuple[tuple[str, ...], ...] = (
     ("jarvis", "delegation", "default"),
@@ -107,16 +99,42 @@ def _matches(path: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
     )
 
 
-def guard_patch(conn: Any, patch: dict[str, Any], *, project: bool) -> None:
-    """Refuse a patch a caller may not make (security review H2)."""
-    from snowpea_core.server.person_gate import require_person
+def guard_patch(
+    conn: Any,
+    patch: dict[str, Any],
+    *,
+    project: bool,
+    actor: str | None = None,
+    core: Any = None,
+) -> list[str]:
+    """Refuse a patch a caller may not make (security review H2, review 3 N7).
 
-    keys = (("jarvis",),) if project else PERSON_ONLY_KEYS
-    touched = [".".join(key) for key in keys if _touches(patch, key)]
-    if touched:
-        require_person(conn, f"change {', '.join(touched)}", local=True)
+    The tables live in :mod:`snowpea_core.server.settings_gate`: a local
+    person may change anything (the value checks below still hold); every
+    other caller only its table's keys of the global scope, never
+    ``PERSON_LOCAL_ONLY``, and — while Jarvis mode is on — never a key of
+    Jarvis's authority chain (``details.reason: "jarvis_on"``).  A refusal is
+    written to the ledger.  Returns the Jarvis-relevant keys a non-local
+    caller changed, for the ledger once the change is saved.
+    """
+    from snowpea_core.server import settings_gate as gate
+    from snowpea_core.server.person_gate import connection_kind
+
+    kind = connection_kind(conn)
+    authority = gate.jarvis_authority(core) if core is not None else ()
+    refused, jarvis_on, relevant = gate.judge_patch(
+        kind, patch, project=project,
+        actor=gate.ACTOR_PERSON if gate.acts_for_person(conn, actor) else None,
+        authority=authority,
+    )
+    if refused:
+        gate.ledger_settings(core, conn, refused, refused=True, method="settings.set")
+        gate.refuse(conn, f"change {', '.join(refused[:6])}")
+    if jarvis_on:
+        gate.ledger_settings(core, conn, jarvis_on, refused=True, method="settings.set")
+        gate.refuse(conn, f"change {', '.join(jarvis_on[:6])}", reason="jarvis_on")
     if project or not isinstance(patch.get("jarvis"), dict):
-        return
+        return [] if kind == "person" else relevant
     for path, value in _leaves(patch["jarvis"]):
         full = ("jarvis", *path)
         if _matches(full, ("jarvis", "delegation", "default")) and value not in (None, "staged"):
@@ -137,6 +155,7 @@ def guard_patch(conn: Any, patch: dict[str, Any], *, project: bool) -> None:
             raise RpcError(
                 errors.INVALID_PARAMS, "confirmedPath is set only by external.clis.confirmPath"
             )
+    return [] if kind == "person" else relevant
 
 
 def _ledger_changes(core: Any, conn: Any, patch: dict[str, Any]) -> None:
@@ -191,7 +210,13 @@ async def settings_set_handler(
     """``settings.set`` — deep-merge ``patch`` into settings and persist it."""
     if not isinstance(params.patch, dict):
         raise RpcError(errors.INVALID_PARAMS, "patch must be an object")
-    guard_patch(conn, params.patch, project=params.scope == "project")
+    relevant = guard_patch(
+        conn,
+        params.patch,
+        project=params.scope == "project",
+        actor=params.actor,
+        core=core,
+    )
 
     # A client that reads back ``settings.get``'s masked response and echoes
     # it into a patch (naive read-modify-write) must not be able to persist
@@ -234,6 +259,11 @@ async def settings_set_handler(
             raise RpcError(errors.INVALID_PARAMS, problem)
     updated_settings.save(core.paths)
     _ledger_changes(core, conn, params.patch)
+    if relevant:
+        from snowpea_core.server.settings_gate import ledger_settings
+
+        # A Jarvis-relevant change from a browser, connector or remote login.
+        ledger_settings(core, conn, relevant, refused=False, method="settings.set")
     # The daemon holds the old document in half a dozen places; rebinding here
     # is what makes settings.get and the next turn agree without a restart
     # (CORE-settings-reload).

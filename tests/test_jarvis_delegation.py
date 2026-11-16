@@ -263,7 +263,10 @@ def test_grants_live_outside_settings(tmp_path: Path, clock: Clock) -> None:
 
 
 def test_routing_by_class_and_level(engine: DelegationEngine) -> None:
-    assert engine.route(_req("git status")).route == "auto"
+    assert engine.route(_req("ls -la")).route == "auto"
+    # git is never the engine's alone (security review 3): read-like, Jarvis's under staged.
+    readlike = engine.route(_req("git status"))
+    assert (readlike.route, readlike.reason) == ("jarvis", "readlike:staged")
     risky = engine.route(_req("npm install"))
     assert (risky.route, risky.reason, risky.level) == ("person", "risky:staged", "staged")
     deploy = engine.route(_req("git push"))

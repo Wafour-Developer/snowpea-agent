@@ -178,8 +178,16 @@ class ProjectBook:
         excluded = self._excluded()
         seen: set[str] = set()
         out: list[str] = []
+        from snowpea_core.jarvis.service import jarvis_folder_problem
+
+        home = getattr(getattr(self.core, "paths", None), "home", None)
         for root in [*ordered, *sorted(extra)]:
             if root in seen or root in excluded:
+                continue
+            if jarvis_folder_problem(root, home) is not None:
+                # A root that is, holds or lies in $SNOWPEA_HOME or a credential
+                # folder (or is / or the home folder) is never in Jarvis's reach
+                # (security review 1 M1, closed in review 3).
                 continue
             seen.add(root)
             out.append(root)

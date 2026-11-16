@@ -45,18 +45,18 @@ def _shell(command: str, **extra: Any) -> ClassifyRequest:
 SHELL_TABLE: list[tuple[str, str, set[str]]] = [
     # -- safe: inspections and test runs --------------------------------------
     ("ls -la", "safe", set()),
-    ("git status", "safe", set()),
-    ("git log --oneline | head -5", "safe", set()),
-    ("git diff HEAD~1", "safe", set()),
-    ("git show HEAD", "safe", set()),
+    ("git status", "readlike", set()),
+    ("git log --oneline | head -5", "readlike", set()),
+    ("git diff HEAD~1", "readlike", set()),
+    ("git show HEAD", "readlike", set()),
     ("cat README.md", "safe", set()),
-    ("grep -rn TODO src", "safe", set()),
-    ("rg foo", "safe", set()),
+    ("grep -rn TODO src", "readlike", set()),
+    ("rg foo", "readlike", set()),
     ("head -n 20 setup.py", "safe", set()),
     ("wc -l src/main.py", "safe", set()),
     ("pwd", "safe", set()),
     ("find . -name '*.py'", "safe", set()),
-    ("ls ~", "safe", set()),
+    ("ls ~", "risky", set()),
     ("ls |\n  grep x", "safe", set()),
     # -- risky: a test run, a linter or a build runs code a worker can write --
     ("pytest -q", "risky", set()),
@@ -100,7 +100,7 @@ SHELL_TABLE: list[tuple[str, str, set[str]]] = [
     ("echo hi 2>&1 > out.log", "risky", set()),
     ("cat <<'EOF' > notes.md\n$(not run) `nor this`\nEOF", "risky", set()),
     ("echo ok > /dev/null", "safe", set()),
-    ("echo $HOME", "safe", set()),
+    ("echo $HOME", "readlike", set()),
     # The value names a secret, and ``$F`` may be any file.
     ("F=.env; cat $F", "guarded", {S}),
     ("ls $DIR", "risky", set()),
@@ -341,6 +341,11 @@ SHELL_TABLE: list[tuple[str, str, set[str]]] = [
 @pytest.mark.parametrize(("command", "classification", "classes"), SHELL_TABLE)
 def test_shell_table(command: str, classification: str, classes: set[str]) -> None:
     verdict = classify(_shell(command))
+    if classification == "readlike":
+        assert verdict.classification == "risky" and verdict.read_only, (command, verdict)
+        assert verdict.rules == ("exec:read-like",), (command, verdict)
+        return
+    assert not verdict.read_only, (command, verdict)
     assert verdict.classification == classification, (command, verdict)
     if classification == "never":
         return
@@ -440,8 +445,8 @@ TOOL_TABLE: list[tuple[str, ClassifyRequest, str, set[str]]] = [
     ("claude Edit inside", _tool("Edit", {"file_path": "src/a.py"}), "risky", set()),
     ("claude Read secret", _tool("Read", {"file_path": ".env.local"}), "guarded", {S}),
     ("codex argv", _tool("commandExecution", {"command": ["git", "push"]}), "guarded", {D}),
-    ("codex bash -lc wrapper", _tool("commandExecution",
-                                     {"command": ["bash", "-lc", "git status"]}), "safe", set()),
+    ("codex bash -lc wrapper",
+     _tool("commandExecution", {"command": ["bash", "-lc", "git status"]}), "readlike", set()),
     ("codex fileChange", _tool("fileChange", {"changes": {"/etc/x": {}}}), "guarded", {X}),
     ("shell with cwd outside", _tool("shell", {"command": "rm x", "cwd": "/etc"}, ("exec",)),
      "guarded", {X}),
@@ -464,6 +469,9 @@ def test_tool_table(
     label: str, request_: ClassifyRequest, classification: str, classes: set[str]
 ) -> None:
     verdict = classify(request_)
+    if classification == "readlike":
+        assert verdict.classification == "risky" and verdict.read_only, (label, verdict)
+        return
     assert verdict.classification == classification, (label, verdict)
     if classification != "never":
         assert set(verdict.guarded) == classes, (label, verdict)
@@ -520,7 +528,8 @@ def test_a_classifier_bug_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(module._Judge, "run", boom)
     verdict = classify(_shell("ls"))
-    assert verdict.classification == "guarded"
+    # Never delegable: the person answers what the classifier could not read (N12).
+    assert verdict.classification == "never"
     assert set(verdict.guarded) == ALL
 
 

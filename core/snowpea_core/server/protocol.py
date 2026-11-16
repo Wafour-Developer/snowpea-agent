@@ -157,6 +157,21 @@ class Empty(Payload):
     """A method that takes no parameters (``params`` is still an object)."""
 
 
+class ActorParams(Payload):
+    """Params of a config method that takes nothing but the browser marker (1.53.0)."""
+
+    actor: Literal["person"] | None = Field(
+        default=None,
+        description=(
+            "'person' when a browser host (clientKind 'browser', clientVersion 0.3.0 or "
+            "later; capability 'browserActor') makes the call from its own Settings page "
+            "under a user gesture. Required from such a browser on the marker methods "
+            "(jarvis_person_only otherwise); accepted and ignored from every other "
+            "connection. Any other value is invalid_params."
+        ),
+    )
+
+
 class Ok(Payload):
     ok: bool = Field(default=True, description="True when the call succeeded.")
 
@@ -1500,6 +1515,9 @@ class AudioVoicesResult(Payload):
 class AudioInstallParams(Payload):
     """Install one local voice engine, or one of its voices."""
 
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     engine: str = Field(
         description=(
             "Engine id from the setup catalog: faster-whisper (or local-whisper), "
@@ -1630,6 +1648,14 @@ class CommandRunParams(Payload):
     sessionId: str = Field(description="Session to run the command in.")
     name: str = Field(description="Command name without the leading slash.")
     args: str = Field(default="", description="Raw argument string, as typed after the name.")
+    actor: Literal["person"] | None = Field(
+        default=None,
+        description=(
+            "Browser marker (security review 3): a browser 0.3.0+ must send 'person' to run "
+            "a command that persists a marker-required setting (commands/persists.py); "
+            "ignored for other kinds."
+        ),
+    )
 
 
 class ToolInfo(Payload):
@@ -2176,6 +2202,17 @@ class ApprovalRequest(Payload):
             "'deny' from anyone who sees it."
         ),
     )
+    argsEscaped: bool | None = Field(
+        default=None,
+        description=(
+            "True when the call's arguments held characters a surface would strip or that "
+            "change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible "
+            "format characters) (1.53.0). args then shows them written out (a backslash "
+            "escape such as x9d or u202e); what runs is the raw text. Such a request is never "
+            "remembered or cached, and the delegation engine reports it in every guarded "
+            "class (rule exec:opaque:control-chars)."
+        ),
+    )
 
 
 class ApprovalAskParams(Payload):
@@ -2268,6 +2305,14 @@ class ApprovalRespondParams(Payload):
     requestId: str = Field(description="Request being answered.")
     decision: Decision = Field(description="allow runs the tool, deny ends the turn.")
     scope: ApprovalScope = Field(default="once", description="How long the decision applies.")
+    actor: Literal["person"] | None = Field(
+        default=None,
+        description=(
+            "A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set "
+            "'person' (a click) to allow with a scope wider than 'once' (security review 3); "
+            "ignored for other kinds."
+        ),
+    )
     reason: str = Field(
         default="",
         description=(
@@ -2282,6 +2327,14 @@ class ApprovalAnswer(Payload):
 
     decision: Decision = Field(description="The human's decision.")
     scope: ApprovalScope = Field(default="once", description="How long the decision applies.")
+    actor: Literal["person"] | None = Field(
+        default=None,
+        description=(
+            "A browser host (clientKind 'browser', clientVersion 0.3.0 or later) sets "
+            "'person' when the answer came from a click; without it an allow wider than "
+            "'once' counts as 'once' (security review 3). Ignored for other kinds."
+        ),
+    )
     reason: str = Field(
         default="",
         description=(
@@ -2389,6 +2442,14 @@ class QuestionAnswerItem(Payload):
 
 class QuestionRespondParams(Payload):
     requestId: str = Field(description="Batch being answered.")
+    actor: Literal["person"] | None = Field(
+        default=None,
+        description=(
+            "A browser host sets 'person' when a click answered another session's question "
+            "(security review 3); a browser or connector otherwise answers only its own "
+            "sessions' questions (not_found). Ignored for other kinds."
+        ),
+    )
     answers: list[QuestionAnswerItem] = Field(
         default_factory=list,
         description="One entry per question, in question order; empty declines the batch.",
@@ -2408,6 +2469,9 @@ class QuestionAnswer(Payload):
 
 
 class AllowlistAddParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     pattern: str = Field(description="Glob or command prefix promoted from ask to allow.")
     scope: AllowlistScope = Field(default="project", description="Where the pattern is stored.")
     workdir: str | None = Field(
@@ -2486,6 +2550,9 @@ class AllowlistListResult(Payload):
 
 
 class AllowlistRemoveParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     patternId: str = Field(description="Pattern to delete.")
     hostToolsFrom: str | None = Field(
         default=None,
@@ -2832,6 +2899,9 @@ class GoalResult(Payload):
 
 
 class ProviderVisionResetParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     vendor: str | None = Field(
         default=None, description="Vendor to reset; defaults to the configured one."
     )
@@ -2937,7 +3007,21 @@ class SessionSetEffortResult(Payload):
     )
 
 
+#: Who started a call from a browser host (security review 3, browser-team design):
+#: ``person`` when the snowpea browser's own Settings page made it under a user
+#: gesture.  Only a ``clientKind: "browser"`` connection's calls are judged by it.
+Actor = Literal["person"]
+ACTOR_DESCRIPTION = (
+    "Set to 'person' by a browser host (clientKind 'browser') only for a call its own "
+    "Settings page made under a user gesture (1.53.0). Without it a browser host's "
+    "settings.set may change only its runtime keys (browser.siteMemory, "
+    "browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are "
+    "refused (jarvis_person_only). Ignored for every other connection kind."
+)
+
+
 class ProviderConfigureParams(Payload):
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     vendor: str = Field(description="Vendor to configure.")
     config: dict[str, Any] = Field(
         default_factory=dict, description="Vendor-specific settings, including credentials."
@@ -2945,6 +3029,9 @@ class ProviderConfigureParams(Payload):
 
 
 class ProviderRemoveParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     vendor: str = Field(
         description=(
             "Provider to forget: its credentials, its model profiles and the agent "
@@ -2954,6 +3041,9 @@ class ProviderRemoveParams(Payload):
 
 
 class ProviderLoginWebParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     vendor: str = Field(description="Vendor to log into.")
     method: str = Field(
         description=(
@@ -3344,6 +3434,9 @@ class TeamGuideRoutingInput(Payload):
 
 
 class TeamGuideSetParams(TeamGuideWorkdirParams):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     team: str = Field(description="Team name, or 'default' for sessions with no active team.")
     scope: Literal["project", "global"] = Field(description="Where to write the guide.")
     description: str | None = Field(default=None, description="One-line summary.")
@@ -3381,6 +3474,7 @@ class TeamsChangedNotification(Payload):
 
 
 class JobScheduleParams(Payload):
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     spec: str = Field(description="Cron expression or natural-language schedule.")
     task: str = Field(description="Prompt run on each firing.")
     title: str | None = Field(
@@ -3650,10 +3744,12 @@ class JobListResult(Payload):
 
 
 class JobIdParams(Payload):
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     jobId: str = Field(description="Target job.")
 
 
 class JobDeleteParams(Payload):
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     jobId: str = Field(description="Job to delete, with its schedule and run history.")
     deleteRuns: bool = Field(
         default=False,
@@ -3676,6 +3772,7 @@ class JobUpdateTemplate(Payload):
 
 
 class JobUpdateParams(Payload):
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     jobId: str = Field(description="Job to change.")
     sessionTemplate: JobUpdateTemplate | None = Field(
         default=None, description="Template fields to change."
@@ -3775,6 +3872,9 @@ class JobDeleteResult(Payload):
 
 
 class GatewayBindParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     platform: str = Field(description="Chat platform key: telegram, discord or slack.")
     credentialsRef: str = Field(
         description="Name of the credential to use: a key in credentials.json or an env var."
@@ -3897,6 +3997,9 @@ class MemoryWriteResult(Payload):
 class MemoryUpdateParams(Payload):
     """``memory.update`` — the person edits a memory in place (1.28.0)."""
 
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     id: str = Field(description="Memory id.")
     text: str = Field(
         min_length=1,
@@ -4760,6 +4863,9 @@ class SkillSearchResult(Payload):
 
 
 class SkillInstallParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     source: str = Field(description="Path, URL or registry name to install from.")
     link: bool = Field(
         default=False,
@@ -4789,6 +4895,9 @@ class SkillListResult(Payload):
 
 
 class SkillRemoveParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     name: str = Field(
         description=(
             "Entry to delete: a skill, agent or command name, or a plugin's directory or "
@@ -4824,6 +4933,9 @@ class SkillRemoveParams(Payload):
 class SkillCreateParams(Payload):
     """``skill.create`` — write a new ``SKILL.md``, generated or supplied verbatim."""
 
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     name: str = Field(description="Skill name; also its directory and the future /<name>.")
     description: str | None = Field(
         default=None,
@@ -4880,6 +4992,9 @@ class SkillCreateResult(Payload):
 class SkillLearnParams(Payload):
     """``skill.learn`` — what ``/skill learn`` does, for a UI client (1.28.0)."""
 
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     force: bool = Field(
         default=False,
         description="Overwrite a SKILL.md already at the target; otherwise that is refused.",
@@ -4958,6 +5073,9 @@ class SkillReadResult(Payload):
 
 
 class SkillWriteParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     name: str = Field(description="Skill to write.")
     content: str = Field(description="Full SKILL.md text to save.")
     workdir: str | None = Field(
@@ -5018,6 +5136,7 @@ class SettingsResult(Payload):
 
 
 class SettingsSetParams(Payload):
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     scope: SettingsScope = Field(
         default="global",
         description=(
@@ -5132,6 +5251,9 @@ class SetupStatusResult(Payload):
 
 
 class SetupApplyDefaultsParams(Payload):
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     profile: Literal["default", "browser"] = Field(
         default="browser", description="Which defaults to apply."
     )
@@ -6392,13 +6514,28 @@ class ApprovalResolvedNotification(Payload):
     """An approval was answered elsewhere; stop showing it."""
 
     requestId: str = Field(description="Request that was resolved.")
-    decision: Decision = Field(description="The decision that was recorded.")
+    decision: Decision | None = Field(
+        default=None,
+        description=(
+            "The decision that was recorded; null only with outcome 'withdrawn' (1.53.0)."
+        ),
+    )
     by: str = Field(
         description=(
             "Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session "
-            "decided within its delegation) and 'jarvis:auto' (the delegation engine "
-            "allowed a safe request without a model call)."
+            "decided within its delegation), 'jarvis:auto' (the delegation engine "
+            "allowed a safe request without a model call) and 'rerouted' (with outcome "
+            "'withdrawn')."
         )
+    )
+    outcome: Literal["withdrawn"] | None = Field(
+        default=None,
+        description=(
+            "'withdrawn' (1.53.0, security review 3): the request is no longer this "
+            "connection's to show — sent only to a browser connection when a request it "
+            "showed was routed to Jarvis. Nothing was decided; stop showing it. If it is "
+            "routed back to the person the browser gets approval.pending again."
+        ),
     )
 
 
@@ -6422,8 +6559,15 @@ class QuestionResolvedNotification(Payload):
     by: str = Field(
         description=(
             "Surface or user that answered. Since 1.53.0 also 'jarvis' (the Jarvis session "
-            "answered within its delegation)."
+            "answered within its delegation) and 'rerouted' (with outcome 'withdrawn')."
         )
+    )
+    outcome: Literal["withdrawn"] | None = Field(
+        default=None,
+        description=(
+            "'withdrawn' (1.53.0, security review 3): sent only to a browser connection when "
+            "a question it showed was routed to Jarvis; nothing was answered."
+        ),
     )
 
 
@@ -6718,6 +6862,9 @@ class LspCatalogResult(Payload):
 class LspInstallParams(Payload):
     """``lsp.install`` — the user asked for servers to be installed (1.29.0)."""
 
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     ids: list[str] | None = Field(
         default=None,
         description=(
@@ -6994,6 +7141,7 @@ class McpEntryFields(Payload):
 class McpAddParams(McpEntryFields):
     """``mcp.add`` — write one entry into a project or global ``.mcp.json``."""
 
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     name: str = Field(description="Server name; ^[a-zA-Z0-9_-]{1,64}$.")
     scope: McpWritableScope = Field(
         default="global",
@@ -7058,6 +7206,7 @@ class McpRemoveParams(Payload):
     there is none (1.33.0).
     """
 
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     name: str = Field(description="Server name.")
     scope: McpWritableScope | None = Field(
         default=None, description="Which file to rewrite; omitted, the one that declares it."
@@ -7073,6 +7222,7 @@ class McpUpdateParams(Payload):
     another scope shadows writes the file and nothing else (1.33.0).
     """
 
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     name: str = Field(description="Server name.")
     scope: McpWritableScope | None = Field(
         default=None, description="Which file to rewrite; omitted, the one that declares it."
@@ -7115,6 +7265,7 @@ class McpUpdateParams(Payload):
 class McpTestParams(McpEntryFields):
     """``mcp.test`` — probe a saved server or an unsaved draft."""
 
+    actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     name: str | None = Field(default=None, description="Saved server to probe.")
     envRemove: list[str] | None = Field(
         default=None,
@@ -7157,6 +7308,9 @@ class McpTestResult(Payload):
 class McpReloadParams(Payload):
     """``mcp.reload`` — restart one server, or every configured one."""
 
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     name: str | None = Field(
         default=None, description="Server to restart; all of them when absent."
     )
@@ -7220,6 +7374,9 @@ class McpChangedNotification(Payload):
 class McpAuthorizeParams(Payload):
     """``mcp.authorize`` — start an OAuth sign-in for an http/sse server (1.34.0)."""
 
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     name: str = Field(description="Server name.")
     workdir: str | None = Field(default=None, description="Project directory that declares it.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
@@ -7298,6 +7455,9 @@ class McpAuthorizeCompleteResult(Payload):
 class McpDeauthorizeParams(Payload):
     """``mcp.deauthorize`` — forget a server's OAuth tokens and client (1.34.0)."""
 
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker (security review 3): see ActorParams."
+    )
     name: str = Field(description="Server name.")
     workdir: str | None = Field(default=None, description="Project directory that declares it.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
@@ -7719,6 +7879,16 @@ class JarvisDecision(Payload):
     rule: str | None = Field(
         default=None,
         description="The engine rule that matched, e.g. 'exec:git-push' or 'tag:read'.",
+    )
+    readOnly: bool | None = Field(
+        default=None,
+        description=(
+            "True on a 'risky' approval the engine judged read-only but would not allow "
+            "alone (rule 'exec:read-like', 1.53.0): a read-only git form at the project's "
+            "top level, an inspection from an external CLI's shell, or one with a glob, a "
+            "recursive or symlink-following option or an expansion. Jarvis decides these at "
+            "either level, once."
+        ),
     )
     grantId: str | None = Field(default=None, description="Grant that allowed it, when one did.")
     reason: str = Field(default="", description="Why, as Jarvis or the engine stated it.")
@@ -8810,7 +8980,7 @@ METHODS: dict[str, RpcMethod] = {
         ),
         _m(
             "system.reloadSettings",
-            Empty,
+            ActorParams,
             SettingsReloadResult,
             "Re-read settings.json and rebind the daemon's in-memory state.",
         ),
@@ -9285,7 +9455,7 @@ METHODS: dict[str, RpcMethod] = {
             "skill.install", SkillInstallParams, Ok, "Install a skill from a path, URL or registry."
         ),
         _m("skill.list", SkillListParams, SkillListResult, "List installed skills."),
-        _m("skill.reload", Empty, Ok, "Reload skills from disk without restarting."),
+        _m("skill.reload", ActorParams, Ok, "Reload skills from disk without restarting."),
         _m(
             "skill.remove",
             SkillRemoveParams,
@@ -10131,6 +10301,9 @@ CAPABILITIES: list[str] = [
     "mcpPresets",
     # jarvis.briefing.get/set — M19 WP8 (briefings and assistant tasks).
     "jarvisBriefing",
+    # The browser marker ``actor: "person"`` (security review 3): a browser that
+    # sends clientVersion 0.3.0 or later must set it on the config methods.
+    "browserActor",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

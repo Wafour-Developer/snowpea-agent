@@ -46,6 +46,12 @@ def _tool(tool: str, args: dict[str, Any], tags: tuple[str, ...] = ()) -> Classi
 
 
 def _check(verdict: Any, classification: str, classes: set[str] | None, label: str) -> None:
+    if classification == "readlike":
+        # Security review 3 (D2): read-only by the table, but not ``safe``.
+        assert verdict.classification == "risky" and verdict.read_only, (label, verdict)
+        assert not verdict.guarded, (label, verdict)
+        return
+    assert not verdict.read_only, (label, verdict)
     assert verdict.classification == classification, (label, verdict)
     if classification == "guarded":
         assert set(verdict.guarded) == classes, (label, verdict)
@@ -90,7 +96,7 @@ FINDINGS: list[tuple[str, str, set[str]]] = [
     ("git log -1 --format='module.exports=1' --output=t.js", "risky", set()),
     ("git log -1 --format='{}' --output=package.json", "risky", set()),
     ("git log -1 --format=x --output=.git/config", "guarded", ALL),
-    ("git status", "safe", set()),
+    ("git status", "readlike", set()),
     # C2 — secret reads and sends
     ("cat ~/.ss?/id_*", "guarded", {S}),
     ("cat ~/.snowpe?/token", NEVER, set()),
@@ -227,20 +233,20 @@ ADVERSARIAL: list[tuple[str, str, set[str]]] = [
     ("git diff --no-index /home/u/.bashrc a.txt", "risky", set()),
     ("git diff --no-index ~/.ssh/id_rsa a.txt", "guarded", {S}),
     # -- git: what stays safe ---------------------------------------------------
-    ("git worktree list", "safe", set()),
-    ("git stash list", "safe", set()),
-    ("git branch -a", "safe", set()),
-    ("git tag -l 'v*'", "safe", set()),
-    ("git log --oneline -n 5", "safe", set()),
-    ("git diff --stat HEAD~3", "safe", set()),
-    ("git show HEAD:README.md", "safe", set()),
-    ("git blame src/a.py", "safe", set()),
-    ("git grep -n TODO", "safe", set()),
-    ("git ls-files", "safe", set()),
-    ("git rev-parse --show-toplevel", "safe", set()),
-    ("git status --porcelain", "safe", set()),
-    ("git -C sub status", "safe", set()),
-    ("git diff HEAD~1 -- src/", "safe", set()),
+    ("git worktree list", "readlike", set()),
+    ("git stash list", "readlike", set()),
+    ("git branch -a", "readlike", set()),
+    ("git tag -l 'v*'", "readlike", set()),
+    ("git log --oneline -n 5", "readlike", set()),
+    ("git diff --stat HEAD~3", "readlike", set()),
+    ("git show HEAD:README.md", "readlike", set()),
+    ("git blame src/a.py", "readlike", set()),
+    ("git grep -n TODO", "readlike", set()),
+    ("git ls-files", "readlike", set()),
+    ("git rev-parse --show-toplevel", "readlike", set()),
+    ("git status --porcelain", "readlike", set()),
+    ("git -C sub status", "risky", set()),
+    ("git diff HEAD~1 -- src/", "readlike", set()),
     # -- find ---------------------------------------------------------------------
     ("find . -name '*.py' -print", "safe", set()),
     ("find src -maxdepth 2 -type f", "safe", set()),
@@ -284,15 +290,15 @@ ADVERSARIAL: list[tuple[str, str, set[str]]] = [
     # -- grep / rg / ag ---------------------------------------------------------------
     ("grep -r password ~", NEVER, {S}),
     ("grep -R key /home", NEVER, {S}),
-    ("grep -rn TODO src", "safe", set()),
+    ("grep -rn TODO src", "readlike", set()),
     ("grep TODO /home/u/notes.txt", "risky", set()),
-    ("grep -f patterns.txt src/a.py", "safe", set()),
-    ("grep -r x .", "safe", set()),
+    ("grep -f patterns.txt src/a.py", "risky", set()),
+    ("grep -r x .", "readlike", set()),
     ("rg --pre cat x", "guarded", ALL),
     ("rg -L foo", "risky", set()),
     ("rg foo /", NEVER, {S}),
     ("rg -z foo", "risky", set()),
-    ("rg --files", "safe", set()),
+    ("rg --files", "readlike", set()),
     ("rg foo ~/.ssh", "guarded", {S}),
     ("grep -r BEGIN ~/.gnupg", "guarded", {S}),
     ("ag foo ..", NEVER, {S}),
@@ -469,23 +475,23 @@ ADVERSARIAL: list[tuple[str, str, set[str]]] = [
     ("diff a.txt b.txt", "safe", set()),
     ("cd src && ls", "safe", set()),
     ("cd /tmp && ls", "risky", set()),
-    ("cat src/*.py", "safe", set()),
-    ("ls ~", "safe", set()),
+    ("cat src/*.py", "readlike", set()),
+    ("ls ~", "risky", set()),
     ("ls -R ~", "risky", set()),
     ("du -sh .", "safe", set()),
     ("tree src", "safe", set()),
-    ("stat /etc/hosts", "safe", set()),
+    ("stat /etc/hosts", "risky", set()),
     ("echo hi > out.txt", "risky", set()),
     ("cat README.md > /dev/null", "safe", set()),
-    ("jq .name package.json", "safe", set()),
+    ("jq .name package.json", "readlike", set()),
     ("wc -l $(git ls-files)", "guarded", ALL),
     ("git log -p | less", "risky", set()),
     ("sort data.txt | head", "safe", set()),
     ("cat ../other/README.md", "risky", set()),
-    ("echo $PATH", "safe", set()),
+    ("echo $PATH", "readlike", set()),
     ("cut -d: -f1 /etc/passwd", "risky", set()),
     ("xxd -l 64 bin/app", "safe", set()),
-    ("sha256sum dist/*.whl", "safe", set()),
+    ("sha256sum dist/*.whl", "readlike", set()),
     ("cat /etc/os-release", "risky", set()),
     # an interpreter without a script reads code from stdin: opaque, as before
     ("python --version", "guarded", ALL),
@@ -640,6 +646,10 @@ def test_no_finding_routes_auto(engine: DelegationEngine) -> None:
             assert routed.route == "auto", command
             continue
         assert routed.route != "auto", (command, routed)
+        if classification == "readlike":
+            # Jarvis decides read-like lines under staged too (D2).
+            assert routed.route == "jarvis", (command, routed)
+            continue
         assert routed.route == "person", (command, routed)  # default level: staged
     for label, request, _classification, _classes in TOOL_FINDINGS:
         routed = engine.route(request, project=PROJECT)

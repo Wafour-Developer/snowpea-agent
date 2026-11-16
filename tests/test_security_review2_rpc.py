@@ -236,10 +236,15 @@ async def test_settings_set_guards_jarvis_and_mcp_tags(daemon: Daemon,
                 "scope": "project", "workdir": str(tmp_path),
                 "patch": {"jarvis": {"expose": True}}})
             assert _code(frame) == "jarvis_person_only", (kind, frame)
-            # Anything else is still open to them.
+            # Security review 3 (N7): only the keys the browser's own pages write are
+            # open to them; everything else is a local person's.
             frame = await clients[kind].call("settings.set",
                                              {"scope": "global", "patch": {"ralph": {}}})
-            assert _code(frame) is None, frame
+            assert _code(frame) == "jarvis_person_only", frame
+            frame = await clients[kind].call(
+                "settings.set", {"scope": "global", "patch": {"browser": {"siteMemory": False}}})
+            # The browser host's runtime switch; the connector has no settings of its own.
+            assert _code(frame) == (None if kind != "connector" else "jarvis_person_only"), frame
         person = clients["person"]
         for patch in (
             {"jarvis": {"delegation": {"default": "full"}}},

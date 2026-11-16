@@ -528,6 +528,10 @@ async def provider_configure_handler(
     _conn: RpcConnection, params: ProviderConfigureParams, core: Core
 ) -> Ok:
     """``provider.configure`` — store a vendor's key, base URL and model."""
+    from snowpea_core.server.settings_gate import guard_call
+
+    guard_call(_conn, params.actor, core, method="provider.configure",
+               key=("providers", params.vendor))
     config = {
         key: value
         for key, value in (params.config or {}).items()

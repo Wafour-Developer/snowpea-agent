@@ -23,6 +23,8 @@ model produces can call it.
 ``never``  person
 paused     person (the person typed into the session or took it over)
 ``safe``   ``auto`` — the engine allows it without a model call
+read-like  ``jarvis`` at either level (a ``risky`` verdict with
+           ``read_only``: a read-only shell line the engine cannot vouch for)
 ``risky``  ``person`` under ``staged``, ``jarvis`` under ``full``
 guarded    ``jarvis`` only when *every* guarded class of the request is in
            the effective grant's ``allow``; otherwise ``person``
@@ -1047,6 +1049,11 @@ class DelegationEngine:
         effective = self.effective(request.session_id, project, external=external)
         grant_id = effective.grant.id if effective.grant is not None else None
         if verdict.classification == "risky":
+            if verdict.read_only:
+                # A read-only line the engine cannot vouch for (D2): Jarvis decides
+                # it at either level ("staged = Jarvis decides safe approvals").
+                return RouteResult("jarvis", verdict, effective.level, grant_id,
+                                   f"readlike:{effective.level}")
             if effective.level == "full":
                 return RouteResult("jarvis", verdict, effective.level, grant_id, "risky:full")
             return RouteResult("person", verdict, effective.level, grant_id, "risky:staged")

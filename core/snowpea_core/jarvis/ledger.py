@@ -215,6 +215,8 @@ class Ledger:
             classification=classification,  # type: ignore[arg-type]
             guardedClass=guarded_class,  # type: ignore[arg-type]
             rule=rule,
+            readOnly=True if verdict is not None and getattr(verdict, "read_only", False)
+            else None,
             grantId=grant_id,
             reason=reason,
         )

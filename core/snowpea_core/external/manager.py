@@ -55,7 +55,6 @@ from snowpea_core.external.registry import CLI_ORDER, CLI_TITLES, AdapterRegistr
 from snowpea_core.external.timeline import (
     TimelineBuilder,
     TimelineItem,
-    clean_payload,
     clean_text,
 )
 from snowpea_core.external.trust import ProjectTrust
@@ -399,7 +398,23 @@ class ExternalManager:
 
     # -- lifecycle --------------------------------------------------------
     async def start(self) -> None:
-        """Clean up after a daemon that died, then start the idle sweep."""
+        """Clean up after a daemon that died, then start the idle sweep.
+
+        An orphan is killed only when it runs the executable configured and
+        pinned for its CLI now, not the one its pid record names (N15).  It is
+        resolved as discovery resolves it, without running anything.
+        """
+        for cli in self.registry.ids():
+            adapter = self.registry.get(cli)
+            if adapter is None or self.pending_path(cli) is not None:
+                continue  # an unconfirmed override pins nothing
+            try:
+                path = proc.resolve_executable(
+                    adapter.binary, getattr(self._cli_settings(cli), "path", None)
+                )
+            except Exception:  # noqa: BLE001 - an unresolvable CLI pins nothing
+                continue
+            self.supervisor.pin(cli, path)
         killed = await asyncio.to_thread(self.supervisor.reap_orphans)
         if killed:
             log.info("stopped %d external CLI process(es) a previous run left", killed)
@@ -1516,6 +1531,7 @@ class ExternalManager:
                 workdir=record.project or record.info.cwd,
                 session_id=f"ext:{record.cli}:{record.id}",
                 home=str(self.home),
+                external=True,
             ))
         except Exception:  # noqa: BLE001 - unknown is not cacheable
             return False
@@ -1531,8 +1547,11 @@ class ExternalManager:
         it (:meth:`_cacheable`).
         """
         # What the CLI asks is shown on every surface: no escape sequences (M7).
-        ask.tool = clean_text(ask.tool)
-        ask.args = clean_payload(dict(ask.args or {}))
+        # The arguments stay raw (security review 3, N3): they are what the CLI
+        # runs, so they are what is classified and cached; the approval queue
+        # writes any control character out for the card (argsEscaped) and the
+        # engine judges such a request opaque.
+        ask.args = dict(ask.args or {})
         ask.note = clean_text(ask.note) if ask.note else ask.note
         ask.diff = clean_text(ask.diff) if ask.diff else ask.diff
         command = command_of(ask.args or {})

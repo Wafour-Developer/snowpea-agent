@@ -85,6 +85,8 @@ JARVIS_OWNER_ONLY_TEXT = (
 MEMBER_NOTICE_GAP_SEC = 600.0
 #: Platform chat types that are a private chat with one person.
 PRIVATE_CHAT_TYPES: frozenset[str] = frozenset({"private", "im", "dm"})
+#: Where the bound person's learned private chats are kept (security review 3).
+PRIVATE_CHATS_FILE = "jarvis/private-chats.json"
 #: Handled message ids kept per router (duplicates are dropped).
 SEEN_MESSAGES_KEPT = 2048
 #: "messenger: no private chat" escalates at most this often per binding.
@@ -561,6 +563,11 @@ class GatewayRouter:
         #: The private chat (DM) each binding's approver last wrote from: the
         #: only place Jarvis's notices, briefings and asks go (security review H3).
         self._private_chat: dict[str, str] = {}
+        #: The bound person each remembered private chat belongs to (a changed
+        #: ``allowed_user_id`` drops it).  Both kept across restarts in
+        #: ``$SNOWPEA_HOME/jarvis/private-chats.json`` (0600, security review 3).
+        self._private_user: dict[str, str] = {}
+        self._private_path: Path | None = None
         #: Messages already handled, ``(binding, channel, message id)``: a
         #: redelivered or re-sent message never starts a second turn.
         self._seen: collections.OrderedDict[tuple[str, str, str], None] = (
@@ -587,6 +594,8 @@ class GatewayRouter:
         self._store = BindingStore(core.paths.state_db)
         self._credentials = CredentialStore(core.paths)
         self.chats = ChatSessionMemory(core.paths.home / CHATS_FILE)
+        self._private_path = core.paths.home / PRIVATE_CHATS_FILE
+        self._load_private_chats()
         # Every question and approval, the interactive ones included, so the
         # active session's asks can follow the owner to their chat.
         core.hub.add_observer(self)
@@ -956,7 +965,7 @@ class GatewayRouter:
         if bound:
             self._last_chat[binding.id] = message.channel_id
             if self._is_private(binding, message.channel_id, chat_type):
-                self._private_chat[binding.id] = message.channel_id
+                self._remember_private_chat(binding, message.channel_id)
         if not bound and self.jarvis.routing and not message.callback_data:
             # Jarvis mode: only the bound person talks to Jarvis (the owner's
             # requirement, security review H3).  Anyone else hears it once in a
@@ -1225,9 +1234,61 @@ class GatewayRouter:
                 return None  # bound to one group chat: the DM is not served
             return str(binding.user_id)
         found = self._private_chat.get(binding.id)
+        if found and self._private_user.get(binding.id) != str(binding.user_id):
+            return None  # learned for someone else (the bound person changed)
         if found and binding.channel_id and found != binding.channel_id:
             return None
         return found
+
+    def _remember_private_chat(self, binding: Binding, channel_id: str) -> None:
+        """Learn the bound person's DM, and keep it across restarts (Slack, Discord)."""
+        user = str(binding.user_id)
+        if (self._private_chat.get(binding.id), self._private_user.get(binding.id)) == (
+            channel_id, user
+        ):
+            return
+        self._private_chat[binding.id] = channel_id
+        self._private_user[binding.id] = user
+        self._save_private_chats()
+
+    def _load_private_chats(self) -> None:
+        path = self._private_path
+        if path is None:
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(raw, dict):
+            return
+        for binding_id, entry in raw.items():
+            if isinstance(entry, dict) and isinstance(entry.get("channel"), str) and isinstance(
+                entry.get("user"), str
+            ):
+                self._private_chat.setdefault(str(binding_id), entry["channel"])
+                self._private_user.setdefault(str(binding_id), entry["user"])
+
+    def _save_private_chats(self) -> None:
+        """Owner-only (0600) under the snowpea home's ``jarvis/`` secret area."""
+        path = self._private_path
+        if path is None:
+            return
+        data = {
+            binding_id: {"channel": channel, "user": self._private_user.get(binding_id, "")}
+            for binding_id, channel in self._private_chat.items()
+        }
+        try:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            tmp = path.with_name(f".{path.name}.tmp")
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(tmp, flags, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(data, indent=2) + "\n")
+            os.replace(tmp, path)
+        except OSError as exc:  # pragma: no cover - unwritable home
+            log.warning("could not remember the private chats in %s: %s", path, exc)
 
     async def no_private_chat(self, binding: Binding) -> None:
         """An in-app escalation (rate-limited): Jarvis cannot reach this person privately."""

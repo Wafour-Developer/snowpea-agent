@@ -152,7 +152,7 @@ async def test_every_request_carries_the_engines_route(
             core.approvals.request(
                 worker,
                 "shell",
-                {"command": "git status"},
+                {"command": "ls -la"},
                 unattended=True,
                 timeout_sec=30,
                 tags=("exec",),
