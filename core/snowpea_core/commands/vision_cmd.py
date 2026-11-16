@@ -71,6 +71,7 @@ async def cmd_vision(ctx: CommandContext, args: str) -> None:
     categories = ctx.core.settings.models.categories
     if wanted in ("off", "none", "clear", "inherit"):
         categories.pop("vision", None)
+        ctx.core.settings.set_section("models")
         ctx.core.settings.save(ctx.core.paths)
         ctx.core.mark_settings_saved()
         await ctx.say("vision model cleared; images reach a text-only model as a short note")
@@ -93,6 +94,7 @@ async def cmd_vision(ctx: CommandContext, args: str) -> None:
         await ctx.say(f"vision: unknown provider {vendor!r}\n{USAGE}")
         return
     categories["vision"] = wanted
+    ctx.core.settings.set_section("models")
     ctx.core.settings.save(ctx.core.paths)
     ctx.core.mark_settings_saved()
     await ctx.say(_describe_current(ctx))

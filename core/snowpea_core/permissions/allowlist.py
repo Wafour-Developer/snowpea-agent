@@ -597,6 +597,7 @@ class Allowlist:
     def _save_global(self) -> None:
         if self.paths is None:
             return
+        self.settings.set_section("allowlist")
         self.settings.save(self.paths)
 
 

@@ -360,6 +360,7 @@ class ProviderRegistry:
             except ValueError as exc:
                 raise ProviderError("invalid_params", str(exc)) from None
         self.settings.providers[vendor] = merged
+        self.settings.set_section("providers")
         return merged
 
     def remove(self, vendor: str) -> bool:
@@ -371,6 +372,8 @@ class ProviderRegistry:
         Returns False when there was nothing to remove.
         """
         removed = self.settings.providers.pop(vendor, None) is not None
+        if removed:
+            self.settings.set_section("providers")
         if self.settings.providers.get("default") == vendor:
             self.settings.providers.pop("default", None)
         stale = {
@@ -378,6 +381,8 @@ class ProviderRegistry:
             for pid, profile in self.settings.models.profiles.items()
             if profile.provider == vendor
         }
+        if stale:
+            self.settings.set_section("models", "agents")
         for pid in stale:
             self.settings.models.profiles.pop(pid, None)
             removed = True

@@ -483,6 +483,25 @@ async def test_escalations_list_and_dismiss(http: aiohttp.ClientSession, tmp_pat
         await daemon.stop()
 
 
+async def test_a_tamper_escalation_carries_its_own_kind(
+    http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    daemon = await make_daemon(tmp_path / "home", _settings(tmp_path, enabled=True))
+    try:
+        client = await connect(http, daemon)
+        service = daemon.core.jarvis
+        await service.escalate(reason="error", summary="changed outside", kind="tamper")
+        tamper = await client.wait_notification("jarvis.escalation")
+        assert tamper["kind"] == "tamper" and tamper["reason"] == "error"
+        plain = await service.escalate(reason="finished", summary="done", importance="normal")
+        assert plain is not None and "kind" not in plain    # what was sent
+        rows = (await client.ok("jarvis.escalations.list", {}))["escalations"]
+        assert [(e["summary"], e.get("kind")) for e in rows] == [
+            ("done", None), ("changed outside", "tamper")]
+    finally:
+        await daemon.stop()
+
+
 # -- snowpea jarvis / snowpea external -------------------------------------------------
 
 

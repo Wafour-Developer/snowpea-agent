@@ -97,7 +97,7 @@ async def _save(core: Core, **values: Any) -> None:
     patch = dict(before)
     patch["web"] = {**before.get("web", {}),
                     "remote": {**before.get("web", {}).get("remote", {}), **values}}
-    updated = Settings.model_validate(patch)
+    updated = Settings.model_validate(patch).carry_degraded(core.settings, ["web"])
     updated.save(core.paths)
     await core.adopt_settings(updated, hot_reload.changed_keys(before, patch))
 

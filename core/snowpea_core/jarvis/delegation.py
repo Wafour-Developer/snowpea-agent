@@ -1326,7 +1326,7 @@ def _wire_events(core: Any, engine: DelegationEngine) -> None:
 
     def on_tamper(path: str, happened: str, note: dict[str, Any] | None = None) -> None:
         """The store was changed from outside: the ledger keeps it and the person is
-        told with a ``jarvis.escalation`` (reason ``error``) — at once the first
+        told with a ``jarvis.escalation`` (reason ``error``, ``kind: "tamper"``) — at once the first
         time, then at most once a minute with a count (security review 8, L8-1)."""
         count = int((note or {}).get("count") or 1)
         restored = bool((note or {}).get("restored", True))
@@ -1347,7 +1347,8 @@ def _wire_events(core: Any, engine: DelegationEngine) -> None:
             escalate = getattr(service, "escalate", None)
             try:
                 if escalate is not None:
-                    await escalate(reason="error", summary=summary, importance="high")
+                    await escalate(reason="error", summary=summary, importance="high",
+                                   kind="tamper")
                     return
             except Exception:  # noqa: BLE001 - fall back to the plain notification
                 log.debug("could not escalate a tamper notice", exc_info=True)
@@ -1356,7 +1357,8 @@ def _wire_events(core: Any, engine: DelegationEngine) -> None:
                 await hub.notify("jarvis.escalation", {
                     "id": "je-tamper-" + uuid.uuid4().hex[:8],
                     "ts": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
-                    "reason": "error", "summary": summary, "importance": "high"})
+                    "reason": "error", "summary": summary, "importance": "high",
+                    "kind": "tamper"})
 
         def start() -> None:
             task = asyncio.get_running_loop().create_task(tell())

@@ -310,6 +310,157 @@ def test_a_section_level_degrade_still_saves(tmp_path: Path) -> None:
     assert json.loads(paths.settings_json.read_text("utf-8"))["agent"]["busy"] == "queue"
 
 
+def _broken_web(tmp_path: Path) -> tuple[Paths, dict[str, Any]]:
+    paths = Paths.create(tmp_path / "home")
+    data = Settings().model_dump(mode="json")
+    data["web"] = {"remote": {"port": "x"}, "note": [1, {"a": None}]}
+    paths.settings_json.write_text(json.dumps(data), "utf-8")
+    return paths, data
+
+
+async def test_an_unrelated_save_keeps_the_invalid_section_and_its_mark(tmp_path: Path) -> None:
+    from snowpea_core.server.protocol import SettingsSetParams
+    from snowpea_core.server.settings_handlers import settings_set_handler
+
+    paths, data = _broken_web(tmp_path)
+    core = _core(paths)
+    assert core.settings.degraded_sections() == ["web"]
+    await settings_set_handler(PERSON, SettingsSetParams(patch={"agent": {"busy": "queue"}}),
+                               core)
+    on_disk = json.loads(paths.settings_json.read_text("utf-8"))
+    assert on_disk["web"] == data["web"] and on_disk["agent"]["busy"] == "queue"
+    assert core.settings.degraded_sections() == ["web"]
+    assert core.settings.web.remote.enabled is False         # in memory: still the defaults
+    core.settings.save(paths)                                # an internal save too
+    assert json.loads(paths.settings_json.read_text("utf-8"))["web"] == data["web"]
+
+
+async def test_setting_the_section_clears_the_mark(tmp_path: Path) -> None:
+    from snowpea_core.server.protocol import SettingsSetParams
+    from snowpea_core.server.settings_handlers import settings_set_handler
+
+    paths, _data = _broken_web(tmp_path)
+    core = _core(paths)
+    await settings_set_handler(PERSON, SettingsSetParams(patch={"web": {"remote": {
+        "port": 7788}}}), core)
+    assert core.settings.degraded_sections() == []
+    on_disk = json.loads(paths.settings_json.read_text("utf-8"))
+    assert on_disk["web"]["remote"]["port"] == 7788 and "note" not in on_disk["web"]
+    assert Settings.load(paths).degraded_sections() == []
+
+
+async def test_a_reload_with_no_changed_key_still_follows_the_mark(tmp_path: Path) -> None:
+    from snowpea_core.server.app_server import info_handler, reload_settings_handler
+    from snowpea_core.server.protocol import Empty
+    from snowpea_core.server.web_remote_handlers import _status as web_status
+
+    paths, data = _broken_web(tmp_path)
+    core = _core(paths)
+    core.hub.clients = list
+    assert core.settings.degraded_sections() == ["web"]
+    # Fixed on disk to exactly the defaults already in use: no key changes.
+    data["web"] = Settings().model_dump(mode="json")["web"]
+    paths.settings_json.write_text(json.dumps(data), "utf-8")
+    os.utime(paths.settings_json, (1, 1))
+    result = await reload_settings_handler(PERSON, Empty(), core)
+    assert result.changedKeys == []
+    assert core.settings.degraded_sections() == []
+    assert (await info_handler(PERSON, Empty(), core)).settingsDegraded == []
+    assert (await web_status(core)).settingsDegraded == []
+    # Broken again into a value that loads as those same defaults: no key changes.
+    data["web"] = {"remote": {"port": "y"}}
+    paths.settings_json.write_text(json.dumps(data), "utf-8")
+    os.utime(paths.settings_json, (2, 2))
+    result = await reload_settings_handler(PERSON, Empty(), core)
+    assert result.changedKeys == []
+    assert core.settings.degraded_sections() == ["web"]
+    assert (await info_handler(PERSON, Empty(), core)).settingsDegraded == ["web"]
+    assert (await web_status(core)).settingsDegraded == ["web"]
+    core.settings.save(paths)
+    assert json.loads(paths.settings_json.read_text("utf-8"))["web"] == {"remote": {"port": "y"}}
+
+
+def _degraded(tmp_path: Path, section: str) -> tuple[Paths, Settings]:
+    """A file whose ``section`` and ``web`` do not validate, loaded as the daemon would."""
+    paths = Paths.create(tmp_path / "home")
+    data = Settings().model_dump(mode="json")
+    data[section] = 5
+    data["web"] = {"remote": {"port": "x"}}
+    paths.settings_json.write_text(json.dumps(data), "utf-8")
+    settings = Settings.load(paths)
+    assert settings.degraded_sections() == sorted([section, "web"])
+    return paths, settings
+
+
+def _after_save(paths: Paths, settings: Settings, section: str) -> Any:
+    """The section as written; the in-place change cleared only its own mark."""
+    assert settings.degraded_sections() == ["web"]
+    on_disk = json.loads(paths.settings_json.read_text("utf-8"))
+    assert on_disk["web"] == {"remote": {"port": "x"}}             # still raw
+    assert on_disk[section] == settings.model_dump(mode="json")[section]
+    return on_disk[section]
+
+
+def test_an_in_place_provider_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.providers.registry import ProviderRegistry
+
+    paths, settings = _degraded(tmp_path, "providers")
+    registry = ProviderRegistry(settings, paths)
+    registry.configure("openai", {"api_key": "sk-test"})
+    registry.save()
+    assert _after_save(paths, settings, "providers")["openai"]["api_key"] == "sk-test"
+
+
+def test_an_in_place_allowlist_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.permissions.allowlist import Allowlist
+
+    paths, settings = _degraded(tmp_path, "allowlist")
+    Allowlist(paths, settings).add("^ls$", scope="global")
+    assert [e["pattern"] for e in _after_save(paths, settings, "allowlist")] == ["^ls$"]
+
+
+async def test_an_in_place_handler_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.server.extension_handlers import _save
+
+    paths, settings = _degraded(tmp_path, "extensions")
+    settings.extensions["demo"] = {"enabled": False}
+    await _save(SimpleNamespace(settings=settings, paths=paths))  # type: ignore[arg-type]
+    assert _after_save(paths, settings, "extensions") == {"demo": {"enabled": False}}
+
+
+async def test_an_in_place_jarvis_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.jarvis.service import JarvisService
+
+    paths, settings = _degraded(tmp_path, "jarvis")
+    settings.jarvis.enabled = True
+    await JarvisService._save_settings(  # type: ignore[arg-type]
+        SimpleNamespace(core=SimpleNamespace(settings=settings, paths=paths)))
+    assert _after_save(paths, settings, "jarvis")["enabled"] is True
+
+
+async def test_an_in_place_slash_command_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.commands.mode_cmd import cmd_busy
+
+    paths, settings = _degraded(tmp_path, "agent")
+    said: list[str] = []
+
+    async def say(text: str) -> None:
+        said.append(text)
+
+    ctx = SimpleNamespace(core=SimpleNamespace(settings=settings, paths=paths,
+                                               mark_settings_saved=lambda: None), say=say)
+    await cmd_busy(ctx, "queue")  # type: ignore[arg-type]
+    assert _after_save(paths, settings, "agent")["busy"] == "queue"
+
+
+def test_the_setup_wizard_writes_what_it_answered(tmp_path: Path) -> None:
+    from snowpea_core.setup.state import WizardState
+
+    paths, settings = _degraded(tmp_path, "search")
+    WizardState.from_settings(settings).write(paths, settings)
+    _after_save(paths, settings, "search")
+
+
 def test_the_new_reason_is_enumerated() -> None:
     assert errors.DETAIL_REASONS["settings_unreadable"][0] == errors.INVALID_PARAMS
 

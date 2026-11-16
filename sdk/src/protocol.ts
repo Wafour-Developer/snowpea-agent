@@ -2357,6 +2357,8 @@ export interface JarvisEscalationsListResult {
     id: string;
     /** How prominently to show it: in-app badge always, OS notification from normal (jarvis.notify.os), messenger from high (jarvis.notify.messenger). */
     importance?: "low" | "normal" | "high" | "urgent";
+    /** 1.55.0 (additive): 'tamper' when something outside snowpea changed Jarvis's delegation rules on disk and snowpea kept its own (reason stays 'error'); a machine-readable marker so clients need not match the wording. Absent from the event otherwise (null in jarvis.escalations.list rows). */
+    kind?: "tamper" | null;
     /** Its project root. */
     project?: string | null;
     /** guarded/risky/never: an approval the engine routed to the person ('never': never delegable, the person may still allow it); question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. */
@@ -9298,6 +9300,8 @@ export interface JarvisEscalationPayload {
   id: string;
   /** How prominently to show it: in-app badge always, OS notification from normal (jarvis.notify.os), messenger from high (jarvis.notify.messenger). */
   importance?: "low" | "normal" | "high" | "urgent";
+  /** 1.55.0 (additive): 'tamper' when something outside snowpea changed Jarvis's delegation rules on disk and snowpea kept its own (reason stays 'error'); a machine-readable marker so clients need not match the wording. Absent from the event otherwise (null in jarvis.escalations.list rows). */
+  kind?: "tamper" | null;
   /** Its project root. */
   project?: string | null;
   /** guarded/risky/never: an approval the engine routed to the person ('never': never delegable, the person may still allow it); question: a question routed to the person; finished/error/stalled: a turn ended that way in a fully delegated session; budget: Jarvis is out of allowance; jarvis: Jarvis chose to ask the person. */

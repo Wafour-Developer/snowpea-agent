@@ -432,6 +432,7 @@ async def set_permission(core: Core, name: str, permission: str) -> None:
         updated = Settings.model_validate(merged)
     except ValidationError as exc:  # pragma: no cover - the tag is a Literal already
         raise RpcError(errors.MCP_INVALID, f"permission: {exc}", {"field": "permission"}) from exc
+    updated.carry_degraded(core.settings, ["mcp"])
     updated.save(core.paths)
     await core.adopt_settings(updated, ["mcp"])
 

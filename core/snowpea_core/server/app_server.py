@@ -238,10 +238,11 @@ class Core:
             return False, []
         loaded = Settings.load(self.paths)
         fresh, waiting = hot_reload.hold_back(self.settings, loaded)
-        if loaded.degraded_sections() and fresh is not loaded:
+        if fresh is not loaded:
             # Security review 8, Low: what did not validate is still reported
-            # (the held-back sections keep the daemon's last valid values).
-            fresh.mark_degraded(loaded.degraded_sections(), close=False)
+            # (the held-back sections keep the daemon's last valid values), and
+            # its raw value is still what a save writes back.
+            fresh.carry_degraded(loaded)
         keys = hot_reload.changed_keys(
             self.settings.model_dump(mode="json"), fresh.model_dump(mode="json")
         )
@@ -258,10 +259,10 @@ class Core:
             audit(self.paths.home, {"kind": "settings-waiting", "path": "settings.json",
                                     "sections": sorted(waiting)})
         if not keys:
-            if self.settings.degraded_sections() != fresh.degraded_sections():
-                # Security review 9, F3: a file fixed back to what is held (or broken
-                # into it) still clears (or records) the degraded state.
-                self.settings.mark_degraded(fresh.degraded_sections(), close=False)
+            # Security review 9, F3: a file fixed back to what is held (or broken
+            # into it) still clears (or records) the degraded state, and the raw
+            # value of a section broken on disk is what a later save keeps.
+            self.settings.carry_degraded(fresh)
             if told:
                 await self.notify_settings_changed([])
             return False, []
@@ -285,7 +286,8 @@ class Core:
             updated.save(self.paths)
             await self.adopt_settings(updated, sorted({key.split(".")[0] for key in waiting}))
             return sorted(waiting), []
-        self.settings.save(self.paths)
+        # Discarding is a person setting those sections to the daemon's values.
+        self.settings.carry_degraded(self.settings, waiting).save(self.paths)
         self.mark_settings_saved()
         await self.notify_settings_changed([])
         return [], sorted(waiting)
@@ -628,6 +630,7 @@ async def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> 
     # a category slot points at on another vendor, must not.
     if any(key not in _TUNING_KEYS for key in config):
         core.settings.providers.setdefault("default", vendor)
+    core.settings.set_section("providers")
     try:
         core.settings.save(core.paths)
     except OSError as exc:  # pragma: no cover - disk failure

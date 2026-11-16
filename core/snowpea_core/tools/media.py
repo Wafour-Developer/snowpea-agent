@@ -94,6 +94,7 @@ async def configure(core: Core, config: dict[str, Any]) -> str:
     payload = config.get("mcp") if isinstance(config.get("mcp"), dict) else config
     block = MediaMcpSettings.model_validate(payload or {})
     core.settings.media.mcp = block
+    core.settings.set_section("media")
     try:
         core.settings.save(core.paths)
     except OSError:  # pragma: no cover - a read-only home must not fail the call

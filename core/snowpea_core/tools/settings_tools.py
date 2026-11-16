@@ -101,6 +101,7 @@ async def settings_set(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         updated = Settings.model_validate(merged)
     except ValidationError as exc:
         return ToolResult(ok=False, error=f"invalid settings: {exc}")
+    updated.carry_degraded(settings, patch)
     updated.save(ctx.core.paths)
     adopt = getattr(ctx.core, "adopt_settings", None)
     if callable(adopt):

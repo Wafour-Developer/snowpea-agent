@@ -352,6 +352,8 @@ async def settings_set_handler(
         updated_settings = Settings.model_validate(merged_global)
     except ValidationError as exc:
         raise _invalid(conn, exc) from exc
+    # A section that did not validate stays as it is on disk unless this sets it.
+    updated_settings.carry_degraded(core.settings, params.patch)
     unknown = _unknown_profile_vendors(params.patch, updated_settings)
     if unknown:
         raise RpcError(errors.INVALID_PARAMS, unknown)

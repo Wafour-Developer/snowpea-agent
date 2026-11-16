@@ -1232,9 +1232,31 @@ class Settings(_Model):
     #: (security review 8, Low): ``system.info``/``web.remote.status``
     #: ``settingsDegraded``.  ``["*"]``: the whole file was unreadable.
     _degraded: list[str] = PrivateAttr(default_factory=list)
+    #: The raw on-disk JSON value of each degraded section, as read: :meth:`save`
+    #: writes it back instead of the defaults in use (review 9 follow-up).
+    _degraded_raw: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     def degraded_sections(self) -> list[str]:
         return list(self._degraded)
+
+    def carry_degraded(self, source: Settings, touched: Any = ()) -> Settings:
+        """Take ``source``'s degraded mark (and raw values) onto this document.
+
+        Every writer that builds a fresh document from the one the daemon holds
+        calls this, so the mark travels and :meth:`save` keeps the person's
+        invalid sections on disk.  A section in ``touched`` (one the writer set)
+        is no longer degraded: the value it now holds replaces the raw one.
+        """
+        gone = {str(name).split(".")[0] for name in touched}
+        self._degraded = [s for s in getattr(source, "_degraded", ()) if s not in gone]
+        self._degraded_raw = {s: v for s, v in getattr(source, "_degraded_raw", {}).items()
+                              if s in self._degraded}
+        return self
+
+    def set_section(self, *names: str) -> Settings:
+        """``names`` were just set in place (by a person or the daemon): they are no
+        longer degraded, so :meth:`save` writes their values, not the raw ones."""
+        return self.carry_degraded(self, names)
 
     def mark_degraded(self, sections: list[str], *, close: bool = True) -> Settings:
         """Record ``sections`` as degraded and (``close``) make the gated ones fail CLOSED.
@@ -1298,6 +1320,7 @@ class Settings(_Model):
             # that do not resolve, keep everything else, and say so loudly
             # (CORE-model-assignment B-P1-2).
             failure = first
+            original = raw
             raw, dropped = _drop_unresolvable_model_refs(raw)
             repaired: Settings | None = None
             if dropped:
@@ -1330,6 +1353,7 @@ class Settings(_Model):
                 # Security review 8, Low: what failed is surfaced, and the
                 # person's own lists and the remote door fail CLOSED.
                 repaired.mark_degraded(sections or ["*"])
+                repaired._degraded_raw = {s: original[s] for s in sections if s in original}
                 if "security" in sections or not sections:
                     log.error("the security section is not valid: the default lists apply "
                               "and unknown code asks until it is fixed")
@@ -1378,7 +1402,8 @@ class Settings(_Model):
         is written by replacing THAT file (:func:`settings_file`; the link stays
         a link, the target keeps its mode).  While the whole file is unreadable
         (loaded as ``"*"``, or not a JSON object on disk now) nothing is written:
-        :class:`SettingsUnreadable`.
+        :class:`SettingsUnreadable`.  A section that did not validate is written
+        back as it was read (:meth:`carry_degraded`), not as the defaults in use.
         """
         if "*" in self._degraded or _unreadable_on_disk(paths):
             raise SettingsUnreadable(paths.settings_json)
@@ -1390,9 +1415,12 @@ class Settings(_Model):
                 mode = stat.S_IMODE(os.lstat(target).st_mode)
             except OSError:
                 mode = FILE_MODE
+        document = self.model_dump(mode="json")
+        for section in self._degraded:
+            if section in self._degraded_raw:
+                document[section] = self._degraded_raw[section]
         # Security review 8, H8-2: random temp name, never through a link.
-        write_atomic(target, json.dumps(self.model_dump(mode="json"), indent=2) + "\n",
-                     mode=mode)
+        write_atomic(target, json.dumps(document, indent=2) + "\n", mode=mode)
 
 
 __all__ = [

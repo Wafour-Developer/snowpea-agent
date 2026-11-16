@@ -342,6 +342,7 @@ async def _write_permissions(core: Core, changes: dict[str, str | None]) -> None
         updated = Settings.model_validate(merged)
     except ValidationError as exc:  # pragma: no cover - tags are plain strings
         raise RpcError(errors.MCP_INVALID, f"permissions: {exc}") from exc
+    updated.carry_degraded(core.settings, ["mcp"])
     updated.save(core.paths)
     await core.adopt_settings(updated, ["mcp"])
 

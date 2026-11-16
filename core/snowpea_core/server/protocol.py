@@ -8645,6 +8645,15 @@ class JarvisEscalationNotification(Payload):
         default=None, description="Its id, to answer with approval.respond / question.respond."
     )
     guardedClass: GuardedClass | None = Field(default=None, description="With reason 'guarded'.")
+    kind: Literal["tamper"] | None = Field(
+        default=None,
+        description=(
+            "1.55.0 (additive): 'tamper' when something outside snowpea changed Jarvis's "
+            "delegation rules on disk and snowpea kept its own (reason stays 'error'); a "
+            "machine-readable marker so clients need not match the wording. Absent from the "
+            "event otherwise (null in jarvis.escalations.list rows)."
+        ),
+    )
 
 
 class JarvisEscalationsListParams(Payload):
