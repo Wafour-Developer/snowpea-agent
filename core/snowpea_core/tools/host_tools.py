@@ -219,6 +219,9 @@ class _InFlight:
     #: Monotonic time of the host's last sign of life for this call: the
     #: invoke itself, then every ``tool.progress`` (addendum 15).
     last_seen: float = 0.0
+    #: Surface id of the connection the call was sent to: only it may report
+    #: progress (security review 6, L-3 — not any host with a tool of that name).
+    owner: str = ""
 
 
 class HostTools:
@@ -523,7 +526,8 @@ class HostTools:
         call_id = ctx.call_id or f"host-{id(ctx)}"
         progress = ctx.progress or ProgressEmitter(core, session.id, call_id, name)
         self._inflight[call_id] = _InFlight(
-            session.id, name, progress, asyncio.get_running_loop().time()
+            session.id, name, progress, asyncio.get_running_loop().time(),
+            owner=surface_id,
         )
         params = {
             "sessionId": session.id,
@@ -717,8 +721,8 @@ class HostTools:
         call = self._inflight.get(call_id)
         if call is None:
             return False
-        owner = self._hosts.get(getattr(conn, "surface_id", ""))
-        if owner is None or call.name not in owner.tools:
+        surface = str(getattr(conn, "surface_id", "") or "")
+        if not surface or surface != call.owner:
             return False
         # Any progress, an empty keepalive included, restarts the deadline.
         call.last_seen = asyncio.get_running_loop().time()
