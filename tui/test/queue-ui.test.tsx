@@ -76,7 +76,7 @@ describe("queued prompts", () => {
     await sleep(200);
 
     const queued = stdout.text();
-    expect(queued).toContain("⏳ 1 queued");
+    expect(queued).toContain("◷ 1 queued");
     expect(queued).toContain("run the tests");
 
     stdout.chunks.length = 0;
@@ -84,7 +84,7 @@ describe("queued prompts", () => {
     await sleep(200);
     const after = stdout.text();
     instance.unmount();
-    expect(after).not.toContain("⏳ 1 queued");
+    expect(after).not.toContain("◷ 1 queued");
   });
 
   it("says so when an interrupt drops the queue", async () => {
@@ -107,7 +107,7 @@ describe("queued prompts", () => {
     expect(output).toContain("2 queued prompts dropped");
     // The count is gone by the last frame; the frame between the two events
     // legitimately still shows one waiting.
-    expect(lastFrame).not.toContain("⏳");
+    expect(lastFrame).not.toContain("◷");
   });
 });
 

@@ -14,7 +14,7 @@ import { hiddenLines, summarizeCalls } from "../layout/summary.js";
 import type { ToolCallEntry } from "../state/store.js";
 
 /** Marks a completed action, the way the role glyphs mark messages. */
-export const SUMMARY_GLYPH = "⏺";
+export const SUMMARY_GLYPH = "●";
 
 export function ToolSummary({ calls }: { calls: ToolCallEntry[] }): React.ReactElement | null {
   if (calls.length === 0) return null;

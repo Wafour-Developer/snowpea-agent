@@ -256,14 +256,14 @@ export function workingLine(input: WorkingLineInput): string | null {
 }
 
 /**
- * `⏳ 2 queued`, appended to the working line.
+ * `◷ 2 queued`, appended to the working line.
  *
  * Typing while a turn runs queues the prompt rather than interrupting; this is
  * the part that says so at a glance, with the prompts themselves listed under
  * the input.
  */
 export function queuedLabel(count: number): string {
-  return `⏳ ${count} queued`;
+  return `◷ ${count} queued`;
 }
 
 /**

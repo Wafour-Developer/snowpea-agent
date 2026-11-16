@@ -48,8 +48,9 @@ export function rowColor(row: Pick<AgentRow, "color" | "origin">): string | unde
 const STATUS_GLYPH: Record<AgentStatus, string> = {
   current: CURRENT_GLYPH,
   idle: AGENT_GLYPH,
-  queued: "⏳",
-  running: "✳",
+  // One cell to Ink and to the layout alike (⏳ and ✳ are two to Ink).
+  queued: "◷",
+  running: "●",
   done: "✓",
   error: "✗",
 };

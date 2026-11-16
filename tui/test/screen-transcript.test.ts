@@ -40,7 +40,7 @@ describe("screenTranscriptLines", () => {
   it("keeps the calls of the turn still going as cards", () => {
     const lines = text(readTwoFiles());
     expect(lines.filter((line) => line.startsWith("✓ read_file"))).toHaveLength(2);
-    expect(lines.some((line) => line.startsWith("⏺"))).toBe(false);
+    expect(lines.some((line) => line.startsWith("●"))).toBe(false);
   });
 
   it("keeps each call's card when the turn settles, so nothing moves", () => {
@@ -54,7 +54,7 @@ describe("screenTranscriptLines", () => {
     const lines = text(state);
     const cards = lines.filter((line) => line.includes("read_file"));
     expect(cards).toHaveLength(live.filter((line) => line.includes("read_file")).length);
-    expect(lines.some((line) => line.startsWith("⏺ Read"))).toBe(false);
+    expect(lines.some((line) => line.startsWith("● Read"))).toBe(false);
     // The answer after the run sits one blank line below it.
     const at = lines.lastIndexOf(cards[cards.length - 1]);
     expect(lines[at + 1]).toBe("");

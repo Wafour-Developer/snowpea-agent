@@ -54,7 +54,7 @@ export function sessionKindPrefix(
   parentSessionId?: string,
 ): string {
   const parent = parentSessionId ? ` ${parentSessionId.slice(0, 8)}` : "";
-  if (kind === "scheduled") return `⏰${parent} `;
+  if (kind === "scheduled") return `◔${parent} `;
   if (kind === "subagent") return `↳${parent} `;
   if (kind === "agent") return "◆ ";
   return "";

@@ -31,7 +31,7 @@ const KEYS = [
   "/new opens a fresh session without leaving the TUI; /resume brings an earlier one back",
   "/resume or R on empty input resumes the last session; /resume <sessionId> selects one",
   "From a shell: snowpea --resume <id> · session list --include-closed · session delete <id>",
-  "Typing while a turn runs queues the prompt (⏳ N queued); Esc interrupts and drops the queue",
+  "Typing while a turn runs queues the prompt (◷ N queued); Esc interrupts and drops the queue",
   "/model on its own opens a picker of profiles and vendor models; /model <ref> switches",
   "Paste a file path to attach it · Ctrl+V pastes an image · /attach <path>",
   "Backspace on empty input removes an attachment · Ctrl+X removes all",

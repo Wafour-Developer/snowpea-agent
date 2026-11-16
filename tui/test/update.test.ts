@@ -66,37 +66,37 @@ describe("update state: the banner text", () => {
   it("nudges with the shortcut and the command", () => {
     const state = fromCheck(initialUpdateState, check());
     expect(bannerText(state)).toBe(
-      "⬆ Update available v0.1.2 (current v0.1.1) — press U or type /update",
+      "↑ Update available v0.1.2 (current v0.1.1) — press U or type /update",
     );
   });
 
   it("does not render empty versions before the startup check completes", () => {
     const text = bannerText(confirm(initialUpdateState));
-    expect(text).toBe("⬆ Check for an update and install it? [y/N]");
+    expect(text).toBe("↑ Check for an update and install it? [y/N]");
     expect(text).not.toContain("v from v");
   });
 
   it("asks before it installs anything", () => {
     const state = confirm(fromCheck(initialUpdateState, check()));
     expect(state.phase).toBe("confirm");
-    expect(bannerText(state)).toBe("⬆ Update to v0.1.2 from v0.1.1? [y/N]");
+    expect(bannerText(state)).toBe("↑ Update to v0.1.2 from v0.1.1? [y/N]");
   });
 
   it("shows the progress message while it runs", () => {
     const state = progress(fromCheck(initialUpdateState, check()), "started", "updating to v0.1.2");
     expect(state.phase).toBe("running");
-    expect(bannerText(state)).toBe("⬆ updating to v0.1.2");
+    expect(bannerText(state)).toBe("↑ updating to v0.1.2");
   });
 
   it("announces the restart when it is done", () => {
     const state = progress(fromCheck(initialUpdateState, check()), "done", "updated to v0.1.2");
     expect(state.phase).toBe("done");
-    expect(bannerText(state)).toBe("⬆ Updated to v0.1.2 — restarting…");
+    expect(bannerText(state)).toBe("↑ Updated to v0.1.2 — restarting…");
   });
 
   it("says why it failed", () => {
     const state = progress(fromCheck(initialUpdateState, check()), "failed", "exited with 3");
-    expect(bannerText(state)).toBe("⬆ Update failed: exited with 3");
+    expect(bannerText(state)).toBe("↑ Update failed: exited with 3");
   });
 
   it("a finished upgrade cannot be cancelled away", () => {

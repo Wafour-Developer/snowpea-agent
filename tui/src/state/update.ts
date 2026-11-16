@@ -84,17 +84,17 @@ export function progress(
 export function bannerText(state: UpdateState): string | null {
   switch (state.phase) {
     case "available":
-      return `⬆ Update available v${state.latest} (current v${state.current}) — press U or type /update`;
+      return `↑ Update available v${state.latest} (current v${state.current}) — press U or type /update`;
     case "confirm":
       return state.latest && state.current
-        ? `⬆ Update to v${state.latest} from v${state.current}? [y/N]`
-        : "⬆ Check for an update and install it? [y/N]";
+        ? `↑ Update to v${state.latest} from v${state.current}? [y/N]`
+        : "↑ Check for an update and install it? [y/N]";
     case "running":
-      return `⬆ ${state.message || `Updating to v${state.latest}…`}`;
+      return `↑ ${state.message || `Updating to v${state.latest}…`}`;
     case "done":
-      return `⬆ Updated to v${state.latest} — restarting…`;
+      return `↑ Updated to v${state.latest} — restarting…`;
     case "failed":
-      return `⬆ Update failed: ${state.message || "see the update log"}`;
+      return `↑ Update failed: ${state.message || "see the update log"}`;
     default:
       return null;
   }

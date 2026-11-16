@@ -138,7 +138,7 @@ describe("skill expansion rendering", () => {
     instance.unmount();
     stdin.end();
 
-    expect(seen).toMatch(/⏺\s+skill ralph · 4 lines/);
+    expect(seen).toMatch(/●\s+skill ralph · 4 lines/);
     expect(seen).not.toContain("Follow these instructions for /ralph");
   });
 });
@@ -213,7 +213,7 @@ describe("inline App", () => {
     stdin.end();
 
     expect(seen).toContain("› /deep-interview --quick test");
-    expect(seen).toMatch(/⏺\s*skill deep-interview · \d+ lines/);
+    expect(seen).toMatch(/●\s*skill deep-interview · \d+ lines/);
     expect(seen).not.toContain("Follow these instructions for /ralph");
   });
 });

@@ -205,7 +205,7 @@ describe("diagnostics", () => {
   });
 
   it("badges a file, red for errors and amber for warnings alone", () => {
-    expect(diagnosticsBadge({ count: 3, errors: 1, warnings: 2 })).toBe("⚠ 3");
+    expect(diagnosticsBadge({ count: 3, errors: 1, warnings: 2 })).toBe("▲ 3");
     expect(diagnosticsColor({ count: 3, errors: 1, warnings: 2 })).toBe("red");
     expect(diagnosticsColor({ count: 2, errors: 0, warnings: 2 })).toBe("yellow");
     expect(diagnosticsBadge({ count: 0, errors: 0, warnings: 0 })).toBeNull();

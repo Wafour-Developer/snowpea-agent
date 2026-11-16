@@ -176,8 +176,8 @@ describe("session kind prefixes", () => {
   });
 
   it("marks a scheduled run with its parent thread", () => {
-    expect(sessionKindPrefix("scheduled", "s-850623abcdef")).toBe("⏰ s-850623 ");
-    expect(sessionKindPrefix("scheduled")).toBe("⏰ ");
+    expect(sessionKindPrefix("scheduled", "s-850623abcdef")).toBe("◔ s-850623 ");
+    expect(sessionKindPrefix("scheduled")).toBe("◔ ");
   });
 
   it("marks subagents and named agents", () => {

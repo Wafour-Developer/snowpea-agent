@@ -169,10 +169,10 @@ export function diagnosticLineColor(line: string): string | undefined {
   return undefined;
 }
 
-/** `⚠ 3` for the diff header, or null when the file is clean. */
+/** `▲ 3` for the diff header, or null when the file is clean. */
 export function diagnosticsBadge(diagnostics: FileDiagnostics | undefined): string | null {
   if (!diagnostics || diagnostics.count <= 0) return null;
-  return `⚠ ${diagnostics.count}`;
+  return `▲ ${diagnostics.count}`;
 }
 
 /** Red when anything is an error, amber when it is only warnings. */

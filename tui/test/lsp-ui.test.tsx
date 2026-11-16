@@ -144,6 +144,6 @@ describe("the diff badge", () => {
     instance.unmount();
 
     expect(output).toContain("Edited /work/a.py");
-    expect(output).toContain("⚠ 2");
+    expect(output).toContain("▲ 2");
   });
 });

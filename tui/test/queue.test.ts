@@ -109,8 +109,8 @@ describe("the queue", () => {
 
 describe("queuedLabel", () => {
   it("says how many are waiting", () => {
-    expect(queuedLabel(1)).toBe("⏳ 1 queued");
-    expect(queuedLabel(3)).toBe("⏳ 3 queued");
+    expect(queuedLabel(1)).toBe("◷ 1 queued");
+    expect(queuedLabel(3)).toBe("◷ 3 queued");
   });
 });
 
