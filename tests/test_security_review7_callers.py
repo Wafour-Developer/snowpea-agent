@@ -848,6 +848,46 @@ async def test_a_remote_login_starts_no_session_above_the_limit_by_default(
     await session_create_handler(_conn("ide"), SessionCreateParams(workdir=str(work)), core)
 
 
+@pytest.mark.parametrize("via", ["rpc", "command", "tool"])
+@pytest.mark.parametrize(
+    ("name", "mode", "allowed"),
+    [("remote_login", "auto", False), ("remote_login", "accept", True),
+     ("person", "auto", True)],
+)
+async def test_no_job_above_the_limit_whichever_way_it_is_made(
+    core: Core, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, via: str, name: str, mode: str,
+    allowed: bool
+) -> None:
+    from snowpea_core.permissions.approval_queue import Decision
+
+    asked: list[Any] = []
+
+    async def request(*args: Any, **_kwargs: Any) -> Decision:
+        asked.append(args)
+        return Decision("allow", "once", "test", person=object())
+
+    monkeypatch.setattr(core.approvals, "request", request)
+    core.settings.web.remote.maxMode = "accept"
+    made, text = await _schedule(core, via, name, tmp_path, mode=mode)
+    assert made is allowed, (via, name, mode, text)
+    if not allowed:
+        assert "maxMode" in text or "mode_raise" in text
+        assert asked == []  # the tool refuses before it asks anyone
+
+
+def test_a_remote_login_sets_no_project_default_above_the_limit() -> None:
+    from snowpea_core.server.settings_handlers import guard_patch
+
+    settings = Settings.model_validate({"web": {"remote": {"maxMode": "accept"}}})
+    core = SimpleNamespace(settings=settings, paths=SimpleNamespace(home=Path("/srv/sp-home")))
+    remote = _conn("web", remote=True)
+    with pytest.raises(RpcError) as caught:
+        guard_patch(remote, {"defaultMode": "auto"}, project=True, core=core)
+    _max(caught, "accept")
+    guard_patch(remote, {"defaultMode": "accept"}, project=True, core=core)
+    guard_patch(_conn("ide"), {"defaultMode": "auto"}, project=True, core=core)
+
+
 def test_a_remote_logins_answer_to_a_mode_question_keeps_the_limit() -> None:
     from snowpea_core.session.questions import Answer
     from snowpea_core.tools.set_mode import _caller_of
