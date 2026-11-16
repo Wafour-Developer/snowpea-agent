@@ -174,11 +174,15 @@ export function normalizeConfig(raw: SecurityGet | null | undefined): SecurityCo
   // A core that sends `problemItems` (even an empty list) says in `problems` more than skipped entries:
   // a sentence that none of the items' reasons is part of is a notice of its own.
   const structured = Array.isArray((raw as any)?.problemItems);
-  const notices = structured ? sentences.filter((sentence) => !problemItems.some((item) => sentence.includes(item.reason))) : [];
+  // A sentence about a linked credentials.json is core's text about a file, not a skipped entry: told as it is.
+  const fileNotice = (sentence: string): boolean => /credentials\.json/i.test(sentence) && /symbolic link/i.test(sentence);
+  const notices = structured
+    ? sentences.filter((sentence) => !problemItems.some((item) => sentence.includes(item.reason)))
+    : sentences.filter(fileNotice);
   return {
     writable: (raw as any)?.writable !== false,
     // The structured form wins; an older core sent only the sentences.
-    problems: problemItems.length > 0 ? problemItems.map(problemItemText) : structured ? [] : sentences,
+    problems: problemItems.length > 0 ? problemItems.map(problemItemText) : structured ? [] : sentences.filter((sentence) => !fileNotice(sentence)),
     problemItems,
     notices,
     unknownCode: (raw as any)?.unknownCode === "allow" ? "allow" : "ask",

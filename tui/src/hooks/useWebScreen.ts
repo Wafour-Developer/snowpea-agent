@@ -12,7 +12,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { parseWebCommand } from "../slash/web.js";
-import { rpcCode } from "../state/errors.js";
+import { isSettingsUnreadable, rpcCode, settingsUnreadableLine } from "../state/errors.js";
 import {
   WEB_REQUIRES_LINE,
   listenParams,
@@ -51,6 +51,7 @@ export type WebResult = { ok: true; status: WebStatus; link?: string | null } | 
 export type CopyResult = "copied" | "unsupported";
 
 function errorText(error: unknown): string {
+  if (isSettingsUnreadable(error)) return settingsUnreadableLine(error);
   const raw = error as { message?: string } | null;
   return sanitizeText(raw?.message ?? String(error));
 }

@@ -38,7 +38,7 @@ import {
   type SecurityConfig,
   type UnknownCode,
 } from "../state/security.js";
-import { rpcErrorText } from "../state/errors.js";
+import { isSettingsUnreadable, rpcErrorText, settingsUnreadableLine } from "../state/errors.js";
 import { sanitizeText } from "../util/sanitize.js";
 
 export interface SecurityUi {
@@ -64,6 +64,7 @@ export interface SecurityDeps {
 }
 
 function errorText(error: unknown): string {
+  if (isSettingsUnreadable(error)) return settingsUnreadableLine(error);
   const raw = error as { message?: string } | null;
   return sanitizeText(raw?.message ?? String(error));
 }
@@ -129,7 +130,7 @@ export function useSecurityScreen(deps: SecurityDeps) {
           return { ok: false, message: errorText(error), readOnly: personOnlyReadOnlyLine(error) };
         }
         // `invalid_params` carries every reason in `details.problems`; the ones that name an entry go on its row.
-        if (rpcErrorFacts(error).code === "invalid_params") {
+        if (rpcErrorFacts(error).code === "invalid_params" && !isSettingsUnreadable(error)) {
           const { entries, others } = saveProblems(error);
           return { ok: false, message: errorText(error), entries, others };
         }

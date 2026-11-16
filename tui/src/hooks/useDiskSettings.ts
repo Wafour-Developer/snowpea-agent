@@ -26,13 +26,15 @@ export interface DiskDeps {
   warn: (text: string) => void;
   /** A plain line in the main transcript. */
   note: (text: string) => void;
+  /** `system.reloadSettings` answered: what is degraded may have changed. */
+  onReloaded?: () => void;
 }
 
 /** What deciding answers. */
 export type DiskResult = { ok: true; line: string } | { ok: false; message: string };
 
 export function useDiskSettings(deps: DiskDeps) {
-  const { client, warn, note } = deps;
+  const { client, warn, note, onReloaded } = deps;
   const [waiting, setWaitingState] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const waitingRef = useRef<string[]>([]);
@@ -69,6 +71,7 @@ export function useDiskSettings(deps: DiskDeps) {
       void client
         .call("system.reloadSettings", {})
         .then((result: { waitingKeys?: unknown } | null) => {
+          onReloaded?.();
           const next = normalizeWaiting(result?.waitingKeys);
           if (next === undefined) {
             note(DISK_REQUIRES_LINE());
@@ -81,7 +84,7 @@ export function useDiskSettings(deps: DiskDeps) {
         .catch((error: unknown) => note(rpcErrorText(error)));
       return true;
     },
-    [client, note, setWaiting],
+    [client, note, setWaiting, onReloaded],
   );
 
   /** `a` applies what the file says, `k` keeps the current settings. */

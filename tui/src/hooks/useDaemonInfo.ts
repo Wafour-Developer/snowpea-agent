@@ -42,6 +42,8 @@ export function fromSystemInfo(result: any): DaemonInfo {
 export function useDaemonInfo(
   client: DaemonInfoClient,
   pollMs: number = DAEMON_INFO_POLL_MS,
+  /** Bumped when settings changed or were reloaded: `system.info` is read again at once. */
+  refreshTick = 0,
 ): DaemonInfo {
   const [info, setInfo] = useState<DaemonInfo>(emptyDaemonInfo);
 
@@ -69,7 +71,7 @@ export function useDaemonInfo(
       cancelled = true;
       clearInterval(timer);
     };
-  }, [client, pollMs]);
+  }, [client, pollMs, refreshTick]);
 
   return info;
 }

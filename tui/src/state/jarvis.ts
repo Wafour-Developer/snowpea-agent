@@ -478,7 +478,17 @@ const NOTICE_GLYPH: Record<string, string> = {
   jarvis: "◆",
 };
 
+/**
+ * A tamper notice (something outside snowpea changed Jarvis's delegation rules on disk): core's
+ * `kind: "tamper"` first, else the `je-tamper-` id an older core gives it. Its reason stays "error".
+ */
+export function isTamperNotice(entry: Pick<JarvisEscalationEvent, "id"> & { kind?: string | null }): boolean {
+  if (entry.kind === "tamper") return true;
+  return typeof entry.id === "string" && entry.id.startsWith("je-tamper-");
+}
+
 function noticeColor(entry: JarvisEscalationEvent): string | undefined {
+  if (isTamperNotice(entry)) return "yellow";
   if (entry.reason === "error") return "red";
   if (entry.reason === "budget" || entry.reason === "stalled") return "yellow";
   return undefined;
@@ -488,7 +498,9 @@ function noticeColor(entry: JarvisEscalationEvent): string | undefined {
 export function noticeLine(entry: JarvisEscalationEvent): string {
   const name = (entry.title ?? "").trim() || baseName(entry.project) || (entry.sessionId ?? "").slice(0, 8);
   const who = entry.external ? `${agentOfExternal(entry.external.cli).tag} ${name}`.trim() : name;
-  const head = `${NOTICE_GLYPH[entry.reason] ?? "•"} ${who ? `${who} — ` : ""}`;
+  // A tamper notice is a security notice, not a failed turn.
+  const glyph = isTamperNotice(entry) ? "!" : (NOTICE_GLYPH[entry.reason] ?? "•");
+  const head = `${glyph} ${who ? `${who} — ` : ""}`;
   return `${head}${entry.summary}`;
 }
 

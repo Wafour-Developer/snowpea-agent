@@ -788,6 +788,8 @@ export function App({
   const highEscalationsRef = useRef<Set<string>>(new Set());
   /** The settings-edited-on-disk hook, for the same reason. */
   const diskRef = useRef<DiskSettingsHook | null>(null);
+  /** Bumped by `settings.changed` and `/settings` reload: the degraded banner reads `system.info` again. */
+  const [infoTick, setInfoTick] = useState(0);
 
   const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
   /**
@@ -1079,6 +1081,7 @@ export function App({
         securityRef.current?.onSettingsChanged(params);
         webRef.current?.onSettingsChanged(params);
         diskRef.current?.onSettingsChanged(params);
+        setInfoTick((tick) => tick + 1);
       },
       // An MCP server moved: the HUD follows the payload at once, and the full
       // list is re-read for the tools it carries. A server that broke is said
@@ -1515,7 +1518,7 @@ export function App({
   /** The root box pads one column on each side. */
   const contentWidth = Math.max(1, terminal.columns - 2);
 
-  const daemon = useDaemonInfo(client);
+  const daemon = useDaemonInfo(client, undefined, infoTick);
   /** Read by callbacks the screens keep from an earlier render. */
   const degradedRef = useRef<string[]>([]);
   degradedRef.current = daemon.degraded;
@@ -1557,7 +1560,7 @@ export function App({
   webRef.current = web;
   const trust = useTrustScreen({ client, workdir, note, warn, showToast });
   trustRef.current = trust;
-  const disk = useDiskSettings({ client, warn, note });
+  const disk = useDiskSettings({ client, warn, note, onReloaded: () => setInfoTick((tick) => tick + 1) });
   diskRef.current = disk;
   /** The one banner row: an update nudge wins, else the settings that wait on disk. */
   const topBanner = bannerText(update) ?? (daemon.degraded.length > 0 ? DEGRADED_BANNER() : null) ?? (disk.waiting.length > 0 ? DISK_BANNER() : null);
@@ -2767,7 +2770,7 @@ export function App({
             });
             showToast(`speech voice for ${lang}: ${picked.label} (${picked.id})`);
           })
-          .catch((error: unknown) => showToast(`voices: ${String(error)}`));
+          .catch((error: unknown) => showToast(`voices: ${rpcErrorText(error)}`));
         return;
       }
       const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text.trim());

@@ -130,6 +130,22 @@ export function globalOnlyLine(details: Record<string, unknown>): string {
   );
 }
 
+/** `invalid_params` / `settings_unreadable` (1.55.0): the whole settings.json is unreadable, so core does not write over it. */
+export function isSettingsUnreadable(error: unknown): boolean {
+  return rpcCode(error) === "invalid_params" && str(detailsOf(error)["reason"]) === "settings_unreadable";
+}
+
+/** The sentence for that refusal; the copy of the file as it was, when core names it (`details.invalid`). */
+export function settingsUnreadableLine(error: unknown): string {
+  const copy = str(detailsOf(error)["invalid"]);
+  const where = copy ? ` (a copy of it as it was: ${sanitizeText(copy)})` : "";
+  const whereKo = copy ? ` (원래 상태의 복사본: ${sanitizeText(copy)})` : "";
+  return say(
+    `snowpea could not read settings.json, so it does not write over it. Fix the file${where}, then reload settings.`,
+    `snowpea가 settings.json을 읽지 못해서 그 위에 쓰지 않습니다. 파일을 고친 뒤${whereKo} 설정을 다시 불러오세요.`,
+  );
+}
+
 /** An internal error: core keeps the cause in its log under this id. */
 export function internalErrorLine(errorId: string): string {
   return say(
@@ -159,6 +175,7 @@ export function rpcErrorText(error: unknown): string {
     return "Only a person can do that — Jarvis and scripts cannot.";
   }
   if (code === "invalid_params" && str(details["reason"]) === "snowpea_home") return snowpeaHomeLine(details);
+  if (isSettingsUnreadable(error)) return settingsUnreadableLine(error);
   if (code === "invalid_params" && str(details["reason"]) === "global_only") return globalOnlyLine(details);
   if (code === "trust_changed") return say(TRUST_CHANGED_LINE, TRUST_CHANGED_LINE_KO);
   const errorId = str(details["errorId"]);
