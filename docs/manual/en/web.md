@@ -55,7 +55,7 @@ You can still set it in `settings.json` and restart the daemon:
 | `username` | `""` | The one account that may sign in. |
 | `sessionHours` | `12` | How long a sign-in lasts. |
 | `allowedOrigins` | `[]` | Extra page origins the WebSocket accepts, e.g. `https://snowpea.example.com` behind a proxy. |
-| `trustProxy` | `false` | Believe `X-Forwarded-Proto` / `X-Forwarded-For` from a reverse proxy you run. |
+| `trustProxy` | `false` | Believe `X-Forwarded-Proto` / `X-Forwarded-For` from a reverse proxy you run. Turn it on only when nothing but that proxy can reach the port (bind it to loopback or the proxy's network, or firewall it): anyone who reaches the port directly can claim any client address. |
 
 If a password is set without a username, the daemon starts on loopback only, writes why to its log, and `snowpea web` says so.
 
@@ -63,9 +63,18 @@ Security notes:
 
 - **It is plain HTTP.** The access link, the password and everything you do travel unencrypted. On anything beyond a network you trust, put it behind TLS (a reverse proxy such as Caddy or nginx, with `trustProxy: true`) or reach it over a VPN or the ssh tunnel above.
 - Whoever signs in can drive the agent, and with it this machine's shell and files. Pick a long password, and keep the link private.
-- Every connection through the second listener is a **remote sign-in**, with the link or with a password alike. It is you for running work — chats, approvals, MCP servers — but not for security settings: it cannot change Jarvis, the security lists, remote access itself, the daemon or allowlist rules, open an external session unrestricted, or confirm a CLI path. Do those on the machine itself.
-- Five failed sign-ins (wrong passwords and wrong links count together) from one address in five minutes, or twenty from anywhere, lock sign-in for the rest of those five minutes. Sign-ins and failures are logged with the client address, never the password or the token.
-- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. Changing or clearing the password, or rotating the token, signs everyone out at once; other sessions last until they expire or you sign out.
+- Every connection through the second listener is a **remote sign-in**, with the link or with a password alike. It is you for running work — chats, approvals, MCP servers that are a URL — but not for security settings: it cannot change Jarvis, the security lists, remote access itself, the daemon or allowlist rules, open an external session unrestricted, or confirm a CLI path. Do those on the machine itself.
+- A remote sign-in also cannot make this machine start a program of its choosing, or leave a way in behind. From a remote sign-in these are refused (the page says the change needs a local connection):
+  - adding or changing an MCP server that runs a command (`command`, `args`, `env`, `cwd`), and accepting a security warning about a server. A server that is only a URL can be added, tested and changed; a command server you saved locally can be tested and switched off and on;
+  - installing a skill or plugin from a folder, a link or a git URL. Only the registry (`registry:<name>`) and a marketplace's plugin (`<marketplace>/<plugin>`) install remotely;
+  - setting a language server's command, an audio command engine, player or recorder, and the skill registry's address;
+  - a messenger's token, user and channel ids and its on/off switch, and binding a chat to a session;
+  - a provider's base URL (it decides where every prompt goes). Keys and models can still be changed;
+  - `/update`, `/desktop`, `/allow`, `/setup` and `/allowlist remove`;
+  - writing a project's control files through the file panel (`.snowpea` and `.claude` hooks, commands, skills and agents, `.mcp.json`, `.git/hooks`, `.git/config`).
+- A scheduled task a remote sign-in creates is marked as such in the task list, and `snowpea web status` counts them: such a task keeps running after that sign-in ends, so look at the list after someone else used the page.
+- Five failed sign-ins (wrong passwords and wrong links count together) from one address in five minutes, or twenty from anywhere, slow sign-in down for the rest of those five minutes: each further attempt waits first (a second, doubling up to thirty) and attempts from that address go one at a time. The right password or link still gets in after its wait, so nobody can lock you out by failing on purpose; a wrong one is answered "too many attempts". An IPv6 network (/64) counts as one address. Sign-ins and failures are logged with the client address, never the password or the token.
+- The sign-in is a cookie (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS). Sessions live in the daemon's memory: restarting the daemon signs everyone out. Changing or clearing the password, or rotating the token, signs everyone out at once and closes every open page's connection; other sessions last until they expire or you sign out, and an expired one loses its connection too.
 - A page whose session has ended (it expired, the password changed, or it was signed out elsewhere) goes back to the sign-in screen.
 - The remote listener serves only the page, sign-in and the WebSocket — no `/health`, `/version` or schema — and the WebSocket refuses a page from another origin.
 
