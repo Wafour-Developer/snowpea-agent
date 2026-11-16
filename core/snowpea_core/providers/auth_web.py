@@ -729,7 +729,9 @@ async def google_adc_start(
                 process.communicate(), float(ENDPOINTS[vendor]["timeout_sec"])
             )
         except TimeoutError as exc:
-            process.kill()
+            from snowpea_core.exec import winproc
+
+            winproc.kill_now(process)
             raise RpcError(errors.INTERNAL, "gemini: Google OAuth login timed out") from exc
         if process.returncode:
             detail = (stderr or stdout).decode("utf-8", "replace").strip()[-400:]

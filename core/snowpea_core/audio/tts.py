@@ -170,20 +170,26 @@ def _prepare(text: str, out_dir: Path) -> str:
 
 async def _run(argv: list[str], timeout: float, stdin: bytes | None = None) -> tuple[str, int]:
     """Run a synthesis command; returns ``(stderr, returncode)``."""
+    from snowpea_core.exec import winproc
+
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **winproc.spawn_kwargs(),
         )
     except OSError as exc:
         raise AudioError("synthesis_failed", f"{argv[0]}: {exc}") from exc
+    winproc.attach(process)
     try:
         _, err = await asyncio.wait_for(process.communicate(stdin), timeout=timeout)
     except TimeoutError:
-        process.kill()
+        await winproc.kill(process)
         raise AudioError("synthesis_failed", f"{argv[0]} timed out") from None
+    finally:
+        winproc.release(process)
     return err.decode("utf-8", "replace"), int(process.returncode or 0)
 
 

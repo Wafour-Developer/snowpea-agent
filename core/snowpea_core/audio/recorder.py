@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from snowpea_core.audio.player import AudioError
+from snowpea_core.exec import winproc
 
 log = logging.getLogger("snowpea.audio.recorder")
 
@@ -204,9 +205,11 @@ class Recorder:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
+                **winproc.spawn_kwargs(),
             )
         except OSError as exc:
             raise AudioError("record_failed", f"{backend.name}: {exc}") from exc
+        winproc.attach(process)
         self._process = process
         self._path = target
         self._backend = backend
@@ -238,13 +241,15 @@ class Recorder:
             else:
                 try:
                     process.send_signal(signal.SIGINT)
-                except ProcessLookupError:  # pragma: no cover - it already exited
+                except (ProcessLookupError, PermissionError, ValueError):
+                    # Gone already, or (Windows) no SIGINT: the grace runs out.
                     pass
             try:
                 await asyncio.wait_for(_drain(process), timeout=STOP_GRACE)
             except TimeoutError:
-                process.kill()
+                await winproc.kill(process)
                 await _drain(process)
+        winproc.release(process)
         duration = time.monotonic() - self._started_at
         if not path.is_file() or path.stat().st_size == 0:
             raise AudioError("record_failed", f"recording produced no audio ({path})")
@@ -256,8 +261,10 @@ class Recorder:
         process, path = self._process, self._path
         self._process = None
         if process is not None and process.returncode is None:
-            process.kill()
+            await winproc.kill(process)
             await _drain(process)
+        if process is not None:
+            winproc.release(process)
         if path is not None:
             path.unlink(missing_ok=True)
 

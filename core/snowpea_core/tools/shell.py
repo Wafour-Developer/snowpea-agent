@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from snowpea_core.exec import winproc
 from snowpea_core.exec.backend import DEFAULT_TIMEOUT, ExecResult, StreamingBackend
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools import process as process_tools
@@ -89,6 +90,56 @@ async def _run(ctx: ToolContext, command: str, *, cwd: str | None, timeout: floa
     )
 
 
+#: Where a command word may start in a cmd.exe/PowerShell line: the start,
+#: after ``&``, ``|``, ``;`` or ``(``, or after ``cmd /c`` (optionally quoted).
+_AT_COMMAND = r'(?:^|[&|;(]|\bcmd(?:\.exe)?\s+/[ck]\s+"?)\s*@?'
+
+_CONSOLE_OPENERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # ``start`` opens a new console for a console program; ``start /b`` does not.
+    ("start", re.compile(_AT_COMMAND + r'start(?:\.exe)?(?=\s|$)(?![^&|;]*\s/b\b)', re.I)),
+    ("cmd /k", re.compile(r"\bcmd(?:\.exe)?\s+(?:/\w+\s+)*/k\b", re.I)),
+    ("-NoExit", re.compile(r"\b(?:powershell|pwsh)(?:\.exe)?\b[^&|;]*\s-noe\w*", re.I)),
+    ("wt", re.compile(_AT_COMMAND + r"wt(?:\.exe)?(?=\s|$)", re.I)),
+    ("conhost", re.compile(_AT_COMMAND + r"conhost(?:\.exe)?(?=\s|$)", re.I)),
+)
+
+_START_PROCESS = re.compile(r"\b(?:start-process|saps)\b([^;|&]*)", re.I)
+_HIDDEN = re.compile(r"\s-(?:nonew\w*|win\w*(?:\s+|:)['\"]?hidden)\b", re.I)
+
+
+def opens_console_window(command: str) -> str | None:
+    """The construct in ``command`` that opens a new console window on Windows.
+
+    ``start`` (not ``start /b``), ``cmd /k``, ``powershell``/``pwsh -NoExit``,
+    ``Start-Process``/``saps`` without ``-NoNewWindow`` or ``-WindowStyle
+    Hidden``, ``wt`` and ``conhost`` — each as a command, not inside another
+    word: ``npm start``, ``git start``, ``start.sh`` and ``./start`` are not.
+    ``None`` when there is none.
+    """
+    for name, pattern in _CONSOLE_OPENERS:
+        if pattern.search(command):
+            return name
+    for match in _START_PROCESS.finditer(command):
+        if not _HIDDEN.search(match.group(1)):
+            return "Start-Process"
+    return None
+
+
+#: Added to the result of a command :func:`opens_console_window` flagged.
+WINDOW_NOTE = (
+    "[note: `{what}` opened a separate window that keeps running; it is stopped when "
+    "this session closes. Use background: true for servers and long-running "
+    "commands instead (process_output / process_kill manage it).]"
+)
+
+
+def _window_note(ctx: ToolContext, command: str) -> str:
+    if not winproc.enabled() or not isinstance(ctx.backend, StreamingBackend):
+        return ""
+    what = opens_console_window(command)
+    return WINDOW_NOTE.format(what=what) if what else ""
+
+
 _SLEEP = re.compile(r"(?:^|[;&|\s(])sleep\s+(\d+(?:\.\d+)?)(s|m)?\b")
 
 
@@ -138,6 +189,9 @@ async def shell(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ).lstrip(),
         )
     output = _format(result.exit_code, strip_ansi(result.stdout), strip_ansi(result.stderr))
+    note = _window_note(ctx, command)
+    if note:
+        output = f"{output}\n{note}"
     if result.timed_out:
         return ToolResult(ok=False, output=output, error=result.stderr or "command timed out")
     if result.exit_code != 0:
@@ -149,7 +203,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="shell",
         category="terminal",
-        description=descriptions.SHELL,
+        description=descriptions.shell_description(),
         input_schema={
             "type": "object",
             "properties": {
@@ -180,4 +234,4 @@ TOOLS: tuple[Tool, ...] = (
 )
 
 
-__all__ = ["MAX_STREAMED_BYTES", "MAX_TIMEOUT", "TOOLS", "shell"]
+__all__ = ["MAX_STREAMED_BYTES", "MAX_TIMEOUT", "TOOLS", "opens_console_window", "shell"]

@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from snowpea_core.audio import runtime
+from snowpea_core.exec import winproc as _winproc
 
 log = logging.getLogger("snowpea.audio.install")
 
@@ -377,6 +378,7 @@ async def run_argv(argv: Sequence[str], progress: Progress | None = None) -> int
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            **_winproc.spawn_kwargs(),
         )
     except OSError as exc:
         if progress is not None:

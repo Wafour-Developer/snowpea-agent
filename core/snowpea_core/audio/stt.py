@@ -274,20 +274,26 @@ async def _run(
     argv: list[str], timeout: float, stdin: bytes | None = None
 ) -> tuple[str, str, int]:
     """Run a command, returning ``(stdout, stderr, returncode)``."""
+    from snowpea_core.exec import winproc
+
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **winproc.spawn_kwargs(),
         )
     except OSError as exc:
         raise AudioError("transcribe_failed", f"{argv[0]}: {exc}") from exc
+    winproc.attach(process)
     try:
         out, err = await asyncio.wait_for(process.communicate(stdin), timeout=timeout)
     except TimeoutError:
-        process.kill()
+        await winproc.kill(process)
         raise AudioError("transcribe_failed", f"{argv[0]} timed out") from None
+    finally:
+        winproc.release(process)
     return (
         out.decode("utf-8", "replace"),
         err.decode("utf-8", "replace"),

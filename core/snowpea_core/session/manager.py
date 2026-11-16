@@ -513,6 +513,7 @@ class SessionManager:
         task = session.turn_task
         if task is not None and not task.done():
             task.cancel()
+        await self._stop_background(session)
         for hook in list(self.on_close):
             try:
                 await hook(session_id)
@@ -611,6 +612,34 @@ class SessionManager:
                 )
         for session_id in session_ids:
             await self.close(session_id)
+        # Daemon stop: whatever is left (a session closed before, a parked
+        # Windows job of a finished command) ends with the daemon.
+        from snowpea_core.exec import winproc
+        from snowpea_core.tools import process as process_tools
+
+        try:
+            await process_tools.stop_owned(None)
+            winproc.terminate_all()
+        except Exception:  # noqa: BLE001 - shutdown must finish regardless
+            log.warning("could not stop background processes at shutdown", exc_info=True)
+
+    async def _stop_background(self, session: Session) -> None:
+        """End the background commands ``session`` started (explicit close only).
+
+        A subagent's commands go to its parent while the parent is open — a
+        child asked to start a dev server returns, and the server must not die
+        with it; they end when the parent closes.
+        """
+        from snowpea_core.tools import process as process_tools
+
+        parent = getattr(session, "parent_session_id", None)
+        if parent and parent in self._sessions:
+            process_tools.REGISTRY.reassign(session.id, parent)
+            return
+        try:
+            await process_tools.stop_owned(session.id)
+        except Exception:  # noqa: BLE001 - close must finish regardless
+            log.warning("could not stop background processes of %s", session.id, exc_info=True)
 
     def __len__(self) -> int:
         return len(self._sessions)

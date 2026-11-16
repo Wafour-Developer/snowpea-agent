@@ -446,8 +446,11 @@ class McpServer:
             from mcp import StdioServerParameters
             from mcp.client.stdio import stdio_client
 
+            from snowpea_core.exec import winproc
+
             params = StdioServerParameters(
-                command=config.command or "",
+                # A plugin's bare ``python3`` is the Store stub on most Windows.
+                command=winproc.python_program(config.command or ""),
                 args=list(config.args),
                 env=dict(config.env) or None,
                 cwd=config.cwd,

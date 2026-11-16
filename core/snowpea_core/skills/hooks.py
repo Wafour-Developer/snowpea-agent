@@ -36,6 +36,8 @@ import re
 import shlex
 import subprocess
 import sys
+import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -189,6 +191,49 @@ def expand(text: str, root: Path | None) -> str:
     return text
 
 
+#: ``(program, substitute)`` pairs already logged, so each is logged once.
+_SUBSTITUTED: set[tuple[str, str]] = set()
+
+_FIRST_TOKEN = re.compile(r'\s*(?:"([^"]*)"|(\S+))')
+
+
+def windows_python(
+    command: str,
+    *,
+    platform: str | None = None,
+    which: Any = None,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """``command`` with a bare ``python3``/``python`` program made runnable on Windows.
+
+    Plugins are written on macOS and Linux and say ``python3 hooks/x.py``.  On
+    Windows that name is usually missing or is the Microsoft Store "App
+    Execution Alias" stub, which prints "Python was not found", exits 9009
+    and opens a console of its own.  The rule (Windows only; anything else is
+    returned unchanged), see :func:`winproc.python_substitute`: a first word
+    that is exactly ``python3``/``python`` (``.exe`` allowed, any case, no
+    path) and does not resolve on PATH to a real interpreter — missing, or
+    only the Store alias — becomes the core's own interpreter, exactly what
+    ``${SNOWPEA_PYTHON}`` expands to.  Logged once per program at INFO.
+    """
+    from snowpea_core.exec import winproc
+
+    if (platform or sys.platform) != "win32":
+        return command
+    match = _FIRST_TOKEN.match(command)
+    if match is None:
+        return command
+    program = match.group(1) or match.group(2) or ""
+    if not winproc.python_substitute(program, which=which, environ=environ):
+        return command
+    replacement = python_command()
+    key = (program, replacement)
+    if key not in _SUBSTITUTED:
+        _SUBSTITUTED.add(key)
+        log.info("hook program %r is not a usable Python here; using %s", program, replacement)
+    return replacement + command[match.end() :]
+
+
 def _env(home: Path | str, tool_name: str, root: Path | None) -> dict[str, str]:
     env = dict(os.environ)
     env["SNOWPEA_HOME"] = str(home)
@@ -219,32 +264,152 @@ async def run_hook_output(
     home: Path | str,
     cwd: Path | str | None = None,
 ) -> tuple[int, str, str]:
-    """Run one hook; returns ``(exit_code, stdout, stderr)``.  Never raises."""
-    command = expand(hook.command, hook.root)
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    """Run one hook; returns ``(exit_code, stdout, stderr)``.  Never raises.
+
+    The command runs through the shell (``/bin/sh -c`` or ``cmd.exe /c``) as
+    hook authors expect.  On Windows it gets no console window, its own job,
+    and a bare ``python3`` resolves to a usable interpreter
+    (:func:`windows_python`); on a timeout the whole tree is ended, and once
+    the hook has answered whatever it left behind ends too.
+    """
+    from snowpea_core.exec import winproc
+
     try:
-        process = await asyncio.create_subprocess_shell(
-            command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_env(home, str(payload.get("tool_name") or ""), hook.root),
-            cwd=str(cwd) if cwd else None,
+        command = windows_python(expand(hook.command, hook.root))
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        try:
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_env(home, str(payload.get("tool_name") or ""), hook.root),
+                cwd=str(cwd) if cwd else None,
+                **winproc.spawn_kwargs(),
+            )
+        except (OSError, ValueError) as exc:
+            log.info("hook %s could not start: %s", hook.command, exc)
+            return HOOK_FAILED, "", f"could not start: {exc}"
+        winproc.attach(process)
+        try:
+            out, err = await asyncio.wait_for(process.communicate(body), hook.timeout)
+        except TimeoutError:
+            # The process may have exited a moment ago: kill() then raises
+            # ProcessLookupError, which used to end the whole turn.
+            await winproc.kill(process)
+            log.info("hook %s timed out after %.0fs", hook.command, hook.timeout)
+            return HOOK_FAILED, "", f"timed out after {hook.timeout:g}s"
+        except asyncio.CancelledError:
+            winproc.terminate_now(process)
+            raise
+        finally:
+            winproc.release(process)
+        return (
+            int(process.returncode or 0),
+            winproc.decode_output(out or b"").strip(),
+            winproc.decode_output(err or b"").strip(),
         )
-    except OSError as exc:
-        log.info("hook %s could not start: %s", hook.command, exc)
-        return HOOK_FAILED, "", f"could not start: {exc}"
-    try:
-        out, err = await asyncio.wait_for(process.communicate(body), hook.timeout)
-    except TimeoutError:
-        process.kill()
-        log.info("hook %s timed out after %.0fs", hook.command, hook.timeout)
-        return HOOK_FAILED, "", f"timed out after {hook.timeout:g}s"
-    return (
-        int(process.returncode or 0),
-        (out or b"").decode("utf-8", "replace").strip(),
-        (err or b"").decode("utf-8", "replace").strip(),
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a broken hook must never break the turn
+        log.warning("hook %s failed to run: %s", hook.command, exc, exc_info=True)
+        return HOOK_FAILED, "", f"could not run: {type(exc).__name__}: {exc}"
+
+
+#: Error code of the event a surface shows when a plugin hook is not running.
+#: Stable; clients may localise it.  The message names the plugin and why.
+HOOK_FAILED_CODE = "hook_failed"
+
+
+@dataclass
+class HookHealth:
+    """A hook that failed the last time it ran (``/skill hooks`` lists these)."""
+
+    plugin: str
+    event: str
+    command: str
+    reason: str
+    exit_code: int
+    failures: int = 0
+    last_at: float = 0.0
+
+
+#: Failing hooks by ``(plugin, event, command)``; a successful run removes one.
+HEALTH: dict[tuple[str, str, str], HookHealth] = {}
+
+#: ``(session_id, plugin, event, command)`` already warned about and surfaced.
+_WARNED: set[tuple[str, str, str, str]] = set()
+
+
+def _key(hook: Hook) -> tuple[str, str, str]:
+    return (hook.plugin, hook.event, hook.command)
+
+
+def failure_reason(code: int, err: str) -> str:
+    """One line on why a hook failed, from its exit status and first stderr line."""
+    first = next((line.strip() for line in err.splitlines() if line.strip()), "")
+    if code == HOOK_FAILED:
+        return first or "could not run"
+    if code in (9009, 127):
+        # cmd.exe's and sh's "command not found".
+        detail = f": {first}" if first else ""
+        return f"command not found (exit {code}){detail}"
+    return f"exit {code}: {first}" if first else f"exit {code}"
+
+
+def note_ok(hook: Hook) -> None:
+    HEALTH.pop(_key(hook), None)
+
+
+async def note_failure(core: Any, session: Any, hook: Hook, code: int, err: str) -> None:
+    """Record a failed hook; warn and tell the session's surfaces once per session.
+
+    The call itself still proceeds (unless the hook is ``failClosed``) — this
+    only makes the failure visible instead of a log line per call.
+    """
+    reason = failure_reason(code, err)
+    health = HEALTH.get(_key(hook))
+    if health is None:
+        health = HEALTH[_key(hook)] = HookHealth(
+            plugin=hook.plugin, event=hook.event, command=hook.command, reason=reason,
+            exit_code=code,
+        )
+    health.reason, health.exit_code = reason, code
+    health.failures += 1
+    health.last_at = time.time()
+    session_id = str(getattr(session, "id", ""))
+    marker = (session_id, *_key(hook))
+    if marker in _WARNED:
+        log.debug("hook %s failed again: %s", hook.command, reason)
+        return
+    _WARNED.add(marker)
+    name = hook.plugin or "plugin"
+    log.warning(
+        "%s hook of %s is not running (session %s): %s [%s]",
+        hook.event, name, session_id, reason, hook.command,
     )
+    hub = getattr(core, "hub", None)
+    if hub is None or not session_id:
+        return
+    kind = "guard hook" if hook.event == "PreToolUse" else f"{hook.event} hook"
+    message = f"a plugin {kind} is not running: {name} — {reason}"
+    if hook.fail_closed and hook.event == "PreToolUse":
+        message += " (it is fail-closed: the tools it guards are blocked)"
+    try:
+        from snowpea_core.session import events
+
+        await hub.emit_event(session_id, events.error(HOOK_FAILED_CODE, message))
+    except Exception:  # noqa: BLE001 - telling the surface is best effort
+        log.debug("could not surface the hook failure", exc_info=True)
+
+
+def health_lines() -> list[str]:
+    """Human lines for every hook that is failing now."""
+    return [
+        f"- {h.plugin or 'plugin'} {h.event}: {h.reason} "
+        f"({h.failures} failure{'s' if h.failures != 1 else ''}) [{h.command}]"
+        for h in HEALTH.values()
+    ]
 
 
 def registry_of(core: Core) -> HookRegistry | None:
@@ -325,8 +490,10 @@ async def run_event(
             outcome.blocked = True
             outcome.message = err or f"{tool_name} was blocked by a {hook.plugin or 'plugin'} hook"
             return outcome
-        if code != 0 and code != BLOCK_EXIT_CODE:
-            log.warning("hook %s failed (exit %s): %s", hook.command, code, err[:200])
+        if code in (0, BLOCK_EXIT_CODE):
+            note_ok(hook)
+        else:
+            await note_failure(core, session, hook, code, err)
             if event == "PreToolUse" and hook.fail_closed:
                 # A guard that did not run must not let the call through.
                 outcome.blocked = True
@@ -341,15 +508,34 @@ async def run_event(
 async def pre_tool_use(
     core: Core, session: Session, tool_name: str, tool_input: dict[str, Any]
 ) -> str | None:
-    """``None`` to continue; the error message when a hook blocked the call."""
-    outcome = await run_event(core, session, "PreToolUse", tool_name, tool_input)
+    """``None`` to continue; the error message when a hook blocked the call.
+
+    Never raises: a failure inside the hook machinery is logged and the call
+    goes on — unless a matching hook is ``failClosed``, which then blocks it.
+    """
+    try:
+        outcome = await run_event(core, session, "PreToolUse", tool_name, tool_input)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - hook trouble must not become the turn's error
+        log.warning("PreToolUse hooks for %s failed: %s", tool_name, exc, exc_info=True)
+        registry = registry_of(core)
+        guards = registry.for_tool("PreToolUse", tool_name) if registry is not None else []
+        if any(hook.fail_closed for hook in guards):
+            return f"{tool_name} was blocked: a fail-closed guard hook could not run ({exc})"
+        return None
     return outcome.message if outcome.blocked else None
 
 
 async def post_tool_use(
     core: Core, session: Session, tool_name: str, tool_input: dict[str, Any]
 ) -> None:
-    await run_event(core, session, "PostToolUse", tool_name, tool_input)
+    try:
+        await run_event(core, session, "PostToolUse", tool_name, tool_input)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - hook trouble must not become the turn's error
+        log.warning("PostToolUse hooks for %s failed", tool_name, exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -413,7 +599,9 @@ async def stop(
         if reason is not None:
             return StopDecision(block=True, reason=reason.strip())
         if code not in (0, BLOCK_EXIT_CODE):
-            log.warning("Stop hook %s failed (exit %s): %s", hook.command, code, err[:200])
+            await note_failure(core, session, hook, code, err)
+        else:
+            note_ok(hook)
     return StopDecision()
 
 
@@ -424,10 +612,18 @@ __all__ = [
     "StopDecision",
     "DEFAULT_TIMEOUT_SEC",
     "EVENTS",
+    "HEALTH",
+    "HOOK_FAILED_CODE",
     "Hook",
+    "HookHealth",
     "HookOutcome",
     "HookRegistry",
     "expand",
+    "failure_reason",
+    "health_lines",
+    "note_failure",
+    "note_ok",
+    "windows_python",
     "post_tool_use",
     "pre_tool_use",
     "run_event",
