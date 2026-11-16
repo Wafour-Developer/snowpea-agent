@@ -97,8 +97,21 @@ async def tool_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     matches = deferred.search(catalogue, query, min(max(1, count), deferred.MAX_RESULTS))
     note = offline_note(ctx.session)
     tail = f"\n\n{note}" if note else ""
+    from snowpea_core.tools import tool_hints
+
     if not matches:
-        return ToolResult(ok=True, output=NO_MATCH.format(query=query) + tail)
+        # An answer that says where to look instead (1.55.0): a helper inside a
+        # host tool, the agent's own "not here" message, the nearest names.
+        hints = tool_hints.search_hints(ctx.session, query, [spec.name for spec in catalogue])
+        extra = "\n" + "\n".join(hints) if hints else ""
+        return ToolResult(ok=True, output=NO_MATCH.format(query=query) + extra + tail)
+    helpers = [
+        line
+        for term in tool_hints.query_terms(query)
+        if (line := tool_hints.helper_note(ctx.session, term))
+    ]
+    if helpers:
+        tail = "\n\n" + "\n".join(f"{line}." for line in helpers) + tail
     deferred.load(ctx.session, [spec.name for spec in matches])
     header = FOUND_FIXED if getattr(ctx.session, "fixed_tool_list", False) else FOUND
     invalidate(ctx.session)

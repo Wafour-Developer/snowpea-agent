@@ -285,6 +285,10 @@ def deferred_line(specs: Sequence[Any]) -> str:
     """
     if not specs:
         return ""
+    return f"{DEFERRED_HINT}\n\n{DEFERRED_PREFIX} {'; '.join(_grouped(specs))}"
+
+
+def _grouped(specs: Sequence[Any]) -> list[str]:
     groups_by_label: dict[str, list[str]] = {}
     for spec in specs:
         groups_by_label.setdefault(group_of(spec), []).append(str(getattr(spec, "name", "")))
@@ -294,7 +298,29 @@ def deferred_line(specs: Sequence[Any]) -> str:
             parts.append(f"{label}: {', '.join(sorted(names))}")
         else:
             parts.append(f"{label} ({len(names)})")
-    return f"{DEFERRED_HINT}\n\n{DEFERRED_PREFIX} {'; '.join(parts)}"
+    return parts
+
+
+def deferred_note(specs: Sequence[Any], *, fixed: bool = False) -> str:
+    """``{{deferred_tools_note}}`` for an agent prompt (1.55.0): the real deferred state.
+
+    Empty when nothing is deferred, so a prompt never tells the model to
+    search for tools it already has.  ``fixed``: the session's tool list does
+    not change (a local-style server), so a loaded tool is called by name and
+    never joins the list.
+    """
+    if not specs:
+        return ""
+    after = (
+        "they stay callable for the rest of the session but are not added to your tool list"
+        if fixed
+        else "they join your tool list from the next round on"
+    )
+    return (
+        "Some of your tools are named but not loaded: "
+        f"{'; '.join(_grouped(specs))}. Load one with tool_search "
+        f"(\"select:name\") before you call it; {after}."
+    )
 
 
 # ---------------------------------------------------------------------------

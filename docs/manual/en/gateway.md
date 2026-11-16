@@ -78,6 +78,8 @@ Send the bot a message and you are in a session. Slash commands work exactly as 
 
 Sessions created by a gateway show up in `session.list` with their origin, so a TUI attached to the same daemon can see what the chat is doing.
 
+With [Jarvis mode](jarvis.md#messengers) on, a bound chat talks to Jarvis instead, and Jarvis sends its notices, briefings and confirmations only to the bound person's private chat, never to a group.
+
 ## Chat commands
 
 A terminal answers "which conversation am I in, what else is open, put me in another one" with its own window. A chat has no window, so seven commands answer it instead. They are handled by the gateway itself, before the command registry, and they never reach the model.

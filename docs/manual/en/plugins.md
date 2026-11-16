@@ -191,6 +191,10 @@ The command receives `{event, tool_name, tool_input, session_id, cwd}` as JSON o
 
 `${CLAUDE_PLUGIN_ROOT}`, `${SNOWPEA_PLUGIN_ROOT}` and `${SNOWPEA_PYTHON}` expand inside hook and MCP commands, with or without braces.
 
+**When a hook fails.** A hook that cannot start, exits with an unexpected status or times out does not stop the call (unless it says `"failClosed": true`, which blocks the calls it guards). The session shows it once as an `error` event with code `hook_failed` and `details {plugin, hook, event, reason, exitCode?, timedOut?}`, and `/skill hooks` lists every hook failing now.
+
+**Python hooks on Windows.** A command that starts with a bare `python3` or `python` uses the Python on `PATH` when it is a real interpreter (so the packages you installed for the plugin are there); when there is none, or only the Microsoft Store stub, snowpea's own interpreter runs it. If the `PATH` Python cannot start the hook (exit 9009) or stops on an `ImportError`/`ModuleNotFoundError`, snowpea runs the hook once more with its own interpreter, and if that works it keeps using it for that hook for the rest of the session.
+
 ## MCP servers
 
 `.mcp.json` uses the Claude Code format and is read from `$SNOWPEA_HOME`, from the project directory, and from each installed plugin:
@@ -302,6 +306,8 @@ Descriptions are clipped at 60 characters in the index, so write a `description:
 | `importCodex` | `true` | read what Codex has installed (`$CODEX_HOME`, else `~/.codex`) and a project's `.agents/skills` |
 
 `skills.disabled` (capability `skillToggle`) takes skill or command names, or `<plugin>:<name>` for one plugin's copy. A disabled skill leaves the index, the slash commands and `autoInject`, and `skill_view` refuses it; `skill.list` still lists it with `enabled: false`, and `skill.read` and `skill.remove` still reach it. Changing the list with `settings.set` applies at once, the way a skill reload does: new sessions see the new index, and a running session keeps the index it started with until its next compaction. With the list empty the prompt is byte for byte what it was.
+
+**`autoInject` keywords** (`autoInject: {keywords: [gmail, 지메일]}`) bring a skill into a turn whose message mentions one. A keyword counts only as a whole word or phrase, in any case: "gmail" matches "my Gmail." but not "gmailbox". A Korean keyword may carry a particle ("깃허브에서", "블로그를"), but must be at least two characters, and the rest of the word must be the particle: "글" never matches, and "구글" does not match "구글링". At most two skills (12 KB) come in per turn and 40 KB per session; a skill left out by a cap can come in on a later turn. The note names the keyword that matched, and the daemon log says what was injected and why at debug level.
 
 ## Where things are found, and who wins
 

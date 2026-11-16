@@ -19,9 +19,9 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from snowpea_core import __version__ as _core_version
-from snowpea_core.server.errors import ERROR_CODES
+from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
 
-PROTOCOL_VERSION = "1.54.0"
+PROTOCOL_VERSION = "1.55.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1254,7 +1254,15 @@ class SessionListResult(Payload):
 
 
 class SessionListParams(Payload):
-    includeClosed: bool = Field(default=False, description="Include persisted closed sessions.")
+    includeClosed: bool = Field(
+        default=False,
+        description=(
+            "Include persisted closed sessions. Since 1.55.0 their rows carry running false, "
+            "status 'idle', title (the stored title; for a scheduled run without one, the "
+            "job's title or the first line of its task), lastActivityAt (time of the last "
+            "stored event), lastUserAt and seq, like live rows."
+        ),
+    )
     workdir: str | None = Field(default=None, description="Only sessions rooted here.")
     kinds: list[str] | None = Field(
         default=None,
@@ -1356,7 +1364,20 @@ class FileCompleteResult(Payload):
 
 
 class TurnResult(Payload):
-    turnId: str = Field(description="Id of the started turn; turn.done carries it back.")
+    turnId: str = Field(
+        description=(
+            "Id of the started turn; turn.done carries it back. Since 1.55.0, for an instant "
+            "slash command sent while a turn runs, the command's id ('c-…'): no turn starts "
+            "and command.result carries it back instead (besideTurn true)."
+        )
+    )
+    besideTurn: bool | None = Field(
+        default=None,
+        description=(
+            "1.55.0: true when the slash command ran beside the running turn (an instant "
+            "command); absent otherwise."
+        ),
+    )
 
 
 class SessionSetModeParams(Payload):
@@ -1680,6 +1701,14 @@ class CommandRunParams(Payload):
             "ignored for other kinds."
         ),
     )
+    whenBusy: Literal["queue", "steer"] | None = Field(
+        default=None,
+        description=(
+            "1.55.0: while a turn runs, a command of kind 'turn' waits like a prompt "
+            "(turn.queued); 'steer' cannot fold a command into the running request, so it "
+            "queues too. An 'instant' command runs beside the turn (command.result)."
+        ),
+    )
 
 
 class ToolInfo(Payload):
@@ -1784,6 +1813,34 @@ class HostToolSpec(Payload):
             "verify-on-stop counts as looking at a UI change (1.29.0). A result can also "
             "say so itself with meta look: true; repl code calling snapshot(, "
             "annotatedScreenshot(, snapshotTabs(, display( or .screenshot( counts too."
+        ),
+    )
+    helpers: list[Annotated[str, Field(max_length=64)]] | None = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "1.55.0: names that exist inside this tool, not as tools (a REPL's globals such "
+            "as snapshot or click). A call to one of them as a tool, or a tool_search for "
+            "it, is answered '<name> is not a tool: it is a helper inside <tool>; call it "
+            "in that tool's code'."
+        ),
+    )
+    descriptionShort: str | None = Field(
+        default=None,
+        max_length=4000,
+        description=(
+            "1.55.0: a short description the model gets in the tool schema instead of "
+            "description; core adds one line pointing at tool_help. description stays the "
+            "full manual, which tool_help returns."
+        ),
+    )
+    sections: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "1.55.0: named parts of the manual (name -> text, names up to 64 chars, at most "
+            "50). tool_help {tool, section} returns one; tool_help {tool} lists them. A "
+            "failed result whose meta carries helpSection: '<name>' gets that section "
+            "appended, once per session."
         ),
     )
 
@@ -1898,6 +1955,26 @@ class JobRunContext(Payload):
     )
 
 
+class ToolInvokeModel(Payload):
+    """The model a session's ``tool.invoke`` serves (1.55.0)."""
+
+    canSee: bool = Field(
+        description=(
+            "True when an image in the result reaches the model as an image (the model "
+            "takes image input, or is a local server's model not known to be blind)."
+        )
+    )
+    contextWindow: int | None = Field(
+        default=None, description="The model's context window in tokens; null when unknown."
+    )
+    localStyle: bool = Field(
+        description=(
+            "True for a llama.cpp / vLLM / Ollama-style server: one fixed tool list per "
+            "session and a prefix cache that any change to earlier messages invalidates."
+        )
+    )
+
+
 class ToolInvokeRequest(Payload):
     """Server -> client: run one of the client's host tools."""
 
@@ -1968,6 +2045,14 @@ class ToolInvokeRequest(Payload):
             "session.attachments lists them: the paths a host may hand to a page upload."
         ),
     )
+    model: ToolInvokeModel | None = Field(
+        default=None,
+        description=(
+            "1.55.0: the session's current model, so a host can shape what it returns "
+            "(a screenshot only for a model that can see, a shorter snapshot for a small "
+            "window). Absent from older daemons."
+        ),
+    )
 
 
 class ToolInvokeResult(Payload):
@@ -1985,7 +2070,12 @@ class ToolInvokeResult(Payload):
         default=None,
         description=(
             "Extra facts. meta.sensitive=true keeps the output out of the session "
-            "store ([redacted]), memory and compaction summaries."
+            "store ([redacted]), memory and compaction summaries. meta.kind='snapshot' with "
+            "meta.tab marks the result as that tab's snapshot (addendum 23); since 1.55.0 "
+            "this also covers its image blocks, whatever text the result carries, so a newer "
+            "view of the tab stubs older ones in a long request. meta.helpSection (1.55.0) "
+            "on a failed result names a section of the tool's manual to append, once per "
+            "session."
         ),
     )
 
@@ -2076,6 +2166,20 @@ class ToolProgressParams(Payload):
             "Progress text; re-emitted as session.event tool.progress. Any tool.progress, "
             "an empty keepalive included, restarts the call's deadline (addendum 15)."
         ),
+    )
+    state: Literal["running", "waiting"] | None = Field(
+        default=None,
+        description=(
+            "1.55.0: 'waiting' = the call is waiting on something outside it (a page "
+            "loading, a download); 'running' = it is working again. Forwarded on the "
+            "session event tool.progress as state, so a tool card can say so. Restarts "
+            "the deadline like any progress."
+        ),
+    )
+    note: str | None = Field(
+        default=None,
+        max_length=200,
+        description="1.55.0: what it waits for, one short line ('waiting for the page').",
     )
 
 
@@ -3639,6 +3743,17 @@ class JobPreviewResult(Payload):
     )
 
 
+class LlmSampleImage(Payload):
+    """One image for ``llm.sample`` (1.55.0)."""
+
+    mime: Literal["image/png", "image/jpeg", "image/webp", "image/gif"] = Field(
+        description="The image's type."
+    )
+    dataBase64: str = Field(
+        min_length=1, max_length=8_400_000, description="The bytes, base64 (at most 6 MB decoded)."
+    )
+
+
 class LlmSampleParams(Payload):
     sessionId: str | None = Field(
         default=None,
@@ -3651,13 +3766,25 @@ class LlmSampleParams(Payload):
             "and no usage event is written."
         ),
     )
-    modelCategory: Literal["fast", "default", "standard", "deep"] = Field(
+    modelCategory: Literal["fast", "default", "standard", "deep", "vision"] = Field(
         default="default",
         description=(
             "'fast' = browser.fastModel (then models.categories.fast, then the session's "
             "model); 'default' = the session's model; 'standard' (1.33.0) = "
             "models.categories.standard, then the session's model; 'deep' (1.33.0) = "
-            "models.categories.deep, then .standard, then the session's model."
+            "models.categories.deep, then .standard, then the session's model; 'vision' "
+            "(1.55.0) = models.categories.vision only: with none configured the call is "
+            "refused with 'unavailable', details.reason 'no_vision_model'."
+        ),
+    )
+    images: list[LlmSampleImage] | None = Field(
+        default=None,
+        max_length=4,
+        description=(
+            "1.55.0: up to 4 images sent with the input (each at most 6 MB decoded, 12 MB "
+            "together). A model known not to take images refuses the call with "
+            "'unavailable', details.reason 'model_cannot_see'; use modelCategory 'vision'. "
+            "An image that does not decode is 'invalid_params'."
         ),
     )
     system: str | None = Field(
@@ -5560,6 +5687,18 @@ class ToolProgress(Payload):
         default=False,
         description="True on the final progress when the byte cap stopped the tail.",
     )
+    state: Literal["running", "waiting"] | None = Field(
+        default=None,
+        description=(
+            "1.55.0, host tools: set when the host reported a state with tool.progress "
+            "(chunk is then usually empty): 'waiting' shows the card as waiting (with "
+            "note), 'running' clears it. Absent on ordinary output chunks."
+        ),
+    )
+    note: str | None = Field(
+        default=None,
+        description="1.55.0: the host's line for the state, e.g. 'waiting for the page'.",
+    )
 
 
 class TodoItem(Payload):
@@ -5603,6 +5742,38 @@ class CommandProgress(Payload):
             "Set on the last event only: ralph 'complete', 'rejected', 'stopped', "
             "'max_iterations' or 'error'; ultrawork 'complete' or 'partial'."
         ),
+    )
+
+
+class CommandResultEvent(Payload):
+    """An instant command ran beside a running turn (1.55.0, ``commandsBesideTurn``).
+
+    Sent instead of ``turn.started`` / ``message.done`` / ``turn.done`` when a
+    command of kind ``instant`` (``commands/kinds.py``: reads and safe session
+    settings such as /model, /effort, /mode, /help) arrives while a turn runs.
+    The running turn keeps its id, its ``session.list`` status and its
+    interrupt; nothing is added to the conversation history.  Other events the
+    command causes (``mode.changed``, ``model.changed`` …) still go out.  With
+    no turn running the command is a turn of its own, as before.
+    """
+
+    kind: Literal["command.result"] = "command.result"
+    commandId: str = Field(
+        description="Id of this command run (what session.prompt / command.run returned)."
+    )
+    command: str = Field(description="The line as typed, e.g. '/model gpt-5'.")
+    ok: bool = Field(description="False when the command failed or was unknown.")
+    text: str = Field(default="", description="What the command said (its replies, joined).")
+    appliesFrom: Literal["now", "next_tool_call", "next_request", "next_turn"] | None = Field(
+        default=None,
+        description=(
+            "For a setting change: when the running turn sees it (next_tool_call for the "
+            "mode, rules and vision model; next_request for MCP servers; next_turn for the "
+            "model, effort, busy handling and delegation). Null for a read."
+        ),
+    )
+    runningTurnId: str | None = Field(
+        default=None, description="The turn that was running and still is."
     )
 
 
@@ -6158,6 +6329,21 @@ class ContextEvent(Payload):
             "(131072, nothing named one). 'window' itself is never null from 1.42.0."
         ),
     )
+    autoCompactAt: int | None = Field(
+        default=None,
+        description=(
+            "1.55.0: the 'used' value at which the next turn compacts first "
+            "(context.autoCompactPercent of the window, less the room kept for the "
+            "reply); null when auto-compaction is off or the window is unknown. Many "
+            "short messages can also trigger it earlier (the history's message cap)."
+        ),
+    )
+
+
+#: Why a compaction ran (1.55.0): ``overflow`` = the model server refused the
+#: request for its length mid-turn; ``auto`` = the threshold before a turn;
+#: ``manual`` = ``session.compact`` or ``/compact``.
+CompactionReason = Literal["overflow", "auto", "manual"]
 
 
 class CompactionEvent(Payload):
@@ -6168,9 +6354,17 @@ class CompactionEvent(Payload):
     after: int = Field(default=0, description="Estimated tokens the history holds now.")
     summaryChars: int = Field(default=0, description="Length of the summary in characters.")
     auto: bool = Field(
-        default=False, description="True when the auto-compaction threshold triggered it."
+        default=False,
+        description="True when core started it (reason auto or overflow), false for manual.",
     )
     kept: int = Field(default=0, description="Messages kept verbatim after the summary.")
+    reason: CompactionReason = Field(
+        default="manual",
+        description=(
+            "1.55.0: overflow (the server refused the request for its length; the turn "
+            "retries once after it), auto (the threshold, before a turn) or manual."
+        ),
+    )
 
 
 class CompactionStarted(Payload):
@@ -6183,8 +6377,12 @@ class CompactionStarted(Payload):
     """
 
     kind: Literal["compaction.started"] = "compaction.started"
-    reason: Literal["manual", "auto"] = Field(
-        default="manual", description="auto = the auto-compaction threshold triggered it."
+    reason: CompactionReason = Field(
+        default="manual",
+        description=(
+            "auto = the auto-compaction threshold triggered it; overflow (1.55.0) = the "
+            "server refused the request for its length; manual = asked for."
+        ),
     )
     before: int = Field(default=0, description="Estimated tokens the history holds now.")
 
@@ -6195,6 +6393,16 @@ class ErrorEvent(Payload):
     kind: Literal["error"] = "error"
     code: str = Field(description="One of the protocol error codes.")
     message: str = Field(description="Human-readable detail.")
+    details: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Machine-readable facts for the code (1.55.0); absent when the code has none. "
+            "hook_failed: {plugin, hook (the hook's command line), event (PreToolUse, "
+            "PostToolUse or Stop), reason (one line), exitCode? (absent when it could not "
+            "start or timed out), timedOut? (true when it timed out)}. "
+            "context_window_too_small: {windowTokens, neededTokens}."
+        ),
+    )
 
 
 class AudioSpoken(Payload):
@@ -6471,6 +6679,7 @@ SessionEventPayload = Annotated[
     | DiffEvent
     | TodosUpdated
     | CommandProgress
+    | CommandResultEvent
     | PlanUpdated
     | CheckpointUpdated
     | CheckpointRestored
@@ -6518,6 +6727,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "diff": DiffEvent,
     "todos.updated": TodosUpdated,
     "command.progress": CommandProgress,
+    "command.result": CommandResultEvent,
     "plan.updated": PlanUpdated,
     "checkpoint.updated": CheckpointUpdated,
     "checkpoint.restored": CheckpointRestored,
@@ -6628,8 +6838,28 @@ class ApprovalRespondResult(Ok):
     )
 
 
+class RequestRefusal(Payload):
+    """Why the asking connection's own reply to a request did not count (1.55.0)."""
+
+    code: str = Field(description="The error code the reply earned: 'jarvis_person_only'.")
+    reason: str = Field(
+        description=(
+            "As the RPC error's details.reason: 'person_only', or 'mode_raise' for a "
+            "question of kind 'mode'."
+        )
+    )
+    message: str = Field(description="Human-readable detail.")
+
+
 class ApprovalPendingNotification(Payload):
-    """An unattended approval is waiting; any authenticated surface may answer."""
+    """An unattended approval is waiting; any authenticated surface may answer.
+
+    Since 1.55.0 also sent to the asking connection alone, with ``refused``,
+    when its reply to an ``approval.request`` for a ``personOnly`` request was
+    not a person's (a browser reply without ``actor: "person"``, or from a
+    browser that does not host the session): the request stays open, the card
+    should come back, and a person answers it with ``approval.respond``.
+    """
 
     request: ApprovalRequest = Field(description="The request now in the shared queue.")
     hostToolsFrom: str | None = Field(
@@ -6637,6 +6867,13 @@ class ApprovalPendingNotification(Payload):
         description=(
             "The session's owning client (addendum 8). A browser profile shows only "
             "its own cards and those with null."
+        ),
+    )
+    refused: RequestRefusal | None = Field(
+        default=None,
+        description=(
+            "1.55.0: set only on the re-announcement to the asking connection after its "
+            "reply was refused; the request is still open."
         ),
     )
 
@@ -6716,7 +6953,13 @@ class QuestionRouteChangedNotification(_RouteChanged):
 
 
 class QuestionPendingNotification(Payload):
-    """A question is waiting; any authenticated surface may see it coming."""
+    """A question is waiting; any authenticated surface may see it coming.
+
+    Since 1.55.0 also sent to the asking connection alone, with ``refused``,
+    when its reply to a ``question.request`` for a ``personOnly`` question was
+    not a person's: the question stays open with the same ``requestId``, the
+    card should come back, and a person answers it with ``question.respond``.
+    """
 
     request: QuestionRequest = Field(description="The question now in the shared queue.")
     hostToolsFrom: str | None = Field(
@@ -6724,6 +6967,13 @@ class QuestionPendingNotification(Payload):
         description=(
             "The session's owning client (addendum 8). A browser profile shows only "
             "its own cards and those with null."
+        ),
+    )
+    refused: RequestRefusal | None = Field(
+        default=None,
+        description=(
+            "1.55.0: set only on the re-announcement to the asking connection after its "
+            "reply was refused; the question is still open."
         ),
     )
 
@@ -9156,6 +9406,18 @@ class SecurityGetParams(Payload):
     locale: str | None = Field(default=None, description="For problems; default 'en'.")
 
 
+class SecurityProblem(Payload):
+    """One unusable security-list entry, structured (1.55.0)."""
+
+    list: Literal["commands", "paths"] | None = Field(
+        description="The list it belongs to; null for the shape of the section itself."
+    )
+    entry: str | None = Field(
+        default=None, description="The entry as written (a pattern, path or preset id), if any."
+    )
+    reason: str = Field(description="Why it is unusable, one short line.")
+
+
 class SecurityGetResult(SecurityLists):
     """The global lists as stored (absent keys shown as their defaults)."""
 
@@ -9173,6 +9435,14 @@ class SecurityGetResult(SecurityLists):
         default_factory=list,
         description=(
             "Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern."
+        ),
+    )
+    problemItems: list[SecurityProblem] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0: the same problems, structured, in the same order. settings.set and "
+            "security.check refuse a bad security value with invalid_params whose "
+            "details carry both problems (text) and problemItems (this shape)."
         ),
     )
 
@@ -10796,6 +11066,19 @@ CAPABILITIES: list[str] = [
     "securityLists",
     # web.remote.status/listen/stop/setPassword/clearPassword/rotateToken — 1.54.0.
     "webRemoteControl",
+    # 1.55.0: tool.invoke model {canSee, contextWindow, localStyle}.
+    "toolInvokeModel",
+    # 1.55.0: HostToolSpec helpers/descriptionShort/sections, tool_help, meta.helpSection.
+    "hostToolManuals",
+    # 1.55.0: tool.progress state/note, forwarded on the tool.progress event.
+    "toolProgressState",
+    # 1.55.0: llm.sample images and modelCategory 'vision'.
+    "llmSampleImages",
+    # 1.55.0: context.autoCompactAt, compaction(.started).reason 'overflow'.
+    "compactionReason",
+    # 1.55.0: instant commands beside a running turn (command.result); turn
+    # commands queue (command.run whenBusy).
+    "commandsBesideTurn",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -11062,6 +11345,15 @@ def dump_schema() -> dict[str, Any]:
             kind: model.model_json_schema() for kind, model in SESSION_EVENT_MODELS.items()
         },
         "errorCodes": list(ERROR_CODES),
+        # details.reason values and the jarvis_person_only details.kind values
+        # a client may switch on (1.55.0).
+        "errorDetails": {
+            "reasons": {
+                reason: {"code": code, "meaning": meaning}
+                for reason, (code, meaning) in DETAIL_REASONS.items()
+            },
+            "personOnlyKinds": list(PERSON_ONLY_KINDS),
+        },
         "capabilities": list(CAPABILITIES),
         "transport": TRANSPORT,
     }

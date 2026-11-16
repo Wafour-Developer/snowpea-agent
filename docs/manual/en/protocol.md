@@ -71,7 +71,35 @@ Since 1.53.0 every `message.user` event carries `origin` — `{kind, surface}`, 
 
 ## Errors
 
-Errors are JSON-RPC errors with a string code in `error.data.code`: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `mcp_auth_failed`, `search_provider_unavailable`, `browser_provider_unavailable`, `fork_after_compaction`, `fork_turn_not_found`, `fork_no_finished_turn`, `fork_child_session`, `fork_running` (`session.fork`, 1.50.0), `steer_slash_command` (`session.steer`, 1.50.0), `goal_not_allowed` (`goal.set`/`goal.resume`, 1.50.0), `jarvis_disabled`, `jarvis_person_only`, `external_view_only`, `external_unavailable` (Jarvis mode, 1.53.0), `internal`.
+Errors are JSON-RPC errors with a string code in `error.data.code`: `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `skill_exists`, `mcp_auth_failed`, `search_provider_unavailable`, `browser_provider_unavailable`, `fork_after_compaction`, `fork_turn_not_found`, `fork_no_finished_turn`, `fork_child_session`, `fork_running` (`session.fork`, 1.50.0), `steer_slash_command` (`session.steer`, 1.50.0), `goal_not_allowed` (`goal.set`/`goal.resume`, 1.50.0), `jarvis_disabled`, `jarvis_person_only`, `external_view_only`, `external_unavailable` (Jarvis mode, 1.53.0), `security_blocked` (1.54.0), `internal`.
+
+Some codes arrive only as the `code` of an `error` session event, inside a turn. Since 1.55.0 that event may carry `details` with the facts for the code, so a client can write its own message:
+
+| Code | When | `details` |
+| --- | --- | --- |
+| `hook_failed` | A plugin hook could not start, crashed or timed out (shown once per session per hook; the call itself goes on unless the hook is `failClosed`). | `{plugin, hook, event, reason, exitCode?, timedOut?}`: `hook` is the hook's command line, `event` is `PreToolUse`, `PostToolUse` or `Stop`; `exitCode` is absent when the hook could not start or timed out, and `timedOut` is `true` when it timed out. |
+| `context_window_too_small` | The model's context window cannot hold snowpea's system prompt and tool definitions, so no request can fit; the turn ends with reason `error`. | `{windowTokens, neededTokens}` |
+
+A started tool call always ends with a `tool.result`: when the turn is cancelled under it (daemon shutdown, an interrupt that cancels the task) the result has `ok: false` and `error: "cancelled"`.
+
+A `personOnly` question or approval answered by the asking connection without a person's marker is not dropped: that connection receives `question.pending` / `approval.pending` again with the same request and a `refused` object (`{code: "jarvis_person_only", reason, message}`), and the request stays open for a person to answer.
+
+## Slash commands while a turn runs (1.55.0, capability `commandsBesideTurn`)
+
+Every built-in command is `instant` or `turn` (`core/snowpea_core/commands/kinds.py`). With no turn running, both are a turn of their own, as before (`turn.started` … `turn.done`).
+
+While a turn runs:
+
+- An **instant** command (reads and safe session settings: `/help`, `/tools`, `/approvals`, `/allow`, `/allowlist`, `/busy`, `/model`, `/models`, `/vision`, `/effort`, `/mode`, `/plan`, `/accept`, `/auto` without a request, `/delegation`, `/memory`, `/schedule`, `/desktop`, `/mcp list`, `/agent list`, `/skill list`, `/update check`) runs beside it. `session.prompt` / `command.run` answer `{turnId: "c-…", besideTurn: true}`, and the only session event is one `command.result {commandId, command, ok, text, appliesFrom, runningTurnId}` (plus whatever the change itself announces, such as `mode.changed`). No `turn.started`, `message.done` or `turn.done`, nothing in the history; the running turn keeps its id, `running: true` in `session.list`, and `session.interrupt` still stops it. `appliesFrom` says when a change reaches the running turn: `next_tool_call` (mode, rules, vision model), `next_request` (MCP servers), `next_turn` (model, effort, busy handling, delegation).
+- A **turn** command (everything else, and every skill or command file) waits like a prompt: `turn.queued`, then after the running turn's `turn.done` a `turn.dequeued` and its own turn. `whenBusy` (on `session.prompt`, and on `command.run` since 1.55.0) cannot fold a command into the running request, so `steer` queues it too.
+
+## Host tools since 1.55.0
+
+- `tool.invoke` carries `model: {canSee, contextWindow, localStyle}` for the session's model (capability `toolInvokeModel`).
+- `tool.register` specs take `helpers` (names that live inside the tool, such as a REPL's globals), `descriptionShort` (what the model reads in the schema) and `sections` (named parts of the manual, `description` stays the whole manual). A session that sees such a tool also gets the built-in `tool_help {tool, section?}`; a failed result whose `meta.helpSection` names a section gets that section appended once per session (capability `hostToolManuals`).
+- `tool.progress` takes `state: "waiting" | "running"` and `note`; the `tool.progress` session event repeats them so a card can show "waiting for the page". Any `tool.progress` restarts the call's deadline, and the deadline does not run while the session waits on an approval or a question (capability `toolProgressState`).
+- `llm.sample` takes up to four `images` (`{mime, dataBase64}`) and `modelCategory: "vision"` (only `models.categories.vision`; refused with `unavailable`, `details.reason: "no_vision_model"`, when none is set). A result whose meta says `kind: "snapshot"` and `tab` marks its images as that tab's view too, so newer views replace older ones in a long request (capability `llmSampleImages`).
+- The `context` event has `autoCompactAt`, and `compaction.started` / `compaction` have `reason`: `overflow`, `auto` or `manual` (capability `compactionReason`).
 
 ## Using the SDK
 

@@ -915,7 +915,8 @@ METHOD_TABLE: list[tuple[str, dict[str, Any], str, str, str]] = [
     # Never from a browser, marked or not (2026-11-16).
     ("permission.allowlist.add", {}, "person_only", "person_only", "person_only"),
     ("permission.allowlist.list", {}, "ok", "ok", "ok"),
-    ("gateway.bind", {}, "ok", "person_only", "jarvis_on"),
+    # Never from a browser either (1.55.0): the person's binding identity.
+    ("gateway.bind", {}, "person_only", "person_only", "person_only"),
     ("gateway.sync", {}, "ok", "ok", "ok"),
     ("job.schedule", {}, "ok", "ok", "ok"),
     ("job.runNow", {}, "ok", "ok", "ok"),

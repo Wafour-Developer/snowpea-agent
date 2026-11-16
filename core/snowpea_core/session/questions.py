@@ -279,9 +279,11 @@ class QuestionQueue:
                 why = person_refusal(entry.origin_conn, entry.session,
                                      actor if isinstance(actor, str) else None, by="origin")
                 if why is not None:
-                    # Not a person's answer: the card stays; a person answers it
-                    # with question.respond.
+                    # Not a person's answer: the question stays open and a person
+                    # answers it with question.respond.  The origin has already
+                    # closed its card, so it is told why and shown it again.
                     log.warning("question %s: origin answer refused (%s)", request.requestId, why)
+                    await self._refused_to_origin(entry, why)
                     return
                 for answer in answers:
                     answer.person = True
@@ -298,6 +300,23 @@ class QuestionQueue:
             answers = _declined(len(request.questions), by="origin-unreachable")
         if not entry.future.done():
             entry.future.set_result(_padded(answers, len(request.questions)))
+
+    async def _refused_to_origin(self, entry: _Pending, why: str) -> None:
+        """Re-announce a still-open question to the origin whose reply was refused (1.55.0)."""
+        request = entry.request
+        params = {
+            "request": request.model_dump(mode="json"),
+            "hostToolsFrom": getattr(entry.session, "host_tools_from", None),
+            "refused": {
+                "code": errors.JARVIS_PERSON_ONLY,
+                "reason": "mode_raise" if request.kind == "mode" else "person_only",
+                "message": f"only a person may answer this: {why}",
+            },
+        }
+        try:
+            await entry.origin_conn.notify("question.pending", params)
+        except Exception:  # noqa: BLE001 - a closed origin: other surfaces still see it
+            log.debug("could not re-announce question %s", request.requestId, exc_info=True)
 
     # -- the answer ----------------------------------------------------
     async def respond(

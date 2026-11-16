@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.54.0` (semver)
+- **Protocol version:** `1.55.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.54.0"
+    "protocolVersion": "1.55.0"
   }
 }
 ```
@@ -47,6 +47,8 @@ Server capabilities advertised in the `system.hello` result:
 - `browserMemoryList`
 - `checkpoints`
 - `commands`
+- `commandsBesideTurn`
+- `compactionReason`
 - `contextWindowSource`
 - `ephemeralImages`
 - `extensions`
@@ -55,6 +57,7 @@ Server capabilities advertised in the `system.hello` result:
 - `fs`
 - `goals`
 - `holdSec`
+- `hostToolManuals`
 - `hostToolParallel`
 - `hostTools`
 - `hostToolsSessionEvents`
@@ -67,6 +70,7 @@ Server capabilities advertised in the `system.hello` result:
 - `lineage`
 - `llmSample`
 - `llmSampleHost`
+- `llmSampleImages`
 - `llmTimings`
 - `lsp`
 - `lspChanged`
@@ -114,6 +118,8 @@ Server capabilities advertised in the `system.hello` result:
 - `steps`
 - `tabReadAlways`
 - `toolInvokeGuard`
+- `toolInvokeModel`
+- `toolProgressState`
 - `tools`
 - `trajectory`
 - `turnOutcome`
@@ -861,12 +867,14 @@ Run a slash command; the only execution path for them.
 | `args` | `string` | no | Raw argument string, as typed after the name. |
 | `name` | `string` | yes | Command name without the leading slash. |
 | `sessionId` | `string` | yes | Session to run the command in. |
+| `whenBusy` | `"queue" \| "steer" \| null` | no | 1.55.0: while a turn runs, a command of kind 'turn' waits like a prompt (turn.queued); 'steer' cannot fold a command into the running request, so it queues too. An 'instant' command runs beside the turn (command.result). |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `turnId` | `string` | yes | Id of the started turn; turn.done carries it back. |
+| `besideTurn` | `boolean \| null` | no | 1.55.0: true when the slash command ran beside the running turn (an instant command); absent otherwise. |
+| `turnId` | `string` | yes | Id of the started turn; turn.done carries it back. Since 1.55.0, for an instant slash command sent while a turn runs, the command's id ('c-…'): no turn starts and command.result carries it back instead (besideTurn true). |
 
 ### `extension.configure`
 
@@ -2139,9 +2147,10 @@ One tool-less model call for a session's browser host (1.14.0): no tools, no his
 
 | field | type | required | description |
 |---|---|---|---|
+| `images` | `({ dataBase64: string; mime: "image/png" \| "image/jpeg" \| "image/webp" \| "image/gif"; })[] \| null` | no | 1.55.0: up to 4 images sent with the input (each at most 6 MB decoded, 12 MB together). A model known not to take images refuses the call with 'unavailable', details.reason 'model_cannot_see'; use modelCategory 'vision'. An image that does not decode is 'invalid_params'. |
 | `input` | `string` | yes | Page-derived text; sent as the user message, fenced and marked untrusted. |
 | `maxTokens` | `number` | no | Output token cap, at most 4096. |
-| `modelCategory` | `"fast" \| "default" \| "standard" \| "deep"` | no | 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model; 'standard' (1.33.0) = models.categories.standard, then the session's model; 'deep' (1.33.0) = models.categories.deep, then .standard, then the session's model. |
+| `modelCategory` | `"fast" \| "default" \| "standard" \| "deep" \| "vision"` | no | 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model; 'standard' (1.33.0) = models.categories.standard, then the session's model; 'deep' (1.33.0) = models.categories.deep, then .standard, then the session's model; 'vision' (1.55.0) = models.categories.vision only: with none configured the call is refused with 'unavailable', details.reason 'no_vision_model'. |
 | `schema` | `Record<string, unknown> \| null` | no | JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. |
 | `schemaAfterInput` | `boolean` | no | Put the schema instruction after the fenced input (with task) instead of in the system message, for a schema that varies per call (1.21.0). |
 | `sessionId` | `string \| null` | no | Session whose provider settings and bill this call uses; its host only. Omitted (1.40.0, capability 'llmSampleHost'): a host-level call for a connection that has registered host tools -- the default model of this daemon (models.default), with 'fast', 'standard' and 'deep' choosing browser.fastModel / models.categories as for a session. No session is billed and no usage event is written. |
@@ -3062,6 +3071,7 @@ Security lists (1.54.0): the stored global lists, a project's additions, the eff
 |---|---|---|---|
 | `blockedCommands` | `{ custom?: string[]; presets?: string[]; }` | no |  |
 | `effective` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; commands?: ({ by: string; pattern: string; })[]; paths?: ({ by: string; exempt?: string[]; level: "write" \| "all"; path: string; scope: "tree" \| "self"; })[]; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; }` | no | The lists in force: the global ones plus the project's additions. |
+| `problemItems` | `({ entry?: string \| null; list: "commands" \| "paths" \| null; reason: string; })[]` | no | 1.55.0: the same problems, structured, in the same order. settings.set and security.check refuse a bad security value with invalid_params whose details carry both problems (text) and problemItems (this shape). |
 | `problems` | `string[]` | no | Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. |
 | `project` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; } \| null` | no | What the workdir's .snowpea/settings.json adds; null without. |
 | `protectedPaths` | `{ custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }` | no |  |
@@ -3380,7 +3390,7 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | Only sessions owned by this client (a browser profile's clientId); omit for every session (addendum 8). |
-| `includeClosed` | `boolean` | no | Include persisted closed sessions. |
+| `includeClosed` | `boolean` | no | Include persisted closed sessions. Since 1.55.0 their rows carry running false, status 'idle', title (the stored title; for a scheduled run without one, the job's title or the first line of its task), lastActivityAt (time of the last stored event), lastUserAt and seq, like live rows. |
 | `includeUnhosted` | `boolean` | no | With hostToolsFrom: also return sessions with no host (IDE, TUI, CLI), which a browser shows in every profile. |
 | `kinds` | `string[] \| null` | no | Only sessions of these kinds; omit for every kind. A surface that shows human threads asks for ["chat"] (CORE-session-kind). |
 | `workdir` | `string \| null` | no | Only sessions rooted here. |
@@ -3450,7 +3460,8 @@ Send user text to a session and start a turn. Events: turn.started {turnId, prom
 
 | field | type | required | description |
 |---|---|---|---|
-| `turnId` | `string` | yes | Id of the started turn; turn.done carries it back. |
+| `besideTurn` | `boolean \| null` | no | 1.55.0: true when the slash command ran beside the running turn (an instant command); absent otherwise. |
+| `turnId` | `string` | yes | Id of the started turn; turn.done carries it back. Since 1.55.0, for an instant slash command sent while a turn runs, the command's id ('c-…'): no turn starts and command.result carries it back instead (besideTurn true). |
 
 ### `session.rename`
 
@@ -4566,6 +4577,7 @@ Ask the client to run one of its host tools.
 | `guard` | `string \| null` | no | 'agent-switch' while session.setAgent {guardTurn} guards this session or one it was delegated from (1.25.0): a host asks before its own acting tools, whatever tag they were registered with. |
 | `job` | `{ createdVia: "rpc" \| "tool"; fingerprint: string; id: string; meta?: Record<string, unknown> \| null; ownerClientId?: string \| null; runId: string; scheduledAt: string; trigger: "schedule" \| "runNow"; } \| null` | no | The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |
+| `model` | `{ canSee: boolean; contextWindow?: number \| null; localStyle: boolean; } \| null` | no | 1.55.0: the session's current model, so a host can shape what it returns (a screenshot only for a model that can see, a shorter snapshot for a small window). Absent from older daemons. |
 | `name` | `string` | yes | Host tool name. |
 | `origin` | `"human" \| "agent" \| "member" \| "schedule" \| "system" \| null` | no | Who started the root conversation's running turn (1.23.0): the session's own person, the agent, a schedule, another gateway group member or the system. A delegated child reports its root's. |
 | `parentSessionId` | `string \| null` | no | The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. |
@@ -4581,7 +4593,7 @@ Ask the client to run one of its host tools.
 |---|---|---|---|
 | `content` | `({ contentRef?: string \| null; data?: string \| null; ephemeral?: boolean \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | Rich result blocks. Images reach vision models as image input; text blocks are appended to output. |
 | `error` | `string \| null` | no | Error text when ok is false. |
-| `meta` | `Record<string, unknown> \| null` | no | Extra facts. meta.sensitive=true keeps the output out of the session store ([redacted]), memory and compaction summaries. |
+| `meta` | `Record<string, unknown> \| null` | no | Extra facts. meta.sensitive=true keeps the output out of the session store ([redacted]), memory and compaction summaries. meta.kind='snapshot' with meta.tab marks the result as that tab's snapshot (addendum 23); since 1.55.0 this also covers its image blocks, whatever text the result carries, so a newer view of the tab stubs older ones in a long request. meta.helpSection (1.55.0) on a failed result names a section of the tool's manual to append, once per session. |
 | `ok` | `boolean` | yes | False reports the call as a tool error. |
 | `output` | `string` | no | Text result the model reads. |
 
@@ -4615,6 +4627,8 @@ Notification: progress of a running tool.invoke, re-emitted as tool.progress.
 |---|---|---|---|
 | `callId` | `string` | yes | The tool.invoke callId this progress belongs to. |
 | `message` | `string` | no | Progress text; re-emitted as session.event tool.progress. Any tool.progress, an empty keepalive included, restarts the call's deadline (addendum 15). |
+| `note` | `string \| null` | no | 1.55.0: what it waits for, one short line ('waiting for the page'). |
+| `state` | `"running" \| "waiting" \| null` | no | 1.55.0: 'waiting' = the call is waiting on something outside it (a page loading, a download); 'running' = it is working again. Forwarded on the session event tool.progress as state, so a tool card can say so. Restarts the deadline like any progress. |
 
 **Result**
 
@@ -4633,7 +4647,7 @@ Register tools this connection runs itself (host tools).
 | field | type | required | description |
 |---|---|---|---|
 | `capabilities` | `string[] \| null` | no | What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only); 'turnContextCompaction' (1.37.0) also asks it again after each compaction. A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. |
-| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; descriptionBy?: Record<string, string> \| null; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; descriptionBy?: Record<string, string> \| null; descriptionShort?: string \| null; helpers?: string[] \| null; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; sections?: Record<string, string> \| null; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
 
@@ -4997,6 +5011,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
+| `refused` | `{ code: string; message: string; reason: string; } \| null` | no | 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the request is still open. |
 | `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
@@ -5205,6 +5220,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
+| `refused` | `{ code: string; message: string; reason: string; } \| null` | no | 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the question is still open. |
 | `request` | `{ external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; kind?: "mode" \| null; neverDelegable?: boolean \| null; personOnly?: boolean \| null; questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; route?: "person" \| "jarvis" \| "auto" \| null; sessionId: string; timeoutSec?: number; }` | yes | The question now in the shared queue. |
 
 ### `question.resolved`
@@ -5337,15 +5353,28 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `outcome` | `string \| null` | no | Set on the last event only: ralph 'complete', 'rejected', 'stopped', 'max_iterations' or 'error'; ultrawork 'complete' or 'partial'. |
 | `stories` | `({ id: string; note?: string; status: "pass" \| "fail" \| "pending"; title: string; })[]` | no | Every story, in plan order. |
 
+### kind `command.result`
+
+| field | type | required | description |
+|---|---|---|---|
+| `appliesFrom` | `"now" \| "next_tool_call" \| "next_request" \| "next_turn" \| null` | no | For a setting change: when the running turn sees it (next_tool_call for the mode, rules and vision model; next_request for MCP servers; next_turn for the model, effort, busy handling and delegation). Null for a read. |
+| `command` | `string` | yes | The line as typed, e.g. '/model gpt-5'. |
+| `commandId` | `string` | yes | Id of this command run (what session.prompt / command.run returned). |
+| `kind` | `"command.result"` | no |  |
+| `ok` | `boolean` | yes | False when the command failed or was unknown. |
+| `runningTurnId` | `string \| null` | no | The turn that was running and still is. |
+| `text` | `string` | no | What the command said (its replies, joined). |
+
 ### kind `compaction`
 
 | field | type | required | description |
 |---|---|---|---|
 | `after` | `number` | no | Estimated tokens the history holds now. |
-| `auto` | `boolean` | no | True when the auto-compaction threshold triggered it. |
+| `auto` | `boolean` | no | True when core started it (reason auto or overflow), false for manual. |
 | `before` | `number` | no | Estimated tokens the history held before. |
 | `kept` | `number` | no | Messages kept verbatim after the summary. |
 | `kind` | `"compaction"` | no |  |
+| `reason` | `"overflow" \| "auto" \| "manual"` | no | 1.55.0: overflow (the server refused the request for its length; the turn retries once after it), auto (the threshold, before a turn) or manual. |
 | `summaryChars` | `number` | no | Length of the summary in characters. |
 
 ### kind `compaction.started`
@@ -5354,12 +5383,13 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `before` | `number` | no | Estimated tokens the history holds now. |
 | `kind` | `"compaction.started"` | no |  |
-| `reason` | `"manual" \| "auto"` | no | auto = the auto-compaction threshold triggered it. |
+| `reason` | `"overflow" \| "auto" \| "manual"` | no | auto = the auto-compaction threshold triggered it; overflow (1.55.0) = the server refused the request for its length; manual = asked for. |
 
 ### kind `context`
 
 | field | type | required | description |
 |---|---|---|---|
+| `autoCompactAt` | `number \| null` | no | 1.55.0: the 'used' value at which the next turn compacts first (context.autoCompactPercent of the window, less the room kept for the reply); null when auto-compaction is off or the window is unknown. Many short messages can also trigger it earlier (the history's message cap). |
 | `contextWindowSource` | `"settings" \| "server" \| "error" \| "catalog" \| "learned" \| "assumed" \| null` | no | Where 'window' came from (1.42.0): settings, server, error (named by a refusal), catalog, learned (moved by what requests taught us) or assumed (131072, nothing named one). 'window' itself is never null from 1.42.0. |
 | `estimated` | `boolean` | no | True while 'used' is a local estimate; false once the provider reported it. |
 | `kind` | `"context"` | no |  |
@@ -5391,6 +5421,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `code` | `string` | yes | One of the protocol error codes. |
+| `details` | `Record<string, unknown> \| null` | no | Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (the hook's command line), event (PreToolUse, PostToolUse or Stop), reason (one line), exitCode? (absent when it could not start or timed out), timedOut? (true when it timed out)}. context_window_too_small: {windowTokens, neededTokens}. |
 | `kind` | `"error"` | no |  |
 | `message` | `string` | yes | Human-readable detail. |
 
@@ -5671,7 +5702,9 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `chunk` | `string` | no | Raw output fragment, in order. |
 | `kind` | `"tool.progress"` | no |  |
 | `name` | `string` | yes | Tool that is running. |
+| `note` | `string \| null` | no | 1.55.0: the host's line for the state, e.g. 'waiting for the page'. |
 | `seq` | `number` | no | 0-based index of this progress within the call. |
+| `state` | `"running" \| "waiting" \| null` | no | 1.55.0, host tools: set when the host reported a state with tool.progress (chunk is then usually empty): 'waiting' shows the card as waiting (with note), 'running' clears it. Absent on ordinary output chunks. |
 | `stream` | `"stdout" \| "stderr"` | no | Which stream the chunk came from. |
 | `truncated` | `boolean` | no | True on the final progress when the byte cap stopped the tail. |
 
@@ -5776,6 +5809,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `approval_denied` | The user denied the approval request. |
 | `approval_timeout` | No approval arrived before `approvals.timeoutSec` elapsed. |
 | `auth_expired` |  |
+| `context_window_too_small` | `error` event (1.55.0), the turn ends with reason error: the model's context window cannot hold the system prompt and tool definitions. details {windowTokens, neededTokens}. |
 | `empty_response` |  |
 | `exists` |  |
 | `external_unavailable` | The external CLI is missing, disabled or an unsupported version (1.53.0). |
@@ -5786,13 +5820,14 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `fork_running` |  |
 | `fork_turn_not_found` |  |
 | `goal_not_allowed` |  |
+| `hook_failed` | `error` event (1.55.0): a plugin hook could not start, failed or timed out; the call goes on unless the hook is failClosed. details {plugin, hook (its command), event (PreToolUse, PostToolUse or Stop), reason, exitCode? (absent when it could not start or timed out), timedOut?}. |
 | `image_rejected` |  |
 | `internal` | Unexpected server-side failure. |
 | `invalid_output` |  |
 | `invalid_params` | Params failed schema validation. |
 | `is_dir` |  |
 | `jarvis_disabled` | A jarvis.* call that needs Jarvis mode on while it is off (1.53.0). |
-| `jarvis_person_only` | A delegation change from a connection that may not make it: a messenger with jarvis.messenger.allowGrants off, a remote login not re-authenticated (1.53.0). |
+| `jarvis_person_only` | Only a person may do this (1.53.0): a delegation change from a messenger with jarvis.messenger.allowGrants off or a remote login not re-authenticated, a mode raise, a person-only answer, a setting a browser or connector may not change. `details.reason` and `details.kind` say which (below). |
 | `login_unsupported` | The vendor does not support the requested login method. |
 | `mcp_auth_failed` |  |
 | `mcp_exists` |  |
@@ -5808,7 +5843,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `outside_root` |  |
 | `protected` |  |
 | `protocol_incompatible` | Client and server protocol majors differ. |
-| `security_blocked` |  |
+| `security_blocked` | The security lists refused the call: a blocked command or a protected path (1.54.0). |
 | `session_busy` |  |
 | `skill_exists` |  |
 | `steer_slash_command` |  |
@@ -5816,3 +5851,22 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `tool_inactive` | The tool exists but is disabled for this session. |
 | `unauthorized` | Missing or invalid token, or a call before `system.hello`. |
 | `unavailable` |  |
+
+### `details.reason` values
+
+Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a client may switch on these. Other `details` fields are named in the meaning.
+
+| reason | on code | meaning |
+|---|---|---|
+| `catch_all` | `invalid_params` | an allowlist pattern that would match every command |
+| `jarvis_on` | `jarvis_person_only` | the change is part of Jarvis's authority and Jarvis mode is on: the app or the TUI only |
+| `mode_raise` | `jarvis_person_only` | raising a session's mode (plan < accept < auto) needs a person; details.from/to |
+| `model_cannot_see` | `unavailable` | llm.sample images for a model known not to take images |
+| `no_vision_model` | `unavailable` | llm.sample modelCategory 'vision' with none configured |
+| `not_bundled_plugin` | `jarvis_person_only` | skill.install from a browser outside its Settings page, not the bundled plugin; details.why |
+| `person_only` | `jarvis_person_only` | only a person's connection may do this (details.kind says who asked) |
+| `project_add_only` | `invalid_params` | a project's security lists may only add entries; details.removed names the rest |
+| `untrusted_project` | `external_unavailable` | first external CLI session in this project: confirm with trust: true; details.project |
+| `untrusted_project_person_only` | `external_unavailable` | a person must open an external session in this project first; details.project |
+
+`details.kind` of a `jarvis_person_only` error says who asked: `person`, `remote_login`, `browser`, `connector`, `none`, `agent`, `mode` (a connection kind, or the mode guard's caller kind). A refused answer to a person-only question carries the question's kind instead (`mode`, or null).

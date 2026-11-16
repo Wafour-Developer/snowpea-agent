@@ -104,8 +104,9 @@ snowpea divides tools into an **eager** set (sent in full every round) and a **d
 
 The eager set contains tools fundamental to core agent workflows:
 
-- Core tools: `read_file`, `view_image`, `write_file`, `edit_file`, `shell`, `execute_code`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, plus `tool_search` itself.
-- For read-only child sessions (such as `explore` or `reviewer` definitions without write tools), the eager set is narrowed to: `read_file`, `grep`, `glob`, `shell`, and `tool_search`.
+- Core tools: `read_file`, `view_image`, `write_file`, `patch`, `shell`, `execute_code`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, plus `tool_search` itself.
+- For read-only child sessions (such as `explore` or `reviewer` definitions without write tools), the eager set is narrowed to: `read_file`, `view_image`, `grep`, `glob`, and `tool_search`.
+- Every tool a connected host (the browser) registered for the session, and `tool_help` while one of those tools has a manual (`descriptionShort` / `sections`).
 - Any tools explicitly required by session mode or role (`allowed_tools`), or added to `tools.eager`.
 
 ### What the model sees
@@ -125,7 +126,11 @@ When the agent requires a deferred tool, it invokes `tool_search`:
 - **Exact selection:** `tool_search(query="select:git_diff,git_commit")`
 - **Keyword search:** `tool_search(query="+browser click")` (a leading `+` denotes required terms; returns up to 5 matching tools)
 
-Matched tools are added to `session.loaded_tools` and their full schemas are included in all subsequent rounds for that session.
+Matched tools are added to `session.loaded_tools` and their full schemas are included in all subsequent rounds for that session. On a self-hosted server (llama.cpp, vLLM, Ollama, LM Studio) the tool list stays fixed for the session, so the prefix cache survives: the search result carries the schemas, and the tools stay callable by name without joining the list.
+
+A search that finds nothing says where to look instead: a name that is a helper inside a host tool (a browser REPL's `snapshot`) is named as such, an agent definition's `unavailable` message is shown when the search matches it, and the nearest existing tool names are listed (at most five). A call to a tool that does not exist gets the same helper and `unavailable` hints.
+
+An agent definition's prompt may contain `{{deferred_tools_note}}`; it is replaced with one sentence naming the tools that are deferred in that session right now (and nothing when none are), so the prompt never tells the model to search for a tool it already has.
 
 **Self-loading fallback:** If the model attempts to invoke a deferred tool directly by name without calling `tool_search` first, snowpea executes the tool normally, registers it in `session.loaded_tools`, and appends a note: `loaded <tool> for this session`.
 
@@ -148,7 +153,7 @@ The `agents.childContext` setting controls this behavior:
   1. **No memory block:** Skips the parent's memory recall digest and memory instructions (memory tools remain available if permitted).
   2. **No skills index:** Skips the full skills catalog index from the prompt. The child can still inspect and execute any skill by name using `skill_view`.
   3. **Root instructions only:** Up-front project instructions are restricted to the root `AGENTS.md` or `CLAUDE.md`. Nested package-level instruction files are omitted up front and attached dynamically only when a tool touches that directory.
-  4. **Narrowed eager tools:** Read-only subagents start with a minimized tool set (`read_file`, `grep`, `glob`, `shell`, `tool_search`).
+  4. **Narrowed eager tools:** Read-only subagents start with a minimized tool set (`read_file`, `view_image`, `grep`, `glob`, `tool_search`).
   5. **Preserved:** The child's persona/definition prompt, role instructions, and the `BUDGET_LINE` ("You have N tool rounds for this task...") are preserved.
 - **`"full"`:** Restores the parent's full prompt context (memory digest, complete skills index, and all nested context files).
 

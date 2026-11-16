@@ -171,6 +171,18 @@ def normalize(raw: Any) -> dict[str, Any]:
     capabilities = pick("capabilities", default=[])
     capabilities = sorted({str(c) for c in capabilities}) if capabilities else []
 
+    details = pick("errorDetails", default=None)
+    if not isinstance(details, dict):
+        details = {}
+    error_details = {
+        "reasons": {
+            str(name): {"code": str(row.get("code", "")), "meaning": str(row.get("meaning", ""))}
+            for name, row in sorted((details.get("reasons") or {}).items())
+            if isinstance(row, dict)
+        },
+        "personOnlyKinds": [str(kind) for kind in details.get("personOnlyKinds") or []],
+    }
+
     return {
         "protocolVersion": protocol_version,
         "serverVersion": server_version,
@@ -178,6 +190,7 @@ def normalize(raw: Any) -> dict[str, Any]:
         "events": events,
         "sessionEventKinds": kinds,
         "errorCodes": error_codes,
+        "errorDetails": error_details,
         "transport": merged_transport,
         "capabilities": capabilities,
     }
@@ -437,6 +450,29 @@ def render_ts(schema: dict[str, Any]) -> str:
         + "\n".join(f"  {_lit(c)}," for c in codes)
         + "\n];"
     )
+    reasons = (schema.get("errorDetails") or {}).get("reasons") or {}
+    if reasons:
+        out.append("/** Values of `error.data.details.reason` clients may switch on (1.55.0). */")
+        out.append(
+            "export type ErrorDetailReason =\n"
+            + "\n".join(f"  | {_lit(r)}" for r in reasons)
+            + ";"
+        )
+        out.append("/** The error code each `details.reason` rides on. */")
+        out.append(
+            "export const ERROR_DETAIL_REASONS: "
+            "Readonly<Record<ErrorDetailReason, ErrorCode>> = {\n"
+            + "\n".join(f"  {r}: {_lit(row['code'])}," for r, row in reasons.items())
+            + "\n};"
+        )
+    person_kinds = (schema.get("errorDetails") or {}).get("personOnlyKinds") or []
+    if person_kinds:
+        out.append("/** Values of `details.kind` on a `jarvis_person_only` error (1.55.0). */")
+        out.append(
+            "export type PersonOnlyKind =\n"
+            + "\n".join(f"  | {_lit(k)}" for k in person_kinds)
+            + ";"
+        )
     out.append("")
 
     out.append("// ---------------------------------------------------------------------------")
@@ -733,8 +769,25 @@ def render_md(schema: dict[str, Any]) -> str:
         "invalid_params": "Params failed schema validation.",
         "jarvis_disabled": "A jarvis.* call that needs Jarvis mode on while it is off (1.53.0).",
         "jarvis_person_only": (
-            "A delegation change from a connection that may not make it: a messenger with "
-            "jarvis.messenger.allowGrants off, a remote login not re-authenticated (1.53.0)."
+            "Only a person may do this (1.53.0): a delegation change from a messenger with "
+            "jarvis.messenger.allowGrants off or a remote login not re-authenticated, a mode "
+            "raise, a person-only answer, a setting a browser or connector may not change. "
+            "`details.reason` and `details.kind` say which (below)."
+        ),
+        "hook_failed": (
+            "`error` event (1.55.0): a plugin hook could not start, failed or timed out; the "
+            "call goes on unless the hook is failClosed. details {plugin, hook (its command), "
+            "event (PreToolUse, PostToolUse or Stop), reason, exitCode? (absent when it could "
+            "not start or timed out), timedOut?}."
+        ),
+        "context_window_too_small": (
+            "`error` event (1.55.0), the turn ends with reason error: the model's context "
+            "window cannot hold the system prompt and tool definitions. details "
+            "{windowTokens, neededTokens}."
+        ),
+        "security_blocked": (
+            "The security lists refused the call: a blocked command or a protected path "
+            "(1.54.0)."
         ),
         "external_view_only": (
             "external.send to a session snowpea can only view: its process runs in the "
@@ -755,6 +808,28 @@ def render_md(schema: dict[str, Any]) -> str:
     for code in schema["errorCodes"]:
         out.append(f"| `{code}` | {meanings.get(code, '')} |")
     out.append("")
+    details = schema.get("errorDetails") or {}
+    if details.get("reasons"):
+        out.append("### `details.reason` values")
+        out.append("")
+        out.append(
+            "Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a "
+            "client may switch on these. Other `details` fields are named in the meaning."
+        )
+        out.append("")
+        out.append("| reason | on code | meaning |")
+        out.append("|---|---|---|")
+        for reason, row in details["reasons"].items():
+            out.append(f"| `{reason}` | `{row['code']}` | {row['meaning']} |")
+        out.append("")
+    if details.get("personOnlyKinds"):
+        kinds_text = ", ".join(f"`{kind}`" for kind in details["personOnlyKinds"])
+        out.append(
+            f"`details.kind` of a `jarvis_person_only` error says who asked: {kinds_text} "
+            "(a connection kind, or the mode guard's caller kind). A refused answer to a "
+            "person-only question carries the question's kind instead (`mode`, or null)."
+        )
+        out.append("")
 
     text = "\n".join(out)
     text = re.sub(r"\n{3,}", "\n\n", text)

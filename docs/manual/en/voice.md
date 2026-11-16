@@ -52,6 +52,8 @@ snowpea setup audio
 
 That section asks two questions — how to listen, and how to speak — and shows which backends are actually installed here.
 
+You can also speak to Jarvis with push-to-talk; see [Jarvis mode](jarvis.md#voice).
+
 ### Installing from multiple surfaces
 
 `audio.install` is single-flight per target key (`engine`, or `engine+voice` for a voice download).

@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.54.0";
+export const PROTOCOL_VERSION = "1.55.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -15,6 +15,7 @@ export type ErrorCode =
   | "approval_denied"
   | "approval_timeout"
   | "auth_expired"
+  | "context_window_too_small"
   | "empty_response"
   | "exists"
   | "external_unavailable"
@@ -25,6 +26,7 @@ export type ErrorCode =
   | "fork_running"
   | "fork_turn_not_found"
   | "goal_not_allowed"
+  | "hook_failed"
   | "image_rejected"
   | "internal"
   | "invalid_output"
@@ -59,6 +61,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "approval_denied",
   "approval_timeout",
   "auth_expired",
+  "context_window_too_small",
   "empty_response",
   "exists",
   "external_unavailable",
@@ -69,6 +72,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "fork_running",
   "fork_turn_not_found",
   "goal_not_allowed",
+  "hook_failed",
   "image_rejected",
   "internal",
   "invalid_output",
@@ -100,6 +104,40 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "unauthorized",
   "unavailable",
 ];
+/** Values of `error.data.details.reason` clients may switch on (1.55.0). */
+export type ErrorDetailReason =
+  | "catch_all"
+  | "jarvis_on"
+  | "mode_raise"
+  | "model_cannot_see"
+  | "no_vision_model"
+  | "not_bundled_plugin"
+  | "person_only"
+  | "project_add_only"
+  | "untrusted_project"
+  | "untrusted_project_person_only";
+/** The error code each `details.reason` rides on. */
+export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>> = {
+  catch_all: "invalid_params",
+  jarvis_on: "jarvis_person_only",
+  mode_raise: "jarvis_person_only",
+  model_cannot_see: "unavailable",
+  no_vision_model: "unavailable",
+  not_bundled_plugin: "jarvis_person_only",
+  person_only: "jarvis_person_only",
+  project_add_only: "invalid_params",
+  untrusted_project: "external_unavailable",
+  untrusted_project_person_only: "external_unavailable",
+};
+/** Values of `details.kind` on a `jarvis_person_only` error (1.55.0). */
+export type PersonOnlyKind =
+  | "person"
+  | "remote_login"
+  | "browser"
+  | "connector"
+  | "none"
+  | "agent"
+  | "mode";
 
 // ---------------------------------------------------------------------------
 // Method params / results
@@ -785,11 +823,15 @@ export interface CommandRunParams {
   name: string;
   /** Session to run the command in. */
   sessionId: string;
+  /** 1.55.0: while a turn runs, a command of kind 'turn' waits like a prompt (turn.queued); 'steer' cannot fold a command into the running request, so it queues too. An 'instant' command runs beside the turn (command.result). */
+  whenBusy?: "queue" | "steer" | null;
 }
 
 /** `command.run` result. */
 export interface CommandRunResult {
-  /** Id of the started turn; turn.done carries it back. */
+  /** 1.55.0: true when the slash command ran beside the running turn (an instant command); absent otherwise. */
+  besideTurn?: boolean | null;
+  /** Id of the started turn; turn.done carries it back. Since 1.55.0, for an instant slash command sent while a turn runs, the command's id ('c-…'): no turn starts and command.result carries it back instead (besideTurn true). */
   turnId: string;
 }
 
@@ -2936,12 +2978,19 @@ export interface JobUpdateResult {
 
 /** `llm.sample` params. One tool-less model call for a session's browser host (1.14.0): no tools, no history, nothing written to the transcript except a usage event. The session's host only ('unauthorized' otherwise); 'unavailable' when no model can answer; with schema, 'invalid_output' when the answer does not validate. */
 export interface LlmSampleParams {
+  /** 1.55.0: up to 4 images sent with the input (each at most 6 MB decoded, 12 MB together). A model known not to take images refuses the call with 'unavailable', details.reason 'model_cannot_see'; use modelCategory 'vision'. An image that does not decode is 'invalid_params'. */
+  images?: ({
+    /** The bytes, base64 (at most 6 MB decoded). */
+    dataBase64: string;
+    /** The image's type. */
+    mime: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  })[] | null;
   /** Page-derived text; sent as the user message, fenced and marked untrusted. */
   input: string;
   /** Output token cap, at most 4096. */
   maxTokens?: number;
-  /** 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model; 'standard' (1.33.0) = models.categories.standard, then the session's model; 'deep' (1.33.0) = models.categories.deep, then .standard, then the session's model. */
-  modelCategory?: "fast" | "default" | "standard" | "deep";
+  /** 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model; 'standard' (1.33.0) = models.categories.standard, then the session's model; 'deep' (1.33.0) = models.categories.deep, then .standard, then the session's model; 'vision' (1.55.0) = models.categories.vision only: with none configured the call is refused with 'unavailable', details.reason 'no_vision_model'. */
+  modelCategory?: "fast" | "default" | "standard" | "deep" | "vision";
   /** JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. */
   schema?: Record<string, unknown> | null;
   /** Put the schema instruction after the fenced input (with task) instead of in the system message, for a schema that varies per call (1.21.0). */
@@ -4422,6 +4471,15 @@ export interface SecurityGetResult {
       presets?: string[];
     };
   };
+  /** 1.55.0: the same problems, structured, in the same order. settings.set and security.check refuse a bad security value with invalid_params whose details carry both problems (text) and problemItems (this shape). */
+  problemItems?: ({
+    /** The entry as written (a pattern, path or preset id), if any. */
+    entry?: string | null;
+    /** The list it belongs to; null for the shape of the section itself. */
+    list: "commands" | "paths" | null;
+    /** Why it is unusable, one short line. */
+    reason: string;
+  })[];
   /** Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. */
   problems?: string[];
   /** What the workdir's .snowpea/settings.json adds; null without. */
@@ -4994,7 +5052,7 @@ export interface SessionLineageResult {
 export interface SessionListParams {
   /** Only sessions owned by this client (a browser profile's clientId); omit for every session (addendum 8). */
   hostToolsFrom?: string | null;
-  /** Include persisted closed sessions. */
+  /** Include persisted closed sessions. Since 1.55.0 their rows carry running false, status 'idle', title (the stored title; for a scheduled run without one, the job's title or the first line of its task), lastActivityAt (time of the last stored event), lastUserAt and seq, like live rows. */
   includeClosed?: boolean;
   /** With hostToolsFrom: also return sessions with no host (IDE, TUI, CLI), which a browser shows in every profile. */
   includeUnhosted?: boolean;
@@ -5193,7 +5251,9 @@ export interface SessionPromptParams {
 
 /** `session.prompt` result. */
 export interface SessionPromptResult {
-  /** Id of the started turn; turn.done carries it back. */
+  /** 1.55.0: true when the slash command ran beside the running turn (an instant command); absent otherwise. */
+  besideTurn?: boolean | null;
+  /** Id of the started turn; turn.done carries it back. Since 1.55.0, for an instant slash command sent while a turn runs, the command's id ('c-…'): no turn starts and command.result carries it back instead (besideTurn true). */
   turnId: string;
 }
 
@@ -7924,6 +7984,15 @@ export interface ToolInvokeParams {
   } | null;
   /** The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. */
   mode?: "plan" | "accept" | "auto";
+  /** 1.55.0: the session's current model, so a host can shape what it returns (a screenshot only for a model that can see, a shorter snapshot for a small window). Absent from older daemons. */
+  model?: {
+    /** True when an image in the result reaches the model as an image (the model takes image input, or is a local server's model not known to be blind). */
+    canSee: boolean;
+    /** The model's context window in tokens; null when unknown. */
+    contextWindow?: number | null;
+    /** True for a llama.cpp / vLLM / Ollama-style server: one fixed tool list per session and a prefix cache that any change to earlier messages invalidates. */
+    localStyle: boolean;
+  } | null;
   /** Host tool name. */
   name: string;
   /** Who started the root conversation's running turn (1.23.0): the session's own person, the agent, a schedule, another gateway group member or the system. A delegated child reports its root's. */
@@ -7970,7 +8039,7 @@ export interface ToolInvokeResult {
   })[] | null;
   /** Error text when ok is false. */
   error?: string | null;
-  /** Extra facts. meta.sensitive=true keeps the output out of the session store ([redacted]), memory and compaction summaries. */
+  /** Extra facts. meta.sensitive=true keeps the output out of the session store ([redacted]), memory and compaction summaries. meta.kind='snapshot' with meta.tab marks the result as that tab's snapshot (addendum 23); since 1.55.0 this also covers its image blocks, whatever text the result carries, so a newer view of the tab stubs older ones in a long request. meta.helpSection (1.55.0) on a failed result names a section of the tool's manual to append, once per session. */
   meta?: Record<string, unknown> | null;
   /** False reports the call as a tool error. */
   ok: boolean;
@@ -8017,6 +8086,10 @@ export interface ToolProgressParams {
   callId: string;
   /** Progress text; re-emitted as session.event tool.progress. Any tool.progress, an empty keepalive included, restarts the call's deadline (addendum 15). */
   message?: string;
+  /** 1.55.0: what it waits for, one short line ('waiting for the page'). */
+  note?: string | null;
+  /** 1.55.0: 'waiting' = the call is waiting on something outside it (a page loading, a download); 'running' = it is working again. Forwarded on the session event tool.progress as state, so a tool card can say so. Restarts the deadline like any progress. */
+  state?: "running" | "waiting" | null;
 }
 
 /** `tool.progress` result. */
@@ -8041,6 +8114,10 @@ export interface ToolRegisterParams {
     description: string;
     /** A description for the sessions of one agent definition (1.35.0), by agent name: a tool a coding agent uses a little can carry a short manual while the browsing agent keeps the long one in description. Other agents read description. */
     descriptionBy?: Record<string, string> | null;
+    /** 1.55.0: a short description the model gets in the tool schema instead of description; core adds one line pointing at tool_help. description stays the full manual, which tool_help returns. */
+    descriptionShort?: string | null;
+    /** 1.55.0: names that exist inside this tool, not as tools (a REPL's globals such as snapshot or click). A call to one of them as a tool, or a tool_search for it, is answered '<name> is not a tool: it is a helper inside <tool>; call it in that tool's code'. */
+    helpers?: string[] | null;
     /** JSON Schema of the arguments. */
     inputSchema?: Record<string, unknown>;
     /** A successful call shows the rendered page (a snapshot or screenshot), which verify-on-stop counts as looking at a UI change (1.29.0). A result can also say so itself with meta look: true; repl code calling snapshot(, annotatedScreenshot(, snapshotTabs(, display( or .screenshot( counts too. */
@@ -8051,6 +8128,8 @@ export interface ToolRegisterParams {
     parallel?: "safe" | "never";
     /** Permission class checked against the mode. */
     permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside";
+    /** 1.55.0: named parts of the manual (name -> text, names up to 64 chars, at most 50). tool_help {tool, section} returns one; tool_help {tool} lists them. A failed result whose meta carries helpSection: '<name>' gets that section appended, once per session. */
+    sections?: Record<string, string> | null;
     /** How long tool.invoke may stay silent; default 120000. tool.progress restarts it, and it is paused while the session waits on an approval or a question. */
     timeoutMs?: number | null;
   })[];
@@ -8477,6 +8556,15 @@ export interface WorkspaceReorderResult {
 export interface ApprovalPendingPayload {
   /** The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. */
   hostToolsFrom?: string | null;
+  /** 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the request is still open. */
+  refused?: {
+    /** The error code the reply earned: 'jarvis_person_only'. */
+    code: string;
+    /** Human-readable detail. */
+    message: string;
+    /** As the RPC error's details.reason: 'person_only', or 'mode_raise' for a question of kind 'mode'. */
+    reason: string;
+  } | null;
   /** The request now in the shared queue. */
   request: {
     /** Arguments it wants to use. */
@@ -9020,6 +9108,15 @@ export interface ProviderLoginProgressPayload {
 export interface QuestionPendingPayload {
   /** The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. */
   hostToolsFrom?: string | null;
+  /** 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the question is still open. */
+  refused?: {
+    /** The error code the reply earned: 'jarvis_person_only'. */
+    code: string;
+    /** Human-readable detail. */
+    message: string;
+    /** As the RPC error's details.reason: 'person_only', or 'mode_raise' for a question of kind 'mode'. */
+    reason: string;
+  } | null;
   /** The question now in the shared queue. */
   request: {
     /** Set when an external CLI session asks (1.53.0); see ApprovalRequest. */
@@ -9296,17 +9393,36 @@ export interface CommandProgressEventPayload {
   })[];
 }
 
+/** Payload of `session.event` with kind `command.result`. */
+export interface CommandResultEventPayload {
+  /** For a setting change: when the running turn sees it (next_tool_call for the mode, rules and vision model; next_request for MCP servers; next_turn for the model, effort, busy handling and delegation). Null for a read. */
+  appliesFrom?: "now" | "next_tool_call" | "next_request" | "next_turn" | null;
+  /** The line as typed, e.g. '/model gpt-5'. */
+  command: string;
+  /** Id of this command run (what session.prompt / command.run returned). */
+  commandId: string;
+  kind?: "command.result";
+  /** False when the command failed or was unknown. */
+  ok: boolean;
+  /** The turn that was running and still is. */
+  runningTurnId?: string | null;
+  /** What the command said (its replies, joined). */
+  text?: string;
+}
+
 /** Payload of `session.event` with kind `compaction`. */
 export interface CompactionEventPayload {
   /** Estimated tokens the history holds now. */
   after?: number;
-  /** True when the auto-compaction threshold triggered it. */
+  /** True when core started it (reason auto or overflow), false for manual. */
   auto?: boolean;
   /** Estimated tokens the history held before. */
   before?: number;
   /** Messages kept verbatim after the summary. */
   kept?: number;
   kind?: "compaction";
+  /** 1.55.0: overflow (the server refused the request for its length; the turn retries once after it), auto (the threshold, before a turn) or manual. */
+  reason?: "overflow" | "auto" | "manual";
   /** Length of the summary in characters. */
   summaryChars?: number;
 }
@@ -9316,12 +9432,14 @@ export interface CompactionStartedEventPayload {
   /** Estimated tokens the history holds now. */
   before?: number;
   kind?: "compaction.started";
-  /** auto = the auto-compaction threshold triggered it. */
-  reason?: "manual" | "auto";
+  /** auto = the auto-compaction threshold triggered it; overflow (1.55.0) = the server refused the request for its length; manual = asked for. */
+  reason?: "overflow" | "auto" | "manual";
 }
 
 /** Payload of `session.event` with kind `context`. */
 export interface ContextEventPayload {
+  /** 1.55.0: the 'used' value at which the next turn compacts first (context.autoCompactPercent of the window, less the room kept for the reply); null when auto-compaction is off or the window is unknown. Many short messages can also trigger it earlier (the history's message cap). */
+  autoCompactAt?: number | null;
   /** Where 'window' came from (1.42.0): settings, server, error (named by a refusal), catalog, learned (moved by what requests taught us) or assumed (131072, nothing named one). 'window' itself is never null from 1.42.0. */
   contextWindowSource?: "settings" | "server" | "error" | "catalog" | "learned" | "assumed" | null;
   /** True while 'used' is a local estimate; false once the provider reported it. */
@@ -9363,6 +9481,8 @@ export interface DiffEventPayload {
 export interface ErrorEventPayload {
   /** One of the protocol error codes. */
   code: string;
+  /** Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (the hook's command line), event (PreToolUse, PostToolUse or Stop), reason (one line), exitCode? (absent when it could not start or timed out), timedOut? (true when it timed out)}. context_window_too_small: {windowTokens, neededTokens}. */
+  details?: Record<string, unknown> | null;
   kind?: "error";
   /** Human-readable detail. */
   message: string;
@@ -9806,8 +9926,12 @@ export interface ToolProgressEventPayload {
   kind?: "tool.progress";
   /** Tool that is running. */
   name: string;
+  /** 1.55.0: the host's line for the state, e.g. 'waiting for the page'. */
+  note?: string | null;
   /** 0-based index of this progress within the call. */
   seq?: number;
+  /** 1.55.0, host tools: set when the host reported a state with tool.progress (chunk is then usually empty): 'waiting' shows the card as waiting (with note), 'running' clears it. Absent on ordinary output chunks. */
+  state?: "running" | "waiting" | null;
   /** Which stream the chunk came from. */
   stream?: "stdout" | "stderr";
   /** True on the final progress when the byte cap stopped the tail. */
@@ -9958,6 +10082,7 @@ export interface SessionEventKindMap {
   "checkpoint.restored": CheckpointRestoredEventPayload;
   "checkpoint.updated": CheckpointUpdatedEventPayload;
   "command.progress": CommandProgressEventPayload;
+  "command.result": CommandResultEventPayload;
   "compaction": CompactionEventPayload;
   "compaction.started": CompactionStartedEventPayload;
   "context": ContextEventPayload;
@@ -10007,6 +10132,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "checkpoint.restored",
   "checkpoint.updated",
   "command.progress",
+  "command.result",
   "compaction",
   "compaction.started",
   "context",

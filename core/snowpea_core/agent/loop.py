@@ -215,6 +215,20 @@ class QueuedTurn:
     #: A system turn whose text clients should see (a Jarvis wake): published
     #: as ``message.user`` with its system origin, never as the person's words.
     show_prompt: bool = False
+    #: A slash command of kind ``turn`` waiting its turn (1.55.0): run by the
+    #: command registry instead of the model; never folded into a running turn.
+    command: QueuedCommand | None = None
+
+
+@dataclass(frozen=True)
+class QueuedCommand:
+    """A slash command queued behind a running turn (``commands/kinds.py``)."""
+
+    name: str
+    args: str
+    conn: Any = None
+    actor: str | None = None
+    caller: str | None = None
 
 
 def new_turn_id() -> str:
@@ -669,8 +683,9 @@ _CONTEXT_OVERFLOW = re.compile(
 #: and the tool schemas — so no request can ever fit.  Stable; clients may
 #: localise it.  The message names both numbers ("…window of 4096 tokens…
 #: needs about 9800…"); the raised error carries them as
-#: ``details = {"windowTokens": …, "neededTokens": …}``.
-CONTEXT_WINDOW_TOO_SMALL = "context_window_too_small"
+#: ``details = {"windowTokens": …, "neededTokens": …}``, which the ``error``
+#: event carries as its ``details`` (1.55.0).
+CONTEXT_WINDOW_TOO_SMALL = errors.CONTEXT_WINDOW_TOO_SMALL
 OVERFLOW_NOTE = (
     "The conversation outgrew the model's context window; summarising earlier turns and "
     "trying again."
@@ -1910,12 +1925,14 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
         return injected
     # Each queued prompt follows its own whenBusy, else agent.busy: "steer"
     # ones fold into this turn, "queue" ones wait for their own.
-    steered = [q for q in session.queued_turns if (q.when_busy or policy) == "steer"]
+    # A queued command is never folded in: it runs as a turn of its own.
+    steered = [
+        q for q in session.queued_turns
+        if q.command is None and (q.when_busy or policy) == "steer"
+    ]
     if not steered:
         return injected
-    session.queued_turns[:] = [
-        q for q in session.queued_turns if (q.when_busy or policy) != "steer"
-    ]
+    session.queued_turns[:] = [q for q in session.queued_turns if q not in steered]
     for index, queued in enumerate(steered):
         remaining = len(steered) - index - 1
         if session.user_turn is not None and not session.is_subagent:
@@ -1989,6 +2006,23 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
         while True:
             session.interrupt.clear()
             session.current_turn = queued.turn_id
+            if queued.command is not None:
+                # A slash command's turn (1.55.0): the registry runs it, with
+                # its turn.started/turn.done, in this same FIFO.
+                item = queued.command
+                await core.commands.run(
+                    core, session, item.name, item.args, item.conn, queued.turn_id,
+                    actor=item.actor, caller=item.caller,
+                )
+                if not session.queued_turns:
+                    break
+                queued = session.queued_turns.pop(0)
+                waited = True
+                await core.hub.emit_event(
+                    session.id,
+                    events.turn_dequeued(queued.turn_id, "started", len(session.queued_turns)),
+                )
+                continue
             await run_turn(
                 core,
                 session,
@@ -2039,6 +2073,10 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
             )
     finally:
         session.current_turn = None
+
+
+#: The session FIFO runner, for the command registry (1.55.0).
+drain_turns = _drain_turns
 
 
 async def run_turn(
@@ -2136,7 +2174,11 @@ async def run_turn(
                 content=_redact_command_text(f"Turn failed ({exc.code}): {exc}"),
             )
         )
-        await hub.emit_event(session.id, events.error(exc.code, str(exc)))
+        details = getattr(exc, "details", None)
+        await hub.emit_event(
+            session.id,
+            events.error(exc.code, str(exc), details if isinstance(details, dict) else None),
+        )
         reason = "error"
         await finish_turn(core, session, turn_id, reason)
     except Exception as exc:  # noqa: BLE001 - a bug ends the turn, never the daemon
@@ -2651,7 +2693,9 @@ async def _drive(
                 await hub.emit_event(
                     session.id, events.hook_continue(OVERFLOW_NOTE, 1, "overflow", 1)
                 )
-                compacted = await compaction.compact_session(core, session, auto=True)
+                compacted = await compaction.compact_session(
+                    core, session, auto=True, reason="overflow"
+                )
                 if not compacted.compacted:
                     raise
                 specs = core.tools.specs(session)
@@ -2671,7 +2715,9 @@ async def _drive(
                 await hub.emit_event(
                     session.id, events.hook_continue(OVERFLOW_NOTE, 1, "overflow", 1)
                 )
-                compacted = await compaction.compact_session(core, session, auto=True)
+                compacted = await compaction.compact_session(
+                    core, session, auto=True, reason="overflow"
+                )
                 if not compacted.compacted:
                     raise
                 specs = core.tools.specs(session)
@@ -3028,6 +3074,11 @@ async def _ask_to_continue(core: Core, session: Session, config: AgentConfig) ->
 
 #: A skill body longer than this is injected as a pointer to skill_view instead.
 AUTO_INJECT_BODY_LIMIT = 8000
+#: Skills auto-injected into one turn at most, and their bytes (1.55.0).
+AUTO_INJECT_MAX_PER_TURN = 2
+AUTO_INJECT_TURN_BYTES = 12_000
+#: Bytes of auto-injected skills one session takes in at most (1.55.0).
+AUTO_INJECT_SESSION_BYTES = 40_000
 
 
 async def _auto_inject_skills(
@@ -3037,35 +3088,57 @@ async def _auto_inject_skills(
 
     Each skill comes in once per session, as a user-role note right after the
     prompt: its body when short, else a pointer to ``skill_view``
-    (addendum 2 §P). Matching is a case-insensitive substring test, so
-    "구글" and "Google" both work.  A skill in ``skip`` (one the browser host's
-    note covers, 1.37.0) waits: it is not marked as brought in.
+    (addendum 2 §P).  A keyword counts as a whole word or phrase, any case, a
+    Korean one also with a particle after it (``skills/auto_inject.py``):
+    "Google" and "구글에서" match, "글" inside "글로벌" does not.  At most
+    :data:`AUTO_INJECT_MAX_PER_TURN` skills and :data:`AUTO_INJECT_TURN_BYTES`
+    come in per turn, :data:`AUTO_INJECT_SESSION_BYTES` per session; a skill
+    left out by a cap is not marked and may come in on a later turn.  A skill
+    in ``skip`` (one the browser host's note covers, 1.37.0) waits too.
     """
+    from snowpea_core.skills.auto_inject import first_match
+
     loader = getattr(core, "skills", None)
     skills = getattr(loader, "skills", None)
     if not text or not isinstance(skills, dict):
         return []
-    folded = text.casefold()
     injected: list[str] = []
     done = session.auto_injected_skills
     enabled = getattr(loader, "enabled", None)
+    turn_bytes = 0
     for skill in skills.values():
         doc = skill.doc
         if not doc.auto_inject or doc.name in done or doc.name in skip:
             continue
         if callable(enabled) and not enabled(skill):
             continue
-        hit = next((word for word in doc.auto_inject if word.casefold() in folded), None)
+        hit = first_match(list(doc.auto_inject), text)
         if hit is None:
             continue
-        done.add(doc.name)
+        why = f"auto-injected: your message contains “{hit}”"
         if len(doc.body) <= AUTO_INJECT_BODY_LIMIT:
-            note = f"[skill {doc.name} applies here (matched “{hit}”); follow it]\n\n{doc.body}"
+            note = f"[skill {doc.name} applies here ({why}); follow it]\n\n{doc.body}"
         else:
             note = (
-                f"[skill {doc.name} applies here (matched “{hit}”). Read it with "
+                f"[skill {doc.name} applies here ({why}). Read it with "
                 f'skill_view("{doc.name}") before you act.]'
             )
+        size = len(note.encode("utf-8"))
+        spent = getattr(session, "auto_injected_bytes", 0) or 0
+        if len(injected) >= AUTO_INJECT_MAX_PER_TURN or turn_bytes + size > AUTO_INJECT_TURN_BYTES:
+            log.debug("skill %s matched %r but the per-turn cap is reached", doc.name, hit)
+            continue
+        if spent + size > AUTO_INJECT_SESSION_BYTES:
+            log.debug("skill %s matched %r but the session cap is reached", doc.name, hit)
+            continue
+        log.debug(
+            "auto-injecting skill %s into %s: keyword %r matched, %d bytes (%s)",
+            doc.name, getattr(session, "id", "?"), hit, size,
+            "body" if len(doc.body) <= AUTO_INJECT_BODY_LIMIT else "pointer",
+        )
+        done.add(doc.name)
+        turn_bytes += size
+        session.auto_injected_bytes = spent + size
         session.history.append(
             ChatMessage(
                 role="user", content=note, source=history_mod.source("skills", "instructions")
@@ -3140,7 +3213,11 @@ def _narrowed_refusal(session: Session, name: str) -> str:
     allowed = sorted(
         deferred_tools.narrowed(getattr(session, "allowed_tools", None), session) or ()
     )
-    return f"{name} is not available to this agent; its tools are: {', '.join(allowed)}"
+    message = f"{name} is not available to this agent; its tools are: {', '.join(allowed)}"
+    from snowpea_core.tools import tool_hints
+
+    hint = tool_hints.helper_note(session, name) or tool_hints.unavailable_note(session, name)
+    return f"{message}. {hint}" if hint else message
 
 
 async def _run_one_call(
@@ -3167,8 +3244,17 @@ async def _run_one_call(
             # "unknown tool", which sends the model hunting for substitutes.
             await _fail_call(core, session, call, gone.message(call.name))
             return None
+        from snowpea_core.tools import tool_hints
+
+        helper = tool_hints.helper_note(session, call.name)
+        if helper is not None:
+            await _fail_call(core, session, call, helper)
+            return None
         close = call_fixups.suggestions(call.name, core.tools.names())
         hint = f"; did you mean {', '.join(close)}?" if close else ""
+        unavailable = tool_hints.unavailable_note(session, call.name)
+        if unavailable:
+            hint = f"{hint}. {unavailable}"
         await _fail_call(core, session, call, f"unknown tool: {call.name}{hint}")
         return None
     unparsed = call_fixups.unparsed_message(call.name, call.arguments)
@@ -3300,10 +3386,55 @@ async def _run_one_call(
             return "denied"
 
     await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
+    # From here on the card is "running" on every surface: whatever happens —
+    # a cancelled task (daemon shutdown, a parallel sibling's interrupt), an
+    # exception in a hook or in the cleanup — the call ends with a tool.result.
+    settled = [False]
+    try:
+        return await _run_started_call(
+            core, session, backend, tool, call, tag, turn_id, settled
+        )
+    except asyncio.CancelledError:
+        if not settled[0]:
+            await _settle_started_call(core, session, call, "cancelled")
+        raise
+    except Exception as exc:  # noqa: BLE001 - a bug after tool.call is a failed call
+        if settled[0]:
+            raise
+        log.exception("tool call %s (%s) failed outside the tool", call.id, call.name)
+        await _settle_started_call(core, session, call, f"{type(exc).__name__}: {exc}")
+        return None
+
+
+async def _settle_started_call(
+    core: Core, session: Session, call: ToolCall, error: str
+) -> None:
+    """The ``tool.result`` (and history entry) of a started call that did not finish."""
+    try:
+        await _fail_call(core, session, call, error)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - best effort while unwinding
+        log.debug("could not settle tool call %s", call.id, exc_info=True)
+
+
+async def _run_started_call(
+    core: Core,
+    session: Session,
+    backend: Any,
+    tool: Tool,
+    call: ToolCall,
+    tag: str,
+    turn_id: str,
+    settled: list[bool],
+) -> str | None:
+    """Run a call whose ``tool.call`` went out; ``settled[0]`` once its result did."""
+    hub = core.hub
     # Plugin hooks (M6 contract §1): PreToolUse may refuse the call with exit 2.
     blocked = await plugin_hooks.pre_tool_use(core, session, call.name, dict(call.arguments))
     if blocked is not None:
         await _fail_call(core, session, call, f"{plugin_hooks.BLOCKED_PREFIX}: {blocked}")
+        settled[0] = True
         return None
     ctx = ToolContext(
         session=session,
@@ -3433,6 +3564,7 @@ async def _run_one_call(
             meta=host_tools_mod.event_meta(result.meta, tool=call.name),
         ),
     )
+    settled[0] = True
     if result.diff:
         await hub.emit_event(
             session.id, events.diff(result.path or "", result.diff, call_id=call.id)

@@ -157,11 +157,17 @@ def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -
     if not append or not session_can_see_images(core, session):
         pending.clear()
         return
+    from snowpea_core.tools.host_tools import snapshot_tab
+
     attachments: list[Attachment] = []
     ephemeral: list[bool] = []
+    tabs: list[str | None] = []
     segments: list[str] = []
     for source, result in pending:
         labels: list[str] = []
+        # A view of a tab the host marked as a snapshot (meta kind "snapshot",
+        # tab), whatever else the result says: a newer view stubs it (1.55.0).
+        tab = snapshot_tab(result.meta)
         for image_meta in _image_metas(result):
             path = str(image_meta.get("path") or "").strip()
             raw_b64 = image_meta.get("bytes_b64")
@@ -175,6 +181,7 @@ def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -
                 continue
             attachments.append(attachment)
             ephemeral.append(image_meta.get("ephemeral") is True)
+            tabs.append(tab)
             labels.append(path or name)
         if labels:
             segments.append(f"{source}: {', '.join(labels)}")
@@ -184,6 +191,10 @@ def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -
     label = f"(images from {'; '.join(segments)})"
     blocks = content_parts.history_blocks(label, attachments)
     _mark_ephemeral(blocks, ephemeral)
+    attachment_blocks = [b for b in blocks if b.get("type") in ("image", "file")]
+    for block, tab_id in zip(attachment_blocks, tabs, strict=False):
+        if tab_id and block.get("type") == "image":
+            block["snapshotTab"] = tab_id
     session.history.append(ChatMessage(role="user", content=blocks))
 
 

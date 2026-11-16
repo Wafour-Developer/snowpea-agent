@@ -19,6 +19,7 @@ from snowpea_core.server.protocol import (
     CheckpointRestoreSkipped,
     CheckpointUpdated,
     CommandProgress,
+    CommandResultEvent,
     CompactionEvent,
     CompactionStarted,
     ContextEvent,
@@ -173,12 +174,15 @@ def tool_progress(
     chunk: str = "",
     seq: int = 0,
     truncated: bool = False,
+    state: str | None = None,
+    note: str | None = None,
 ) -> Event:
     """Output a still-running tool has produced so far (IDE-PROGRESS D2).
 
     Advisory: ``tool.result`` stays the authoritative record of the call.
+    ``state``/``note`` (1.55.0) appear only when a host reported a state.
     """
-    return _pack(
+    kind, data = _pack(
         ToolProgress(  # type: ignore[arg-type]
             callId=call_id,
             name=name,
@@ -186,8 +190,14 @@ def tool_progress(
             chunk=chunk,
             seq=seq,
             truncated=truncated,
+            state=state if state in ("running", "waiting") else None,
+            note=(note or None) if state in ("running", "waiting") else None,
         )
     )
+    for key in ("state", "note"):
+        if data.get(key) is None:
+            data.pop(key, None)
+    return kind, data
 
 
 def diff(path: str, patch: str, *, call_id: str | None = None) -> Event:
@@ -393,6 +403,7 @@ def context(
     model: str | None = None,
     provider: str | None = None,
     window_source: str | None = None,
+    auto_compact_at: int | None = None,
 ) -> Event:
     """How full the context window is; ``percent`` is derived here (CORE-context)."""
     percent = round(used * 100.0 / window, 1) if window else None
@@ -405,25 +416,40 @@ def context(
             model=model,
             provider=provider,
             contextWindowSource=window_source,  # type: ignore[arg-type]
+            autoCompactAt=auto_compact_at,
         )
     )
 
 
 def compaction(
-    before: int, after: int, summary_chars: int, *, auto: bool = False, kept: int = 0
+    before: int,
+    after: int,
+    summary_chars: int,
+    *,
+    auto: bool = False,
+    kept: int = 0,
+    reason: str | None = None,
 ) -> Event:
     """The conversation was summarised and replaced (CORE-context)."""
     return _pack(
         CompactionEvent(
-            before=before, after=after, summaryChars=summary_chars, auto=auto, kept=kept
+            before=before,
+            after=after,
+            summaryChars=summary_chars,
+            auto=auto,
+            kept=kept,
+            reason=reason or ("auto" if auto else "manual"),  # type: ignore[arg-type]
         )
     )
 
 
-def compaction_started(before: int, *, auto: bool = False) -> Event:
+def compaction_started(before: int, *, auto: bool = False, reason: str | None = None) -> Event:
     """Compaction is about to run; ``compaction`` reports how it went."""
     return _pack(
-        CompactionStarted(reason="auto" if auto else "manual", before=before)  # type: ignore[arg-type]
+        CompactionStarted(
+            reason=reason or ("auto" if auto else "manual"),  # type: ignore[arg-type]
+            before=before,
+        )
     )
 
 
@@ -435,8 +461,34 @@ def context_host(turn_id: str, chars: int) -> Event:
     return _pack(ContextHostEvent(turnId=turn_id, chars=chars))
 
 
-def error(code: str, message: str) -> Event:
-    return _pack(ErrorEvent(code=code, message=message))
+def command_result(
+    command_id: str,
+    command: str,
+    ok: bool,
+    text: str = "",
+    *,
+    applies_from: str | None = None,
+    running_turn_id: str | None = None,
+) -> Event:
+    """An instant command that ran beside a running turn (1.55.0)."""
+    return _pack(
+        CommandResultEvent(
+            commandId=command_id,
+            command=command,
+            ok=ok,
+            text=text,
+            appliesFrom=applies_from,  # type: ignore[arg-type]
+            runningTurnId=running_turn_id,
+        )
+    )
+
+
+def error(code: str, message: str, details: dict[str, Any] | None = None) -> Event:
+    """A turn-level error; ``details`` (1.55.0) is left off the wire when empty."""
+    kind, data = _pack(ErrorEvent(code=code, message=message, details=details or None))
+    if data.get("details") is None:
+        data.pop("details", None)
+    return kind, data
 
 
 def audio_spoken(
