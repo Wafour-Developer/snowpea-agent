@@ -316,7 +316,7 @@ REMOTE_PATCHES: list[tuple[dict[str, Any], bool]] = [
     ({"providers": {"openai": {"base_url": "https://elsewhere.example/v1"}}}, False),
     ({"providers": {"openai": {"base_url": None}}}, False),
     ({"providers": {"openai": {"model": "m"}}}, True),
-    ({"providers": {"openai": {"api_key": "k"}}}, True),
+    ({"providers": {"openai": {"api_key": "k"}}}, False),  # review 8, M-1 (was allowed)
     ({"providers": {"default": "openai"}}, True),
     ({"skills": {"registry": {"url": "https://elsewhere.example"}}}, False),
     ({"skills": {"disabled": ["x"]}}, True),
@@ -357,7 +357,7 @@ def test_every_never_key_is_a_key_the_remote_table_would_allow() -> None:
         (REMOTE, {"base_url": None}, True),
         (REMOTE, {"preset": "local", "base_url": "http://10.0.0.5:8000/v1"}, True),
         (REMOTE, {"model": "m"}, False),
-        (REMOTE, {"api_key": "k"}, False),
+        (REMOTE, {"api_key": "k"}, True),  # review 8, M-1 (was allowed)
         (PERSON, {"base_url": "https://elsewhere.example/v1"}, False),
         (_conn("browser", client_id="b-2"), {"base_url": "https://elsewhere.example/v1"}, True),
     ],
@@ -457,7 +457,8 @@ STARTS_A_PROCESS: dict[str, str] = {
     "session.resume": "fixed", "lsp.install": "fixed", "lsp.restart": "fixed",
     "audio.install": "fixed", "audio.speak": "fixed",
     "audio.record.start": "fixed", "audio.record.stop": "fixed",
-    "provider.loginWeb": "fixed", "external.create": "fixed", "external.open": "fixed",
+    "provider.loginWeb": "refused",  # security review 8, M-1 (it was "fixed")
+    "external.create": "fixed", "external.open": "fixed",
     "external.send": "fixed", "checkpoint.restore": "fixed", "checkpoint.diff": "fixed",
     "file.complete": "fixed", "gateway.sync": "fixed", "system.reloadSettings": "fixed",
     "session.prompt": "turn", "session.steer": "turn", "session.continue": "turn",

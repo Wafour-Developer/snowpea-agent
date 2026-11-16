@@ -157,8 +157,14 @@ async def get(core: Core) -> JarvisBriefing:
     )
 
 
-async def sync(core: Core) -> None:
-    """Make the scheduler job match ``settings.jarvis.briefing`` (create, change, or drop it)."""
+async def sync(core: Core, who: Any = None) -> None:
+    """Make the scheduler job match ``settings.jarvis.briefing`` (create, change, or drop it).
+
+    ``who``: the caller snapshot of whoever changed the briefing (``None``: the
+    daemon itself, at start).  A new job goes through the one scheduler entry
+    point (``scheduler.access.schedule_job``) with its creator recorded
+    (security review 8, H8-2).
+    """
     scheduler = getattr(core, "scheduler", None)
     if scheduler is None:
         return
@@ -170,12 +176,17 @@ async def sync(core: Core) -> None:
         return
     task = settings.instructions.strip() or "Jarvis briefing"
     if job is None:
-        await scheduler.schedule(
+        from snowpea_core.scheduler.access import schedule_job
+        from snowpea_core.server.person_gate import NOBODY
+
+        await schedule_job(
+            core,
+            who if who is not None else NOBODY,
             settings.schedule,
             task,
+            via="rpc",
             mode="accept",
             title="Briefing",
-            created_via="rpc",
             target="jarvis-task",
             target_data=job_data(),
             timezone=settings.timezone,
@@ -205,8 +216,26 @@ async def set_briefing(
     instructions: str | None = None,
     timezone: str | None = None,
     sections: list[str] | None = None,
+    who: Any = None,
 ) -> JarvisBriefing:
-    """``jarvis.briefing.set``: validate everything first, then write and sync."""
+    """``jarvis.briefing.set``: validate everything first, then write and sync.
+
+    ``who``: the caller (a connection, a snapshot, ``None`` in-process).
+    Security review 8, H8-2: the briefing is a recurring Jarvis task carrying
+    "the person's words", kept on this computer — anyone but a local person
+    (or the daemon) may only turn it OFF; anything else is
+    ``jarvis_person_only`` with ``details.reason: "local_only"``.
+    """
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(who) not in ("person", "none") and (
+        enabled is not False
+        or any(value is not None for value in (schedule, instructions, timezone, sections))
+    ):
+        settings_gate.refuse_local_only(
+            who, core, "change the briefing (it may only be turned off from here)",
+            method="jarvis.briefing.set", detail="briefing")
     settings = core.settings.jarvis.briefing
     new_schedule = _check_schedule(schedule) if schedule is not None else None
     new_zone = _check_zone(timezone) if timezone is not None else None
@@ -231,7 +260,7 @@ async def set_briefing(
     service = service_of(core)
     await service._save_settings()
     try:
-        await sync(core)
+        await sync(core, who)
     except ValueError as exc:
         raise JarvisError("invalid_params", str(exc)) from exc
     await service._announce_settings()

@@ -220,6 +220,14 @@ def person_refusal(
             "handing guarded classes to Jarvis needs a local connection "
             "(IDE, TUI or the local web page), not a remote web login"
         )
+    if caller.remote and grant:
+        # Security review 8, H8-2: a grant persists — a remote web login (not
+        # re-authenticated) may take authority away and take over or hand back
+        # a session, never create or widen a grant.
+        return (
+            "giving Jarvis authority needs a local connection "
+            "(IDE, TUI or the local web page), not a remote web login"
+        )
     return None
 
 

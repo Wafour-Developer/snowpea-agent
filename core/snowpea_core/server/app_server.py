@@ -520,8 +520,14 @@ async def allowlist_add_handler(
     if problem is not None:
         raise RpcError(errors.INVALID_PARAMS, f"bad allowlist pattern: {problem}",
                        {"reason": "catch_all"})
+    from snowpea_core.config.project import ProjectSettingsUnsafe
+
     try:
         pattern_id = core.allowlist.add(params.pattern, store, SHELL_TARGET, workdir=workdir)
+    except ProjectSettingsUnsafe as exc:
+        from snowpea_core.server.project_gate import unsafe_write
+
+        raise unsafe_write(exc) from exc
     except (ValueError, re.error) as exc:
         raise RpcError(errors.INVALID_PARAMS, f"bad allowlist pattern: {exc}") from exc
     return AllowlistAddResult(patternId=pattern_id)
@@ -584,6 +590,15 @@ def register_permission_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
 # ---------------------------------------------------------------------------
 
 
+def _settings_write_failed(exc: OSError) -> RpcError:
+    """``settings.json`` could not be written: an id for the caller, the text
+    (a path, the OS's words) in the log only (security review 8, Low)."""
+    error_id = errors.new_error_id()
+    log.error("could not write settings.json (error id %s): %s", error_id, exc)
+    return RpcError(errors.INTERNAL, f"could not write settings.json (id {error_id})",
+                    {"errorId": error_id})
+
+
 #: ``provider.configure`` keys that only tune a vendor that is already set up.
 _TUNING_KEYS = frozenset({"context_window", "context_windows"})
 
@@ -606,7 +621,7 @@ async def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> 
     try:
         core.settings.save(core.paths)
     except OSError as exc:  # pragma: no cover - disk failure
-        raise RpcError(errors.INTERNAL, f"could not write settings.json: {exc}") from exc
+        raise _settings_write_failed(exc) from exc
     core.mark_settings_saved()
     await core.notify_settings_changed(["providers"])
 
@@ -668,16 +683,23 @@ async def provider_configure_handler(
         reject_masked_secrets(config)
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    if "base_url" in config:
-        from snowpea_core.server import settings_gate
-        from snowpea_core.server.person_gate import connection_kind
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.person_gate import connection_kind
 
-        if connection_kind(_conn) == "remote_login":
+    if connection_kind(_conn) == "remote_login":
+        if "base_url" in config:
             # Security review 6, M-4: the endpoint decides where every prompt and
             # credential of this vendor goes (the same rule as settings.set).
             settings_gate.refuse_local_only(
                 _conn, core, f"change the base URL of provider {params.vendor}",
                 method="provider.configure", detail="base_url")
+        if any(config.get(name) is not None
+               for name in settings_gate.PROVIDER_CREDENTIAL_FIELDS):
+            # Security review 8, M-1: a key or a sign-in is the account the
+            # owner's traffic and billing go to (clearing one stays open).
+            settings_gate.refuse_local_only(
+                _conn, core, f"set the key or sign-in of provider {params.vendor}",
+                method="provider.configure", detail="credential")
 
     if config and all(value is None for value in config.values()):
         # A patch of nothing but ``None`` is a deliberate "forget this vendor",
@@ -705,7 +727,7 @@ async def provider_remove_handler(
     try:
         core.settings.save(core.paths)
     except OSError as exc:  # pragma: no cover - disk failure
-        raise RpcError(errors.INTERNAL, f"could not write settings.json: {exc}") from exc
+        raise _settings_write_failed(exc) from exc
     core.mark_settings_saved()
     await core.notify_settings_changed(["providers"])
     return Ok(ok=True)

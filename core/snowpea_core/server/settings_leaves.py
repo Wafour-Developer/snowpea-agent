@@ -73,7 +73,9 @@ COMMAND_LIKE: dict[str, tuple[str, frozenset[str]]] = {
     "mcp.servers.*.oauth": (SECRET, REMOTE_ONLY),
     "mcp.allowVars": (SECRET, NOBODY),  # which variables an untrusted entry may send
     "providers.*.base_url": (ENDPOINT, BROWSER_PAGE),
-    "providers.*.api_key": (SECRET, BROWSER_PAGE_AND_REMOTE),
+    # Security review 8, M-1: a remote login no longer swaps the owner's key
+    # (traffic, billing and logs would move to its account).
+    "providers.*.api_key": (SECRET, BROWSER_PAGE),
     "skills.registry.url": (ENDPOINT, BROWSER_PAGE),
     "skills.registry.token": (SECRET, BROWSER_PAGE),
     "gateway.*.token": (SECRET, BROWSER_PAGE),
@@ -96,6 +98,85 @@ COMMAND_LIKE: dict[str, tuple[str, frozenset[str]]] = {
 #: Schema leaves that are open mappings (``Any``): the fields inside them that
 #: are command-like are listed in :data:`COMMAND_LIKE` one level down.
 OPEN: frozenset[str] = frozenset({"providers.*", "gateway.*", "mcp.servers.*.*"})
+
+# -- free-form blocks: classified by KEY SHAPE (security review 8, H8-1) ------------
+
+#: A field name that names an address requests go to: equal to or ending in one
+#: of these, case-insensitively (``url``, ``base_url``, ``baseUrl``,
+#: ``SEARXNG_URL``, ``endpoint``, ``host``, ``proxy``, ``verification_uri``).
+ENDPOINT_SUFFIXES: tuple[str, ...] = ("url", "uri", "endpoint", "host", "proxy")
+
+
+def endpoint_key(name: str) -> bool:
+    """``name`` (one field of a free-form block) is shaped like an address."""
+    lowered = str(name).strip().lower()
+    return any(lowered.endswith(suffix) for suffix in ENDPOINT_SUFFIXES)
+
+
+#: Free-form blocks (``dict[str, Any]`` in the schema) whose fields the daemon
+#: reads BY NAME: an endpoint-shaped field (:func:`endpoint_key`) inside one is
+#: an :data:`ENDPOINT`, whoever may write the rest of the block.  The block is
+#: written as a pattern (``*``: any key); the field is the next key down.
+#: Who besides a local person may write such a field — the browser's Settings
+#: page keeps today's rule (its inventory lists ``search``, ``browser``,
+#: ``providers`` and ``gateway``), a remote login never
+#: (``settings_gate.REMOTE_LOGIN_NEVER_SHAPES``).
+ENDPOINT_SHAPED: dict[str, frozenset[str]] = {
+    # tools/search_providers/base.py credentials_for: base_url / baseUrl / url,
+    # and <NAME>_URL from the daemon's environment.
+    "search.credentials.*": BROWSER_PAGE,
+    # tools/browser_providers/__init__.py credentials_for: the same, plus a
+    # field named after an environment variable (FIRECRAWL_URL, firecrawl_url).
+    "browser.credentials.*": BROWSER_PAGE,
+    # providers/registry.py base_url_for, providers/presets.py (base_url).
+    "providers.*": BROWSER_PAGE,
+    # gateway/router.py reads token, app_token, ids, workdir, mode: no address
+    # today; any address-shaped field a platform adds is covered in advance.
+    "gateway.*": BROWSER_PAGE,
+}
+
+#: Every free-form leaf of the schema (an ``Any`` value), and what governs it.
+#: ``tests/test_security_review8_settings.py`` fails for one not listed here.
+FREE_FORM: dict[str, str] = {
+    "search.credentials.*.*": "endpoint-shaped fields: ENDPOINT_SHAPED; the rest a secret",
+    "browser.credentials.*.*": "endpoint-shaped fields: ENDPOINT_SHAPED; the rest a secret",
+    "providers.*": "endpoint-shaped fields: ENDPOINT_SHAPED; credentials: COMMAND_LIKE",
+    "gateway.*": "endpoint-shaped fields: ENDPOINT_SHAPED; identity: COMMAND_LIKE",
+    "mcp.servers.*.*": "settings_gate.remote_mcp_* (launch fields, target of a saved entry)",
+    "lsp.servers.*.*": "a program: COMMAND_LIKE (browser page only)",
+    "extensions.*.*": "the daemon's own code: COMMAND_LIKE (nobody)",
+    "agent.effortMap.*": "model -> effort level; read by providers/effort.py, no address",
+}
+
+
+def free_form_leaves(model: Any = None) -> set[str]:
+    """Schema leaves whose value is free-form (``Any``): a block of fields the
+    schema does not name, read by whatever component owns it."""
+    from pydantic import BaseModel
+
+    from snowpea_core.config.settings import Settings
+
+    found: set[str] = set()
+
+    def walk(annotation: Any, prefix: tuple[str, ...]) -> None:
+        if annotation is Any:
+            found.add(".".join(prefix))
+            return
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            for name, field in annotation.model_fields.items():
+                walk(field.annotation, (*prefix, name))
+            return
+        origin, args = typing.get_origin(annotation), typing.get_args(annotation)
+        if origin in (dict, typing.Mapping) and len(args) == 2:
+            walk(args[1], (*prefix, "*"))
+        elif origin in (typing.Union, types.UnionType):
+            for arg in args:
+                walk(arg, prefix)
+        elif origin in (list, tuple) and args:
+            walk(args[0], (*prefix, "[]"))
+
+    walk(model if model is not None else Settings, ())
+    return found
 
 #: Every other leaf, by section (names relative to it).
 PLAIN: dict[str, str] = {
@@ -253,7 +334,11 @@ def looks_like_a_command(leaf: str) -> bool:
 __all__ = [
     "COMMAND_LIKE",
     "COMMAND_WORDS",
+    "ENDPOINT_SHAPED",
+    "FREE_FORM",
     "OPEN",
+    "endpoint_key",
+    "free_form_leaves",
     "PLAIN",
     "PLAIN_BY_REVIEW",
     "covered",
