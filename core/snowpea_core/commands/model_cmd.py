@@ -130,6 +130,7 @@ async def _set_default(ctx: CommandContext, profile_id: str) -> None:
         await ctx.say(f"model: unknown profile {profile_id!r}; known profiles: {known}")
         return
     settings.models.default = profile_id
+    settings.set_section("models")
     settings.save(ctx.core.paths)
     ctx.core.mark_settings_saved()
     await ctx.say(f"default model profile is now {profile_id}")

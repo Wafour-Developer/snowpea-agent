@@ -380,6 +380,87 @@ async def test_a_reload_with_no_changed_key_still_follows_the_mark(tmp_path: Pat
     assert json.loads(paths.settings_json.read_text("utf-8"))["web"] == {"remote": {"port": "y"}}
 
 
+def _degraded(tmp_path: Path, section: str) -> tuple[Paths, Settings]:
+    """A file whose ``section`` and ``web`` do not validate, loaded as the daemon would."""
+    paths = Paths.create(tmp_path / "home")
+    data = Settings().model_dump(mode="json")
+    data[section] = 5
+    data["web"] = {"remote": {"port": "x"}}
+    paths.settings_json.write_text(json.dumps(data), "utf-8")
+    settings = Settings.load(paths)
+    assert settings.degraded_sections() == sorted([section, "web"])
+    return paths, settings
+
+
+def _after_save(paths: Paths, settings: Settings, section: str) -> Any:
+    """The section as written; the in-place change cleared only its own mark."""
+    assert settings.degraded_sections() == ["web"]
+    on_disk = json.loads(paths.settings_json.read_text("utf-8"))
+    assert on_disk["web"] == {"remote": {"port": "x"}}             # still raw
+    assert on_disk[section] == settings.model_dump(mode="json")[section]
+    return on_disk[section]
+
+
+def test_an_in_place_provider_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.providers.registry import ProviderRegistry
+
+    paths, settings = _degraded(tmp_path, "providers")
+    registry = ProviderRegistry(settings, paths)
+    registry.configure("openai", {"api_key": "sk-test"})
+    registry.save()
+    assert _after_save(paths, settings, "providers")["openai"]["api_key"] == "sk-test"
+
+
+def test_an_in_place_allowlist_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.permissions.allowlist import Allowlist
+
+    paths, settings = _degraded(tmp_path, "allowlist")
+    Allowlist(paths, settings).add("^ls$", scope="global")
+    assert [e["pattern"] for e in _after_save(paths, settings, "allowlist")] == ["^ls$"]
+
+
+async def test_an_in_place_handler_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.server.extension_handlers import _save
+
+    paths, settings = _degraded(tmp_path, "extensions")
+    settings.extensions["demo"] = {"enabled": False}
+    await _save(SimpleNamespace(settings=settings, paths=paths))  # type: ignore[arg-type]
+    assert _after_save(paths, settings, "extensions") == {"demo": {"enabled": False}}
+
+
+async def test_an_in_place_jarvis_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.jarvis.service import JarvisService
+
+    paths, settings = _degraded(tmp_path, "jarvis")
+    settings.jarvis.enabled = True
+    await JarvisService._save_settings(  # type: ignore[arg-type]
+        SimpleNamespace(core=SimpleNamespace(settings=settings, paths=paths)))
+    assert _after_save(paths, settings, "jarvis")["enabled"] is True
+
+
+async def test_an_in_place_slash_command_change_is_written(tmp_path: Path) -> None:
+    from snowpea_core.commands.mode_cmd import cmd_busy
+
+    paths, settings = _degraded(tmp_path, "agent")
+    said: list[str] = []
+
+    async def say(text: str) -> None:
+        said.append(text)
+
+    ctx = SimpleNamespace(core=SimpleNamespace(settings=settings, paths=paths,
+                                               mark_settings_saved=lambda: None), say=say)
+    await cmd_busy(ctx, "queue")  # type: ignore[arg-type]
+    assert _after_save(paths, settings, "agent")["busy"] == "queue"
+
+
+def test_the_setup_wizard_writes_what_it_answered(tmp_path: Path) -> None:
+    from snowpea_core.setup.state import WizardState
+
+    paths, settings = _degraded(tmp_path, "search")
+    WizardState.from_settings(settings).write(paths, settings)
+    _after_save(paths, settings, "search")
+
+
 def test_the_new_reason_is_enumerated() -> None:
     assert errors.DETAIL_REASONS["settings_unreadable"][0] == errors.INVALID_PARAMS
 

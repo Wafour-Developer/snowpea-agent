@@ -1253,6 +1253,11 @@ class Settings(_Model):
                               if s in self._degraded}
         return self
 
+    def set_section(self, *names: str) -> Settings:
+        """``names`` were just set in place (by a person or the daemon): they are no
+        longer degraded, so :meth:`save` writes their values, not the raw ones."""
+        return self.carry_degraded(self, names)
+
     def mark_degraded(self, sections: list[str], *, close: bool = True) -> Settings:
         """Record ``sections`` as degraded and (``close``) make the gated ones fail CLOSED.
 

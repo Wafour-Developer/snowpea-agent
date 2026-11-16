@@ -592,13 +592,16 @@ async def cmd_setup(ctx: CommandContext, args: str) -> None:
         except Exception as exc:  # noqa: BLE001 - one bad screen, not a dead command
             log.exception("/setup %s failed", name)
             lines.append(f"{name}: {type(exc).__name__}: {exc}")
-    _save(ctx)
+    _save(ctx, *wanted)
     await ctx.say("\n".join(lines) or "nothing changed")
 
 
-def _save(ctx: CommandContext) -> None:
-    """Persist settings, the same file ``snowpea setup`` writes."""
+def _save(ctx: CommandContext, *sections: str) -> None:
+    """Persist settings, the same file ``snowpea setup`` writes; ``sections`` were set."""
     try:
+        set_section = getattr(ctx.core.settings, "set_section", None)
+        if callable(set_section):
+            set_section(*sections)
         ctx.core.settings.save(ctx.core.paths)
     except Exception:  # noqa: BLE001 - the answers are still in memory
         log.exception("could not save settings")
@@ -660,7 +663,7 @@ async def cmd_login(ctx: CommandContext, args: str) -> None:
             await ctx.say(f"{vendor}: nothing entered — left unconfigured")
             return
         _store_vendor_key(ctx.core.settings, vendor, key)
-        _save(ctx)
+        _save(ctx, "providers")
         await ctx.say(f"{vendor}: key saved")
         return
 
@@ -675,7 +678,7 @@ async def cmd_login(ctx: CommandContext, args: str) -> None:
         block = dict(providers.get(vendor) or {})
         block.update({k: v for k, v in credentials.items() if v})
         providers[vendor] = block
-    _save(ctx)
+    _save(ctx, "providers")
     await ctx.say(getattr(result, "message", None) or f"{vendor}: signed in")
 
 

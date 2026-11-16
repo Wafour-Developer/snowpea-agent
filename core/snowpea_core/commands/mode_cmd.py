@@ -186,6 +186,7 @@ async def cmd_busy(ctx: CommandContext, args: str) -> None:
         return
     if _busy(ctx) != target:
         ctx.core.settings.agent.busy = target  # type: ignore[assignment]
+        ctx.core.settings.set_section("agent")
         ctx.core.settings.save(ctx.core.paths)
         if hasattr(ctx.core, "mark_settings_saved"):
             ctx.core.mark_settings_saved()

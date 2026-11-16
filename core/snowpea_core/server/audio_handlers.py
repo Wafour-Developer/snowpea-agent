@@ -464,6 +464,9 @@ def _after_install(core: Core, result: audio_install.InstallResult) -> None:
             tts.voice = str(voice)
         else:
             return
+        set_section = getattr(core.settings, "set_section", None)
+        if callable(set_section):
+            set_section("audio")
         core.settings.save(core.paths)
     except Exception:  # noqa: BLE001 - the engine is installed either way
         log.info("installed %s but could not record its voice in settings", result.engine)

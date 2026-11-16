@@ -398,6 +398,7 @@ class JarvisService:
     async def _save_settings(self) -> None:
         core = self.core
         try:
+            core.settings.set_section("jarvis")
             core.settings.save(core.paths)
         except OSError as exc:
             raise JarvisError("internal", f"could not write settings.json: {exc}") from exc

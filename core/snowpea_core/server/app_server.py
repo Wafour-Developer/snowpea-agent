@@ -630,6 +630,7 @@ async def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> 
     # a category slot points at on another vendor, must not.
     if any(key not in _TUNING_KEYS for key in config):
         core.settings.providers.setdefault("default", vendor)
+    core.settings.set_section("providers")
     try:
         core.settings.save(core.paths)
     except OSError as exc:  # pragma: no cover - disk failure

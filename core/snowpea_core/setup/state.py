@@ -474,6 +474,9 @@ class WizardState:
         audio: dict[str, Any] = _as_dict(current)
         audio.update(self.audio_block())
         settings.audio = AudioSettings.model_validate(audio)
+        # Every section the wizard answered for is set now (not degraded).
+        settings.set_section("agents", "providers", "models", "search", "browser", "tools",
+                             "skills", "gateway", "audio")
         settings.save(paths)
         return settings
 

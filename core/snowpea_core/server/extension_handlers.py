@@ -69,6 +69,7 @@ async def _named(core: Core, name: str) -> Any:
 
 async def _save(core: Core) -> None:
     try:
+        core.settings.set_section("extensions")
         core.settings.save(core.paths)
     except OSError as exc:  # pragma: no cover - disk failure
         raise RpcError(errors.INTERNAL, f"could not write settings.json: {exc}") from exc
