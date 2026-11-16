@@ -262,8 +262,10 @@ class Core:
             # Security review 9, F3: a file fixed back to what is held (or broken
             # into it) still clears (or records) the degraded state, and the raw
             # value of a section broken on disk is what a later save keeps.
+            before = self.settings.degraded_sections()
             self.settings.carry_degraded(fresh)
-            if told:
+            # Clients show the degraded state: tell them when only it changed.
+            if told or before != self.settings.degraded_sections():
                 await self.notify_settings_changed([])
             return False, []
         hot_reload.rebind(self, fresh)

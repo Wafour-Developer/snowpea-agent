@@ -357,6 +357,12 @@ async def test_a_reload_with_no_changed_key_still_follows_the_mark(tmp_path: Pat
     paths, data = _broken_web(tmp_path)
     core = _core(paths)
     core.hub.clients = list
+    told: list[list[str]] = []
+
+    async def notify(keys: list[str]) -> None:
+        told.append(list(keys))
+
+    core.notify_settings_changed = notify
     assert core.settings.degraded_sections() == ["web"]
     # Fixed on disk to exactly the defaults already in use: no key changes.
     data["web"] = Settings().model_dump(mode="json")["web"]
@@ -367,6 +373,8 @@ async def test_a_reload_with_no_changed_key_still_follows_the_mark(tmp_path: Pat
     assert core.settings.degraded_sections() == []
     assert (await info_handler(PERSON, Empty(), core)).settingsDegraded == []
     assert (await web_status(core)).settingsDegraded == []
+    # Other clients show the degraded state: they are told although no key changed.
+    assert told == [[]]
     # Broken again into a value that loads as those same defaults: no key changes.
     data["web"] = {"remote": {"port": "y"}}
     paths.settings_json.write_text(json.dumps(data), "utf-8")
@@ -376,6 +384,7 @@ async def test_a_reload_with_no_changed_key_still_follows_the_mark(tmp_path: Pat
     assert core.settings.degraded_sections() == ["web"]
     assert (await info_handler(PERSON, Empty(), core)).settingsDegraded == ["web"]
     assert (await web_status(core)).settingsDegraded == ["web"]
+    assert told == [[], []]
     core.settings.save(paths)
     assert json.loads(paths.settings_json.read_text("utf-8"))["web"] == {"remote": {"port": "y"}}
 
