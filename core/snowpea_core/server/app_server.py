@@ -998,7 +998,7 @@ class Daemon:
             log.warning("could not start the external CLI manager", exc_info=True)
 
         dispatcher = build_dispatcher(core)
-        self.app = create_app(dispatcher, daemon=self, core=core)
+        self.app = create_app(dispatcher, daemon=self, core=core, bind_host=self._host)
         # No access log: the local web page's address carries ``?token=`` (security review 5, M4).
         runner = web.AppRunner(self.app, access_log=None)
         await runner.setup()
