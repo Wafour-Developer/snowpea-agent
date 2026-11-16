@@ -160,6 +160,11 @@ class Roots:
                 return True
             if candidate.parent.name == PROJECT_DIR and candidate.name in PROJECT_FILES:
                 return True
+        # Security review 9, F2: the file a linked settings.json points at.
+        from snowpea_core.security.control_plane import is_settings_target
+
+        if is_settings_target(real, self.home):
+            return True
         home = Path(_fold(str(self.home)))
         if _under(folded, home):
             return not any(_under(folded, Path(_fold(str(r)))) for r in self.home_roots)

@@ -122,6 +122,11 @@ def is_snowpea_config_path(path: str, *, workdir: Any = None, home: Any = None) 
     except (OSError, RuntimeError, ValueError):  # pragma: no cover - unresolvable $HOME
         return False
     key, base = pathcase.path_key(resolved), pathcase.path_key(snowpea_home)
+    # Security review 9, F2: the file a linked settings.json points at IS it.
+    from snowpea_core.security.control_plane import is_settings_target
+
+    if is_settings_target(resolved, snowpea_home):
+        return True
     if _under(key, base):
         if _in_session_workspace(resolved, snowpea_home):
             return False

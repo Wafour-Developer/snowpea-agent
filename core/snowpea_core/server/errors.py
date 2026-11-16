@@ -147,6 +147,13 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
         "the project's .snowpea/settings.json on disk does not validate: it is left as it is "
         "and not written over with defaults plus the change; fix or remove it first",
     ),
+    "settings_unreadable": (
+        INVALID_PARAMS,
+        "the global settings.json could not be read as a whole (not JSON, not an object, or "
+        "not a regular file of the user's): snowpea runs on defaults and does not write over "
+        "it; details.path is the file, details.invalid the copy kept as it was. Fix the file, "
+        "then system.reloadSettings (or restart) and try again",
+    ),
     "catch_all": (INVALID_PARAMS, "an allowlist pattern that would match every command"),
     "project_add_only": (
         INVALID_PARAMS,

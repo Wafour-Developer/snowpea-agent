@@ -52,7 +52,9 @@ class CredentialStore:
         except FileNotFoundError:
             return {}
         except UnsafePath as exc:
-            log.error("%s; no stored credential is used until it is a plain file", exc)
+            # Review 9, F2: the message names the file (exc does) and the fix.
+            log.error("%s; no stored credential is used until it is a plain file: "
+                      "replace the link with the file itself", exc)
             return {}
         except (OSError, ValueError):
             log.warning("could not read %s; treating it as empty", self.path)

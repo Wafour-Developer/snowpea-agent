@@ -464,9 +464,12 @@ class InfoResult(Payload):
         description=(
             "1.55.0: top-level sections of settings.json that did not validate when it was "
             "read and are NOT what the file says (empty: none). 'security' runs fail-closed "
-            "(the last valid lists, or every preset on with unknownCode 'ask'); 'web' keeps "
+            "(the last valid lists, or the default lists with unknownCode 'ask'); 'web' keeps "
             "remote access off; any other section is at its defaults. The file as it was is "
-            "kept beside it as settings.json.invalid. Show it and offer to fix the file."
+            "kept beside it as settings.json.invalid. '*': the whole file could not be read, "
+            "and settings.set is refused (invalid_params, details.reason "
+            "'settings_unreadable') until it is fixed and reloaded. Show it and offer to fix "
+            "the file."
         ),
     )
 

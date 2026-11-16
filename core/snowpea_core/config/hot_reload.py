@@ -36,21 +36,28 @@ from snowpea_core.config.settings import Settings
 log = logging.getLogger("snowpea.config.hot_reload")
 
 #: :func:`stamp` for a file that does not exist.
-MISSING: tuple[int, int] = (-1, -1)
+MISSING: tuple[int, ...] = (-1, -1)
 
 
-def stamp(path: Path | str) -> tuple[int, int]:
-    """``(mtime_ns, size)`` for ``path``; :data:`MISSING` when it is absent.
+def stamp(path: Path | str) -> tuple[int, ...]:
+    """``(mtime_ns, size, inode, link inode, link mtime_ns)`` for ``path``;
+    :data:`MISSING` when it is absent.
 
     One ``os.stat`` per prompt is cheap enough to run unconditionally, and the
     pair catches both a rewrite that keeps the size and one that keeps the
-    timestamp.
+    timestamp.  Security review 9, F2: ``settings.json`` may be a link to the
+    user's own file; the link itself appearing, going or being re-pointed is
+    an edit too (the ``lstat`` half), and so is a new file at the target.
     """
     try:
-        info = os.stat(path)
+        link = os.lstat(path)
     except OSError:
         return MISSING
-    return (info.st_mtime_ns, info.st_size)
+    try:
+        info = os.stat(path)
+    except OSError:  # a link that leads nowhere
+        return (-2, -2, -2, link.st_ino, link.st_mtime_ns)
+    return (info.st_mtime_ns, info.st_size, info.st_ino, link.st_ino, link.st_mtime_ns)
 
 
 def changed_keys(before: dict[str, Any], after: dict[str, Any]) -> list[str]:

@@ -8,6 +8,7 @@ without running anything.  The logic is :mod:`snowpea_core.security`.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.security import catalog, enforce
@@ -116,8 +117,14 @@ async def get_handler(
     if "security" in degraded or "*" in degraded:
         # Security review 8, Low: the lists did not validate and run fail-closed.
         problems.append(
-            "the security section of settings.json is not valid: every preset is on and "
+            "the security section of settings.json is not valid: the default lists apply and "
             "unknown code asks until it is fixed (the file as it was: settings.json.invalid)")
+    credentials = getattr(core.paths, "credentials_json", None)
+    if credentials is not None and os.path.islink(credentials):
+        # Security review 9, F2: stored credentials are never read through a link.
+        problems.append(
+            f"{credentials} is a symbolic link: no stored credential is used; replace the "
+            "link with the file itself")
     waiting = sorted(getattr(core, "settings_waiting", None) or {})
     if waiting:
         problems.append(

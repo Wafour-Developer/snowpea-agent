@@ -4481,7 +4481,7 @@ _No params (send `{}`)._
 | `port` | `number` | yes | TCP port the daemon is listening on (127.0.0.1 only). |
 | `protocolVersion` | `string` | yes | Protocol semver the daemon speaks. |
 | `restartRequired` | `boolean` | no | True once system.update finished; the daemon runs the old code until restarted. |
-| `settingsDegraded` | `string[]` | no | 1.55.0: top-level sections of settings.json that did not validate when it was read and are NOT what the file says (empty: none). 'security' runs fail-closed (the last valid lists, or every preset on with unknownCode 'ask'); 'web' keeps remote access off; any other section is at its defaults. The file as it was is kept beside it as settings.json.invalid. Show it and offer to fix the file. |
+| `settingsDegraded` | `string[]` | no | 1.55.0: top-level sections of settings.json that did not validate when it was read and are NOT what the file says (empty: none). 'security' runs fail-closed (the last valid lists, or the default lists with unknownCode 'ask'); 'web' keeps remote access off; any other section is at its defaults. The file as it was is kept beside it as settings.json.invalid. '*': the whole file could not be read, and settings.set is refused (invalid_params, details.reason 'settings_unreadable') until it is fixed and reloaded. Show it and offer to fix the file. |
 | `startedAt` | `string` | yes | UTC ISO-8601 timestamp of daemon start. |
 | `version` | `string` | yes | Daemon version. |
 
@@ -6026,6 +6026,7 @@ Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a 
 | `person_only` | `jarvis_person_only` | only a person's connection may do this (details.kind says who asked) |
 | `project_add_only` | `invalid_params` | a project's security lists may only add entries; details.removed names the rest |
 | `project_settings_invalid` | `invalid_params` | the project's .snowpea/settings.json on disk does not validate: it is left as it is and not written over with defaults plus the change; fix or remove it first |
+| `settings_unreadable` | `invalid_params` | the global settings.json could not be read as a whole (not JSON, not an object, or not a regular file of the user's): snowpea runs on defaults and does not write over it; details.path is the file, details.invalid the copy kept as it was. Fix the file, then system.reloadSettings (or restart) and try again |
 | `snowpea_home` | `invalid_params` | the folder is snowpea's own home (or its .snowpea directory is): not a project, for any caller; details.field names the parameter, details.what is 'home' or 'parent' |
 | `untrusted_project` | `external_unavailable` | first external CLI session in this project: confirm with trust: true; details.project |
 | `untrusted_project_person_only` | `external_unavailable` | a person must open an external session in this project first; details.project |

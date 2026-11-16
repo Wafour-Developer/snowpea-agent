@@ -119,6 +119,7 @@ export type ErrorDetailReason =
   | "person_only"
   | "project_add_only"
   | "project_settings_invalid"
+  | "settings_unreadable"
   | "snowpea_home"
   | "untrusted_project"
   | "untrusted_project_person_only";
@@ -135,6 +136,7 @@ export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>
   person_only: "jarvis_person_only",
   project_add_only: "invalid_params",
   project_settings_invalid: "invalid_params",
+  settings_unreadable: "invalid_params",
   snowpea_home: "invalid_params",
   untrusted_project: "external_unavailable",
   untrusted_project_person_only: "external_unavailable",
@@ -7971,7 +7973,7 @@ export interface SystemInfoResult {
   protocolVersion: string;
   /** True once system.update finished; the daemon runs the old code until restarted. */
   restartRequired?: boolean;
-  /** 1.55.0: top-level sections of settings.json that did not validate when it was read and are NOT what the file says (empty: none). 'security' runs fail-closed (the last valid lists, or every preset on with unknownCode 'ask'); 'web' keeps remote access off; any other section is at its defaults. The file as it was is kept beside it as settings.json.invalid. Show it and offer to fix the file. */
+  /** 1.55.0: top-level sections of settings.json that did not validate when it was read and are NOT what the file says (empty: none). 'security' runs fail-closed (the last valid lists, or the default lists with unknownCode 'ask'); 'web' keeps remote access off; any other section is at its defaults. The file as it was is kept beside it as settings.json.invalid. '*': the whole file could not be read, and settings.set is refused (invalid_params, details.reason 'settings_unreadable') until it is fixed and reloaded. Show it and offer to fix the file. */
   settingsDegraded?: string[];
   /** UTC ISO-8601 timestamp of daemon start. */
   startedAt: string;

@@ -1491,11 +1491,14 @@ def build_tools(service: JarvisService) -> list[Tool]:
 
 
 def _secret_listing(service: JarvisService, path: Path) -> bool:
-    """``path`` (resolved) is a credential or lies in ``$SNOWPEA_HOME``."""
+    """``path`` (resolved) is a credential or lies in ``$SNOWPEA_HOME`` (or is the
+    file a linked ``settings.json`` points at: security review 9, F2)."""
     from snowpea_core.jarvis.classify import is_secret_path
+    from snowpea_core.security.control_plane import is_settings_target
 
     home = Path(os.path.realpath(service.core.paths.home))
-    return is_secret_path(path) or path == home or home in path.parents
+    return (is_secret_path(path) or path == home or home in path.parents
+            or is_settings_target(path, service.core.paths.home))
 
 
 #: ``path:line:`` at the start of a grep result line.
