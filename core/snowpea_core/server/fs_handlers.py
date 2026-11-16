@@ -85,9 +85,10 @@ def _windows_clean(text: str) -> str:
 
 
 def _fold(text: str) -> str:
-    import unicodedata
+    """NFC + casefold: the one folding (``util/pathcase``, security review 8, H8-3)."""
+    from snowpea_core.util.pathcase import fold_text
 
-    return unicodedata.normalize("NFC", text).casefold()
+    return fold_text(text)
 
 
 def _under(child: Path, parent: Path) -> bool:

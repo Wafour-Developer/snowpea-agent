@@ -303,7 +303,14 @@ async def settings_set_handler(
         from snowpea_core.permissions.allowlist import _project_digest
 
         before = _project_digest(workdir)
-        updated.save(workdir)
+        from snowpea_core.config.project import ProjectSettingsUnsafe
+
+        try:
+            updated.save(workdir)
+        except ProjectSettingsUnsafe as exc:
+            from snowpea_core.server.project_gate import unsafe_write
+
+            raise unsafe_write(exc) from exc
         _person_wrote_project(conn, core, workdir, before)
         return SettingsResult(settings=_mask_secrets(updated.model_dump(mode="json")))
 

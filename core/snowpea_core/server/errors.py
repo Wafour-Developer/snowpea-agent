@@ -142,6 +142,11 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
         "the folder is snowpea's own home (or its .snowpea directory is): not a project, for "
         "any caller; details.field names the parameter, details.what is 'home' or 'parent'",
     ),
+    "project_settings_invalid": (
+        INVALID_PARAMS,
+        "the project's .snowpea/settings.json on disk does not validate: it is left as it is "
+        "and not written over with defaults plus the change; fix or remove it first",
+    ),
     "catch_all": (INVALID_PARAMS, "an allowlist pattern that would match every command"),
     "project_add_only": (
         INVALID_PARAMS,
