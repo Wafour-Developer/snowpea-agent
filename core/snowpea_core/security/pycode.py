@@ -59,6 +59,12 @@ SNOWPEA_MODULES: frozenset[str] = frozenset({"snowpea_core", "snowpea", "snowpea
 
 _EXEC = tuple(f"os.{kind}{suffix}" for kind in ("exec", "spawn")
               for suffix in ("l", "le", "lp", "lpe", "v", "ve", "vp", "vpe"))
+#: Classes whose instances run a string as code (``trace.Trace().run("…")``): a
+#: call of one resolves to ``<class>()`` so its methods can be named below.
+_CODE_CLASSES: frozenset[str] = frozenset(
+    {"trace.Trace", "code.InteractiveInterpreter", "code.InteractiveConsole",
+     "cProfile.Profile", "profile.Profile", "pdb.Pdb", "bdb.Bdb"}
+)
 #: Dotted callable -> ``(action, form)``.
 CALLS: dict[str, tuple[str, str]] = {
     "shutil.rmtree": ("delete-tree", ""),
@@ -66,11 +72,15 @@ CALLS: dict[str, tuple[str, str]] = {
     "shutil.move": ("move", ""),
     **{f"os.{n}": ("move", "") for n in ("rename", "renames", "replace")},
     **{f"os.{n}": ("write", "") for n in ("chmod", "lchmod", "chown", "lchown", "truncate",
-                                         "chflags", "lchflags")},
+                                         "chflags", "lchflags", "mkfifo", "mknod", "utime",
+                                         "setxattr", "removexattr")},
+    # Making a folder: judged when the path is known, like ``Path.mkdir`` (a
+    # computed one is not held against the code — ``os.makedirs(out_dir)``).
+    "os.mkdir": ("write", "create"), "os.makedirs": ("write", "create"),
     "shutil.chown": ("write", ""),
     **{f"shutil.{n}": ("copy", "") for n in ("copyfile", "copy", "copy2", "copytree",
                                              "copymode", "copystat")},
-    "os.link": ("copy", ""), "os.symlink": ("copy", ""),
+    "os.link": ("link", ""), "os.symlink": ("link", ""),
     "os.system": ("spawn", "shell"), "os.popen": ("spawn", "shell"),
     **{name: ("spawn", "exec") for name in _EXEC},
     "os.posix_spawn": ("spawn", "exec"), "os.posix_spawnp": ("spawn", "exec"),
@@ -83,14 +93,50 @@ CALLS: dict[str, tuple[str, str]] = {
     "asyncio.create_subprocess_exec": ("spawn", "words"),
     "builtins.exec": ("code", ""), "builtins.eval": ("code", ""),
     "builtins.compile": ("code", ""),
+    # Helpers of the standard library that run a string as code (security review 7,
+    # H7-6): a literal is read like ``exec``'s, anything else cannot be.
+    **{f"timeit.{n}": ("code", "timeit") for n in ("timeit", "repeat", "Timer")},
+    **{f"{m}.{n}": ("code", "") for m in ("cProfile", "profile") for n in ("run", "runctx")},
+    **{f"pdb.{n}": ("code", "") for n in ("run", "runeval")},
+    **{f"{c}().{n}": ("code", "") for c in ("trace.Trace", "cProfile.Profile",
+                                            "profile.Profile", "pdb.Pdb", "bdb.Bdb")
+       for n in ("run", "runctx", "runeval")},
+    **{f"code.{c}().{n}": ("code", "") for c in ("InteractiveInterpreter", "InteractiveConsole")
+       for n in ("runsource", "push")},
+    "code.compile_command": ("code", ""), "codeop.compile_command": ("code", ""),
+    "code.interact": ("opaque", "code:eval:interactive"),
+    **{f"code.{c}().{n}": ("opaque", "code:eval:interactive")
+       for c in ("InteractiveInterpreter", "InteractiveConsole") for n in ("interact", "runcode")},
+    # Data that is code once loaded.
+    **{f"{m}.{n}": ("opaque", "code:eval:pickle")
+       for m in ("pickle", "_pickle", "cPickle", "marshal", "dill", "cloudpickle", "joblib")
+       for n in ("load", "loads", "Unpickler")},
+    "shelve.open": ("opaque", "code:eval:pickle"),
+    "runpy.run_module": ("module", ""), "runpy._run_module_as_main": ("module", ""),
+    "runpy.run_path": ("script", ""),
     "builtins.open": ("open", ""), "io.open": ("open", ""), "codecs.open": ("open", ""),
     "gzip.open": ("open", ""), "bz2.open": ("open", ""), "lzma.open": ("open", ""),
     "tarfile.open": ("open", ""), "zipfile.ZipFile": ("open", ""),
+    "io.FileIO": ("open", ""), "dbm.open": ("open", "dbm"),
     "os.open": ("os-open", ""),
+    # More ways to write a file (security review 7, M7-4).
+    "shutil.unpack_archive": ("extract", ""), "shutil.make_archive": ("write", ""),
+    "sqlite3.connect": ("write", "database"),
+    **{f"tempfile.{n}": ("tempdir", "") for n in ("mkstemp", "mkdtemp", "NamedTemporaryFile",
+                                                  "TemporaryDirectory", "TemporaryFile",
+                                                  "SpooledTemporaryFile", "mktemp")},
+    "logging.FileHandler": ("write", ""),
+    **{f"logging.handlers.{n}": ("write", "") for n in ("RotatingFileHandler",
+                                                        "TimedRotatingFileHandler",
+                                                        "WatchedFileHandler")},
+    "logging.basicConfig": ("kwfile", "filename"),
+    "fileinput.input": ("inplace", ""), "fileinput.FileInput": ("inplace", ""),
+    "os.chdir": ("opaque", "code:chdir"), "os.fchdir": ("opaque", "code:chdir"),
+    "os.putenv": ("env", ""), "os.unsetenv": ("env", ""),
 }
 _BUILTINS: frozenset[str] = frozenset(
     {"exec", "eval", "compile", "open", "__import__", "getattr", "vars", "globals", "locals",
-     "str"}
+     "str", "setattr", "delattr"}
 )
 #: Builtins that only look at what they are given (a module passed to one is not used).
 _LOOKERS: frozenset[str] = frozenset(
@@ -160,8 +206,20 @@ class _Analysis:
         self.parent: dict[int, ast.AST] = {}
         self.reach = False
         self.pathlib = False
+        self.archives = False
         #: Nodes used in a way the tree follows (an alias's right-hand side).
         self.followed: set[int] = set()
+        #: The code rebinds names behind the tree's back (``__main__.p = …``,
+        #: ``setattr`` on a module, ``globals()[…] = …``, ``exec``): no name
+        #: stands for a constant any more (security review 7, M7-3).
+        self.void = False
+        #: The code changes the environment or the folder it runs in: ``~``,
+        #: ``$HOME`` and the like no longer stand for the daemon's values.
+        self.env_void = False
+        #: Expression nodes used as the path of a recognised read (H7-3).
+        self.read_nodes: set[int] = set()
+        #: Names of functions the code defines.
+        self.defs: set[str] = set()
 
     # -- bindings ---------------------------------------------------------
     def _bind(self, name: str, value: Any) -> None:
@@ -174,6 +232,8 @@ class _Analysis:
             self.reach = True
         if root == "pathlib":
             self.pathlib = True
+        if root in ("tarfile", "zipfile", "shutil"):
+            self.archives = True
         if root in NATIVE_MODULES:
             self.found._hide("code:native")
         if root in SNOWPEA_MODULES:
@@ -226,6 +286,8 @@ class _Analysis:
                     self._bind(alias.asname or alias.name, ("ref", _norm(f"{module}.{alias.name}")))
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 self._bind(node.name, None)
+                if not isinstance(node, ast.ClassDef):
+                    self.defs.add(node.name)
             elif isinstance(node, ast.arg):
                 self._bind(node.arg, None)
             elif isinstance(node, ast.ExceptHandler) and node.name:
@@ -296,7 +358,62 @@ class _Analysis:
             self.cands = {name: set(values) for name, values in fixed.items()}
             for name, values in fresh.items():
                 self.cands.setdefault(name, set()).update(values)
+        self._rebinding()
+        if self.void:
+            # No name stands for a constant: a target named through one is unknown.
+            self.cands = {
+                name: {None if value is not None and value[0] in ("const", "words") else value
+                       for value in values}
+                for name, values in self.cands.items()
+            }
         return True
+
+    def _namespace(self, node: ast.AST | None) -> bool:
+        """``node`` is the running code's own namespace: ``__main__``, ``builtins``,
+        ``sys.modules[…]``, a module fetched by name, ``globals()``."""
+        if node is None:
+            return False
+        if isinstance(node, ast.Subscript):
+            return self._namespace(node.value) or self.resolve(node.value) == "sys.modules"
+        if isinstance(node, ast.Call):
+            return self.resolve(node.func) in ("builtins.globals", "builtins.locals",
+                                               "builtins.vars", "builtins.__import__",
+                                               "importlib.import_module")
+        return self.resolve(node) in ("__main__", "builtins", "sys.modules")
+
+    def _rebinding(self) -> None:
+        """What changes names, the environment or the folder without an assignment
+        the tree can follow (security review 7, M7-3)."""
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                if self._namespace(node.value):
+                    self.void = True
+                    self.found._hide("code:namespace")
+            elif isinstance(node, ast.Subscript) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                if self.resolve(node.value) == "os.environ":
+                    self.env_void = True
+                elif self._namespace(node.value):
+                    self.void = True
+                    self.found._hide("code:namespace")
+            elif isinstance(node, ast.AugAssign) and self.resolve(node.target) == "os.environ":
+                self.env_void = True
+            elif isinstance(node, ast.Call):
+                dotted = self.resolve(node.func)
+                if dotted in ("builtins.setattr", "builtins.delattr"):
+                    if node.args and self._namespace(node.args[0]):
+                        self.void = True
+                        self.found._hide("code:namespace")
+                elif dotted == "builtins.exec":
+                    self.void = True
+                elif dotted in ("os.putenv", "os.unsetenv", "os.chdir", "os.fchdir") or (
+                        dotted is not None and dotted.startswith("os.environ.") and
+                        dotted.rsplit(".", 1)[1] in ("update", "setdefault", "pop", "popitem",
+                                                     "clear", "__setitem__", "__delitem__")):
+                    self.env_void = True
+                elif isinstance(node.func, ast.Attribute) and node.func.attr in (
+                        "update", "__setitem__", "setdefault") and self._namespace(
+                            node.func.value) and isinstance(node.func.value, ast.Call):
+                    self.void = True  # ``globals().update(…)``
 
     def _single(self, name: str) -> Any:
         values = self.cands.get(name)
@@ -331,6 +448,8 @@ class _Analysis:
                 attr = self._text(node.args[1])
                 if base is not None and attr is not None:
                     return _norm(f"{base}.{attr}")
+            if func in _CODE_CLASSES:
+                return f"{func}()"  # an instance: ``trace.Trace().run`` is named in CALLS
         return None
 
     @staticmethod
@@ -393,7 +512,7 @@ class _Analysis:
                 return _dirname(base) if base is not None else None
             return None
         if isinstance(node, ast.Subscript):
-            if self.resolve(node.value) == "os.environ":
+            if self.resolve(node.value) == "os.environ" and not self.env_void:
                 key = self._text(node.slice)
                 return _ENV_PATHS.get(key) if key is not None else None
             return None
@@ -407,6 +526,16 @@ class _Analysis:
         dotted = self.resolve(node.func)
         args = [self.fold(arg, depth + 1) for arg in node.args]
         known = all(arg is not None for arg in args)
+        if self.env_void and (
+                dotted in ("os.path.expanduser", "os.path.expandvars", "os.getcwd",
+                           "pathlib.Path.cwd", "pathlib.Path.home", "tempfile.gettempdir",
+                           "os.getenv", "os.environ.get", "os.path.abspath",
+                           "os.path.realpath")
+                or (isinstance(node.func, ast.Attribute) and node.func.attr in (
+                    "expanduser", "resolve", "absolute"))):
+            # The code set ``HOME`` (or moved elsewhere) itself: what ``~`` and a
+            # relative path stand for is not what the check would assume.
+            return None
         if dotted in _PATH_CLASSES or dotted == "os.path.join":
             if not known or any(isinstance(arg, ast.Starred) for arg in node.args):
                 return None
@@ -563,6 +692,8 @@ class _Analysis:
                 if base is not None and not literal and base.split(".", 1)[0] in (
                         REACH_MODULES | {"sys"}):
                     found._hide("code:getattr")
+            elif dotted.startswith(("importlib.metadata.", "importlib.resources.")):
+                pass  # they read what is installed; nothing is imported or run
             elif dotted.startswith(("importlib.", "runpy.")):
                 found._hide("code:import:computed")
             elif isinstance(func, ast.Attribute):
@@ -583,6 +714,17 @@ class _Analysis:
             self._method(node, func)
 
     def _method(self, node: ast.Call, func: ast.Attribute) -> None:
+        if func.attr == "extractall" or (func.attr == "extract" and self.archives):
+            # ``TarFile.extractall(path)`` / ``ZipFile.extract(member, path)``:
+            # everything below ``path`` is written (security review 7, M7-4).
+            where = self._arg(node, 0 if func.attr == "extractall" else 1, "path")
+            target = "." if where is None and not any(
+                k.arg is None for k in node.keywords) else self.fold(where)
+            if target is None:
+                self.found._hide("code:write:non-literal")
+            else:
+                self.found.writes.append((target, False, True))
+            return
         action = _PATH_METHODS.get(func.attr)
         if action is None:
             return
@@ -592,27 +734,47 @@ class _Analysis:
             return
         self._path_method(node, func.attr, receiver, node.args, pathish)
 
+    @staticmethod
+    def _unpacked(node: ast.Call) -> bool:
+        """The call takes ``*args`` or ``**kwargs``: any argument may be among them."""
+        return any(k.arg is None for k in node.keywords) or any(
+            isinstance(a, ast.Starred) for a in node.args)
+
+    def _read(self, node: ast.AST | None, target: str | None) -> None:
+        """A recognised read of exactly the expression ``node``."""
+        if target is not None:
+            self.found.reads.append(target)
+        if node is not None:
+            self.read_nodes.add(id(node))
+
     def _path_method(self, node: ast.Call, method: str, receiver: ast.AST, args: list[ast.expr],
                      pathish: bool) -> None:
         found = self.found
         action = _PATH_METHODS[method]
         target = self.fold(receiver)
         if action == "read":
-            if target is not None:
-                found.reads.append(target)
+            self._read(receiver, target)
             return
         if action == "open":
             mode_node = args[0] if args else self._keyword(node, "mode")
             mode = self._text(mode_node) if mode_node is not None else "r"
+            if self._unpacked(node):
+                mode = None  # ``p.open(**{"mode": "w"})``: the mode is not known
             if mode is not None and not any(ch in mode for ch in "wax+"):
-                if target is not None:
-                    found.reads.append(target)
+                self._read(receiver, target)
                 return
             action = "write"
         if action == "create":
             if target is not None:
                 found.writes.append((target, False, False))
             return
+        if method in ("symlink_to", "hardlink_to", "link_to"):
+            # ``Path(new).symlink_to(src)``: a link to ``src`` (review 7, H7-5).
+            source = self.fold(args[0]) if args else None
+            if source is None:
+                found._hide("code:copy:non-literal")
+            else:
+                found.links.append(source)
         if target is None:
             found._hide(f"code:{action}:non-literal")
             return
@@ -630,28 +792,110 @@ class _Analysis:
             found.writes.append((target, False, False))
         del pathish
 
+    def _code_arg(self, source: ast.AST | None, *, callable_ok: bool) -> None:
+        """One argument that is run as code: a literal is read like ``exec``'s."""
+        found = self.found
+        if source is None:
+            return
+        if callable_ok and (isinstance(source, ast.Lambda) or (
+                isinstance(source, ast.Name) and source.id in self.defs)):
+            return  # a function of this very code: its body is already read
+        text = self.fold(source)
+        if text is None or self.depth >= 3:
+            found._hide("code:eval:non-literal")
+            return
+        from snowpea_core.security.code import analyse
+
+        found.merge(analyse(text, "python", depth=self.depth + 1))
+
     def _known(self, node: ast.Call, dotted: str, action: str, form: str) -> None:  # noqa: C901
         found = self.found
+        if action == "opaque":
+            found._hide(form)
+            return
+        if action == "env":
+            return  # noted by _rebinding: the environment is not the daemon's any more
         if any(isinstance(arg, ast.Starred) for arg in node.args) and action != "spawn":
-            found._hide(f"code:{action}:non-literal")
+            found._hide(f"code:{'eval' if action == 'code' else action}:non-literal")
             return
         if action == "code":
-            source = self._arg(node, 0, "source")
-            text = self.fold(source) if source is not None else None
-            if text is None or self.depth >= 3:
+            if self._unpacked(node):
                 found._hide("code:eval:non-literal")
+                return
+            timeit = form == "timeit"
+            first_code = self._arg(node, 0, "source", "stmt", "statement", "cmd", "expression",
+                                   "expr", "line")
+            if first_code is None and not timeit:
+                found._hide("code:eval:non-literal")
+                return
+            self._code_arg(first_code, callable_ok=timeit)
+            if timeit:
+                self._code_arg(self._arg(node, 1, "setup"), callable_ok=True)
+            return
+        if action in ("module", "script"):
+            # ``runpy.run_module("x")`` is ``python -m x``; ``run_path("x.py")`` is
+            # ``python x.py``: walked as that command (snowpea's own modules ask).
+            name = self.fold(self._arg(node, 0, "mod_name", "path_name"))
+            if name is None:
+                found._hide("code:import:non-literal")
+            elif action == "module":
+                self._module(name)
+                found.argv.append([("python", False), ("-m", False), (name, False)])
             else:
-                from snowpea_core.security.code import analyse
-
-                found.merge(analyse(text, "python", depth=self.depth + 1))
+                found.argv.append([("python", False), (name, False)])
             return
         if action in ("open", "os-open"):
-            self._open(node, dotted, action)
+            self._open(node, dotted, action, form)
             return
         if action == "spawn":
             self._spawn(node, form)
             return
-        first = self._arg(node, 0, "path", "src", "fd", "name")
+        if action == "tempdir":
+            where = self._keyword(node, "dir")
+            if where is None and len(node.args) > 2 and dotted in ("tempfile.mkstemp",
+                                                                 "tempfile.mkdtemp"):
+                where = node.args[2]
+            if self._unpacked(node) or (where is not None and self.fold(where) is None):
+                if not (isinstance(where, ast.Constant) and where.value is None):
+                    found._hide("code:write:non-literal")
+            elif where is not None:
+                found.writes.append((self.fold(where) or ".", False, False))
+            return
+        if action == "kwfile":
+            where = self._keyword(node, form)
+            if self._unpacked(node) or (where is not None and self.fold(where) is None):
+                found._hide("code:write:non-literal")
+            elif where is not None:
+                found.writes.append((self.fold(where) or ".", False, False))
+            return
+        if action == "inplace":
+            flag = self._keyword(node, "inplace")
+            if flag is None and len(node.args) > 1:
+                flag = node.args[1]
+            if flag is None and not self._unpacked(node):
+                return
+            if isinstance(flag, ast.Constant) and not flag.value:
+                return
+            files = self._arg(node, 0, "files")
+            names = self.fold_list(files)
+            single = self.fold(files)
+            if single is not None:
+                found.writes.append((single, False, False))
+            elif names is not None and not any(dyn for _, dyn in names):
+                found.writes.extend((name, False, False) for name, _ in names)
+            else:
+                found._hide("code:write:non-literal")
+            return
+        if action == "extract":
+            where = self._arg(node, 1, "extract_dir")
+            target = "." if where is None and not self._unpacked(node) else self.fold(where)
+            if target is None:
+                found._hide("code:write:non-literal")
+            else:
+                found.writes.append((target, False, True))
+            return
+        first = self._arg(node, 0, "path", "src", "fd", "name", "filename", "database",
+                          "base_name", "target_is_directory")
         target = self.fold(first)
         if action in ("delete", "delete-tree"):
             if target is None:
@@ -675,41 +919,61 @@ class _Analysis:
                 found.commands.append(["mv", target, dest])
             return
         if action == "write":
+            if form == "database" and target in (":memory:", ""):
+                return
+            if target is None and form == "create":
+                return
             if target is None:
                 found._hide("code:write:non-literal")
             else:
                 found.writes.append((target, False, False))
             return
+        if action == "link":
+            # ``os.symlink(src, dst)`` / ``os.link(src, dst)``: ``dst`` is written and
+            # is from then on another name of ``src`` (security review 7, H7-5).
+            dest = self.fold(self._arg(node, 1, "dst"))
+            if target is None or dest is None:
+                found._hide("code:copy:non-literal")
+            if target is not None:
+                found.links.append(target)
+            if dest is not None:
+                found.writes.append((dest, False, False))
+            return
         if action == "copy":
             dest = self.fold(self._arg(node, 1, "dst"))
-            if target is not None:
-                found.reads.append(target)
+            self._read(first, target)
             if dest is None:
                 found._hide("code:copy:non-literal")
             else:
                 found.writes.append((dest, False, True))
 
-    def _open(self, node: ast.Call, dotted: str, action: str) -> None:
+    def _open(self, node: ast.Call, dotted: str, action: str, form: str = "") -> None:
         found = self.found
-        target = self.fold(self._arg(node, 0, "file", "path", "name"))
+        where = self._arg(node, 0, "file", "path", "name")
+        target = self.fold(where)
         if action == "os-open":
             flags = self._arg(node, 1, "flags")
             flag = self.resolve(flags) if flags is not None else None
             writes = flag != "os.O_RDONLY"
         else:
-            mode_node = self._arg(node, 1, "mode")
-            if mode_node is None:
+            mode_node = self._arg(node, 1, "mode", "flag")
+            if self._unpacked(node):
+                # ``open(p, **{"mode": "w"})``: the mode may be among what is
+                # unpacked, so it is not known — a write (security review 7, H7-3).
+                writes = True
+            elif mode_node is None:
                 writes = False
             else:
                 mode = self._text(mode_node)
-                writes = mode is None or any(ch in mode for ch in "wax+")
+                writes = mode is None or any(ch in mode for ch in
+                                             ("wcn" if form == "dbm" else "wax+"))
         if not writes:
-            if target is not None:
-                found.reads.append(target)
+            self._read(where, target)
             return
         if target is None:
             # ``tarfile.open(fileobj=…)`` and friends name no file at all.
-            if dotted in ("tarfile.open",) and self._arg(node, 0, "name") is None:
+            if dotted in ("tarfile.open",) and self._arg(node, 0, "name") is None \
+                    and not self._unpacked(node):
                 return
             found._hide("code:write:non-literal")
         else:
@@ -831,19 +1095,38 @@ class _Analysis:
             self.found._hide("code:alias")
 
     def _mentions(self) -> None:
+        """Path-like constants the code names, and which of them it only reads.
+
+        A literal is *read only* when every expression that stands for it is the
+        path of a recognised read (``open(p)``, ``Path(p).read_text()``): the
+        same literal handed to anything else — ``sqlite3.connect(p)``, a call the
+        tree does not know, a list — is not (security review 7, H7-3)."""
         seen = self.found.mentions
+        uses: dict[str, list[int]] = {}
+        folding = (ast.BinOp, ast.Call, ast.JoinedStr, ast.FormattedValue, ast.Attribute)
         for node in ast.walk(self.tree):
-            if len(seen) >= MAX_MENTIONS:
-                return
             value: str | None = None
             if isinstance(node, ast.Constant):
                 value = self._text(node)
-            elif isinstance(node, (ast.BinOp, ast.Call, ast.JoinedStr)):
+            elif isinstance(node, (ast.BinOp, ast.Call, ast.JoinedStr)) or (
+                    isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)):
                 value = self.fold(node)
-            if value and len(value) <= 4096 and "\n" not in value and (
-                    "/" in value or value.startswith("~") or "snowpea" in value.lower()
-            ) and value not in seen:
+            if not value or len(value) > 4096 or "\n" in value or not (
+                    "/" in value or value.startswith("~") or "snowpea" in value.lower()):
+                continue
+            if value not in seen:
+                if len(seen) >= MAX_MENTIONS:
+                    return
                 seen.append(value)
+            parent = self.parent.get(id(node))
+            if isinstance(parent, folding) and self.fold(parent) is not None:
+                continue  # a piece of a longer constant: that one is the use
+            if isinstance(parent, (ast.Assign, ast.AnnAssign)) and parent.value is node:
+                continue  # a name is bound to it: the name's uses count
+            uses.setdefault(value, []).append(id(node))
+        for value, nodes in uses.items():
+            if nodes and all(node in self.read_nodes for node in nodes):
+                self.found.read_only.add(value)
 
 
 class _Loop:

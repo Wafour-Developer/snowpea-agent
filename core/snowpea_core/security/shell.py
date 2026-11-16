@@ -33,12 +33,16 @@ swap between a question and its answer is caught.  Nothing here runs anything.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from snowpea_core.jarvis import classify as _c
 from snowpea_core.security import code as _code
+from snowpea_core.security import envvars as _env
 
 #: Programs whose path operands this module judges itself (the classifier's
 #: generic write handling does not say what is deleted or moved).
@@ -156,52 +160,82 @@ class ShellView:
     #: Why the line always asks a person, whatever the lists and settings say
     #: (``snowpea-cli``: it runs snowpea's own CLI; security review 6, H-1).
     control: list[str] = field(default_factory=list)
-    #: ``(path-like literal, cwd)`` inline code names, for the control-plane check.
-    mentions: list[tuple[str, Path | None]] = field(default_factory=list)
+    #: ``(path-like literal, cwd, read only)`` inline code names, for the
+    #: control-plane check.  ``read only``: EVERY use of the literal in that code
+    #: is a recognised read of exactly that expression (security review 7, H7-3).
+    mentions: list[tuple[str, Path | None, bool]] = field(default_factory=list)
 
 
-#: The classifier's ``exec:opaque:<why>`` rules that are NOT copied into
-#: :attr:`ShellView.opaque` (security review 6, H-2), each because this module
-#: reads that case itself and more exactly: substitutions, ``-c`` bodies,
-#: here-documents and ``eval``/``source``/``trap`` bodies are parsed; inline
-#: code and interpreter stdin are analysed; code-carrying variables and
-#: ``awk -f`` / ``sed -f`` files have their own narrower rules below.  Left out
-#: on purpose: ``git-alias`` (an unknown git subcommand is the person's own
-#: alias or extension), ``encoded-payload`` (a decoder alone runs nothing; a
-#: payload piped into a shell or an interpreter is opaque there) and the
-#: reserved words the walk steps over.
-_NOT_COPIED: frozenset[str] = frozenset(
-    {"substitution", "shell-c", "shell-stdin", "shell-string", "eval", "source", "trap",
-     "nesting", "dynamic-program", "brace-program", "inline-code", "interpreter-stdin",
-     "preload", "env-code", "awk-program-file", "sed-program-file", "git-alias",
-     "encoded-payload", "function", "case", "select", "coproc", "control-chars", "no-command"}
-)
+#: Positive analysis or ask (security review 7, P1).  The classifier marks what
+#: it cannot judge with ``exec:opaque:<why>``.  Each such mark becomes a reason
+#: in :attr:`ShellView.opaque` unless THIS module analysed that very element of
+#: that very command: :meth:`_Probe.words` keeps, per command, the marks it has
+#: read itself (``_claims``), and the classifier's mark is dropped only against
+#: that set.  There is no list of marks dropped by name any more.
+#:
+#: What a command's claims can hold, and what "analysed" means for each:
+#:
+#: ``env-code``            every assignment of the command went through
+#:                         :func:`snowpea_core.security.envvars.judge` (which is
+#:                         opaque itself for a value it cannot call harmless);
+#: ``encoded-payload``     a decoder runs nothing: its output is data, judged
+#:                         where it lands (a redirection, a pipe into a shell or
+#:                         an interpreter, a script file that is run);
+#: ``inline-code`` / ``interpreter-stdin`` / ``preload``
+#:                         the interpreter's code, module, script, preload or
+#:                         stdin went through :meth:`_Probe._interp` (a language
+#:                         without a table comes back ``code:language``);
+#: ``source`` / ``trap``   the file or the body was read as a line;
+#: ``awk-program-file`` / ``sed-program-file``
+#:                         the program file was read;
+#: ``git-alias``           git's configuration was read and the alias, if any,
+#:                         walked as the command it stands for.
+_ALWAYS_CLAIMED: frozenset[str] = frozenset({"env-code", "encoded-payload"})
 
-#: Environment variables whose value is code (or names code) for what runs
-#: next: a line that sets one is opaque (security review 6, H-2).
-_CODE_ENV: frozenset[str] = frozenset(
-    {"NODE_OPTIONS", "BASH_ENV", "ENV", "PYTHONSTARTUP", "PYTHONWARNINGS", "PYTHONBREAKPOINT",
-     "PERL5OPT", "PERL5DB", "RUBYOPT", "LD_PRELOAD", "LD_AUDIT", "DYLD_INSERT_LIBRARIES",
-     "PROMPT_COMMAND", "PS4", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXTERNAL_DIFF", "GIT_PAGER",
-     "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_ASKPASS", "GIT_PROXY_COMMAND",
-     "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
-     "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "NPM_CONFIG_SCRIPT_SHELL", "LESSOPEN", "LESSCLOSE",
-     "MANPAGER", "RUSTC_WRAPPER"}
+#: Programs that only read the files they are given.  A path that names one of
+#: snowpea's write-level control files as an operand of any OTHER program asks a
+#: person (security review 7, H7-5): what that program does with the file is not
+#: known here (``sqlite3 <store> "INSERT …"``, ``ln -s <store> x``).  The writes
+#: of the programs listed here that do write (``cp``'s destination, ``find
+#: -delete``, ``sort -o``) are effects of their own.
+READ_ONLY_PROGRAMS: frozenset[str] = frozenset(
+    {"cat", "tac", "head", "tail", "less", "more", "bat", "batcat", "nl", "ls", "ll", "dir",
+     "stat", "file", "wc", "du", "tree", "grep", "egrep", "fgrep", "rg", "ag", "ack", "diff",
+     "cmp", "comm", "md5sum", "sha1sum", "sha224sum", "sha256sum", "sha384sum", "sha512sum",
+     "shasum", "b2sum", "cksum", "jq", "od", "xxd", "hexdump", "strings", "cut", "sort",
+     "column", "realpath", "readlink", "basename", "dirname", "test", "[", "[[", "echo",
+     "printf", "cd", "pushd", "find", "cp", "zcat", "bzcat", "xzcat", "date",
+     # not programs: a ``<`` redirection, a read the code analysis recognised,
+     # a file tool's own read.
+     "redirect", "code", "tool"}
 )
-#: Variables that name folders code is loaded from: opaque when the agent wrote
-#: something in one of those folders.
-_PATH_ENV: frozenset[str] = frozenset(
-    {"PYTHONPATH", "PYTHONHOME", "NODE_PATH", "PERL5LIB", "RUBYLIB", "GEM_PATH", "GEM_HOME"}
+#: Hosts ``ssh`` reaches on this machine: the remote line runs here (M7-5).
+_LOCAL_HOSTS: frozenset[str] = frozenset(
+    {"localhost", "localhost.localdomain", "127.0.0.1", "::1", "[::1]", "0.0.0.0", "0",
+     "ip6-localhost", "ip6-loopback"}
 )
-#: Values of a code-carrying variable that run nothing (``GIT_PAGER=cat``, ``GIT_EDITOR=true``).
-_HARMLESS_VALUES: frozenset[str] = frozenset({"", "cat", "less", "more", "true", ":", "false"})
-#: ``NODE_OPTIONS`` flags that only tune the runtime.
-_NODE_TUNING = re.compile(
-    r"--(?:max-old-space-size|max-semi-space-size|stack-size|max-http-header-size|"
-    r"unhandled-rejections|dns-result-order|title)=[\w.:-]+|--(?:no-warnings|no-deprecation|"
-    r"trace-warnings|trace-deprecation|enable-source-maps|openssl-legacy-provider|"
-    r"experimental-vm-modules|no-experimental-fetch|experimental-specifier-resolution=node|"
-    r"preserve-symlinks|throw-deprecation|pending-deprecation|expose-gc)")
+_SSH_VALUED: frozenset[str] = frozenset(
+    {"-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o",
+     "-p", "-Q", "-R", "-S", "-W", "-w"}
+)
+_SSH_RUNS = re.compile(r"(?i)proxycommand|localcommand|knownhostscommand|remotecommand")
+#: Programs that hand a command to something that runs it later, outside this
+#: line (M7-5): what will run is not judged by anything.
+_DEFERRED: frozenset[str] = frozenset({"at", "batch", "crontab", "launchctl", "schtasks"})
+_DEFERRED_READS: dict[str, frozenset[str]] = {
+    "crontab": frozenset({"-l", "-r", "-h", "--help", "-V"}),
+    "at": frozenset({"-l", "-r", "-d", "-c", "-V", "-q"}),
+    "launchctl": frozenset({"list", "print", "print-disabled", "blame", "version", "help",
+                            "stop", "unload", "bootout", "disable", "remove"}),
+    "schtasks": frozenset({"/query", "/end", "/delete"}),
+}
+#: Shell names whose meaning the walk depends on: a function of that name
+#: changes what later words do.
+_SHADOWED: frozenset[str] = frozenset(
+    {"cd", "pushd", "popd", "chdir", "builtin", "command", "export", "unset", "declare",
+     "local", "readonly", "typeset", "eval", "source", ".", "alias", "set", "exec", "env",
+     "read", "trap", "test", "[", "echo", "printf"}
+)
 
 #: ``python -m <module>``: modules that take no code of their own and run
 #: nothing but themselves or the project's own tests/app (security review 6,
@@ -302,6 +336,10 @@ _SPECS: dict[str, _Spec] = {
     "swift": _Spec(code="e", info=("--version", "-version", "--help")),
 }
 _SPECS["pypy"] = _SPECS["python"]
+#: ``bun``: a package manager and a runtime; only its inline code is read here.
+_BUN_SPEC = _Spec(word_code=("-e", "--eval", "-p", "--print"),
+                  preload=("-r", "--preload", "--require", "--import"),
+                  info=("-v", "--version", "-h", "--help", "--revision"))
 
 
 @dataclass
@@ -490,25 +528,37 @@ class _Probe(_c._Judge):
         #: The program whose writes this module judges itself (super's are dropped).
         self._own: list[bool] = []
         self._context: list[str] = []
+        #: Per command being walked: the classifier's opaque marks this module
+        #: analysed itself for that command (security review 7, P1).
+        self._claims: list[set[str]] = []
+        guard_all = self.hits.guard_all
+
+        def tracked(rule: str) -> None:
+            guard_all(rule)
+            if rule.startswith("exec:opaque:"):
+                self._unseen(rule[len("exec:opaque:"):])
+
+        self.hits.guard_all = tracked  # type: ignore[method-assign]
 
     # -- recording ---------------------------------------------------------
     def _opaque(self, why: str) -> None:
         if why not in self.view.opaque:
             self.view.opaque.append(why)
 
+    def _unseen(self, why: str) -> None:
+        """The classifier could not judge something: opaque, unless the command
+        being walked had exactly that analysed here."""
+        claimed = self._claims[-1] if self._claims else frozenset()
+        if why.split(":", 1)[0] not in claimed:
+            self._opaque(why)
+
     def _control(self, why: str) -> None:
         if why not in self.view.control:
             self.view.control.append(why)
 
     def finish(self) -> None:
-        """Copy what the classifier's own walk could not see (review 6, H-2)."""
-        for rules in self.hits.guarded.values():
-            for rule in rules:
-                if not rule.startswith("exec:opaque:"):
-                    continue
-                why = rule[len("exec:opaque:"):]
-                if why.split(":", 1)[0] not in _NOT_COPIED:
-                    self._opaque(why)
+        """Nothing is left to copy at the end: every opaque mark of the classifier
+        is taken (or dropped as analysed) when it is made (:meth:`_unseen`)."""
 
     def _effect(self, raw: str, cwd: Path | None, kind: str, *, destructive: bool = False,
                 recursive: bool = False, dynamic: bool = False, program: str = "") -> None:
@@ -537,8 +587,11 @@ class _Probe(_c._Judge):
         recursive: bool = False,
         dynamic: bool = False,
     ) -> None:
-        del rule, shell
-        self._effect(raw, cwd, "read", recursive=recursive, dynamic=dynamic)
+        del shell
+        # ``< file`` only ever reads; any other word is an operand of the program
+        # being walked (which decides what happens to the file it names).
+        self._effect(raw, cwd, "read", recursive=recursive, dynamic=dynamic,
+                     program="redirect" if rule == "redirect" else "")
 
     def dynamic_read(self, raw: str, cwd: Path | None, rule: str) -> None:
         del rule
@@ -560,6 +613,18 @@ class _Probe(_c._Judge):
             return
         self._line += 1
         line_id = self._line
+        for name in _env.references(command):
+            # ``${HOME:=/x}``: an assignment inside an expansion.
+            self._opaque(f"env-code:{name}")
+        for name in parsed.functions:
+            # ``cd() { :; }``: later words of the line no longer mean what they say.
+            # (The body itself is walked: the parser makes it commands of its own.)
+            if "$" in name or "`" in name or name in _SHADOWED or _c._program(name) in _SHADOWED:
+                self._opaque("function")
+        self._commands(parsed, command, cwd, depth, line_id)
+
+    def _commands(self, parsed: Any, command: str, cwd: Path | None, depth: int,
+                  line_id: int) -> None:
         if parsed.substitution:
             # ``"$(…)"`` and backticks inside double quotes are not split by the
             # parser: read every substitution's body as a line of its own.
@@ -601,10 +666,28 @@ class _Probe(_c._Judge):
         stdin_args: bool,
     ) -> Path | None:
         words, dynamic = list(words), list(dynamic)
+        named_function = False
         while words and not dynamic[0] and words[0] in _c.RESERVED_WORDS:
-            if words[0] == "for":
+            if words[0] in ("for", "select"):
+                # ``for NAME in …`` assigns NAME on every turn.
+                if len(words) > 1 and _env.is_watched(words[1]):
+                    self._opaque(f"env-code:{words[1].upper()}")
                 return cwd
+            if words[0] == "case":
+                # ``case WORD in PATTERN)``: no command; each branch is one of its own.
+                return cwd
+            named_function = named_function or words[0] == "function"
             words, dynamic = words[1:], dynamic[1:]
+        # A function definition: its body is walked as the commands it holds
+        # (it used to be read as arguments of a program called like the function).
+        if named_function and words:
+            if dynamic[0] or words[0] in _SHADOWED or _c._program(words[0]) in _SHADOWED:
+                # ``cd() { :; }``: later words of the line no longer mean what they say.
+                self._opaque("function")
+            words, dynamic = words[1:], dynamic[1:]
+            while words and not dynamic[0] and words[0] in _c.RESERVED_WORDS \
+                    and words[0] != "for":
+                words, dynamic = words[1:], dynamic[1:]
         while words and _c._ASSIGNMENT.match(words[0]):
             self._assignment(words[0], dynamic[0], cwd)
             words, dynamic = words[1:], dynamic[1:]
@@ -628,50 +711,244 @@ class _Probe(_c._Judge):
             # ``toybox rm -rf /``: like busybox, the applet named next runs (review 5, H4 c).
             return self.words(rest, rest_dyn, cwd, depth + 1, piped_in=piped_in,
                               heredoc=heredoc, stdin_args=stdin_args)
-        if self._hidden_command(program, family, rest, rest_dyn, cwd, depth, piped_in, heredoc):
-            return cwd
-        if program in ("tar", "bsdtar", "gtar", "zip"):
-            self._archive_removal(program, rest, rest_dyn, cwd)
         own = program in _OWN_WRITE_PROGRAMS
-        if own:
-            self._own_writes(program, rest, rest_dyn, cwd)
-        if program in ("git",) or family == "git":
-            self._git_tree(rest, rest_dyn, cwd)
-        if program in _c.CONTENT_READERS:
-            # A file named without a folder (``cat token`` after ``cd``) is read
-            # like any other: the classifier's own scan only takes path-like words.
-            for word, dyn in _c._reader_operands(program, rest, rest_dyn):
-                if not dyn and word and "/" not in word and not word.startswith(("-", "~")):
-                    self._effect(word, cwd, "read", program=program)
-        if program == "snowpea" or program.startswith("snowpea-"):
-            # snowpea's own CLI talks to the daemon as the local person (H-1).
-            self._control("snowpea-cli")
+        claims: set[str] = set(_ALWAYS_CLAIMED)
+        self._claims.append(claims)
+        self._own.append(own)
+        self._context.append(program)
+        try:
+            if self._hidden_command(program, family, rest, rest_dyn, cwd, depth, piped_in,
+                                    heredoc):
+                return cwd
+            if program in ("tar", "bsdtar", "gtar", "zip"):
+                self._archive_removal(program, rest, rest_dyn, cwd)
+            if own:
+                self._own_writes(program, rest, rest_dyn, cwd)
+            if program in ("git",) or family == "git":
+                self._git_tree(rest, rest_dyn, cwd)
+                if self._git_alias(rest, rest_dyn, cwd, depth):
+                    claims.add("git-alias")
+            if program in _c.CONTENT_READERS:
+                # A file named without a folder (``cat token`` after ``cd``) is read
+                # like any other: the classifier's own scan only takes path-like words.
+                for word, dyn in _c._reader_operands(program, rest, rest_dyn):
+                    if not dyn and word and "/" not in word and not word.startswith(("-", "~")):
+                        self._effect(word, cwd, "read", program=program)
+            if program == "snowpea" or program.startswith("snowpea-"):
+                # snowpea's own CLI talks to the daemon as the local person (H-1).
+                self._control("snowpea-cli")
+            self._names(program, rest, rest_dyn, cwd)
+            if program in ("ssh", "autossh", "mosh"):
+                self._ssh(rest, rest_dyn, depth)
+            if program in _DEFERRED:
+                self._deferred(program, rest)
+            if family in _c.INTERPRETERS and self.literals:
+                self._interp(family, rest, rest_dyn, cwd, depth, piped_in, heredoc)
+                claims.update(("inline-code", "interpreter-stdin", "preload"))
+            elif program in ("bun", "deno") and self.literals:
+                if self._js_runtime(program, rest, rest_dyn, cwd, depth, piped_in, heredoc):
+                    claims.add("inline-code")
+            elif self.literals and "/" in words[0].replace("\\", "/") and not dynamic[0]:
+                # ``./x``, ``scripts/x``, ``/opt/tool/run``: the file itself runs.
+                self._script(words[0], cwd, depth, "shell")
+            if self.literals:
+                self._project_runner(program, rest, rest_dyn, cwd, depth)
+                if program in ("awk", "gawk", "mawk", "nawk", "sed", "gsed"):
+                    # ``awk -f x.awk`` / ``sed -f x``: the program file is read (what it
+                    # holds counts when it is the agent's own; review 6, H-2).
+                    value = _option_value(rest, rest_dyn, ("-f", "--file"))
+                    if value is not None:
+                        if value[1] or not value[0]:
+                            self._opaque("script-dynamic")
+                        else:
+                            self._script(value[0], cwd, depth,
+                                         "sed" if "sed" in program else "awk")
+                        claims.update(("awk-program-file", "sed-program-file"))
+            return super().words(words, dynamic, cwd, depth, piped_in=piped_in,
+                                 heredoc=heredoc, stdin_args=stdin_args)
+        finally:
+            self._claims.pop()
+            self._own.pop()
+            self._context.pop()
+
+    def _names(self, program: str, rest: list[str], rest_dyn: list[bool],
+               cwd: Path | None) -> None:
+        """Builtins that give variables a value (security review 7, H7-1)."""
         if program in ("export", "declare", "typeset", "readonly", "local"):
             for word, dyn in zip(rest, rest_dyn, strict=False):
                 if _c._ASSIGNMENT.match(word):
                     self._assignment(word, dyn, cwd)
-        if family in _c.INTERPRETERS and self.literals:
-            self._interp(family, rest, rest_dyn, cwd, depth, piped_in, heredoc)
-        elif self.literals and "/" in words[0].replace("\\", "/") and not dynamic[0]:
-            # ``./x``, ``scripts/x``, ``/opt/tool/run``: the file itself runs.
-            self._script(words[0], cwd, depth, "shell")
-        if self.literals:
-            self._project_runner(program, rest, rest_dyn, cwd, depth)
-            if program in ("awk", "gawk", "mawk", "nawk", "sed", "gsed"):
-                # ``awk -f x.awk`` / ``sed -f x``: a program file nothing here reads —
-                # opaque when it is the agent's own (review 6, H-2).
-                value = _option_value(rest, rest_dyn, ("-f", "--file"))
-                if value is not None and not value[1] and value[0]:
-                    self._script(value[0], cwd, depth, "sed" if "sed" in program else "awk")
-        self._own.append(own)
-        self._context.append(program)
-        try:
-            return super().words(words, dynamic, cwd, depth, piped_in=piped_in,
-                                 heredoc=heredoc, stdin_args=stdin_args)
-        finally:
-            self._own.pop()
-            self._context.pop()
+                elif dyn and "=" in word:
+                    self._opaque("env-code:dynamic")  # ``export $NAME=value``
+        elif program == "unset":
+            for word, dyn in zip(rest, rest_dyn, strict=False):
+                if dyn:
+                    self._opaque("env-code:dynamic")
+                elif not word.startswith("-") and _env.is_resolve(word.split("[", 1)[0]):
+                    self._opaque(f"env-code:{word.upper()}")
+        elif program in ("read", "mapfile", "readarray", "getopts"):
+            # They assign the names they are given, with a value nobody sees.
+            for word, dyn in zip(rest, rest_dyn, strict=False):
+                name = word.split("[", 1)[0]
+                if dyn:
+                    self._opaque("env-code:dynamic")
+                elif not word.startswith("-") and _env.is_watched(name):
+                    self._opaque(f"env-code:{name.upper()}")
 
+    def _ssh(self, rest: list[str], rest_dyn: list[bool], depth: int) -> None:
+        """``ssh host '<line>'``: on this machine the line is read like any other;
+        on another host nothing here can read what it does (review 7, M7-5)."""
+        index = 0
+        host: tuple[str, bool] | None = None
+        while index < len(rest):
+            word = rest[index]
+            if word.startswith("-") and len(word) > 1 and word != "--":
+                flag = word[:2]
+                attached = word[2:]
+                value = attached or (rest[index + 1] if index + 1 < len(rest) else "")
+                if flag == "-o" and _SSH_RUNS.search(value):
+                    self._opaque("ssh-option")  # a command the client itself runs
+                index += 2 if flag in _SSH_VALUED and not attached else 1
+                continue
+            if word == "--":
+                index += 1
+                continue
+            host = (word, rest_dyn[index])
+            index += 1
+            break
+        command, command_dyn = rest[index:], rest_dyn[index:]
+        if command[:1] == ["--"]:
+            command, command_dyn = command[1:], command_dyn[1:]
+        if host is None or not command:
+            return
+        name = host[0].rsplit("@", 1)[-1].lower()
+        local = set(_LOCAL_HOSTS)
+        try:
+            import socket
+
+            local.add(socket.gethostname().lower())
+        except OSError:
+            pass
+        if not host[1] and (name in local or name.startswith("127.")):
+            self._body(" ".join(command), any(command_dyn), self.ctx.user_home, depth,
+                       "shell-body")
+        else:
+            self._opaque("remote-shell")
+
+    def _deferred(self, program: str, rest: list[str]) -> None:
+        """``crontab file`` / ``at`` / ``batch`` / ``launchctl load``: a command handed
+        over to run later, outside this line (review 7, M7-5)."""
+        reads = _DEFERRED_READS.get(program, frozenset())
+        lowered = [word.lower() for word in rest]
+        if program in ("launchctl", "schtasks"):
+            first = next((w for w in lowered if program == "schtasks" or not w.startswith("-")),
+                         "")
+            if not first or first in reads:
+                return
+        elif any(word in reads for word in rest):
+            return
+        self._opaque("deferred-run")
+
+    def _git_alias(self, rest: list[str], rest_dyn: list[bool], cwd: Path | None,
+                   depth: int) -> bool:
+        """True when the subcommand is git's own, a program of its own (``git-x``),
+        or an alias that was read from git's configuration and walked here."""
+        root = cwd
+        index = 0
+        while index < len(rest):
+            word = rest[index]
+            if word == "-C" and index + 1 < len(rest):
+                root = None if rest_dyn[index + 1] or root is None else _c._resolve(
+                    rest[index + 1], root, self.ctx)
+                index += 2
+                continue
+            if word in ("-c", "--git-dir", "--work-tree", "--namespace", "--config-env") \
+                    or word in _c._GIT_VALUED:
+                if word == "--git-dir":
+                    root = None
+                index += 2
+                continue
+            if word.startswith("--git-dir="):
+                root = None
+            if word.startswith("-"):
+                index += 1
+                continue
+            break
+        if index >= len(rest):
+            return True
+        sub = rest[index]
+        if rest_dyn[index]:
+            return False
+        if sub in _c.GIT_SUBCOMMANDS:
+            return True
+        alias = git_alias(sub, root, self.ctx.user_home)
+        if alias is None:
+            return False
+        if not alias:
+            return True
+        if alias.startswith("!"):
+            self._body(alias[1:].strip(), False, root, depth, "shell-body")
+            return True
+        try:
+            expansion = shlex.split(alias)
+        except ValueError:
+            return False
+        if not expansion or depth > MAX_DEPTH:
+            return False
+        self.words(["git", *expansion, *rest[index + 1:]],
+                   [False] * (len(expansion) + 1) + list(rest_dyn[index + 1:]), cwd, depth + 1,
+                   piped_in=False, heredoc=False, stdin_args=False)
+        return True
+
+    def _js_runtime(self, program: str, rest: list[str], rest_dyn: list[bool],
+                    cwd: Path | None, depth: int, piped_in: bool, heredoc: bool) -> bool:
+        """``bun -e`` / ``deno eval`` / ``bun run -`` / ``deno run -``: JavaScript read
+        with the node table (review 7, H7-2).  True when the code was read here."""
+        if program == "bun":
+            found = _invocation(_BUN_SPEC, rest, rest_dyn)
+            if found.code:
+                for text, dyn in found.code:
+                    self._code_word(text, dyn, "node", cwd, depth)
+                return True
+            operands = list(zip(rest[found.after:], rest_dyn[found.after:], strict=False))
+            if operands[:1] and operands[0][0] == "run":
+                operands = [(w, d) for w, d in operands[1:] if not w.startswith("--")]
+        else:
+            first = next((i for i, w in enumerate(rest) if not w.startswith("-")), None)
+            if first is None:
+                return False
+            sub = rest[first]
+            operands = []
+            skip = False
+            for word, dyn in zip(rest[first + 1:], rest_dyn[first + 1:], strict=False):
+                if skip:
+                    skip = False
+                elif word in ("-c", "--config", "--import-map", "--ext", "--lock", "-L",
+                              "--log-level", "--cert", "--location", "--seed"):
+                    skip = True
+                elif not word.startswith("-") or word == "-":
+                    operands.append((word, dyn))
+            if sub == "eval":
+                if not operands:
+                    return False
+                self._code_word(operands[0][0], operands[0][1], "node", cwd, depth)
+                return True
+            if sub != "run":
+                return False
+        if not operands:
+            return False
+        word, dyn = operands[0]
+        if word == "-":
+            self._stdin_code("node", cwd, depth, piped_in, heredoc)
+            return True
+        if dyn:
+            self._opaque("script-dynamic")
+        elif re.match(r"(?:https?|jsr|npm|data|blob):", word):
+            if program == "deno" or word.startswith(("http", "data", "blob")):
+                self._opaque("code:remote")  # code fetched when it runs
+        elif re.search(r"\.(?:[cm]?[jt]s|[jt]sx)$", word):
+            self._script(word, cwd, depth, "node")
+        return False
     # -- commands hidden inside a command ---------------------------------------
     def _body(self, body: str, dyn: bool, cwd: Path | None, depth: int, why: str) -> None:
         if dyn:
@@ -701,6 +978,8 @@ class _Probe(_c._Judge):
                         if not (w.startswith("-") and len(w) > 1)]
             if len(operands) >= 2 and operands[0][0] not in ("", "-"):
                 self._body(operands[0][0], operands[0][1], cwd, depth, "trap")
+            # Walked above (or opaque there); the other forms list or reset traps.
+            self._claims[-1].add("trap")
             return False
         if program in ("source", "."):
             if rest and self.literals:
@@ -708,6 +987,7 @@ class _Probe(_c._Judge):
                     self._opaque("script-dynamic")
                 else:
                     self._script(rest[0], cwd, depth, "shell")
+                self._claims[-1].add("source")
             return False
         if family in _c.SHELLS and family != "busybox":
             self._shell(family, rest, rest_dyn, cwd, depth, piped_in, heredoc)
@@ -802,53 +1082,57 @@ class _Probe(_c._Judge):
 
     # -- interpreters (security review 5, H4; review 6, H-2) ----------------------
     def _assignment(self, word: str, dyn: bool, cwd: Path | None) -> None:
-        """``NAME=value`` before a command, after ``env`` or ``export``: a variable
-        that carries code for what runs next makes the line opaque."""
+        """``NAME=value`` — before a command, alone, after ``env`` or ``export``.
+
+        The classifier says which variables carry code or redirect configuration;
+        :func:`snowpea_core.security.envvars.judge` lets a value through only when
+        it can say why it is harmless (security review 7, H7-1).  What the value
+        names is judged like an operand of a program nobody knows: ``X=<a control
+        file>; echo … > $X`` names that file."""
         name, _, value = word.partition("=")
         name = name.rstrip("+").split("[", 1)[0]
-        upper = name.upper()
-        if upper in _CODE_ENV or upper.startswith("BASH_FUNC_"):
-            if not dyn and value in _HARMLESS_VALUES:
-                return
-            if upper == "NODE_OPTIONS" and not dyn and all(
-                    _NODE_TUNING.fullmatch(flag) for flag in value.split()):
-                return
-            self._opaque(f"env-code:{upper}")
-            return
-        if upper in _PATH_ENV:
-            text = value.replace("${PWD}", str(cwd or "")).replace("$PWD", str(cwd or ""))
-            if "$" in text or "`" in text:
-                return  # a folder only the shell knows: not held against the line
-            for part in text.split(":"):
-                if not part:
-                    continue
-                folder = Path(part).expanduser()
-                if not folder.is_absolute():
-                    if cwd is None:
-                        continue
-                    folder = cwd / folder
-                if _code.written.under(folder):
-                    self._opaque(f"env-path:{upper}")
-                    return
+        why = _env.judge(name, value, dyn, cwd=cwd, user_home=self.ctx.user_home,
+                         home=self.ctx.home)
+        if why is not None:
+            self._opaque(why)
+        for part in value.split(":"):
+            if part.startswith(("/", "~", "./", "../", "$HOME", "${HOME}", "$SNOWPEA_HOME",
+                                "${SNOWPEA_HOME}", "$PWD", "${PWD}", "$TMPDIR", "${TMPDIR}")):
+                self._effect(part, cwd, "read", program="assign")
 
     def _inline(self, text: str, language: str, cwd: Path | None, depth: int) -> None:
         """Inline code: its primitives and its string literals that read as command lines."""
         literal_commands(text, self.request, self.view)
         self.apply_code(_code.analyse(text, language), cwd, depth, count_opaque=True)
 
+    def _code_word(self, text: str, dyn: bool, language: str, cwd: Path | None,
+                   depth: int) -> None:
+        """Code given as one word of the line.  A word that is nothing but an
+        expansion (``python -c "$X"``) is code nobody can read; an expansion inside
+        the code is text the shell fills in before the interpreter parses it."""
+        if dyn:
+            if re.fullmatch(r"\s*(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\(.*\)|`.*`)\s*", text,
+                            re.DOTALL):
+                self._opaque("inline-dynamic")
+                return
+            self._opaque("code:interpolated")
+        self._inline(text, language, cwd, depth)
+
     def _interp(self, family: str, rest: list[str], rest_dyn: list[bool],
                      cwd: Path | None, depth: int, piped_in: bool, heredoc: bool) -> None:
         """What an interpreter is asked to run: inline code, a module, a script, its stdin."""
-        spec = _SPECS.get(family, _Spec(code="".join(
-            flag[1] for flag in _c.INTERPRETERS.get(family, frozenset()) if len(flag) == 2)))
+        flags = _c.INTERPRETERS.get(family, frozenset())
+        spec = _SPECS.get(family, _Spec(
+            code="".join(flag[1] for flag in flags if len(flag) == 2),
+            word_code=tuple(sorted(flag for flag in flags if len(flag) > 2))))
         found = _invocation(spec, rest, rest_dyn)
         language = _code.LANGUAGES.get(family, family)
         for name, dyn in found.preload:
             self._preload(name, dyn, cwd, depth, language)
         operands = list(zip(rest[found.after:], rest_dyn[found.after:], strict=False))
         if found.code:
-            for text, _dyn in found.code:
-                self._inline(text, language, cwd, depth)
+            for text, code_dyn in found.code:
+                self._code_word(text, code_dyn, language, cwd, depth)
             if found.inplace:
                 # ``perl -i -pe …  files``: the files are rewritten in place.
                 for word, dyn in operands:
@@ -1196,7 +1480,11 @@ class _Probe(_c._Judge):
         for raw in finding.reads:
             self._effect(raw, cwd, "read", program="code")
         for text in finding.mentions:
-            self.view.mentions.append((text, cwd))
+            self.view.mentions.append((text, cwd, text in finding.read_only))
+        for raw in finding.links:
+            # A link to a file: whatever is later done through the new name is done
+            # to it (security review 7, H7-5) — an operand of ``ln``, not a read.
+            self._effect(raw, cwd, "read", program="ln")
         for text in finding.lines:
             if count_opaque:
                 self.line(text, cwd, depth + 1)
@@ -1332,6 +1620,11 @@ class _Probe(_c._Judge):
             w in ("--symbolic",) or (w.startswith("-") and not w.startswith("--") and "s" in w[1:])
             for w in rest
         )
+        linking = program == "cp" and any(
+            w in ("--symbolic-link", "--link") or (
+                w.startswith("-") and not w.startswith("--") and ("s" in w[1:] or "l" in w[1:]))
+            for w in rest
+        )
         for word, dyn in sources:
             if moving:
                 self._effect(word, cwd, "write", destructive=True, dynamic=dyn)
@@ -1339,7 +1632,12 @@ class _Probe(_c._Judge):
                 # A hard link is the same file under a new name: whatever is later
                 # written through it is written to the source (security review 5, M6).
                 self._effect(word, cwd, "write", dynamic=dyn)
-            elif program != "ln":
+            elif program == "ln" or linking:
+                # A symbolic link (``ln -s``, ``cp -s``, ``cp -l``): what is later
+                # written through the new name lands on the source, and the link
+                # itself may be made in the same line (security review 7, H7-5).
+                self._effect(word, cwd, "read", dynamic=dyn, program="ln")
+            else:
                 self._effect(word, cwd, "read", recursive=recursive, dynamic=dyn)
         if dest is None:
             return
@@ -1425,6 +1723,95 @@ class _Probe(_c._Judge):
             return
         self._effect(str(root), None, "write", destructive=destroy, recursive=True,
                      program="git")
+
+
+_GIT_SECTION = re.compile(r"^\s*\[\s*([A-Za-z0-9.-]+)(?:\s+\"[^\"]*\")?\s*\]\s*$")
+#: Largest git configuration file read for aliases.
+_MAX_GIT_CONFIG = 256 * 1024
+
+
+def _git_config_files(root: Path | None, user_home: Path) -> list[Path] | None:
+    """git's configuration files for a command run in ``root`` (system, the
+    person's, the repository's); ``None`` when the repository's cannot be named."""
+    files = [Path("/etc/gitconfig"), user_home / ".gitconfig",
+             user_home / ".config" / "git" / "config"]
+    if root is None:
+        return None
+    folder = root
+    for _ in range(64):
+        marker = folder / ".git"
+        try:
+            if marker.is_dir():
+                files.append(marker / "config")
+                return files
+            if marker.is_file():
+                # A worktree or a submodule: ``gitdir: <path>``, then ``commondir``.
+                text = marker.read_text(encoding="utf-8", errors="replace").strip()
+                if not text.startswith("gitdir:"):
+                    return None
+                gitdir = Path(text[len("gitdir:"):].strip())
+                if not gitdir.is_absolute():
+                    gitdir = folder / gitdir
+                common = gitdir / "commondir"
+                if common.is_file():
+                    target = Path(common.read_text(encoding="utf-8",
+                                                   errors="replace").strip())
+                    gitdir = target if target.is_absolute() else gitdir / target
+                files.append(gitdir / "config")
+                files.append(gitdir / "config.worktree")
+                return files
+        except OSError:
+            return None
+        if folder.parent == folder:
+            break
+        folder = folder.parent
+    return files  # not a repository: only the person's own configuration counts
+
+
+def git_alias(name: str, root: Path | None, user_home: Path) -> str | None:
+    """What ``git <name>`` stands for when ``name`` is not one of git's own commands.
+
+    The alias text from git's configuration (``!line`` runs a shell line), ``""``
+    when no configuration file defines it (then it is ``git-<name>``, a program
+    like any other), ``None`` when that cannot be told: a configuration file
+    that cannot be read or that includes another.  Files are only read."""
+    files = _git_config_files(root, user_home)
+    if files is None:
+        return None
+    found = ""
+    wanted = name.lower()
+    for path in files:
+        try:
+            if not path.is_file():
+                continue
+            if os.path.getsize(path) > _MAX_GIT_CONFIG:
+                return None
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        section = ""
+        for raw in text.replace("\\\n", "").splitlines():
+            line = raw.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            header = _GIT_SECTION.match(line)
+            if header is not None:
+                section = header.group(1).lower()
+                if section in ("include", "includeif"):
+                    return None
+                continue
+            if line.startswith("["):
+                return None  # a section header this reader does not understand
+            key, sep, value = line.partition("=")
+            key = key.strip().lower()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] == '"':
+                value = value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+            if section == "alias" and key == wanted:
+                found = value if sep else ""
+            elif section == "" and key == f"alias.{wanted}":
+                found = value if sep else ""
+    return found
 
 
 def substitution_bodies(text: str) -> list[str]:

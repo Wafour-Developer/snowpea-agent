@@ -586,6 +586,8 @@ class _Line:
     substitution: bool = False
     #: ``name() …`` — a shell function definition.
     function: bool = False
+    #: The names so defined.
+    functions: list[str] = field(default_factory=list)
 
 
 class _Scanner:
@@ -607,6 +609,8 @@ class _Scanner:
         self.mask: list[bool] = []
         self.in_word = False
         self.dynamic = False
+        #: Inside an unquoted backtick substitution.
+        self.backtick = False
         self.pending_redirect: str | None = None
         self.pending_heredocs: list[tuple[str, bool, bool, _Cmd]] = []
         #: The word being read had a quote or a backslash in it.
@@ -734,6 +738,15 @@ class _Scanner:
                 self._dollar(nxt)
             elif char == "`":
                 self.line.substitution = True
+                self.backtick = not self.backtick
+                if self.backtick:
+                    # An opening backtick is ``$(``: the word it is part of (or
+                    # starts) is one only the shell knows — ``X=`cmd` `` used to
+                    # read as ``X=`` and `` `echo rm` -rf / `` as the program
+                    # ``-rf`` (security review 7).
+                    self.dynamic = True
+                    self._add("$", True)
+                    self._end_word()
                 self._end_command(";")
                 self.i += 1
             elif char == "|":
@@ -755,8 +768,13 @@ class _Scanner:
             elif char == "(":
                 if self.in_word and nxt == ")":
                     self.line.function = True
+                    self.line.functions.append("".join(self.word))
                     self.i += 2
                     self._end_word()
+                    # The name ends here: what follows is the body, a command of
+                    # its own (it used to read as arguments of the name, so
+                    # ``f() { rm -rf /; }`` hid its body; security review 7).
+                    self._end_command(";")
                 else:
                     self._end_command("(")
                     self.i += 1
@@ -936,6 +954,30 @@ INTERPRETERS: dict[str, frozenset[str]] = {
     "groovy": frozenset({"-e"}),
     "scala": frozenset({"-e"}),
     "swift": frozenset({"-e"}),
+    # More runtimes that take code on the command line or from stdin (security
+    # review 7, H7-2): none has a table, so their inline code is never readable.
+    "elixir": frozenset({"-e", "--eval"}),
+    "iex": frozenset({"-e", "--eval"}),
+    "escript": frozenset(),
+    "gdb": frozenset({"-ex", "-iex", "-x", "--eval-command", "--command", "--init-command",
+                      "--init-eval-command", "-ix"}),
+    "lldb": frozenset({"-o", "-O", "-s", "-S", "-k", "-K", "--one-line", "--source",
+                       "--one-line-before-file", "--source-before-file"}),
+    "clojure": frozenset({"-e", "--eval"}),
+    "clj": frozenset({"-e", "--eval"}),
+    "bb": frozenset({"-e", "--eval"}),
+    "racket": frozenset({"-e", "--eval"}),
+    "guile": frozenset({"-c"}),
+    "sbcl": frozenset({"--eval", "--load", "--script"}),
+    "ghci": frozenset({"-e"}),
+    "runghc": frozenset(),
+    "runhaskell": frozenset(),
+    "expect": frozenset({"-c"}),
+    "octave": frozenset({"--eval"}),
+    "matlab": frozenset({"-r", "-batch"}),
+    "raku": frozenset({"-e"}),
+    "tsx": frozenset({"-e", "--eval"}),
+    "ts-node": frozenset({"-e", "--eval", "-p", "--print"}),
 }
 #: Programs that run their arguments as a command line through a shell.
 SHELL_STRING_RUNNERS: frozenset[str] = frozenset({"watch", "parallel", "script", "su", "runuser"})

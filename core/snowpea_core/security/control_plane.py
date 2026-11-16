@@ -67,7 +67,16 @@ CONTROL: tuple[ControlEntry, ...] = (
                  "stored credentials (providers, messengers, the web password hash)",
                  names=("credentials.json",)),
     ControlEntry("mcp-oauth.json", "all", "MCP server logins"),
+    # The logins of the external CLIs kept in snowpea's home (security review 7,
+    # L7-2): before the folders they sit in, which are level ``ask``.
+    ControlEntry(".codex/auth.json", "all", "the Codex login"),
+    ControlEntry(".claude/.credentials.json", "all", "the Claude Code login"),
     ControlEntry("settings.json", "write", "snowpea's settings", tool_edit=True),
+    # The global MCP file starts commands for every project, as a trusted source
+    # (security review 7): only a person, or ``mcp.*`` behind a person, writes it.
+    ControlEntry(".mcp.json", "write", "the MCP servers started for every project"),
+    ControlEntry("daemon.lock", "write", "the lock that keeps one daemon per home"),
+    ControlEntry("setup-state.json", "write", "what the setup remembers as tested"),
     ControlEntry("trust", "write", "the trusted-projects record"),
     ControlEntry("jarvis", "write", "Jarvis mode's delegation rules and ledger"),
     ControlEntry("security", "write", "the security check's own records"),
@@ -87,6 +96,7 @@ CONTROL: tuple[ControlEntry, ...] = (
     ControlEntry("skills", "ask", "your own skills"),
     ControlEntry("commands", "ask", "your own commands"),
     ControlEntry("agents", "ask", "your own agent definitions"),
+    ControlEntry("lsp", "ask", "the language servers snowpea installed and runs"),
     ControlEntry(".claude", "ask", "the Claude Code folder kept in snowpea's home"),
     ControlEntry(".codex", "ask", "the Codex folder kept in snowpea's home"),
 )
@@ -96,8 +106,43 @@ CONTROL: tuple[ControlEntry, ...] = (
 #: ordinary logs.
 WORKING: tuple[str, ...] = (
     "plans", "sessions", "attachments", "tool-content", "audio", "cache", "checkpoints",
-    "logs", "update-check.json", "teams",
+    "logs", "update-check.json", "teams", "memory.md", "extension-data",
 )
+
+#: The logins of external CLIs in the USER's home (security review 7, L7-2):
+#: never read by a tool, whatever the person's own lists say — the same answer
+#: as for a secret of snowpea's own.  Paths under the user's home.
+EXTERNAL_SECRETS: tuple[tuple[str, str], ...] = (
+    (".codex/auth.json", "the Codex login"),
+    (".claude/.credentials.json", "the Claude Code login"),
+    (".claude.json", "the Claude Code login"),
+    (".gemini/oauth_creds.json", "the Gemini CLI login"),
+    (".config/cursor/auth.json", "the Cursor login"),
+    (".cursor/cli-config.json", "the Cursor login"),
+    (".config/anthropic", "the Anthropic credentials"),
+)
+
+
+def external_secret(path: str | os.PathLike[str],
+                    user_home: str | os.PathLike[str] | None) -> ControlEntry | None:
+    """The external-CLI login ``path`` is (or lies inside); ``None`` otherwise.
+
+    ``path`` is absolute and normalised by the caller; it is compared as written
+    and with symlinks resolved."""
+    try:
+        base = Path(os.fspath(user_home)) if user_home else Path.home()
+        forms = {Path(os.path.normpath(os.fspath(path))), Path(os.path.realpath(os.fspath(path)))}
+        bases = {Path(os.path.normpath(str(base))), Path(os.path.realpath(str(base)))}
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return None
+    for rel, what in EXTERNAL_SECRETS:
+        for root in bases:
+            target = pathcase.path_key(root / rel, None)
+            for form in forms:
+                key = pathcase.path_key(form, None)
+                if key == target or target in key.parents:
+                    return ControlEntry(rel, "all", what)
+    return None
 
 
 @dataclass(frozen=True)

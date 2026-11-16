@@ -14,6 +14,21 @@ from pathlib import Path
 
 DEFAULT_HOME = Path("~/.snowpea")
 
+#: Every name the core creates directly under ``SNOWPEA_HOME`` that is not a
+#: :class:`Paths` property (the modules that own them build the path from their
+#: own constant).  Security review 7, L7-1: the control-plane table
+#: (:mod:`snowpea_core.security.control_plane`) must classify every one of
+#: these and every property — ``tests/test_security_review7_control.py`` walks
+#: both, and scans the sources for a name built under the home that is in
+#: neither.  A new home file goes here (or becomes a property) first.
+HOME_ENTRIES: tuple[str, ...] = (
+    "trust", "jarvis", "security", "external", "mcp-oauth.json", ".mcp.json",
+    "gateway-chats.json", "hooks.json", "hooks", "plugins", "extensions", "extension-data",
+    "skills", "commands", "agents", "lsp", "update-plan.json", "update-helper.ps1",
+    "daemon.lock", "setup-state.json", "memory.md", "plans", "sessions", "teams",
+    ".claude", ".codex",
+)
+
 
 def utc_now() -> str:
     """The daemon's wire timestamp: UTC ISO-8601 with milliseconds and a ``Z``.
