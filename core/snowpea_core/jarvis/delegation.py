@@ -220,15 +220,14 @@ def person_refusal(
             "handing guarded classes to Jarvis needs a local connection "
             "(IDE, TUI or the local web page), not a remote web login"
         )
-    if caller.remote and grant:
-        # Security review 8, H8-2: a grant persists — a remote web login (not
-        # re-authenticated) may take authority away and take over or hand back
-        # a session, never create or widen a grant.
-        return (
-            "giving Jarvis authority needs a local connection "
-            "(IDE, TUI or the local web page), not a remote web login"
-        )
     return None
+
+
+#: Why a remote web login makes no grant (security review 8, H8-2).
+REMOTE_GRANT_REFUSAL = (
+    "giving Jarvis authority needs a local connection "
+    "(IDE, TUI or the local web page), not a remote web login"
+)
 
 
 def require_person(
@@ -671,6 +670,12 @@ class DelegationEngine:
             raise DelegationError(f"unknown level {level!r}; expected staged or full")
         allowed = _allow_list(allow)
         require_person(caller, self.settings, guarded=bool(allowed))
+        if caller.kind == "connection" and caller.remote:
+            # Security review 8, H8-2: a grant persists — a remote web login (not
+            # re-authenticated) may revoke, take over and hand back, never create
+            # or widen a grant.  Here, not in person_refusal: that rule also says
+            # who is a person at all (external sessions, approvals).
+            raise PersonOnly(REMOTE_GRANT_REFUSAL)
         stored_target: str | None
         if scope == "global":
             if target:
