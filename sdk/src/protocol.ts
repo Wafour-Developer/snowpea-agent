@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.54.0";
+export const PROTOCOL_VERSION = "1.55.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -4007,6 +4007,121 @@ export interface PermissionAllowlistRemoveParams {
 export interface PermissionAllowlistRemoveResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `project.trust.revoke` params. Project trust (1.55.0): take scopes back (all when omitted). A local person only. */
+export interface ProjectTrustRevokeParams {
+  /** Scopes to take back; omitted: all of them. */
+  scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[] | null;
+  /** A folder of the project. */
+  workdir: string;
+}
+
+/** `project.trust.revoke` result. */
+export interface ProjectTrustRevokeResult {
+  /** When (UTC ISO). */
+  at?: string | null;
+  /** Who trusted it (ide, tui, cli, migration). */
+  by?: string | null;
+  /** Files of a trusted scope that are new or changed since the trust. */
+  changed?: string[];
+  /** The project file asks for defaultMode auto. */
+  defaultModeAuto?: boolean;
+  files?: ({
+    /** Relative to the project root. */
+    path: string;
+    /** What it makes snowpea do. */
+    scope: "hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli";
+    /** active: trusted and unchanged; untrusted: its scope is not trusted; new: added since the project was trusted; changed: its content differs from what was trusted. */
+    state: "active" | "untrusted" | "new" | "changed";
+    /** Hook commands' first 200 characters, MCP servers, allowed-tools, … */
+    summary?: string;
+  })[];
+  /** Control files not active now (any reason). */
+  inactive?: string[];
+  /** …and the mode scope lets it apply (else accept). */
+  modeActive?: boolean;
+  scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
+  /** Some scope is trusted. */
+  trusted: boolean;
+  /** The project root (real path). */
+  workdir: string;
+}
+
+/** `project.trust.set` params. Project trust (1.55.0): trust the project for scopes, pinning every control file as it is now. A local person only. */
+export interface ProjectTrustSetParams {
+  /** Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, prompts, settings — not mode (defaultMode: auto from the project file) and not externalCli, which the person names explicitly. Every control file is pinned as it is now. */
+  scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[] | null;
+  /** A folder of the project (its real path is the key). */
+  workdir: string;
+}
+
+/** `project.trust.set` result. */
+export interface ProjectTrustSetResult {
+  /** When (UTC ISO). */
+  at?: string | null;
+  /** Who trusted it (ide, tui, cli, migration). */
+  by?: string | null;
+  /** Files of a trusted scope that are new or changed since the trust. */
+  changed?: string[];
+  /** The project file asks for defaultMode auto. */
+  defaultModeAuto?: boolean;
+  files?: ({
+    /** Relative to the project root. */
+    path: string;
+    /** What it makes snowpea do. */
+    scope: "hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli";
+    /** active: trusted and unchanged; untrusted: its scope is not trusted; new: added since the project was trusted; changed: its content differs from what was trusted. */
+    state: "active" | "untrusted" | "new" | "changed";
+    /** Hook commands' first 200 characters, MCP servers, allowed-tools, … */
+    summary?: string;
+  })[];
+  /** Control files not active now (any reason). */
+  inactive?: string[];
+  /** …and the mode scope lets it apply (else accept). */
+  modeActive?: boolean;
+  scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
+  /** Some scope is trusted. */
+  trusted: boolean;
+  /** The project root (real path). */
+  workdir: string;
+}
+
+/** `project.trust.status` params. Project trust (1.55.0): what the project's own files would make snowpea do (hooks, MCP servers, commands with allowed-tools, agents with a permission, prompt overrides, widening settings, defaultMode auto), which are active, and what changed since it was trusted. People (a remote login too). */
+export interface ProjectTrustStatusParams {
+  /** A folder of the project (its real path is the key). */
+  workdir: string;
+}
+
+/** `project.trust.status` result. */
+export interface ProjectTrustStatusResult {
+  /** When (UTC ISO). */
+  at?: string | null;
+  /** Who trusted it (ide, tui, cli, migration). */
+  by?: string | null;
+  /** Files of a trusted scope that are new or changed since the trust. */
+  changed?: string[];
+  /** The project file asks for defaultMode auto. */
+  defaultModeAuto?: boolean;
+  files?: ({
+    /** Relative to the project root. */
+    path: string;
+    /** What it makes snowpea do. */
+    scope: "hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli";
+    /** active: trusted and unchanged; untrusted: its scope is not trusted; new: added since the project was trusted; changed: its content differs from what was trusted. */
+    state: "active" | "untrusted" | "new" | "changed";
+    /** Hook commands' first 200 characters, MCP servers, allowed-tools, … */
+    summary?: string;
+  })[];
+  /** Control files not active now (any reason). */
+  inactive?: string[];
+  /** …and the mode scope lets it apply (else accept). */
+  modeActive?: boolean;
+  scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
+  /** Some scope is trusted. */
+  trusted: boolean;
+  /** The project root (real path). */
+  workdir: string;
 }
 
 /** `provider.configure` params. Store settings and credentials for a provider. */
@@ -8996,6 +9111,17 @@ export interface McpChangedPayload {
   toolCount?: number;
 }
 
+/** `project.trust.changed` notification payload. */
+export interface ProjectTrustChangedPayload {
+  by?: string | null;
+  /** migration: every project trusted as it was. */
+  projects?: string[];
+  reason?: "set" | "revoke" | "migration";
+  scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
+  /** The project root ('' for the migration). */
+  workdir?: string;
+}
+
 /** `provider.loginProgress` notification payload. */
 export interface ProviderLoginProgressPayload {
   /** Seconds until the code or session expires, when known. */
@@ -10167,6 +10293,9 @@ export interface MethodMap {
   "permission.allowlist.add": { params: PermissionAllowlistAddParams; result: PermissionAllowlistAddResult };
   "permission.allowlist.list": { params: PermissionAllowlistListParams; result: PermissionAllowlistListResult };
   "permission.allowlist.remove": { params: PermissionAllowlistRemoveParams; result: PermissionAllowlistRemoveResult };
+  "project.trust.revoke": { params: ProjectTrustRevokeParams; result: ProjectTrustRevokeResult };
+  "project.trust.set": { params: ProjectTrustSetParams; result: ProjectTrustSetResult };
+  "project.trust.status": { params: ProjectTrustStatusParams; result: ProjectTrustStatusResult };
   "provider.configure": { params: ProviderConfigureParams; result: ProviderConfigureResult };
   "provider.list": { params: ProviderListParams; result: ProviderListResult };
   "provider.loginWeb": { params: ProviderLoginWebParams; result: ProviderLoginWebResult };
@@ -10385,6 +10514,9 @@ export type ClientMethod =
   | "permission.allowlist.add"
   | "permission.allowlist.list"
   | "permission.allowlist.remove"
+  | "project.trust.revoke"
+  | "project.trust.set"
+  | "project.trust.status"
   | "provider.configure"
   | "provider.list"
   | "provider.loginWeb"
@@ -10512,6 +10644,7 @@ export interface EventMap {
   "lsp.install.progress": LspInstallProgressPayload;
   "mcp.auth.done": McpAuthDonePayload;
   "mcp.changed": McpChangedPayload;
+  "project.trust.changed": ProjectTrustChangedPayload;
   "provider.loginProgress": ProviderLoginProgressPayload;
   "question.pending": QuestionPendingPayload;
   "question.resolved": QuestionResolvedPayload;
@@ -10547,6 +10680,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "lsp.install.progress",
   "mcp.auth.done",
   "mcp.changed",
+  "project.trust.changed",
   "provider.loginProgress",
   "question.pending",
   "question.resolved",

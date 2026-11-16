@@ -230,6 +230,41 @@ async def web_token_command(home: Path | str | None, *, rotate: bool = False) ->
     return EXIT_OK
 
 
+async def project_trust_command(home: Path | str | None, action: str, path: str | None, *,
+                                scopes: list[str] | None = None, as_json: bool = False) -> int:
+    """``snowpea project status|trust|untrust [path] [--scope …]`` (security review 5, C1)."""
+    root = os.path.realpath(os.path.expanduser(path or os.getcwd()))
+    method = {"status": "project.trust.status", "trust": "project.trust.set",
+              "untrust": "project.trust.revoke"}.get(action)
+    if method is None:
+        print(f"unknown action {action!r}: use status, trust or untrust", file=sys.stderr)
+        return 2
+    params: dict[str, Any] = {"workdir": root}
+    if action != "status" and scopes:
+        params["scopes"] = scopes
+    try:
+        status = await _call(home, method, params)
+    except Exception as exc:  # noqa: BLE001 - say why, briefly
+        print(f"snowpea project {action}: {exc}", file=sys.stderr)
+        return 1
+    if as_json:
+        _print_json(status)
+        return 0
+    scopes_now = ", ".join(status.get("scopes") or []) or "none"
+    print(f"project:  {status.get('workdir')}")
+    print(f"trusted:  {scopes_now}" + (f" (by {status.get('by')}, {status.get('at')})"
+                                       if status.get("trusted") else ""))
+    files = status.get("files") or []
+    if not files:
+        print("brings:   nothing that runs code or widens what runs unasked")
+    for item in files:
+        print(f"  [{item.get('state')}] {item.get('scope')}: {item.get('path')}"
+              + (f" — {item['summary']}" if item.get("summary") else ""))
+    if status.get("defaultModeAuto") and not status.get("modeActive"):
+        print("defaultMode auto in the project file does not apply (trust --scope mode)")
+    return 0
+
+
 async def web_status_command(home: Path | str | None, *, as_json: bool = False) -> int:
     """``snowpea web status``: remote access as the daemon runs it, and the settings."""
     from snowpea_core.config.settings import Settings
@@ -3126,6 +3161,30 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
 
     add_extension_arguments(sub)
 
+    project_parser = sub.add_parser(
+        "project", help="what a project folder may make snowpea do (project trust)"
+    )
+    project_sub = project_parser.add_subparsers(dest="action", metavar="<action>")
+    for name, text in (
+        ("status", "what the project brings (hooks, MCP servers, …) and what of it is active"),
+        ("trust", "trust the project: its hooks, MCP servers, commands, agents, prompts and "
+                  "settings apply, pinned as they are now"),
+        ("untrust", "take the project's trust back"),
+    ):
+        action_parser = project_sub.add_parser(name, help=text)
+        action_parser.add_argument("path", nargs="?", default=None,
+                                   help="the project folder (default: the current folder)")
+        if name != "status":
+            action_parser.add_argument(
+                "--scope", dest="scopes", action="append", default=None,
+                choices=["hooks", "mcp", "commands", "agents", "prompts", "settings", "mode",
+                         "externalCli"],
+                help="one scope (repeatable); trust without it grants all but mode and "
+                     "externalCli, untrust without it takes everything back",
+            )
+        action_parser.add_argument("--json", dest="sub_json", action="store_true",
+                                   help="emit JSON")
+
     web_parser = sub.add_parser(
         "web", help="open snowpea web (the browser UI) served by the daemon"
     )
@@ -3457,6 +3516,11 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         return setup_command(args, home)
     if subcommand == "service":
         return service_command(str(action or ""), home)
+    if subcommand == "project":
+        return await project_trust_command(
+            home, str(action or "status"), getattr(args, "path", None),
+            scopes=getattr(args, "scopes", None), as_json=as_json,
+        )
     if subcommand == "web":
         if action == "password":
             return web_password_command(

@@ -333,8 +333,9 @@ async def test_external_cli_needs_the_person_to_trust_the_project(
         assert ref not in refs
         assert _code(await clients["browser"].call("external.read", {"ref": ref})) == "not_found"
         assert await clients["browser"].ok("external.read", {"ref": mine["session"]["ref"]})
-        trust = json.loads((daemon.core.paths.home / "jarvis" / "external-trust.json").read_text())
-        assert str(project.resolve()) in trust["projects"]
+        # One trusted-projects record (security review 5, C1): the externalCli scope.
+        trust = json.loads((daemon.core.paths.home / "trust" / "projects.json").read_text())
+        assert "externalCli" in trust["projects"][str(project.resolve())]["scopes"]
         # The repository cannot trust itself: its own settings file is not read for this.
         other = tmp_path / "other"
         (other / ".snowpea").mkdir(parents=True)

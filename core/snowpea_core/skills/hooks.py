@@ -80,6 +80,22 @@ class Hook:
     #: A ``PreToolUse`` hook with ``failClosed: true`` blocks the call when it
     #: cannot start, crashes or times out, instead of letting it through.
     fail_closed: bool = False
+    #: The project (real path) a project's own hook belongs to: it runs only for
+    #: sessions working in that project (security review 5, C1).  ``None``: a
+    #: global or plugin hook, for every session.
+    project: Path | None = None
+
+    def applies_to(self, workdir: Any) -> bool:
+        """This hook runs for a session in ``workdir``."""
+        if self.project is None:
+            return True
+        if not workdir:
+            return False
+        try:
+            real = Path(os.path.realpath(os.fspath(workdir)))
+        except (OSError, TypeError, ValueError):
+            return False
+        return real == self.project or self.project in real.parents
 
     def matches(self, tool_name: str) -> bool:
         pattern = (self.matcher or "").strip()
@@ -110,16 +126,25 @@ class HookRegistry:
         self.hooks = {}
 
     def add(self, hook: Hook) -> None:
-        self.hooks.setdefault(hook.event, []).append(hook)
+        bucket = self.hooks.setdefault(hook.event, [])
+        if hook not in bucket:  # a project scanned twice registers its hooks once
+            bucket.append(hook)
 
-    def for_tool(self, event: str, tool_name: str) -> list[Hook]:
-        return [hook for hook in self.hooks.get(event, []) if hook.matches(tool_name)]
+    def for_tool(self, event: str, tool_name: str, workdir: Any = ...) -> list[Hook]:
+        """Hooks of ``event`` that match ``tool_name``; with ``workdir``, only those
+        that apply to a session there (a project's hooks stay in their project)."""
+        return [hook for hook in self.hooks.get(event, []) if hook.matches(tool_name)
+                and (workdir is ... or hook.applies_to(workdir))]
 
     def count(self) -> int:
         return sum(len(items) for items in self.hooks.values())
 
-    def load_file(self, path: Path, *, plugin: str = "", root: Path | None = None) -> int:
-        """Read one ``hooks.json``; returns how many hooks it contributed."""
+    def load_file(self, path: Path, *, plugin: str = "", root: Path | None = None,
+                  project: Path | None = None) -> int:
+        """Read one ``hooks.json``; returns how many hooks it contributed.
+
+        ``project``: the hooks are that project's own (they run only there).
+        """
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -154,6 +179,7 @@ class HookRegistry:
                             root=root,
                             timeout=float(timeout) if timeout else DEFAULT_TIMEOUT_SEC,
                             fail_closed=bool(spec.get("failClosed")),
+                            project=project,
                         )
                     )
                     added += 1
@@ -457,6 +483,27 @@ def tool_provider(core: Core, session: Session, tool_name: str) -> str | None:
     return "builtin"
 
 
+def security_refusal(core: Any, session: Any, hook: Hook) -> str | None:
+    """Why the security lists refuse ``hook``'s command, or ``None`` (review 5, C1 f).
+
+    A hook command is a shell line like any other: one the lists block does not
+    run and counts as a failed hook (a fail-closed guard then blocks its call).
+    """
+    try:
+        from snowpea_core.security import enforce
+
+        verdict = enforce.judge_for_core(core, session, "shell",
+                                         {"command": expand(hook.command, hook.root)}, ("exec",))
+    except Exception:  # noqa: BLE001 - a check that cannot run refuses
+        log.warning("could not check hook %s against the security lists", hook.command,
+                    exc_info=True)
+        return "the security lists could not check this hook command"
+    if verdict.blocked:
+        log.warning("hook %s blocked by the security lists: %s", hook.command, verdict.by)
+        return f"blocked by the security list: {verdict.by} — {verdict.why}"
+    return None
+
+
 async def run_event(
     core: Core,
     session: Session,
@@ -468,7 +515,7 @@ async def run_event(
     registry = registry_of(core)
     if registry is None:
         return HookOutcome()
-    hooks = registry.for_tool(event, tool_name)
+    hooks = registry.for_tool(event, tool_name, session.workdir)
     if not hooks:
         return HookOutcome()
     payload = {
@@ -484,7 +531,11 @@ async def run_event(
     home = core.paths.home
     outcome = HookOutcome()
     for hook in hooks:
-        code, err = await run_hook(hook, payload, home=home, cwd=session.workdir)
+        refused = security_refusal(core, session, hook)
+        if refused is not None:
+            code, err = HOOK_FAILED, refused  # never started: a failed hook
+        else:
+            code, err = await run_hook(hook, payload, home=home, cwd=session.workdir)
         outcome.ran += 1
         if event == "PreToolUse" and code == BLOCK_EXIT_CODE:
             outcome.blocked = True
@@ -520,7 +571,8 @@ async def pre_tool_use(
     except Exception as exc:  # noqa: BLE001 - hook trouble must not become the turn's error
         log.warning("PreToolUse hooks for %s failed: %s", tool_name, exc, exc_info=True)
         registry = registry_of(core)
-        guards = registry.for_tool("PreToolUse", tool_name) if registry is not None else []
+        guards = (registry.for_tool("PreToolUse", tool_name, session.workdir)
+                  if registry is not None else [])
         if any(hook.fail_closed for hook in guards):
             return f"{tool_name} was blocked: a fail-closed guard hook could not run ({exc})"
         return None
@@ -577,7 +629,7 @@ async def stop(
     registry = registry_of(core)
     if registry is None:
         return StopDecision()
-    hooks = registry.for_tool("Stop", "")
+    hooks = registry.for_tool("Stop", "", session.workdir)
     if not hooks:
         return StopDecision()
     payload = {
@@ -592,6 +644,10 @@ async def stop(
         "last_assistant_message": last_message,
     }
     for hook in hooks:
+        refused = security_refusal(core, session, hook)
+        if refused is not None:
+            await note_failure(core, session, hook, HOOK_FAILED, refused)
+            continue
         code, out, err = await run_hook_output(
             hook, payload, home=core.paths.home, cwd=session.workdir
         )

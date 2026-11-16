@@ -591,7 +591,9 @@ async def mcp_add_handler(
             )
 
     before = declared(core, workdir).get(name)
+    pinned = _project_digest(params.scope, path)
     mcp_config.save_entry(path, name, entry)
+    _person_wrote(core, _conn, params.scope, workdir, pinned)
     if params.permission is not None:
         await set_permission(core, name, params.permission)
     await reconcile(core, name, workdir, before)
@@ -605,6 +607,33 @@ async def mcp_add_handler(
         error=info.error,
         auth=info.auth,
     )
+
+
+def _project_digest(scope: str, path: Path) -> str | None:
+    """The project ``.mcp.json``'s digest before a write (``None`` for the global file)."""
+    if scope != "project":
+        return None
+    from snowpea_core.trust.projects import digest_of
+
+    return digest_of(path)
+
+
+def _person_wrote(core: Core, conn: Any, scope: str, workdir: Path | None,
+                  before: str | None) -> None:
+    """A local person's edit of the project ``.mcp.json`` keeps its ``mcp`` trust
+    when what was there was trusted (security review 5, C1 c)."""
+    if before is None or workdir is None:
+        return
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(conn) != "person":
+        return
+    try:
+        from snowpea_core.trust.projects import MCP_FILE, store_for
+
+        store_for(core.paths.home).person_wrote(workdir, MCP_FILE, before)
+    except Exception:  # noqa: BLE001 - the entry is saved; trust stays as it was
+        log.warning("could not re-pin %s/.mcp.json", workdir, exc_info=True)
 
 
 def scope_for(core: Core, name: str, scope: str | None, workdir: Path) -> str:
@@ -645,8 +674,10 @@ async def mcp_remove_handler(
     scope = scope_for(core, params.name, params.scope, workdir)
     path = _writable(core, params.name, scope, workdir)
     before = declared(core, workdir).get(params.name)
+    pinned = _project_digest(scope, path)
     if not mcp_config.delete_entry(path, params.name):
         raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not declared in {path}")
+    _person_wrote(core, _conn, scope, workdir, pinned)
     await reconcile(core, params.name, workdir, before)
     return Ok(ok=True)
 
@@ -687,7 +718,9 @@ async def mcp_update_handler(
             {"findings": warnings},
         )
     before = declared(core, workdir).get(params.name)
+    pinned = _project_digest(scope, path)
     mcp_config.save_entry(path, params.name, entry)
+    _person_wrote(core, _conn, scope, workdir, pinned)
     if params.patch.permission is not None:
         await set_permission(core, params.name, params.patch.permission)
     await reconcile(core, params.name, workdir, before)

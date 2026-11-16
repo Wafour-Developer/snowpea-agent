@@ -103,6 +103,10 @@ PERSON_METHODS: dict[str, bool] = {
     "web.remote.setPassword": True,
     "web.remote.clearPassword": True,
     "web.remote.rotateToken": True,
+    # Security review 5, C1: project trust is a local person's (status: people).
+    "project.trust.set": True,
+    "project.trust.revoke": True,
+    "project.trust.status": False,
 }
 
 

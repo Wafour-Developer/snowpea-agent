@@ -193,6 +193,11 @@ def wire_core(core: Core) -> Core:
     audio_tools.refresh_state(core)
     core.sessions.on_close.append(browser_providers.close_all_sessions)
     register_builtin_commands(core.commands)
+    # Project trust (security review 5, C1) before the first scan reads any
+    # project's hooks: this daemon's store, and the one-time migration.
+    from snowpea_core.server.trust_handlers import wire_trust
+
+    wire_trust(core)
     core.skills = SkillLoader(core)
     core.skills.load_sync()
     # Extensions are loaded by ``Daemon.start`` after the skills, so they add
@@ -223,7 +228,7 @@ async def _refresh_settings(core: Core) -> None:
         log.warning("could not reload settings.json", exc_info=True)
 
 
-async def _load_project_skills(core: Core, workdir: Path) -> None:
+async def _load_project_skills(core: Core, workdir: Path, session_id: str | None = None) -> None:
     """Register this project's skills, commands and agents before the first turn.
 
     The daemon scans every workdir it knows at boot, but a project it has never
@@ -233,12 +238,17 @@ async def _load_project_skills(core: Core, workdir: Path) -> None:
     """
     skills = getattr(core, "skills", None)
     reload_workdir = getattr(skills, "reload_workdir", None)
-    if reload_workdir is None:
-        return
-    try:
-        await reload_workdir(workdir)
-    except Exception:  # noqa: BLE001 - a bad skill file must not fail session.create
-        log.warning("could not load project skills from %s", workdir, exc_info=True)
+    if reload_workdir is not None:
+        try:
+            await reload_workdir(workdir)
+        except Exception:  # noqa: BLE001 - a bad skill file must not fail session.create
+            log.warning("could not load project skills from %s", workdir, exc_info=True)
+    if session_id:
+        # Security review 5, C1: once per session, what the project brings that
+        # is not active until the person trusts it.
+        from snowpea_core.server.trust_handlers import session_notice
+
+        await session_notice(core, session_id, workdir)
 
 
 def _session(core: Core, session_id: str) -> Session:
@@ -308,7 +318,7 @@ async def session_create_handler(
     ensure_workspace(core.paths.home, session)
     core.hub.subscribe(conn, session.id)
     _count_sessions(core)
-    await _load_project_skills(core, session.workdir)
+    await _load_project_skills(core, session.workdir, session.id)
     await mcp_client.sync_tools_bounded(core, session.workdir)
     await announce_model(core, session)
     jarvis = getattr(core, "jarvis", None)
@@ -333,7 +343,7 @@ async def session_resume_handler(
         session = await core.sessions.restore(params.sessionId, origin_conn=conn)
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
-    await _load_project_skills(core, session.workdir)
+    await _load_project_skills(core, session.workdir, session.id)
     ensure_workspace(core.paths.home, session)
     from snowpea_core.tools.host_tools import runs_owned_job
 

@@ -79,9 +79,13 @@ def is_config_path(path: str, *, workdir: Any = None, home: Any = None) -> bool:
 
     That is everything under ``$SNOWPEA_HOME`` (``settings.json``,
     ``credentials.json``, ``state.db``, ``token``, ``logs/``) plus a project's
-    ``.snowpea/settings.json`` and ``.snowpea/credentials.json``.  The rest of a
-    project's ``.snowpea/`` is working state, not configuration: a team worker
-    editing source inside ``.snowpea/worktrees/`` is doing ordinary work.
+    ``.snowpea/settings.json`` and ``.snowpea/credentials.json`` and every
+    project control file (:func:`snowpea_core.trust.projects.control_path`:
+    hooks, agents, commands, skills, prompts, plugins, ``mcp*.json``,
+    ``.claude`` settings and hooks, ``.mcp.json``, ``.codex``, ``.cursor``).
+    The rest of a project's ``.snowpea/`` is working state, not configuration:
+    a team worker editing source inside ``.snowpea/worktrees/`` is doing
+    ordinary work.
     """
     if not path.strip():
         return False
@@ -98,7 +102,14 @@ def is_config_path(path: str, *, workdir: Any = None, home: Any = None) -> bool:
         return not any(
             _under(resolved, snowpea_home / name) for name in HOME_WORKING_DIRS
         )
-    return resolved.parent.name == PROJECT_DIR and resolved.name in PROJECT_FILES
+    if resolved.parent.name == PROJECT_DIR and resolved.name in PROJECT_FILES:
+        return True
+    # Security review 5, C1 e: a project's hooks, agents, commands, skills,
+    # prompts, plugins, MCP files and the agent CLIs' own config are
+    # configuration too — never written silently in accept or auto.
+    from snowpea_core.trust.projects import control_path
+
+    return control_path(resolved)
 
 
 def home_of(core: Any) -> Any:

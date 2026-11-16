@@ -135,9 +135,28 @@ class SessionManager:
 
     # -- defaults ------------------------------------------------------
     def default_mode(self, workdir: Path | str) -> Mode:
-        """Project ``defaultMode`` if the workdir declares one, else ``accept``."""
+        """Project ``defaultMode`` if the workdir declares one, else ``accept``.
+
+        Security review 5, H2: a project file may only narrow on its own; a
+        wider ``defaultMode`` (``auto``) counts only while the person trusted
+        the project for the ``mode`` scope with the file as it is now.
+        """
         project = ProjectSettings.load(workdir)
-        return project.defaultMode or DEFAULT_MODE
+        wanted = project.defaultMode
+        if not wanted:
+            return DEFAULT_MODE
+        if mode_guard.raises(DEFAULT_MODE, wanted):
+            from snowpea_core.trust.projects import mode_trusted
+
+            try:
+                trusted = mode_trusted(workdir)
+            except Exception:  # noqa: BLE001 - trust fails closed
+                trusted = False
+            if not trusted:
+                log.info("project %s asks for defaultMode %s; not trusted for it: %s",
+                         workdir, wanted, DEFAULT_MODE)
+                return DEFAULT_MODE
+        return wanted
 
     def max_concurrent(self, workdir: Path | str, override: int | None = None) -> int:
         """``agents.max_concurrent``: request > project > global settings."""
@@ -787,7 +806,8 @@ def _host_tools_connection(session: Any) -> Any:
 
 
 #: Daemon-wide events only people's connections receive (security review L6).
-PERSON_ONLY_EVENTS: frozenset[str] = frozenset({"external.state", "external.clis.changed"})
+PERSON_ONLY_EVENTS: frozenset[str] = frozenset(
+    {"external.state", "external.clis.changed", "project.trust.changed"})
 #: Events about one pending approval or question: a browser or the connector
 #: gets them only for requests it may see, and a browser never sees Jarvis's
 #: routing (security review 3, ``settings_gate.request_event_for``).
