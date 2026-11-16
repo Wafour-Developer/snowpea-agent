@@ -310,6 +310,76 @@ def test_a_section_level_degrade_still_saves(tmp_path: Path) -> None:
     assert json.loads(paths.settings_json.read_text("utf-8"))["agent"]["busy"] == "queue"
 
 
+def _broken_web(tmp_path: Path) -> tuple[Paths, dict[str, Any]]:
+    paths = Paths.create(tmp_path / "home")
+    data = Settings().model_dump(mode="json")
+    data["web"] = {"remote": {"port": "x"}, "note": [1, {"a": None}]}
+    paths.settings_json.write_text(json.dumps(data), "utf-8")
+    return paths, data
+
+
+async def test_an_unrelated_save_keeps_the_invalid_section_and_its_mark(tmp_path: Path) -> None:
+    from snowpea_core.server.protocol import SettingsSetParams
+    from snowpea_core.server.settings_handlers import settings_set_handler
+
+    paths, data = _broken_web(tmp_path)
+    core = _core(paths)
+    assert core.settings.degraded_sections() == ["web"]
+    await settings_set_handler(PERSON, SettingsSetParams(patch={"agent": {"busy": "queue"}}),
+                               core)
+    on_disk = json.loads(paths.settings_json.read_text("utf-8"))
+    assert on_disk["web"] == data["web"] and on_disk["agent"]["busy"] == "queue"
+    assert core.settings.degraded_sections() == ["web"]
+    assert core.settings.web.remote.enabled is False         # in memory: still the defaults
+    core.settings.save(paths)                                # an internal save too
+    assert json.loads(paths.settings_json.read_text("utf-8"))["web"] == data["web"]
+
+
+async def test_setting_the_section_clears_the_mark(tmp_path: Path) -> None:
+    from snowpea_core.server.protocol import SettingsSetParams
+    from snowpea_core.server.settings_handlers import settings_set_handler
+
+    paths, _data = _broken_web(tmp_path)
+    core = _core(paths)
+    await settings_set_handler(PERSON, SettingsSetParams(patch={"web": {"remote": {
+        "port": 7788}}}), core)
+    assert core.settings.degraded_sections() == []
+    on_disk = json.loads(paths.settings_json.read_text("utf-8"))
+    assert on_disk["web"]["remote"]["port"] == 7788 and "note" not in on_disk["web"]
+    assert Settings.load(paths).degraded_sections() == []
+
+
+async def test_a_reload_with_no_changed_key_still_follows_the_mark(tmp_path: Path) -> None:
+    from snowpea_core.server.app_server import info_handler, reload_settings_handler
+    from snowpea_core.server.protocol import Empty
+    from snowpea_core.server.web_remote_handlers import _status as web_status
+
+    paths, data = _broken_web(tmp_path)
+    core = _core(paths)
+    core.hub.clients = list
+    assert core.settings.degraded_sections() == ["web"]
+    # Fixed on disk to exactly the defaults already in use: no key changes.
+    data["web"] = Settings().model_dump(mode="json")["web"]
+    paths.settings_json.write_text(json.dumps(data), "utf-8")
+    os.utime(paths.settings_json, (1, 1))
+    result = await reload_settings_handler(PERSON, Empty(), core)
+    assert result.changedKeys == []
+    assert core.settings.degraded_sections() == []
+    assert (await info_handler(PERSON, Empty(), core)).settingsDegraded == []
+    assert (await web_status(core)).settingsDegraded == []
+    # Broken again into a value that loads as those same defaults: no key changes.
+    data["web"] = {"remote": {"port": "y"}}
+    paths.settings_json.write_text(json.dumps(data), "utf-8")
+    os.utime(paths.settings_json, (2, 2))
+    result = await reload_settings_handler(PERSON, Empty(), core)
+    assert result.changedKeys == []
+    assert core.settings.degraded_sections() == ["web"]
+    assert (await info_handler(PERSON, Empty(), core)).settingsDegraded == ["web"]
+    assert (await web_status(core)).settingsDegraded == ["web"]
+    core.settings.save(paths)
+    assert json.loads(paths.settings_json.read_text("utf-8"))["web"] == {"remote": {"port": "y"}}
+
+
 def test_the_new_reason_is_enumerated() -> None:
     assert errors.DETAIL_REASONS["settings_unreadable"][0] == errors.INVALID_PARAMS
 

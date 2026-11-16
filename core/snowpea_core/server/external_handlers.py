@@ -196,7 +196,7 @@ async def confirm_path_handler(
         )
     merged = core.settings.model_dump(mode="json")
     merged["jarvis"]["external"]["clis"][params.cli]["confirmedPath"] = real
-    updated = Settings.model_validate(merged)
+    updated = Settings.model_validate(merged).carry_degraded(core.settings, ["jarvis"])
     updated.save(core.paths)
     await core.adopt_settings(updated, ["jarvis"])
     with contextlib.suppress(Exception):

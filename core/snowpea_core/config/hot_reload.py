@@ -218,7 +218,7 @@ def with_sections(current: Settings, sections: dict[str, Any]) -> Settings:
     document = current.model_dump(mode="json")
     for dotted, value in sections.items():
         _put(document, dotted, value)
-    return Settings.model_validate(document)
+    return Settings.model_validate(document).carry_degraded(current, sections)
 
 
 def rebind(core: Any, settings: Settings) -> None:
