@@ -82,6 +82,8 @@ from snowpea_core.server.protocol import (
     ProviderLoginWebParams,
     ProviderLoginWebResult,
     ProviderRemoveParams,
+    SettingsAcceptDiskChangeParams,
+    SettingsAcceptDiskChangeResult,
     SettingsChangedNotification,
     SettingsReloadResult,
 )
@@ -176,6 +178,10 @@ class Core:
     #: ``(mtime_ns, size)`` of ``settings.json`` as of the last load or save;
     #: :meth:`settings_file_changed` compares against it (CORE-settings-reload).
     settings_stamp: tuple[int, int] = hot_reload.MISSING
+    #: ``{section: value on disk}`` of the security-relevant sections that were
+    #: edited in ``settings.json`` while the daemon runs and wait for a local
+    #: person (security review 7, P2; :meth:`reload_settings`).
+    settings_waiting: dict[str, Any] = field(default_factory=dict)
     #: Set at the start of ``Daemon.stop`` so in-flight background work (e.g.
     #: the memory nudge) can decline to start once shutdown has begun, instead
     #: of racing the services it depends on being closed (CORE-memory-race).
@@ -197,9 +203,11 @@ class Core:
 
         Without this an in-daemon write (``settings.set``, ``provider.configure``,
         ``/model``) would look like an outside edit on the next prompt and cost
-        a pointless re-read.
+        a pointless re-read.  The daemon writes what it holds, so nothing edited
+        on disk waits any more.
         """
         self.settings_stamp = hot_reload.stamp(self.paths.settings_json)
+        self.settings_waiting = {}
 
     def settings_file_changed(self) -> bool:
         """True when ``settings.json`` differs from what was last loaded or saved."""
@@ -211,21 +219,60 @@ class Core:
         Returns ``(reloaded, changed_keys)``.  An unchanged file (or one whose
         content is identical to what is already held) reloads nothing and
         notifies nobody, so this is safe to call on every prompt.
+
+        Security review 7, P2: the ``security``, ``jarvis`` and ``web.remote``
+        sections are NOT taken from an edit of the file while the daemon runs.
+        The daemon keeps what it holds for them, remembers what the file says
+        (:attr:`settings_waiting`) and tells the person; a local person applies
+        or discards it with ``settings.acceptDiskChange``.
         """
         current = hot_reload.stamp(self.paths.settings_json)
         if not force and current == self.settings_stamp:
             return False, []
-        fresh = Settings.load(self.paths)
+        fresh, waiting = hot_reload.hold_back(self.settings, Settings.load(self.paths))
         keys = hot_reload.changed_keys(
             self.settings.model_dump(mode="json"), fresh.model_dump(mode="json")
         )
         self.settings_stamp = current
+        told = waiting != self.settings_waiting
+        self.settings_waiting = waiting
+        if told and waiting:
+            log.warning(
+                "settings.json changed on disk while the daemon runs: %s not applied; "
+                "waiting for a local person (settings.acceptDiskChange)",
+                ", ".join(sorted(waiting)))
+            from snowpea_core.security.tamper import audit
+
+            audit(self.paths.home, {"kind": "settings-waiting", "path": "settings.json",
+                                    "sections": sorted(waiting)})
         if not keys:
+            if told:
+                await self.notify_settings_changed([])
             return False, []
         hot_reload.rebind(self, fresh)
         log.info("settings.json reloaded; changed: %s", ", ".join(keys))
         await self._announce_settings(keys)
         return True, keys
+
+    async def accept_disk_settings(self, accept: bool) -> tuple[list[str], list[str]]:
+        """A local person's answer about the sections that wait: ``(applied, discarded)``.
+
+        Accepting installs what the file says for them; discarding writes the
+        daemon's own values back to the file.  Either way the file and the
+        daemon agree afterwards and nothing waits.
+        """
+        waiting = dict(self.settings_waiting)
+        if not waiting:
+            return [], []
+        if accept:
+            updated = hot_reload.with_sections(self.settings, waiting)
+            updated.save(self.paths)
+            await self.adopt_settings(updated, sorted({key.split(".")[0] for key in waiting}))
+            return sorted(waiting), []
+        self.settings.save(self.paths)
+        self.mark_settings_saved()
+        await self.notify_settings_changed([])
+        return [], sorted(waiting)
 
     async def adopt_settings(self, settings: Settings, keys: list[str]) -> None:
         """Install a document the daemon itself just wrote, and announce it.
@@ -276,7 +323,8 @@ class Core:
         hub = getattr(self, "hub", None)
         if hub is None:  # pragma: no cover - a core without a hub is a test double
             return
-        params = SettingsChangedNotification(scope="global", keys=list(keys))
+        params = SettingsChangedNotification(scope="global", keys=list(keys),
+                                             waitingKeys=sorted(self.settings_waiting))
         try:
             await hub.notify("settings.changed", params.model_dump(mode="json"))
         except Exception:  # noqa: BLE001 - a dead socket must not break the reload
@@ -348,7 +396,23 @@ async def reload_settings_handler(
     and tool configuration until it was restarted (CORE-settings-reload).
     """
     reloaded, keys = await core.reload_settings()
-    return SettingsReloadResult(reloaded=reloaded, changedKeys=keys)
+    return SettingsReloadResult(reloaded=reloaded, changedKeys=keys,
+                                waitingKeys=sorted(core.settings_waiting))
+
+
+async def accept_disk_change_handler(
+    conn: RpcConnection, params: SettingsAcceptDiskChangeParams, core: Core
+) -> SettingsAcceptDiskChangeResult:
+    """``settings.acceptDiskChange`` (security review 7, P2) — a LOCAL person applies
+    or discards the security, jarvis and web.remote settings that were edited in
+    ``settings.json`` on disk while the daemon ran."""
+    from snowpea_core.server.person_gate import require_person
+
+    require_person(conn, "apply settings that were edited on disk", local=True)
+    # The file may have moved again since the notice: judge what it says now.
+    await core.reload_settings()
+    applied, discarded = await core.accept_disk_settings(bool(params.accept))
+    return SettingsAcceptDiskChangeResult(applied=applied, discarded=discarded)
 
 
 async def shutdown_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Ok:
@@ -703,6 +767,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     dispatcher.register("system.health", health_handler)
     dispatcher.register("system.shutdown", shutdown_handler)
     dispatcher.register("system.reloadSettings", reload_settings_handler)
+    dispatcher.register("settings.acceptDiskChange", accept_disk_change_handler)
     register_session_handlers(dispatcher)
     from snowpea_core.server.file_handlers import register_file_handlers
 

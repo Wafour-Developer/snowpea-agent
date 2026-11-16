@@ -4113,6 +4113,8 @@ export interface ProjectTrustRevokeResult {
   })[];
   /** Control files not active now (any reason). */
   inactive?: string[];
+  /** 1.55.0 (security review 7): what a pin does not cover, as sentences for the card — only the files listed are pinned, not what one of them loads or runs in turn. */
+  limits?: string[];
   /** …and the mode scope lets it apply (else accept). */
   modeActive?: boolean;
   /** 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. */
@@ -4128,8 +4130,8 @@ export interface ProjectTrustRevokeResult {
       /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
       tail?: string;
     };
-    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read. */
-    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable";
+    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read; outside-project (security review 7): it runs a file outside the project, which is not the project's to pin; symlink (security review 7): it runs a link inside the project that leads out of it. */
+    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable" | "outside-project" | "symlink";
     /** The control file (path) the command is in. */
     source: string;
   })[];
@@ -4198,6 +4200,8 @@ export interface ProjectTrustSetResult {
   })[];
   /** Control files not active now (any reason). */
   inactive?: string[];
+  /** 1.55.0 (security review 7): what a pin does not cover, as sentences for the card — only the files listed are pinned, not what one of them loads or runs in turn. */
+  limits?: string[];
   /** …and the mode scope lets it apply (else accept). */
   modeActive?: boolean;
   /** 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. */
@@ -4213,8 +4217,8 @@ export interface ProjectTrustSetResult {
       /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
       tail?: string;
     };
-    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read. */
-    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable";
+    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read; outside-project (security review 7): it runs a file outside the project, which is not the project's to pin; symlink (security review 7): it runs a link inside the project that leads out of it. */
+    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable" | "outside-project" | "symlink";
     /** The control file (path) the command is in. */
     source: string;
   })[];
@@ -4279,6 +4283,8 @@ export interface ProjectTrustStatusResult {
   })[];
   /** Control files not active now (any reason). */
   inactive?: string[];
+  /** 1.55.0 (security review 7): what a pin does not cover, as sentences for the card — only the files listed are pinned, not what one of them loads or runs in turn. */
+  limits?: string[];
   /** …and the mode scope lets it apply (else accept). */
   modeActive?: boolean;
   /** 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. */
@@ -4294,8 +4300,8 @@ export interface ProjectTrustStatusResult {
       /** Empty for a short command; else its last 60 characters. A card shows head, an ellipsis and tail: the end of a command is never hidden. */
       tail?: string;
     };
-    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read. */
-    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable";
+    /** computed: the command holds an expansion or substitution, so what runs is not known; project-script: npm/yarn/pnpm run, make, …: the project's own script table decides and may change; package-runner: npx/uvx/pipx run: a package resolved or fetched when it runs; module: python -m <module>; missing: it names a project file that is not there now; too-large / too-many: more than can be pinned; unreadable: the control file itself could not be read; outside-project (security review 7): it runs a file outside the project, which is not the project's to pin; symlink (security review 7): it runs a link inside the project that leads out of it. */
+    reason: "computed" | "project-script" | "package-runner" | "module" | "missing" | "too-large" | "too-many" | "unreadable" | "outside-project" | "symlink";
     /** The control file (path) the command is in. */
     source: string;
   })[];
@@ -5788,6 +5794,20 @@ export interface SessionTrajectoryResult {
     /** Turn it belongs to. */
     turnId?: string | null;
   })[];
+}
+
+/** `settings.acceptDiskChange` params. 1.55.0 (security review 7): a LOCAL person accepts or discards the security, jarvis and web.remote settings that were edited in settings.json on disk while the daemon ran (settings.changed {waitingKeys}). */
+export interface SettingsAcceptDiskChangeParams {
+  /** true: apply what settings.json on disk says for the waiting sections; false: keep what the daemon holds and write it back to settings.json. */
+  accept?: boolean;
+}
+
+/** `settings.acceptDiskChange` result. */
+export interface SettingsAcceptDiskChangeResult {
+  /** Waiting sections now taken from disk. */
+  applied?: string[];
+  /** Waiting sections whose disk value was overwritten with the daemon's. */
+  discarded?: string[];
 }
 
 /** `settings.get` params. Read global or project settings, with secrets masked. */
@@ -7962,6 +7982,8 @@ export interface SystemReloadSettingsResult {
   changedKeys?: string[];
   /** True when settings.json differed from what the daemon held and the in-memory state was rebound; false when it was already current. */
   reloaded: boolean;
+  /** 1.55.0 (security review 7): security-relevant sections ('security', 'jarvis', 'web.remote') whose value in settings.json on disk differs from what the daemon holds. A change that arrives by file edit while the daemon runs is NOT applied: it waits for a local person (settings.acceptDiskChange). */
+  waitingKeys?: string[];
 }
 
 /** `system.restart` params. Shut the daemon down so the next launch runs the newly installed version. */
@@ -9360,10 +9382,10 @@ export interface ProjectTrustChangedPayload {
   by?: string | null;
   /** migration: every project trusted as it was. */
   projects?: string[];
-  /** store_lost (1.55.0, security review 6): the trusted-projects record is missing or unreadable, so no project is trusted until the person trusts it again; security.get.problems carries the sentence. */
-  reason?: "set" | "revoke" | "migration" | "store_lost";
+  /** store_lost (1.55.0, security review 6): the trusted-projects record is missing or unreadable, so no project is trusted until the person trusts it again; security.get.problems carries the sentence. tamper (1.55.0, security review 7): something outside snowpea changed the record (or its marker) while the daemon was running; the change was NOT applied and the file was put back — nothing about any project's trust changed, the person is only told; security.get.problems carries the sentence. */
+  reason?: "set" | "revoke" | "migration" | "store_lost" | "tamper";
   scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[];
-  /** The project root ('' for the migration and for store_lost). */
+  /** The project root ('' for the migration, for store_lost and for tamper). */
   workdir?: string;
 }
 
@@ -9541,6 +9563,8 @@ export interface SettingsChangedPayload {
   keys?: string[];
   /** Which document was reloaded; "global" for $SNOWPEA_HOME/settings.json. */
   scope?: "global" | "project";
+  /** 1.55.0 (security review 7): 'security', 'jarvis' and/or 'web.remote' when settings.json was edited on disk while the daemon runs and that section differs: the edit is not applied until a local person accepts it (settings.acceptDiskChange). Sent with keys possibly empty; an empty list after a non-empty one means nothing waits any more. */
+  waitingKeys?: string[];
 }
 
 /** `system.updateProgress` notification payload. */
@@ -10620,6 +10644,7 @@ export interface MethodMap {
   "session.steer": { params: SessionSteerParams; result: SessionSteerResult };
   "session.toolContent": { params: SessionToolContentParams; result: SessionToolContentResult };
   "session.trajectory": { params: SessionTrajectoryParams; result: SessionTrajectoryResult };
+  "settings.acceptDiskChange": { params: SettingsAcceptDiskChangeParams; result: SettingsAcceptDiskChangeResult };
   "settings.get": { params: SettingsGetParams; result: SettingsGetResult };
   "settings.set": { params: SettingsSetParams; result: SettingsSetResult };
   "setup.applyDefaults": { params: SetupApplyDefaultsParams; result: SetupApplyDefaultsResult };
@@ -10840,6 +10865,7 @@ export type ClientMethod =
   | "session.steer"
   | "session.toolContent"
   | "session.trajectory"
+  | "settings.acceptDiskChange"
   | "settings.get"
   | "settings.set"
   | "setup.applyDefaults"

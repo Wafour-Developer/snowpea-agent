@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import unicodedata
 from collections.abc import Iterator
@@ -637,12 +638,16 @@ def discover_definitions(
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.md")):
+            project = bool(workdir) and source in project_sources
+            before = _digest(path) if project else ""
             try:
                 defn = parse_agent_md(path, source=source)
             except DefinitionError:
                 continue
-            if workdir and source in project_sources and not _project_definition_active(
-                    workdir, home, path, defn):
+            # Security review 7, M7-7: the pin is compared with the digest of what
+            # was parsed — the same before and after the parse, or not at all.
+            if project and (before != _digest(path) or not _project_definition_active(
+                    workdir, home, path, defn, before)):  # type: ignore[arg-type]
                 log.info("agent %r of %s is not active: the project is not trusted for "
                          "agents (or the file changed since)", defn.name, workdir)
                 continue
@@ -650,27 +655,57 @@ def discover_definitions(
     return list(found.values())
 
 
+def _digest(path: Path) -> str:
+    from snowpea_core.trust.projects import digest_of
+
+    return digest_of(path)
+
+
 def _project_definition_active(workdir: Path | str, home: Path | str | None, path: Path,
-                               defn: AgentDefinition) -> bool:
-    """Security review 6, L-1: a project definition with a ``permission`` of its own,
-    or one that would replace a built-in agent, needs the project's ``agents`` trust."""
+                               defn: AgentDefinition, digest: str | None = None) -> bool:
+    """Every project definition needs the project's ``agents`` trust, with the file
+    as pinned (security review 6, L-1, as decided; review 7)."""
     try:
         from snowpea_core.trust.projects import agent_definition_active, store_for
 
         store = store_for(home) if home else None
-        return agent_definition_active(workdir, path, defn.name, defn.permission, store)
+        return agent_definition_active(workdir, path, defn.name, defn.permission, store,
+                                       digest=digest)
     except Exception:  # noqa: BLE001 - trust fails closed
         return False
 
 
 def write_definition(defn: AgentDefinition, workdir: Path | str) -> Path:
-    """Write ``defn`` to ``<workdir>/.snowpea/agents/<name>.md`` and return it."""
+    """Write ``defn`` to ``<workdir>/.snowpea/agents/<name>.md`` and return it.
+
+    snowpea writes this file itself, for the person who asked for the agent
+    (``/agent create``): like a rule or a setting the person changes through
+    snowpea, it is pinned as written when what was there before was trusted or
+    nothing was there (:meth:`TrustStore.person_wrote`).  A definition with a
+    ``permission`` of its own still waits for the person's trust.
+    """
     directory = Path(workdir) / PROJECT_DIRS[0][0]
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{defn.name}.md"
+    before = _digest(path)
     path.write_text(render_agent_md(defn), encoding="utf-8")
     defn.path = path
     defn.source = "project"
+    if defn.permission in (None, "", "inherit"):
+        try:
+            from snowpea_core.trust.projects import (
+                builtin_agent_names,
+                default_store,
+                project_root,
+            )
+
+            if defn.name in builtin_agent_names():
+                return path  # it would take a built-in agent's place: the person decides
+            base = project_root(workdir)
+            rel = os.path.relpath(os.path.realpath(path), base).replace(os.sep, "/")
+            default_store().person_wrote(base, rel, before)
+        except Exception:  # noqa: BLE001 - unpinned: it waits for the person's trust
+            log.debug("could not pin the new agent definition", exc_info=True)
     return path
 
 

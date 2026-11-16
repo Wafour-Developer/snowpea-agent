@@ -68,7 +68,73 @@ def wire_trust(core: Any) -> None:
 
     set_project_roots(lambda: live_projects(core))
     store = store_of(core)
+    try:
+        _migrate_once(core, store)
+    finally:
+        # Security review 7, P2: from here on this daemon is the only writer of the
+        # record, its marker and the legacy file.  What is on disk now is taken as
+        # it is (the daemon was down); every later change that is not the store's
+        # own is undone and told (``project.trust.changed {reason: "tamper"}``).
+        _guard(core, store)
+
+
+#: The session store's record that the trust migration ran (review 7, M7-8).
+MIGRATED_KEY = "trust.migrated"
+#: Changes made behind the daemon's back and undone since it started.
+_TAMPERED: list[str] = []
+
+
+def _guard(core: Any, store: TrustStore) -> None:
+    import asyncio
+
+    try:
+        wired: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+    except RuntimeError:
+        wired = None
+    tasks: set[asyncio.Task[None]] = set()
+
+    def tell() -> None:
+        task = asyncio.get_running_loop().create_task(
+            _changed(core, "", {"scopes": []}, reason="tamper", by=None))
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+
+    def on_tamper(path: str, happened: str) -> None:
+        _TAMPERED.append(
+            f"something outside snowpea {happened} the trusted-projects record "
+            f"($SNOWPEA_HOME/trust/{os.path.basename(path)}) while snowpea was running; the "
+            "change was not applied and the record was put back")
+        del _TAMPERED[:-5]
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # Read from a worker thread: hand the notice to the daemon's loop.
+            target = wired or getattr(core, "loop", None)
+            if target is not None and not target.is_closed():
+                target.call_soon_threadsafe(tell)
+            return
+        tell()
+
+    # One listener per home: the newest core is the one that is told.
+    store.tamper_listeners[:] = [on_tamper]
+    store.guard()
+
+
+def tamper_problems() -> list[str]:
+    """What the guard undid since the daemon started (``security.get.problems``)."""
+    return list(_TAMPERED)
+
+
+def _migrate_once(core: Any, store: TrustStore) -> None:
+    session_store = getattr(core, "store", None)
+    meta_get = getattr(session_store, "meta_get", None)
+    meta_set = getattr(session_store, "meta_set", None)
+    recorded = meta_get(MIGRATED_KEY) if meta_get is not None else None
     if store.migrated():
+        if recorded is None and meta_set is not None:
+            # The marker's fact, kept a second time in the session store: losing the
+            # marker and the record no longer looks like a first start (M7-8).
+            meta_set(MIGRATED_KEY, store.migrated_at() or "unknown")
         # Security review 6, M-4: the migration ran once and never again.  A record
         # that is gone or unreadable now means nothing is trusted; say so.
         problem = store.problem()
@@ -76,11 +142,23 @@ def wire_trust(core: Any) -> None:
             _STORE_PROBLEM[:] = [problem]
             log.warning("project trust: %s", problem)
         return
+    if recorded is not None:
+        # The session store says the migration ran, yet the marker (and with it
+        # perhaps the record) is gone: lost or removed while the daemon was down.
+        # Nothing is trusted again by itself — the marker is written back, the
+        # record is read as it is, and the person is told.
+        store.restore_marker(recorded)
+        problem = store.problem() or (
+            "the trust migration marker ($SNOWPEA_HOME/trust/migrated.json) was missing and "
+            "was written again; check the projects you trust")
+        _STORE_PROBLEM[:] = [problem]
+        log.warning("project trust: %s", problem)
+        return
     from snowpea_core.config.paths import utc_now
 
     stamp = utc_now()
     roots: list[str] = []
-    session_workdirs = getattr(getattr(core, "store", None), "session_workdirs", None)
+    session_workdirs = getattr(session_store, "session_workdirs", None)
     if session_workdirs is not None:
         try:
             # Only projects whose sessions were created before this upgrade.
@@ -90,6 +168,8 @@ def wire_trust(core: Any) -> None:
         except Exception:  # noqa: BLE001 - no history: nothing to migrate
             log.debug("could not list session workdirs for the trust migration", exc_info=True)
     trusted = store.migrate(roots, at=stamp)
+    if meta_set is not None:
+        meta_set(MIGRATED_KEY, stamp)
     if trusted:
         _MIGRATED[:] = trusted
         log.warning(

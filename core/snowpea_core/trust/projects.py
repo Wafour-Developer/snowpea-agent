@@ -14,7 +14,7 @@ code or widen what runs unasked:
     (``.snowpea|.claude/commands/*.md``, ``.snowpea|.claude|.agents/skills/*/SKILL.md``):
     they pre-approve tools for their turn.
 ``agents``
-    Project agent definitions (``.snowpea|.claude/agents/*.md``) with a ``permission``.
+    Project agent definitions (``.snowpea|.claude/agents/*.md``), every one of them.
 ``prompts``
     ``.snowpea/prompts/**``: overrides of snowpea's own prompts.
 ``settings``
@@ -227,7 +227,20 @@ NOT_PINNED_REASONS: tuple[str, ...] = (
     "too-large",       # the file is too large to pin
     "too-many",        # more files than one control file may pin
     "unreadable",      # the control file itself could not be read
+    "outside-project",  # it runs a file outside the project: not the project's to pin
+    "symlink",         # it runs a link inside the project that leads out of it
 )
+#: What a pin does not cover, said with every status (security review 7, M7-6).
+PIN_LIMITS: tuple[str, ...] = (
+    "Only the files listed are pinned. What one of them loads or runs in turn (a sourced "
+    "script, an imported module, a program it starts) is not.",
+)
+_SCRIPT_SUFFIXES: tuple[str, ...] = (".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts",
+                                     ".rb", ".pl", ".php", ".lua", ".ps1")
+#: Where the system's own programs live: never the project's code, never noted.
+_SYSTEM_PREFIXES: tuple[str, ...] = ("/usr/", "/bin/", "/sbin/", "/opt/", "/lib/", "/lib64/",
+                                     "/nix/", "/snap/", "/System/", "/Library/",
+                                     "/Applications/")
 _PROJECT_SCRIPT_PROGRAMS: frozenset[str] = frozenset(
     {"npm", "yarn", "pnpm", "bun", "make", "gmake", "just", "task", "rake", "gradle", "gradlew",
      "mvn", "mvnw", "cargo", "go", "tox", "nox", "invoke"})
@@ -275,6 +288,10 @@ def runs_of(base: Path, argv: list[str], *, raw: str, folder: Path) -> tuple[lis
     interpreter = bool(programs) and programs[0].rstrip("0123456789.") in _INTERPRETER_NAMES
     if interpreter and "-m" in words[1:3]:
         reason = reason or "module"
+    # The first word after an interpreter and its options is the script it runs,
+    # whatever it looks like (``sh build``; security review 7, M7-6).
+    script_index = next((i for i, w in enumerate(words) if i and not w.startswith("-")),
+                        None) if interpreter else None
     for index, word in enumerate(words):
         for name in ("${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT", "${SNOWPEA_PLUGIN_ROOT}",
                      "$SNOWPEA_PLUGIN_ROOT"):
@@ -284,19 +301,33 @@ def runs_of(base: Path, argv: list[str], *, raw: str, folder: Path) -> tuple[lis
             word = word.replace(name, str(base))
         if not word or word.startswith("-") or "$" in word or "`" in word or "://" in word:
             continue
-        pathlike = "/" in word or "." in os.path.basename(word)
+        pathlike = "/" in word or "." in os.path.basename(word) or index == script_index
         if not pathlike and index:
             continue
         candidate = Path(os.path.expanduser(word))
         if not candidate.is_absolute():
             candidate = base / candidate
         real = Path(os.path.realpath(candidate))
+        # Code the command runs: its program, an interpreter's script, a word that
+        # is a script by its name.  (Any other word is data the command is given.)
+        runs_it = index in (0, script_index) or word.lower().endswith(_SCRIPT_SUFFIXES)
         if real != base and base not in real.parents:
-            continue  # not the project's own code
+            # Not the project's own code, so not pinned — said, not skipped
+            # (security review 7, M7-6): a link inside the project that leads out
+            # of it, or a file elsewhere.  The system's own programs are let be.
+            try:
+                exists = real.is_file()
+            except OSError:
+                exists = False
+            if exists and runs_it and not str(real).startswith(_SYSTEM_PREFIXES):
+                lexical = Path(os.path.normpath(candidate))
+                inside = lexical == base or base in lexical.parents
+                reason = reason or ("symlink" if inside else "outside-project")
+            continue
         try:
             if real.is_file():
                 found.append(real.relative_to(base).as_posix())
-            elif interpreter and index == 1 and not word.startswith("-"):
+            elif interpreter and index == script_index:
                 reason = reason or "missing"  # the script it is told to run is not there
         except OSError:
             continue
@@ -371,20 +402,26 @@ def builtin_agent_names() -> frozenset[str]:
 
 def agent_definition_active(project: str | os.PathLike[str], path: str | os.PathLike[str],
                             name: str, permission: Any,
-                            store: TrustStore | None = None) -> bool:
-    """A project's agent definition may be used (review 6, L-1).
+                            store: TrustStore | None = None, *,
+                            digest: str | None = None) -> bool:
+    """A project's agent definition may be used (review 6, L-1; review 7).
 
-    One that carries a ``permission`` of its own, or that would replace a
-    built-in agent, needs the project's ``agents`` trust with the file as
-    pinned.  Any other project definition is a prompt and a tool list: active.
+    EVERY project definition needs the project's ``agents`` trust with the
+    file as pinned — a prompt and a tool list are instructions too, so one
+    without a ``permission`` waits for the person like the others (the rule
+    decided in review 6 and built too narrowly then).
+
+    ``digest``: of the bytes the caller already loaded (review 7, M7-7) — the
+    pin is compared with what was loaded, not with what is on disk by now.
     """
-    needs = permission not in (None, "", "inherit") or name in builtin_agent_names()
-    if not needs:
-        return True
+    del name, permission
     try:
         base = project_root(project)
         rel = os.path.relpath(os.path.realpath(os.fspath(path)), base).replace(os.sep, "/")
-        return (store or default_store()).active(base, "agents", rel)
+        trusted = store or default_store()
+        if digest is not None:
+            return trusted.pinned_as(base, "agents", rel, digest)
+        return trusted.active(base, "agents", rel)
     except Exception:  # noqa: BLE001 - trust fails closed
         return False
 
@@ -499,8 +536,9 @@ def discover(root: str | os.PathLike[str]) -> list[ControlFile]:
             if name in builtin or path.stem in builtin:
                 # Review 6, L-1: it would take a built-in agent's place.
                 parts.append(f"replaces the built-in {name} agent")
-            if parts:
-                add(path, "agents", _clip("; ".join(parts)))
+            # Review 7 (6A L-1 as decided): every project definition is a control
+            # file — inactive until the project is trusted for agents.
+            add(path, "agents", _clip("; ".join(parts) or f"agent definition: {name}"))
     for path in _glob(base, ".snowpea/prompts/**/*.md"):
         add(path, "prompts", "prompt override")
     settings = base / SETTINGS_FILE
@@ -635,6 +673,39 @@ class TrustStore:
         self.marker = self.home / STORE_DIR / MARKER_NAME
         self.legacy = self.home.joinpath(*LEGACY_PATH)
         self._lock = threading.RLock()
+        from snowpea_core.security.tamper import FileGuard
+
+        #: The tamper guard (security review 7, P2): while the daemon runs it is
+        #: the only writer of the record, the marker and the legacy file.  Not
+        #: armed until :meth:`guard` (a CLI or a test without a daemon).
+        self._guards = [
+            FileGuard(self.path, home=self.home, what="the trusted-projects record"),
+            FileGuard(self.marker, home=self.home, what="the trust migration marker"),
+            FileGuard(self.legacy, home=self.home, what="the external-CLI trust record"),
+        ]
+        #: ``(path, what happened)`` when one of them was changed from outside and put back.
+        self.tamper_listeners: list[Any] = []
+        for one in self._guards:
+            one.listeners = self.tamper_listeners
+
+    # -- the tamper guard --------------------------------------------------
+    def guard(self) -> None:
+        """Take the files as they are now and refuse every later change that is not
+        this store's own (the daemon calls this once, at start)."""
+        with self._lock:
+            for one in self._guards:
+                one.arm()
+
+    def _check(self) -> None:
+        """Before any read that feeds a decision: undo a change made behind the
+        daemon's back (one ``stat`` per file when nothing changed)."""
+        for one in self._guards:
+            if one.armed:
+                one.check()
+
+    def _wrote(self) -> None:
+        for one in self._guards:
+            one.wrote()
 
     # -- reading ---------------------------------------------------------
     def read(self) -> dict[str, Any]:
@@ -646,6 +717,7 @@ class TrustStore:
         not even what the legacy external-CLI file says.
         """
         with self._lock:
+            self._check()
             data = _read_json(self.path)
             lost = not isinstance(data, dict) and self.marker.exists()
             if not isinstance(data, dict):
@@ -678,6 +750,8 @@ class TrustStore:
         closed — every project waits for the person again — and says so.
         """
         try:
+            with self._lock:
+                self._check()
             if not self.marker.exists():
                 return None
             if isinstance(_read_json(self.path), dict):
@@ -829,6 +903,7 @@ class TrustStore:
             "runs": runs,
             "notPinned": not_pinned,
             "digests": digests,
+            "limits": list(PIN_LIMITS),
         }
 
     def notice(self, root: str | os.PathLike[str]) -> str | None:
@@ -862,6 +937,7 @@ class TrustStore:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(data, indent=2, sort_keys=True))
         os.replace(tmp, self.path)
+        self._wrote()  # the daemon's own write: the copy the guard compares with
 
     def _mutate(self, root: Path, change: Any) -> dict[str, Any]:
         with self._lock:
@@ -978,6 +1054,8 @@ class TrustStore:
         session again).  A record written before the marker existed carries a
         ``migrated`` key: that counts, and the marker is written from it.
         """
+        with self._lock:
+            self._check()
         if self.marker.exists():
             return True
         old = _read_json(self.path)
@@ -987,6 +1065,13 @@ class TrustStore:
                                    [str(p) for p in old.get("migratedProjects") or []])
             return True
         return False
+
+    def restore_marker(self, at: str) -> None:
+        """The daemon's own record says the migration ran at ``at`` but the marker is
+        gone: write it again, so the migration can never run a second time
+        (security review 7, M7-8)."""
+        with self._lock:
+            self._write_marker(at, [])
 
     def migrated_at(self) -> str | None:
         data = _read_json(self.marker)
@@ -1004,6 +1089,7 @@ class TrustStore:
             return  # written once, never rewritten
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps({"at": at, "projects": projects}, indent=2))
+        self._wrote()
 
     def migrate(self, roots: Iterable[str | os.PathLike[str]],
                 at: str | None = None) -> list[str]:
