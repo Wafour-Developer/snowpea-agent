@@ -316,7 +316,7 @@ try {
     # -----------------------------------------------------------------------
     # 9 — plugin install: hook marker plus an MCP tool
     # -----------------------------------------------------------------------
-    $marker = Join-Path $E2EHome 'fixture-hook.marker'
+    $marker = Join-Path (Join-Path $E2EHome 'extension-data') 'fixture-hook.marker'
     if (Test-Path $marker) { Remove-Item -Force $marker }
     Invoke-Snowpea 'skill' 'install' $SamplePlugin | Out-Null
     $skillRc = $script:LastRc

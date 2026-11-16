@@ -309,7 +309,7 @@ fi
 # 9 — plugin install: hook marker plus an MCP tool
 # ---------------------------------------------------------------------------
 
-marker="$E2E_HOME/fixture-hook.marker"
+marker="$E2E_HOME/extension-data/fixture-hook.marker"
 rm -f "$marker"
 sn skill install "$SAMPLE_PLUGIN" >/dev/null 2>&1
 skill_rc=$?

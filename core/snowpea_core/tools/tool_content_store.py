@@ -25,7 +25,6 @@ import binascii
 import io
 import json
 import logging
-import os
 import re
 import shutil
 import threading
@@ -133,15 +132,14 @@ class ToolContentStore:
             with self._lock:
                 if session_id in self._purged:
                     return False
-                folder.mkdir(parents=True, exist_ok=True)
+                from snowpea_core.util.atomic import write_atomic
+
                 written = 0
                 for name, data in images:
-                    (folder / name).write_bytes(data)
+                    write_atomic(folder / name, data)
                     written += len(data)
                 body = json.dumps({"callId": call_id, "content": manifest}).encode()
-                temp = folder / f".{stem}.json.tmp"
-                temp.write_bytes(body)
-                os.replace(temp, folder / f"{stem}.json")
+                write_atomic(folder / f"{stem}.json", body)
                 written += len(body)
                 self._grow(written)
         except OSError:

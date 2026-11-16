@@ -216,6 +216,9 @@ class Finding:
     read_only: set[str] = field(default_factory=set)
     #: Files it makes a link to (``os.symlink(src, …)``): judged as ``ln``'s source.
     links: list[str] = field(default_factory=list)
+    #: The new names those links get (security review 8, H8-2: one made inside
+    #: snowpea's home asks the person).
+    linked: list[str] = field(default_factory=list)
     #: Modules it imports by name (python) — one the project holds is read too.
     imports: list[str] = field(default_factory=list)
     #: Files it loads by a relative path (node ``require('./x')``): read too.
@@ -232,6 +235,7 @@ class Finding:
         self.writes.extend(other.writes)
         self.reads.extend(other.reads)
         self.links.extend(other.links)
+        self.linked.extend(other.linked)
         for item in other.mentions:
             if item not in self.mentions:
                 self.mentions.append(item)
@@ -754,6 +758,7 @@ def _judge(rule: _Rule, args: list[str | list[str] | None], language: str, depth
             found.links.append(first)
         if len(args) > 1 and isinstance(args[1], str):
             found.writes.append((args[1], False, False))
+            found.linked.append(args[1])
         if not isinstance(first, str) or len(args) < 2 or not isinstance(args[1], str):
             found._hide("code:copy:non-literal")
         return

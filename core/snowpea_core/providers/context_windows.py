@@ -266,8 +266,9 @@ def _save_store() -> None:
             "upper": upper,
         }
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"models": models}), encoding="utf-8")
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(path, json.dumps({"models": models}))
     except OSError:
         log.debug("could not persist the learned context bounds", exc_info=True)
 

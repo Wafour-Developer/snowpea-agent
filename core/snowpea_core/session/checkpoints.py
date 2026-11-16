@@ -148,8 +148,9 @@ class CheckpointStore:
         digest = _sha(data)
         target = self._blob_path(session_id, digest)
         if not target.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(target, data)
         return digest
 
     async def _exists(self, session: Any, rel: str) -> bool:
@@ -390,8 +391,9 @@ class CheckpointStore:
                 digest = _sha(data)
                 blob = self._blob_path(session_id, digest)
                 if not blob.exists():
-                    blob.parent.mkdir(parents=True, exist_ok=True)
-                    blob.write_bytes(data)
+                    from snowpea_core.util.atomic import write_atomic
+
+                    write_atomic(blob, data)
                 hashes[rel] = (digest, len(data))
                 seen[rel] = (info.st_mtime_ns, info.st_size, digest)
             except (OSError, ValueError):
@@ -535,11 +537,10 @@ class CheckpointStore:
             with contextlib.suppress(OSError):
                 self._delete_unreferenced_blobs(session.id)
             return None
+        from snowpea_core.util.atomic import write_atomic
+
         target = self._turn_path(session.id, manifest["id"])
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+        write_atomic(target, json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
         index = self._read_index(session.id)
         index.append(
             {
@@ -569,9 +570,10 @@ class CheckpointStore:
             return []
 
     def _write_index(self, session_id: str, value: list[dict[str, Any]]) -> None:
+        from snowpea_core.util.atomic import write_atomic
+
         path = self._root(session_id) / "index.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        write_atomic(path, json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
     def list(self, session_id: str) -> list[dict[str, Any]]:
         result = []

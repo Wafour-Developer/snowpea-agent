@@ -442,8 +442,9 @@ def write_cache_file(path: Path, ids: Sequence[str]) -> None:
         return
     payload = {"saved_at": time.time(), "models": list(ids)}
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload), encoding="utf-8")
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(path, json.dumps(payload))
     except OSError as exc:  # pragma: no cover - read-only home
         log.debug("could not cache the model listing at %s: %s", path, exc)
 
@@ -672,10 +673,9 @@ async def _models_dev_payload(
         return {}
     if path is not None and catalog:
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps({"saved_at": time.time(), "catalog": catalog}), encoding="utf-8"
-            )
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(path, json.dumps({"saved_at": time.time(), "catalog": catalog}))
         except OSError:  # pragma: no cover - read-only home
             pass
     return catalog

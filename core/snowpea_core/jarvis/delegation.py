@@ -489,23 +489,35 @@ class DelegationEngine:
     def now(self) -> datetime:
         return self._now().astimezone(UTC)
 
-    def _open(self) -> sqlite3.Connection:
-        self.dir.mkdir(parents=True, exist_ok=True)
-        with contextlib.suppress(OSError):
-            os.chmod(self.dir, 0o700)
-        db = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
+    @staticmethod
+    def _prepare(db: sqlite3.Connection) -> None:
         db.row_factory = sqlite3.Row
         db.executescript(_SCHEMA)
         db.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema', ?)", (SCHEMA_VERSION,)
         )
+
+    def _open(self) -> sqlite3.Connection:
+        """The store on disk (no daemon: a CLI or a test).  A journal or WAL next
+        to it is never replayed (security review 8, M8-4): this engine keeps its
+        journal in memory, so one there was left by someone else."""
+        from snowpea_core.security.tamper import drop_sidecars
+
+        self.dir.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):
+            os.chmod(self.dir, 0o700)
+        dropped = drop_sidecars(self.db_path)
+        if dropped:
+            log.warning("removed %s next to %s before opening it", ", ".join(dropped),
+                        self.db_path)
+        db = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
+        db.execute("PRAGMA journal_mode=MEMORY")
+        self._prepare(db)
         # Owner-only on every open, not only when created: a file someone
         # loosened (or restored from a backup) is tightened again.
-        for path in (self.db_path, *(self.db_path.with_name(self.db_path.name + suffix)
-                                     for suffix in ("-wal", "-shm", "-journal"))):
-            if path.exists():
-                with contextlib.suppress(OSError):
-                    os.chmod(path, 0o600)
+        if self.db_path.exists():
+            with contextlib.suppress(OSError):
+                os.chmod(self.db_path, 0o600)
         return db
 
     def _conn(self) -> sqlite3.Connection:
@@ -514,15 +526,25 @@ class DelegationEngine:
         return self._db
 
     def guard(self) -> None:
-        """Start the tamper guard: from now on this engine is the store's only
-        writer, and the store as it is now is the authoritative copy (the
-        daemon calls this once; security review 7, P2)."""
+        """Start the tamper guard (the daemon calls this once; security reviews 7
+        and 8).  The store as it is on disk now is loaded into memory and is the
+        authoritative copy from then on: every query reads memory, every write
+        of the daemon goes to memory and then, whole and atomically, to the file.
+        The file is only ever an output while the daemon runs, so nothing
+        another program writes there is ever read for a decision (H8-1)."""
         with self._lock:
-            self._guard.arm(self._conn())
+            if self._db is not None and not self._guard.armed:
+                self._db.close()
+                self._db = None
+            if not self._guard.armed:
+                self.dir.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(OSError):
+                    os.chmod(self.dir, 0o700)
+                self._db = self._guard.load(self._prepare)
 
     def _guard_check(self) -> None:
         if self._db is not None and self._guard.armed:
-            self._db = self._guard.check(self._db, self._open)
+            self._guard.check()
 
     def _guard_wrote(self) -> None:
         if self._db is not None and self._guard.armed:
@@ -532,6 +554,10 @@ class DelegationEngine:
     def close(self) -> None:
         with self._lock:
             if self._db is not None:
+                if self._guard.armed:
+                    with contextlib.suppress(sqlite3.Error):
+                        self._guard.wrote(self._db)
+                    self._guard.disarm()
                 self._db.close()
                 self._db = None
 
@@ -1298,11 +1324,17 @@ def _wire_events(core: Any, engine: DelegationEngine) -> None:
     except RuntimeError:
         wired_loop = None
 
-    def on_tamper(path: str, happened: str) -> None:
-        """The store was changed from outside and put back: the ledger keeps it and
-        the person is told with a ``jarvis.escalation`` (reason ``error``)."""
-        summary = ("Something outside snowpea changed Jarvis's delegation rules; the change "
-                   "was not applied and the rules were put back.")
+    def on_tamper(path: str, happened: str, note: dict[str, Any] | None = None) -> None:
+        """The store was changed from outside: the ledger keeps it and the person is
+        told with a ``jarvis.escalation`` (reason ``error``) — at once the first
+        time, then at most once a minute with a count (security review 8, L8-1)."""
+        count = int((note or {}).get("count") or 1)
+        restored = bool((note or {}).get("restored", True))
+        again = f" ({count} times since the last notice)" if count > 1 else ""
+        back = ("the file was put back" if restored else
+                "putting the file back on disk failed")
+        summary = (f"Something outside snowpea changed Jarvis's delegation rules{again}; "
+                   f"snowpea did not use the change and kept its own rules; {back}.")
         try:
             engine.ledger.record_decision(
                 kind="escalate", decided_by="auto", summary=summary[:160], decision="deny",

@@ -66,12 +66,83 @@ def changed_keys(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
 #: that reaches ``settings.json`` by a path nobody could read must not switch
 #: the lists off or delegate everything by itself.
 GATED_SECTIONS: tuple[str, ...] = ("security", "jarvis", "web.remote")
+#: Security review 8, M8-5: settings that widen what runs without a question.
+AUTHORITY_SECTIONS: tuple[str, ...] = ("allowlist", "mcp.permissions")
+#: Kinds of :data:`snowpea_core.server.settings_leaves.COMMAND_LIKE` leaves that
+#: wait too: a program the daemon starts, an address it calls, its own code
+#: and doors.  Secrets (an API key) reload as before.
+GATED_KINDS: frozenset[str] = frozenset({"program", "endpoint", "daemon"})
+
+
+class _Absent:
+    """A key that is not in the document (put back means: removed)."""
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<absent>"
+
+
+ABSENT = _Absent()
+
+
+def gated_patterns() -> list[tuple[str, ...]]:
+    """What an edit of the file may not change by itself (review 8, M8-5): the
+    sections above and every command, endpoint or authority leaf of the
+    settings-leaf table, as path patterns (``*``: any key; ``[]``: a list)."""
+    from snowpea_core.server.settings_leaves import COMMAND_LIKE
+
+    patterns = [tuple(name.split(".")) for name in (*GATED_SECTIONS, *AUTHORITY_SECTIONS)]
+    patterns += [tuple(leaf.split(".")) for leaf, (kind, _who) in COMMAND_LIKE.items()
+                 if kind in GATED_KINDS]
+    return patterns
+
+
+def _units(pattern: tuple[str, ...], documents: tuple[dict[str, Any], ...]) -> set[str]:
+    """The concrete dotted paths ``pattern`` names in either document.  A list
+    (``[]``) is one unit; a key holding a dot stops the expansion there."""
+    found: set[str] = set()
+
+    def walk(prefix: tuple[str, ...], rest: tuple[str, ...]) -> None:
+        if not rest or rest[0] == "[]":
+            if prefix:
+                found.add(".".join(prefix))
+            return
+        if rest[0] != "*":
+            walk((*prefix, rest[0]), rest[1:])
+            return
+        keys: set[str] = set()
+        for document in documents:
+            node = _get(document, ".".join(prefix)) if prefix else document
+            if isinstance(node, dict):
+                keys |= {str(key) for key in node}
+        if any("." in key for key in keys):
+            found.add(".".join(prefix))
+            return
+        for key in keys:
+            walk((*prefix, key), rest[1:])
+
+    walk((), pattern)
+    return found
+
+
+def gated_units(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """Every gated path present in either document, outermost only."""
+    units: set[str] = set()
+    for pattern in gated_patterns():
+        units |= _units(pattern, (before, after))
+    ordered = sorted(units, key=lambda unit: (unit.count("."), unit))
+    kept: list[str] = []
+    for unit in ordered:
+        if not any(unit == outer or unit.startswith(outer + ".") for outer in kept):
+            kept.append(unit)
+    return sorted(kept)
 
 
 def _get(document: dict[str, Any], dotted: str) -> Any:
     node: Any = document
     for part in dotted.split("."):
-        node = node.get(part) if isinstance(node, dict) else None
+        if not isinstance(node, dict) or part not in node:
+            return ABSENT
+        node = node[part]
     return node
 
 
@@ -81,22 +152,44 @@ def _put(document: dict[str, Any], dotted: str, value: Any) -> None:
     for part in parts[:-1]:
         child = node.get(part)
         if not isinstance(child, dict):
+            if value is ABSENT:
+                return
             child = node[part] = {}
         node = child
-    node[parts[-1]] = value
+    if value is ABSENT:
+        node.pop(parts[-1], None)
+    else:
+        node[parts[-1]] = value
+
+
+def _prune(document: dict[str, Any], reference: dict[str, Any], dotted: str) -> None:
+    """Drop the folders left empty above ``dotted`` that ``reference`` does not have
+    (a server whose every gated key was held back is not a server)."""
+    parts = dotted.split(".")
+    for depth in range(len(parts) - 1, 0, -1):
+        parent = ".".join(parts[:depth])
+        node = _get(document, parent)
+        if isinstance(node, dict) and not node and _get(reference, parent) is ABSENT:
+            _put(document, parent, ABSENT)
+        else:
+            break
 
 
 def hold_back(current: Settings, fresh: Settings) -> tuple[Settings, dict[str, Any]]:
-    """``fresh`` (just read from disk) with every gated section kept as ``current``
-    has it, and ``{section: value on disk}`` for the sections that differ."""
+    """``fresh`` (just read from disk) with every gated path kept as ``current``
+    has it, and ``{path: value on disk}`` for the paths that differ (security
+    reviews 7 and 8: the sections that decide what may run, and every leaf the
+    settings-leaf table calls a program, an address or the daemon's own)."""
     held = fresh.model_dump(mode="json")
     now = current.model_dump(mode="json")
     waiting: dict[str, Any] = {}
-    for section in GATED_SECTIONS:
+    for section in gated_units(now, held):
         on_disk, in_memory = _get(held, section), _get(now, section)
         if on_disk != in_memory:
             waiting[section] = on_disk
             _put(held, section, in_memory)
+            if in_memory is ABSENT:
+                _prune(held, now, section)
     if not waiting:
         return fresh, waiting
     return Settings.model_validate(held), waiting

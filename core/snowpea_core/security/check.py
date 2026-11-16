@@ -679,6 +679,17 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
         external = _external_secret(shape, effect.kind == "write", ctx)
         if external is not None:
             return external, asks
+        if effect.kind == "write":
+            for path in shape.concrete:
+                # Security review 8, H8-2: a link made anywhere in the home is a
+                # second name for something there (or a way out of it).
+                if effect.program == sh.LINK and any(_under(path, home) for home in homes):
+                    asks.append(("control-plane:link", message(
+                        "control_ask", ctx.locale, what="a link inside snowpea's own folder")))
+                # M8-6: snowpea's own program files (the package, its Python, the launcher).
+                if control_plane.install_root(path, tuple(ctx.projects or ()), ctx.workdir):
+                    asks.append(("control-plane:install", message(
+                        "control_ask", ctx.locale, what="snowpea's own program files")))
         for home in homes:
             hit = _control_hit(shape, effect, home)
             if hit is None:
@@ -794,6 +805,9 @@ _ALWAYS_UNSEEN: tuple[str, ...] = (
     "shell-string", "foreign-shell", "script-dynamic", "internal", "parse:", "env-code",
     "inline-code", "inline-dynamic", "interpreter-stdin", "nesting", "function", "trap",
     "source", "ssh-option", "deferred-run", "code:internal",
+    # Security review 8, H8-3: git told to run a program, a repository whose hooks
+    # or configuration the agent wrote, a write where git or PATH finds programs.
+    "git-program", "git-hook", "git-control", "path-write",
 )
 #: Code reasons ``security.unknownCode: "allow"`` lets through (security review 7,
 #: M7-2): a write, copy, move or delete whose TARGET is computed, and code too
@@ -848,6 +862,7 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         unseen.extend(why for why in view.opaque if why.startswith("code:") or _always(why))
     else:
         unseen.extend(why for why in view.opaque if _always(why))
+    unseen.extend(_program_places(effects, ctx))
     if ctx.unknown_code == "allow":
         # ``security.unknownCode: "allow"``: a computed TARGET of an ordinary write
         # and code too odd to parse are let through.  Everything blocked above
@@ -869,6 +884,44 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
                        why=message("unknown_code" if only_code else "unchecked", ctx.locale),
                        unseen=tuple(dict.fromkeys(unseen)), scripts=scripts)
     return Verdict(scripts=scripts) if scripts else ALLOWED
+
+
+def _git_control(path: Path) -> bool:
+    """``path`` is a repository's hooks folder (or in it) or its configuration."""
+    parts = path.parts
+    for index, part in enumerate(parts):
+        if part.lower() != ".git":
+            continue
+        rest = tuple(p.lower() for p in parts[index + 1:])
+        if rest[:1] == ("hooks",) or rest in (("config",), ("config.worktree",),
+                                              ("info", "attributes")):
+            return True
+    return False
+
+
+def _program_places(effects: Iterable[sh.Effect], ctx: Context) -> list[str]:
+    """Security review 8, H8-3: writes into a repository's hooks or configuration
+    (``git-control``) and into a folder on the daemon's ``PATH`` outside the
+    project (``path-write``): what is put there runs later, unread."""
+    found: list[str] = []
+    owners = [Path(os.path.normpath(os.fspath(p))) for p in (*ctx.projects, ctx.workdir) if p]
+    dirs = {Path(os.path.normpath(entry))
+            for entry in os.environ.get("PATH", "").split(os.pathsep)
+            if entry and os.path.isabs(entry)}
+    for effect in effects:
+        if effect.kind != "write":
+            continue
+        shape = _shape(effect.raw, effect.cwd, ctx)
+        if shape is None:
+            continue
+        for path in shape.concrete:
+            if _git_control(path) and "git-control" not in found:
+                found.append("git-control")
+            folder = path if path in dirs else path.parent
+            if folder in dirs and not any(_under(folder, owner) for owner in owners) \
+                    and "path-write" not in found:
+                found.append("path-write")
+    return found
 
 
 def _note_writes(effects: Iterable[sh.Effect], ctx: Context) -> None:

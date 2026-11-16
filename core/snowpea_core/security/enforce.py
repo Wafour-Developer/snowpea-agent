@@ -210,8 +210,9 @@ async def announce(
             paths.ensure()
             record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **payload,
                       "match": verdict.match, "kind": verdict.kind}
-            with (Path(paths.logs_dir) / "security.jsonl").open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(record) + "\n")
+            from snowpea_core.util.atomic import append_text
+
+            append_text(Path(paths.logs_dir) / "security.jsonl", json.dumps(record) + "\n")
         except (OSError, AttributeError):  # pragma: no cover - the audit log never breaks a turn
             log.warning("could not write the security audit line", exc_info=True)
     log.warning("security list blocked %s in %s: %s (%s)", tool, session_id, summary, verdict.by)

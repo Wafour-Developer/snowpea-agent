@@ -58,7 +58,9 @@ from pathlib import Path
 from typing import Any
 
 from snowpea_core.config.paths import utc_now
+from snowpea_core.security.tamper import FileGuard
 from snowpea_core.util import pathcase
+from snowpea_core.util.atomic import write_atomic
 
 log = logging.getLogger("snowpea.trust")
 
@@ -130,6 +132,10 @@ def read_digest(path: Path) -> tuple[bytes | None, str]:
         info = path.stat()
     except OSError:
         return None, "missing"
+    if path.is_symlink():
+        # Security review 8, H8-2: a control file that is a link is not read
+        # (what it points to can change without the project changing).
+        return None, "unreadable"
     if info.st_size > MAX_FILE_BYTES:
         return None, "unreadable"
     try:
@@ -357,6 +363,16 @@ def _read_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError):
+        return None
+
+
+def _parse(data: bytes | None) -> Any:
+    """JSON from bytes a guard verified; ``None`` when missing or not JSON."""
+    if data is None:
+        return None
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError):
         return None
 
 
@@ -673,8 +689,6 @@ class TrustStore:
         self.marker = self.home / STORE_DIR / MARKER_NAME
         self.legacy = self.home.joinpath(*LEGACY_PATH)
         self._lock = threading.RLock()
-        from snowpea_core.security.tamper import FileGuard
-
         #: The tamper guard (security review 7, P2): while the daemon runs it is
         #: the only writer of the record, the marker and the legacy file.  Not
         #: armed until :meth:`guard` (a CLI or a test without a daemon).
@@ -696,30 +710,35 @@ class TrustStore:
             for one in self._guards:
                 one.arm()
 
-    def _check(self) -> None:
-        """Before any read that feeds a decision: undo a change made behind the
-        daemon's back (one ``stat`` per file when nothing changed)."""
-        for one in self._guards:
-            if one.armed:
-                one.check()
+    def _verified(self) -> tuple[bytes | None, bytes | None, bytes | None]:
+        """The record, the marker and the legacy file as a decision may use them.
 
-    def _wrote(self) -> None:
+        Security review 8, H8-1: while the daemon runs these are the guard's
+        copies (after a look that puts back any foreign change), never a second
+        read of the disk; without a daemon each file is read once, refusing a
+        link or a file that is not the user's."""
+        record, marker, legacy = (one.verified() for one in self._guards)
+        return record, marker, legacy
+
+    def _wrote(self, path: Path, data: bytes | None) -> None:
         for one in self._guards:
-            one.wrote()
+            if one.path == path:
+                one.wrote(data)
 
     # -- reading ---------------------------------------------------------
     def read(self) -> dict[str, Any]:
         """The whole document (``projects`` keyed by root); the legacy file folded in.
 
-        Read from disk every time (review 6, M-2: a trust decision never comes
-        from a cache).  When the migration marker says a record was written and
-        the record is gone or unreadable (:meth:`problem`), nothing is trusted —
-        not even what the legacy external-CLI file says.
+        Read every time (review 6, M-2: a trust decision never comes from a
+        cache) — from the bytes the tamper guard verified (review 8, H8-1).
+        When the migration marker says a record was written and the record is
+        gone or unreadable (:meth:`problem`), nothing is trusted — not even
+        what the legacy external-CLI file says.
         """
         with self._lock:
-            self._check()
-            data = _read_json(self.path)
-            lost = not isinstance(data, dict) and self.marker.exists()
+            record, marker, legacy_bytes = self._verified()
+            data = _parse(record)
+            lost = not isinstance(data, dict) and marker is not None
             if not isinstance(data, dict):
                 data = {}
             projects = data.get("projects")
@@ -729,7 +748,7 @@ class TrustStore:
                                          if isinstance(v, dict)}}
             if lost:
                 return data
-            legacy = _read_json(self.legacy)
+            legacy = _parse(legacy_bytes)
             rows = legacy.get("projects") if isinstance(legacy, dict) else None
             for key, entry in (rows or {}).items() if isinstance(rows, dict) else ():
                 if isinstance(entry, dict) and entry.get("trusted") is True:
@@ -751,10 +770,10 @@ class TrustStore:
         """
         try:
             with self._lock:
-                self._check()
-            if not self.marker.exists():
+                record, marker, _legacy = self._verified()
+            if marker is None:
                 return None
-            if isinstance(_read_json(self.path), dict):
+            if isinstance(_parse(record), dict):
                 return None
         except OSError:
             pass
@@ -929,18 +948,17 @@ class TrustStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with contextlib.suppress(OSError):
             os.chmod(self.path.parent, 0o700)
-        tmp = self.path.with_name(f".{STORE_NAME}.{os.getpid()}.{threading.get_ident()}.tmp")
-        with contextlib.suppress(FileNotFoundError):
-            tmp.unlink()
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(tmp, flags, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(data, indent=2, sort_keys=True))
-        os.replace(tmp, self.path)
-        self._wrote()  # the daemon's own write: the copy the guard compares with
+        payload = json.dumps(data, indent=2, sort_keys=True).encode("utf-8")
+        # A guarded record is replaced even when a link was planted in its place
+        # (the link is replaced, never followed); without a daemon a link refuses.
+        write_atomic(self.path, payload, replace_link=self._guards[0].armed)
+        # The daemon's own write: the bytes it wrote are the copy the guard
+        # compares with, never what is read back (review 8, H8-1).
+        self._wrote(self.path, payload)
 
     def _mutate(self, root: Path, change: Any) -> dict[str, Any]:
         with self._lock:
+            # From the verified copy (``read``), never a fresh look at the disk.
             data = json.loads(json.dumps(self.read()))
             data["version"] = 1
             projects = data.setdefault("projects", {})
@@ -950,7 +968,7 @@ class TrustStore:
             entry["trusted"] = "externalCli" in entry["scopes"]
             if entry["trusted"]:
                 entry.pop("revokedExternal", None)
-            elif root_in_legacy(self.legacy, root):
+            elif _in_legacy(_parse(self._guards[2].verified()), root):
                 # The legacy file still says trusted: remember that the person took it back.
                 entry["revokedExternal"] = True
             if entry["scopes"] or entry.get("revokedExternal"):
@@ -1015,13 +1033,15 @@ class TrustStore:
 
         return self._mutate(base, change)
 
-    def person_wrote(self, root: str | os.PathLike[str], rel: str, before: str) -> None:
+    def person_wrote(self, root: str | os.PathLike[str], rel: str, before: str, *,
+                     digest: str | None = None) -> None:
         """A local person changed ``rel`` through snowpea itself (a rule, a setting).
 
         The new content stays active when what was there before was trusted
         (its digest the pinned one) or there was nothing (``before`` is
         ``missing``): the person's own change, on top of what they trusted.
-        Anything else waits for :meth:`set`.
+        Anything else waits for :meth:`set`.  ``digest``: of the bytes snowpea
+        wrote — pinned instead of what the disk holds by now (review 8, M8-1).
         """
         base = project_root(root)
         scope = scope_of(rel) or "settings"
@@ -1030,7 +1050,8 @@ class TrustStore:
         trusted_before = scope in (entry.get("scopes") or []) and pinned == before
         if not trusted_before and before != "missing":
             return
-        digest = digest_of(base / rel)
+        if digest is None:
+            digest = digest_of(base / rel)
         if not digest.startswith("sha256:"):
             return
 
@@ -1055,10 +1076,10 @@ class TrustStore:
         ``migrated`` key: that counts, and the marker is written from it.
         """
         with self._lock:
-            self._check()
-        if self.marker.exists():
+            record, marker, _legacy = self._verified()
+        if marker is not None:
             return True
-        old = _read_json(self.path)
+        old = _parse(record)
         if isinstance(old, dict) and old.get("migrated"):
             with self._lock:
                 self._write_marker(str(old.get("migrated")),
@@ -1074,22 +1095,19 @@ class TrustStore:
             self._write_marker(at, [])
 
     def migrated_at(self) -> str | None:
-        data = _read_json(self.marker)
+        data = _parse(self._guards[1].verified())
         at = data.get("at") if isinstance(data, dict) else None
         return str(at) if at else None
 
     def _write_marker(self, at: str, projects: list[str]) -> None:
+        if self._guards[1].verified() is not None:
+            return  # written once, never rewritten
         self.marker.parent.mkdir(parents=True, exist_ok=True)
         with contextlib.suppress(OSError):
             os.chmod(self.marker.parent, 0o700)
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-        try:
-            fd = os.open(self.marker, flags, 0o600)
-        except FileExistsError:
-            return  # written once, never rewritten
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps({"at": at, "projects": projects}, indent=2))
-        self._wrote()
+        payload = json.dumps({"at": at, "projects": projects}, indent=2).encode("utf-8")
+        write_atomic(self.marker, payload, replace_link=self._guards[1].armed)
+        self._wrote(self.marker, payload)
 
     def migrate(self, roots: Iterable[str | os.PathLike[str]],
                 at: str | None = None) -> list[str]:
@@ -1128,7 +1146,10 @@ class TrustStore:
 
 
 def root_in_legacy(legacy: Path, root: Path) -> bool:
-    data = _read_json(legacy)
+    return _in_legacy(_parse(FileGuard(legacy).verified()), root)
+
+
+def _in_legacy(data: Any, root: Path) -> bool:
     rows = data.get("projects") if isinstance(data, dict) else None
     return isinstance(rows, dict) and isinstance(rows.get(str(root)), dict)
 

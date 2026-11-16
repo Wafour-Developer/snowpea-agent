@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.util.atomic import write_atomic
+
 
 def write_advert(path: Path, payload: dict[str, Any], *, attempts: int = 10) -> None:
     """Replace ``daemon.json`` atomically.
@@ -15,11 +17,11 @@ def write_advert(path: Path, payload: dict[str, Any], *, attempts: int = 10) -> 
     reading (Python and PowerShell open without delete sharing), so it is
     tried a few times before giving up.
     """
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(payload, indent=2) + "\n"
     for attempt in range(attempts):
         try:
-            tmp.replace(path)
+            # Security review 8, H8-2: random temp name, owner-only, never via a link.
+            write_atomic(path, text)
             return
         except PermissionError:
             if attempt == attempts - 1:

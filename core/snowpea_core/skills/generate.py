@@ -112,8 +112,9 @@ def write_skill_document(
         raise SkillCreateError(f"{path} already exists; pass --force to overwrite it")
     document = force_frontmatter_name(text, requested_name)
     package = validate_frontmatter(document, source="generated SKILL.md")
-    directory.mkdir(parents=True, exist_ok=True)
-    path.write_text(document.strip() + "\n", encoding="utf-8")
+    from snowpea_core.util.atomic import write_atomic
+
+    write_atomic(path, document.strip() + "\n", mode=0o644)
     package.root = directory
     return package
 

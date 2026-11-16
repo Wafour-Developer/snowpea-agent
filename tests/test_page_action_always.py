@@ -120,7 +120,8 @@ def _hooked_core(tmp_path: Path, script: Path, tools: dict[str, Any]) -> Any:
         hooks.Hook(event="PreToolUse", matcher="*", command=f"${{SNOWPEA_PYTHON}} {script}")
     )
     return SimpleNamespace(
-        paths=SimpleNamespace(home=tmp_path),
+        # Review 8, H8-2: the home is not the scratch folder (its root is closed).
+        paths=SimpleNamespace(home=tmp_path / "home"),
         skills=SimpleNamespace(hooks=registry),
         tools=SimpleNamespace(get=lambda name, session=None: tools.get(name)),
     )

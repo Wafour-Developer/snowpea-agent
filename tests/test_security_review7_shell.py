@@ -110,7 +110,9 @@ HOSTILE = [
     ("read HOME < f; echo x > ~/a", "ooo"),
     ("unset HOME; echo x > ~/a", "ooo"),
     ("TMPDIR=/home/u/.snowpea/trust; echo x > $TMPDIR/projects.json", "ooo"),
-    ("SNOWPEA_HOME=/tmp/x; echo x > $SNOWPEA_HOME/a", "ooo"),
+    # Review 8, H8-2 (stricter): ``$SNOWPEA_HOME/a`` as the check resolves it is a
+    # name in the home outside the working allow-list — blocked, not only asked.
+    ("SNOWPEA_HOME=/tmp/x; echo x > $SNOWPEA_HOME/a", "bbb"),
     ("PWD=/home/u/.snowpea/trust; echo x > $PWD/projects.json", "ooo"),
     ("XDG_CACHE_HOME=/tmp/x make", "ooo"),
     ("X=/home/u/.snowpea/trust/projects.json; echo '{}' > $X", "ooo"),

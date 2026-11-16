@@ -1,17 +1,19 @@
 """snowpea's own control files: one table, always on (security review 6, H-1).
 
-The files below decide what snowpea trusts and who may talk to the daemon.  No
-tool changes them and no tool reads the secrets among them, whatever the mode,
-the presets or the person's lists say — this rule set is not a preset and no
-setting removes it.  The same table answers for every path that reaches a
-tool: shell effects and code effects (:mod:`snowpea_core.security.check`), the
-file tools (the same check, and :mod:`snowpea_core.tools.config_guard`), and
-the ``fs.*`` methods through :func:`control_plane_effect`.
+The files below decide what snowpea trusts and who may talk to the daemon.  A
+call that snowpea reads is refused (or put to a person) when it would change
+them or read the secrets among them, whatever the mode, the presets or the
+person's lists say — this rule set is not a preset and no setting removes it.
+It judges what a call says, not what the programs it starts do later.  The
+same table answers for every path that reaches a tool: shell effects and code
+effects (:mod:`snowpea_core.security.check`), the file tools (the same check,
+and :mod:`snowpea_core.tools.config_guard`), and the ``fs.*`` methods through
+:func:`control_plane_effect`.
 
 Levels:
 
 ``all``
-    A secret: never read, listed, copied, written, deleted or moved.
+    A secret: a call that reads, lists, copies, writes, deletes or moves it is refused.
 ``write``
     Never written, deleted, moved or re-moded; reading it is an ordinary read.
 ``ask``
@@ -28,6 +30,7 @@ here; only OS-level confinement would stop it (separate work).
 from __future__ import annotations
 
 import fnmatch
+import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,12 +64,22 @@ class ControlEntry:
 #: :class:`snowpea_core.config.paths.Paths`: a new path property that is in
 #: neither this table nor :data:`WORKING` fails that test.
 CONTROL: tuple[ControlEntry, ...] = (
-    ControlEntry("daemon.json", "all", "the daemon's address and login"),
+    # Security review 8, H8-2: a secret's sidecars (``credentials.json.tmp``,
+    # ``daemon.json.<x>.tmp``) are the secret too — never read, never written.
+    ControlEntry("daemon.json*", "all", "the daemon's address and login",
+                 names=("daemon.json",)),
     ControlEntry("token*", "all", "the daemon's token", names=("token",)),
-    ControlEntry("credentials*.json", "all",
+    ControlEntry("credentials*", "all",
                  "stored credentials (providers, messengers, the web password hash)",
                  names=("credentials.json",)),
-    ControlEntry("mcp-oauth.json", "all", "MCP server logins"),
+    ControlEntry("mcp-oauth.json*", "all", "MCP server logins", names=("mcp-oauth.json",)),
+    ControlEntry(".daemon.json*", "all", "the daemon's address and login (being written)",
+                 names=(".daemon.json",)),
+    ControlEntry(".token*", "all", "the daemon's token (being written)", names=(".token",)),
+    ControlEntry(".credentials*", "all", "stored credentials (being written)",
+                 names=(".credentials.json",)),
+    ControlEntry(".mcp-oauth.json*", "all", "MCP server logins (being written)",
+                 names=(".mcp-oauth.json",)),
     # The logins of the external CLIs kept in snowpea's home (security review 7,
     # L7-2): before the folders they sit in, which are level ``ask``.
     ControlEntry(".codex/auth.json", "all", "the Codex login"),
@@ -103,7 +116,9 @@ CONTROL: tuple[ControlEntry, ...] = (
 
 #: Working state under the home that tools use every day (never in the table):
 #: plans, session workspaces, what a person attached, caches, checkpoints, the
-#: ordinary logs.
+#: ordinary logs.  Security review 8, H8-2: this is the explicit allow-list of a
+#: default-deny home — any other name directly under it is ``write`` level
+#: (:func:`unlisted`).
 WORKING: tuple[str, ...] = (
     "plans", "sessions", "attachments", "tool-content", "audio", "cache", "checkpoints",
     "logs", "update-check.json", "teams", "memory.md", "extension-data",
@@ -121,6 +136,45 @@ EXTERNAL_SECRETS: tuple[tuple[str, str], ...] = (
     (".cursor/cli-config.json", "the Cursor login"),
     (".config/anthropic", "the Anthropic credentials"),
 )
+
+
+@functools.lru_cache(maxsize=1)
+def install_roots() -> tuple[Path, ...]:
+    """snowpea's own install (security review 8, M8-6): the ``snowpea_core``
+    package folder, the Python environment it runs in (``sys.prefix``) and the
+    launchers found on ``PATH``."""
+    import shutil
+    import sys
+
+    import snowpea_core
+
+    found: list[Path] = []
+    candidates: list[str | None] = [os.path.dirname(snowpea_core.__file__), sys.prefix,
+                                    shutil.which("snowpea"), shutil.which("snowpea-core")]
+    for raw in candidates:
+        if not raw:
+            continue
+        for form in (os.path.normpath(raw), os.path.realpath(raw)):
+            path = Path(form)
+            if path not in found and len(path.parts) > 2:  # never "/" or "/usr"-like roots
+                found.append(path)
+    return tuple(found)
+
+
+def install_root(path: str | os.PathLike[str], projects: tuple[str, ...] | list[str] = (),
+                 workdir: str | os.PathLike[str] | None = None) -> Path | None:
+    """The install root ``path`` lies in (M8-6), else ``None``.  A root inside a
+    project the person works on (an editable checkout, a project's own
+    ``.venv``) is that project's, not guarded here."""
+    target = Path(os.path.normpath(os.fspath(path)))
+    owners = [Path(os.path.normpath(os.fspath(p))) for p in (*projects, workdir) if p]
+    for root in install_roots():
+        if target != root and root not in target.parents:
+            continue
+        if any(root == owner or owner in root.parents for owner in owners):
+            continue
+        return root
+    return None
 
 
 def external_secret(path: str | os.PathLike[str],
@@ -169,6 +223,23 @@ def entry_for(parts: tuple[str, ...], *, fold: bool | None = None) -> ControlEnt
                for got, want in zip(parts, wanted, strict=False)):
             return entry
     return None
+
+
+def working(name: str, *, fold: bool | None = None) -> bool:
+    """``name`` (directly under the home) is working state tools use every day."""
+    key = pathcase.name_key(name, fold)
+    return any(key == pathcase.name_key(entry, fold) for entry in WORKING)
+
+
+def unlisted(parts: tuple[str, ...], *, fold: bool | None = None) -> ControlEntry | None:
+    """Security review 8, H8-2: the home is default-deny.  A name directly under it
+    that is in neither :data:`CONTROL` nor :data:`WORKING` — a temp file, a
+    sidecar, a file a later release adds — is at ``write`` level like its
+    siblings: read freely, never written by a tool."""
+    if not parts or entry_for(parts[:1], fold=fold) is not None or working(parts[0], fold=fold):
+        return None
+    return ControlEntry(parts[0], "write",
+                        "a file in snowpea's own folder that is not working state")
 
 
 def entries_below(parts: tuple[str, ...], *, fold: bool | None = None) -> list[ControlEntry]:
@@ -275,7 +346,7 @@ def judge_parts(parts: tuple[str, ...] | None, access: str, *, recursive: bool =
     """
     if parts is None:
         return None
-    entry = entry_for(parts, fold=fold)
+    entry = entry_for(parts, fold=fold) or unlisted(parts, fold=fold)
     if entry is not None:
         if access == "read":
             return ("blocked", entry) if entry.level == "all" else None

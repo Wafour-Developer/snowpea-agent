@@ -1033,8 +1033,9 @@ class ApprovalQueue:
         }
         try:
             self.paths.ensure()
-            with self.paths.approvals_log.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(record) + "\n")
+            from snowpea_core.util.atomic import append_text
+
+            append_text(self.paths.approvals_log, json.dumps(record) + "\n")
         except OSError:  # pragma: no cover - audit log must never break a turn
             log.warning("could not append to %s", self.paths.approvals_log, exc_info=True)
 

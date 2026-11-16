@@ -775,6 +775,8 @@ class _Analysis:
                 found._hide("code:copy:non-literal")
             else:
                 found.links.append(source)
+            if target is not None:
+                found.linked.append(target)
         if target is None:
             found._hide(f"code:{action}:non-literal")
             return
@@ -938,6 +940,7 @@ class _Analysis:
                 found.links.append(target)
             if dest is not None:
                 found.writes.append((dest, False, False))
+                found.linked.append(dest)
             return
         if action == "copy":
             dest = self.fold(self._arg(node, 1, "dst"))

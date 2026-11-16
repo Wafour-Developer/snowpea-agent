@@ -79,6 +79,52 @@ _NODE_TUNING = re.compile(
     r"preserve-symlinks|throw-deprecation|pending-deprecation|expose-gc)")
 
 
+#: Security review 8, M8-2: an UPPER_CASE variable outside the classifier's code
+#: table is let through when it is one of these common build, test and app
+#: knobs (any value) — or when its value is a plain word or number.
+HARMLESS_NAMES: frozenset[str] = frozenset({
+    "NODE_ENV", "CI", "DEBUG", "LANG", "LANGUAGE", "TZ", "FORCE_COLOR", "NO_COLOR", "TERM",
+    "COLORTERM", "COLUMNS", "LINES", "PORT", "HOST", "RAILS_ENV", "RACK_ENV", "APP_ENV",
+    "ENVIRONMENT", "RUST_BACKTRACE", "RUST_LOG", "LOG_LEVEL", "LOGLEVEL", "VERBOSE",
+    "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE", "PYTHONIOENCODING", "PYTHONHASHSEED",
+    "PYTHONUTF8", "PYTHONFAULTHANDLER", "NODE_NO_WARNINGS", "GOOS", "GOARCH", "GOARM",
+    "CGO_ENABLED", "GOMAXPROCS", "CUDA_VISIBLE_DEVICES", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
+    "TOKENIZERS_PARALLELISM", "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "SOURCE_DATE_EPOCH",
+    "DEBIAN_FRONTEND", "CMAKE_BUILD_TYPE", "BUILD_TYPE", "VERSION", "RELEASE", "USER",
+    "NEXT_TELEMETRY_DISABLED", "DOTNET_CLI_TELEMETRY_OPTOUT", "HOMEBREW_NO_AUTO_UPDATE",
+    "CHOKIDAR_USEPOLLING", "DISPLAY",
+})
+HARMLESS_PREFIXES: tuple[str, ...] = (
+    "LC_", "PYTEST_", "DJANGO_", "FLASK_", "CARGO_TERM_", "NEXT_PUBLIC_", "VITE_",
+    "REACT_APP_", "JEST_", "VITEST_",
+)
+#: App configuration by its suffix: data, not code (``DATABASE_URL``, ``API_KEY``).
+HARMLESS_SUFFIXES: tuple[str, ...] = (
+    "_URL", "_URI", "_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_ENV", "_DEBUG", "_PORT",
+    "_HOST", "_HOSTNAME", "_REGION", "_LEVEL", "_TIMEOUT",
+)
+#: A folder for the app: harmless only inside the project.
+_DIR_SUFFIX = "_DIR"
+#: A plain word or number: names neither a program, a path nor an option.
+_TRIVIAL = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.,+%]{0,63}|")
+
+
+def _other(name: str, value: str, dynamic: bool, cwd: Path | None,
+           user_home: Path) -> bool:
+    """An assignment of a variable outside the code table is harmless (M8-2)."""
+    if name != name.upper() or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", name):
+        return True  # lowercase or mixed: a shell-local name, by convention
+    if name in HARMLESS_NAMES or name.startswith(HARMLESS_PREFIXES) or \
+            name.endswith(HARMLESS_SUFFIXES):
+        return True
+    if not dynamic and _TRIVIAL.fullmatch(value):
+        return True
+    if name.endswith(_DIR_SUFFIX) and not dynamic and cwd is not None:
+        folder = _folder(value, cwd, user_home)
+        return folder is not None and _under(folder, cwd) and not written.under(folder)
+    return False
+
+
 def is_resolve(name: str) -> bool:
     """``name`` is a variable the check resolves paths with."""
     upper = name.upper()
@@ -184,7 +230,10 @@ def judge(name: str, value: str, dynamic: bool, *, cwd: Path | None, user_home: 
             return None  # the value the check already uses
         return f"env-code:{upper}"
     if not is_code(name):
-        return None
+        # Security review 8, M8-2: P1 for variables too — an UPPER_CASE name the
+        # check knows nothing about may be read by what runs next as code or a
+        # configuration path; harmless only by name or by a plain value.
+        return None if _other(name, value, dynamic, cwd, user_home) else f"env-code:{upper}"
     if upper in _PROGRAM_PATHS:
         return None if _program_path(value, cwd, user_home) else f"env-code:{upper}"
     if upper in MODULE_PATHS:

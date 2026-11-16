@@ -23,6 +23,7 @@ from _support import RpcClient, connect, fake_provider, make_daemon
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
+from snowpea_core.security import tamper
 from snowpea_core.security.tamper import FileGuard
 from snowpea_core.server import errors, trust_handlers
 from snowpea_core.server.app_server import Core, Daemon, accept_disk_change_handler
@@ -71,13 +72,16 @@ def _audit(home: Path) -> list[dict[str, Any]]:
 # -- P2: one file ---------------------------------------------------------------------
 
 
-def test_a_file_changed_behind_the_guard_is_put_back(tmp_path: Path) -> None:
+def test_a_file_changed_behind_the_guard_is_put_back(tmp_path: Path,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    # Review 8, L8-1 throttles repeated notices; every change is told here.
+    monkeypatch.setattr(tamper, "NOTICE_WINDOW_S", 0.0)
     path = tmp_path / "home" / "trust" / "record.json"
     path.parent.mkdir(parents=True)
     path.write_text("one", encoding="utf-8")
     guard = FileGuard(path, home=tmp_path / "home", what="a record")
     told: list[tuple[str, str]] = []
-    guard.listeners.append(lambda where, happened: told.append((where, happened)))
+    guard.listeners.append(lambda where, happened, *_: told.append((where, happened)))
     # Not armed (no daemon): nothing is guarded.
     path.write_text("zero", encoding="utf-8")
     assert guard.check() is False and path.read_text(encoding="utf-8") == "zero"
@@ -100,7 +104,7 @@ def test_the_daemons_own_write_is_not_tampering(tmp_path: Path) -> None:
     guard = FileGuard(path)
     guard.arm()                                   # no file yet
     path.write_text("mine", encoding="utf-8")
-    guard.wrote()
+    guard.wrote(b"mine")                          # review 8: the bytes it wrote, not a re-read
     assert guard.check() is False and path.read_text(encoding="utf-8") == "mine"
     os.utime(path, (1, 1))                        # touched, same bytes: nothing to undo
     assert guard.check() is False
@@ -122,7 +126,7 @@ def test_trust_written_behind_the_daemons_back_is_not_honoured(core: Core,
     _hooks(theirs, "echo planted")
     _trust(store, mine)
     told: list[tuple[str, str]] = []
-    store.tamper_listeners[:] = [lambda where, happened: told.append((where, happened))]
+    store.tamper_listeners[:] = [lambda where, happened, *_: told.append((where, happened))]
     store.guard()
     before = store.path.read_bytes()
     forged = json.loads(before)
@@ -215,10 +219,12 @@ def _grant(engine: Any, level: str = "full") -> Any:
                             caller=Caller(kind="connection", surface="ide"))[0]
 
 
-def test_a_grant_written_behind_the_daemons_back_is_not_honoured(tmp_path: Path) -> None:
+def test_a_grant_written_behind_the_daemons_back_is_not_honoured(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tamper, "NOTICE_WINDOW_S", 0.0)
     engine = _engine(tmp_path / "home")
     told: list[tuple[str, str]] = []
-    engine.tamper_listeners.append(lambda where, happened: told.append((where, happened)))
+    engine.tamper_listeners.append(lambda where, happened, *_: told.append((where, happened)))
     engine.guard()
     assert engine.list_grants() == []
     grant = _grant(engine)                        # the daemon's own write
@@ -265,7 +271,7 @@ def test_the_delegation_store_is_taken_as_it_is_at_start(tmp_path: Path) -> None
     first.close()
     second = _engine(tmp_path / "home")
     told: list[tuple[str, str]] = []
-    second.tamper_listeners.append(lambda where, happened: told.append((where, happened)))
+    second.tamper_listeners.append(lambda where, happened, *_: told.append((where, happened)))
     second.guard()
     assert [g.id for g in second.list_grants()] == [grant.id] and told == []
     second.close()
@@ -574,11 +580,12 @@ def test_an_agent_snowpea_wrote_for_the_person_is_pinned_as_written(core: Core,
     project = tmp_path / "proj"
     project.mkdir()
     defn = AgentDefinition(name="mine", description="mine", prompt="Be brief.")
-    write_definition(defn, project)
+    # Review 8, M8-1: pinned only when a local person asked (``pin=True``).
+    write_definition(defn, project, pin=True)
     assert _names(_loader(core, project), project) == ["mine"]
     # One that asks for a permission of its own still waits for the person.
     bold = AgentDefinition(name="bold", description="bold", prompt="x", permission="auto")
-    write_definition(bold, project)
+    write_definition(bold, project, pin=True)
     assert _names(_loader(core, project), project) == ["mine"]
 
 

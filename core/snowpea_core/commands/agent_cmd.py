@@ -245,11 +245,14 @@ def strip_quotes(args: str) -> str:
     return " ".join(parts) if parts else text
 
 
-async def create_definition(core: Core, session: Any, description: str) -> AgentDefinition:
-    """Generate and write one definition; raises :class:`DefinitionError`."""
+async def create_definition(core: Core, session: Any, description: str, *,
+                            pin: bool = False) -> AgentDefinition:
+    """Generate and write one definition; raises :class:`DefinitionError`.
+
+    ``pin``: a local person asked for it themselves (security review 8, M8-1)."""
     provider = core.providers.get(session.provider, session.model)
     defn = await generate_definition(provider, description)
-    path = write_definition(defn, session.workdir)
+    path = write_definition(defn, session.workdir, pin=pin)
     await register_and_reload(core, path)
     return defn
 
@@ -271,8 +274,9 @@ async def cmd_agent(ctx: CommandContext, args: str) -> None:
     if not description:
         await ctx.say(USAGE)
         return
+    pin = person_typed(ctx)
     try:
-        defn = await create_definition(ctx.core, ctx.session, description)
+        defn = await create_definition(ctx.core, ctx.session, description, pin=pin)
     except DefinitionError as exc:
         await ctx.emit(events.error(errors.INVALID_PARAMS, str(exc)))
         await ctx.say(f"Could not create the agent: {exc}")
@@ -282,7 +286,21 @@ async def cmd_agent(ctx: CommandContext, args: str) -> None:
         f"  description: {defn.description}\n"
         f"  tools: {defn.tools}\n"
         f"  model: {defn.model}"
+        + ("" if pin else "\n  It is not active until you trust the project's agents "
+           "(this command did not come from you typing it).")
     )
+
+
+def person_typed(ctx: CommandContext) -> bool:
+    """The command is the session's own LOCAL person's typed line (security review 8,
+    M8-1): not ``queue_command``, a skill, a Jarvis ``session_prompt``, a job, a
+    group member, nor a remote web login."""
+    if ctx.session.turn_origins.get(ctx.turn_id, "human") != "human":
+        return False
+    caller = getattr(ctx, "who", None) or getattr(ctx.session, "turn_callers", {}).get(
+        ctx.turn_id)
+    return bool(caller is not None and getattr(caller, "local_person", False)
+                and getattr(caller, "origin", None) in (None, "human"))
 
 
 async def _use(ctx: CommandContext, name: str) -> None:

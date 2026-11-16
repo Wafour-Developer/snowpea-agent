@@ -25,6 +25,7 @@ from pydantic import (
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.project import AllowlistEntry, ModelProfile, normalise_teams
+from snowpea_core.util.atomic import UnsafePath, read_owned, write_atomic
 
 log = logging.getLogger("snowpea.settings")
 
@@ -109,8 +110,7 @@ def _keep_invalid_copy(path: Path) -> Path | None:
     """Copy a settings file that does not validate to ``settings.json.invalid`` (0600)."""
     target = path.with_name(path.name + ".invalid")
     try:
-        target.write_bytes(path.read_bytes())
-        _chmod_quietly(target)
+        write_atomic(target, read_owned(path))
     except OSError:
         return None
     return target
@@ -1212,11 +1212,17 @@ class Settings(_Model):
         fail closed or go to their defaults, and say so.
         """
         path = paths.settings_json
-        if not path.exists():
+        if not os.path.lexists(path):
             return cls()
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            # Security review 8, H8-2: a linked file, or one that is not the
+            # user's, is not taken as snowpea's settings.
+            raw = json.loads(read_owned(path).decode("utf-8"))
+        except UnsafePath as exc:
+            log.error("%s; snowpea uses the default settings until it is a plain file: the "
+                      "security lists fail closed and remote access stays off", exc)
+            return cls().mark_degraded(["*"])
+        except (OSError, ValueError):
             raw = None
         if not isinstance(raw, dict):
             kept = _keep_invalid_copy(path)
@@ -1311,12 +1317,9 @@ class Settings(_Model):
         existing world-readable file is tightened too.
         """
         paths.ensure()
-        target = paths.settings_json
-        tmp = target.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
-        _chmod_quietly(tmp)
-        tmp.replace(target)
-        _chmod_quietly(target)
+        # Security review 8, H8-2: random temp name, never through a link.
+        write_atomic(paths.settings_json,
+                     json.dumps(self.model_dump(mode="json"), indent=2) + "\n")
 
 
 __all__ = [

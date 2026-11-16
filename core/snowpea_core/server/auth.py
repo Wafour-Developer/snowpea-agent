@@ -7,10 +7,10 @@ it from disk (or from ``daemon.json``) and presents it in ``system.hello``.
 from __future__ import annotations
 
 import hmac
-import os
 import secrets
 
 from snowpea_core.config.paths import Paths
+from snowpea_core.util.atomic import write_atomic
 
 TOKEN_BYTES = 32
 TOKEN_MODE = 0o600
@@ -33,16 +33,8 @@ def read_token(paths: Paths) -> str | None:
 def write_token(paths: Paths, token: str) -> None:
     """Write the token with 0600 permissions, replacing any previous one."""
     paths.ensure()
-    path = paths.token_file
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, TOKEN_MODE)
-    try:
-        os.write(fd, token.encode("utf-8"))
-    finally:
-        os.close(fd)
-    os.chmod(tmp, TOKEN_MODE)
-    os.replace(tmp, path)
-    os.chmod(path, TOKEN_MODE)
+    # Security review 8, H8-2: a random temp name, never through a link.
+    write_atomic(paths.token_file, token, mode=TOKEN_MODE)
 
 
 def ensure_token(paths: Paths, *, rotate: bool = False) -> str:

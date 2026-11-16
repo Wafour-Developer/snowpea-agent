@@ -656,9 +656,10 @@ async def list_infos(core: Core) -> list[AgentInfo]:
 
 
 async def rename_definition(
-    core: Core, session: Session, defn: AgentDefinition, name: str
+    core: Core, session: Session, defn: AgentDefinition, name: str, *, pin: bool = False
 ) -> AgentDefinition:
-    """Rewrite a freshly generated definition under the caller's chosen name."""
+    """Rewrite a freshly generated definition under the caller's chosen name
+    (``pin``: a local person asked for it; security review 8, M8-1)."""
     from snowpea_core.agent.definition import write_definition
     from snowpea_core.commands.agent_cmd import register_and_reload
 
@@ -670,7 +671,7 @@ async def rename_definition(
         return defn
     previous = defn.path
     defn.name = slug
-    path = write_definition(defn, session.workdir)
+    path = write_definition(defn, session.workdir, pin=pin)
     await register_and_reload(core, path)
     if previous is not None and Path(previous) != path:
         with contextlib.suppress(OSError):

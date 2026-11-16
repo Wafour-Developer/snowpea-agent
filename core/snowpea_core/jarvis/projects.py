@@ -99,10 +99,9 @@ class ProjectBook:
                 if entry.get("name") or entry.get("aliases")
             }
         }
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        tmp.replace(self.path)
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(self.path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
     # -- exposure ------------------------------------------------------
     def exposed(self, root: str | None) -> bool:

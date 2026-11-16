@@ -1,11 +1,11 @@
 # Security lists
 
-**What this page promises, and what it does not.** In `auto` mode the agent runs programs as you. The security lists and the rule about snowpea's own files stop the forms snowpea can recognise, and ask you about what it cannot read. A tamper guard undoes changes to the trusted-projects record and to Jarvis's delegation rules that something makes behind snowpea's back while it runs. That is all of it. A program that works out where snowpea's login token is while it runs, and reads it, can still act as you: none of this stops that. Keeping a tool's process away from those files is the operating system's job, and snowpea does not do that yet (it is planned, separate work). **For a repository you do not trust, use accept mode**, where every command and every write is yours to approve.
+**What this page promises, and what it does not.** In `auto` mode the agent runs programs as you. snowpea reads each command line before it runs — and the code given directly on that line or in a script the line names — and refuses or asks you about what the security lists and the rule about snowpea's own files cover. It does **not** read what those programs load or start in turn: your tests, your build, git hooks, a program found on `PATH`, a library. Code run that way can do whatever you can do on this computer, including running snowpea's own command and editing snowpea's files. While snowpea runs, a tamper guard keeps its own copy of the trusted-projects record and of Jarvis's delegation rules, decides from that copy, and puts the files back when something else changes them. Keeping the programs snowpea starts from acting as you towards snowpea needs the operating system; snowpea does not do that yet (it is the next planned step). **For a repository you do not trust, use accept mode**, where every command and every write is yours to approve.
 
 Two lists you set once and that hold for every session — with or without Jarvis mode, in every mode, whoever runs the call:
 
-- **Blocked commands** never run. They are not asked, not approvable, and nobody (Jarvis, a scheduled job, a remembered answer, an "always allow" rule, auto mode) can let them through. The agent reads a refusal — `blocked by the security list: commands:essential — …` — and your screen shows "blocked by your security list".
-- **Protected folders** are never changed. Each entry has a level: **no changes** (`write`, the default: reading is fine) or **no access** (`all`: not read, not listed, not changed).
+- **Blocked commands** are refused wherever snowpea sees them: on the line, in code it reads, in a script it reads. A refusal is not asked and not approvable, and Jarvis, a scheduled job, a remembered answer, an "always allow" rule or auto mode cannot let it through. The agent reads a refusal — `blocked by the security list: commands:essential — …` — and your screen shows "blocked by your security list". A program the line starts that then runs the command itself (a test, a build step, a git hook) is not read: see [What snowpea does not read](#what-snowpea-does-not-read).
+- **Protected folders** are refused as the target of a change snowpea sees. Each entry has a level: **no changes** (`write`, the default: reading is fine) or **no access** (`all`: not read, not listed, not changed).
 
 Both lists start from **presets** you tick on or off, plus entries you type yourself.
 
@@ -100,43 +100,65 @@ Symlinks are followed both ways (a link to a protected folder is protected; a pr
 
 The screens have a "try it" box: type a command or a path and see whether it would be blocked and by what, against your saved lists or the edits you have not saved yet. Nothing runs.
 
-## snowpea's own files are always protected
+## What snowpea reads
 
-Apart from your lists there is one rule you cannot switch off. The files that decide what snowpea trusts, and who may talk to it, are out of every tool's reach — in every mode, with any presets, even with both lists empty:
+snowpea judges a call by reading it before it runs: the command line, every command in it (through `sudo`, `env`, `xargs`, `sh -c`, pipes, `$( … )`), the code given on the line (`python -c`, `node -e`, a here-document), a script the line names (`./x.sh`, `python tool.py`, `awk -f prog.awk`), a git alias and the `npm`/`deno` task a line names. A file tool's path is read the same way.
 
-- **Never read, never changed**: `daemon.json`, `token`, `credentials.json` and `mcp-oauth.json` in `$SNOWPEA_HOME`. With these a program could act as you. The logins of other agent CLIs are treated the same, in snowpea's folder and in your home: `~/.codex/auth.json`, `~/.claude/.credentials.json`, `~/.claude.json`, the Gemini and Cursor logins, `~/.config/anthropic`.
-- **Never changed** (reading is fine): `settings.json`, the MCP servers started for every project (`.mcp.json` in `$SNOWPEA_HOME`), the trusted-projects record (`trust/`), Jarvis's rules and ledger (`jarvis/`), the session store, the update files, the approval and security logs.
-- **Always asked**: a shell line or code that writes into your own hooks, plugins, extensions, skills, commands or agent definitions in `$SNOWPEA_HOME`.
-- **Always asked**: a line that runs snowpea's own command (`snowpea …`, `python -m snowpea_core …`, through `uv run`, a script of snowpea's, from inside code in any language). That command acts as you, so only you can let it run. The card says "this runs snowpea's own CLI".
-- **Always asked**: one of the "never changed" files handed to a program that may change it. `cat`, `grep`, `jq`, `ls`, `stat`, `cp` (as the source) and the like only read, and run as before. Anything else asks: a database client opened on the session store (`sqlite3 ~/.snowpea/state.db …`, even to look), a link to one of the files (`ln -s`), a variable set to its path, code that names it and does more than open it to read.
+It lets a line run unasked when what it read is allowed by your lists and by the rule about snowpea's own files, as described on this page. What it could not read is put to you (below). That is a check of what a call says, not a wall around what the call then does.
 
-The agent's own working places stay as they were: plan files, session workspaces, attachments, caches.
+### snowpea's own files
 
-A blocked call reads `blocked by the security list: security — $SNOWPEA_HOME/token holds snowpea's own secrets …`. An "always asked" one is yours alone to answer: Jarvis never decides it, and the answer is never remembered.
+Apart from your lists there is one rule you cannot switch off. It covers the files that decide what snowpea trusts and who may talk to it, in every mode, with any presets, also with both lists empty — for every call snowpea reads:
+
+- **Refused to read and to change**: `daemon.json`, `token`, `credentials.json` and `mcp-oauth.json` in `$SNOWPEA_HOME`, and every file next to them whose name starts the same way (`credentials.json.tmp`, a half-written copy). With these a program could act as you. The logins of other agent CLIs are treated the same, in snowpea's folder and in your home: `~/.codex/auth.json`, `~/.claude/.credentials.json`, `~/.claude.json`, the Gemini and Cursor logins, `~/.config/anthropic`.
+- **Refused to change** (reading is fine): `settings.json`, the MCP servers started for every project (`.mcp.json` in `$SNOWPEA_HOME`), the trusted-projects record (`trust/`), Jarvis's rules and ledger (`jarvis/`), the session store, the update files, the approval and security logs — and **any other name directly in `$SNOWPEA_HOME`** that is not one of the working areas below. snowpea's folder is closed by default and open where the agent works: plans, session workspaces (`sessions/`), attachments, tool content, audio, caches, checkpoints, ordinary logs, teams, `memory.md`, extension data.
+- **Asked**: a shell line or code that writes into your own hooks, plugins, extensions, skills, commands or agent definitions in `$SNOWPEA_HOME`; a link made anywhere in `$SNOWPEA_HOME` (`ln`, `ln -s`, `cp -s`, `os.symlink`) — a link is a second name for something there, or a way out of it; a write into snowpea's own program files (its package folder, the Python it runs in, the `snowpea` launcher), unless that folder is inside a project you work on.
+- **Asked**: a line that runs snowpea's own command (`snowpea …`, `python -m snowpea_core …`, through `uv run`, a script of snowpea's, from inside code in a language snowpea reads). That command acts as you, so only you can let it run. The card says "this runs snowpea's own CLI".
+- **Asked**: one of the "refused to change" files handed to a program that may change it. `cat`, `grep`, `jq`, `ls`, `stat`, `cp` (as the source) and the like only read, and run as before. Anything else asks: a database client opened on the session store (`sqlite3 ~/.snowpea/state.db …`, even to look), a link to one of the files (`ln -s`), a variable set to its path, code that names it and does more than open it to read.
+
+A refused call reads `blocked by the security list: security — $SNOWPEA_HOME/token holds snowpea's own secrets …`. An "asked" one is yours alone to answer: Jarvis does not decide it, and the answer is not remembered.
+
+snowpea also writes its own files carefully: each one is written to a new file with a random name next to it and then renamed into place, and a file that is a symbolic link (or not yours) is not written through and not loaded as `settings.json`, `credentials.json`, `.mcp.json`, `hooks.json` or `daemon.json`; snowpea logs why instead.
+
+## What snowpea does not read
+
+These run code nobody showed snowpea. snowpea lets them run, because asking before every test run or commit would make auto mode useless — so know what they mean:
+
+- **Test runners and build tools.** `pytest`, `npm test`, `make`, `cargo build`, `tox`, `pre-commit`, `mkdocs build` … load the project's own files: test files, `conftest.py`, the `Makefile`, `package.json` scripts, plugins. snowpea reads the line, not what those files do. Code the agent wrote into a test or a build file runs when the tests or the build run.
+- **git.** git runs hooks (`.git/hooks/*`) and programs its configuration names (`core.pager`, `core.hooksPath`, `core.fsmonitor`, `core.sshCommand`, `diff.external`, `*.textconv`, `filter.*`, `credential.helper`, `gpg.program`, …). What snowpea does here: a write into `.git/hooks`, `.git/config` or `.git/info/attributes` asks; `git config`, `git -c` and `--config-env` setting one of those keys ask (a value that runs nothing, like `core.pager=cat`, does not); and a git command in a repository whose hooks the agent wrote or changed, or whose configuration the agent wrote with such a key, asks. A hook or a configuration that was there before the session runs as it does without snowpea.
+- **Programs found on `PATH`.** For a bare name (`mytool`) snowpea looks up what the command will find, with the same `PATH` the command gets. When that file was written by the agent (in any session snowpea remembers) or lies in a temporary folder, it is read like a script the agent wrote: what it does is judged, and a file that cannot be read (a binary) asks. A write into a folder on snowpea's own `PATH` outside the project (`~/.local/bin`, `/usr/local/bin`) asks. Everything else on `PATH` is a program of your system and runs as named.
+- **What a program loads or starts.** A library, a plugin, a module found by the interpreter, a subprocess built while it runs, a compiled program.
+
+Code run in any of these ways can do whatever you can do on this computer: read snowpea's token, run `snowpea …`, change snowpea's files. The tamper guard (next) keeps the trust and delegation records while snowpea runs; the rest is the operating system's job (see [Future work](#future-work)).
+
+## What happens while snowpea runs
 
 ### The tamper guard
 
-The rule above reads what a call says before it runs. A program that builds the path while it runs is not read. For the two records that matter most there is a second layer that reads nothing: while snowpea runs, it is the only one that writes the trusted-projects record (`trust/`) and Jarvis's delegation rules (`jarvis/delegation.db`). Every time snowpea is about to use one of them it first looks whether the file is still what it last wrote. If something else changed, replaced or removed it, the change is **not used**: snowpea keeps its own copy, puts the file back, writes a line to `logs/security.jsonl` and tells you ("something outside snowpea changed the trusted-projects record … the change was not applied"; on the Security screen too). For Jarvis's rules you get a Jarvis notice.
+For the two records that matter most there is a second layer that reads no command: while snowpea runs, it keeps its own copy of the trusted-projects record (`trust/`) and of Jarvis's delegation rules (`jarvis/delegation.db`) in memory. Every decision is made from that copy, not from a second read of the file, and the copy changes only when snowpea itself writes. Before using a record snowpea looks at the file; if something else changed, replaced or removed it, or left a journal next to the rules database, snowpea does not use the change, puts its copy back, writes a line to `logs/security.jsonl` and tells you ("something outside snowpea changed the trusted-projects record …; snowpea did not use the change and kept its own copy"; on the Security screen too). For Jarvis's rules you get a Jarvis notice. A file changed again and again is told once at once and then at most once a minute, with a count. If putting the file back fails, the notice says so.
 
-The guard holds while snowpea runs. If snowpea is not running, nobody is watching: at the next start it takes the files as they are.
+The guard holds while snowpea runs. If snowpea is not running, nobody is watching: at the next start it takes the files as they are. A program running as you can also stop snowpea.
 
-### Security settings edited in the file
+### Settings that wait for you
 
-You can edit `settings.json` by hand, and most of it is picked up as before. Three parts are different while snowpea runs — `security` (your lists, `unknownCode`), `jarvis` and `web.remote`: an edit of the file does **not** take effect by itself. snowpea keeps the values it has, tells you "settings.json changed on disk: security settings wait for you", and applies them only when you say so on a local connection (IDE, TUI, CLI, the local web page). You can also discard the edit: snowpea then writes its own values back to the file. Until you answer, the Security screen keeps showing that settings wait. Changing the same settings on the Security screen works as always.
+You can edit `settings.json` by hand, and most of it is picked up as before. What can run programs or widen access does not take effect from an edit of the file while snowpea runs: `security` (your lists, `unknownCode`), `jarvis`, `web.remote`, the allow rules (`allowlist`), MCP permissions, and every setting that names a program, an address snowpea calls or snowpea's own code — MCP servers' commands and addresses, language servers, `media.mcp`, the audio player, recorder and speech commands, providers' base URLs, extensions, the skills registry, the update channel. snowpea keeps the values it has, tells you "settings.json changed on disk: settings that can run programs or widen access (…) are not applied and wait for you", and applies them only when you say so on a local connection (IDE, TUI, CLI, the local web page). You can also discard the edit: snowpea then writes its own values back to the file. Changing the same settings on the Settings and Security screens works as always. Other settings, and API keys, are picked up at once as before.
+
+At start snowpea takes `settings.json` as it is.
 
 ## Lines snowpea cannot check
 
-snowpea lets a line run unasked only for what it understood. Whatever it could not read is put to you, in every mode, marked "cannot be checked against your block list"; Jarvis never decides it. It is not refused — you decide.
+Whatever snowpea could not read on a line is put to you, in every mode, marked "cannot be checked against your block list"; Jarvis does not decide it. It is not refused — you decide.
 
 What cannot be read: the program comes from a variable or a substitution (`$CMD …`, `` `echo rm` … ``), `eval` of a variable, a script piped into a shell (`… | sh`), a `sh -c` built from variables, inline code for a program snowpea has no reader for (`mongosh --eval`, `gdb -ex`, `Rscript -e`, `elixir -e`, …), a command sent to another machine (`ssh host 'command'`; on this machine the command is read) or handed over to run later (`crontab file`, `at`, `batch`, `launchctl load`), a function that takes the name of a shell builtin (`cd() { … }`), a path only the shell knows and nothing in front of it tells where it lands. These first ones are asked **even when both lists are empty**, because an act on snowpea's own files could hide there.
 
 The same goes for a line that changes what the next program is or does:
 
-- a variable that carries code or redirects configuration — `LD_PRELOAD`, `BASH_ENV`, `NODE_OPTIONS=--require …`, `GIT_SSH_COMMAND`, `EDITOR`/`PAGER` set to a program, `PATH` with a folder in the project, a temp folder or a relative one, `PIP_INDEX_URL`, `NPM_CONFIG_SCRIPT_SHELL`;
+- a variable that carries code or redirects configuration — `LD_PRELOAD`, `BASH_ENV`, `NODE_OPTIONS=--require …`, `GIT_SSH_COMMAND`, `EDITOR`/`PAGER` set to a program, `PATH` with a folder in the project, a temp folder or a relative one, `PIP_INDEX_URL`, `NPM_CONFIG_SCRIPT_SHELL`, `JAVA_TOOL_OPTIONS`/`JDK_JAVA_OPTIONS`, `LUA_INIT`, `DOTNET_STARTUP_HOOKS`, `PHPRC`, `VIMINIT`, `ERL_AFLAGS`, `RSYNC_RSH`, `KUBECONFIG`, `AWS_CONFIG_FILE`, `DOCKER_CONFIG`, `CURL_HOME`, `WGETRC`, `GCONV_PATH`, `LESSOPEN`;
+- **any other UPPER_CASE variable** snowpea does not know, unless its value is a plain word or number (`FOO=bar`, `LEVEL=3`) or it is a common build, test or app setting: `NODE_ENV`, `CI`, `DEBUG`, `LANG`, `LC_*`, `TZ`, `PORT`, `HOST`, `FORCE_COLOR`, `RUST_LOG`, `PYTEST_*`, `DJANGO_*`, `FLASK_*`, `VITE_*`, names ending in `_URL`, `_KEY`, `_TOKEN`, `_SECRET`, `_ENV`, `_PORT`, `_HOST`, and `*_DIR` pointing inside the project. A lowercase name (`my_var=…`) is the shell's own and runs as before;
 - `HOME`, `PWD`, `TMPDIR`, `SNOWPEA_HOME`, `CDPATH` or an `XDG_*` variable given another value: snowpea reads `~` and `$HOME` with your real home, so after such an assignment it cannot say where a path lands;
 - `git -c` with a setting that runs a program, an editor started with commands (`vim -c '!…'`), an `awk` program that calls `system`.
 
-What stays unasked, so you know the line is not hurt by this: `PATH=/usr/local/bin:/usr/bin:/bin make`, `export PATH="$PATH:/usr/local/bin"` and any folder already on snowpea's own `PATH`; `NODE_ENV=production npm test`, `CI=1 …`, `FOO=bar ./script.sh`; `PYTHONPATH=src pytest`; `CC=gcc make`, `MAKEFLAGS=-j8`; `GIT_PAGER=cat`, `EDITOR=true`; `PIP_NO_CACHE_DIR=1`, `NPM_CONFIG_LOGLEVEL=error`, `CARGO_TERM_COLOR=always`; `TMPDIR=/tmp` when that is the temp folder anyway.
+What stays unasked, so you know the line is not hurt by this: `PATH=/usr/local/bin:/usr/bin:/bin make`, `export PATH="$PATH:/usr/local/bin"` and any folder already on snowpea's own `PATH`; `NODE_ENV=production npm test`, `CI=1 …`, `FOO=bar ./script.sh`, `DATABASE_URL=postgres://… pytest`, `GOOS=linux GOARCH=amd64 go build`; `PYTHONPATH=src pytest`; `CC=gcc make`, `MAKEFLAGS=-j8`; `GIT_PAGER=cat`, `EDITOR=true`, `git -c core.pager=cat log`; `PIP_NO_CACHE_DIR=1`, `NPM_CONFIG_LOGLEVEL=error`, `CARGO_TERM_COLOR=always`; `TMPDIR=/tmp` when that is the temp folder anyway.
 
 ## Code snowpea can't tell about
 
@@ -146,11 +168,11 @@ snowpea reads the code a line runs — `python -c`, `node -e`, `bun -e`, `deno e
 - Code that only reads, prints or computes, or that writes to a path it names, runs as before.
 - Code where snowpea **can't tell** asks you, in every mode, with "can't tell what this code changes". That is: a delete, write, copy, move or `chmod` whose target is computed while the code runs (`os.remove(path)`); a command built from variables; code that does not parse; calls reached through `getattr`, `eval`, `exec` or a computed import; an interpreter fed code snowpea cannot read (`curl … | python3`, a bare `python3 -`); `python -m` of a module that is neither a known tool nor in your project.
 
-Scripts that were in your project before the session are your project's own: what they plainly do is judged (a blocked command in them is blocked), what they compute is not held against them. A script the agent wrote in this session is judged strictly, for the whole session and after a restart.
+Scripts that were in your project before the session are your project's own: what they plainly do is judged (a blocked command in them is blocked), what they compute is not held against them. A script the agent wrote is read the strict way: what cannot be read of it, and what it computes, asks. snowpea remembers which files the agent wrote for each session, also after a restart; what a session wrote since snowpea started is kept, and a session that writes more files than can be listed (20 000) is from then on taken to have written every file that changes.
 
 Also asked: code that runs a string as code by another door (`timeit.timeit("…")`, `cProfile.run`, `pdb.run`, node `new Function(…)`, a worker started from a string) when the string is not written out; loading pickled data (`pickle.load`), which is code once loaded; code that changes its own names or surroundings behind snowpea's back (`os.chdir`, setting `HOME` in `os.environ`, assigning into `__main__`).
 
-Common harmless things that now ask, so you know why you see the card: a script the agent just wrote that writes to a path it received as an argument (`open(args.out, "w")`); `subprocess.run(cmd)` with a built command; `python -m http.server`; `make` on a Makefile the agent just wrote that uses make variables; `python -c "print('$NAME')"` (the shell fills in text before Python reads it); `pickle.load(open('model.pkl', 'rb'))`; `HOME=/tmp/x npm test`; `ssh build-host make`; `node dist/index.js` when `dist/index.js` is built by the same line and is not there yet; `PYTHONPATH=$(pwd) pytest` (write `PYTHONPATH=. pytest`).
+Common harmless things that ask, so you know why you see the card: a script the agent just wrote that writes to a path it received as an argument (`open(args.out, "w")`); `subprocess.run(cmd)` with a built command; `python -m http.server`; `make` on a Makefile the agent just wrote that uses make variables; `python -c "print('$NAME')"` (the shell fills in text before Python reads it); `pickle.load(open('model.pkl', 'rb'))`; `HOME=/tmp/x npm test`; `ssh build-host make`; `node dist/index.js` when `dist/index.js` is built by the same line and is not there yet; `PYTHONPATH=$(pwd) pytest` (write `PYTHONPATH=. pytest`); `TAG=$(git describe) make`, `BUILD_DIR=/tmp/build make`, `CONFIG_FILE=config/dev.yaml npm start`, `JAVA_OPTS=-Xmx2g ./gradlew build`, `EXTRA_ARGS='--verbose' make` (a variable snowpea does not know, with more than a plain word); `git config core.editor vim`; writing a file of your own directly into `$SNOWPEA_HOME` (refused: put it under `sessions/` or `plans/`).
 
 ### `security.unknownCode`
 
@@ -162,13 +184,13 @@ If those questions are more than you want, you can switch some of them off on th
 
 `"ask"` is the default. What `"allow"` means, exactly: code runs without a question when the only thing snowpea could not tell is **which path** an ordinary write, copy, move or delete lands on (`os.remove(path)`, `open(out, "w")`), when the code is too large or too odd to parse, or when it is `python -m` of a module snowpea does not know.
 
-It does **not** switch off the rest. These still ask with `"allow"`: a command built from variables (`subprocess.run(cmd)`); a call reached through `getattr`, `globals()`, an alias or a computed import; `exec`/`eval` of a computed string and the other ways to run a string as code; native code (`ctypes`); code fed to an interpreter that snowpea never saw (`curl … | python3`); code in a language snowpea has no reader for; anything that touches snowpea's own files or command. Blocked commands and protected folders are still blocked.
+It does **not** switch off the rest. These still ask with `"allow"`: a command built from variables (`subprocess.run(cmd)`); a call reached through `getattr`, `globals()`, an alias or a computed import; `exec`/`eval` of a computed string and the other ways to run a string as code; native code (`ctypes`); code fed to an interpreter that snowpea never saw (`curl … | python3`); code in a language snowpea has no reader for; anything that touches snowpea's own files or command; the git and variable cases above. Blocked commands and protected folders are still refused.
 
 Only you, on a local connection, can change it; a project cannot.
 
 ## Project trust pins what hooks run
 
-When you trust a project (`snowpea project trust`, or the trust card), snowpea records the project's hooks, MCP servers, commands, agents, prompts and settings exactly as they are — and also **the project's own files they run**: the script a hook calls (`bash scripts/guard.sh`), a server's program inside the project, the files in a skill's folder. If one of them changes later, the hook or server is switched off until you look and trust again.
+When you trust a project (`snowpea project trust`, or the trust card), snowpea records the project's hooks, MCP servers, commands, agents, prompts and settings exactly as they are — and also **the project's own files they run**: the script a hook calls (`bash scripts/guard.sh`), a server's program inside the project, the files in a skill's folder. If one of them changes later, the hook or server is switched off until you look and trust again. A control file that is a symbolic link is not read for this.
 
 The card lists them under "runs". Under **not pinned** it lists commands whose code snowpea cannot record, with the reason:
 
@@ -187,26 +209,33 @@ The card lists them under "runs". Under **not pinned** it lists commands whose c
 
 **Only the files listed are pinned.** What one of them loads or runs in turn — a script it sources, a module it imports, a program it starts — is not recorded and can change without a question. The card says so.
 
-Every agent definition a project brings (`.snowpea/agents/*.md`, `.claude/agents/*.md`) is part of this: it is not used until you trust the project for agents, and again after it changes. An agent you create yourself with `/agent create` is yours and works at once.
+Every agent definition a project brings (`.snowpea/agents/*.md`, `.claude/agents/*.md`) is part of this: it is not used until you trust the project for agents, and again after it changes. An agent you create by typing `/agent create` yourself (or from your own IDE or terminal) is recorded as snowpea wrote it and works at once; one the agent or a tool asked for (a queued command, Jarvis, a scheduled job) waits for your trust like a project's own.
 
-In a project inside another project (a package folder with its own `.snowpea`), the inner project's commands and skills win over the outer one's of the same name, and the outer project's are there only while you trust the outer project.
+In a project inside another project (a package folder with its own `.snowpea`), the inner project's commands, skills and agents win over the outer one's of the same name, and the outer project's are there only while you trust the outer project.
 
 What you trust is what you were shown: if a file changes between the list and your click, nothing is trusted and snowpea shows the list again. `snowpea project trust` prints the list, asks, and trusts exactly that (`--yes` skips the question).
 
 If the record of trusted projects is lost or damaged — also when it and its marker both disappear while snowpea is not running — no project is trusted until you trust it again; snowpea says so with a session's first message and on the Security screen.
 
-## Limits
+## Future work
 
-What is **not** stopped, plainly:
+What is not stopped today, plainly:
 
-- **A program that finds snowpea's login at run time.** The token in `$SNOWPEA_HOME` is readable by every program that runs as you. snowpea refuses calls that name it and asks about calls it cannot read, but a program that builds the path while it runs (from pieces, from a listing, from another file) is not seen. With the token it can talk to snowpea as you: trust a project, change Jarvis's rules. The tamper guard does not help there, because such a change comes through snowpea itself.
-- **Anything while snowpea is not running.** The tamper guard and the wait for your confirmation of security settings exist only in the running program.
-- **The real fix is not here yet.** Keeping a tool's process from reading or writing those files at all needs the operating system (a sandbox for tool processes). That is planned as separate work. Until then, for a repository you do not trust: **accept mode**, or a [sandbox session](sandbox.md).
+- **Code that runs without being read** (the section above) can do anything you can: read snowpea's token, talk to snowpea as you (trust a project, change Jarvis's rules — such a change comes through snowpea itself, so the tamper guard does not undo it), edit snowpea's files.
+- **A program that finds snowpea's login at run time.** The token in `$SNOWPEA_HOME` is readable by every program that runs as you. snowpea refuses calls that name it and asks about calls it cannot read, but a program that builds the path while it runs is not seen.
+- **Anything while snowpea is not running.** The tamper guard and the wait for your confirmation of settings exist only in the running program.
 
-The lists cover everything that goes through snowpea: its own tools, approvals, Jarvis, scheduled jobs, and external CLI sessions snowpea controls (their permission prompts are bridged). They cannot see:
+The next step is a boundary that does not depend on reading anything: snowpea will tell apart a connection that comes from a program it started (directly or through others) from one that comes from you — on Linux by keeping every started program in its own process tree and checking where a connection comes from, on Windows with a job object, on macOS with a sandbox profile — so nothing started by the agent can act as you towards snowpea. Until then, rely on the operating system for a hard guarantee.
+
+## Practical advice
+
+- **For a repository you do not trust, use accept mode**, where every command and every write is yours to approve, or a [sandbox session](sandbox.md).
+- Remember that `auto` mode lets the project's own tests, builds and hooks run: trust a repository's code before you let the agent run it unattended.
+- Do not point remote access at the open internet; keep it on a private network or behind a tunnel you control.
+- For a hard guarantee use operating-system protection as well: a separate user, read-only mounts, file permissions, or a [sandbox session](sandbox.md).
+
+The lists cover what goes through snowpea: its own tools, approvals, Jarvis, scheduled jobs, and external CLI sessions snowpea controls (their permission prompts are bridged). They cannot see:
 
 - what a program works out while it runs: a path or a command built from a download, from a file's content, from arithmetic on text. snowpea asks when it can see that it can't tell; it cannot always see that;
 - libraries that write where they are told (`numpy.save`, `DataFrame.to_csv`), compiled programs, and scripts in languages snowpea does not read (it asks about those only when the agent wrote them);
 - external CLI sessions in unrestricted mode, ones whose prompts are answered in their own terminal (tmux), or ones running in another terminal. The session list marks them; snowpea warns when such a session opens while lists are set.
-
-All of this is a check of what a call says, before it runs. It is not a wall around the process. For a hard guarantee, use operating-system protection as well: a separate user, read-only mounts, file permissions, or a [sandbox session](sandbox.md).

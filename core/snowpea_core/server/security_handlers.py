@@ -121,8 +121,9 @@ async def get_handler(
     waiting = sorted(getattr(core, "settings_waiting", None) or {})
     if waiting:
         problems.append(
-            f"settings.json changed on disk: the {', '.join(waiting)} settings in it are "
-            "not applied and wait for you (settings.acceptDiskChange)")
+            "settings.json changed on disk: settings that can run programs or widen access "
+            f"({', '.join(waiting)}) are not applied and wait for you "
+            "(settings.acceptDiskChange)")
     items = list(stored.problem_items) + (list(project.problem_items) if project else [])
     return SecurityGetResult.model_validate({
         **_wire(stored),

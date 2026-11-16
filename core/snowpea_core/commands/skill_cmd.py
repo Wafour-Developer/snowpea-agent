@@ -168,9 +168,10 @@ def write_skill(
         directory = skill_root(name, workdir=workdir, home=home, global_=True)
     else:
         directory = Path(workdir) / ".snowpea" / "skills" / name
-    directory.mkdir(parents=True, exist_ok=True)
+    from snowpea_core.util.atomic import write_atomic
+
     path = directory / "SKILL.md"
-    path.write_text(text, encoding="utf-8")
+    write_atomic(path, text, mode=0o644)
     return path
 
 

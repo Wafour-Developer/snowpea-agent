@@ -42,6 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.util.atomic import read_owned
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
     from snowpea_core.session.session import Session
@@ -153,7 +155,7 @@ class HookRegistry:
         file's path in the project, kept on each hook for the check before a run.
         """
         try:
-            text = data.decode("utf-8") if data is not None else path.read_text(encoding="utf-8")
+            text = (data if data is not None else read_owned(path)).decode("utf-8")
             raw = json.loads(text)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             log.info("ignoring unreadable hooks file %s: %s", path, exc)
