@@ -26,6 +26,7 @@ import {
   wrapSegments,
   securitySupported,
   settingsPatch,
+  SECURITY_CLAIM,
   statusLines,
   tabRows,
   togglePreset,
@@ -74,6 +75,7 @@ describe("security contract normalisation", () => {
       writable: true,
       problems: [],
       problemItems: [],
+      notices: [],
       unknownCode: "ask",
       projectAdds: 0,
     });
@@ -250,6 +252,8 @@ describe("verdicts and status", () => {
   it("summarises counts and the presets that are on", () => {
     expect(statusLines(config, catalog)).toEqual([
       "Security lists",
+      // Security review 7: the honest claim, right under the title.
+      SECURITY_CLAIM(),
       "Blocked commands: 1 presets on (Essential safety), 1 of your own",
       "Protected folders: 1 presets on (System), 1 of your own",
       "In force now: 2 command patterns, 2 folders",

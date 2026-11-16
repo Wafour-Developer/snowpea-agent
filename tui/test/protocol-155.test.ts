@@ -51,7 +51,7 @@ const apply = (state: State, ...events: any[]): State => events.reduce((current,
 describe("refusals in words (1.55.0)", () => {
   it("jarvis_person_only / local_only names the connection and what", () => {
     const text = rpcErrorText(failure("jarvis_person_only", "x", { reason: "local_only", kind: "remote_login", what: "command" }));
-    expect(text).toBe("Only snowpea on this machine can do that (command) — not a remote login.");
+    expect(text).toBe("Only snowpea on this machine can do that (a global command) — not a remote login.");
     expect(localOnlyLine({ kind: "browser" })).toContain("not a browser host");
     expect(localOnlyLine({})).toBe("Only snowpea on this machine can do that — not this connection.");
   });
