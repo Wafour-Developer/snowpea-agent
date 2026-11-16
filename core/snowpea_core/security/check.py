@@ -118,6 +118,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
               "allow it",
         "ko": "snowpea 자체 제어 파일({what})을 가리키는 코드입니다. 직접 허용해야 합니다",
     },
+    "control_operand": {
+        "en": "this hands one of snowpea's own control files ({what}) to a program that may "
+              "change it: only you can allow it",
+        "ko": "snowpea 자체 제어 파일({what})을 바꿀 수 있는 프로그램에 넘깁니다. "
+              "직접 허용해야 합니다",
+    },
     "unknown_code": {
         "en": "can't tell what this code changes (a target or a call it computes while it runs)",
         "ko": "이 코드가 무엇을 바꾸는지 알 수 없습니다(실행 중에 계산되는 대상이나 호출)",
@@ -670,9 +676,17 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
         shape = _shape(effect.raw, effect.cwd, ctx)
         if shape is None:
             continue
+        external = _external_secret(shape, effect.kind == "write", ctx)
+        if external is not None:
+            return external, asks
         for home in homes:
             hit = _control_hit(shape, effect, home)
             if hit is None:
+                operand = _operand_hit(shape, effect, home)
+                if operand is not None:
+                    asks.append((f"control-plane:{operand.rel or 'home'}",
+                                 message("control_operand", ctx.locale, what=operand.what)))
+                    break
                 continue
             verdict, entry, shown = hit
             write = effect.kind == "write"
@@ -691,39 +705,111 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
     return None, asks
 
 
+def _external_secret(shape: _Shape, write: bool, ctx: Context) -> Verdict | None:
+    """A block when the path is the login of an external CLI in the user's home
+    (security review 7, L7-2): one table with snowpea's own secrets."""
+    for path in shape.concrete:
+        entry = control_plane.external_secret(path, ctx.user_home)
+        if entry is not None:
+            shown = "~/" + entry.rel
+            return Verdict(True, BY_SETTINGS,
+                           message("control_write" if write else "control_read", ctx.locale,
+                                   path=shown, what=entry.what),
+                           match=shown, kind="control", level="all")
+    return None
+
+
+def _operand_hit(shape: _Shape, effect: sh.Effect,
+                 home: Path) -> control_plane.ControlEntry | None:
+    """A write-level control file named as an operand of a program that is not
+    known to only read (security review 7, H7-5): ``sqlite3 <store> "INSERT …"``,
+    ``ln -s <store> x``, ``X=<store>``.  What that program does with the file is
+    not known here, so a person decides."""
+    if effect.kind != "read" or effect.program in sh.READ_ONLY_PROGRAMS:
+        return None
+    hit = _control_hit(shape, sh.Effect(effect.raw, effect.cwd, "write"), home)
+    if hit is None or hit[1].level not in ("write", "all") or hit[1] is _HOME_ITSELF:
+        return None
+    return hit[1]
+
+
+_SHELL_META = re.compile(r"[;(){}<>|&\n]")
+_GLOB = re.compile(r"[*?\[\]]")
+
+
+def _mention_paths(raw: str) -> list[str]:
+    """The paths one string literal of code names.  A literal that reads as a
+    command line or a piece of code is not skipped: every path-like word in it
+    counts (security review 7, H7-4)."""
+    if not _SHELL_META.search(raw):
+        return [raw]
+    words = re.split(r"[\s;(){}<>|&=,'\"`]+", raw)
+    return [word for word in words
+            if word and ("/" in word or word.startswith("~")) and len(word) > 1]
+
+
 def _mention_verdict(view: sh.ShellView, ctx: Context) -> tuple[Verdict | None,
                                                                list[tuple[str, str]]]:
     """Code that names a control file in a string: a secret is never read; another
-    control file asks, unless the code plainly only opens it to read."""
+    control file asks, unless EVERY use of that literal is a recognised read of
+    exactly that expression (security review 7, H7-3)."""
     asks: list[tuple[str, str]] = []
     if not view.mentions:
         return None, asks
     homes = control_plane.homes(ctx.home, ctx.user_home)
-    read_only = {effect.raw for effect in view.effects
-                 if effect.kind == "read" and effect.program == "code"}
-    for raw, cwd in view.mentions:
-        # Only a literal that reads as one path: not a pattern (judged where it is
-        # used), not a piece of code or a command line, not an unknown expansion.
-        if re.search(r"[*?\[\];(){}<>|&\n]", raw) or ctx.expand(raw, cwd) is None:
-            continue
-        shape = _shape(raw, cwd, ctx)
-        if shape is None:
-            continue
-        for home in homes:
-            secret = _control_hit(shape, sh.Effect(raw, cwd, "read"), home)
-            if secret is not None:
-                return Verdict(True, BY_SETTINGS,
-                               message("control_read", ctx.locale, path=secret[2],
-                                       what=secret[1].what),
-                               match=secret[2], kind="control", level="all"), asks
-            if raw in read_only:
+    impure = {raw for raw, _cwd, read_only in view.mentions if not read_only}
+    for literal, cwd, _read_only in view.mentions:
+        for raw in _mention_paths(literal):
+            # A pattern is judged where it is used; an unknown expansion names nothing.
+            if _GLOB.search(raw) or ctx.expand(raw, cwd) is None:
                 continue
-            hit = _control_hit(shape, sh.Effect(raw, cwd, "write"), home)
-            if hit is not None:
-                asks.append((f"control-plane:{hit[1].rel or 'home'}",
-                             message("control_mention", ctx.locale, what=hit[1].what)))
-                break
+            shape = _shape(raw, cwd, ctx)
+            if shape is None:
+                continue
+            external = _external_secret(shape, False, ctx)
+            if external is not None:
+                return external, asks
+            for home in homes:
+                secret = _control_hit(shape, sh.Effect(raw, cwd, "read"), home)
+                if secret is not None:
+                    return Verdict(True, BY_SETTINGS,
+                                   message("control_read", ctx.locale, path=secret[2],
+                                           what=secret[1].what),
+                                   match=secret[2], kind="control", level="all"), asks
+                if literal not in impure:
+                    continue
+                hit = _control_hit(shape, sh.Effect(raw, cwd, "write"), home)
+                if hit is not None:
+                    asks.append((f"control-plane:{hit[1].rel or 'home'}",
+                                 message("control_mention", ctx.locale, what=hit[1].what)))
+                    break
     return None, asks
+
+
+#: Opaque reasons that hold whatever the lists say (security review 7, M7-1): each
+#: is a part of the line nobody read, where an act on snowpea's own controls may
+#: sit.  With empty lists everything else that is opaque is let through.
+_ALWAYS_UNSEEN: tuple[str, ...] = (
+    "dynamic-program", "brace-program", "eval", "shell-stdin", "shell-body", "shell-c",
+    "shell-string", "foreign-shell", "script-dynamic", "internal", "parse:", "env-code",
+    "inline-code", "inline-dynamic", "interpreter-stdin", "nesting", "function", "trap",
+    "source", "ssh-option", "deferred-run", "code:internal",
+)
+#: Code reasons ``security.unknownCode: "allow"`` lets through (security review 7,
+#: M7-2): a write, copy, move or delete whose TARGET is computed, and code too
+#: large or too odd to parse.  Every other ``code:*`` reason still asks under
+#: ``allow`` — a namespace or attribute lookup, an alias, native code, a string
+#: run as code, a computed spawn or import, a language without a table.
+_ALLOW_RELAXES: frozenset[str] = frozenset(
+    {"code:write:non-literal", "code:copy:non-literal", "code:move:non-literal",
+     "code:delete:non-literal", "code:delete-tree:non-literal", "code:parse", "code:unparsed",
+     "code:too-large", "code:too-many", "code:interpolated", "code:module"}
+)
+
+
+def _always(why: str) -> bool:
+    return any(why == head or why.startswith(head if head.endswith(":") else head + ":")
+               for head in _ALWAYS_UNSEEN)
 
 
 def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
@@ -759,12 +845,15 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
     if not lists.commands_empty:
         unseen.extend(view.opaque)
     elif not lists.empty:
-        unseen.extend(why for why in view.opaque if why.startswith("code:"))
+        unseen.extend(why for why in view.opaque if why.startswith("code:") or _always(why))
+    else:
+        unseen.extend(why for why in view.opaque if _always(why))
     if ctx.unknown_code == "allow":
-        # ``security.unknownCode: "allow"``: code the check cannot resolve is let
-        # through.  Everything blocked above stayed blocked, and what acts on
-        # snowpea's own controls still asks below.
-        unseen = [why for why in unseen if not why.startswith("code:")]
+        # ``security.unknownCode: "allow"``: a computed TARGET of an ordinary write
+        # and code too odd to parse are let through.  Everything blocked above
+        # stayed blocked; what acts on snowpea's own controls and every other
+        # unreadable construct still asks below.
+        unseen = [why for why in unseen if why not in _ALLOW_RELAXES]
     if entries:
         unseen.extend(path_unseen)
     scripts = tuple(dict.fromkeys(view.scripts))
@@ -872,7 +961,8 @@ def tool_effects(tool: str, args: Mapping[str, Any], tags: Iterable[str],
         paths = [str(cwd)]
     for raw in paths:
         out.append(sh.Effect(raw=raw, cwd=cwd, kind="write" if writes else "read",
-                             destructive=destroys, recursive=recursive or destroys))
+                             destructive=destroys, recursive=recursive or destroys,
+                             program="tool"))
     for key in ("input", "patch", "diff"):
         value = args.get(key)
         if isinstance(value, str) and ("*** " in value or "+++ " in value):
@@ -1026,8 +1116,8 @@ def check_call(
         return _check_call(tool, dict(args or {}), lists, ctx, tuple(tags))
     except Exception:  # noqa: BLE001 - a bug here must not let the call through unchecked
         log.exception("security check failed for %s", tool)
-        if lists.empty:
-            return ALLOWED
+        # Security review 7, M7-1: a call nobody judged is never allowed, with or
+        # without lists — the control-plane rule was not applied to it either.
         return Verdict(opaque=True, reason=UNCHECKED_REASON, why=message("unchecked", ctx.locale),
                        unseen=("internal",))
 

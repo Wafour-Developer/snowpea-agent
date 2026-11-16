@@ -291,6 +291,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.steer`](#sessionsteer) | client → server | Inject a user message into a running turn at its next tool round; never a slash command (steer_slash_command, 1.50.0). |
 | [`session.toolContent`](#sessiontoolcontent) | client → server | A host tool result's content blocks with image bytes; results with images are kept on disk. |
 | [`session.trajectory`](#sessiontrajectory) | client → server | The session's event log as turn-aware rows: turns, model calls with timing and usage, tool calls with results, delegations, compactions (1.45.0, capability 'trajectory'). |
+| [`settings.acceptDiskChange`](#settingsacceptdiskchange) | client → server | 1.55.0 (security review 7): a LOCAL person accepts or discards the security, jarvis and web.remote settings that were edited in settings.json on disk while the daemon ran (settings.changed {waitingKeys}). |
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
 | [`settings.set`](#settingsset) | client → server | Deep-merge a patch into global or project settings and persist it. |
 | [`setup.applyDefaults`](#setupapplydefaults) | client → server | Apply the profile's defaults for everything optional; idempotent. |
@@ -2835,8 +2836,9 @@ Project trust (1.55.0): take scopes back (all when omitted). A local person only
 | `digests` | `Record<string, string>` | no | 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. |
 | `files` | `({ commands?: ({ head: string; label?: string; length: number; tail?: string; })[]; digest?: string; path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
 | `inactive` | `string[]` | no | Control files not active now (any reason). |
+| `limits` | `string[]` | no | 1.55.0 (security review 7): what a pin does not cover, as sentences for the card — only the files listed are pinned, not what one of them loads or runs in turn. |
 | `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
-| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
+| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable" \| "outside-project" \| "symlink"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
 | `runs` | `({ by?: string[]; digest: string; path: string; state: "active" \| "untrusted" \| "new" \| "changed"; })[]` | no | 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. |
 | `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
 | `trusted` | `boolean` | yes | Some scope is trusted. |
@@ -2867,8 +2869,9 @@ Project trust (1.55.0): trust the project for scopes, pinning every control file
 | `digests` | `Record<string, string>` | no | 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. |
 | `files` | `({ commands?: ({ head: string; label?: string; length: number; tail?: string; })[]; digest?: string; path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
 | `inactive` | `string[]` | no | Control files not active now (any reason). |
+| `limits` | `string[]` | no | 1.55.0 (security review 7): what a pin does not cover, as sentences for the card — only the files listed are pinned, not what one of them loads or runs in turn. |
 | `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
-| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
+| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable" \| "outside-project" \| "symlink"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
 | `runs` | `({ by?: string[]; digest: string; path: string; state: "active" \| "untrusted" \| "new" \| "changed"; })[]` | no | 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. |
 | `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
 | `trusted` | `boolean` | yes | Some scope is trusted. |
@@ -2897,8 +2900,9 @@ Project trust (1.55.0): what the project's own files would make snowpea do (hook
 | `digests` | `Record<string, string>` | no | 1.55.0: what trusting the project now would pin, {path: 'sha256:<hex>'}. Send it back unchanged as project.trust.set {digests}. |
 | `files` | `({ commands?: ({ head: string; label?: string; length: number; tail?: string; })[]; digest?: string; path: string; scope: "hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli"; state: "active" \| "untrusted" \| "new" \| "changed"; summary?: string; })[]` | no |  |
 | `inactive` | `string[]` | no | Control files not active now (any reason). |
+| `limits` | `string[]` | no | 1.55.0 (security review 7): what a pin does not cover, as sentences for the card — only the files listed are pinned, not what one of them loads or runs in turn. |
 | `modeActive` | `boolean` | no | …and the mode scope lets it apply (else accept). |
-| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
+| `notPinned` | `({ command: { head: string; label?: string; length: number; tail?: string; }; reason: "computed" \| "project-script" \| "package-runner" \| "module" \| "missing" \| "too-large" \| "too-many" \| "unreadable" \| "outside-project" \| "symlink"; source: string; })[]` | no | 1.55.0: commands whose code cannot be pinned, each with a reason. Trust still covers the command line itself; the card should say that what it runs may change without asking again. |
 | `runs` | `({ by?: string[]; digest: string; path: string; state: "active" \| "untrusted" \| "new" \| "changed"; })[]` | no | 1.55.0 (security review 6): the project files the hooks, MCP servers and skills run — path-like words of a hook command or of a server's command and args that are files inside the project, and every other file in a skill's folder. Trusting pins them too; one that changes needs the project trusted again, like any pinned file. |
 | `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
 | `trusted` | `boolean` | yes | Some scope is trusted. |
@@ -3800,6 +3804,25 @@ The session's event log as turn-aware rows: turns, model calls with timing and u
 | `more` | `boolean` | no | True when older rows were left out by limit. |
 | `rows` | `({ data?: Record<string, unknown> \| null; endSeq?: number \| null; endTs?: string \| null; kind: "turn" \| "user" \| "message" \| "tool" \| "subagent" \| "compacted" \| "context" \| "system"; ok?: boolean \| null; seq: number; step?: number \| null; text?: string \| null; title?: string; ts: string; turnId?: string \| null; })[]` | no | Rows in seq order. |
 
+### `settings.acceptDiskChange`
+
+*Direction:* client → server
+
+1.55.0 (security review 7): a LOCAL person accepts or discards the security, jarvis and web.remote settings that were edited in settings.json on disk while the daemon ran (settings.changed {waitingKeys}).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accept` | `boolean` | no | true: apply what settings.json on disk says for the waiting sections; false: keep what the daemon holds and write it back to settings.json. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `applied` | `string[]` | no | Waiting sections now taken from disk. |
+| `discarded` | `string[]` | no | Waiting sections whose disk value was overwritten with the daemon's. |
+
 ### `settings.get`
 
 *Direction:* client → server
@@ -4478,6 +4501,7 @@ Re-read settings.json and rebind the daemon's in-memory state.
 |---|---|---|---|
 | `changedKeys` | `string[]` | no | Top-level settings sections that changed, e.g. ['providers']. |
 | `reloaded` | `boolean` | yes | True when settings.json differed from what the daemon held and the in-memory state was rebound; false when it was already current. |
+| `waitingKeys` | `string[]` | no | 1.55.0 (security review 7): security-relevant sections ('security', 'jarvis', 'web.remote') whose value in settings.json on disk differs from what the daemon holds. A change that arrives by file edit while the daemon runs is NOT applied: it waits for a local person (settings.acceptDiskChange). |
 
 ### `system.restart`
 
@@ -5317,9 +5341,9 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `by` | `string \| null` | no |  |
 | `projects` | `string[]` | no | migration: every project trusted as it was. |
-| `reason` | `"set" \| "revoke" \| "migration" \| "store_lost"` | no | store_lost (1.55.0, security review 6): the trusted-projects record is missing or unreadable, so no project is trusted until the person trusts it again; security.get.problems carries the sentence. |
+| `reason` | `"set" \| "revoke" \| "migration" \| "store_lost" \| "tamper"` | no | store_lost (1.55.0, security review 6): the trusted-projects record is missing or unreadable, so no project is trusted until the person trusts it again; security.get.problems carries the sentence. tamper (1.55.0, security review 7): something outside snowpea changed the record (or its marker) while the daemon was running; the change was NOT applied and the file was put back — nothing about any project's trust changed, the person is only told; security.get.problems carries the sentence. |
 | `scopes` | `("hooks" \| "mcp" \| "commands" \| "agents" \| "prompts" \| "settings" \| "mode" \| "externalCli")[]` | no |  |
-| `workdir` | `string` | no | The project root ('' for the migration and for store_lost). |
+| `workdir` | `string` | no | The project root ('' for the migration, for store_lost and for tamper). |
 
 ### `provider.loginProgress`
 
@@ -5400,6 +5424,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `keys` | `string[]` | no | Top-level settings sections that changed, e.g. ['providers']. |
 | `scope` | `"global" \| "project"` | no | Which document was reloaded; "global" for $SNOWPEA_HOME/settings.json. |
+| `waitingKeys` | `string[]` | no | 1.55.0 (security review 7): 'security', 'jarvis' and/or 'web.remote' when settings.json was edited on disk while the daemon runs and that section differs: the edit is not applied until a local person accepts it (settings.acceptDiskChange). Sent with keys possibly empty; an empty list after a non-empty one means nothing waits any more. |
 
 ### `system.updateProgress`
 

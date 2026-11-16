@@ -242,12 +242,12 @@ async def _load_project_skills(core: Core, workdir: Path, session_id: str | None
             await reload_workdir(workdir)
         except Exception:  # noqa: BLE001 - a bad skill file must not fail session.create
             log.warning("could not load project skills from %s", workdir, exc_info=True)
-    if session_id:
-        # Security review 5, C1: once per session, what the project brings that
-        # is not active until the person trusts it.
-        from snowpea_core.server.trust_handlers import session_notice
-
-        await session_notice(core, session_id, workdir)
+    # Security review 5, C1: what the project brings that is not active until the
+    # person trusts it is told once per session — with its FIRST TURN
+    # (``agent.loop.run_turn``), not here: a client only learns the session id
+    # from this call's result, so an event sent now reached nobody who was not
+    # replaying the session from the start.
+    del session_id
 
 
 def _session(core: Core, session_id: str) -> Session:

@@ -209,7 +209,9 @@ def test_empty_lists_never_judge() -> None:
     # example any more; a folder that holds no control file is).
     assert check_command("rm -rf /srv/data", Lists(), _ctx()) == check_command(
         "ls", Lists(), _ctx())
-    assert not check_command("$X", Lists(), _ctx()).opaque
+    # Security review 7, M7-1: a program only the shell knows may be snowpea's own
+    # CLI, so it asks whatever the lists hold (it used to pass with empty lists).
+    assert check_command("$X", Lists(), _ctx()).opaque
     assert check_command("rm -rf /", Lists(), _ctx()).blocked
 
 
@@ -512,7 +514,9 @@ def test_the_checker_never_raises_and_fails_closed(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(module, "_check_call", boom)
     verdict = check_call("shell", {"command": "ls"}, ESSENTIAL, _ctx())
     assert verdict.opaque and not verdict.blocked
-    assert not check_call("shell", {"command": "ls"}, Lists(), _ctx()).opaque
+    # Security review 7, M7-1: also with empty lists (the control-plane rule was
+    # not applied to a call nobody judged; this used to be an allow).
+    assert check_call("shell", {"command": "ls"}, Lists(), _ctx()).opaque
 
 
 def test_draft_lists_from_raw() -> None:

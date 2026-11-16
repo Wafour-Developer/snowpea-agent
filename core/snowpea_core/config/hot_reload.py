@@ -60,6 +60,56 @@ def changed_keys(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     )
 
 
+#: Sections that decide what the security check, Jarvis and a remote login may do.
+#: An edit of one of them that arrives through the FILE while the daemon runs is
+#: not applied until a local person accepts it (security review 7, P2): a tool
+#: that reaches ``settings.json`` by a path nobody could read must not switch
+#: the lists off or delegate everything by itself.
+GATED_SECTIONS: tuple[str, ...] = ("security", "jarvis", "web.remote")
+
+
+def _get(document: dict[str, Any], dotted: str) -> Any:
+    node: Any = document
+    for part in dotted.split("."):
+        node = node.get(part) if isinstance(node, dict) else None
+    return node
+
+
+def _put(document: dict[str, Any], dotted: str, value: Any) -> None:
+    parts = dotted.split(".")
+    node = document
+    for part in parts[:-1]:
+        child = node.get(part)
+        if not isinstance(child, dict):
+            child = node[part] = {}
+        node = child
+    node[parts[-1]] = value
+
+
+def hold_back(current: Settings, fresh: Settings) -> tuple[Settings, dict[str, Any]]:
+    """``fresh`` (just read from disk) with every gated section kept as ``current``
+    has it, and ``{section: value on disk}`` for the sections that differ."""
+    held = fresh.model_dump(mode="json")
+    now = current.model_dump(mode="json")
+    waiting: dict[str, Any] = {}
+    for section in GATED_SECTIONS:
+        on_disk, in_memory = _get(held, section), _get(now, section)
+        if on_disk != in_memory:
+            waiting[section] = on_disk
+            _put(held, section, in_memory)
+    if not waiting:
+        return fresh, waiting
+    return Settings.model_validate(held), waiting
+
+
+def with_sections(current: Settings, sections: dict[str, Any]) -> Settings:
+    """``current`` with ``sections`` (``{dotted: value}``) put in."""
+    document = current.model_dump(mode="json")
+    for dotted, value in sections.items():
+        _put(document, dotted, value)
+    return Settings.model_validate(document)
+
+
 def rebind(core: Any, settings: Settings) -> None:
     """Install ``settings`` on ``core`` and on everything that captured the old one.
 

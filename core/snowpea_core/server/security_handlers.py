@@ -105,11 +105,18 @@ async def get_handler(
     problems = (list(SECURITY_PRESET_PROBLEMS.values()) + list(stored.problems)
                 + (list(project.problems) if project else []))
     # Security review 6, M-4: a lost trusted-projects record is said here too.
-    from snowpea_core.server.trust_handlers import store_problem
+    from snowpea_core.server.trust_handlers import store_problem, tamper_problems
 
     lost = store_problem(core)
     if lost:
         problems.append(lost)
+    # Security review 7, P2: what the tamper guard undid since the daemon started.
+    problems.extend(tamper_problems())
+    waiting = sorted(getattr(core, "settings_waiting", None) or {})
+    if waiting:
+        problems.append(
+            f"settings.json changed on disk: the {', '.join(waiting)} settings in it are "
+            "not applied and wait for you (settings.acceptDiskChange)")
     items = list(stored.problem_items) + (list(project.problem_items) if project else [])
     return SecurityGetResult.model_validate({
         **_wire(stored),

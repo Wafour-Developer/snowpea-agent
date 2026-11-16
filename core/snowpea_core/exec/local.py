@@ -81,6 +81,26 @@ def project_roots(workdir: Path | str | None = None) -> list[Path]:
     return roots
 
 
+#: Names of snowpea's own variables that may carry a login (security review 7,
+#: L7-6).  The daemon does not put its token, a capability or a path to either
+#: in its environment — its token lives in ``$SNOWPEA_HOME/token`` and
+#: ``SNOWPEA_WEB_PASSWORD`` is dropped at start — but a tool's child never needs
+#: one, so whatever of that kind the daemon was started with is not handed on.
+_DAEMON_SECRET_WORDS: tuple[str, ...] = ("TOKEN", "PASSWORD", "SECRET", "CAPABILITY")
+
+
+def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment a tool's child process gets: the daemon's, without
+    snowpea's own login variables, plus ``extra`` (the call's own)."""
+    merged = {
+        name: value for name, value in os.environ.items()
+        if not (name.upper().startswith("SNOWPEA_")
+                and any(word in name.upper() for word in _DAEMON_SECRET_WORDS))
+    }
+    merged.update(extra or {})
+    return merged
+
+
 def sanitized_path(value: str, workdir: Path | str | None) -> str:
     """``PATH`` without empty or relative entries and without entries inside a project.
 
@@ -186,7 +206,7 @@ class LocalBackend:
         output and the timeout result are exactly what ``communicate()`` gave.
         """
         workdir = self.resolve(cwd) if cwd else self._cwd
-        merged = {**os.environ, **(env or {})}
+        merged = child_env(env)
         # Security review 4, M3: no relative PATH entry and none inside the folder
         # the line runs in, so a planted ``./ls`` never stands for ``ls``.
         merged["PATH"] = sanitized_path(merged.get("PATH", ""), workdir)
@@ -382,7 +402,7 @@ class LocalBackend:
             winproc.start_detached,
             command,
             cwd=str(self._cwd),
-            env={**os.environ},
+            env=child_env(),
             log_path=self.resolve(log_path),
         )
 

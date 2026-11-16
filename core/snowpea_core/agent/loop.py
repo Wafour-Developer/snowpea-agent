@@ -2220,6 +2220,15 @@ async def run_turn(
     system = initiator == "system"
     goal = getattr(session, "goal", None) if reason == "goal" else None
     await _mark_turn_started(core, session, None if system else text)
+    if not session.is_subagent:
+        # Once per session, before its first ``turn.started``: what the project
+        # brings that is not active until the person trusts it (security review
+        # 5, C1).  Sent here — not at session.create — so every client that
+        # subscribed after creating the session sees it, and a session the
+        # scheduler or Jarvis started gets it too.
+        from snowpea_core.server.trust_handlers import session_notice
+
+        await session_notice(core, session.id, session.workdir)
     # The turn is running *now* — after whatever wait it did in the FIFO, and
     # before anything it produces.  Without this a surface has to start its
     # clock on the first delta it happens to overhear (IDE-PROGRESS D1).

@@ -49,7 +49,7 @@ from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.server.protocol import SkillInfo, SkillKind
 from snowpea_core.skills import marketplace
 from snowpea_core.skills.hooks import HookRegistry
-from snowpea_core.skills.skill_md import SkillDoc, load_skill_md
+from snowpea_core.skills.skill_md import SkillDoc
 from snowpea_core.trust import projects as trust_projects
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -157,6 +157,40 @@ class LoadedAgent:
     format: marketplace.BundleFormat = marketplace.FORMAT_SNOWPEA
     #: The project a project's own definition came from (review 6, M-6 / L-1).
     project: Path | None = None
+    #: ``sha256:<hex>`` of the bytes the definition was parsed from (review 7,
+    #: M7-7): the trust pin is compared with what was LOADED.
+    digest: str = ""
+
+
+def _depth(project: Path | None) -> int:
+    return len(project.parts) if project is not None else 0
+
+
+#: What makes a folder a project of its own.
+_PROJECT_MARKERS: tuple[str, ...] = (".snowpea", ".claude", ".agents", ".git")
+
+
+def _nested(workdir: Any, project: Path | None) -> bool:
+    """``workdir`` lies in ANOTHER project nested inside ``project``: a folder on
+    the way from ``workdir`` up to ``project`` (not ``project`` itself) carries a
+    project's own marker.  A plain subfolder of the project is not nested."""
+    if project is None or not workdir:
+        return False
+    try:
+        folder = Path(os.path.realpath(os.fspath(workdir)))
+        base = Path(os.path.realpath(os.fspath(project)))
+    except (OSError, TypeError, ValueError):
+        return True
+    for _ in range(64):
+        if folder == base or base not in folder.parents:
+            return False
+        try:
+            if any((folder / marker).exists() for marker in _PROJECT_MARKERS):
+                return True
+        except OSError:
+            return True
+        folder = folder.parent
+    return True
 
 
 def _inside(workdir: Any, project: Path | None) -> bool:
@@ -865,14 +899,26 @@ class SkillLoader:
 
     def visible(self, skill: LoadedSkill, workdir: Any) -> bool:
         """``skill`` exists for a session working in ``workdir``: a project entry
-        only inside its own project."""
-        return _inside(workdir, skill.project)
+        only inside its own project.
+
+        Security review 7, L7-3: seen from another project nested inside it, an
+        outer project's entry exists only while that outer project is trusted
+        for ``commands``."""
+        if not _inside(workdir, skill.project):
+            return False
+        if not _nested(workdir, skill.project):
+            return True
+        try:
+            return trust_projects.store_for(self.home).active(skill.project, "commands")
+        except Exception:  # noqa: BLE001 - trust fails closed
+            return False
 
     def find(self, name: str, workdir: Any) -> LoadedSkill | None:
-        """The skill or command ``name`` a session in ``workdir`` gets."""
+        """The skill or command ``name`` a session in ``workdir`` gets (of two
+        projects' entries with one name, the innermost project's)."""
         matches = [skill for skill in self.skills.values()
                    if skill.name == name and self.visible(skill, workdir)]
-        matches.sort(key=lambda skill: skill.project is not None)
+        matches.sort(key=lambda skill: (skill.project is not None, -_depth(skill.project)))
         return matches[0] if matches else None
 
     def may_inject(self, skill: LoadedSkill, workdir: Any) -> bool:
@@ -888,16 +934,24 @@ class SkillLoader:
         inside it, and — with a ``permission`` or a built-in's name — only while
         the project is trusted for agents (review 6, L-1)."""
         found: list[LoadedAgent] = []
+        own: dict[str, LoadedAgent] = {}
         for agent in self.agents:
             if agent.project is None:
                 found.append(agent)
                 continue
             if not _inside(workdir, agent.project):
                 continue
+            # Review 7: every project definition needs the ``agents`` trust (6A
+            # L-1 as decided), compared with the digest of the bytes that were
+            # loaded (M7-7), never with what the file holds by now.
             if trust_projects.agent_definition_active(
                     agent.project, agent.path, agent.name, agent.frontmatter.get("permission"),
-                    trust_projects.store_for(self.home)):
-                found.append(agent)
+                    trust_projects.store_for(self.home), digest=agent.digest or "unread"):
+                # L7-3: of two projects' definitions with one name, the innermost.
+                other = own.get(agent.name)
+                if other is None or _depth(agent.project) > _depth(other.project):
+                    own[agent.name] = agent
+        found.extend(own.values())
         return found
 
     def _add_skill_dir(
@@ -938,7 +992,9 @@ class SkillLoader:
     ) -> LoadedAgent | None:
         """Parse one ``agents/<name>.md`` and remember its front matter."""
         target = Path(path)
-        doc = load_skill_md(target, default_name=target.stem)
+        # Read ONCE: the body kept here and the digest the trust pin is compared
+        # with are of the same bytes (security review 7, M7-7).
+        doc, digest = self._load_doc(target, target.stem)
         if doc is None:
             return None
         agent = LoadedAgent(
@@ -950,6 +1006,7 @@ class SkillLoader:
             body=doc.body,
             format=fmt or source_format(source),
             project=project,
+            digest=digest,
         )
         return self._add_agent(agent)
 

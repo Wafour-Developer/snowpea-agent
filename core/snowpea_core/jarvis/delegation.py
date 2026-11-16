@@ -400,6 +400,35 @@ GrantListener = Callable[[str, JarvisGrant], None]
 PauseListener = Callable[[str, PauseState], None]
 
 
+class _GuardedLock:
+    """The engine's re-entrant lock.  Entering it from outside runs the tamper
+    check before anything reads the store; leaving it keeps what the daemon
+    itself wrote as the copy the next check compares with."""
+
+    def __init__(self, engine: DelegationEngine) -> None:
+        self._engine = engine
+        self._lock = threading.RLock()
+        self._depth = 0
+
+    def __enter__(self) -> _GuardedLock:
+        self._lock.acquire()
+        self._depth += 1
+        if self._depth == 1:
+            try:
+                self._engine._guard_check()
+            except Exception:  # noqa: BLE001 - a guard bug never blocks a decision
+                log.warning("the delegation store's tamper check failed", exc_info=True)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        try:
+            if self._depth == 1:
+                self._engine._guard_wrote()
+        finally:
+            self._depth -= 1
+            self._lock.release()
+
+
 class DelegationEngine:
     """Grants, pauses, routing and the server-side re-check of Jarvis's answers.
 
@@ -423,8 +452,17 @@ class DelegationEngine:
         self._settings = settings
         self._now = now or (lambda: datetime.now(UTC))
         self.ledger = ledger if ledger is not None else Ledger(self.dir / "ledger.jsonl")
-        self._lock = threading.RLock()
+        #: Every use of the store happens under this lock; entering it looks for a
+        #: change made behind the daemon's back, leaving it keeps the daemon's
+        #: own writes as the authoritative copy (security review 7, P2).
+        self._lock = _GuardedLock(self)
         self._db: sqlite3.Connection | None = None
+        from snowpea_core.security.tamper import SqliteGuard
+
+        self._guard = SqliteGuard(self.db_path, home=self.home,
+                                  what="Jarvis mode's delegation rules")
+        #: ``(path, what happened)`` when the store was changed from outside and put back.
+        self.tamper_listeners = self._guard.listeners
         self._routes: OrderedDict[str, RouteResult] = OrderedDict()
         #: The Jarvis session's id (set by the Jarvis service): its own requests are ``never``.
         self.jarvis_session_id: str | None = None
@@ -444,26 +482,45 @@ class DelegationEngine:
     def now(self) -> datetime:
         return self._now().astimezone(UTC)
 
+    def _open(self) -> sqlite3.Connection:
+        self.dir.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):
+            os.chmod(self.dir, 0o700)
+        db = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
+        db.row_factory = sqlite3.Row
+        db.executescript(_SCHEMA)
+        db.execute(
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema', ?)", (SCHEMA_VERSION,)
+        )
+        # Owner-only on every open, not only when created: a file someone
+        # loosened (or restored from a backup) is tightened again.
+        for path in (self.db_path, *(self.db_path.with_name(self.db_path.name + suffix)
+                                     for suffix in ("-wal", "-shm", "-journal"))):
+            if path.exists():
+                with contextlib.suppress(OSError):
+                    os.chmod(path, 0o600)
+        return db
+
     def _conn(self) -> sqlite3.Connection:
         if self._db is None:
-            self.dir.mkdir(parents=True, exist_ok=True)
-            with contextlib.suppress(OSError):
-                os.chmod(self.dir, 0o700)
-            db = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
-            db.row_factory = sqlite3.Row
-            db.executescript(_SCHEMA)
-            db.execute(
-                "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema', ?)", (SCHEMA_VERSION,)
-            )
-            # Owner-only on every open, not only when created: a file someone
-            # loosened (or restored from a backup) is tightened again.
-            for path in (self.db_path, *(self.db_path.with_name(self.db_path.name + suffix)
-                                         for suffix in ("-wal", "-shm", "-journal"))):
-                if path.exists():
-                    with contextlib.suppress(OSError):
-                        os.chmod(path, 0o600)
-            self._db = db
+            self._db = self._open()
         return self._db
+
+    def guard(self) -> None:
+        """Start the tamper guard: from now on this engine is the store's only
+        writer, and the store as it is now is the authoritative copy (the
+        daemon calls this once; security review 7, P2)."""
+        with self._lock:
+            self._guard.arm(self._conn())
+
+    def _guard_check(self) -> None:
+        if self._db is not None and self._guard.armed:
+            self._db = self._guard.check(self._db, self._open)
+
+    def _guard_wrote(self) -> None:
+        if self._db is not None and self._guard.armed:
+            with contextlib.suppress(sqlite3.Error):
+                self._guard.wrote(self._db)
 
     def close(self) -> None:
         with self._lock:
@@ -1188,6 +1245,11 @@ def engine_for(core: Any) -> DelegationEngine:
     engine = DelegationEngine(core.paths.home, lambda: core.settings)
     _wire_events(core, engine)
     core.jarvis_delegation = engine
+    try:
+        # Security review 7, P2: while this daemon runs, it alone writes the store.
+        engine.guard()
+    except Exception:  # noqa: BLE001 - the engine works without its guard
+        log.warning("could not start the delegation store's tamper guard", exc_info=True)
     return engine
 
 
@@ -1218,8 +1280,54 @@ def _wire_events(core: Any, engine: DelegationEngine) -> None:
         entry = {k: v for k, v in record.items() if k not in ("type", "audit")}
         schedule("jarvis.decision", {"entry": entry})
 
+    try:
+        wired_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+    except RuntimeError:
+        wired_loop = None
+
+    def on_tamper(path: str, happened: str) -> None:
+        """The store was changed from outside and put back: the ledger keeps it and
+        the person is told with a ``jarvis.escalation`` (reason ``error``)."""
+        summary = ("Something outside snowpea changed Jarvis's delegation rules; the change "
+                   "was not applied and the rules were put back.")
+        try:
+            engine.ledger.record_decision(
+                kind="escalate", decided_by="auto", summary=summary[:160], decision="deny",
+                reason=f"tamper:{happened}", importance="high")
+        except Exception:  # noqa: BLE001 - the restore stands
+            log.debug("could not ledger a tamper notice", exc_info=True)
+
+        async def tell() -> None:
+            service = getattr(core, "jarvis", None)
+            escalate = getattr(service, "escalate", None)
+            try:
+                if escalate is not None:
+                    await escalate(reason="error", summary=summary, importance="high")
+                    return
+            except Exception:  # noqa: BLE001 - fall back to the plain notification
+                log.debug("could not escalate a tamper notice", exc_info=True)
+            hub = getattr(core, "hub", None)
+            if hub is not None:
+                await hub.notify("jarvis.escalation", {
+                    "id": "je-tamper-" + uuid.uuid4().hex[:8],
+                    "ts": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                    "reason": "error", "summary": summary, "importance": "high"})
+
+        def start() -> None:
+            task = asyncio.get_running_loop().create_task(tell())
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
+
+        try:
+            asyncio.get_running_loop()
+            start()
+        except RuntimeError:
+            if wired_loop is not None and not wired_loop.is_closed():
+                wired_loop.call_soon_threadsafe(start)
+
     engine.grant_listeners.append(on_grant)
     engine.ledger.listeners.append(on_record)
+    engine.tamper_listeners.append(on_tamper)
     engine.events_wired = True
 
 

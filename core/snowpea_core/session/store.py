@@ -87,6 +87,10 @@ CREATE TABLE IF NOT EXISTS site_counts (
     n        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (profile, origin, day, metric)
 );
+CREATE TABLE IF NOT EXISTS daemon_meta (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+);
 """
 
 #: Columns added to ``sessions`` after the first release.  Applied on every
@@ -231,6 +235,25 @@ class Store:
             if self._closed:
                 raise StoreClosed("session store is closed")
             return list(self._conn.execute(sql, params))
+
+    # -- facts the daemon records about itself ----------------------------
+    def meta_get(self, key: str) -> str | None:
+        """One fact the daemon recorded (``trust.migrated``: when the project-trust
+        migration ran; security review 7, M7-8).  Synchronous: read before the
+        event loop owns the daemon.  ``None`` when absent or unreadable."""
+        try:
+            rows = self._query("SELECT value FROM daemon_meta WHERE key = ?", (str(key),))
+        except (StoreClosed, sqlite3.Error):
+            return None
+        return str(rows[0]["value"]) if rows else None
+
+    def meta_set(self, key: str, value: str) -> None:
+        """Record a fact once (an existing value is kept); never raises."""
+        try:
+            self._execute("INSERT OR IGNORE INTO daemon_meta (key, value) VALUES (?, ?)",
+                          (str(key), str(value)))
+        except (StoreClosed, sqlite3.Error):
+            log.warning("could not record %s in the session store", key, exc_info=True)
 
     # -- sessions ------------------------------------------------------
     async def insert_session(

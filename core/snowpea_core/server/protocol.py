@@ -5442,6 +5442,39 @@ class SettingsReloadResult(Payload):
         default_factory=list,
         description="Top-level settings sections that changed, e.g. ['providers'].",
     )
+    waitingKeys: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0 (security review 7): security-relevant sections ('security', 'jarvis', "
+            "'web.remote') whose value in settings.json on disk differs from what the "
+            "daemon holds. A change that arrives by file edit while the daemon runs is NOT "
+            "applied: it waits for a local person (settings.acceptDiskChange)."
+        ),
+    )
+
+
+class SettingsAcceptDiskChangeParams(Payload):
+    """``settings.acceptDiskChange`` (1.55.0, security review 7)."""
+
+    accept: bool = Field(
+        default=True,
+        description=(
+            "true: apply what settings.json on disk says for the waiting sections; false: "
+            "keep what the daemon holds and write it back to settings.json."
+        ),
+    )
+
+
+class SettingsAcceptDiskChangeResult(Payload):
+    """What ``settings.acceptDiskChange`` did."""
+
+    applied: list[str] = Field(
+        default_factory=list, description="Waiting sections now taken from disk."
+    )
+    discarded: list[str] = Field(
+        default_factory=list,
+        description="Waiting sections whose disk value was overwritten with the daemon's.",
+    )
 
 
 class SetupCatalogItem(Payload):
@@ -7194,6 +7227,16 @@ class SettingsChangedNotification(Payload):
     keys: list[str] = Field(
         default_factory=list,
         description="Top-level settings sections that changed, e.g. ['providers'].",
+    )
+    waitingKeys: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0 (security review 7): 'security', 'jarvis' and/or 'web.remote' when "
+            "settings.json was edited on disk while the daemon runs and that section "
+            "differs: the edit is not applied until a local person accepts it "
+            "(settings.acceptDiskChange). Sent with keys possibly empty; an empty list "
+            "after a non-empty one means nothing waits any more."
+        ),
     )
 
 
@@ -9424,7 +9467,7 @@ ProjectTrustScope = Literal[
 ProjectTrustFileState = Literal["active", "untrusted", "new", "changed"]
 ProjectTrustNotPinnedReason = Literal[
     "computed", "project-script", "package-runner", "module", "missing", "too-large",
-    "too-many", "unreadable",
+    "too-many", "unreadable", "outside-project", "symlink",
 ]
 
 
@@ -9538,7 +9581,10 @@ class ProjectTrustNotPinned(Payload):
             "table decides and may change; package-runner: npx/uvx/pipx run: a package "
             "resolved or fetched when it runs; module: python -m <module>; missing: it "
             "names a project file that is not there now; too-large / too-many: more than "
-            "can be pinned; unreadable: the control file itself could not be read."
+            "can be pinned; unreadable: the control file itself could not be read; "
+            "outside-project (security review 7): it runs a file outside the project, which "
+            "is not the project's to pin; symlink (security review 7): it runs a link "
+            "inside the project that leads out of it."
         )
     )
 
@@ -9590,21 +9636,34 @@ class ProjectTrustStatus(Payload):
             "it back unchanged as project.trust.set {digests}."
         ),
     )
+    limits: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1.55.0 (security review 7): what a pin does not cover, as sentences for the "
+            "card — only the files listed are pinned, not what one of them loads or runs "
+            "in turn."
+        ),
+    )
 
 
 class ProjectTrustChangedNotification(Payload):
     """``project.trust.changed``: a project's trust changed (to every person's surface)."""
 
     workdir: str = Field(
-        default="", description="The project root ('' for the migration and for store_lost)."
+        default="",
+        description="The project root ('' for the migration, for store_lost and for tamper).",
     )
     scopes: list[ProjectTrustScope] = Field(default_factory=list)
     by: str | None = None
-    reason: Literal["set", "revoke", "migration", "store_lost"] = Field(
+    reason: Literal["set", "revoke", "migration", "store_lost", "tamper"] = Field(
         default="set",
         description=(
             "store_lost (1.55.0, security review 6): the trusted-projects record is missing "
             "or unreadable, so no project is trusted until the person trusts it again; "
+            "security.get.problems carries the sentence. tamper (1.55.0, security review "
+            "7): something outside snowpea changed the record (or its marker) while the "
+            "daemon was running; the change was NOT applied and the file was put back — "
+            "nothing about any project's trust changed, the person is only told; "
             "security.get.problems carries the sentence."
         ),
     )
@@ -10502,6 +10561,14 @@ METHODS: dict[str, RpcMethod] = {
             SettingsSetParams,
             SettingsResult,
             "Deep-merge a patch into global or project settings and persist it.",
+        ),
+        _m(
+            "settings.acceptDiskChange",
+            SettingsAcceptDiskChangeParams,
+            SettingsAcceptDiskChangeResult,
+            "1.55.0 (security review 7): a LOCAL person accepts or discards the security, "
+            "jarvis and web.remote settings that were edited in settings.json on disk while "
+            "the daemon ran (settings.changed {waitingKeys}).",
         ),
         _m(
             "setup.catalog",
@@ -11575,6 +11642,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "skill.write",
         "settings.get",
         "settings.set",
+        "settings.acceptDiskChange",
         "setup.catalog",
         "lsp.status",
         "lsp.catalog",

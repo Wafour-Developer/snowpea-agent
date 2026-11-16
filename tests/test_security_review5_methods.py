@@ -124,6 +124,8 @@ TABLE: dict[str, tuple[str, ...]] = {
         "extension.enable", "extension.disable", "extension.configure", "extension.reload",
         "extension.list", "system.update", "system.restart",
         "project.trust.set", "project.trust.revoke",
+        # Security review 7, P2: security settings edited on disk wait for a local person.
+        "settings.acceptDiskChange",
         "system.echoRequest",  # registered only under SNOWPEA_TEST=1
     ),
 }

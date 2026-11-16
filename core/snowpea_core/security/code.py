@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import posixpath
 import re
 import shlex
 import stat
@@ -49,7 +50,8 @@ from snowpea_core.security import written
 #: Interpreter family (``jarvis.classify._family``) -> the language its code is in.
 LANGUAGES: dict[str, str] = {
     "python": "python", "pypy": "python",
-    "node": "node", "nodejs": "node", "deno": "node", "bun": "node",
+    "node": "node", "nodejs": "node", "deno": "node", "bun": "node", "tsx": "node",
+    "ts-node": "node",
     "perl": "perl", "ruby": "ruby", "php": "php",
 }
 
@@ -94,16 +96,23 @@ NODE: tuple[_Rule, ...] = (
     _r(r"(?:\.|\b)(?:rmSync|rm|rmdirSync|rmdir)\s*\(", "delete-node", needs=_NODE_FS),
     _r(r"(?:\.|\b)(?:unlinkSync|unlink)\s*\(", "delete", needs=_NODE_FS),
     _r(r"(?:\.|\b)(?:renameSync|rename)\s*\(", "move", needs=_NODE_FS),
-    _r(r"(?:\.|\b)(?:cpSync|cp|copyFileSync|copyFile|symlinkSync|linkSync)\s*\(", "copy",
+    _r(r"(?:\.|\b)(?:cpSync|cp|copyFileSync|copyFile)\s*\(", "copy", needs=_NODE_FS),
+    _r(r"(?:\.|\b)(?:symlinkSync|linkSync)\s*\(|\.\s*(?:symlink|link)\s*\(", "link",
        needs=_NODE_FS),
     _r(r"(?:\.|\b)(?:writeFileSync|writeFile|appendFileSync|appendFile|truncateSync|truncate|"
-       r"chmodSync|chmod|chownSync|chown)\s*\(", "write", needs=_NODE_FS),
+       r"chmodSync|chmod|chownSync|chown|lchownSync|lchmodSync|utimesSync|utimes|"
+       r"createWriteStream|mkdirSync|mkdir|mkdtempSync|mkdtemp)\s*\(", "write", needs=_NODE_FS),
+    _r(r"(?:\.|\b)openSync\s*\(|\bfsp?(?:\s*\.\s*promises)?\s*\.\s*open\s*\(", "open-node",
+       needs=_NODE_FS),
     _r(r"(?:\.|\b)(?:execSync|exec)\s*\(", "spawn", "shell", needs=_NODE_CP),
     _r(r"(?:\.|\b)(?:execFileSync|execFile|spawnSync|spawn|fork)\s*\(", "spawn", "exec",
        needs=_NODE_CP),
-    _r(r"(?<![\w.$])(?:eval|Function)\s*\(", "code"),
-    _r(r"(?:\.|\b)(?:runInNewContext|runInThisContext|runInContext|compileFunction)\s*\(",
-       "code", needs=_NODE_VM),
+    _r(r"(?<![\w.$])eval\s*\(", "code"),
+    # Code built from a string by anything but ``eval('literal')`` (review 7, H7-6).
+    _r(r"(?<![\w.$])Function\s*\(", "opaque-eval"),
+    _r(r"(?:\.|\b)(?:runInNewContext|runInThisContext|runInContext|compileFunction|Script|"
+       r"SourceTextModule)\s*\(", "opaque-eval", needs=_NODE_VM),
+    _r(r"\bWorker\b[\s)]*\(", "worker"),
     _r(r"\bprocess\.(?:binding|dlopen|mainModule)\b", "opaque-call"),
 )
 #: The names the ``fs`` / ``child_process`` rules above call.  Any other use of
@@ -114,7 +123,8 @@ _NODE_NAMES = (
     "cpSync", "cp", "copyFileSync", "copyFile", "symlinkSync", "linkSync", "writeFileSync",
     "writeFile", "appendFileSync", "appendFile", "truncateSync", "truncate", "chmodSync",
     "chmod", "chownSync", "chown", "execSync", "exec", "execFileSync", "execFile", "spawnSync",
-    "spawn", "fork",
+    "spawn", "fork", "createWriteStream", "mkdirSync", "mkdtempSync", "openSync",
+    "utimesSync", "lchownSync", "lchmodSync",
 )
 _NODE_NAME = re.compile(r"(?<![\w$])(" + "|".join(_NODE_NAMES) + r")(?![\w$])")
 _NODE_DANGEROUS_MODULE = r"(?:node:)?(?:fs|fs/promises|child_process|os|process|module|vm)"
@@ -201,6 +211,11 @@ class Finding:
     reads: list[str] = field(default_factory=list)
     #: Path-like literals it names at all (judged against snowpea's control files).
     mentions: list[str] = field(default_factory=list)
+    #: Of :attr:`mentions`, those whose every use is a recognised read of exactly
+    #: that expression (security review 7, H7-3).  Only the syntax tree can say.
+    read_only: set[str] = field(default_factory=set)
+    #: Files it makes a link to (``os.symlink(src, …)``): judged as ``ln``'s source.
+    links: list[str] = field(default_factory=list)
     #: Modules it imports by name (python) — one the project holds is read too.
     imports: list[str] = field(default_factory=list)
     #: Files it loads by a relative path (node ``require('./x')``): read too.
@@ -216,9 +231,14 @@ class Finding:
         self.lines.extend(other.lines)
         self.writes.extend(other.writes)
         self.reads.extend(other.reads)
+        self.links.extend(other.links)
         for item in other.mentions:
             if item not in self.mentions:
                 self.mentions.append(item)
+                if item in other.read_only:
+                    self.read_only.add(item)
+            elif item not in other.read_only:
+                self.read_only.discard(item)
         for item in other.imports:
             if item not in self.imports:
                 self.imports.append(item)
@@ -349,18 +369,50 @@ def _call_end(code: str, index: int) -> int:
     return len(code)
 
 
+#: Most arguments of one call read (a spawn with more is not judged by its head).
+MAX_ARGS = 16
+_NODE_PATH_JOIN = re.compile(
+    r"(?:path|require\s*\(\s*['\"](?:node:)?path['\"]\s*\))\s*\.\s*(?:join|resolve)\s*(?=\()")
+
+
+def _folded_at(code: str, index: int, language: str) -> tuple[str | None, int]:
+    """A constant string starting at ``index``.  JavaScript also folds what is
+    plainly constant (security review 7, M7-4): ``'a' + 'b'``, a template literal
+    without ``${}``, ``path.join``/``path.resolve`` of literals."""
+    value, end = _string_at(code, index, language)
+    if language != "node":
+        return value, end
+    if value is None:
+        start = _skip_space(code, index)
+        joined = _NODE_PATH_JOIN.match(code, start)
+        if joined is None:
+            return None, index
+        items, after = _list_at(code, joined.end(), language)
+        if not items:
+            return None, index
+        value, end = posixpath.join(*items), after
+    while True:
+        plus = _skip_space(code, end)
+        if code[plus:plus + 1] != "+" or code[plus:plus + 2] in ("++", "+="):
+            return value, end
+        more, after = _folded_at(code, plus + 1, language)
+        if more is None:
+            return value, end  # the caller sees the ``+`` that follows: computed
+        return value + more, after
+
+
 def _args(code: str, index: int, language: str) -> list[str | list[str] | None]:
     """The call's arguments from ``index`` (just after the name and an optional ``(``):
     each a string, a list of strings, or ``None`` (not a literal).  At most four."""
     out: list[str | list[str] | None] = []
     end = _call_end(code, index)
     j = index
-    while j < end and len(out) < 4:
+    while j < end and len(out) < MAX_ARGS:
         j = _skip_space(code, j)
         if j >= end or code[j] in ");":
             break
         item: str | list[str] | None
-        item, after = _string_at(code, j, language)
+        item, after = _folded_at(code, j, language)
         if item is None:
             items, after_list = _list_at(code, j, language)
             if items is not None:
@@ -533,6 +585,8 @@ def _analyse(code: str, language: str, depth: int, found: Finding) -> None:
             found.mentions.append(value)
 
 
+_RUNTIME_API = re.compile(r"(?<![\w$.])(?:Deno|Bun)\s*(?:\?\.|\.|\[)\s*(?!version\b|env\b|argv\b"
+                          r"|main\b|inspect\b|sleep\b|nanoseconds\b|revision\b)")
 #: Path-like string literals (for the control-plane check of what code names).
 _PATH_LITERAL = re.compile(r"(['\"`])([^'\"`\n\\]*(?:/|snowpea)[^'\"`\n\\]*)\1")
 
@@ -553,6 +607,10 @@ def _node_extras(text: str, masked: str, found: Finding) -> None:
             found.requires.append(match.group(2))
     if _NODE_REFLECT.search(masked):
         found._hide("code:reflect")
+    if _RUNTIME_API.search(masked):
+        # Deno's and Bun's own file and process calls: no table reads them
+        # (security review 7, H7-2).
+        found._hide("code:runtime-api")
     # A bracketed lookup on a module that carries dangerous calls.
     aliases = {"process"}
     for match in _NODE_MODULE_ALIAS.finditer(text):
@@ -689,36 +747,79 @@ def _judge(rule: _Rule, args: list[str | list[str] | None], language: str, depth
             found.writes.append((args[1], False, True))
         else:
             found._hide("code:copy:non-literal")
+        return
+    if action == "link":
+        # ``symlinkSync(target, path)``: ``path`` is written, ``target`` is linked to.
+        if isinstance(first, str):
+            found.links.append(first)
+        if len(args) > 1 and isinstance(args[1], str):
+            found.writes.append((args[1], False, False))
+        if not isinstance(first, str) or len(args) < 2 or not isinstance(args[1], str):
+            found._hide("code:copy:non-literal")
+        return
+    if action == "open-node":
+        flags = args[1] if len(args) > 1 else "r"
+        if isinstance(flags, str) and flags in ("r", "rs", "sr"):
+            if isinstance(first, str):
+                found.reads.append(first)
+            return
+        if isinstance(first, str):
+            found.writes.append((first, False, False))
+        else:
+            found._hide("code:write:non-literal")
+        return
+    if action == "opaque-eval":
+        found._hide("code:eval:constructed")
+        return
+    if action == "worker":
+        options = text[match.end():_call_end(text, match.end())]
+        if re.search(r"\beval\s*:\s*(?!false\b)", options):
+            found._hide("code:eval:worker")
+        elif isinstance(first, str):
+            if first.startswith(("./", "../", "/")) and first not in found.requires:
+                found.requires.append(first)
+        elif "worker_threads" in text or "Worker" in text[:match.start()]:
+            found._hide("code:require:non-literal")
+
+
+#: The word a computed argument of a spawned command is shown as.
+UNKNOWN_WORD = "$__computed"
 
 
 def _spawn(form: str, args: list[str | list[str] | None], found: Finding) -> None:
+    """A spawn becomes the words it runs, walked like a shell command (security
+    review 7, H7-4): the program decides what the call is, whatever the language."""
     first = args[0] if args else None
-    if first is None:
+    if first is None or len(args) >= MAX_ARGS:
         found._hide("code:spawn:non-literal")
         return
     if isinstance(first, list):
         if first:
-            found.commands.append(list(first))
+            found.argv.append([(word, False) for word in first])
         return
     if form == "exec":
         # A program, then its argv (``os.execv("/bin/rm", ["rm", "-rf", "/"])``,
         # ``spawn("rm", ["-rf", "/"])``).  Later positional arguments are options.
         rest = args[1:2]
-        if any(item is None for item in rest):
-            found._hide("code:spawn:non-literal")
-            return
-        words = [first]
+        words: list[tuple[str, bool]] = [(first, False)]
         for item in rest:
             if isinstance(item, list):
-                words.extend(item[1:] if item and Path(item[0]).name == Path(first).name
-                             else item)
+                tail = item[1:] if item and Path(item[0]).name == Path(first).name else item
+                words.extend((word, False) for word in tail)
             elif isinstance(item, str):
-                words.append(item)
-        found.commands.append(words)
+                words.append((item, False))
+            else:
+                # The program is known, its arguments are not: both are said.
+                words.append((UNKNOWN_WORD, True))
+                found._hide("code:spawn:non-literal")
+        found.argv.append(words)
         return
-    if len(args) > 1 and all(isinstance(item, str) for item in args):
-        # ``system("rm", "-rf", "/")`` (perl, ruby, php): the words themselves.
-        found.commands.append([item for item in args if isinstance(item, str)])
+    if form != "shell" and len(args) > 1:
+        # ``system("rm", "-rf", "/")`` (perl, ruby): the words themselves.
+        found.argv.append([(item, False) if isinstance(item, str) else (UNKNOWN_WORD, True)
+                           for item in args])
+        if any(not isinstance(item, str) for item in args):
+            found._hide("code:spawn:non-literal")
         return
     # A string is a shell line (os.system, subprocess(…, shell=True), exec) or a
     # program name; either way it is judged as a line.
@@ -769,7 +870,10 @@ _SUFFIXES: dict[str, str] = {
     ".cjs": "node", ".pl": "perl", ".rb": "ruby", ".php": "php",
     # Languages nothing here can read: a recent script in one is opaque.
     ".lua": "lua", ".r": "r", ".awk": "awk", ".sed": "sed", ".tcl": "tcl", ".jl": "julia",
-    ".ts": "typescript", ".mts": "typescript", ".groovy": "groovy", ".swift": "swift",
+    # TypeScript and JSX: the JavaScript tables match calls, and a type or a tag
+    # hides none of them (security review 7, H7-2: bun and deno run these files).
+    ".ts": "node", ".mts": "node", ".cts": "node", ".tsx": "node", ".jsx": "node",
+    ".groovy": "groovy", ".swift": "swift",
     ".scala": "scala", ".ps1": "powershell", ".fish": "fish", ".applescript": "applescript",
 }
 
