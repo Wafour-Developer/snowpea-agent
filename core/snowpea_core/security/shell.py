@@ -906,6 +906,8 @@ class _Probe(_c._Judge):
         with the node table (review 7, H7-2).  True when the code was read here."""
         if program == "bun":
             found = _invocation(_BUN_SPEC, rest, rest_dyn)
+            for name, dyn in found.preload:
+                self._preload(name, dyn, cwd, depth, "node")
             if found.code:
                 for text, dyn in found.code:
                     self._code_word(text, dyn, "node", cwd, depth)
@@ -1366,6 +1368,9 @@ class _Probe(_c._Judge):
         if program in ("make", "gmake"):
             self._make(rest, rest_dyn, cwd, depth)
             return
+        if program == "deno":
+            self._deno_task(rest, rest_dyn, cwd, depth)
+            return
         if program not in ("npm", "yarn", "pnpm", "bun"):
             return
         operands = [w for w, d in zip(rest, rest_dyn, strict=False)
@@ -1404,6 +1409,38 @@ class _Probe(_c._Judge):
             probe.line(line, cwd, depth + 1)
             probe.finish()
             self._merge(sub, count_opaque=script.recent)
+
+    def _deno_task(self, rest: list[str], rest_dyn: list[bool], cwd: Path,
+                   depth: int) -> None:
+        """``deno task <name>``: the line the project's ``deno.json`` gives is read,
+        like an npm script's (security review 7, H7-2)."""
+        operands = [w for w, d in zip(rest, rest_dyn, strict=False)
+                    if not w.startswith("-") and not d]
+        if operands[:1] != ["task"] or len(operands) < 2:
+            return
+        name = operands[1]
+        for candidate in ("deno.json", "deno.jsonc"):
+            script = _code.read_script(candidate, cwd, default="json")
+            if script is None or script.digest == "missing":
+                continue
+            self.view.scripts.append((script.path, script.digest))
+            try:
+                data = json.loads(script.text) if script.text is not None else None
+            except (ValueError, RecursionError):
+                data = None  # comments (``.jsonc``) or a broken file
+            tasks = data.get("tasks") if isinstance(data, dict) else None
+            entry = tasks.get(name) if isinstance(tasks, dict) else None
+            line = entry.get("command") if isinstance(entry, dict) else entry
+            if not isinstance(line, str):
+                if script.recent:
+                    self._opaque("deno-task")
+                return
+            sub = ShellView()
+            probe = _Probe(self.request, sub)
+            probe.line(line, cwd, depth + 1)
+            probe.finish()
+            self._merge(sub, count_opaque=script.recent)
+            return
 
     def _make(self, rest: list[str], rest_dyn: list[bool], cwd: Path, depth: int) -> None:
         folder: Path | None = cwd

@@ -166,14 +166,31 @@ def _depth(project: Path | None) -> int:
     return len(project.parts) if project is not None else 0
 
 
-def _same(workdir: Any, project: Path | None) -> bool:
-    """``workdir`` is the project itself (not a folder, or another project, inside it)."""
+#: What makes a folder a project of its own.
+_PROJECT_MARKERS: tuple[str, ...] = (".snowpea", ".claude", ".agents", ".git")
+
+
+def _nested(workdir: Any, project: Path | None) -> bool:
+    """``workdir`` lies in ANOTHER project nested inside ``project``: a folder on
+    the way from ``workdir`` up to ``project`` (not ``project`` itself) carries a
+    project's own marker.  A plain subfolder of the project is not nested."""
     if project is None or not workdir:
         return False
     try:
-        return os.path.realpath(os.fspath(workdir)) == os.path.realpath(os.fspath(project))
+        folder = Path(os.path.realpath(os.fspath(workdir)))
+        base = Path(os.path.realpath(os.fspath(project)))
     except (OSError, TypeError, ValueError):
-        return False
+        return True
+    for _ in range(64):
+        if folder == base or base not in folder.parents:
+            return False
+        try:
+            if any((folder / marker).exists() for marker in _PROJECT_MARKERS):
+                return True
+        except OSError:
+            return True
+        folder = folder.parent
+    return True
 
 
 def _inside(workdir: Any, project: Path | None) -> bool:
@@ -884,12 +901,12 @@ class SkillLoader:
         """``skill`` exists for a session working in ``workdir``: a project entry
         only inside its own project.
 
-        Security review 7, L7-3: seen from a folder INSIDE the project — which
-        may be another project nested in it — an outer project's entry exists
-        only while that outer project is trusted for ``commands``."""
+        Security review 7, L7-3: seen from another project nested inside it, an
+        outer project's entry exists only while that outer project is trusted
+        for ``commands``."""
         if not _inside(workdir, skill.project):
             return False
-        if skill.project is None or _same(workdir, skill.project):
+        if not _nested(workdir, skill.project):
             return True
         try:
             return trust_projects.store_for(self.home).active(skill.project, "commands")

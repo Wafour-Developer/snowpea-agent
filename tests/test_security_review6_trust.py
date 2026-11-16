@@ -735,17 +735,21 @@ def test_project_agent_definitions_follow_the_agents_scope(core: Core, tmp_path:
         return {defn.name for defn in discover_definitions(workdir, core.paths.home)
                 if source is None or defn.source == source}
 
-    assert names(project) == {"helper"}
+    # Security review 7 (6A L-1 as it was decided): EVERY project definition waits
+    # for the agents trust — also the one that is "a prompt only".  This test used
+    # to expect ``helper`` active in the untrusted project.
+    assert names(project) == set()
     status = store_for(core.paths.home).status(project)
     assert {row["path"]: row["summary"] for row in status["files"]} == {
+        ".snowpea/agents/helper.md": "agent definition: helper",
         ".snowpea/agents/runner.md": "permission: auto",
         f".snowpea/agents/{builtin}.md": f"replaces the built-in {builtin} agent"}
     by_name = {defn.name: defn for defn in definitions_for(core, project)}
     assert by_name[builtin].source == "builtin" and "runner" not in by_name
-    assert by_name["helper"].source == "project"
+    assert "helper" not in by_name
     # The loader's own list: a project's agents only inside it, gated the same way.
     assert {agent.name for agent in core.skills.agents_for(project)
-            if agent.project is not None} == {"helper"}
+            if agent.project is not None} == set()
     assert [agent for agent in core.skills.agents_for(other) if agent.project is not None] == []
     assert "helper" not in {defn.name for defn in definitions_for(core, other)}
     # Trusted for agents: both come into force, pinned as they are.

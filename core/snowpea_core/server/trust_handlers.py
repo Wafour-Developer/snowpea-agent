@@ -68,14 +68,13 @@ def wire_trust(core: Any) -> None:
 
     set_project_roots(lambda: live_projects(core))
     store = store_of(core)
-    try:
-        _migrate_once(core, store)
-    finally:
-        # Security review 7, P2: from here on this daemon is the only writer of the
-        # record, its marker and the legacy file.  What is on disk now is taken as
-        # it is (the daemon was down); every later change that is not the store's
-        # own is undone and told (``project.trust.changed {reason: "tamper"}``).
-        _guard(core, store)
+    # Security review 7, P2: from here on this daemon is the only writer of the
+    # record, its marker and the legacy file.  This is the daemon's start: what is
+    # on disk now is taken as it is (the daemon was down); every later change that
+    # is not the store's own is undone and told (``project.trust.changed {reason:
+    # "tamper"}``).  Armed before the migration, whose writes are the store's own.
+    _guard(core, store)
+    _migrate_once(core, store)
 
 
 #: The session store's record that the trust migration ran (review 7, M7-8).

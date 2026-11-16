@@ -253,6 +253,16 @@ def control_plane_effect(
             if hit is not None:
                 parts = _relative(form, base, None) or ()
                 return ControlEffect(hit[0], hit[1], str(base), shown(base, parts))
+    # Security review 7, L7-2: the logins of external CLIs in the user's home are
+    # secrets by the same table (never read or written through ``fs.*`` either).
+    for form in forms:
+        entry = external_secret(form, user_home)
+        if entry is not None:
+            try:
+                base_home = str(Path(os.fspath(user_home)) if user_home else Path.home())
+            except (OSError, RuntimeError):
+                base_home = "~"
+            return ControlEffect("blocked", entry, base_home, "~/" + entry.rel)
     return None
 
 

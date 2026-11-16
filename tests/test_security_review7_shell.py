@@ -456,6 +456,16 @@ def test_a_git_alias_is_read_from_the_configuration_and_walked(project: Path) ->
     assert _states("git lg", project) == "oao"
 
 
+def test_a_deno_task_is_read_like_an_npm_script(project: Path) -> None:
+    (project / "deno.json").write_text(
+        '{"tasks": {"ok": "echo hi", "t": "snowpea project trust .", '
+        '"w": {"command": "echo x > /home/u/.snowpea/trust/projects.json"}}}',
+        encoding="utf-8")
+    assert _states("deno task ok", project) == "aaa"
+    assert _states("deno task t", project) == "ooo"
+    assert _states("deno task w", project) == "bbb"
+
+
 def test_a_file_tool_still_reads_a_write_level_control_file(project: Path) -> None:
     """The operand rule is about programs: a read tool reading settings.json is a read."""
     verdict = check_call("read_file", {"path": f"{HOME}/settings.json"}, NOTHING, _ctx(project),

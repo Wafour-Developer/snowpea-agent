@@ -162,7 +162,7 @@ async def test_reload_settings_rpc_reports_changed_keys(
 
         # Calling again with nothing changed is a no-op.
         again = await client.ok("system.reloadSettings", {})
-        assert again == {"reloaded": False, "changedKeys": []}
+        assert again == {"reloaded": False, "changedKeys": [], "waitingKeys": []}
     finally:
         await client.stop()
 
@@ -178,7 +178,7 @@ async def test_reload_settings_notifies_every_client(
         _write_settings(core.paths.settings_json, _settings_doc(NEW_MODEL))
         await caller.ok("system.reloadSettings", {})
         params = await watcher.wait_notification("settings.changed")
-        assert params == {"scope": "global", "keys": ["providers"]}
+        assert params == {"scope": "global", "keys": ["providers"], "waitingKeys": []}
     finally:
         await caller.stop()
         await watcher.stop()
@@ -196,11 +196,11 @@ async def test_provider_configure_and_remove_tell_every_client(
             {"vendor": "lab", "config": {"preset": "local", "base_url": "http://127.0.0.1:9/v1"}},
         )
         params = await watcher.wait_notification("settings.changed")
-        assert params == {"scope": "global", "keys": ["providers"]}
+        assert params == {"scope": "global", "keys": ["providers"], "waitingKeys": []}
         watcher.notifications.clear()
         await caller.ok("provider.remove", {"vendor": "lab"})
         params = await watcher.wait_notification("settings.changed")
-        assert params == {"scope": "global", "keys": ["providers"]}
+        assert params == {"scope": "global", "keys": ["providers"], "waitingKeys": []}
     finally:
         await caller.stop()
         await watcher.stop()

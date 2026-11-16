@@ -92,6 +92,17 @@ def test_an_external_cli_login_is_a_secret(path: str) -> None:
     assert entry is not None and entry.level == "all"
 
 
+def test_the_fs_methods_answer_from_the_same_table() -> None:
+    hit = cp.control_plane_effect(f"{USER}/.codex/auth.json", "read", home=HOME, user_home=USER)
+    assert hit is not None and hit.verdict == "blocked" and hit.shown == "~/.codex/auth.json"
+    hit = cp.control_plane_effect(f"{HOME}/.mcp.json", "write", home=HOME, user_home=USER)
+    assert hit is not None and hit.verdict == "blocked"
+    assert cp.control_plane_effect(f"{HOME}/.mcp.json", "read", home=HOME,
+                                   user_home=USER) is None
+    assert cp.control_plane_effect(f"{USER}/.codex/config.toml", "read", home=HOME,
+                                   user_home=USER) is None
+
+
 @pytest.mark.parametrize("path", [
     f"{USER}/.codex/config.toml", f"{USER}/.claude/settings.json", f"{USER}/proj/auth.json",
     f"{USER}/.config/anthropic-notes.txt",

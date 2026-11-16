@@ -119,6 +119,8 @@ PERSON_METHODS: dict[str, bool] = {
     "project.trust.set": True,
     "project.trust.revoke": True,
     "project.trust.status": False,
+    # Security review 7, P2: applying security settings that were edited on disk.
+    "settings.acceptDiskChange": True,
 }
 
 
