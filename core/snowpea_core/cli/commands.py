@@ -414,8 +414,9 @@ def web_password_command(
     """``snowpea web password [--stdin | --clear]``: the remote login password.
 
     Only a salted scrypt hash is kept, in ``credentials.json`` (0600).  The next
-    login uses it; sessions already open stay until they expire or the daemon
-    restarts.
+    login uses it; a running daemon sees the file change and ends the logins
+    already open (a socket closes at its next message in either direction, or
+    at the minute sweep at the latest — security review 9b, L3).
     """
     from snowpea_core.server.web_remote import clear_password, set_password
 

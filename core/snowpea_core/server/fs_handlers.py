@@ -646,7 +646,19 @@ async def _refuse_security(core: Core, kind: str, session_id: str, target: Path)
     await enforce.refresh_projects(core)
     ctx = enforce.context(settings=settings, home=getattr(core.paths, "home", None),
                           workdir=workdir, projects=enforce.live_projects(core))
-    verdict = check_path(str(target), enforce.lists_for(settings, workdir), ctx, write=True)
+    lists = enforce.lists_for(settings, workdir)
+    verdict = check_path(str(target), lists, ctx, write=True)
+    # Security review 9b, L4: check_path folds case and Unicode where the file
+    # system does (``check._FOLD_CASE``), but not the NTFS spellings
+    # (``name::$DATA``, a trailing dot or space) ``protected()`` and
+    # ``control_file()`` also judge: that spelling is judged too, and a block
+    # (else a hold-back) from either decides.
+    cleaned = _windows_clean(str(target))
+    if not verdict.blocked and cleaned != str(target):
+        other = check_path(cleaned, lists, ctx, write=True)
+        if other.blocked or (not (verdict.opaque or verdict.reason)
+                             and (other.opaque or other.reason)):
+            verdict = other
     if verdict.blocked:
         raise RpcError(errors.SECURITY_BLOCKED, verdict.refusal, verdict.to_wire())
     if kind != "person" and (verdict.opaque or verdict.reason):

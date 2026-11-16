@@ -9,6 +9,8 @@ snowpea web --no-open  # print the address only
 
 The address looks like `http://127.0.0.1:<port>/web/?token=…`. The token is the daemon's own (the one in `$SNOWPEA_HOME/daemon.json`); the page keeps it for that browser tab and takes it out of the address bar. Anyone who has the token can drive the agent, so do not paste the address into chats or tickets. This address only works on the machine the daemon runs on.
 
+The daemon's local port answers only requests addressed to `127.0.0.1`, `localhost` or `[::1]`, and refuses (403) any other web page that tries to reach it — a site you visit cannot talk to your daemon. Open the page by the address `snowpea web` prints (or `localhost` at the same port, or the same address through an `ssh -L` tunnel); a page served from another address or port, such as a dev server, is refused. Apps that connect without a browser (the desktop app, the TUI, the CLI, the browser extension's host) are not affected. A connection that has not signed in within 10 seconds, or sends more than 64 KiB first, is closed.
+
 ## From another machine
 
 > **Anyone who has the link (or the username and password) can use snowpea as you, including running commands on this computer. Treat the link like an SSH key: share it with nobody, prefer the password mode, and put HTTPS (a tunnel or reverse proxy) in front of it.**
@@ -121,7 +123,7 @@ A scheduled task a remote sign-in creates — with the schedule screen, with `/s
 
 ### Behind a reverse proxy
 
-Put TLS in front with a reverse proxy you run (Caddy, nginx), list the page's address in `allowedOrigins`, and set `trustProxy: true` so the daemon takes the visitor's address and the `https` scheme from the proxy's headers. Turn `trustProxy` on **only** when nothing but that proxy can reach the port — bind the listener to loopback (`--host 127.0.0.1`) or to the proxy's network, or firewall it. Anyone who can reach the port directly can otherwise claim any client address, and so get around the per-address sign-in limit.
+Put TLS in front with a reverse proxy you run (Caddy, nginx), list the page's address in `allowedOrigins`, and set `trustProxy: true` so the daemon takes the visitor's address and the `https` scheme from the proxy's headers. Turn `trustProxy` on **only** when nothing but that proxy can reach the port — bind the listener to loopback (`--host 127.0.0.1`) or to the proxy's network, or firewall it. Anyone who can reach the port directly can otherwise claim any client address, and so get around the per-address sign-in limit. The daemon believes these headers only from a proxy on the same machine (a connection from `127.0.0.1` or `::1`); from anywhere else they are ignored and the connection's own address counts. A proxy on another host is therefore treated as one address.
 
 ## The screen
 

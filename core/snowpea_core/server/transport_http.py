@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+from yarl import URL
 
 from snowpea_core.server.auth import token_matches
 from snowpea_core.server.protocol import PROTOCOL_VERSION, SERVER_VERSION, dump_schema
@@ -20,6 +21,7 @@ from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.server.transport_ws import (
     CONNECTIONS_KEY,
     DISPATCHER_KEY,
+    PENDING_KEY,
     SOCKETS_KEY,
     WS_PATH,
     websocket_handler,
@@ -28,6 +30,82 @@ from snowpea_core.server.transport_ws import (
 #: Set by ``app_server`` so routes can reach the daemon/core if they need to.
 DAEMON_KEY: web.AppKey[Any] = web.AppKey("daemon", object)
 CORE_KEY: web.AppKey[Any] = web.AppKey("core", object)
+#: The address the listener is bound to (``127.0.0.1`` unless ``--host`` said otherwise).
+BIND_HOST_KEY: web.AppKey[str] = web.AppKey("bind_host", str)
+
+#: Names of this machine's loopback interface, as a ``Host`` or ``Origin`` spells them.
+LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
+
+#: The page's own meta CSP, with ``connect-src`` narrowed to this origin.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; frame-src data: blob:; connect-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+)
+#: Every snowpea web response carries these, on the loopback and remote listeners alike.
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+}
+
+
+def _host_port(text: str, scheme: str) -> tuple[str, int | None] | None:
+    """``(host, port)`` of a ``Host`` value or an origin (``None``: not parseable)."""
+    try:
+        url = URL(text) if "://" in text else URL(f"{scheme}://{text}")
+    except (ValueError, TypeError):
+        return None
+    if not url.host:
+        return None
+    return url.host.lower().rstrip("."), url.port
+
+
+def peer_refusal(request: web.Request, bind_host: str) -> str | None:
+    """Why a request to the daemon's own listener is refused (security review 9b, M1).
+
+    ``"host"`` — DNS rebinding: bound to loopback, the ``Host`` must name the
+    loopback interface (``127.0.0.1``, ``localhost`` or ``[::1]``, any port).
+    A listener bound elsewhere with ``--host`` keeps the token as its only check.
+
+    ``"origin"`` — a cross-site page: an ``http(s)`` ``Origin`` must be this
+    listener itself — a loopback name at the daemon's own port, or the very
+    address the request was sent to (the web UI the daemon serves, also through
+    an ``ssh -L`` tunnel).  No ``Origin`` (the SDK, TUI, CLI, desktop app and
+    browser host), ``null`` and non-web schemes (``file:``, ``app:``,
+    ``chrome-extension:``, ``vscode-webview:``) are not a web page and pass.
+    """
+    raw_host = request.headers.get("Host")
+    host = _host_port(raw_host, request.scheme) if raw_host else None
+    if raw_host and bind_host in LOOPBACK_NAMES and (host is None or host[0] not in LOOPBACK_NAMES):
+        return "host"
+    origin = request.headers.get("Origin")
+    if origin is None:
+        return None
+    scheme = origin.strip().split(":", 1)[0].lower()
+    if scheme not in ("http", "https"):
+        return None
+    said = _host_port(origin.strip(), scheme)
+    if said is None:
+        return "origin"
+    if host is not None and said == host:
+        return None
+    sockname = request.transport.get_extra_info("sockname") if request.transport else None
+    own_port = sockname[1] if isinstance(sockname, tuple) and len(sockname) >= 2 else None
+    if said[0] in LOOPBACK_NAMES and own_port is not None and said[1] == own_port:
+        return None
+    return "origin"
+
+
+@web.middleware
+async def _peer_guard(request: web.Request, handler: Any) -> web.StreamResponse:
+    refusal = peer_refusal(request, request.app[BIND_HOST_KEY])
+    if refusal is not None:
+        what = "Host" if refusal == "host" else "Origin"
+        return web.Response(status=403, text=f"snowpea: this {what} may not use the daemon",
+                            headers={"Cache-Control": "no-store"})
+    return await handler(request)
 
 
 async def health(_request: web.Request) -> web.Response:
@@ -83,7 +161,8 @@ async def web_static(request: web.Request) -> web.StreamResponse:
     if not target.is_file():
         # A client-side route: hand back the app.
         target = root / "index.html"
-    headers = {"X-Content-Type-Options": "nosniff"}
+    # Security review 9b: no Referer from the page (its address carries the token).
+    headers = dict(SECURITY_HEADERS)
     if target.name == "index.html":
         headers["Cache-Control"] = "no-cache"
     elif "/assets/" in target.as_posix():
@@ -126,13 +205,16 @@ async def web_remote_status(request: web.Request) -> web.Response:
 
 
 def create_app(
-    dispatcher: RpcDispatcher, daemon: Any | None = None, core: Any | None = None
+    dispatcher: RpcDispatcher, daemon: Any | None = None, core: Any | None = None,
+    *, bind_host: str = "127.0.0.1",
 ) -> web.Application:
     """Build the aiohttp application that serves both HTTP and the WS endpoint."""
-    app = web.Application()
+    app = web.Application(middlewares=[_peer_guard])
     app[DISPATCHER_KEY] = dispatcher
     app[CONNECTIONS_KEY] = set[RpcConnection]()
     app[SOCKETS_KEY] = set[web.WebSocketResponse]()
+    app[PENDING_KEY] = {}
+    app[BIND_HOST_KEY] = bind_host or "127.0.0.1"
     app[DAEMON_KEY] = daemon
     app[CORE_KEY] = core
     app.router.add_get("/health", health)
@@ -148,7 +230,11 @@ def create_app(
 
 
 __all__ = [
+    "BIND_HOST_KEY",
     "CORE_KEY",
+    "LOOPBACK_NAMES",
+    "SECURITY_HEADERS",
+    "peer_refusal",
     "DAEMON_KEY",
     "create_app",
     "health",

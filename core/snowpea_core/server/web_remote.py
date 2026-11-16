@@ -42,10 +42,17 @@ from aiohttp import web
 from snowpea_core.config.credentials import CredentialStore
 from snowpea_core.config.paths import Paths
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
-from snowpea_core.server.transport_http import WEB_PATH, web_static
+from snowpea_core.server.transport_http import (
+    CONTENT_SECURITY_POLICY,  # noqa: F401 - kept importable from here
+    LOOPBACK_NAMES,
+    SECURITY_HEADERS,
+    WEB_PATH,
+    web_static,
+)
 from snowpea_core.server.transport_ws import (
     CONNECTIONS_KEY,
     DISPATCHER_KEY,
+    PENDING_KEY,
     SOCKETS_KEY,
     WS_PATH,
     websocket_handler,
@@ -85,19 +92,13 @@ MAX_WAITING_GLOBAL = 64
 #: A login body is two short strings.
 MAX_BODY_BYTES = 4096
 SWEEP_INTERVAL_SEC = 60.0
-
-#: The built page's own meta CSP, with ``connect-src`` narrowed to this origin.
-CONTENT_SECURITY_POLICY = (
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data: blob:; frame-src data: blob:; connect-src 'self'; "
-    "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
-)
-SECURITY_HEADERS = {
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-    "X-Frame-Options": "DENY",
-    "Content-Security-Policy": CONTENT_SECURITY_POLICY,
-}
+#: Security review 9b, L1: failure stamps kept per queue.  Every reader looks at
+#: the newest MAX_FAILURES_* entries or at how far past that limit the queue is,
+#: and the penalty stops growing 16 over the limit, so this many keep every
+#: answer the unbounded queues gave.
+FAILURE_HISTORY_EXTRA = 17
+#: Wrong-credential warnings: the first, then one summary per this many seconds.
+FAILURE_LOG_INTERVAL_SEC = 60.0
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +272,15 @@ class RemoteAuth:
         self._waiting_total = 0
         self._turns: dict[str, asyncio.Lock] = {}
         self._ip_failures: dict[str, deque[float]] = {}
-        self._global_failures: deque[float] = deque()
+        self._ip_history = MAX_FAILURES_PER_IP + FAILURE_HISTORY_EXTRA
+        self._global_failures: deque[float] = deque(
+            maxlen=MAX_FAILURES_GLOBAL + FAILURE_HISTORY_EXTRA)
+        #: Rate-limited warnings (L1): when the last one was logged, and how
+        #: many failures went unlogged since.
+        self._failure_logged_at: float | None = None
+        self._failures_unlogged = 0
+        #: ``(checked at, fingerprint)``: what :meth:`push_alive` compares (L3).
+        self._push_print: tuple[float, str] | None = None
         self.failure_delay = FAILURE_DELAY_SEC
         self.clock = time.monotonic
         self._hash_stamp: tuple[int, int, int] | None = None
@@ -295,6 +304,38 @@ class RemoteAuth:
             self._hash_print = _fingerprint(f"{stored}|{token}") if (stored or token) else ""
             self._hash_stamp = stamp
         return self._hash_print
+
+    def push_alive(self, token: str | None) -> bool:
+        """Before every message pushed to a login's socket (review 8 Low, 9b L3):
+        the login exists, has not expired, and its password or link has not
+        changed since — the file is looked at no more than once a second."""
+        found = self.sessions.get(token or "")
+        now = self.clock()
+        if found is None or found.expires <= now:
+            return False
+        cached = self._push_print
+        # Re-read when the cached print is old, or differs (a login opened
+        # after a change carries the new print).
+        if cached is None or not 0 <= now - cached[0] < 1.0 or cached[1] != found.fingerprint:
+            cached = (now, self._current_fingerprint())
+            self._push_print = cached
+        return bool(cached[1]) and cached[1] == found.fingerprint
+
+    def log_failure(self, what: str, ip: str) -> None:
+        """A wrong credential (L1): warn about the first, then at most one
+        summary a minute with how many there were."""
+        now = self.clock()
+        last = self._failure_logged_at
+        if last is not None and 0 <= now - last < FAILURE_LOG_INTERVAL_SEC:
+            self._failures_unlogged += 1
+            return
+        if self._failures_unlogged:
+            log.warning("%s from %s (and %d more failed attempts in the last %d s)", what, ip,
+                        self._failures_unlogged, int(FAILURE_LOG_INTERVAL_SEC))
+        else:
+            log.warning("%s from %s", what, ip)
+        self._failure_logged_at = now
+        self._failures_unlogged = 0
 
     @property
     def password_mode(self) -> bool:
@@ -411,7 +452,7 @@ class RemoteAuth:
 
     def record_failure(self, ip: str, *, everyone: bool = True) -> float:
         now = self.clock()
-        self._ip_failures.setdefault(rate_key(ip), deque()).append(now)
+        self._ip_failures.setdefault(rate_key(ip), deque(maxlen=self._ip_history)).append(now)
         if everyone:
             self._global_failures.append(now)
         return now
@@ -556,14 +597,23 @@ def _origins(request: web.Request) -> frozenset[str]:
 def _is_https(request: web.Request) -> bool:
     if request.secure:
         return True
-    if _trust_proxy(request):
+    if _trust_proxy(request) and _from_local_proxy(request):
         proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
         return proto == "https"
     return False
 
 
+def _from_local_proxy(request: web.Request) -> bool:
+    """The peer is a reverse proxy on this machine (security review 9b, L2): only
+    then are its ``X-Forwarded-*`` headers believed under ``trustProxy``."""
+    remote = str(request.remote or "").lower()
+    if remote.startswith("::ffff:"):
+        remote = remote[len("::ffff:"):]
+    return remote in LOOPBACK_NAMES or remote.startswith("127.")
+
+
 def _client_ip(request: web.Request) -> str:
-    if _trust_proxy(request):
+    if _trust_proxy(request) and _from_local_proxy(request):
         forwarded = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",")]
         forwarded = [p for p in forwarded if p]
         if forwarded:
@@ -612,7 +662,7 @@ async def login(request: web.Request) -> web.Response:
     if malformed:
         return _json({"ok": False, "error": "bad_request"}, 400)
     if not ok:
-        log.warning("web login failed from %s", ip)
+        auth.log_failure("web login failed", ip)
         if wait:
             return _json({"ok": False, "error": "rate_limited"}, 429,
                          **{"Retry-After": str(wait)})
@@ -679,10 +729,9 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
         return auth.session(cookie) is not None
 
     def push_alive() -> bool:
-        # Security review 8, Low: before every pushed message — a dictionary
-        # lookup and a clock compare (the full check stays per frame received).
-        current = auth.sessions.get(cookie or "")
-        return current is not None and current.expires > auth.clock()
+        # Security review 8, Low / 9b, L3: before every pushed message — expiry
+        # and the credential fingerprint (cached for a second).
+        return auth.push_alive(cookie)
 
     return await websocket_handler(request, track=_Track(found.sockets, auth.sockets),
                                    capability=capability_ok, alive=alive,
@@ -777,7 +826,7 @@ async def remote_page(request: web.Request) -> web.StreamResponse:
     # token check never waits behind password checks (review 8, H8-4).
     ok, wait = await auth.attempt(ip, check, fast=True)
     if not ok:
-        log.warning("web access link with a wrong token from %s", ip)
+        auth.log_failure("web access link with a wrong token", ip)
         if wait:
             return _json({"ok": False, "error": "rate_limited"}, 429,
                          **{"Retry-After": str(wait)})
@@ -821,6 +870,7 @@ def create_remote_app(
     # Shared with the loopback app so shutdown closes these sockets too.
     app[CONNECTIONS_KEY] = connections if connections is not None else set()
     app[SOCKETS_KEY] = sockets if sockets is not None else set()
+    app[PENDING_KEY] = {}
     app[AUTH_KEY] = auth
     app[TRUST_PROXY_KEY] = bool(trust_proxy)
     app[ORIGINS_KEY] = frozenset(o.rstrip("/") for o in allowed_origins if o)

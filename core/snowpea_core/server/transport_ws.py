@@ -7,6 +7,7 @@ JSON-RPC endpoint is ``ws://127.0.0.1:<port>/ws`` (contract §1 note).  One
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -38,11 +39,87 @@ WS_PATH = "/ws"
 DISPATCHER_KEY: web.AppKey[RpcDispatcher] = web.AppKey("dispatcher", RpcDispatcher)
 CONNECTIONS_KEY: web.AppKey[set[RpcConnection]] = web.AppKey("connections", set)
 SOCKETS_KEY: web.AppKey[set[web.WebSocketResponse]] = web.AppKey("sockets", set)
+#: This listener's sockets still without a successful ``system.hello``, oldest first.
+PENDING_KEY: web.AppKey[dict[web.WebSocketResponse, RpcConnection]] = web.AppKey(
+    "pending_sockets", dict
+)
+
+
+class PreAuthGate:
+    """Stands in front of aiohttp's frame parser while the socket is unauthenticated.
+
+    aiohttp buffers a whole frame (up to ``max_msg_size``) before the handler
+    sees it, and that limit cannot be changed once the socket is open; so the
+    bytes are counted HERE, as they arrive, and a socket that sends more than
+    :data:`PRE_AUTH_MAX_BYTES` before its hello succeeds is closed (1009)
+    before the rest reaches the parser.  Once authenticated it only forwards.
+    """
+
+    def __init__(self, inner: Any, conn: RpcConnection, transport: Any) -> None:
+        self.inner = inner
+        self._conn = conn
+        self._transport = transport
+        self._seen = 0
+        self.overflowed = False
+
+    def feed_data(self, data: Any) -> Any:
+        if not self._conn.authenticated:
+            if self.overflowed:
+                return False, b""
+            self._seen += len(data)
+            if self._seen > PRE_AUTH_MAX_BYTES:
+                self.overflowed = True
+                _close_raw(self._transport, CLOSE_TOO_BIG, b"too much data before system.hello")
+                return False, b""
+        return self.inner.feed_data(data)
+
+    def feed_eof(self) -> Any:
+        return self.inner.feed_eof()
+
+
+def _close_raw(transport: Any, code: int, reason: bytes) -> None:
+    """Write a server close frame and drop the connection (from sync code)."""
+    if transport is None or transport.is_closing():
+        return
+    payload = code.to_bytes(2, "big") + reason[:123]
+    transport.write(bytes((0x88, len(payload))) + payload)
+    transport.close()
+
+
+def install_pre_auth_gate(request: web.Request, conn: RpcConnection) -> PreAuthGate | None:
+    """Put a :class:`PreAuthGate` in front of the socket's frame parser.
+
+    aiohttp keeps the parser at ``request.protocol._payload_parser`` (3.9-3.14);
+    ``tests/test_security_review9b_peers.py`` fails if that changes, and the
+    handler falls back to checking each frame's size after aiohttp read it.
+    """
+    protocol = request.protocol
+    inner = getattr(protocol, "_payload_parser", None)
+    if inner is None or not hasattr(inner, "feed_data") or not hasattr(inner, "feed_eof"):
+        log.warning("cannot limit unauthenticated websocket input on this aiohttp version")
+        return None
+    gate = PreAuthGate(inner, conn, request.transport)
+    protocol._payload_parser = gate
+    return gate
 
 
 #: Largest frame a client may send: a prompt carrying five 20 MB attachments
 #: as base64 (~134 MB) fits; a bigger one closes the socket with 1009.
 MAX_MESSAGE_BYTES = 160 * 1024 * 1024
+#: Security review 9b, M1 — a socket that has not said ``system.hello`` yet is
+#: nobody: everything it sends before then (a hello is a few hundred bytes) may
+#: come to this many bytes in all; more closes it with 1009 before any of it is
+#: buffered as a frame or parsed.
+PRE_AUTH_MAX_BYTES = 64 * 1024
+#: Seconds a socket has to authenticate; then it is closed (1008).
+HELLO_DEADLINE_SEC = 10.0
+#: Sockets of one listener that have not authenticated yet; a new one beyond
+#: this closes the OLDEST (1008), so a flood cannot keep a person's own client out.
+MAX_UNAUTHENTICATED = 64
+CLOSE_POLICY = 1008
+CLOSE_TOO_BIG = 1009
+#: Closes started from a timer or for another socket, held until they finish.
+_CLOSING: set[asyncio.Task[Any]] = set()
 #: What every connection through the remote listener is, whatever its hello says.
 REMOTE_CLIENT_KIND = "web"
 
@@ -151,10 +228,40 @@ async def websocket_handler(
     conn.remote_capability = capability if conn.remote_login else None
     connections.add(conn)
     hub = getattr(dispatcher.core, "hub", None)
+    # Security review 9b, M1: limits on a socket that has not authenticated.
+    gate = install_pre_auth_gate(request, conn)
+
+    def close_soon(target: web.WebSocketResponse, code: int, reason: bytes) -> None:
+        task = asyncio.ensure_future(target.close(code=code, message=reason))
+        _CLOSING.add(task)
+        task.add_done_callback(_CLOSING.discard)
+
+    def hello_overdue() -> None:
+        if not conn.authenticated and not ws.closed:
+            log.info("closing a websocket from %s: no system.hello in %.0f s",
+                     conn.peer, HELLO_DEADLINE_SEC)
+            close_soon(ws, CLOSE_POLICY, b"system.hello timed out")
+
+    deadline = asyncio.get_running_loop().call_later(HELLO_DEADLINE_SEC, hello_overdue)
+    pending = request.app.get(PENDING_KEY)
+    if pending is not None:
+        for other, other_conn in list(pending.items()):
+            if other_conn.authenticated or other.closed:
+                pending.pop(other, None)
+        pending[ws] = conn
+        while len(pending) > MAX_UNAUTHENTICATED:
+            oldest = next(iter(pending))
+            pending.pop(oldest)
+            close_soon(oldest, CLOSE_POLICY, b"too many unauthenticated connections")
     try:
         async for msg in ws:
             if alive is not None and not alive():
                 await ws.close(code=4401, message=b"logged out")
+                break
+            if not conn.authenticated and msg.type in (WSMsgType.TEXT, WSMsgType.BINARY) \
+                    and len(msg.data) > PRE_AUTH_MAX_BYTES:
+                # Only reached when the gate could not be installed.
+                await ws.close(code=CLOSE_TOO_BIG, message=b"too much data before system.hello")
                 break
             if msg.type is WSMsgType.TEXT:
                 await dispatcher.handle_message(conn, msg.data)
@@ -163,6 +270,12 @@ async def websocket_handler(
             elif msg.type is WSMsgType.ERROR:  # pragma: no cover - transport error
                 log.warning("websocket error: %s", ws.exception())
     finally:
+        deadline.cancel()
+        if pending is not None:
+            pending.pop(ws, None)
+        if gate is not None and gate.overflowed:
+            log.info("closed a websocket from %s: over %d bytes before system.hello",
+                     conn.peer, PRE_AUTH_MAX_BYTES)
         connections.discard(conn)
         sockets.discard(ws)
         if track is not None:
@@ -176,6 +289,8 @@ async def websocket_handler(
 __all__ = [
     "CONNECTIONS_KEY",
     "DISPATCHER_KEY",
+    "PENDING_KEY",
+    "PRE_AUTH_MAX_BYTES",
     "SOCKETS_KEY",
     "WS_PATH",
     "hello_handler",
