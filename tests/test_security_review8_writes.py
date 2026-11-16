@@ -198,6 +198,9 @@ _CONVERTED = (
     "audio/stt_models.py", "audio/install.py", "server/audio_handlers.py", "audio/tts.py",
     "permissions/approval_queue.py", "security/enforce.py", "machine.py",
     "trust/projects.py", "security/tamper.py", "cli/daemon_client.py",
+    # Security review 9, F4.
+    "server/skill_gate.py", "scheduler/scheduler.py", "jarvis/tools.py",
+    "jarvis/assist_tools.py",
 )
 #: What may stay: a write into the WORKING TREE restoring a checkpoint (the
 #: project's own files, not ``.snowpea``), and a process's stdin.

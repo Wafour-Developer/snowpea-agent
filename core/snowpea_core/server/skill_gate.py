@@ -121,7 +121,10 @@ def mark_saved_by(who: Any, directory: Path) -> None:
     marker = Path(directory) / SAVED_BY_FILE
     try:
         if kind == "remote_login":
-            marker.write_text("remote_login\n", encoding="utf-8")
+            # Security review 9, F4: never through a link planted at the name.
+            from snowpea_core.util.atomic import write_atomic
+
+            write_atomic(marker, "remote_login\n")
         elif kind == "person" and marker.is_file():
             marker.unlink()
     except OSError:  # the skill is saved; the mark is best effort
