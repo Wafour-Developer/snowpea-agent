@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
@@ -2290,8 +2290,25 @@ class ToolProgressParams(Payload):
 # --------------------------------------------------------------------------
 
 
+#: Fields 1.57.0 (m21) adds to ``ApprovalRemember``: left out of the JSON while
+#: null, so a plain command's ``remember`` stays exactly what 0.2.89 sent.
+_M21_OPTIONAL: tuple[str, ...] = ("exactLine",)
+
+
+def _omit_null_m21(data: Any) -> Any:
+    if isinstance(data, dict):
+        for key in _M21_OPTIONAL:
+            if key in data and data[key] is None:
+                del data[key]
+    return data
+
+
 class ApprovalRemember(Payload):
     """What a remembered answer to a shell approval would allow (1.34.0, ``shellRemember``)."""
+
+    @model_serializer(mode="wrap")
+    def _wire(self, handler: Any) -> Any:
+        return _omit_null_m21(handler(self))
 
     pattern: str = Field(
         description=(
@@ -2315,8 +2332,19 @@ class ApprovalRemember(Payload):
             "The remembered answers the card may offer: ['project'], or "
             "['project', 'always'] when the rule cannot write or run anything whatever "
             "arguments follow. An 'always' answer to a ['project'] offer is stored for the "
-            "project."
+            "project. [] for an exact compound line (exactLine): nothing is stored."
         )
+    )
+    exactLine: bool | None = Field(
+        default=None,
+        description=(
+            "1.57.0: true for a compound line (one holding ; & | < > ` $( or a newline): "
+            "'allow for this session' remembers only this exact line (whitespace "
+            "normalised) run in this folder, for this session, in memory; 'project'/"
+            "'always' answers apply as 'session'. pattern is then the escaped line, "
+            "display the line itself. Null for every other request: a plain command's "
+            "session answer is unchanged."
+        ),
     )
 
 

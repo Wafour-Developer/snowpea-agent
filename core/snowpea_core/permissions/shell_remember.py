@@ -480,9 +480,137 @@ def propose(command: str | None) -> Proposal | None:
     )
 
 
+# -- compound lines (m21) -----------------------------------------------------------
+#
+# A compound line (``a && b``, ``a | b``) gets no pattern rule.  Two things still
+# spare the person a question: a line every simple command of which would run
+# unasked on its own (:func:`segments`), and "allow for this session" on the line
+# itself, remembered as its exact text (:func:`exact_line`) for that session only.
+
+#: What makes a line compound for the exact-line memory: the same characters a
+#: client's ``matchable()`` treats as compound.  A line holding none of them is a
+#: plain command and keeps the first-word / :func:`propose` rule unchanged.
+COMPOUND_MARKS: tuple[str, ...] = (";", "&", "|", "<", ">", "`", "$(", "\n", "\r")
+
+#: The separators :func:`segments` splits on, longest first.
+_SEPARATORS: tuple[str, ...] = ("&&", "||", ";", "|")
+
+#: The note a compound line's ``remember`` carries.
+EXACT_LINE_NOTE = "only this exact line is remembered, for this session"
+
+
+def is_compound(command: str | None) -> bool:
+    """True when ``command`` holds a :data:`COMPOUND_MARKS` character."""
+    text = (command or "").strip()
+    return bool(text) and any(mark in text for mark in COMPOUND_MARKS)
+
+
+def exact_line(command: str | None) -> str | None:
+    """``command`` with its whitespace normalised, or ``None`` when it cannot be.
+
+    Runs of spaces and tabs outside quotes become one space and the ends are
+    trimmed; nothing else changes (inside quotes, every character is kept).
+    ``None`` for an empty line, an unclosed quote and a control or invisible
+    character (a surface may not show it, security review 3, N3).
+    """
+    text = (command or "").strip()
+    if not text or _CONTROL.search(text.replace("\n", " ").replace("\r", " ")):
+        return None
+    out: list[str] = []
+    quote = ""
+    escaped = False
+    for char in text:
+        if escaped:
+            out.append(char)
+            escaped = False
+        elif quote:
+            out.append(char)
+            if char == quote:
+                quote = ""
+            elif char == "\\" and quote == '"':
+                escaped = True
+        elif char == "\\":
+            out.append(char)
+            escaped = True
+        elif char in "'\"":
+            out.append(char)
+            quote = char
+        elif char in " \t":
+            if out and out[-1] != " ":
+                out.append(" ")
+        else:
+            out.append(char)
+    if quote or escaped:
+        return None
+    return "".join(out).strip() or None
+
+
+def segments(command: str | None) -> list[str] | None:
+    """The simple commands of a ``;`` / ``&&`` / ``||`` / ``|`` chain, or ``None``.
+
+    Each part must be one plain command (:func:`plain_words`): no redirection,
+    substitution, variable, background ``&``, subshell or second line anywhere,
+    and no separator inside quotes.  ``None`` for a line that is not a chain of
+    two or more such commands, so a wrong split can only cost a question.
+    """
+    text = (command or "").strip()
+    if not text or not is_compound(text):
+        return None
+    parts: list[str] = []
+    current: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char in ";&|":
+                return None  # a separator inside quotes: not split, not judged
+            if char == quote:
+                quote = ""
+            current.append(char)
+            index += 1
+            continue
+        if char in "'\"":
+            quote = char
+            current.append(char)
+            index += 1
+            continue
+        separator = next((sep for sep in _SEPARATORS if text.startswith(sep, index)), None)
+        if separator is None:
+            current.append(char)
+            index += 1
+            continue
+        parts.append("".join(current).strip())
+        current = []
+        index += len(separator)
+    parts.append("".join(current).strip())
+    if quote or len(parts) < 2:
+        return None
+    if any(not part or plain_words(part) is None for part in parts):
+        return None
+    return parts
+
+
+def chain_program_ok(segment: str) -> bool:
+    """A simple command of a chain may be covered by a stored rule or a session
+    answer: one plain command, no command-running argument, and not a program
+    that is never remembered (a shell or interpreter reading a pipe runs it)."""
+    words = plain_words(segment)
+    if words is None or runs_commands(words):
+        return False
+    family = _family(words[0].rsplit("/", 1)[-1])
+    return family not in NEVER_REMEMBERED and not NEVER_REMEMBERED_SHAPE.match(family)
+
+
 __all__ = [
     "ALWAYS_RULES",
     "COMPLEX_MARKS",
+    "COMPOUND_MARKS",
+    "EXACT_LINE_NOTE",
+    "chain_program_ok",
+    "exact_line",
+    "is_compound",
+    "segments",
     "EXEC_FLAGS",
     "NEVER_REMEMBERED",
     "NEVER_REMEMBERED_SUBCOMMANDS",

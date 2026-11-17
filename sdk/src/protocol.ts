@@ -390,11 +390,13 @@ export interface ApprovalListResult {
     remember?: {
       /** The same rule for people, e.g. 'git status …'. */
       display: string;
+      /** 1.57.0: true for a compound line (one holding ; & | < > ` $( or a newline): 'allow for this session' remembers only this exact line (whitespace normalised) run in this folder, for this session, in memory; 'project'/'always' answers apply as 'session'. pattern is then the escaped line, display the line itself. Null for every other request: a plain command's session answer is unchanged. */
+      exactLine?: boolean | null;
       /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
       note?: string | null;
       /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
       pattern: string;
-      /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
+      /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. [] for an exact compound line (exactLine): nothing is stored. */
       scopes: ("project" | "always")[];
     } | null;
     /** Id to answer with approval.respond. */
@@ -458,11 +460,13 @@ export interface ApprovalRequestParams {
   remember?: {
     /** The same rule for people, e.g. 'git status …'. */
     display: string;
+    /** 1.57.0: true for a compound line (one holding ; & | < > ` $( or a newline): 'allow for this session' remembers only this exact line (whitespace normalised) run in this folder, for this session, in memory; 'project'/'always' answers apply as 'session'. pattern is then the escaped line, display the line itself. Null for every other request: a plain command's session answer is unchanged. */
+    exactLine?: boolean | null;
     /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
     note?: string | null;
     /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
     pattern: string;
-    /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
+    /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. [] for an exact compound line (exactLine): nothing is stored. */
     scopes: ("project" | "always")[];
   } | null;
   /** Id to answer with approval.respond. */
@@ -9396,11 +9400,13 @@ export interface ApprovalPendingPayload {
     remember?: {
       /** The same rule for people, e.g. 'git status …'. */
       display: string;
+      /** 1.57.0: true for a compound line (one holding ; & | < > ` $( or a newline): 'allow for this session' remembers only this exact line (whitespace normalised) run in this folder, for this session, in memory; 'project'/'always' answers apply as 'session'. pattern is then the escaped line, display the line itself. Null for every other request: a plain command's session answer is unchanged. */
+      exactLine?: boolean | null;
       /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
       note?: string | null;
       /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
       pattern: string;
-      /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. */
+      /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. [] for an exact compound line (exactLine): nothing is stored. */
       scopes: ("project" | "always")[];
     } | null;
     /** Id to answer with approval.respond. */

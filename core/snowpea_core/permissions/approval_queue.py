@@ -21,6 +21,8 @@ import asyncio
 import contextlib
 import json
 import logging
+import posixpath
+import re
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
@@ -45,7 +47,15 @@ from snowpea_core.permissions.allowlist import (
 from snowpea_core.permissions.allowlist import (
     Scope as AllowlistScope,
 )
-from snowpea_core.permissions.shell_remember import matchable, propose
+from snowpea_core.permissions.shell_remember import (
+    EXACT_LINE_NOTE,
+    chain_program_ok,
+    exact_line,
+    is_compound,
+    matchable,
+    propose,
+    segments,
+)
 from snowpea_core.security.check import UNCHECKED_REASON
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
@@ -122,6 +132,14 @@ def remember_for(
     if not cacheable or guard or reason_code or once_only(args) or tool.startswith("repl."):
         return None
     command = command_of(args)
+    if command and is_compound(command):
+        # m21: a compound line gets no rule; "for this session" remembers the
+        # exact line (whitespace normalised), in this folder, for this session.
+        line = exact_line(command)
+        if line is None:
+            return None
+        return ApprovalRemember(pattern="^" + re.escape(line) + "$", display=line,
+                                scopes=[], note=EXACT_LINE_NOTE, exactLine=True)
     proposal = propose(command) if command else None
     if proposal is None:
         return None
@@ -168,6 +186,26 @@ def clamp_scope(conn: Any, scope: str) -> str:
     except Exception:  # noqa: BLE001 - unknown is not a local person
         return CLAMPED_SCOPE
     return CLAMPED_SCOPE if kind in NO_STORED_RULE_KINDS else scope
+
+
+def _remembering_person(conn: Any, actor: str | None = None) -> bool:
+    """``conn`` is a person's own surface whose answer may remember an exact line
+    or a script (m21): a local person's connection, or a browser's click
+    (``actor: "person"``).  Never a remote web login, a connector, a closed
+    connection or an in-process caller (Jarvis, a messenger)."""
+    try:
+        from snowpea_core.server.person_gate import connection_kind
+
+        kind = connection_kind(conn)
+        if kind == "person":
+            return True
+        if kind == "browser":
+            from snowpea_core.server.settings_gate import acts_for_person
+
+            return bool(acts_for_person(conn, actor))
+    except Exception:  # noqa: BLE001 - unknown is nobody
+        return False
+    return False
 
 
 def _local_person(conn: Any) -> bool:
@@ -218,6 +256,20 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
         log.info("approval %s: %s for %s kept to once", request.requestId, decision.scope, tool)
         return replace(decision, scope="once")
     command = _shell_command(request)
+    remember = request.remember
+    if command and remember is not None and remember.exactLine and not matchable(command):
+        # m21: a compound line is remembered as its exact text for this session,
+        # and only from a person's own answer (never a remote login, a connector,
+        # Jarvis or a messenger); nothing wider is ever stored for it.
+        if not decision.line_ok:
+            log.info("approval %s: %s for a compound line not from a person kept to once",
+                     request.requestId, decision.scope)
+            return replace(decision, scope="once")
+        if decision.scope != "session":
+            log.info("approval %s: %s for a compound line kept to session",
+                     request.requestId, decision.scope)
+            return replace(decision, scope="session")
+        return decision
     if decision.scope == "session" and command and not matchable(command):
         # The session cache is keyed by the first word: "for this session" on
         # ``ls | sh`` must not quietly cover every ``ls`` after it.
@@ -268,6 +320,10 @@ class Decision:
     #: 1.56.0: a remote web login allowed Jarvis's ``delegation_set`` proposal
     #: with its password again: when that grant ends (UTC ISO, within 24 h).
     grant_expires_at: str | None = None
+    #: m21: a person answered on their own surface (the app, the TUI, a browser
+    #: click): only such an answer remembers an exact compound line or a script
+    #: grant.  False for a remote web login, a connector, Jarvis, a messenger.
+    line_ok: bool = False
 
     @property
     def allowed(self) -> bool:
@@ -329,6 +385,10 @@ class ApprovalQueue:
         self.allowlist = allowlist
         self._pending: dict[str, _Pending] = {}
         self._cache: set[tuple[str, str, str]] = set()
+        #: m21: exact compound lines a person allowed "for this session":
+        #: ``(session, tool, normalised line, folder, background)``.  In memory
+        #: only, so a restart forgets them; never inherited by another session.
+        self._lines: set[tuple[str, str, str, str, bool]] = set()
         #: Jarvis mode's router (1.53.0): ``router(request, session, tags,
         #: interactive)`` returns ``ApprovalRequest.route`` before the request
         #: goes on the wire, or ``None`` (Jarvis mode off).  Must not block.
@@ -417,6 +477,25 @@ class ApprovalQueue:
         command = command_of(args or {})
         return (session_id, tool, first_token(command) if command else "")
 
+    @staticmethod
+    def line_key(
+        session_id: str, tool: str, args: dict[str, Any], workdir: Any = None
+    ) -> tuple[str, str, str, str, bool] | None:
+        """The exact-line memory's key for a compound line (m21), or ``None``.
+
+        The line with its whitespace normalised, the folder it runs in (the
+        session's folder joined with ``args.cwd``) and whether it runs in the
+        background: another folder or another spelling is another line.
+        """
+        command = command_of(args)
+        line = exact_line(command) if command and is_compound(command) else None
+        if line is None:
+            return None
+        cwd = str(args.get("cwd") or "").strip()
+        folder = posixpath.normpath(posixpath.join(str(workdir or ""), cwd)) if (
+            workdir or cwd) else ""
+        return (session_id, tool, line, folder, bool(args.get("background")))
+
     def _home(self) -> Any:
         return getattr(self.paths, "home", None)
 
@@ -426,6 +505,7 @@ class ApprovalQueue:
         tool: str,
         args: dict[str, Any] | None = None,
         folder: str | None = None,
+        workdir: Any = None,
     ) -> bool:
         """True when this session, or a session above it, approved this call shape.
 
@@ -437,7 +517,17 @@ class ApprovalQueue:
         """
         command = command_of(args or {})
         if command and not folder and not matchable(command):
-            return False
+            # m21: a compound line is covered by its own exact-line answer (in
+            # this session only), or when every simple command of it is covered.
+            key = self.line_key(session_id, tool, args or {}, workdir)
+            if key is not None and key in self._lines:
+                return True
+            parts = segments(command)
+            return parts is not None and all(
+                chain_program_ok(part)
+                and self.cached(session_id, tool, {**(args or {}), "command": part})
+                for part in parts
+            )
         for ancestor in self._lineage(session_id):
             if self.cache_key(ancestor, tool, args, folder) in self._cache:
                 return True
@@ -608,6 +698,11 @@ class ApprovalQueue:
         # again).  A write outside the project keyed by its folder (1.30.0) is
         # exactly what the person allowed and keeps its "for this session".
         first_word = folder is None
+        line = self.line_key(session.id, tool, args, getattr(session, "workdir", None))
+        if cacheable and not never and line is not None and line in self._lines:
+            # m21: this very line, in this folder, allowed for this session by a
+            # person: keyed by its whole text, so H3's first-word worry is moot.
+            return Decision("allow", "session", "cache")
         if cacheable and not never and not (
             first_word and classification in ("guarded", "never")
         ) and self.cached(session.id, tool, args, folder):
@@ -812,6 +907,10 @@ class ApprovalQueue:
                 by="origin",
                 reason=str(answer.get("reason") or ""),
                 local_person=_local_person(entry.origin_conn),
+                line_ok=_remembering_person(
+                    entry.origin_conn,
+                    answer.get("actor") if isinstance(answer.get("actor"), str) else None,
+                ),
             )
             if allowed and request.personOnly:
                 # The origin is asked like anyone else: a person's connection only.
@@ -925,6 +1024,8 @@ class ApprovalQueue:
             person=person,
             local_person=_local_person(conn),
             grant_expires_at=grant_expires,
+            line_ok=conn is not None and not str(by).startswith("jarvis")
+            and _remembering_person(conn, actor),
         )
         entry.future.set_result(answer)
         # The scope that will apply (``guard_scope`` runs the same rules again
@@ -946,7 +1047,16 @@ class ApprovalQueue:
         # A local-dev project rule is per origin; the session cache is keyed by
         # tool alone and would allow every navigation, so only the rule counts.
         per_origin = local_dev_origin(request.tool, request.args, workdir) is not None
-        if (
+        exact = request.remember is not None and bool(request.remember.exactLine)
+        if exact:
+            # m21: the exact line, for this session, in memory: never the first
+            # word (it would cover every plain ``ls`` after ``ls | sort``), never
+            # an allowlist entry.
+            key = self.line_key(request.sessionId, request.tool, request.args, workdir)
+            if (cacheable and decision.allowed and decision.scope == "session"
+                    and decision.line_ok and key is not None):
+                self._lines.add(key)
+        elif (
             cacheable
             and decision.allowed
             and decision.scope in CACHING_SCOPES
@@ -957,7 +1067,8 @@ class ApprovalQueue:
                     request.sessionId, request.tool, request.args, _outside_folder(request)
                 )
             )
-        if cacheable and decision.allowed and decision.scope in PERSISTING_SCOPES:
+        if (cacheable and not exact and decision.allowed
+                and decision.scope in PERSISTING_SCOPES):
             self._persist(request, decision.scope, workdir, host,
                           local_person=decision.local_person)
         self._append_log(request, decision, unattended=unattended)
