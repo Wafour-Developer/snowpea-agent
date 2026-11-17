@@ -56,6 +56,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+from snowpea_core.jarvis import remote_grant
 from snowpea_core.jarvis.classify import (
     GUARDED_CLASSES,
     ClassifyRequest,
@@ -126,6 +127,26 @@ class PersonOnly(PermissionError):
     code = "jarvis_person_only"
 
 
+class RemoteGrantRefused(PersonOnly):
+    """A grant from a remote web login refused for a reason a client can switch on
+    (1.56.0): ``jarvis_person_only`` with ``details.reason`` (``reauth_*``,
+    ``remote_grant_limit`` with ``details.what``)."""
+
+    def __init__(self, message: str, reason: str, what: str | None = None,
+                 extra: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.what = what
+        self.extra = dict(extra or {})
+
+    def details(self) -> dict[str, Any]:
+        found: dict[str, Any] = {"reason": self.reason, "kind": "remote_login"}
+        if self.what is not None:
+            found["what"] = self.what
+        found.update(self.extra)
+        return found
+
+
 class DecisionRefused(PermissionError):
     """Jarvis tried to answer something the engine did not route to it."""
 
@@ -156,6 +177,10 @@ class Caller:
     surface: str | None = None
     remote: bool = False
     bound_person: bool = False
+    #: 1.56.0: a remote web login that has just given its remote password again
+    #: (``jarvis/remote_grant.py``).  Set only by the RPC handler and the
+    #: approval queue after the remote listener checked it; nothing else makes one.
+    reauthenticated: bool = False
 
     @classmethod
     def from_connection(cls, conn: Any) -> Caller:
@@ -223,11 +248,9 @@ def person_refusal(
     return None
 
 
-#: Why a remote web login makes no grant (security review 8, H8-2).
-REMOTE_GRANT_REFUSAL = (
-    "giving Jarvis authority needs a local connection "
-    "(IDE, TUI or the local web page), not a remote web login"
-)
+#: Why a remote web login makes no grant (security review 8, H8-2), and where a
+#: local person may allow it (1.56.0, ``jarvis.delegation.remoteGrant``).
+REMOTE_GRANT_REFUSAL = remote_grant.OFF_REFUSAL
 
 
 def require_person(
@@ -388,7 +411,8 @@ CREATE TABLE IF NOT EXISTS grants (
     note TEXT NOT NULL DEFAULT '',
     revoked_at TEXT,
     revoked_by TEXT,
-    expired_noticed INTEGER NOT NULL DEFAULT 0
+    expired_noticed INTEGER NOT NULL DEFAULT 0,
+    remote INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS grants_scope ON grants (scope, target);
 CREATE TABLE IF NOT EXISTS pauses (
@@ -493,6 +517,10 @@ class DelegationEngine:
     def _prepare(db: sqlite3.Connection) -> None:
         db.row_factory = sqlite3.Row
         db.executescript(_SCHEMA)
+        # 1.56.0: a store from before remote grants gets the column (0: local).
+        columns = {row[1] for row in db.execute("PRAGMA table_info(grants)").fetchall()}
+        if "remote" not in columns:
+            db.execute("ALTER TABLE grants ADD COLUMN remote INTEGER NOT NULL DEFAULT 0")
         db.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema', ?)", (SCHEMA_VERSION,)
         )
@@ -612,6 +640,7 @@ class DelegationEngine:
             grantedAt=row["granted_at"],
             expiresAt=row["expires_at"],
             note=row["note"] or "",
+            remoteLogin=bool(row["remote"]),
         )
 
     def _live(self, row: sqlite3.Row, now: datetime) -> bool:
@@ -695,13 +724,32 @@ class DelegationEngine:
         if level not in LEVELS:
             raise DelegationError(f"unknown level {level!r}; expected staged or full")
         allowed = _allow_list(allow)
+        remote = caller.kind == "connection" and caller.remote
+        if remote and allowed and remote_grant.enabled(self.settings):
+            # Guarded classes stay a local person's with remote grants on too
+            # (off: person_refusal's own refusal below, as before).
+            raise RemoteGrantRefused(
+                "handing guarded classes to Jarvis needs a local connection "
+                "(IDE, TUI or the local web page), not a remote web login",
+                "remote_grant_limit", "allow")
         require_person(caller, self.settings, guarded=bool(allowed))
-        if caller.kind == "connection" and caller.remote:
+        remote_expiry: datetime | None = None
+        if remote:
             # Security review 8, H8-2: a grant persists — a remote web login (not
             # re-authenticated) may revoke, take over and hand back, never create
             # or widen a grant.  Here, not in person_refusal: that rule also says
-            # who is a person at all (external sessions, approvals).
-            raise PersonOnly(REMOTE_GRANT_REFUSAL)
+            # who is a person at all (external sessions, approvals).  1.56.0: with
+            # jarvis.delegation.remoteGrant on, one that gave its password again
+            # may, within the limits of remote_grant.check_limits.
+            if not remote_grant.enabled(self.settings):
+                raise PersonOnly(REMOTE_GRANT_REFUSAL)
+            if not caller.reauthenticated:
+                raise RemoteGrantRefused(
+                    "giving Jarvis authority from a remote web login needs your remote "
+                    "password again (reauth)", "reauth_required")
+            remote_expiry = remote_grant.check_limits(
+                scope, allowed, parse_time(expires_at) if expires_at else None, self.now())
+            expires_at = _iso(remote_expiry)
         stored_target: str | None
         if scope == "global":
             if target:
@@ -742,11 +790,12 @@ class DelegationEngine:
                     )
                 db.execute(
                     "INSERT INTO grants (id, scope, target, project, level, allow, granted_by, "
-                    "proposed_by, granted_at, expires_at, note) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    "proposed_by, granted_at, expires_at, note, remote) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         grant_id, scope, stored_target, session_project, level,
                         ",".join(allowed), caller.label, proposed_by, stamp, expires,
-                        str(note or "")[:500],
+                        str(note or "")[:500], 1 if remote else 0,
                     ),
                 )
                 db.execute("COMMIT")
@@ -760,6 +809,20 @@ class DelegationEngine:
         if replaced is not None:
             self.ledger.record_grant("replaced", replaced, by=caller.label)
         self.ledger.record_grant("set", grant, by=caller.label)
+        if remote:
+            # 1.56.0: every remote grant is a ledger decision of its own (a
+            # jarvis.decision event too), so it stands out from local ones.
+            where = {"session": "session", "project": "project"}.get(scope, scope)
+            try:
+                self.ledger.record_decision(
+                    kind="escalate", decided_by="person",
+                    summary=(f"a remote web login (password confirmed again) gave Jarvis "
+                             f"'{level}' on {where} {stored_target} until {expires}")[:300],
+                    session_id=stored_target if scope == "session" else None,
+                    project=stored_target if scope == "project" else None,
+                    grant_id=grant.id, reason="remote-grant", importance="high")
+            except Exception:  # noqa: BLE001 - the grant itself stands
+                log.warning("could not ledger a remote grant", exc_info=True)
         self._emit_grant("set", grant)
         return grant, (replaced.id if replaced is not None else None)
 

@@ -867,6 +867,14 @@ class JarvisDelegationSettings(_Model):
         return value
     #: Lifetime of a project grant given without an expiry, in hours.
     projectTtlHours: int = Field(default=24, ge=1, le=24 * 365)
+    #: 1.56.0: a remote web login may give a grant — re-authenticated with the
+    #: remote password, one session or project, no guarded classes, at most 24 h
+    #: (``jarvis/remote_grant.py``).  Off by default; a local person's switch:
+    #: ``jarvis.*`` is never written by a remote login, a browser or a connector
+    #: (``settings_gate.PERSON_LOCAL_ONLY``), waits for a local person when edited
+    #: on disk (``hot_reload.GATED_SECTIONS``), and the ``settings_set`` tool
+    #: refuses it.  A degraded settings document reads it as off.
+    remoteGrant: bool = False
 
 
 class JarvisProactiveSettings(_Model):

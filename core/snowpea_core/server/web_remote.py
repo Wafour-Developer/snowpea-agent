@@ -217,6 +217,9 @@ class _Session:
     sockets: set[web.WebSocketResponse] = field(default_factory=set)
     #: What this login's page presents in ``system.hello`` (security review 5, H3).
     capability: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
+    #: How the login was made: ``password`` (the sign-in page) or ``link`` (the
+    #: access link).  Only a password login can re-authenticate (1.56.0).
+    via: str = "link"
 
 
 def rate_key(ip: str) -> str:
@@ -349,12 +352,44 @@ class RemoteAuth:
         return hmac.compare_digest(given, wanted) and bool(expected) and not self.password_mode
 
     # -- sessions --------------------------------------------------------
-    def open_session(self) -> str:
+    def open_session(self, via: str = "link") -> str:
         token = secrets.token_urlsafe(32)
         self.sessions[token] = _Session(
-            self.username, self.clock() + self.session_sec, self._current_fingerprint()
+            self.username, self.clock() + self.session_sec, self._current_fingerprint(),
+            via=via,
         )
         return token
+
+    async def reauthenticate(self, cookie: str | None, ip: str, password: Any) -> Any:
+        """The remote password again, for a delegation grant (1.56.0).
+
+        ``"ok"``, ``"no_password"`` (a login made with the access link, or no
+        password set now), ``"logged_out"``, ``("rate_limited", seconds)`` or
+        ``"failed"``.  Checked exactly like a sign-in: :meth:`attempt` (the same
+        per-address and global failure counters, queue bounds and penalties —
+        a wrong password here counts toward the sign-in limits and the other way
+        round) around :meth:`check_password` (scrypt, constant-time compares)
+        with the login's own username.  The password is never logged.
+        """
+        found = self.session(cookie)
+        if found is None:
+            return "logged_out"
+        if found.via != "password" or not self.password_mode:
+            return "no_password"
+        malformed = not isinstance(password, str) or not password
+        username = found.username
+
+        async def check() -> bool:
+            return not malformed and await self.check_password(username, password)
+
+        ok, wait = await self.attempt(ip, check)
+        if ok:
+            log.info("remote password confirmed again from %s (delegation grant)", ip)
+            return "ok"
+        self.log_failure("remote password re-check failed (delegation grant)", ip)
+        if wait:
+            return ("rate_limited", int(wait))
+        return "failed"
 
     def session(self, token: str | None) -> _Session | None:
         if not token:
@@ -667,7 +702,7 @@ async def login(request: web.Request) -> web.Response:
             return _json({"ok": False, "error": "rate_limited"}, 429,
                          **{"Retry-After": str(wait)})
         return _json({"ok": False, "error": "invalid_credentials"}, 401)
-    token = auth.open_session()
+    token = auth.open_session(via="password")
     log.info("web login succeeded from %s (user %s)", ip, auth.username)
     response = _json({"ok": True})
     response.set_cookie(
@@ -733,9 +768,16 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
         # and the credential fingerprint (cached for a second).
         return auth.push_alive(cookie)
 
+    ip = _client_ip(request)
+
+    async def reauth(password: Any) -> Any:
+        # 1.56.0: the password again for a delegation grant, counted with this
+        # address's sign-in failures (the address as the sign-in sees it).
+        return await auth.reauthenticate(cookie, ip, password)
+
     return await websocket_handler(request, track=_Track(found.sockets, auth.sockets),
                                    capability=capability_ok, alive=alive,
-                                   push_alive=push_alive)
+                                   push_alive=push_alive, reauth=reauth)
 
 
 async def remote_web_redirect(request: web.Request) -> web.Response:

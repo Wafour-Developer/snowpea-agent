@@ -267,9 +267,9 @@ def jarvis_authority(core: Any) -> tuple[Pattern, ...]:
 
 
 def refuse(conn: Any, what: str, *, reason: str = "person_only",
-           extra: dict[str, Any] | None = None) -> None:
+           extra: dict[str, Any] | None = None, hint: str | None = None) -> None:
     """``jarvis_person_only`` with ``details.reason`` (``person_only``, ``jarvis_on``,
-    ``not_bundled_plugin``, …) and ``extra`` details."""
+    ``not_bundled_plugin``, …) and ``extra`` details; ``hint`` ends the message."""
     from snowpea_core.server.person_gate import connection_kind
 
     kind = connection_kind(conn)
@@ -284,6 +284,8 @@ def refuse(conn: Any, what: str, *, reason: str = "person_only",
         message = f"only a person may {what}"
     else:
         message = f"a {getattr(conn, 'client_kind', None) or kind} connection cannot {what}"
+    if hint:
+        message = f"{message}; {hint}"
     raise RpcError(errors.JARVIS_PERSON_ONLY, message,
                    {"reason": reason, "kind": kind, **(extra or {})})
 
@@ -898,6 +900,13 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
 REMOTE_LOGIN_LOCAL_ONLY: frozenset[str] = frozenset({
     "provider.loginWeb", "mcp.authorize.complete", "jarvis.delegation.set",
 })
+#: 1.56.0: ``jarvis.delegation.set`` is let through to its handler for a remote
+#: web login while a local person has ``jarvis.delegation.remoteGrant`` on (the
+#: handler and the engine then require the remote password again and keep the
+#: grant to one session or project, no guarded classes, at most 24 h:
+#: ``jarvis/remote_grant.py``).  Off, it is refused as before, and the message
+#: says where a local person turns it on.
+REMOTE_GRANT_METHOD = "jarvis.delegation.set"
 
 #: What a browser connection may call beyond :data:`BROWSER_PERSON_METHODS`
 #: (marker), :data:`BROWSER_HOST_METHODS`, :data:`ANSWER_METHODS` and the
@@ -963,6 +972,17 @@ def kind_method_refusal(method: str, params: dict[str, Any], conn: Any, core: An
         allowed = method in CONNECTOR_ALLOWED
     elif kind == "remote_login":
         if method in REMOTE_LOGIN_LOCAL_ONLY:
+            if method == REMOTE_GRANT_METHOD:
+                from snowpea_core.jarvis import remote_grant
+
+                if remote_grant.enabled_for(core):
+                    # 1.56.0: the local person turned remote grants on; the
+                    # handler and the engine judge the password and the limits.
+                    return
+                ledger_settings(core, conn, [f"{method} ({method})"], refused=True,
+                                method=method)
+                refuse(conn, f"call {method}", reason=LOCAL_ONLY, extra={"what": method},
+                       hint=remote_grant.OFF_HINT)
             refuse_local_only(conn, core, f"call {method}", method=method, detail=method)
         allowed = method in REMOTE_LOGIN_ALLOWED
     elif kind == "browser":

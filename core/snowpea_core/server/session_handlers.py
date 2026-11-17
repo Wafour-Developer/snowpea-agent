@@ -1264,6 +1264,8 @@ async def approval_respond_handler(
         conn=conn,
         reason=params.reason,
         actor=params.actor,
+        reauth=params.reauth,
+        grant_expires_at=params.grantExpiresAt,
     )
     scope = applied.scope if applied is not None and applied.allowed else None
     return ApprovalRespondResult(ok=True, scope=scope)  # type: ignore[arg-type]

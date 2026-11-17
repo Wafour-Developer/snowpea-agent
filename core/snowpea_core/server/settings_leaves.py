@@ -93,6 +93,9 @@ COMMAND_LIKE: dict[str, tuple[str, frozenset[str]]] = {
     "web.remote.trustProxy": (DAEMON, NOBODY),
     "web.remote.maxMode": (DAEMON, NOBODY),
     "updates.channel": (DAEMON, NOBODY),
+    # 1.56.0: lets a remote web login give Jarvis grants (with its password
+    # again): authority of the daemon itself, a local person's switch only.
+    "jarvis.delegation.remoteGrant": (DAEMON, NOBODY),
 }
 
 #: Schema leaves that are open mappings (``Any``): the fields inside them that

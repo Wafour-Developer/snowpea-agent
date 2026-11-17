@@ -102,6 +102,9 @@ class RpcConnection:
         self.remote_login: bool = False
         #: The remote listener's check of a login's capability (``system.hello``).
         self.remote_capability: Callable[[str | None], bool] | None = None
+        #: The remote listener's re-check of this login's password (1.56.0):
+        #: ``await remote_reauth(password)`` -> ``"ok"`` or why not.
+        self.remote_reauth: Callable[[Any], Any] | None = None
         #: Called with this connection once it closes (host tools, keep-alive).
         self.on_close: list[Callable[[RpcConnection], Any]] = []
 
@@ -316,8 +319,8 @@ class RpcDispatcher:
             params = model.model_validate(raw_params)
         except ValidationError as exc:
             raise RpcError(
-                errors.INVALID_PARAMS, "invalid params", exc.errors(include_url=False)
-            ) from exc
+                errors.INVALID_PARAMS, "invalid params", _without_secrets(exc, raw_params)
+            ) from None
         self._refuse_owned_run(method, params)
         from snowpea_core.server.person_gate import method_refusal
 
@@ -351,6 +354,20 @@ class RpcDispatcher:
                 errors.UNAUTHORIZED,
                 f"{method}: this session runs a browser-owned job and takes no outside input",
             )
+
+
+#: Params that carry a secret (1.56.0: the remote password again): a validation
+#: error of a call that holds one never echoes any input back.
+SECRET_PARAMS: frozenset[str] = frozenset({"reauth"})
+
+
+def _without_secrets(exc: ValidationError, raw: dict[str, Any]) -> list[Any]:
+    """``exc.errors()`` for the wire; without ``input``/``ctx`` when ``raw`` holds a
+    secret param (an error's input can be that value, or the whole object)."""
+    found = exc.errors(include_url=False)
+    if SECRET_PARAMS.isdisjoint(raw):
+        return found
+    return [{k: v for k, v in item.items() if k not in ("input", "ctx")} for item in found]
 
 
 def _as_dict(result: Any) -> dict[str, Any]:

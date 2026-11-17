@@ -101,6 +101,13 @@ async def settings_set(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         updated = Settings.model_validate(merged)
     except ValidationError as exc:
         return ToolResult(ok=False, error=f"invalid settings: {exc}")
+    from snowpea_core.jarvis.remote_grant import tool_refusal
+
+    # 1.56.0: the switch that lets a remote web login give Jarvis grants is a
+    # local person's; a session (whoever answers its approval) never flips it.
+    refusal = tool_refusal(settings, updated)
+    if refusal is not None:
+        return ToolResult(ok=False, error=refusal)
     updated.carry_degraded(settings, patch)
     updated.save(ctx.core.paths)
     adopt = getattr(ctx.core, "adopt_settings", None)

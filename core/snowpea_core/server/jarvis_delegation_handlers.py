@@ -15,13 +15,16 @@ same way.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.jarvis import remote_grant
 from snowpea_core.jarvis.delegation import (
     Caller,
     DelegationError,
     PersonOnly,
+    RemoteGrantRefused,
     engine_for,
 )
 from snowpea_core.server import errors
@@ -55,9 +58,31 @@ HANDLED_METHODS: tuple[str, ...] = (
 
 
 def _refused(exc: Exception) -> RpcError:
+    if isinstance(exc, RemoteGrantRefused):
+        return RpcError(errors.JARVIS_PERSON_ONLY, str(exc), exc.details())
     if isinstance(exc, PersonOnly):
         return RpcError(errors.JARVIS_PERSON_ONLY, str(exc))
     return RpcError(errors.INVALID_PARAMS, str(exc))
+
+
+async def _remote_caller(conn: Any, params: JarvisDelegationSetParams, core: Any) -> Caller:
+    """The caller of ``jarvis.delegation.set``; for a remote web login with
+    ``jarvis.delegation.remoteGrant`` on (1.56.0) the limits are judged first —
+    a request that would be refused anyway spends no password attempt — then
+    the password (``reauth``) is checked like a sign-in.  The engine judges all
+    of it again (:meth:`DelegationEngine.set_grant`)."""
+    from snowpea_core.jarvis.delegation import parse_time
+    from snowpea_core.server.person_gate import connection_kind
+
+    caller = Caller.from_connection(conn)
+    if connection_kind(conn) != "remote_login" or not remote_grant.enabled_for(core):
+        return caller
+    engine = engine_for(core)
+    remote_grant.check_limits(
+        params.scope, params.allow,
+        parse_time(params.expiresAt) if params.expiresAt else None, engine.now())
+    await remote_grant.reauthenticate(conn, params.reauth)
+    return replace(caller, reauthenticated=True)
 
 
 async def delegation_list_handler(
@@ -76,12 +101,13 @@ async def delegation_set_handler(
 ) -> JarvisDelegationSetResult:
     engine = engine_for(core)
     try:
+        caller = await _remote_caller(conn, params, core)
         grant, replaced = engine.set_grant(
             params.scope,
             params.target,
             params.level,
             params.allow,
-            caller=Caller.from_connection(conn),
+            caller=caller,
             expires_at=params.expiresAt,
             note=params.note,
             project=_session_project(core, params.target) if params.scope == "session" else None,

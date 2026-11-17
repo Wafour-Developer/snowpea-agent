@@ -265,6 +265,9 @@ class Decision:
     #: only such an answer keeps a project's settings trust when it stores a
     #: project rule (security review 6, L-2).
     local_person: bool = False
+    #: 1.56.0: a remote web login allowed Jarvis's ``delegation_set`` proposal
+    #: with its password again: when that grant ends (UTC ISO, within 24 h).
+    grant_expires_at: str | None = None
 
     @property
     def allowed(self) -> bool:
@@ -851,12 +854,16 @@ class ApprovalQueue:
         conn: Any = None,
         reason: str = "",
         actor: str | None = None,
+        reauth: str | None = None,
+        grant_expires_at: str | None = None,
     ) -> Decision | None:
         """Resolve a pending request (``approval.respond``).
 
         Returns the decision as it will apply (its ``scope`` after
         :func:`guard_scope`), or ``None`` when the request was already answered
-        and this call changed nothing.
+        and this call changed nothing.  ``reauth`` / ``grant_expires_at``
+        (1.56.0): a remote web login allowing Jarvis's ``delegation_set``
+        proposal (:func:`_remote_grant_answer`); ignored otherwise, never kept.
         """
         entry = self._pending.get(request_id)
         if entry is None:
@@ -888,7 +895,14 @@ class ApprovalQueue:
                 errors.UNAUTHORIZED,
                 "a browser-owned job's approvals may only be answered by that browser",
             )
-        person = _person_answer(entry.request, conn, by, self.settings, decision)
+        remote = await _remote_grant_answer(entry.request, conn, decision, self.settings,
+                                            reauth, grant_expires_at)
+        del reauth  # checked (or not needed); never kept past this point
+        if remote is not None:
+            person, grant_expires = remote
+        else:
+            person = _person_answer(entry.request, conn, by, self.settings, decision)
+            grant_expires = None
         if entry.future.done():
             return None
         answer = Decision(
@@ -898,6 +912,7 @@ class ApprovalQueue:
             reason=reason,
             person=person,
             local_person=_local_person(conn),
+            grant_expires_at=grant_expires,
         )
         entry.future.set_result(answer)
         # The scope that will apply (``guard_scope`` runs the same rules again
@@ -1038,6 +1053,62 @@ class ApprovalQueue:
             append_text(self.paths.approvals_log, json.dumps(record) + "\n")
         except OSError:  # pragma: no cover - audit log must never break a turn
             log.warning("could not append to %s", self.paths.approvals_log, exc_info=True)
+
+
+async def _remote_grant_answer(
+    request: ApprovalRequest, conn: Any, decision: str, settings: Any,
+    reauth: str | None, grant_expires_at: str | None,
+) -> tuple[Any, str] | None:
+    """A remote web login allowing Jarvis's ``delegation_set`` proposal while
+    ``jarvis.delegation.remoteGrant`` is on (1.56.0): ``(person, expiry)``.
+
+    ``None`` when this is not that (anything else keeps :func:`_person_answer`'s
+    rule; with the switch off the engine refuses the grant as before).  The
+    proposal's limits are judged first (scope session or project, no guarded
+    class; the expiry the person chose within 24 h, never later than the
+    proposal's), then the password like a sign-in.  A refusal is an RPC error and
+    the request stays pending, so a local person can still answer it.
+    """
+    if not request.personOnly or decision != "allow" or request.tool != "delegation_set":
+        return None
+    from snowpea_core.jarvis import remote_grant
+    from snowpea_core.server.person_gate import connection_kind
+
+    if connection_kind(conn) != "remote_login" or not remote_grant.enabled(settings):
+        return None
+    from datetime import UTC, datetime
+
+    from snowpea_core.jarvis.delegation import (
+        Caller,
+        DelegationError,
+        PersonOnly,
+        parse_time,
+        person_refusal,
+    )
+
+    args = request.args if isinstance(request.args, dict) else {}
+    now = datetime.now(UTC)
+    try:
+        chosen = parse_time(grant_expires_at) if grant_expires_at else None
+        if chosen is not None and chosen <= now:
+            raise DelegationError("grantExpiresAt is in the past")
+        expiry = remote_grant.check_limits(str(args.get("scope") or ""),
+                                           args.get("allow") or [], chosen, now)
+        proposed = args.get("expiresAt")
+        if isinstance(proposed, str) and proposed:
+            with contextlib.suppress(DelegationError):
+                expiry = min(expiry, parse_time(proposed))
+        caller = Caller.from_connection(conn)
+        refusal = person_refusal(caller, settings, guarded=False)
+        if refusal is not None:
+            raise PersonOnly(refusal)
+        await remote_grant.reauthenticate(conn, reauth)
+    except DelegationError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from None
+    except PersonOnly as exc:
+        raise remote_grant.as_rpc(exc) from None
+    stamp = expiry.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return replace(caller, reauthenticated=True), stamp
 
 
 def _person_answer(

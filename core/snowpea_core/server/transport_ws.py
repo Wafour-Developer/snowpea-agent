@@ -192,6 +192,7 @@ async def websocket_handler(
     capability: Callable[[str | None], bool] | None = None,
     alive: Callable[[], bool] | None = None,
     push_alive: Callable[[], bool] | None = None,
+    reauth: Callable[[Any], Any] | None = None,
 ) -> web.WebSocketResponse:
     """aiohttp route handler: bridge one socket to the RPC dispatcher.
 
@@ -226,6 +227,8 @@ async def websocket_handler(
     conn = RpcConnection(send, peer=str(request.remote or "local"))
     conn.remote_login = track is not None  # only the remote listener passes ``track``
     conn.remote_capability = capability if conn.remote_login else None
+    # 1.56.0: the remote password checked again for this login (jarvis/remote_grant.py).
+    conn.remote_reauth = reauth if conn.remote_login else None
     connections.add(conn)
     hub = getattr(dispatcher.core, "hub", None)
     # Security review 9b, M1: limits on a socket that has not authenticated.
