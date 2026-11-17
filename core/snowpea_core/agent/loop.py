@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent import agent as agent_mod
 from snowpea_core.agent import (
+    answer_nudge,
     call_fixups,
     context_files,
     host_context,
@@ -2612,6 +2613,7 @@ async def _drive(
     image_retried = False
     session.lead_direct_calls = 0
     verify_gate.begin_turn(session, text)
+    answer_nudge.begin_turn(core, session, turn_id, unattended=unattended, system=system)
     # One acknowledgement per turn, not per tool round.
     session.ack_spoken = False
     # A host that reconnected (or a core that restarted) may not have sent
@@ -3011,6 +3013,18 @@ async def _drive(
             )
             await finish_turn(core, session, turn_id, "stalled")
             return "stalled"
+        # A person's question that has only read for agent.answerNudgeRounds
+        # rounds is told once to answer if it can (0.2.91); nothing is stopped.
+        answer_note = answer_nudge.take_due(session)
+        if answer_note is not None:
+            session.history.append(
+                ChatMessage(
+                    role="user",
+                    content=answer_note,
+                    source=history_mod.source("answer-nudge", "notice"),
+                )
+            )
+            await hub.emit_event(session.id, events.hook_continue(answer_note, 1, "other", 1))
         # A prompt typed during a long tool call is folded in before the next
         # model round starts.
         await _steer_queued_turns(core, session)
@@ -3425,6 +3439,7 @@ async def _run_one_call(
     # A write that lands on snowpea's own settings is judged as ``config``,
     # not ``write`` (CORE-search-fix): the tag, not the tool, decides.
     tag = effective_permission(tool, call.arguments, session, core)
+    answer_nudge.observe_call(session, tool.name, tag, call.arguments)
     # The security lists come before everything else (1.54.0): no mode, rule,
     # cached answer or Jarvis decision runs a blocked command or changes a
     # protected path; a line they cannot see through always asks the person.

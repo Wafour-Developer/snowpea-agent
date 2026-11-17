@@ -287,6 +287,15 @@ plan mode, at a budget checkpoint or while a goal is armed, and completion
 verification is checked first. The phrases are recognised in English, Korean,
 Japanese, Chinese and Spanish.
 
+A person's own turn that has called only read-only tools (reads, searches, web
+lookups, inspecting shell commands) for `agent.answerNudgeRounds` rounds (default
+**20**, `0` disables) gets one note before its next model call: answer now if it
+can, say what is unverified, and keep reading only if something essential is
+missing. It is sent at most once a turn, never stops the turn or removes a tool,
+and shows as a `hook.continue` event (kind `other`). A turn that wrote, edited,
+ran a mutating command or acted in a browser is never nudged, nor are delegated,
+Jarvis, scheduled, messenger and plan-mode turns.
+
 `agent.no_progress_rounds` (default **40**, `0` disables) stops repeated rounds
 that produce no new file edits, distinct tool-call arguments, or tool output
 content. Reading a new file or range counts as progress; repeating the same read

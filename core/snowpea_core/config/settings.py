@@ -432,6 +432,10 @@ class AgentSettings(_Model):
     #: it could still do now ("남은 일 (다음 턴): 1. …") and asks the person
     #: nothing (``agent/unfinished_work.py``); ``0`` turns it off.
     unfinished_continue: int = Field(default=2, ge=0)
+    #: Tool rounds after which a person's main turn that has only read (no
+    #: write, edit, mutating command or browser action) is told once to answer
+    #: now if it can (``agent/answer_nudge.py``); ``0`` turns it off.
+    answerNudgeRounds: int = Field(default=20, ge=0)
     #: Language the model answers in.  ``"auto"`` follows whatever the user
     #: wrote; a tag like ``"ko"`` emits a directed override (CORE-prompts).
     replyLanguage: str = "auto"

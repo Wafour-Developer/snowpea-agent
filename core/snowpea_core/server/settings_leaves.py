@@ -187,7 +187,7 @@ def free_form_leaves(model: Any = None) -> set[str]:
 #: Every other leaf, by section (names relative to it).
 PLAIN: dict[str, str] = {
     "agent": (
-        "autoAttachImages auto_budget_continuations busy contextFileMaxChars "
+        "answerNudgeRounds autoAttachImages auto_budget_continuations busy contextFileMaxChars "
         "contextFilesMaxChars effort effortBy.* effortMap.* ignoreContextFiles keepToolRounds "
         "max_tokens max_tool_rounds no_progress_rounds provider_connect_wait_sec "
         "provider_first_token_sec provider_idle_sec provider_retries provider_step_budget_sec "

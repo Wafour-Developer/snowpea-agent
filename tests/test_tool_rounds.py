@@ -112,10 +112,13 @@ async def test_automatic_continuation_is_bounded_and_stop_is_respected(
         session_id = await open_session(client, workdir, "auto")
         turn_id = await prompt(client, session_id, "계속 확인해줘")
         assert await client.wait_turn(turn_id) == "budget"
+        continued = client.of_kind("hook.continue")
         assert (
-            len(client.of_kind("hook.continue"))
+            len([e for e in continued if e["payload"]["kind"] == "budget"])
             == instance.core.settings.agent.auto_budget_continuations
         )
+        # Twenty read-only rounds also bring the one answer-now note (0.2.91).
+        assert [e["payload"]["kind"] for e in continued].count("other") == 1
         assert len(client.questions) == 1
         assert client.of_kind("error") == []
     finally:
