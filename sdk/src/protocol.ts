@@ -392,12 +392,28 @@ export interface ApprovalListResult {
       display: string;
       /** 1.57.0: true for a compound line (one holding ; & | < > ` $( or a newline): 'allow for this session' remembers only this exact line (whitespace normalised) run in this folder, for this session, in memory; 'project'/'always' answers apply as 'session'. pattern is then the escaped line, display the line itself. Null for every other request: a plain command's session answer is unchanged. */
       exactLine?: boolean | null;
+      /** 1.57.0: 'script' on a person-only request that asks only because of what the content of script files it runs does (a script grant): a person's allow ('session', or 'project' to keep it; 'always' is kept for the project) is remembered for this exact command (display) and these files as they are now (scripts), and asked again, saying the script changed, as soon as one changes. Never offered to, nor stored from, a remote login, a connector, Jarvis or a messenger. Null otherwise. */
+      kind?: "script" | null;
       /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
       note?: string | null;
       /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
       pattern: string;
       /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. [] for an exact compound line (exactLine): nothing is stored. */
       scopes: ("project" | "always")[];
+      /** 1.57.0, kind 'script': the script the command runs. */
+      script?: {
+        /** Absolute path of the file. */
+        path: string;
+        /** Hex SHA-256 of its bytes when the person allowed it. */
+        sha256: string;
+      } | null;
+      /** 1.57.0, kind 'script': every file whose content the grant holds to (the script, files it imports, the package.json or Makefile it runs a line of). */
+      scripts?: ({
+        /** Absolute path of the file. */
+        path: string;
+        /** Hex SHA-256 of its bytes when the person allowed it. */
+        sha256: string;
+      })[] | null;
     } | null;
     /** Id to answer with approval.respond. */
     requestId: string;
@@ -462,12 +478,28 @@ export interface ApprovalRequestParams {
     display: string;
     /** 1.57.0: true for a compound line (one holding ; & | < > ` $( or a newline): 'allow for this session' remembers only this exact line (whitespace normalised) run in this folder, for this session, in memory; 'project'/'always' answers apply as 'session'. pattern is then the escaped line, display the line itself. Null for every other request: a plain command's session answer is unchanged. */
     exactLine?: boolean | null;
+    /** 1.57.0: 'script' on a person-only request that asks only because of what the content of script files it runs does (a script grant): a person's allow ('session', or 'project' to keep it; 'always' is kept for the project) is remembered for this exact command (display) and these files as they are now (scripts), and asked again, saying the script changed, as soon as one changes. Never offered to, nor stored from, a remote login, a connector, Jarvis or a messenger. Null otherwise. */
+    kind?: "script" | null;
     /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
     note?: string | null;
     /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
     pattern: string;
     /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. [] for an exact compound line (exactLine): nothing is stored. */
     scopes: ("project" | "always")[];
+    /** 1.57.0, kind 'script': the script the command runs. */
+    script?: {
+      /** Absolute path of the file. */
+      path: string;
+      /** Hex SHA-256 of its bytes when the person allowed it. */
+      sha256: string;
+    } | null;
+    /** 1.57.0, kind 'script': every file whose content the grant holds to (the script, files it imports, the package.json or Makefile it runs a line of). */
+    scripts?: ({
+      /** Absolute path of the file. */
+      path: string;
+      /** Hex SHA-256 of its bytes when the person allowed it. */
+      sha256: string;
+    })[] | null;
   } | null;
   /** Id to answer with approval.respond. */
   requestId: string;
@@ -4456,8 +4488,12 @@ export interface PermissionAllowlistListResult {
   patterns?: ({
     /** UTC ISO time it was stored; null for older entries. */
     createdAt?: string | null;
+    /** 1.57.0, kind 'script': the grant for people, e.g. 'bash bin/run.sh (while bin/run.sh is unchanged)'. */
+    display?: string | null;
     /** Browser profile (clientId) a global entry belongs to: stored from an approval in that profile's session and matched only there. Null for unscoped entries (IDE/CLI, project) (addendum 8). */
     hostToolsFrom?: string | null;
+    /** 1.57.0: 'script' for a script grant: the exact command in pattern (e.g. 'bash bin/run.sh') may run unasked in this project while the files in scripts are unchanged. tool names the tool; scope is 'project' (kept in the owner's settings, never in the project's file). Removed with permission.allowlist.remove like any entry. Null for a rule. */
+    kind?: "script" | null;
     /** Site the entry is limited to (a 'site'-scoped approval), else null. */
     origin?: string | null;
     /** The glob or command prefix. */
@@ -4468,6 +4504,20 @@ export interface PermissionAllowlistListResult {
     reasonCode?: string | null;
     /** Where it is stored. */
     scope: "session" | "project" | "always";
+    /** 1.57.0, kind 'script': the script the command runs. */
+    script?: {
+      /** Absolute path of the file. */
+      path: string;
+      /** Hex SHA-256 of its bytes when the person allowed it. */
+      sha256: string;
+    } | null;
+    /** 1.57.0, kind 'script': every file whose content the grant holds to. */
+    scripts?: ({
+      /** Absolute path of the file. */
+      path: string;
+      /** Hex SHA-256 of its bytes when the person allowed it. */
+      sha256: string;
+    })[] | null;
     /** Tool or dotted action the entry targets (e.g. 'repl.upload'); null for a shell command pattern (1.7.0). */
     tool?: string | null;
   })[];
@@ -9402,12 +9452,28 @@ export interface ApprovalPendingPayload {
       display: string;
       /** 1.57.0: true for a compound line (one holding ; & | < > ` $( or a newline): 'allow for this session' remembers only this exact line (whitespace normalised) run in this folder, for this session, in memory; 'project'/'always' answers apply as 'session'. pattern is then the escaped line, display the line itself. Null for every other request: a plain command's session answer is unchanged. */
       exactLine?: boolean | null;
+      /** 1.57.0: 'script' on a person-only request that asks only because of what the content of script files it runs does (a script grant): a person's allow ('session', or 'project' to keep it; 'always' is kept for the project) is remembered for this exact command (display) and these files as they are now (scripts), and asked again, saying the script changed, as soon as one changes. Never offered to, nor stored from, a remote login, a connector, Jarvis or a messenger. Null otherwise. */
+      kind?: "script" | null;
       /** A warning to show with the rule, or null: 'scripts in this project decide what runs' for go run/test, cargo run/test/build, make <target>, npm/pnpm/yarn/bun run <script> (and test/start), uv/poetry/pdm run, pytest, gradle and mvn. Such rules are offered for the project only. */
       note?: string | null;
       /** The allowlist regex a 'project' or 'always' answer stores, e.g. '^git status( .*)?$': the program, its subcommand for subcommand tools, then any arguments. */
       pattern: string;
       /** The remembered answers the card may offer: ['project'], or ['project', 'always'] when the rule cannot write or run anything whatever arguments follow. An 'always' answer to a ['project'] offer is stored for the project. [] for an exact compound line (exactLine): nothing is stored. */
       scopes: ("project" | "always")[];
+      /** 1.57.0, kind 'script': the script the command runs. */
+      script?: {
+        /** Absolute path of the file. */
+        path: string;
+        /** Hex SHA-256 of its bytes when the person allowed it. */
+        sha256: string;
+      } | null;
+      /** 1.57.0, kind 'script': every file whose content the grant holds to (the script, files it imports, the package.json or Makefile it runs a line of). */
+      scripts?: ({
+        /** Absolute path of the file. */
+        path: string;
+        /** Hex SHA-256 of its bytes when the person allowed it. */
+        sha256: string;
+      })[] | null;
     } | null;
     /** Id to answer with approval.respond. */
     requestId: string;

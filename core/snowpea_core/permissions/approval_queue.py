@@ -21,8 +21,10 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import posixpath
 import re
+import shlex
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
@@ -53,13 +55,20 @@ from snowpea_core.permissions.shell_remember import (
     exact_line,
     is_compound,
     matchable,
+    plain_words,
     propose,
+    runs_commands,
     segments,
 )
 from snowpea_core.security.check import UNCHECKED_REASON
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
-from snowpea_core.server.protocol import ApprovalRemember, ApprovalRequest, ExternalRef
+from snowpea_core.server.protocol import (
+    ApprovalRemember,
+    ApprovalRequest,
+    ExternalRef,
+    ScriptRef,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.manager import EventHub
@@ -149,6 +158,84 @@ def remember_for(
         scopes=list(proposal.scopes),  # type: ignore[arg-type]
         note=proposal.note,
     )
+
+
+def _folder_of(args: dict[str, Any], workdir: Any) -> str:
+    """The folder a shell call runs in: the session's folder joined with ``args.cwd``."""
+    cwd = str(args.get("cwd") or "").strip()
+    if not (workdir or cwd):
+        return ""
+    return posixpath.normpath(posixpath.join(str(workdir or ""), cwd))
+
+
+def _under(path: str, folder: str) -> bool:
+    return path == folder or path.startswith(folder.rstrip("/") + "/")
+
+
+def script_offer(
+    tool: str, args: dict[str, Any], security: Any, workdir: Any
+) -> ApprovalRemember | None:
+    """``remember`` for a script grant (m21 D), or ``None``.
+
+    Offered when the security verdict asks ONLY because of what the content of
+    the script files it hashed does (``Verdict.script_grant``: each reason in
+    ``UNRESOLVED_REASONS``, none raised by the line itself, no control-plane
+    reason, no script the same line writes), the call is one plain command
+    whose words are all literal, and every such file is inside the session's
+    project folder.
+    """
+    if (
+        not getattr(security, "script_grant", False)
+        or getattr(security, "blocked", False)
+        or tool.startswith("repl.")
+        or once_only(args)
+        or workdir is None
+    ):
+        return None
+    command = command_of(args)
+    words = plain_words(command) if command else None
+    if words is None or runs_commands(words):
+        return None
+    project = os.path.realpath(str(workdir))
+    pairs: list[ScriptRef] = []
+    for path, digest in getattr(security, "scripts", ()) or ():
+        if not str(digest).startswith("sha256:"):
+            return None  # unreadable, missing or too large: nothing to hold it to
+        real = os.path.realpath(str(path))
+        if not _under(real, project):
+            return None
+        pairs.append(ScriptRef(path=str(path), sha256=str(digest)[len("sha256:"):]))
+    if not pairs:
+        return None
+    line = " ".join(shlex.quote(word) for word in words)
+    names = ", ".join(os.path.relpath(os.path.realpath(p.path), project) for p in pairs[:3])
+    if len(pairs) > 3:
+        names += f" (+{len(pairs) - 3})"
+    return ApprovalRemember(
+        pattern=line,
+        display=f"{line} (while {names} {'is' if len(pairs) == 1 else 'are'} unchanged)",
+        scopes=["project"],
+        note=f"remembered only for this exact command while {names} "
+        f"{'is' if len(pairs) == 1 else 'are'} unchanged; asked again when it changes",
+        kind="script",
+        script=pairs[0],
+        scripts=pairs,
+    )
+
+
+def _script_key(
+    session_id: str, tool: str, args: dict[str, Any], workdir: Any
+) -> tuple[str, str, tuple[str, ...], str] | None:
+    command = command_of(args)
+    words = plain_words(command) if command else None
+    if words is None:
+        return None
+    return (session_id, tool, tuple(words), _folder_of(args, workdir))
+
+
+def _script_remember(request: ApprovalRequest) -> bool:
+    """The request offers a script grant (m21 D)."""
+    return request.remember is not None and request.remember.kind == "script"
 
 
 def _remembered(request: ApprovalRequest) -> ApprovalRemember | None:
@@ -257,6 +344,14 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
         return replace(decision, scope="once")
     command = _shell_command(request)
     remember = request.remember
+    if remember is not None and remember.kind == "script":
+        # m21 D: a script grant, only from a person's own surface: "session",
+        # or "project" (an "always" is kept for the project).
+        if not decision.line_ok or not command:
+            return replace(decision, scope="once")
+        if decision.scope not in ("session", "project"):
+            return replace(decision, scope="project" if decision.scope == "always" else "once")
+        return decision
     if command and remember is not None and remember.exactLine and not matchable(command):
         # m21: a compound line is remembered as its exact text for this session,
         # and only from a person's own answer (never a remote login, a connector,
@@ -389,6 +484,10 @@ class ApprovalQueue:
         #: ``(session, tool, normalised line, folder, background)``.  In memory
         #: only, so a restart forgets them; never inherited by another session.
         self._lines: set[tuple[str, str, str, str, bool]] = set()
+        #: m21 D: script grants a person gave "for this session": the call's
+        #: ``(session, tool, words, folder)`` -> the ``(path, sha256)`` it holds to.
+        self._script_grants: dict[tuple[str, str, tuple[str, ...], str],
+                                  tuple[tuple[str, str], ...]] = {}
         #: Jarvis mode's router (1.53.0): ``router(request, session, tags,
         #: interactive)`` returns ``ApprovalRequest.route`` before the request
         #: goes on the wire, or ``None`` (Jarvis mode off).  Must not block.
@@ -498,6 +597,69 @@ class ApprovalQueue:
 
     def _home(self) -> Any:
         return getattr(self.paths, "home", None)
+
+    def script_grant_state(
+        self, session: Any, tool: str, args: dict[str, Any], offer: ApprovalRemember
+    ) -> tuple[str, str | None]:
+        """``("granted", scope)``, ``("changed", names)`` or ``("none", None)`` (m21 D).
+
+        A grant holds while every file it holds to has the digest it had when
+        the person allowed it, and the call runs the same files: the session's
+        own grant first, then the project's (kept in the owner's settings).
+        """
+        workdir = getattr(session, "workdir", None)
+        key = _script_key(session.id, tool, args, workdir)
+        if key is None or not offer.scripts:
+            return "none", None
+        now = tuple(sorted((s.path, s.sha256) for s in offer.scripts))
+        held: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+        if key in self._script_grants:
+            held.append(("session", self._script_grants[key]))
+        if self.allowlist is not None:
+            for item in self.allowlist.script_grants(workdir):
+                grant = item.grant or {}
+                if (grant.get("tool"), tuple(grant.get("words") or ()),
+                        grant.get("folder")) == (tool, key[2], key[3]):
+                    held.append(("project", tuple(sorted(
+                        (s["path"], s["sha256"]) for s in grant["scripts"]))))
+        changed: list[str] = []
+        for scope, pairs in held:
+            if pairs == now:
+                return "granted", scope
+            if {p for p, _ in pairs} == {p for p, _ in now}:
+                old = dict(pairs)
+                changed.extend(p for p, d in now if old.get(p) != d)
+        if changed:
+            project = os.path.realpath(str(workdir)) if workdir else ""
+            names = sorted({os.path.relpath(os.path.realpath(p), project) if project else p
+                            for p in changed})
+            return "changed", ", ".join(names[:3])
+        return "none", None
+
+    def _store_script_grant(
+        self, request: ApprovalRequest, scope: str, workdir: Any
+    ) -> None:
+        """Remember a person's allow of a script grant (m21 D)."""
+        offer = request.remember
+        if offer is None or offer.kind != "script" or not offer.scripts:
+            return
+        key = _script_key(request.sessionId, request.tool, request.args, workdir)
+        if key is None:
+            return
+        pairs = tuple(sorted((s.path, s.sha256) for s in offer.scripts))
+        if scope == "session":
+            self._script_grants[key] = pairs
+            return
+        if scope != "project" or self.allowlist is None or workdir is None:
+            return
+        try:
+            self.allowlist.add_script(
+                workdir=workdir, tool=request.tool, words=list(key[2]), folder=key[3],
+                scripts=[{"path": s.path, "sha256": s.sha256} for s in offer.scripts],
+                display=offer.display,
+            )
+        except (OSError, ValueError):  # pragma: no cover - a bad store never breaks a turn
+            log.warning("could not store a script grant for %r", offer.pattern, exc_info=True)
 
     def cached(
         self,
@@ -669,6 +831,10 @@ class ApprovalQueue:
         asks_in = getattr(security, "asks_in", None)
         unchecked = bool(asks_in(getattr(session, "mode", None))) if callable(asks_in) \
             else bool(security.opaque)
+        # m21 D: a call asked only for what its scripts' content does may be
+        # remembered by a person for these files as they are now.
+        offer = None if person_only or not unchecked else script_offer(
+            tool, args, security, getattr(session, "workdir", None))
         if unchecked:
             person_only = True
             note = f"{security.why or UNCHECKED_REASON}. {note}".strip()
@@ -685,6 +851,13 @@ class ApprovalQueue:
             # the card shows them written out, nothing remembers or caches the
             # answer, and Jarvis's router judges it opaque.
             cacheable = False
+            offer = None
+        if offer is not None:
+            state, detail = self.script_grant_state(session, tool, args, offer)
+            if state == "granted":
+                return Decision("allow", detail or "session", "script-grant")
+            if state == "changed":
+                note = (f"the script changed since you allowed it: {detail}. {note}").strip()
         folder = (
             outside_folder(paths, workdir=getattr(session, "workdir", None), home=self._home())
             if reason_code == OUTSIDE_REASON
@@ -731,7 +904,7 @@ class ApprovalQueue:
             reasonCode=reason_code,
             paths=list(paths) if paths else None,
             folder=folder,
-            remember=remember_for(
+            remember=offer if offer is not None else remember_for(
                 tool, args, cacheable=cacheable, guard=guard, reason_code=reason_code
             ),
             personOnly=True if person_only else None,
@@ -917,7 +1090,8 @@ class ApprovalQueue:
                 try:
                     decision.person = _person_answer(request, entry.origin_conn, "origin",
                                                      self.settings, "allow")
-                    decision.scope = "once"
+                    if not (_script_remember(request) and decision.line_ok):
+                        decision.scope = "once"
                 except RpcError as exc:
                     # Not a person's allow (1.55.0): never a silent ignore and no
                     # longer a silent deny either.  The request stays open and
@@ -1016,16 +1190,20 @@ class ApprovalQueue:
             grant_expires = None
         if entry.future.done():
             return None
+        line_ok = conn is not None and not str(by).startswith("jarvis") \
+            and _remembering_person(conn, actor)
+        # A person-only answer applies once, except a person's own allow of a
+        # script grant (m21 D), which keeps its scope (guard_scope narrows it).
+        keeps = person is not None and line_ok and _script_remember(entry.request)
         answer = Decision(
             decision="allow" if decision == "allow" else "deny",
-            scope="once" if person is not None else clamp_scope(conn, scope),
+            scope="once" if person is not None and not keeps else clamp_scope(conn, scope),
             by=by,
             reason=reason,
             person=person,
             local_person=_local_person(conn),
             grant_expires_at=grant_expires,
-            line_ok=conn is not None and not str(by).startswith("jarvis")
-            and _remembering_person(conn, actor),
+            line_ok=line_ok,
         )
         entry.future.set_result(answer)
         # The scope that will apply (``guard_scope`` runs the same rules again
@@ -1048,7 +1226,12 @@ class ApprovalQueue:
         # tool alone and would allow every navigation, so only the rule counts.
         per_origin = local_dev_origin(request.tool, request.args, workdir) is not None
         exact = request.remember is not None and bool(request.remember.exactLine)
-        if exact:
+        if _script_remember(request):
+            # m21 D: a person's allow of a script grant; nothing else is cached
+            # (the call is person-only: never its first word, never a rule).
+            if decision.allowed and decision.line_ok and decision.person is not None:
+                self._store_script_grant(request, decision.scope, workdir)
+        elif exact:
             # m21: the exact line, for this session, in memory: never the first
             # word (it would cover every plain ``ls`` after ``ls | sort``), never
             # an allowlist entry.
@@ -1067,7 +1250,7 @@ class ApprovalQueue:
                     request.sessionId, request.tool, request.args, _outside_folder(request)
                 )
             )
-        if (cacheable and not exact and decision.allowed
+        if (cacheable and not exact and not _script_remember(request) and decision.allowed
                 and decision.scope in PERSISTING_SCOPES):
             self._persist(request, decision.scope, workdir, host,
                           local_person=decision.local_person)

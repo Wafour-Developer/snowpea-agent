@@ -192,6 +192,14 @@ class ShellView:
     #: ``PATH`` values the agent's own line gives (each a list of folders, with
     #: ``"$PATH"`` for the inherited value); ``None`` once one cannot be modelled.
     path_values: list[list[str]] | None = field(default_factory=list)
+    #: m21 script grants: the :attr:`opaque` reasons raised by the line itself,
+    #: not by the content of a script file it runs (:attr:`scripts`).  A reason in
+    #: both counts as the line's own.
+    own_opaque: list[str] = field(default_factory=list)
+    #: ... and those raised by the content of a script file it runs.
+    script_opaque: list[str] = field(default_factory=list)
+    #: ``[start, end)`` spans of :attr:`effects` that a script file's content made.
+    script_spans: list[tuple[int, int]] = field(default_factory=list)
 
 
 #: Positive analysis or ask (security review 7, P1).  The classifier marks what
@@ -568,6 +576,8 @@ class _Probe(_c._Judge):
         #: Per command being walked: the classifier's opaque marks this module
         #: analysed itself for that command (security review 7, P1).
         self._claims: list[set[str]] = []
+        #: Inside the content of a script file (m21 script grants: ``own_opaque``).
+        self._in_script = 0
         guard_all = self.hits.guard_all
 
         def tracked(rule: str) -> None:
@@ -583,6 +593,13 @@ class _Probe(_c._Judge):
             self.view.stateful_shells.add(self._shell_id)
         if why not in self.view.opaque:
             self.view.opaque.append(why)
+        self._attribute(why)
+
+    def _attribute(self, why: str) -> None:
+        """m21 script grants: note whether ``why`` came from a script's content."""
+        kept = self.view.script_opaque if self._in_script else self.view.own_opaque
+        if why not in kept:
+            kept.append(why)
 
     def _unseen(self, why: str) -> None:
         """The classifier could not judge something: opaque, unless the command
@@ -1486,8 +1503,12 @@ class _Probe(_c._Judge):
         self._opaque("code:module")
 
     # -- make / npm run: the project's own command lines ---------------------------
-    def _project_runner(self, program: str, rest: list[str], rest_dyn: list[bool],
-                        cwd: Path | None, depth: int) -> None:
+    def _project_runner(self, *args: Any) -> None:
+        """:meth:`_project_lines`, with what the project file raises kept apart (m21)."""
+        self._in_file(self._project_lines, *args)
+
+    def _project_lines(self, program: str, rest: list[str], rest_dyn: list[bool],
+                       cwd: Path | None, depth: int) -> None:
         """``make target`` / ``npm run name``: the line the project's file gives is read.
 
         A project file that was there before the session is the project's own
@@ -1756,10 +1777,24 @@ class _Probe(_c._Judge):
                 # Copied as it is: the sub-walk tagged the shell it came from (m21).
                 if why not in self.view.opaque:
                     self.view.opaque.append(why)
+                self._attribute(why)
 
-    def _script(self, raw: str, cwd: Path | None, depth: int, default: str, *,
-                root: Path | None = None, strict: bool = False,
-                same_shell: bool = False) -> None:
+    def _script(self, *args: Any, **kwargs: Any) -> None:
+        """:meth:`_script_file`, with what its content raises kept apart (m21)."""
+        self._in_file(self._script_file, *args, **kwargs)
+
+    def _in_file(self, walk: Any, *args: Any, **kwargs: Any) -> None:
+        start = len(self.view.effects)
+        self._in_script += 1
+        try:
+            walk(*args, **kwargs)
+        finally:
+            self._in_script -= 1
+            self.view.script_spans.append((start, len(self.view.effects)))
+
+    def _script_file(self, raw: str, cwd: Path | None, depth: int, default: str, *,
+                     root: Path | None = None, strict: bool = False,
+                     same_shell: bool = False) -> None:
         """Read the script file ``raw`` and judge its text (H4 b).  ``strict``: it
         is the agent's own whatever its timestamps say (review 8, H8-3 c).
         ``same_shell``: it runs in this very shell (``source``), not a new one."""

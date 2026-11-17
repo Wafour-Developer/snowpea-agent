@@ -192,6 +192,16 @@ It does **not** switch off the rest. These still ask with `"allow"`: a command b
 
 Only you, on a local connection, can change it; a project cannot.
 
+### Remembering a script you allowed
+
+When a call asks only because of what a script in your project does — say `bash bin/shot.sh`, where the script writes to a file name it computes — the card offers to remember your answer for **that exact command and that script as it is now** ("bash bin/shot.sh (while bin/shot.sh is unchanged)"). "For this session" is the default; "for this project" keeps it, in your own settings (never in the project's `.snowpea/settings.json`), listed with the other allow rules where you can remove it. The moment the script's content changes, snowpea asks again and says the script changed.
+
+It is never offered when the script itself is not the only reason: something on the line itself snowpea cannot read, a script the same line writes first, a script outside the project, anything on snowpea's own files or command, or a script that runs code it takes from somewhere else (`eval` of a file's content, a pipe into a shell, a program named by a variable, a variable read as code). Only your own answer in the app, the TUI or the browser keeps it — not a remote web login, a messenger or Jarvis.
+
+### Lines with `;`, `&&`, `||` or `|`
+
+A chain of commands each of which would run without a question on its own (each has an allow rule, or, while planning, each only inspects) runs without one. For a chain that does ask, "for this session" remembers **that exact line**, run in the same folder, for this session only (spaces do not matter, every other character does); nothing is stored, a restart forgets it, and "for this project" on such a line counts for the session. A line snowpea cannot check, a remote web login, a messenger and Jarvis never remember one. A single command's answer is remembered exactly as before.
+
 ## Project trust pins what hooks run
 
 When you trust a project (`snowpea project trust`, or the trust card), snowpea records the project's hooks, MCP servers, commands, agents, prompts and settings exactly as they are — and also **the project's own files they run**: the script a hook calls (`bash scripts/guard.sh`), a server's program inside the project, the files in a skill's folder. If one of them changes later, the hook or server is switched off until you look and trust again. A control file that is a symbolic link is not read for this.
