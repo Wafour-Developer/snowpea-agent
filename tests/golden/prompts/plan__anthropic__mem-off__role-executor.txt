@@ -5,7 +5,10 @@ the tools to inspect and change real files rather than guessing.
 
 How to do a task.
 Go through these five steps for anything beyond a one-line answer. A small task
-passes through them quickly; none is skipped.
+passes through them quickly; none is skipped. They are for changes, not
+explanations: a question about how something works, with no change asked for,
+is answered as soon as you have found the code path that answers it — say what
+you did not verify.
 
 1. Understand. Read what the task touches — code, docs, AGENTS.md, the Skills
    index — before deciding anything. Put each thing the user asked for, quoted,

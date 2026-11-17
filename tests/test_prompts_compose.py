@@ -35,7 +35,8 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: raised from 3600 for the UI-verification, product-scope and plan
 #: Requirements-table rules (the ystudy post-mortem, Hermes/opencode review).
 #: raised from 3900 for the small-model repository playbook (browser-code request).
-TIER_BUDGET_TOKENS = {"stable": 4000, "context": 800, "volatile": 600}
+#: raised from 4000 for base.md's "explanations end when answerable" sentence (0.2.91).
+TIER_BUDGET_TOKENS = {"stable": 4100, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "gemini", "meta", "small-local")
@@ -117,6 +118,21 @@ def fixed_environment() -> environment.Environment:
 def test_load_reads_the_shipped_prompt() -> None:
     assert "You are snowpea" in loader.load("base")
     assert loader.load("modes/plan").startswith("You are in PLAN mode.")
+
+
+def test_explanation_questions_end_when_answerable() -> None:
+    """A how-to question is answered once the code path is found (0.2.91): a
+    local model once made 36 calls in 11 minutes on one without answering."""
+    flat = " ".join(loader.load("base").split())
+    assert (
+        "They are for changes, not explanations: a question about how something "
+        "works, with no change asked for, is answered as soon as you have found the "
+        "code path that answers it — say what you did not verify."
+    ) in flat
+    # Every vendor class carries it, the small local models included.
+    for vendor_class in VENDOR_CLASSES:
+        tiers = compose.build_tiers(mode="accept", vendor_class=vendor_class, role=None)
+        assert "They are for changes, not explanations" in " ".join(tiers.stable.split())
 
 
 def test_load_is_cached() -> None:
