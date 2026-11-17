@@ -106,6 +106,8 @@ TABLE: dict[str, tuple[str, ...]] = {
         # Security review 6 (the browser team's source check): no browser calls
         # these, marker or not, any version.
         "agent.delete",
+        # The tmux bridge: a pane's text is read by a person, never a browser or connector.
+        "external.terminalSnapshot",
         "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
         "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
         "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",
