@@ -30,6 +30,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -53,6 +54,8 @@ REPO = "Wafour-Developer/snowpea-agent"
 REPO_URL = f"https://github.com/{REPO}"
 TAGS_URL = f"https://api.github.com/repos/{REPO}/tags"
 COMMITS_URL = f"https://api.github.com/repos/{REPO}/commits"
+#: Not subject to the REST API's 60-requests-per-hour limit.
+TAGS_ATOM_URL = f"{REPO_URL}/tags.atom"
 RAW_VERSION_URL = f"https://raw.githubusercontent.com/{REPO}"
 #: Distribution name on PyPI; ``system.update`` hands this to the installer.
 PACKAGE = "snowpea-agent"
@@ -306,25 +309,204 @@ async def _pypi_latest(client: httpx.AsyncClient) -> str | None:
     return str(version) if version else None
 
 
-async def _git_latest(client: httpx.AsyncClient) -> tuple[str | None, str | None]:
-    """``(version, tag)`` of the highest ``vX.Y.Z`` tag in the repository."""
-    response = await client.get(TAGS_URL, headers={"Accept": "application/vnd.github+json"})
-    if response.status_code != 200:
-        return None, None
-    payload = response.json()
-    if not isinstance(payload, list):
-        return None, None
+class LookupFailed(Exception):
+    """Every source for a lookup failed; ``str(exc)`` is a plain-words reason."""
+
+
+#: ``git ls-remote`` gets this long; the HTTP sources get HTTP_TIMEOUT_SEC.
+LS_REMOTE_TIMEOUT_SEC = 10.0
+_TAG_NAME_RE = re.compile(r"v\d+\.\d+\.\d+[^\s<>\"/]*")
+
+
+def _header(response: Any, name: str) -> str | None:
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    try:
+        value = headers.get(name)
+    except Exception:  # noqa: BLE001 - odd header containers
+        return None
+    return str(value) if value is not None else None
+
+
+def _is_rate_limited(response: Any) -> bool:
+    status = getattr(response, "status_code", 0)
+    if status == 429:
+        return True
+    if status != 403:
+        return False
+    if _header(response, "X-RateLimit-Remaining") == "0" or _header(response, "Retry-After"):
+        return True
+    try:
+        return "rate limit" in str(response.text).lower()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _reset_clock(response: Any) -> str | None:
+    """Local ``HH:MM`` when GitHub says the limit lifts, if it says."""
+    try:
+        reset = _header(response, "X-RateLimit-Reset")
+        if reset:
+            return datetime.fromtimestamp(int(reset)).strftime("%H:%M")
+        wait = _header(response, "Retry-After")
+        if wait:
+            return datetime.fromtimestamp(time.time() + int(wait)).strftime("%H:%M")
+    except (ValueError, OverflowError, OSError):
+        return None
+    return None
+
+
+def _http_problem(response: Any) -> tuple[str, str]:
+    """``(kind, words)`` for a non-200 answer; kind orders what we report."""
+    if _is_rate_limited(response):
+        clock = _reset_clock(response)
+        tail = f"; try again after {clock}" if clock else "; try again later"
+        return "rate", f"GitHub limited update checks from this network{tail}"
+    return "http", f"GitHub answered {getattr(response, 'status_code', '?')}"
+
+
+def _failure_words(problems: list[tuple[str, str]]) -> str:
+    """The most useful reason out of every source's problem."""
+    for kind in ("rate", "http", "net"):
+        for found, words in problems:
+            if found == kind:
+                return words
+    return "could not reach GitHub"
+
+
+def _best_tag(names: list[str]) -> tuple[str | None, str | None]:
     best: tuple[tuple[int, int, int], str] | None = None
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name", ""))
+    for name in names:
         parsed = parse_version(name)
         if parsed is not None and (best is None or parsed > best[0]):
             best = (parsed, name)
     if best is None:
         return None, None
     return ".".join(str(part) for part in best[0]), best[1]
+
+
+def _atom_tag_names(text: str) -> list[str]:
+    """Tag names from GitHub's ``tags.atom`` (``<title>`` or the ``/tag/`` link)."""
+    import xml.etree.ElementTree as ET  # noqa: N817, S405 - stdlib, GitHub feed only
+
+    root = ET.fromstring(text)  # noqa: S314
+    names: list[str] = []
+    for entry in root.iter():
+        if not entry.tag.endswith("}entry") and entry.tag != "entry":
+            continue
+        for child in entry:
+            local = child.tag.rsplit("}", 1)[-1]
+            if local == "title" and child.text:
+                names.append(child.text.strip())
+            elif local == "link":
+                href = child.get("href") or ""
+                if "/releases/tag/" in href:
+                    names.append(href.rsplit("/releases/tag/", 1)[-1])
+    return names
+
+
+def _ls_remote_sync(*patterns: str) -> str:
+    """``git ls-remote`` stdout; argv only, no prompts, no credential helper."""
+    if not git_usable():
+        raise OSError("git is not available")
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = ""
+    env.pop("SSH_ASKPASS", None)
+    argv = ["git", "-c", "credential.helper=", "ls-remote", f"{REPO_URL}.git", *patterns]
+    done = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=LS_REMOTE_TIMEOUT_SEC,
+        check=False,
+        env=env,
+        stdin=subprocess.DEVNULL,
+    )
+    if done.returncode != 0:
+        raise OSError(f"git ls-remote failed ({done.returncode})")
+    return done.stdout
+
+
+async def _ls_remote(*patterns: str) -> str:
+    return await asyncio.to_thread(_ls_remote_sync, *patterns)
+
+
+async def _git_latest(client: httpx.AsyncClient) -> tuple[str | None, str | None]:
+    """``(version, tag)`` of the highest ``vX.Y.Z`` tag in the repository.
+
+    The REST API is tried first, then the tags Atom feed and ``git ls-remote``
+    (neither counts against the API's per-IP limit).  ``(None, None)`` means a
+    source answered and listed no version tag; :class:`LookupFailed` means
+    nothing answered at all.
+    """
+    problems: list[tuple[str, str]] = []
+
+    try:
+        response = await client.get(TAGS_URL, headers={"Accept": "application/vnd.github+json"})
+        if response.status_code == 200:
+            payload = response.json()
+            if isinstance(payload, list):
+                return _best_tag(
+                    [str(i.get("name", "")) for i in payload if isinstance(i, dict)]
+                )
+            problems.append(("http", "GitHub answered something unexpected"))
+        else:
+            problems.append(_http_problem(response))
+    except Exception:  # noqa: BLE001 - fall through to the next source
+        log.debug("tags API failed", exc_info=True)
+        problems.append(("net", "could not reach GitHub"))
+
+    try:
+        response = await client.get(TAGS_ATOM_URL)
+        if response.status_code == 200:
+            return _best_tag(_atom_tag_names(response.text))
+        problems.append(_http_problem(response))
+    except Exception:  # noqa: BLE001 - includes XML parse errors
+        log.debug("tags feed failed", exc_info=True)
+        problems.append(("net", "could not reach GitHub"))
+
+    try:
+        out = await _ls_remote("--tags")
+        names = []
+        for line in out.splitlines():
+            ref = line.split("\t", 1)[-1].strip()
+            if ref.startswith("refs/tags/"):
+                names.append(ref[len("refs/tags/") :].removesuffix("^{}"))
+        return _best_tag(names)
+    except Exception:  # noqa: BLE001 - git missing, offline, timeout
+        log.debug("git ls-remote failed", exc_info=True)
+        problems.append(("net", "could not reach GitHub"))
+
+    raise LookupFailed(_failure_words(problems))
+
+
+async def _branch_head(client: httpx.AsyncClient, branch: str) -> str:
+    """Newest commit SHA on ``branch``; API first, ``git ls-remote`` second."""
+    problem: tuple[str, str]
+    try:
+        response = await client.get(f"{COMMITS_URL}/{branch}")
+        if response.status_code == 200:
+            sha = response.json().get("sha")
+            if isinstance(sha, str) and re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+                return sha
+            raise ValueError("GitHub returned an invalid commit")
+        problem = _http_problem(response)
+    except ValueError:
+        raise
+    except Exception:  # noqa: BLE001
+        log.debug("commits API failed", exc_info=True)
+        problem = ("net", "could not reach GitHub")
+    try:
+        out = await _ls_remote(f"refs/heads/{branch}")
+        for line in out.splitlines():
+            sha, _tab, ref = line.partition("\t")
+            if ref.strip() == f"refs/heads/{branch}" and re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+                return sha
+    except Exception:  # noqa: BLE001
+        log.debug("git ls-remote failed", exc_info=True)
+    raise LookupFailed(problem[1] if problem[0] != "net" else "could not reach GitHub")
 
 
 async def _git_version_at(client: httpx.AsyncClient, revision: str) -> str | None:
@@ -382,19 +564,19 @@ async def _check_git_branch(paths: Paths, install: GitInstall, force: bool) -> d
         return {**cached, "cached": True}
     try:
         async with _new_client() as client:
-            response = await client.get(f"{COMMITS_URL}/{install.branch}")
-            if response.status_code != 200:
-                raise ValueError(f"GitHub update check returned HTTP {response.status_code}")
-            latest = response.json().get("sha")
-            if not isinstance(latest, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", latest):
-                raise ValueError("GitHub returned an invalid commit")
+            latest = await _branch_head(client, install.branch)
             available = False
             if not _same_revision(revision, latest):
-                compared = await client.get(
-                    f"https://api.github.com/repos/{REPO}/compare/{revision}...{latest}"
-                )
+                try:
+                    compared = await client.get(
+                        f"https://api.github.com/repos/{REPO}/compare/{revision}...{latest}"
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    raise LookupFailed("could not reach GitHub") from exc
                 if compared.status_code != 200:
-                    raise ValueError("could not verify update ancestry")
+                    # Ancestry cannot be verified without the API; never offer
+                    # an unverified commit, and say why in plain words.
+                    raise LookupFailed(_http_problem(compared)[1])
                 status = compared.json().get("status")
                 if status not in ("ahead", "behind", "identical"):
                     raise ValueError("branch history diverged; refusing an automatic replacement")
@@ -447,8 +629,10 @@ async def check_update(paths: Paths, settings: Settings, *, force: bool = False)
 
     if not force:
         cached = read_cache(paths)
+        # An error answer is retried on the next check, never served from cache.
         if (
             cached is not None
+            and not cached.get("error")
             and not cached.get("installKey")
             and cached.get("configured", "auto") == configured
         ):
@@ -478,7 +662,7 @@ async def check_update(paths: Paths, settings: Settings, *, force: bool = False)
             latest=current,
             channel="pypi" if configured == "pypi" else "git",
             source=PACKAGE if configured == "pypi" else f"git+{REPO_URL}",
-            error=f"{type(exc).__name__}: {exc}",
+            error=str(exc) if isinstance(exc, LookupFailed) else f"{type(exc).__name__}: {exc}",
         )
 
     if latest is None:

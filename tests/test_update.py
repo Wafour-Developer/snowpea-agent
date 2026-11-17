@@ -89,6 +89,12 @@ def scripted(
     """Point :func:`update._new_client` at one :class:`FakeClient`."""
     client = FakeClient(routes)
     monkeypatch.setattr(update_mod, "_new_client", lambda: client)
+
+    # Never let a fallback reach the real network or the host's git.
+    def no_git(*_patterns: str) -> str:
+        raise OSError("git disabled in tests")
+
+    monkeypatch.setattr(update_mod, "_ls_remote_sync", no_git)
     return client
 
 
