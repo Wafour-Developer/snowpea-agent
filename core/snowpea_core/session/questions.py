@@ -28,6 +28,7 @@ from snowpea_core.config.settings import Settings
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import QuestionItem, QuestionRequest
+from snowpea_core.session import events as event_builders
 from snowpea_core.session.session import (
     CLIENT_QUESTION_CARD_SEC,
     asking_conn,
@@ -215,12 +216,15 @@ class QuestionQueue:
             session=session, clock_sec=float(timeout if timeout else self.timeout_sec),
         )
         self._pending[request.requestId] = entry
+        asked_at = loop.time()
         host = getattr(session, "host_tools_from", None)
         await self._announce_status(session.id, "awaiting_question", host)
         await self._broadcast_pending(request, exclude=origin, host=host)
         tell = getattr(self.hub, "tell_observers", None)
         if tell is not None:
             await tell("question.pending", {"request": request.model_dump(mode="json")})
+        # 0.2.91: the conversation's record says what was asked and where.
+        await self._record(session.id, event_builders.question_asked(request, origin))
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
         outer = (
@@ -242,7 +246,21 @@ class QuestionQueue:
         if not self.count(session.id):
             await self._announce_status(session.id, "running", host)
         await self._resolve(request, answers)
-        return _padded(answers, len(questions))
+        padded = _padded(answers, len(questions))
+        await self._record(session.id, event_builders.question_answered(
+            request, padded, int((loop.time() - asked_at) * 1000)))
+        return padded
+
+    async def _record(self, session_id: str, event: Any) -> None:
+        """Store ``question.asked`` / ``.answered`` with a live session's events (0.2.91)."""
+        lookup = self._lookup()
+        emit = getattr(self.hub, "emit_event", None)
+        if emit is None or lookup is None or lookup(session_id) is None:
+            return
+        try:
+            await emit(session_id, event)
+        except Exception:  # noqa: BLE001 - the record is a side note
+            log.debug("could not record %s for %s", event[0], session_id, exc_info=True)
 
     async def _broadcast_pending(
         self, request: QuestionRequest, exclude: Any = None, host: str | None = None

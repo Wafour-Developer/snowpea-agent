@@ -69,6 +69,7 @@ from snowpea_core.server.protocol import (
     ExternalRef,
     ScriptRef,
 )
+from snowpea_core.session import events as event_builders
 from snowpea_core.session.session import (
     CLIENT_APPROVAL_CARD_SEC,
     asking_conn,
@@ -956,6 +957,7 @@ class ApprovalQueue:
             clock_sec=float(timeout if timeout else self.timeout_sec),
         )
         self._pending[request.requestId] = entry
+        asked_at = asyncio.get_running_loop().time()
         await self._announce_status(session.id, "awaiting_approval", entry.host)
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
@@ -965,7 +967,10 @@ class ApprovalQueue:
             "approval.pending",
             {"request": request.model_dump(mode="json"), "interactive": origin is not None},
         )
-        outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
+        # 0.2.91: the conversation's record says what was asked and where (after
+        # the observers, so Jarvis's routing is not held up by the store write).
+        await self._record(session.id, event_builders.approval_asked(request, origin, tags))
+        outer =float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
         try:
             decision = await self._await_decision(entry, outer, cancel_event)
         except RpcError as exc:  # pragma: no cover - transport failure
@@ -1000,7 +1005,25 @@ class ApprovalQueue:
             cacheable=entry.cacheable,
             host=entry.host,
         )
+        waited_ms = int((asyncio.get_running_loop().time() - asked_at) * 1000)
+        await self._record(session.id,
+                           event_builders.approval_answered(request, decision, waited_ms))
         return decision
+
+    async def _record(self, session_id: str, event: Any) -> None:
+        """Store ``approval.asked`` / ``.answered`` with a live session's events (0.2.91).
+
+        Nothing for a session the hub does not know (an external CLI's bridged
+        prompt), and a failed write never fails the approval.
+        """
+        lookup = self._lookup()
+        emit = getattr(self.hub, "emit_event", None)
+        if emit is None or lookup is None or lookup(session_id) is None:
+            return
+        try:
+            await emit(session_id, event)
+        except Exception:  # noqa: BLE001 - the record is a side note
+            log.debug("could not record %s for %s", event[0], session_id, exc_info=True)
 
     async def _broadcast_pending(self, request: ApprovalRequest, host: str | None = None) -> None:
         """Announce an unattended request to every authenticated surface.

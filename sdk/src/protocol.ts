@@ -10288,6 +10288,50 @@ export interface AgentChangedEventPayload {
   kind?: "agent.changed";
 }
 
+/** Payload of `session.event` with kind `approval.answered`. */
+export interface ApprovalAnsweredEventPayload {
+  /** Who or what ended it: origin (the asked surface's person), origin-timeout (that surface's own card timed out), origin-no-answer, origin-unreachable, client (approval.respond from a surface), gateway:<platform>:<user>, jarvis, jarvis:auto, timeout, interrupted, security, error. */
+  by: string;
+  /** allow | deny. */
+  decision: "allow" | "deny";
+  kind?: "approval.answered";
+  /** The reason given or recorded, at most 300 characters. */
+  reason?: string | null;
+  /** The approval request. */
+  requestId: string;
+  /** The scope applied; null for a deny. */
+  scope?: string | null;
+  /** The tool the call was for. */
+  tool: string;
+  /** Milliseconds from asked to answered. */
+  waitedMs?: number;
+}
+
+/** Payload of `session.event` with kind `approval.asked`. */
+export interface ApprovalAskedEventPayload {
+  /** True when the arguments were kept out. */
+  argsWithheld?: boolean;
+  /** Where it was asked: the person's surface (ide, desktop, app, tui, cli, web, person), remote (a remote web login), browser, connector, or none (the shared queue: every surface could answer). */
+  askedConn: string;
+  kind?: "approval.asked";
+  /** Only a person could answer it. */
+  personOnly?: boolean;
+  /** ApprovalRequest.reasonCode. */
+  reasonCode?: string | null;
+  /** The approval request. */
+  requestId: string;
+  /** low | medium | high, as on the card. */
+  risk?: string | null;
+  /** ApprovalRequest.route when it was asked. */
+  route?: string | null;
+  /** What the card showed of the call, at most 240 characters: the command line, the path or URL, else the arguments as JSON; 'arguments withheld' for a secret or config call. */
+  summary?: string;
+  /** The tool the call was for. */
+  tool: string;
+  /** True when the card said snowpea could not check the call (uncheckedWhy). */
+  unchecked?: boolean;
+}
+
 /** Payload of `session.event` with kind `audio.spoken`. */
 export interface AudioSpokenEventPayload {
   kind?: "audio.spoken";
@@ -10726,6 +10770,56 @@ export interface ProviderWaitingEventPayload {
   sinceSec: number;
 }
 
+/** Payload of `session.event` with kind `question.answered`. */
+export interface QuestionAnsweredEventPayload {
+  /** One per question. */
+  answers?: ({
+    /** Declined (Esc, or no way to ask). */
+    declined?: boolean;
+    /** Picked option labels. */
+    selected?: string[];
+    /** Typed text; null when withheld. */
+    text?: string | null;
+    /** Nobody answered. */
+    timedOut?: boolean;
+    /** A secret question: nothing kept. */
+    withheld?: boolean;
+  })[];
+  /** Who or what ended it: origin, origin-timeout, origin-unreachable, client, jarvis, timeout, interrupted, error, unknown. */
+  by: string;
+  kind?: "question.answered";
+  /** The question request. */
+  requestId: string;
+  /** Milliseconds from asked to answered. */
+  waitedMs?: number;
+}
+
+/** Payload of `session.event` with kind `question.asked`. */
+export interface QuestionAskedEventPayload {
+  /** As approval.asked.askedConn. */
+  askedConn: string;
+  kind?: "question.asked";
+  /** Only a person could answer it. */
+  personOnly?: boolean;
+  /** QuestionRequest.kind ('mode'). */
+  questionKind?: string | null;
+  /** The batch. */
+  questions?: ({
+    /** The tab title. */
+    header?: string | null;
+    /** The option labels. */
+    options?: string[];
+    /** The question. */
+    question: string;
+    /** Its answer is never stored. */
+    secret?: boolean;
+  })[];
+  /** The question request. */
+  requestId: string;
+  /** QuestionRequest.route when asked. */
+  route?: string | null;
+}
+
 /** Payload of `session.event` with kind `session.forked`. */
 export interface SessionForkedEventPayload {
   /** Last inherited turn. */
@@ -11069,6 +11163,8 @@ export interface VisionUnavailableEventPayload {
 /** Maps every `session.event` kind to its payload type. */
 export interface SessionEventKindMap {
   "agent.changed": AgentChangedEventPayload;
+  "approval.answered": ApprovalAnsweredEventPayload;
+  "approval.asked": ApprovalAskedEventPayload;
   "audio.spoken": AudioSpokenEventPayload;
   "checkpoint.restored": CheckpointRestoredEventPayload;
   "checkpoint.updated": CheckpointUpdatedEventPayload;
@@ -11096,6 +11192,8 @@ export interface SessionEventKindMap {
   "plan.updated": PlanUpdatedEventPayload;
   "provider.retry": ProviderRetryEventPayload;
   "provider.waiting": ProviderWaitingEventPayload;
+  "question.answered": QuestionAnsweredEventPayload;
+  "question.asked": QuestionAskedEventPayload;
   "session.forked": SessionForkedEventPayload;
   "step.done": StepDoneEventPayload;
   "step.started": StepStartedEventPayload;
@@ -11119,6 +11217,8 @@ export interface SessionEventKindMap {
 export type SessionEventKind = keyof SessionEventKindMap;
 export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "agent.changed",
+  "approval.answered",
+  "approval.asked",
   "audio.spoken",
   "checkpoint.restored",
   "checkpoint.updated",
@@ -11146,6 +11246,8 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "plan.updated",
   "provider.retry",
   "provider.waiting",
+  "question.answered",
+  "question.asked",
   "session.forked",
   "step.done",
   "step.started",

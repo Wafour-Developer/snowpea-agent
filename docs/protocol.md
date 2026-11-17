@@ -5551,6 +5551,35 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `agent` | `string \| null` | no | Agent definition now in force (prompt, tools, rounds); null for none. |
 | `kind` | `"agent.changed"` | no |  |
 
+### kind `approval.answered`
+
+| field | type | required | description |
+|---|---|---|---|
+| `by` | `string` | yes | Who or what ended it: origin (the asked surface's person), origin-timeout (that surface's own card timed out), origin-no-answer, origin-unreachable, client (approval.respond from a surface), gateway:<platform>:<user>, jarvis, jarvis:auto, timeout, interrupted, security, error. |
+| `decision` | `"allow" \| "deny"` | yes | allow \| deny. |
+| `kind` | `"approval.answered"` | no |  |
+| `reason` | `string \| null` | no | The reason given or recorded, at most 300 characters. |
+| `requestId` | `string` | yes | The approval request. |
+| `scope` | `string \| null` | no | The scope applied; null for a deny. |
+| `tool` | `string` | yes | The tool the call was for. |
+| `waitedMs` | `number` | no | Milliseconds from asked to answered. |
+
+### kind `approval.asked`
+
+| field | type | required | description |
+|---|---|---|---|
+| `argsWithheld` | `boolean` | no | True when the arguments were kept out. |
+| `askedConn` | `string` | yes | Where it was asked: the person's surface (ide, desktop, app, tui, cli, web, person), remote (a remote web login), browser, connector, or none (the shared queue: every surface could answer). |
+| `kind` | `"approval.asked"` | no |  |
+| `personOnly` | `boolean` | no | Only a person could answer it. |
+| `reasonCode` | `string \| null` | no | ApprovalRequest.reasonCode. |
+| `requestId` | `string` | yes | The approval request. |
+| `risk` | `string \| null` | no | low \| medium \| high, as on the card. |
+| `route` | `string \| null` | no | ApprovalRequest.route when it was asked. |
+| `summary` | `string` | no | What the card showed of the call, at most 240 characters: the command line, the path or URL, else the arguments as JSON; 'arguments withheld' for a secret or config call. |
+| `tool` | `string` | yes | The tool the call was for. |
+| `unchecked` | `boolean` | no | True when the card said snowpea could not check the call (uncheckedWhy). |
+
 ### kind `audio.spoken`
 
 | field | type | required | description |
@@ -5815,6 +5844,28 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"provider.waiting"` | no |  |
 | `phase` | `"first_token" \| "idle"` | yes | 'first_token' before the call's first event, 'idle' between events. |
 | `sinceSec` | `number` | yes | Seconds of silence so far. |
+
+### kind `question.answered`
+
+| field | type | required | description |
+|---|---|---|---|
+| `answers` | `({ declined?: boolean; selected?: string[]; text?: string \| null; timedOut?: boolean; withheld?: boolean; })[]` | no | One per question. |
+| `by` | `string` | yes | Who or what ended it: origin, origin-timeout, origin-unreachable, client, jarvis, timeout, interrupted, error, unknown. |
+| `kind` | `"question.answered"` | no |  |
+| `requestId` | `string` | yes | The question request. |
+| `waitedMs` | `number` | no | Milliseconds from asked to answered. |
+
+### kind `question.asked`
+
+| field | type | required | description |
+|---|---|---|---|
+| `askedConn` | `string` | yes | As approval.asked.askedConn. |
+| `kind` | `"question.asked"` | no |  |
+| `personOnly` | `boolean` | no | Only a person could answer it. |
+| `questionKind` | `string \| null` | no | QuestionRequest.kind ('mode'). |
+| `questions` | `({ header?: string \| null; options?: string[]; question: string; secret?: boolean; })[]` | no | The batch. |
+| `requestId` | `string` | yes | The question request. |
+| `route` | `string \| null` | no | QuestionRequest.route when asked. |
 
 ### kind `session.forked`
 

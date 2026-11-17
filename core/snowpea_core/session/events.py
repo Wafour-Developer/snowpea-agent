@@ -13,6 +13,8 @@ from typing import Any, Literal
 from snowpea_core.server.protocol import (
     SESSION_EVENT_MODELS,
     AgentChanged,
+    ApprovalAnswered,
+    ApprovalAsked,
     AudioSpoken,
     CheckpointInfo,
     CheckpointRestored,
@@ -41,6 +43,10 @@ from snowpea_core.server.protocol import (
     PlanUpdated,
     ProviderRetry,
     ProviderWaiting,
+    QuestionAnswered,
+    QuestionAnsweredItem,
+    QuestionAsked,
+    QuestionAskedItem,
     TodoItem,
     TodosUpdated,
     ToolCallEvent,
@@ -605,6 +611,122 @@ def job_done(job_id: str, session_id: str | None, status: str = "ok", text: str 
 def job_failed(job_id: str, session_id: str | None, status: str = "error", text: str = "") -> Event:
     """A scheduled job the originating thread created ended without an answer."""
     return _pack(JobFailed(jobId=job_id, sessionId=session_id, status=status, text=text))
+
+
+#: Permission tags whose arguments never reach the stored record (0.2.91).
+WITHHELD_TAGS = frozenset({"secret", "config"})
+WITHHELD = "arguments withheld"
+_SUMMARY_KEYS = ("path", "file", "url", "target", "folder", "query", "pattern")
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def asked_conn(conn: Any) -> str:
+    """``approval.asked.askedConn``: where a request was asked (never an id)."""
+    from snowpea_core.server.person_gate import connection_kind
+
+    kind = connection_kind(conn)
+    if kind in ("none", "closed"):
+        return "none"
+    if kind == "remote_login":
+        return "remote"
+    if kind == "person":
+        return str(getattr(conn, "client_kind", None) or "person")
+    return kind
+
+
+def call_summary(args: Any) -> str:
+    """What an approval card shows of a call, clipped to 240 characters."""
+    import json
+
+    if not isinstance(args, dict):
+        return ""
+    command = args.get("command")
+    if isinstance(command, str) and command.strip():
+        return _clip(command.strip(), 240)
+    for key in _SUMMARY_KEYS:
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            return _clip(value.strip(), 240)
+    try:
+        text = json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        text = str(args)
+    return _clip(text, 240)
+
+
+def approval_asked(request: Any, conn: Any, tags: Sequence[str] | None = None) -> Event:
+    """``approval.asked`` for ``request`` (an ``ApprovalRequest``) sent to ``conn``."""
+    withheld = bool(WITHHELD_TAGS.intersection(tags or ()))
+    return _pack(ApprovalAsked(
+        requestId=request.requestId,
+        tool=request.tool,
+        risk=request.risk,
+        summary=WITHHELD if withheld else call_summary(request.args),
+        argsWithheld=withheld,
+        reasonCode=request.reasonCode,
+        unchecked=bool(request.reason or request.uncheckedWhy),
+        personOnly=bool(request.personOnly),
+        route=request.route,
+        askedConn=asked_conn(conn),
+    ))
+
+
+def approval_answered(request: Any, decision: Any, waited_ms: int) -> Event:
+    """``approval.answered``: how ``request`` ended (``decision``: the queue's Decision)."""
+    allowed = decision.decision == "allow"
+    return _pack(ApprovalAnswered(
+        requestId=request.requestId,
+        tool=request.tool,
+        decision="allow" if allowed else "deny",
+        scope=decision.scope if allowed else None,
+        by=str(decision.by),
+        reason=_clip(str(decision.reason), 300) if decision.reason else None,
+        waitedMs=max(0, int(waited_ms)),
+    ))
+
+
+def question_asked(request: Any, conn: Any) -> Event:
+    """``question.asked`` for ``request`` (a ``QuestionRequest``) sent to ``conn``."""
+    items = [
+        QuestionAskedItem(
+            header=item.header or None,
+            question=item.question,
+            options=[str(getattr(option, "label", option)) for option in item.options or ()],
+            secret=bool(getattr(item, "secret", False)),
+        )
+        for item in request.questions
+    ]
+    return _pack(QuestionAsked(
+        requestId=request.requestId,
+        questions=items,
+        personOnly=bool(request.personOnly),
+        questionKind=request.kind,
+        route=request.route,
+        askedConn=asked_conn(conn),
+    ))
+
+
+def question_answered(request: Any, answers: Sequence[Any], waited_ms: int) -> Event:
+    """``question.answered``: the answers, a secret question's kept out."""
+    items = []
+    for item, answer in zip(request.questions, answers, strict=False):
+        secret = bool(getattr(item, "secret", False))
+        items.append(QuestionAnsweredItem(
+            selected=[] if secret else list(answer.selected),
+            text=None if secret else answer.text,
+            withheld=secret,
+            declined=bool(answer.declined),
+            timedOut=bool(answer.timed_out),
+        ))
+    return _pack(QuestionAnswered(
+        requestId=request.requestId,
+        by=str(answers[0].by) if answers else "unknown",
+        answers=items,
+        waitedMs=max(0, int(waited_ms)),
+    ))
 
 
 def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
