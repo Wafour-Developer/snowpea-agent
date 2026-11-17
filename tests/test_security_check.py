@@ -223,7 +223,9 @@ def test_why_is_localized() -> None:
     assert "차단된 명령(필수)" in (ko.why or "")
     assert en.refusal.startswith("blocked by the security list: commands:essential")
     unseen = check_command("$X", ESSENTIAL, _ctx(locale="ko-KR"))
-    assert unseen.why == "차단 목록과 대조할 수 없습니다"
+    assert unseen.why == "snowpea가 실행 전에 무엇을 건드릴지 알 수 없어 확인합니다"
+    assert check_command("$X", ESSENTIAL, _ctx()).why == (
+        "snowpea cannot tell what this will touch before it runs, so it asks you")
 
 
 # -- custom patterns ------------------------------------------------------------------

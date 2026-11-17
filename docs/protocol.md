@@ -527,7 +527,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -561,6 +561,7 @@ Ask the client to approve a tool call.
 | `site` | `string \| null` | no | Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). |
 | `timeoutSec` | `number` | no | Seconds before the request is dropped as unanswered; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). |
 | `tool` | `string` | yes | Tool the model wants to run. |
+| `uncheckedWhy` | `({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null` | no | With reason (1.57.0, m21): what snowpea could not check, part by part — which simple command of the line, in which script file and line when the cause is inside a script, the reason id and a sentence for the person in the session's language. Null on an ordinary ask. Additive and informational. |
 
 **Result**
 
@@ -5221,7 +5222,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
 | `refused` | `{ code: string; message: string; reason: string; } \| null` | no | 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the request is still open. |
-| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 

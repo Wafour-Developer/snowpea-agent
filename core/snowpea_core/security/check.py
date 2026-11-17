@@ -89,8 +89,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ko": "보안 목록은 설정 화면에서 직접만 바꿀 수 있고, 도구로는 바꿀 수 없습니다",
     },
     "unchecked": {
-        "en": "cannot be checked against your block list",
-        "ko": "차단 목록과 대조할 수 없습니다",
+        "en": "snowpea cannot tell what this will touch before it runs, so it asks you",
+        "ko": "snowpea가 실행 전에 무엇을 건드릴지 알 수 없어 확인합니다",
     },
     "custom_title": {"en": "your list", "ko": "내 목록"},
     "control_write": {
@@ -152,6 +152,106 @@ def message(key: str, locale: str | None, **values: Any) -> str:
     return catalog.pick(_MESSAGES[key], locale).format(**values)
 
 
+#: ``uncheckedWhy`` texts (m21): one sentence per reason family, ``{x}`` the
+#: name, path or program concerned.  The first family whose prefix matches wins.
+_WHY_TEXTS: tuple[tuple[str, dict[str, str]], ...] = (
+    ("unknown-path", {"en": "writes to `{x}` — the path is not known before it runs",
+                      "ko": "`{x}`에 씀 — 실행 전에는 경로를 알 수 없음"}),
+    ("unknown-read", {"en": "reads `{x}` — the path is not known before it runs",
+                      "ko": "`{x}`를 읽음 — 실행 전에는 경로를 알 수 없음"}),
+    ("dynamic-program", {"en": "the program is named by a variable (`{x}`)",
+                         "ko": "프로그램 이름이 변수(`{x}`)로 정해짐"}),
+    ("brace-program", {"en": "the program is spelled by a brace expansion (`{x}`)",
+                       "ko": "프로그램 이름이 중괄호 확장(`{x}`)으로 정해짐"}),
+    ("substitution", {"en": "the program comes out of a command substitution",
+                      "ko": "프로그램 이름이 명령 치환의 결과로 정해짐"}),
+    ("snowpea-cli", {"en": "a command that controls snowpea ({x})",
+                     "ko": "snowpea를 제어하는 명령({x})"}),
+    ("snowpea-code", {"en": "code that uses snowpea's own modules ({x})",
+                      "ko": "snowpea 자체 모듈을 쓰는 코드({x})"}),
+    ("control-plane", {"en": "touches snowpea's own files ({x})",
+                       "ko": "snowpea 자체 파일을 건드림({x})"}),
+    ("env-code:", {"en": "sets `{x}`, which a program it runs may read as code or settings",
+                   "ko": "`{x}` 값을 정함 — 실행되는 프로그램이 코드나 설정으로 읽을 수 있음"}),
+    ("env-path:", {"en": "sets `{x}`, where programs it runs look for code",
+                   "ko": "`{x}` 값을 정함 — 실행되는 프로그램이 코드를 찾는 위치"}),
+    ("script-written", {"en": "runs a script this same line writes first",
+                        "ko": "같은 줄에서 먼저 쓴 스크립트를 실행함"}),
+    ("script-", {"en": "runs `{x}`, which snowpea cannot read",
+                 "ko": "snowpea가 읽을 수 없는 `{x}`를 실행함"}),
+    ("code:", {"en": "code that computes a target or a call while it runs",
+               "ko": "실행 중에 대상이나 호출을 계산하는 코드"}),
+    ("eval", {"en": "runs text built while it runs (eval)",
+              "ko": "실행 중에 만든 문자열을 실행함(eval)"}),
+    ("source", {"en": "reads in a file it cannot see (source)",
+                "ko": "볼 수 없는 파일을 불러옴(source)"}),
+    ("shell-", {"en": "hands a shell commands snowpea cannot read ahead",
+                "ko": "snowpea가 미리 읽을 수 없는 명령을 셸에 넘김"}),
+    ("hard-linked", {"en": "writes a file that has another name too (`{x}`)",
+                     "ko": "다른 이름도 가진 파일에 씀(`{x}`)"}),
+    ("", {"en": "what this touches is not known before it runs",
+          "ko": "실행 전에는 무엇을 건드릴지 알 수 없음"}),
+)
+
+
+def why_text(reason: str, subject: str, locale: str | None) -> str:
+    """The plain sentence for one ``uncheckedWhy`` entry."""
+    for head, texts in _WHY_TEXTS:
+        if reason == head or reason.startswith(head if head.endswith((":", "-")) else
+                                               head + ":") or not head:
+            return catalog.pick(texts, locale).format(x=subject)
+    return ""
+
+
+def _shown_file(path: str, ctx: Context) -> str:
+    """A script's path as the person reads it: relative to the project when inside it."""
+    if ctx.workdir is not None:
+        for root in (str(ctx.workdir), os.path.realpath(str(ctx.workdir))):
+            if path.startswith(root.rstrip("/") + "/"):
+                return path[len(root.rstrip("/")) + 1:]
+    return path
+
+
+def _unchecked_why(reasons: Iterable[str], view: sh.ShellView,
+                   unknown: dict[str, sh.Effect], ctx: Context) -> tuple[dict[str, Any], ...]:
+    """``uncheckedWhy`` for the reasons a verdict asks about (m21)."""
+    out: list[dict[str, Any]] = []
+    for reason in dict.fromkeys(reasons):
+        where: dict[str, Any] | None = None
+        subject = ""
+        effect = unknown.get(reason)
+        if effect is not None:
+            where = effect.origin
+            subject = effect.raw
+        if where is None:
+            where = view.details.get(reason)
+        if where is None:
+            where = {"part": _clip(view.texts[0]) if view.texts else ""}
+        part = str(where.get("part") or "")
+        subject = subject or str(where.get("subject") or "")
+        if not subject:
+            if reason.startswith(("env-code:", "env-path:")):
+                subject = reason.split(":", 1)[1]
+            elif reason.startswith("script-") and where.get("file") is None:
+                subject = part.split()[0] if part.split() else ""
+            elif reason.startswith("script-"):
+                subject = str(where["file"])
+            else:
+                subject = part.split()[0] if part.split() else part
+        if reason.startswith(("snowpea-", "control-plane")):
+            head = part.split()
+            subject = " ".join(head[:3]) + (" …" if len(head) > 3 else "")
+        entry: dict[str, Any] = {"part": _clip(part)}
+        if where.get("file"):
+            entry["file"] = _shown_file(str(where["file"]), ctx)
+            if isinstance(where.get("line"), int):
+                entry["line"] = where["line"]
+        entry["reason"] = reason
+        entry["text"] = why_text(reason, subject, ctx.locale)
+        out.append(entry)
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class Verdict:
     blocked: bool = False
@@ -177,6 +277,9 @@ class Verdict:
     #: ``security.unknownCode: "auto"`` lets it through in a session in auto mode
     #: (:func:`asks_in`).  False for every other verdict.
     relaxable: bool = False
+    #: For an opaque verdict (m21, ``ApprovalRequest.uncheckedWhy``): what could
+    #: not be checked, part by part — ``{"part", "file"?, "line"?, "reason", "text"}``.
+    unchecked_why: tuple[dict[str, Any], ...] = field(default=(), compare=False, hash=False)
 
     def asks_in(self, mode: str | None) -> bool:
         """The verdict puts the call to the person in a session in ``mode``."""
@@ -507,8 +610,10 @@ def _hard_linked(shape: _Shape) -> bool:
 
 
 def _path_verdict(effects: Iterable[sh.Effect], entries: list[catalog.PathEntry],
-                  ctx: Context) -> tuple[Verdict | None, list[str]]:
-    """The first protected path an effect breaks, and why any effect could not be judged."""
+                  ctx: Context, where: dict[str, sh.Effect] | None = None,
+                  ) -> tuple[Verdict | None, list[str]]:
+    """The first protected path an effect breaks, and why any effect could not be judged.
+    ``where``: filled with the first effect behind each such reason (m21)."""
     unseen: list[str] = []
     if not entries:
         return None, unseen
@@ -521,11 +626,15 @@ def _path_verdict(effects: Iterable[sh.Effect], entries: list[catalog.PathEntry]
             reason = "unknown-path" if effect.kind == "write" else "unknown-read"
             if reason not in unseen:
                 unseen.append(reason)
+                if where is not None:
+                    where.setdefault(reason, effect)
             continue
         if effect.kind == "write" and _hard_linked(shape) and "hard-linked" not in unseen:
             # Security review 5, M6: a file with more than one name may be a
             # protected file under another name; which one cannot be seen.
             unseen.append("hard-linked")
+            if where is not None:
+                where.setdefault("hard-linked", effect)
         for entry in entries:
             hit = _effect_hits(effect, entry, shape)
             if hit is None:
@@ -972,7 +1081,8 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         return settings_hit
     unseen: list[str] = []
     entries = path_entries(lists, ctx) if not lists.paths_empty else []
-    verdict, path_unseen = _path_verdict(effects, entries, ctx)
+    unknown: dict[str, sh.Effect] = {}
+    verdict, path_unseen = _path_verdict(effects, entries, ctx, unknown)
     if verdict is not None:
         return verdict
     # snowpea's own control files: always on, whatever the lists hold (a path the
@@ -1026,15 +1136,18 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
     if asks:
         reasons = tuple(dict.fromkeys([why for why, _ in asks] + unseen))
         return Verdict(opaque=True, reason=CONTROL_REASON, why=asks[0][1], unseen=reasons,
-                       scripts=scripts)
+                       scripts=scripts,
+                       unchecked_why=_unchecked_why(reasons, view, unknown, ctx))
     if unseen:
         only_code = all(why.startswith("code:") for why in unseen)
         relaxable = ctx.unknown_code == "auto" and all(why in relax for why in unseen)
+        reasons = tuple(dict.fromkeys(unseen))
         return Verdict(opaque=True,
                        reason=UNKNOWN_CODE_REASON if only_code else UNCHECKED_REASON,
                        why=message("unknown_code" if only_code else "unchecked", ctx.locale),
-                       unseen=tuple(dict.fromkeys(unseen)), scripts=scripts,
-                       relaxable=relaxable)
+                       unseen=reasons, scripts=scripts,
+                       relaxable=relaxable,
+                       unchecked_why=_unchecked_why(reasons, view, unknown, ctx))
     return Verdict(scripts=scripts) if scripts else ALLOWED
 
 

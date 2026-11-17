@@ -413,6 +413,19 @@ export interface ApprovalListResult {
     timeoutSec?: number;
     /** Tool the model wants to run. */
     tool: string;
+    /** With reason (1.57.0, m21): what snowpea could not check, part by part — which simple command of the line, in which script file and line when the cause is inside a script, the reason id and a sentence for the person in the session's language. Null on an ordinary ask. Additive and informational. */
+    uncheckedWhy?: ({
+      /** The script file it is in; absent when on the line itself. */
+      file?: string | null;
+      /** 1-based line in that file, when known. */
+      line?: number | null;
+      /** The simple command it is about, as written (clipped). */
+      part: string;
+      /** The reason id (unknown-path, dynamic-program, env-code:NAME, snowpea-cli, script-missing, code:…). */
+      reason: string;
+      /** Why, in plain words, in the session's language. */
+      text: string;
+    })[] | null;
   })[];
 }
 
@@ -481,6 +494,19 @@ export interface ApprovalRequestParams {
   timeoutSec?: number;
   /** Tool the model wants to run. */
   tool: string;
+  /** With reason (1.57.0, m21): what snowpea could not check, part by part — which simple command of the line, in which script file and line when the cause is inside a script, the reason id and a sentence for the person in the session's language. Null on an ordinary ask. Additive and informational. */
+  uncheckedWhy?: ({
+    /** The script file it is in; absent when on the line itself. */
+    file?: string | null;
+    /** 1-based line in that file, when known. */
+    line?: number | null;
+    /** The simple command it is about, as written (clipped). */
+    part: string;
+    /** The reason id (unknown-path, dynamic-program, env-code:NAME, snowpea-cli, script-missing, code:…). */
+    reason: string;
+    /** Why, in plain words, in the session's language. */
+    text: string;
+  })[] | null;
 }
 
 /** `approval.request` result. */
@@ -9419,6 +9445,19 @@ export interface ApprovalPendingPayload {
     timeoutSec?: number;
     /** Tool the model wants to run. */
     tool: string;
+    /** With reason (1.57.0, m21): what snowpea could not check, part by part — which simple command of the line, in which script file and line when the cause is inside a script, the reason id and a sentence for the person in the session's language. Null on an ordinary ask. Additive and informational. */
+    uncheckedWhy?: ({
+      /** The script file it is in; absent when on the line itself. */
+      file?: string | null;
+      /** 1-based line in that file, when known. */
+      line?: number | null;
+      /** The simple command it is about, as written (clipped). */
+      part: string;
+      /** The reason id (unknown-path, dynamic-program, env-code:NAME, snowpea-cli, script-missing, code:…). */
+      reason: string;
+      /** Why, in plain words, in the session's language. */
+      text: string;
+    })[] | null;
   };
 }
 
