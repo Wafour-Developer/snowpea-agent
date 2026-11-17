@@ -2,6 +2,8 @@
 """Fake ``cursor-agent`` print mode (one process per message), after spike S4.
 
     fake_cursor.py --version
+    fake_cursor.py --help                      lists ``--mode`` choices ``plan``, ``ask``
+                                               (``FAKE_CURSOR_MODES`` overrides them)
     fake_cursor.py create-chat                 prints a new chat id (no model call)
     fake_cursor.py --list-models               "<id> - <name>" lines
     fake_cursor.py -p --output-format stream-json [--stream-partial-output]
@@ -202,8 +204,22 @@ def run_print() -> int:
     return 0
 
 
+def help_text() -> str:
+    choices = ", ".join(f'"{m}"' for m in c.help_modes("FAKE_CURSOR_MODES", ["plan", "ask"]))
+    return (
+        "Usage: cursor-agent [options] [command] [prompt...]\n\nOptions:\n"
+        "  --mode <mode>                Start in the given execution mode. plan:\n"
+        "                               read-only/planning (analyze, propose plans, no\n"
+        f"                               edits). (choices: {choices})\n"
+        "  --yolo                       Alias for --force (Run Everything) (default:\n"
+        "                               false)\n"
+    )
+
+
 def main() -> int:
     if c.version_requested(VERSION):
+        return 0
+    if c.help_requested(help_text()):
         return 0
     c.log_start()
     args = sys.argv[1:]

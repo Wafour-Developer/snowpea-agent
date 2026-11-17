@@ -52,7 +52,9 @@ Server capabilities advertised in the `system.hello` result:
 - `contextWindowSource`
 - `ephemeralImages`
 - `extensions`
+- `externalNativeModes`
 - `externalSessions`
+- `externalTmux`
 - `fork`
 - `fs`
 - `goals`
@@ -175,6 +177,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`external.read`](#externalread) | client → server | External sessions (1.53.0, WP5/6): an older page of a session's timeline. |
 | [`external.send`](#externalsend) | client → server | External sessions (1.53.0, WP6): send a prompt; the reply streams as external.event to the sender, which is subscribed to the ref (idempotent; no external.open needed). A host 'none' session is continued first in its current mode or the CLI's defaultMode ('unrestricted' only for a human connection, else jarvis_person_only). During a running turn: added to that turn when capabilities.steer (same turnId back), else session_busy. A tmux pane that is not ready answers session_busy with error.data.details.reason terminal_prompt, terminal_busy or terminal_typing. Refused with external_view_only while canSend is false (host 'terminal'). A send from a human connection pauses Jarvis in that session (jarvis.quietMinutes). |
 | [`external.setMode`](#externalsetmode) | client → server | External sessions (1.53.0, WP6): switch a session to default, readonly or unrestricted; unrestricted only from a human connection. |
+| [`external.terminalSnapshot`](#externalterminalsnapshot) | client → server | External sessions (1.56.0, capability externalTmux): the visible text of the person's tmux pane a session runs in, for a prompt snowpea does not recognise. People only (a remote web login too); external_unavailable when the session does not run in a tmux pane snowpea can read. |
 | [`external.unwatch`](#externalunwatch) | client → server | External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok. |
 | [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
 | [`fs.glob`](#fsglob) | client → server | Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never followed; '**' does not enter .git or node_modules. |
@@ -520,7 +523,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -536,6 +539,7 @@ Ask the client to approve a tool call.
 | `argsEscaped` | `boolean \| null` | no | True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). |
 | `diff` | `string \| null` | no | For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. |
 | `external` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null` | no | Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. |
+| `externalTerminal` | `{ pane: string; text: string; } \| null` | no | Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). |
 | `folder` | `string \| null` | no | For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. |
 | `guard` | `string \| null` | no | Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. |
 | `neverDelegable` | `boolean \| null` | no | True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. |
@@ -987,7 +991,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
+| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; defaultNativeMode?: string; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; nativeModes?: ({ approvals: "bridged" \| "none"; asks: "always" \| "sometimes" \| "never"; id: string; label: string; legacy: "default" \| "readonly" \| "unrestricted"; personOnly: boolean; terminal?: "slash" \| "keys" \| "picker" \| null; writes: "none" \| "plan" \| "workspace" \| "anywhere"; })[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
 
 ### `external.clis.confirmPath`
 
@@ -1006,7 +1010,7 @@ External sessions (security review H2): the person confirms the resolved path of
 
 | field | type | required | description |
 |---|---|---|---|
-| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
+| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; defaultNativeMode?: string; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; nativeModes?: ({ approvals: "bridged" \| "none"; asks: "always" \| "sometimes" \| "never"; id: string; label: string; legacy: "default" \| "readonly" \| "unrestricted"; personOnly: boolean; terminal?: "slash" \| "keys" \| "picker" \| null; writes: "none" \| "plan" \| "workspace" \| "anywhere"; })[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, in a fixed order. |
 
 ### `external.close`
 
@@ -1039,6 +1043,7 @@ External sessions (1.53.0, WP6): start a new session of a CLI in a registered pr
 | `cli` | `"claude" \| "codex" \| "agy" \| "cursor"` | yes | Which CLI. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | default, readonly or unrestricted; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only); Jarvis asks the person through a person-only confirmation instead. |
 | `model` | `string \| null` | no | Model id for the CLI; validated, never a flag. |
+| `nativeMode` | `string \| null` | no | As ExternalOpenParams.nativeMode (1.56.0): wins over mode. |
 | `project` | `string` | yes | A registered project root; anything else is refused. |
 | `transport` | `"structured" \| "tmux"` | no | structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. |
 | `trust` | `boolean` | no | As ExternalOpenParams.trust (untrusted_project). |
@@ -1047,7 +1052,7 @@ External sessions (1.53.0, WP6): start a new session of a CLI in a registered pr
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
 
 ### `external.get`
 
@@ -1065,7 +1070,7 @@ External sessions (1.53.0): one session's row without opening or reading it (dee
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
 
 ### `external.interrupt`
 
@@ -1107,7 +1112,7 @@ External sessions (1.53.0, WP5/6): one working directory's sessions (or every ex
 | field | type | required | description |
 |---|---|---|---|
 | `nextBefore` | `string \| null` | no | Cursor for the next page. |
-| `sessions` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; })[]` | no | Newest first. |
+| `sessions` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; })[]` | no | Newest first. |
 
 ### `external.open`
 
@@ -1121,6 +1126,7 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 |---|---|---|---|
 | `limit` | `number` | no | Newest timeline entries to return. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). |
+| `nativeMode` | `string \| null` | no | The CLI's own mode id (1.56.0, from external.clis nativeModes); wins over mode. Unknown or not offered by this CLI: invalid_params. A personOnly mode only from a human connection (else jarvis_person_only), with a ledger entry. |
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Session to open. |
 | `transport` | `"structured" \| "tmux" \| null` | no | 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. |
 | `trust` | `boolean` | no | The person's one-time confirmation that external CLIs may run in this project (they load the project's own settings and hooks). Needed only when starting a CLI in a project no person trusted yet: without it external_unavailable with details.reason 'untrusted_project' (show the confirmation, retry with trust: true). Only a person's local connection can trust; anyone else gets details.reason 'untrusted_project_person_only'. |
@@ -1132,7 +1138,7 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 | `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; ts: string; turnId?: string \| null; })[]` | no | Newest page of the timeline, oldest first. |
 | `hasMore` | `boolean` | no | Older entries exist (external.read). |
 | `readOnly` | `boolean` | no | True while host is 'terminal' (or 'tmux' before spike S5 confirms input): view only, external.send refused. Opening a host 'none' session continues it under snowpea, so it comes back with host 'snowpea'. |
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
 
 ### `external.read`
 
@@ -1174,6 +1180,7 @@ External sessions (1.53.0, WP6): send a prompt; the reply streams as external.ev
 | field | type | required | description |
 |---|---|---|---|
 | `turnId` | `string` | yes | Turn id its turn.started/turn.done events carry. |
+| `via` | `"tmux" \| null` | no | 'tmux' (1.56.0): typed into the person's tmux pane. The turn ends when the CLI was busy and is idle again, or after about 20 seconds when it never looked busy (agy: once delivered). |
 
 ### `external.setMode`
 
@@ -1185,14 +1192,36 @@ External sessions (1.53.0, WP6): switch a session to default, readonly or unrest
 
 | field | type | required | description |
 |---|---|---|---|
-| `mode` | `"default" \| "readonly" \| "unrestricted"` | yes | default, readonly or unrestricted. 'unrestricted' only from a human connection (IDE, web, TUI, or the bound approver in a messenger); every such switch is a ledger entry. |
+| `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | default, readonly or unrestricted. 'unrestricted' only from a human connection (IDE, web, TUI, or the bound approver in a messenger); every such switch is a ledger entry. Optional since 1.56.0 when nativeMode is given; one of the two is required (else invalid_params). |
+| `nativeMode` | `string \| null` | no | As ExternalOpenParams.nativeMode (1.56.0): wins over mode; a personOnly mode only from a human connection, and every such switch is a ledger entry. |
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | The external session (host 'snowpea' or 'tmux'). |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
+
+### `external.terminalSnapshot`
+
+*Direction:* client → server
+
+External sessions (1.56.0, capability externalTmux): the visible text of the person's tmux pane a session runs in, for a prompt snowpea does not recognise. People only (a remote web login too); external_unavailable when the session does not run in a tmux pane snowpea can read.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | The external session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `capturedAt` | `string` | yes | UTC ISO time. |
+| `pane` | `string` | yes | tmux pane id it was read from. |
+| `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | The session. |
+| `text` | `string` | yes | The pane's visible text, plain (control characters removed) and clipped to the last 8000 characters. Untrusted: show it, never act on it. |
 
 ### `external.unwatch`
 
@@ -1838,7 +1867,7 @@ Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external.
 | field | type | required | description |
 |---|---|---|---|
 | `generatedAt` | `string` | yes | UTC ISO time the table was taken. |
-| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; hostToolsFrom?: string \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; originSurface?: string \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; securityListsApply?: boolean \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
+| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; hostToolsFrom?: string \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; nativeMode?: string \| null; originSurface?: string \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; securityListsApply?: boolean \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
 
 ### `jarvis.project.alias`
 
@@ -5161,7 +5190,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
 | `refused` | `{ code: string; message: string; reason: string; } \| null` | no | 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the request is still open. |
-| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 
@@ -5208,7 +5237,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, as external.clis would answer now. |
+| `clis` | `({ approvalPolicy?: "asks" \| "auto" \| null; capabilities?: { approvals: "bridged" \| "degraded"; liveView: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; steer?: boolean; streaming: boolean; tmux?: boolean; } \| null; defaultMode?: "default" \| "readonly" \| "unrestricted"; defaultNativeMode?: string; enabled?: boolean; id: "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; models?: string[]; modelsLoaded?: boolean; modes?: ("default" \| "readonly" \| "unrestricted")[]; nativeModes?: ({ approvals: "bridged" \| "none"; asks: "always" \| "sometimes" \| "never"; id: string; label: string; legacy: "default" \| "readonly" \| "unrestricted"; personOnly: boolean; terminal?: "slash" \| "keys" \| "picker" \| null; writes: "none" \| "plan" \| "workspace" \| "anywhere"; })[]; path?: string \| null; pendingPath?: string \| null; problems?: string[]; title: string; version?: string \| null; })[]` | no | All four, as external.clis would answer now. |
 
 ### `external.event`
 
@@ -5227,14 +5256,17 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `approvals` | `"bridged" \| "person" \| "degraded" \| "none"` | yes | As ExternalSessionRow.approvals, now. |
 | `canSend` | `boolean` | yes | As ExternalSessionRow.canSend, now. |
+| `controllable` | `"tmux" \| null` | no | As ExternalSessionRow.controllable, now (1.56.0). |
 | `controlled` | `boolean` | no | As ExternalSessionRow.controlled, now. |
 | `error` | `string \| null` | no | With status 'error': why. |
 | `host` | `"none" \| "terminal" \| "tmux" \| "snowpea"` | yes | Where its live process is now. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | As ExternalSessionRow.mode, now. |
+| `nativeMode` | `string \| null` | no | As ExternalSessionRow.nativeMode, now (1.56.0). |
 | `previous` | `"idle" \| "running" \| "error" \| null` | no | Status before. |
 | `previousHost` | `"none" \| "terminal" \| "tmux" \| "snowpea" \| null` | no | Host before. |
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Which session. |
 | `status` | `"idle" \| "running" \| "error"` | yes | Status now. |
+| `terminal` | `{ kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null` | no | As ExternalSessionRow.terminal, now (1.56.0). |
 | `title` | `string \| null` | no | Title, when known. |
 | `tmux` | `{ pane: string; session: string; } \| null` | no | With host 'tmux': where. |
 

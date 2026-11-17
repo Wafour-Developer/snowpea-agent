@@ -167,6 +167,56 @@ async def test_end_to_end_with_an_adapter(daemon: Daemon, http: aiohttp.ClientSe
             await client.stop()
 
 
+async def test_native_modes_over_rpc(daemon: Daemon, http: aiohttp.ClientSession,
+                                     tmp_path: Path) -> None:
+    """1.56.0: nativeModes on external.clis, nativeMode on create/setMode and the row.
+
+    The test adapter has no table of its own: its native modes are the three
+    buckets (modes.GENERIC), so the wire works the same for any adapter.
+    """
+    assert "externalNativeModes" in CAPABILITIES
+    assert daemon.core is not None and daemon.core.external is not None
+    registry = daemon.core.external.registry
+    for cli in registry.ids():
+        registry.unregister(cli)
+    registry.register(FakeClaudeAdapter())
+    project = tmp_path / "proj"
+    project.mkdir()
+    ide = await _client(http, daemon, "ide")
+    agent = await _client(http, daemon, "connector")
+    try:
+        await ide.ok("workspace.add", {"path": str(project)})
+        row = {c["id"]: c for c in (await ide.ok("external.clis"))["clis"]}["claude"]
+        assert [m["id"] for m in row["nativeModes"]] == ["default", "readonly", "unrestricted"]
+        assert row["nativeModes"][2]["personOnly"] is True
+        assert row["defaultNativeMode"] == "default"
+        bad = await ide.call("external.create", {"cli": "claude", "project": str(project),
+                                                 "nativeMode": "nonsense"})
+        assert _code(bad) == "invalid_params"
+        refused = await agent.call("external.create", {"cli": "claude", "project": str(project),
+                                                       "nativeMode": "unrestricted"})
+        assert _code(refused) == "jarvis_person_only"
+        session = (await ide.ok("external.create", {"cli": "claude", "project": str(project),
+                                                    "nativeMode": "readonly"}))["session"]
+        assert (session["mode"], session["nativeMode"]) == ("readonly", "readonly")
+        ref = session["ref"]
+        refused = await agent.call("external.setMode", {"ref": ref,
+                                                        "nativeMode": "unrestricted"})
+        assert _code(refused) == "jarvis_person_only"
+        switched = (await ide.ok("external.setMode", {"ref": ref, "nativeMode": "default",
+                                                      "mode": "unrestricted"}))
+        assert (switched["session"]["mode"], switched["session"]["nativeMode"]) == (
+            "default", "default")
+        neither = await ide.call("external.setMode", {"ref": ref})
+        assert _code(neither) == "invalid_params"
+        legacy = (await ide.ok("external.setMode", {"ref": ref, "mode": "readonly"}))
+        assert legacy["session"]["nativeMode"] == "readonly"
+        await ide.ok("external.close", {"ref": ref})
+    finally:
+        for client in (ide, agent):
+            await client.stop()
+
+
 async def test_send_subscribes_the_sender(daemon: Daemon, http: aiohttp.ClientSession,
                                           tmp_path: Path) -> None:
     """external.list -> external.send on a host none session streams to the sender."""

@@ -816,8 +816,9 @@ async def session_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             model=_text(args, "model", required=False, limit=128) or None,
             mode=str(args.get("mode") or "").strip() or None,
             prompt=prompt, title=title, ctx=ctx,
+            native_mode=_text(args, "nativeMode", required=False, limit=64) or None,
         )
-    if args.get("model") or args.get("mode"):
+    if args.get("model") or args.get("mode") or args.get("nativeMode"):
         raise Refused("model and mode are for an external CLI session (cli); a snowpea "
                       "session runs in the project's own mode and model")
     core = service.core
@@ -1410,6 +1411,15 @@ def build_tools(service: JarvisService) -> list[Tool]:
                         "unrestricted only when the person asked for it in the message you "
                         "are answering, from their messenger chat: they get a one-press "
                         "warning there, and nothing opens unless they allow it."
+                    ),
+                },
+                "nativeMode": {
+                    "type": "string",
+                    "description": (
+                        "With cli: one of the CLI's own modes by id (external.clis "
+                        "nativeModes, e.g. claude plan), instead of mode. A mode marked "
+                        "personOnly (auto, accept edits, bypass ...) is the person's to "
+                        "choose: you can only ask them."
                     ),
                 },
             },

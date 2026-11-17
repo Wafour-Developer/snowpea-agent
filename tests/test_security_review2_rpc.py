@@ -73,6 +73,7 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     "external.create": (P, P, P, R),  # trust decides (test below)
     "external.close": (P, P, N, R),
     "external.unwatch": (P, P, P, P),
+    "external.terminalSnapshot": (P, P, R, R),  # people only (a remote login too)
     "job.schedule": (P, P, P, R),
     "job.preview": (P, P, P, P),
     "job.list": (P, P, P, P),
@@ -181,6 +182,7 @@ async def _params(daemon: Daemon, ide: RpcClient, tmp_path: Path) -> dict[str, d
         "external.interrupt": {"ref": ref},
         "external.create": {"cli": "claude", "project": str(project)},
         "external.close": {"ref": ref}, "external.unwatch": {"ref": ref},
+        "external.terminalSnapshot": {"ref": ref},
         "job.schedule": {"spec": "every day at 9am", "task": "x", "workdir": str(project)},
         "job.preview": {"spec": "every day at 9am"}, "job.list": {},
         "job.cancel": {"jobId": "nope"}, "job.runNow": {"jobId": job.id},

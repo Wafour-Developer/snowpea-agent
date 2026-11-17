@@ -361,6 +361,13 @@ export interface ApprovalListResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     } | null;
+    /** Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). */
+    externalTerminal?: {
+      /** tmux pane id the answer key is sent to. */
+      pane: string;
+      /** The prompt as shown: plain, clipped, untrusted text. */
+      text: string;
+    } | null;
     /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
     folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
@@ -421,6 +428,13 @@ export interface ApprovalRequestParams {
     cli: "claude" | "codex" | "agy" | "cursor";
     /** The CLI's own session (thread, chat) id. */
     id: string;
+  } | null;
+  /** Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). */
+  externalTerminal?: {
+    /** tmux pane id the answer key is sent to. */
+    pane: string;
+    /** The prompt as shown: plain, clipped, untrusted text. */
+    text: string;
   } | null;
   /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
   folder?: string | null;
@@ -1052,6 +1066,8 @@ export interface ExternalClisResult {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
+    defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
     enabled?: boolean;
     /** claude, codex, agy or cursor. */
@@ -1064,6 +1080,25 @@ export interface ExternalClisResult {
     modelsLoaded?: boolean;
     /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
     modes?: ("default" | "readonly" | "unrestricted")[];
+    /** The CLI's own modes (1.56.0), in the CLI's order: what its installed version offers (discovery decides; a mode its version lacks is not listed). Before discovery or when not installed, the modes every supported version has. */
+    nativeModes?: ({
+      /** bridged: what it still asks becomes a snowpea approval; none: nothing is. */
+      approvals: "bridged" | "none";
+      /** Does the CLI stop and ask the person: always (whenever a permission is needed), sometimes (it proceeds alone and asks when unsure), never. */
+      asks: "always" | "sometimes" | "never";
+      /** The CLI's own id: claude default|acceptEdits|plan|auto|dontAsk|bypassPermissions; codex untrusted|read-only|default|full-access; agy default|accept-edits|auto|plan|dangerously-skip-permissions; cursor ask|plan|agent|yolo. */
+      id: string;
+      /** The CLI's own name for it, short, not translated. */
+      label: string;
+      /** What an old client sees in 'mode' for a session in this mode. */
+      legacy: "default" | "readonly" | "unrestricted";
+      /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
+      personOnly: boolean;
+      /** How a session in the person's tmux pane (externalTmux) is switched to it: slash (the CLI's slash command), keys (its mode key, Shift+Tab, until the pane shows it), picker (a slash command that opens a list, navigated entry by entry); null: not from snowpea there (grey it out). */
+      terminal?: "slash" | "keys" | "picker" | null;
+      /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
+      writes: "none" | "plan" | "workspace" | "anywhere";
+    })[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
     /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
@@ -1108,6 +1143,8 @@ export interface ExternalClisConfirmPathResult {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
+    defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
     enabled?: boolean;
     /** claude, codex, agy or cursor. */
@@ -1120,6 +1157,25 @@ export interface ExternalClisConfirmPathResult {
     modelsLoaded?: boolean;
     /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
     modes?: ("default" | "readonly" | "unrestricted")[];
+    /** The CLI's own modes (1.56.0), in the CLI's order: what its installed version offers (discovery decides; a mode its version lacks is not listed). Before discovery or when not installed, the modes every supported version has. */
+    nativeModes?: ({
+      /** bridged: what it still asks becomes a snowpea approval; none: nothing is. */
+      approvals: "bridged" | "none";
+      /** Does the CLI stop and ask the person: always (whenever a permission is needed), sometimes (it proceeds alone and asks when unsure), never. */
+      asks: "always" | "sometimes" | "never";
+      /** The CLI's own id: claude default|acceptEdits|plan|auto|dontAsk|bypassPermissions; codex untrusted|read-only|default|full-access; agy default|accept-edits|auto|plan|dangerously-skip-permissions; cursor ask|plan|agent|yolo. */
+      id: string;
+      /** The CLI's own name for it, short, not translated. */
+      label: string;
+      /** What an old client sees in 'mode' for a session in this mode. */
+      legacy: "default" | "readonly" | "unrestricted";
+      /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
+      personOnly: boolean;
+      /** How a session in the person's tmux pane (externalTmux) is switched to it: slash (the CLI's slash command), keys (its mode key, Shift+Tab, until the pane shows it), picker (a slash command that opens a list, navigated entry by entry); null: not from snowpea there (grey it out). */
+      terminal?: "slash" | "keys" | "picker" | null;
+      /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
+      writes: "none" | "plan" | "workspace" | "anywhere";
+    })[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
     /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
@@ -1158,6 +1214,8 @@ export interface ExternalCreateParams {
   mode?: "default" | "readonly" | "unrestricted" | null;
   /** Model id for the CLI; validated, never a flag. */
   model?: string | null;
+  /** As ExternalOpenParams.nativeMode (1.56.0): wins over mode. */
+  nativeMode?: string | null;
   /** A registered project root; anything else is refused. */
   project: string;
   /** structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. */
@@ -1174,6 +1232,8 @@ export interface ExternalCreateResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1184,6 +1244,8 @@ export interface ExternalCreateResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1199,6 +1261,26 @@ export interface ExternalCreateResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1232,6 +1314,8 @@ export interface ExternalGetResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1242,6 +1326,8 @@ export interface ExternalGetResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1257,6 +1343,26 @@ export interface ExternalGetResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1314,6 +1420,8 @@ export interface ExternalListResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1324,6 +1432,8 @@ export interface ExternalListResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1339,6 +1449,26 @@ export interface ExternalListResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1359,6 +1489,8 @@ export interface ExternalOpenParams {
   limit?: number;
   /** Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). */
   mode?: "default" | "readonly" | "unrestricted" | null;
+  /** The CLI's own mode id (1.56.0, from external.clis nativeModes); wins over mode. Unknown or not offered by this CLI: invalid_params. A personOnly mode only from a human connection (else jarvis_person_only), with a ledger entry. */
+  nativeMode?: string | null;
   /** Session to open. */
   ref: {
     /** claude, codex, agy or cursor. */
@@ -1397,6 +1529,8 @@ export interface ExternalOpenResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1407,6 +1541,8 @@ export interface ExternalOpenResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1422,6 +1558,26 @@ export interface ExternalOpenResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1489,12 +1645,16 @@ export interface ExternalSendParams {
 export interface ExternalSendResult {
   /** Turn id its turn.started/turn.done events carry. */
   turnId: string;
+  /** 'tmux' (1.56.0): typed into the person's tmux pane. The turn ends when the CLI was busy and is idle again, or after about 20 seconds when it never looked busy (agy: once delivered). */
+  via?: "tmux" | null;
 }
 
 /** `external.setMode` params. External sessions (1.53.0, WP6): switch a session to default, readonly or unrestricted; unrestricted only from a human connection. */
 export interface ExternalSetModeParams {
-  /** default, readonly or unrestricted. 'unrestricted' only from a human connection (IDE, web, TUI, or the bound approver in a messenger); every such switch is a ledger entry. */
-  mode: "default" | "readonly" | "unrestricted";
+  /** default, readonly or unrestricted. 'unrestricted' only from a human connection (IDE, web, TUI, or the bound approver in a messenger); every such switch is a ledger entry. Optional since 1.56.0 when nativeMode is given; one of the two is required (else invalid_params). */
+  mode?: "default" | "readonly" | "unrestricted" | null;
+  /** As ExternalOpenParams.nativeMode (1.56.0): wins over mode; a personOnly mode only from a human connection, and every such switch is a ledger entry. */
+  nativeMode?: string | null;
   /** The external session (host 'snowpea' or 'tmux'). */
   ref: {
     /** claude, codex, agy or cursor. */
@@ -1512,6 +1672,8 @@ export interface ExternalSetModeResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1522,6 +1684,8 @@ export interface ExternalSetModeResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1537,6 +1701,26 @@ export interface ExternalSetModeResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1549,6 +1733,34 @@ export interface ExternalSetModeResult {
     /** UTC ISO time of its last entry. */
     updatedAt?: string | null;
   };
+}
+
+/** `external.terminalSnapshot` params. External sessions (1.56.0, capability externalTmux): the visible text of the person's tmux pane a session runs in, for a prompt snowpea does not recognise. People only (a remote web login too); external_unavailable when the session does not run in a tmux pane snowpea can read. */
+export interface ExternalTerminalSnapshotParams {
+  /** The external session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+}
+
+/** `external.terminalSnapshot` result. */
+export interface ExternalTerminalSnapshotResult {
+  /** UTC ISO time. */
+  capturedAt: string;
+  /** tmux pane id it was read from. */
+  pane: string;
+  /** The session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+  /** The pane's visible text, plain (control characters removed) and clipped to the last 8000 characters. Untrusted: show it, never act on it. */
+  text: string;
 }
 
 /** `external.unwatch` params. External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok. */
@@ -2469,7 +2681,7 @@ export interface JarvisLedgerResult {
     id: string;
     /** How prominently clients show it (badge / OS / messenger). */
     importance?: "low" | "normal" | "high" | "urgent";
-    /** approval or question answered; continue (a stopped or incomplete turn was resumed); prompt or interrupt sent to the session; escalate (handed to the person); unrestricted (an external session was created, opened or switched to mode 'unrestricted' — always decidedBy 'person', with external and project). */
+    /** approval or question answered; continue (a stopped or incomplete turn was resumed); prompt or interrupt sent to the session; escalate (handed to the person); unrestricted (an external session was created, opened or switched to mode 'unrestricted' or, since 1.56.0, another personOnly native mode named in summary — always decidedBy 'person', with external and project). */
     kind: "approval" | "question" | "continue" | "prompt" | "interrupt" | "escalate" | "unrestricted";
     /** Project root of that session. */
     project?: string | null;
@@ -2541,6 +2753,8 @@ export interface JarvisOverviewResult {
     levelScope?: "session" | "project" | "global" | "default" | null;
     /** For an external session snowpea runs (host snowpea or tmux): its mode. */
     mode?: "default" | "readonly" | "unrestricted" | null;
+    /** For such a session: the CLI's own mode it runs in (1.56.0), as the row's. */
+    nativeMode?: string | null;
     /** For a snowpea session: as SessionSummary.originSurface (1.54.0): the surface that owns its approvals ('gateway:<platform>:<chat>' for a messenger session, 'scheduler', 'jarvis-task', a client's surface id, …). */
     originSurface?: string | null;
     /** As SessionJarvisState.pausedUntil. */
@@ -8971,6 +9185,13 @@ export interface ApprovalPendingPayload {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     } | null;
+    /** Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). */
+    externalTerminal?: {
+      /** tmux pane id the answer key is sent to. */
+      pane: string;
+      /** The prompt as shown: plain, clipped, untrusted text. */
+      text: string;
+    } | null;
     /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
     folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
@@ -9109,6 +9330,8 @@ export interface ExternalClisChangedPayload {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
+    defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
     enabled?: boolean;
     /** claude, codex, agy or cursor. */
@@ -9121,6 +9344,25 @@ export interface ExternalClisChangedPayload {
     modelsLoaded?: boolean;
     /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
     modes?: ("default" | "readonly" | "unrestricted")[];
+    /** The CLI's own modes (1.56.0), in the CLI's order: what its installed version offers (discovery decides; a mode its version lacks is not listed). Before discovery or when not installed, the modes every supported version has. */
+    nativeModes?: ({
+      /** bridged: what it still asks becomes a snowpea approval; none: nothing is. */
+      approvals: "bridged" | "none";
+      /** Does the CLI stop and ask the person: always (whenever a permission is needed), sometimes (it proceeds alone and asks when unsure), never. */
+      asks: "always" | "sometimes" | "never";
+      /** The CLI's own id: claude default|acceptEdits|plan|auto|dontAsk|bypassPermissions; codex untrusted|read-only|default|full-access; agy default|accept-edits|auto|plan|dangerously-skip-permissions; cursor ask|plan|agent|yolo. */
+      id: string;
+      /** The CLI's own name for it, short, not translated. */
+      label: string;
+      /** What an old client sees in 'mode' for a session in this mode. */
+      legacy: "default" | "readonly" | "unrestricted";
+      /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
+      personOnly: boolean;
+      /** How a session in the person's tmux pane (externalTmux) is switched to it: slash (the CLI's slash command), keys (its mode key, Shift+Tab, until the pane shows it), picker (a slash command that opens a list, navigated entry by entry); null: not from snowpea there (grey it out). */
+      terminal?: "slash" | "keys" | "picker" | null;
+      /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
+      writes: "none" | "plan" | "workspace" | "anywhere";
+    })[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
     /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
@@ -9161,6 +9403,8 @@ export interface ExternalStatePayload {
   approvals: "bridged" | "person" | "degraded" | "none";
   /** As ExternalSessionRow.canSend, now. */
   canSend: boolean;
+  /** As ExternalSessionRow.controllable, now (1.56.0). */
+  controllable?: "tmux" | null;
   /** As ExternalSessionRow.controlled, now. */
   controlled?: boolean;
   /** With status 'error': why. */
@@ -9169,6 +9413,8 @@ export interface ExternalStatePayload {
   host: "none" | "terminal" | "tmux" | "snowpea";
   /** As ExternalSessionRow.mode, now. */
   mode?: "default" | "readonly" | "unrestricted" | null;
+  /** As ExternalSessionRow.nativeMode, now (1.56.0). */
+  nativeMode?: string | null;
   /** Status before. */
   previous?: "idle" | "running" | "error" | null;
   /** Host before. */
@@ -9182,6 +9428,26 @@ export interface ExternalStatePayload {
   };
   /** Status now. */
   status: "idle" | "running" | "error";
+  /** As ExternalSessionRow.terminal, now (1.56.0). */
+  terminal?: {
+    /** The only kind: a tmux pane. */
+    kind: "tmux";
+    /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+    modeState?: "confirmed" | "unconfirmed" | "unknown";
+    /** tmux pane id, e.g. '%12'. */
+    pane: string;
+    /** A permission prompt waiting in the pane, or null. */
+    prompt?: {
+      /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+      recognised: boolean;
+      /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+      text?: string | null;
+    } | null;
+    /** tmux session name. */
+    session: string;
+    /** tmux window index. */
+    window: string;
+  } | null;
   /** Title, when known. */
   title?: string | null;
   /** With host 'tmux': where. */
@@ -9253,7 +9519,7 @@ export interface JarvisDecisionPayload {
     id: string;
     /** How prominently clients show it (badge / OS / messenger). */
     importance?: "low" | "normal" | "high" | "urgent";
-    /** approval or question answered; continue (a stopped or incomplete turn was resumed); prompt or interrupt sent to the session; escalate (handed to the person); unrestricted (an external session was created, opened or switched to mode 'unrestricted' — always decidedBy 'person', with external and project). */
+    /** approval or question answered; continue (a stopped or incomplete turn was resumed); prompt or interrupt sent to the session; escalate (handed to the person); unrestricted (an external session was created, opened or switched to mode 'unrestricted' or, since 1.56.0, another personOnly native mode named in summary — always decidedBy 'person', with external and project). */
     kind: "approval" | "question" | "continue" | "prompt" | "interrupt" | "escalate" | "unrestricted";
     /** Project root of that session. */
     project?: string | null;
@@ -10629,6 +10895,7 @@ export interface MethodMap {
   "external.read": { params: ExternalReadParams; result: ExternalReadResult };
   "external.send": { params: ExternalSendParams; result: ExternalSendResult };
   "external.setMode": { params: ExternalSetModeParams; result: ExternalSetModeResult };
+  "external.terminalSnapshot": { params: ExternalTerminalSnapshotParams; result: ExternalTerminalSnapshotResult };
   "external.unwatch": { params: ExternalUnwatchParams; result: ExternalUnwatchResult };
   "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
   "fs.glob": { params: FsGlobParams; result: FsGlobResult };
@@ -10852,6 +11119,7 @@ export type ClientMethod =
   | "external.read"
   | "external.send"
   | "external.setMode"
+  | "external.terminalSnapshot"
   | "external.unwatch"
   | "file.complete"
   | "fs.glob"

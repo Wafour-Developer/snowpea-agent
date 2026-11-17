@@ -881,7 +881,7 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     # external CLIs (the external manager's own trust and ownership rules apply)
     "external.clis", "external.list", "external.get", "external.read", "external.open",
     "external.send", "external.setMode", "external.interrupt", "external.create",
-    "external.close", "external.unwatch",
+    "external.close", "external.unwatch", "external.terminalSnapshot",
     # Jarvis (PERSON_METHODS keeps jarvis.enable a local person's)
     "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
     "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",

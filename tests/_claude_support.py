@@ -113,6 +113,7 @@ class StubHost:
         self.died: list[str] = []
         self.ids: list[str] = []
         self.titles: list[str] = []
+        self.modes: list[str] = []
 
     @property
     def builder(self) -> TimelineBuilder:
@@ -136,6 +137,9 @@ class StubHost:
 
     async def title_known(self, title: str) -> None:
         self.titles.append(title)
+
+    async def mode_known(self, native_mode: str) -> None:
+        self.modes.append(native_mode)
 
     def kinds(self) -> list[str]:
         return [item.kind for item in self.items]

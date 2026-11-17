@@ -36,10 +36,15 @@ import {
   rpcErrorFacts,
   trustPrompt,
   interruptRefusal,
+  chooseMode,
   modeLabel,
   modesFor,
+  nativeModeDescription,
   openExternal,
+  personOnlyPrompt,
+  personOnlyWord,
   sameRef,
+  sessionModeLabel,
   unrestrictedPrompt,
   usable,
   viewOnlyReason,
@@ -104,7 +109,17 @@ export type ScreenUi =
   | { kind: "new"; infos: ExternalCliInfo[] }
   | { kind: "sessions" }
   | { kind: "answer"; requestId: string }
-  | { kind: "unrestricted"; ref: ExternalRef; lines: string[] }
+  | {
+      kind: "unrestricted";
+      ref: ExternalRef;
+      lines: string[];
+      /** A person-only native mode (1.56.0) instead of `unrestricted`. */
+      nativeMode?: string;
+      /** Its label, for the toast. */
+      label?: string;
+      /** The word to type. */
+      word?: string;
+    }
   /** The person-only confirmation for adopting a tmux pane (`tmux.adopt`). */
   | { kind: "adopt"; ref: ExternalRef; request: ApprovalRequestParams }
   /** A one-key yes/no this screen asks itself: trusting a project, confirming a CLI path. */
@@ -806,13 +821,14 @@ export function useJarvisScreens(deps: ScreensDeps) {
   }, [loadClis, showToast]);
 
   const createExternal = useCallback(
-    (choice: { cli: ExternalRef["cli"]; mode: string; model: string | null }) => {
+    (choice: { cli: ExternalRef["cli"]; mode: string; nativeMode?: string; model: string | null }) => {
       callTrusted(
         "external.create",
         {
           cli: choice.cli,
           project: workdir,
           mode: choice.mode,
+          ...(choice.nativeMode ? { nativeMode: choice.nativeMode } : {}),
           transport: "structured",
           ...(choice.model ? { model: choice.model } : {}),
         },
@@ -829,6 +845,26 @@ export function useJarvisScreens(deps: ScreensDeps) {
     },
     [callTrusted, note, showOpened, workdir],
   );
+
+  const showSnapshot = useCallback(() => {
+    const view = externalRef.current;
+    if (!view) {
+      showToast("open an external session first");
+      return;
+    }
+    if (!view.session.terminal) {
+      showToast("this session does not run in a tmux pane snowpea can read");
+      return;
+    }
+    void client
+      .call("external.terminalSnapshot", { ref: view.ref })
+      .then((result) => {
+        // The pane's text is the terminal's, untrusted: shown, never acted on.
+        const lines = String(result.text ?? "").split("\n").slice(-30);
+        note([`tmux pane ${result.pane}:`, ...lines.map((line) => `  ${line}`)].join("\n"));
+      })
+      .catch((error: unknown) => showToast(describeExternalError(error, view.ref.cli)));
+  }, [client, note, showToast]);
 
   const loadOlder = useCallback(() => {
     const view = externalRef.current;
@@ -1052,12 +1088,59 @@ export function useJarvisScreens(deps: ScreensDeps) {
   );
 
   const changeMode = useCallback(
-    (mode: "default" | "readonly" | "unrestricted") => {
+    (word: string) => {
       const view = externalRef.current;
       if (!view) {
         showToast("open an external session first — /external");
         return;
       }
+      const cliInfo = clisRef.current?.find((entry) => entry.id === view.ref.cli);
+      const choice = chooseMode(cliInfo, word);
+      if (choice.kind === "unknown") {
+        showToast(
+          `${cliLabel(view.ref.cli)} has no mode ${word}` +
+            (choice.offered.length > 0 ? ` — it has ${choice.offered.join(", ")}` : ""),
+        );
+        return;
+      }
+      if (choice.kind === "native") {
+        // The CLI's own mode (1.56.0): what it asks and writes, as the CLI does.
+        const native = choice.mode;
+        if (view.session.nativeMode === native.id) {
+          showToast(`already ${native.label}`);
+          return;
+        }
+        if (view.session.terminal && !native.terminal) {
+          // 1.56.0: in the person's tmux pane only modes with a terminal switch work.
+          showToast(`${native.label}: switch it in the terminal`);
+          return;
+        }
+        if (native.personOnly) {
+          setUi({
+            kind: "unrestricted",
+            ref: view.ref,
+            nativeMode: native.id,
+            label: native.label,
+            word: personOnlyWord(native),
+            lines: personOnlyPrompt({
+              cli: view.ref.cli,
+              title: view.session.title,
+              cwd: view.session.cwd,
+              mode: native,
+            }),
+          });
+          return;
+        }
+        void client
+          .call("external.setMode", { ref: view.ref, nativeMode: native.id })
+          .then((result) => {
+            viewDispatch({ type: "session", session: result.session });
+            showToast(`mode: ${native.label} — ${nativeModeDescription(native)}`);
+          })
+          .catch((error: unknown) => showToast(describeExternalError(error, view.ref.cli)));
+        return;
+      }
+      const mode = choice.mode;
       if (view.session.mode === mode) {
         showToast(`already ${modeLabel(mode)}`);
         return;
@@ -1088,13 +1171,15 @@ export function useJarvisScreens(deps: ScreensDeps) {
 
   const confirmUnrestricted = useCallback(() => {
     if (ui?.kind !== "unrestricted") return;
-    const ref = ui.ref;
+    const { ref, nativeMode, label } = ui;
     setUi(null);
     void client
-      .call("external.setMode", { ref, mode: "unrestricted" })
+      .call("external.setMode", nativeMode ? { ref, nativeMode } : { ref, mode: "unrestricted" })
       .then((result) => {
         viewDispatch({ type: "session", session: result.session });
-        showToast("mode: UNRESTRICTED");
+        showToast(nativeMode && label && result.session.mode !== "unrestricted"
+          ? `mode: ${label}`
+          : "mode: UNRESTRICTED");
       })
       .catch((error: unknown) => showToast(describeExternalError(error, ref.cli)));
   }, [client, showToast, ui]);
@@ -1135,6 +1220,9 @@ export function useJarvisScreens(deps: ScreensDeps) {
           break;
         case "more":
           loadOlder();
+          break;
+        case "snapshot":
+          showSnapshot();
           break;
       }
       return true;
@@ -1235,6 +1323,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
     answerAdopt,
     /** True when the open session's CLI takes a message during a running turn. */
     canSteer: external ? steerOf(clis, external.ref.cli) : false,
+    /** The open session's mode as its CLI names it (1.56.0), else the bucket. */
+    externalModeLabel: external ? sessionModeLabel(external.session, clis) : null,
     confirmUnrestricted,
     marker,
     panel,

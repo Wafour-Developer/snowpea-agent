@@ -37,6 +37,7 @@ from snowpea_core.server.protocol import (
     ExternalSendParams,
     ExternalSendResult,
     ExternalSetModeParams,
+    ExternalTerminalSnapshotResult,
     Ok,
 )
 from snowpea_core.session import workspaces as ws
@@ -60,6 +61,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "external.close",
     "external.get",
     "external.unwatch",
+    "external.terminalSnapshot",
 )
 
 
@@ -242,7 +244,7 @@ async def open_handler(
     result = await _call(
         ensure_manager(core).open(
             params.ref.cli, params.ref.id, limit=params.limit, mode=params.mode, conn=conn,
-            transport=params.transport, trust=params.trust,
+            transport=params.transport, trust=params.trust, native_mode=params.nativeMode,
         )
     )
     return ExternalOpenResult.model_validate(result)
@@ -276,7 +278,8 @@ async def set_mode_handler(
 ) -> ExternalCreateResult:
     _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(
-        ensure_manager(core).set_mode(params.ref.cli, params.ref.id, params.mode, conn=conn)
+        ensure_manager(core).set_mode(params.ref.cli, params.ref.id, params.mode, conn=conn,
+                                      native_mode=params.nativeMode)
     )
     return ExternalCreateResult.model_validate(result)
 
@@ -305,6 +308,7 @@ async def create_handler(
             transport=params.transport,
             conn=conn,
             trust=params.trust,
+            native_mode=params.nativeMode,
         )
     )
     return ExternalCreateResult.model_validate(result)
@@ -322,6 +326,15 @@ async def get_handler(
     _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(ensure_manager(core).get(params.ref.cli, params.ref.id))
     return ExternalGetResult.model_validate(result)
+
+
+async def terminal_snapshot_handler(
+    conn: RpcConnection, params: ExternalRefParams, core: Core
+) -> ExternalTerminalSnapshotResult:
+    """``external.terminalSnapshot``: people only (PERSON_METHODS), the pane's plain text."""
+    require_person(conn, "read a terminal", local=False)
+    result = await _call(ensure_manager(core).terminal_snapshot(params.ref.cli, params.ref.id))
+    return ExternalTerminalSnapshotResult.model_validate(result)
 
 
 async def unwatch_handler(conn: RpcConnection, params: ExternalRefParams, core: Core) -> Ok:
@@ -342,6 +355,7 @@ def register_external_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("external.close", close_handler)
     dispatcher.register("external.get", get_handler)
     dispatcher.register("external.unwatch", unwatch_handler)
+    dispatcher.register("external.terminalSnapshot", terminal_snapshot_handler)
     return dispatcher
 
 

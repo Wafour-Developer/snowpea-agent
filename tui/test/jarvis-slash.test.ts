@@ -58,7 +58,12 @@ describe("/external", () => {
     expect(parseExternalCommand("/external more")).toEqual({ kind: "more" });
     expect(parseExternalCommand("/external mode readonly")).toEqual({ kind: "mode", mode: "readonly" });
     expect(parseExternalCommand("/external mode unrestricted")).toEqual({ kind: "mode", mode: "unrestricted" });
-    expect(parseExternalCommand("/external mode yolo")).toMatchObject({ kind: "invalid" });
+    // 1.56.0: any of a CLI's own mode ids; the open session's CLI says which exist.
+    expect(parseExternalCommand("/external mode plan")).toEqual({ kind: "mode", mode: "plan" });
+    expect(parseExternalCommand("/external mode acceptEdits")).toEqual({ kind: "mode", mode: "acceptEdits" });
+    expect(parseExternalCommand("/external mode read-only")).toEqual({ kind: "mode", mode: "read-only" });
+    expect(parseExternalCommand("/external mode --yolo")).toMatchObject({ kind: "invalid" });
+    expect(parseExternalCommand("/external mode plan auto")).toMatchObject({ kind: "invalid" });
     expect(parseExternalCommand("/external mode")).toMatchObject({ kind: "invalid" });
     expect(parseExternalCommand("/external new now")).toMatchObject({ kind: "invalid" });
     expect(parseExternalCommand("/jarvis")).toBeNull();

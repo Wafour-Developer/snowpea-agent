@@ -29,7 +29,9 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
+from snowpea_core.external import modes as native
 from snowpea_core.external import proc
+from snowpea_core.external.modes import NativeMode
 from snowpea_core.external.proc import (
     ExternalError,
     PinnedExecutable,
@@ -80,6 +82,9 @@ class Discovery:
     capabilities: CliCapabilities | None = None
     approval_policy: Literal["asks", "auto"] | None = None
     problems: list[str] = field(default_factory=list)
+    #: The modes the installed CLI offers (1.56.0); ``None`` when the adapter
+    #: did not look (its table rows without ``requires`` then stand).
+    native_modes: tuple[NativeMode, ...] | None = None
 
     @property
     def usable(self) -> bool:
@@ -110,6 +115,8 @@ class Liveness:
     host: Literal["none", "terminal", "tmux"] = "none"
     busy: bool = False
     tmux: dict[str, str] | None = None
+    #: The processes holding it (1.56.0): where the tmux bridge looks for a pane.
+    pids: tuple[int, ...] = ()
 
 
 @dataclass
@@ -126,6 +133,10 @@ class ApprovalAsk:
     #: never the engine, never an unattended rule.  E.g. adopting a tmux pane the
     #: person started themselves.
     person_only: bool = False
+    #: A prompt read off a tmux pane (1.56.0): ``{pane, text}`` (plain, clipped,
+    #: untrusted); ``ApprovalRequest.externalTerminal``.  Never answered from the
+    #: session's "allow for this session" memory.
+    terminal: dict[str, Any] | None = None
 
 
 @dataclass
@@ -157,6 +168,9 @@ class LaunchSpec:
     #: Present only when ``mode == "unrestricted"``; see :func:`proc.bypass_args`.
     grant: UnrestrictedGrant | None = None
     transport: Literal["structured", "tmux"] = "structured"
+    #: The CLI's own mode id (1.56.0), from the adapter's table; ``None`` means
+    #: the row ``legacy_native[mode]`` names.
+    native_mode: str | None = None
 
 
 class ChannelHost(Protocol):
@@ -187,6 +201,10 @@ class ChannelHost(Protocol):
     async def title_known(self, title: str) -> None:
         """The CLI named the session."""
 
+    async def mode_known(self, native_mode: str) -> None:
+        """The CLI changed its own mode (Claude Code leaving plan mode once the
+        person approved the plan); the row follows."""
+
 
 class ExternalChannel(ABC):
     """A session snowpea runs (host ``snowpea`` or ``tmux``)."""
@@ -198,6 +216,8 @@ class ExternalChannel(ABC):
         self.host_api = host
         self.session_id: str | None = spec.session_id
         self.mode: str = spec.mode
+        #: The CLI's own mode id; the manager sets it before :meth:`set_mode`.
+        self.native_mode: str | None = spec.native_mode
         self.grant: UnrestrictedGrant | None = spec.grant
         self.tmux: dict[str, str] | None = None
 
@@ -256,6 +276,10 @@ class ExternalChannel(ABC):
         """Pids of the processes this channel runs (to tell them from the person's)."""
         return set()
 
+    async def precheck(self, text: str) -> None:
+        """Refuse a send before the manager publishes anything (default: nothing)."""
+        return None
+
 
 class ExternalAdapter(ABC):
     """One external CLI.  Subclasses set the attributes and the abstract methods."""
@@ -273,6 +297,11 @@ class ExternalAdapter(ABC):
     forbidden_pairs: tuple[tuple[str, str], ...] = ()
     #: The mode used when nobody chose one and the setting is unset.
     builtin_default_mode: str = "default"
+    #: Every mode this adapter knows how to run (1.56.0), as the CLI names them;
+    #: empty: the three snowpea buckets (:data:`modes.GENERIC`).
+    native_table: tuple[NativeMode, ...] = ()
+    #: ``legacy mode -> native id``: what an old client's ``mode`` means.
+    legacy_native: dict[str, str] = {}
     #: The daemon's supervisor, handed over by the manager; helper processes
     #: (:meth:`helper_supervisor`) and channels run under it.
     supervisor: ProcessSupervisor | None = None
@@ -342,6 +371,61 @@ class ExternalAdapter(ABC):
         app-server gracefully here.
         """
         return None
+
+    # -- native modes (1.56.0) ---------------------------------------------
+    def table(self) -> tuple[NativeMode, ...]:
+        """The whole mode table (the generic buckets for an adapter without one)."""
+        if self.native_table:
+            return self.native_table
+        return tuple(row for row in native.GENERIC if row.id in self.capabilities.modes)
+
+    def native_modes(self, discovery: Discovery | None) -> tuple[NativeMode, ...]:
+        """The modes the installed CLI offers (discovery decides; see :func:`modes.offered`)."""
+        if discovery is not None and discovery.native_modes is not None:
+            return discovery.native_modes
+        return native.offered(self.table(), None)
+
+    def native_entry(self, mode_id: str | None, discovery: Discovery | None = None
+                     ) -> NativeMode | None:
+        """The offered row ``mode_id``, or ``None``."""
+        return native.find(self.native_modes(discovery), mode_id)
+
+    def native_for_legacy(self, mode: str | None, discovery: Discovery | None = None
+                          ) -> NativeMode | None:
+        """The row an old client's ``mode`` stands for (``None`` when not offered)."""
+        if not mode:
+            return None
+        mode_id = self.legacy_native.get(mode, mode)
+        return self.native_entry(mode_id, discovery)
+
+    def resolve_mode(self, mode: str | None, native_mode: str | None,
+                     discovery: Discovery | None = None) -> tuple[str, NativeMode] | None:
+        """``(legacy, row)`` for a request; ``nativeMode`` wins over ``mode``.
+
+        ``None`` when the request names neither.  An unknown or not offered
+        ``nativeMode`` (or a legacy ``mode`` with no row) is ``invalid_params``.
+        """
+        if native_mode is not None:
+            if not isinstance(native_mode, str) or not native_mode:
+                raise ExternalError(errors.INVALID_PARAMS, "nativeMode must be a mode id")
+            row = self.native_entry(native_mode, discovery)
+            if row is None:
+                offered = ", ".join(r.id for r in self.native_modes(discovery))
+                raise ExternalError(
+                    errors.INVALID_PARAMS,
+                    f"{self.title or self.id} does not offer mode {native_mode[:64]!r}"
+                    + (f"; it offers {offered}" if offered else ""),
+                )
+            return row.legacy, row
+        legacy = proc.validate_mode(mode, self.capabilities.modes)
+        if legacy is None:
+            return None
+        row = self.native_for_legacy(legacy, discovery)
+        if row is None:
+            raise ExternalError(
+                errors.INVALID_PARAMS, f"{self.title or self.id} does not offer mode {legacy!r}"
+            )
+        return legacy, row
 
     def controlled(self, mode: str, discovery: Discovery | None) -> bool:
         """False when snowpea cannot gate what the session runs."""
@@ -421,6 +505,7 @@ __all__ = [
     "LaunchSpec",
     "Liveness",
     "Mode",
+    "NativeMode",
     "SessionInfo",
     "Status",
     "unavailable",

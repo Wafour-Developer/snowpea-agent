@@ -136,6 +136,8 @@ export type ExternalTimelineEvent = NonNullable<ExternalOpenResult["events"]>[nu
 export type ExternalModeName = NonNullable<ExternalSessionRow["mode"]>;
 /** One CLI of `external.clis`. */
 export type ExternalCliInfo = NonNullable<ExternalClisResult["clis"]>[number];
+/** One of a CLI's own modes, as the CLI names it (1.56.0, `externalNativeModes`). */
+export type ExternalNativeMode = NonNullable<ExternalCliInfo["nativeModes"]>[number];
 /** `external.clis.changed`: all four CLIs, as `external.clis` would answer now. */
 export type ExternalClisChanged = ExternalClisChangedPayload;
 /** `external.clis.confirmPath` params. */
