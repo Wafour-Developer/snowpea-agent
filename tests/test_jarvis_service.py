@@ -458,17 +458,24 @@ async def test_routed_request_wakes_jarvis_with_a_system_turn(
                 tags=("exec",),
             )
         )
-        started = await client_recorder.wait("turn.started", timeout=10)
-        rows = (await client.ok("jarvis.overview", {}))["rows"]
-        row = next(r for r in rows if r["sessionId"] == worker.id)
+        # Read the row before the wake (about 2 s away): the turn below ends without a
+        # decision, and the request then becomes the person's.
+        row: dict[str, Any] = {}
+        for _ in range(100):
+            rows = (await client.ok("jarvis.overview", {}))["rows"]
+            row = next(r for r in rows if r["sessionId"] == worker.id)
+            if row["pendingApprovals"]:
+                break
+            await asyncio.sleep(0.01)
         assert row["status"] == "awaiting_approval" and row["pendingApprovals"] == 1
         assert row["waitingOnPerson"] == 0  # routed to Jarvis
+        assert core.approvals.list()[0].route == "jarvis"
+        started = await client_recorder.wait("turn.started", timeout=10)
         assert started["payload"]["reason"] == "jarvis-intake"
         assert started["payload"]["initiator"] == "system"
         await asyncio.wait_for(jarvis.turn_task, 30)
         sent = "\n".join(message_text(m) for m in echo.seen[-1])
         assert "make build" in sent and "Waiting for your decision" in sent
-        assert core.approvals.list()[0].route == "jarvis"
         assert service.intake.budget.wakes_this_hour() == 1
         await core.approvals.respond(ask_id(core, worker.id), "deny")
         await asyncio.wait_for(ask, 5)

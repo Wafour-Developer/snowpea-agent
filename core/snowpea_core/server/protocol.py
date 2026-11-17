@@ -8423,7 +8423,8 @@ class JarvisDecision(Payload):
 
 class JarvisLedgerParams(Payload):
     sessionId: str | None = Field(default=None, description="Only decisions for this session.")
-    decidedBy: Literal["jarvis", "person", "auto"] | None = Field(
+    # Spelled in ApprovalRoute's order: the generated artifacts then read the same on every Python.
+    decidedBy: Literal["person", "jarvis", "auto"] | None = Field(
         default=None, description="Only decisions by this decider."
     )
     before: str | None = Field(
