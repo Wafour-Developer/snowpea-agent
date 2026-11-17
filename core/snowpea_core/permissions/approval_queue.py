@@ -913,6 +913,9 @@ class ApprovalQueue:
             argsEscaped=True if escaped else None,
             neverDelegable=True if never else None,
             reason=(security.reason or UNCHECKED_REASON) if unchecked else None,
+            # m21: what could not be checked, part by part (the verdict's own words).
+            uncheckedWhy=list(getattr(security, "unchecked_why", ()) or ()) or None
+            if unchecked else None,
         )
         if self.router is not None:
             try:

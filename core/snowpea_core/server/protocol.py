@@ -2311,6 +2311,19 @@ class ScriptRef(Payload):
     sha256: str = Field(description="Hex SHA-256 of its bytes when the person allowed it.")
 
 
+class UncheckedWhy(Payload):
+    """One part of a call snowpea could not check before it runs (1.57.0, m21)."""
+
+    part: str = Field(description="The simple command it is about, as written (clipped).")
+    file: str | None = Field(
+        default=None, description="The script file it is in; absent when on the line itself.")
+    line: int | None = Field(default=None, description="1-based line in that file, when known.")
+    reason: str = Field(
+        description="The reason id (unknown-path, dynamic-program, env-code:NAME, "
+        "snowpea-cli, script-missing, code:…).")
+    text: str = Field(description="Why, in plain words, in the session's language.")
+
+
 class ApprovalRemember(Payload):
     """What a remembered answer to a shell approval would allow (1.34.0, ``shellRemember``)."""
 
@@ -2535,6 +2548,15 @@ class ApprovalRequest(Payload):
             "settings say) and 'cannot tell what this code changes' (only code the check "
             "cannot resolve is in the way; security.unknownCode: 'allow' switches this one "
             "off). note carries the sentence for the person."
+        ),
+    )
+    uncheckedWhy: list[UncheckedWhy] | None = Field(
+        default=None,
+        description=(
+            "With reason (1.57.0, m21): what snowpea could not check, part by part — which "
+            "simple command of the line, in which script file and line when the cause is "
+            "inside a script, the reason id and a sentence for the person in the session's "
+            "language. Null on an ordinary ask. Additive and informational."
         ),
     )
 

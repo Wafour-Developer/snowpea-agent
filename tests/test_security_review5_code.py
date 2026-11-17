@@ -185,7 +185,8 @@ def test_a_script_file_is_read(project: Path) -> None:
 def test_recent_scripts_count_their_opaque_parts(project: Path,
                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     script = project / "dyn.sh"
-    script.write_text("X=rm\n$X -rf /tmp/thing\n", encoding="utf-8")
+    # (m21: ``X=rm`` alone is resolved now; a computed program is not.)
+    script.write_text("X=$(cat prog.txt)\n$X -rf /tmp/thing\n", encoding="utf-8")
     assert _verdict("bash dyn.sh", project) == "opaque"  # just written: the agent's own
     monkeypatch.setattr(code_mod, "RECENT_SEC", -1.0)
     assert _verdict("bash dyn.sh", project) == "allowed"  # a pre-existing script
@@ -209,7 +210,7 @@ def test_unreadable_scripts(project: Path, monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_the_digest_catches_a_swap(project: Path) -> None:
     script = project / "run.sh"
-    script.write_text("X=echo\n$X hi\n", encoding="utf-8")
+    script.write_text("X=$(cat prog.txt)\n$X hi\n", encoding="utf-8")
     verdict = check_command("bash run.sh", ESSENTIAL, _ctx(project), cwd=project)
     assert verdict.opaque and verdict.scripts
     assert scripts_changed(verdict) == []

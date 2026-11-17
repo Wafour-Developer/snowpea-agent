@@ -156,6 +156,8 @@ class Effect:
     #: Which shell runs it (m21): the agent's own line is one, each script file
     #: it runs another.  An unseen part can change only its own shell's state.
     shell: int = 0
+    #: Where it was written (m21, for the person): ``{"part", "file"?, "line"?}``.
+    origin: dict[str, Any] | None = None
 
 
 @dataclass
@@ -200,6 +202,9 @@ class ShellView:
     script_opaque: list[str] = field(default_factory=list)
     #: ``[start, end)`` spans of :attr:`effects` that a script file's content made.
     script_spans: list[tuple[int, int]] = field(default_factory=list)
+    #: Where each opaque or control reason was first met (m21, ``uncheckedWhy``):
+    #: reason id -> ``{"part", "file"?, "line"?}``.
+    details: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 #: Positive analysis or ask (security review 7, P1).  The classifier marks what
@@ -493,6 +498,437 @@ def _invocation(spec: _Spec, rest: list[str], rest_dyn: list[bool]) -> _Invocati
     return found
 
 
+# -- reader precision (m21): literal values a script or a line gives a name ------------
+#
+# ``bash bin/shot.sh /tmp/a.png`` where the script says ``OUT=${1:-/tmp/b.png}``,
+# ``ADB=/opt/sdk/adb`` and ``$ADB exec-out screencap -p > "$OUT"``: the program is
+# ``/opt/sdk/adb`` and the file written is ``/tmp/a.png`` or ``/tmp/b.png`` — both
+# are judged, each exactly as if the text spelled it.  A name qualifies only when
+# nothing else in the text can give it another value (:func:`_scope_for`); a value
+# that is computed, read, inherited or would split into several words keeps the
+# expansion unknown, as before.
+
+#: Names the shell sets or reads itself: never substituted.
+_SPECIAL_NAMES: frozenset[str] = frozenset(
+    {"RANDOM", "SECONDS", "LINENO", "PPID", "PWD", "OLDPWD", "IFS", "OPTARG", "OPTIND",
+     "REPLY", "HOSTNAME", "HOSTTYPE", "UID", "EUID", "GROUPS", "FUNCNAME", "PIPESTATUS",
+     "MAPFILE", "COLUMNS", "LINES", "SHLVL", "HISTFILE", "SHELLOPTS", "BASHOPTS",
+     "EPOCHSECONDS", "EPOCHREALTIME", "SRANDOM", "BASHPID", "COPROC", "DIRSTACK", "PS4",
+     "CDPATH", "ENV", "BASH_ENV", "HOME", "TMPDIR", "SNOWPEA_HOME", "PATH"}
+)
+#: Constructs that can give any name a value the text does not spell: nothing of
+#: such a text is substituted (``eval``, ``source``/``.``, ``printf -v``, a
+#: nameref, ``set -a``/allexport, ``alias``, ``let``, ``${!x}``, ``IFS``, a
+#: builtin given a name only the shell knows).
+_NO_BINDING = re.compile(
+    r"(?:^|[\s;&|(){}`])(?:eval|source|alias|let|enable|builtin|command)(?=[\s;&|)]|$)"
+    r"|(?:^|[;&|\n({]|\bthen|\bdo|\belse)\s*\.\s+\S"
+    r"|\bprintf\s+(?:-\S+\s+)*-v\b"
+    r"|\b(?:declare|local|typeset|readonly)\s+(?:-\w+\s+)*-\w*n"
+    r"|\bset\s+(?:-\w*a|-o\s+allexport|[-+]o\s+a\b)|\ballexport\b"
+    r"|\$\{!|\bIFS\b"
+    r"|\b(?:read|mapfile|readarray|getopts|declare|typeset|local|export|readonly|unset)"
+    r"(?:\s+-\w+)*\s+[\"']?\$",
+    re.MULTILINE,
+)
+#: Constructs that change the positional parameters (or give a function its own).
+_NO_POSITIONAL = re.compile(
+    r"\bshift\b|\bset\s+(?:--|[^-\s])|[A-Za-z_][A-Za-z0-9_-]*\s*\(\s*\)|\bfunction\s",
+)
+#: ``$NAME``, ``${NAME}``, ``${NAME:-lit}``, ``${NAME-lit}``, ``${NAME:=lit}``,
+#: ``$1``, ``${12:-lit}``, ``$#``.  The default must be a plain literal.
+_EXPANSION = re.compile(
+    r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*|[0-9]+|#)"
+    r"(?:(?P<op>:?[-=])(?P<default>[^{}$`'\"\\]*))?\}"
+    r"|(?P<plain>[A-Za-z_][A-Za-z0-9_]*|[0-9#]))"
+)
+#: A value that would split into several words, expand as a pattern, or expand
+#: again when used unquoted (whether a use is quoted is not known here).
+_SPLITS = re.compile(r"[\s*?\[\]$`\\'\"{}]")
+#: Most candidate command lines one simple command is judged as.
+MAX_VARIANTS = 16
+#: Most candidate command lines one line (with every script it runs) is judged as.
+MAX_WALKS = 256
+
+
+@dataclass
+class _Binding:
+    """The literal values a name's one assignment gives it (:func:`_scope_for`)."""
+
+    values: tuple[str, ...]
+    #: The assignment's position among the text's parsed commands.
+    index: int
+    #: A top-level, unconditional statement of its own: a use parsed after it
+    #: cannot see the name unset.
+    sure: bool
+
+
+@dataclass
+class _Scope:
+    """What a text (a script, a ``sh -c`` body, the agent's own line) gives names."""
+
+    bound: dict[str, _Binding] = field(default_factory=dict)
+    #: Names only ever assigned by standalone statements and never exported: no
+    #: program the text runs can read them.
+    local: set[str] = field(default_factory=set)
+    #: ``$1``… of a script run with arguments (an item ``None``: not literal);
+    #: ``None`` when they are not known.
+    positional: list[str | None] | None = None
+    #: Uses can be ordered against assignments (no ``trap`` body can run first).
+    ordered: bool = True
+    #: The line id (:attr:`_Probe._line`) of the text itself: only its own
+    #: commands are read with this scope, never a body walked inside it.
+    line_id: int = 0
+
+
+def _bare(text: str, name: str) -> list[int]:
+    """Offsets of every occurrence of ``name`` in ``text`` other than ``$name``/``${name``."""
+    out: list[int] = []
+    for match in re.finditer(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text):
+        start = match.start()
+        if start >= 1 and text[start - 1] == "$":
+            continue
+        if start >= 2 and text[start - 2:start] == "${":
+            if text[match.end():match.end() + 2].startswith((":=", "=")):
+                out.append(start)  # ``${NAME:=v}`` assigns: counts as another place
+            continue
+        out.append(start)
+    return out
+
+
+def _skip_quoted(text: str, i: int, limit: int) -> int:
+    """Index after the quoted span, ``$(…)``, ``${…}`` or backtick span opening at ``i``;
+    ``-1`` when it does not close before ``limit``."""
+    char = text[i]
+    if char == "'":
+        end = text.find("'", i + 1)
+        return end + 1 if 0 <= end < limit else -1
+    if char in '"`':
+        j = i + 1
+        while j < limit:
+            if text[j] == "\\":
+                j += 2
+                continue
+            if text[j] == char:
+                return j + 1
+            j += 1
+        return -1
+    opener = text[i + 1]
+    closer = ")" if opener == "(" else "}"
+    depth = 0
+    j = i + 1
+    while j < limit:
+        if text[j] == "\\":
+            j += 2
+            continue
+        if text[j] in "'\"" and opener == "(":
+            k = _skip_quoted(text, j, limit)
+            if k < 0:
+                return -1
+            j = k
+            continue
+        if text[j] == opener:
+            depth += 1
+        elif text[j] == closer:
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
+    return -1
+
+
+_KEYWORDS_OPEN: frozenset[str] = frozenset({"if", "while", "until", "for", "select", "{"})
+_KEYWORDS_CLOSE: frozenset[str] = frozenset({"fi", "done", "}"})
+_KEYWORDS_NEXT: frozenset[str] = frozenset({"then", "do", "else", "elif", "!", "time"})
+
+
+def _top_level(text: str, offset: int) -> bool:  # noqa: C901 - one small scanner
+    """The statement at ``offset`` runs unconditionally in the shell itself: not in a
+    block, a loop, a subshell, a pipeline or after ``&&``/``||``.  When in doubt
+    (a here-document, ``case``) ``False``."""
+    head = text[:offset]
+    if "<<" in head or re.search(r"(?:^|[\s;&|(])case\s", head):
+        return False
+    depth = 0
+    last = ";"
+    at_command = True
+    i = 0
+    while i < offset:
+        char = text[i]
+        if char == "\\":
+            i += 2
+            at_command = False
+            continue
+        if char in "'\"`" or (char == "$" and text[i + 1:i + 2] in ("(", "{")):
+            end = _skip_quoted(text, i, offset)
+            if end < 0:
+                return False
+            i = end
+            at_command = False
+            continue
+        if char == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+            end = text.find("\n", i)
+            i = offset if end < 0 else end
+            continue
+        if char in "\n;":
+            last, at_command = ";", True
+            i += 1
+            continue
+        if char in "&|":
+            double = text[i + 1:i + 2] == char
+            last = char * 2 if double else char
+            at_command = True
+            i += 2 if double else 1
+            continue
+        if char == "(":
+            depth += 1
+            last, at_command = "(", True
+            i += 1
+            continue
+        if char == ")":
+            depth -= 1
+            at_command = False
+            i += 1
+            continue
+        if char in " \t":
+            i += 1
+            continue
+        j = i
+        while j < offset and text[j] not in " \t\n;&|()<>'\"`$\\":
+            j += 1
+        if j == i:
+            i += 1
+            at_command = False
+            continue
+        word = text[i:j]
+        if at_command:
+            if word in _KEYWORDS_OPEN:
+                depth += 1
+                last = word
+            elif word in _KEYWORDS_CLOSE:
+                depth -= 1
+                at_command = False
+            elif word in _KEYWORDS_NEXT:
+                last = word
+            else:
+                at_command = False
+        i = j
+    if depth != 0 or last != ";":
+        return False
+    # Not the head of a pipeline or a background job either.
+    tail = text[offset:]
+    end = 0
+    while end < len(tail) and tail[end] not in " \t\n;&|":
+        if tail[end] in "'\"`" or (tail[end] == "$" and tail[end + 1:end + 2] in ("(", "{")):
+            skipped = _skip_quoted(tail, end, len(tail))
+            if skipped < 0:
+                return False
+            end = skipped
+            continue
+        end += 2 if tail[end] == "\\" else 1
+    follow = tail[end:].lstrip(" \t")
+    return not (follow.startswith("|") and not follow.startswith("||")) and not (
+        follow.startswith("&") and not follow.startswith("&&"))
+
+
+def _ends_statement(text: str, offset: int) -> bool:
+    """The assignment at ``offset`` (and any assignments right after it) is the whole
+    statement: no program follows on it (the parser splits ``X=$(…) prog`` in two,
+    so this is read from the text itself)."""
+    i = offset
+    while True:
+        while i < len(text) and text[i] not in " \t\n;&|":
+            if text[i] in "'\"`" or (text[i] == "$" and text[i + 1:i + 2] in ("(", "{")):
+                skipped = _skip_quoted(text, i, len(text))
+                if skipped < 0:
+                    return False
+                i = skipped
+                continue
+            i += 2 if text[i] == "\\" else 1
+        while i < len(text) and text[i] in " \t":
+            i += 1
+        rest = text[i:]
+        if not rest or rest.startswith(("\n", ";", "&&", "||", "#")):
+            return True
+        if not re.match(r"[A-Za-z_][A-Za-z0-9_]*=", rest):
+            return False
+
+
+def _quoting_unclear(text: str) -> bool:
+    """The parser drops quotes, so ``'$X'$Y`` reads as ``$X$Y``: a ``$`` written in
+    single quotes next to other text, an escaped ``\\$`` or ``$'…'`` makes it
+    unclear which ``$`` of a word expands (nothing of the text is substituted)."""
+    if "\\$" in text or "$'" in text:
+        return True
+    i = 0
+    double = False
+    while i < len(text):
+        char = text[i]
+        if char == "\\":
+            i += 2
+            continue
+        if char == '"':
+            double = not double
+        elif char == "'" and not double:
+            end = text.find("'", i + 1)
+            if end < 0:
+                return True
+            if "$" in text[i + 1:end]:
+                before = text[i - 1] if i else " "
+                after = text[end + 1] if end + 1 < len(text) else " "
+                if before not in " \t\n;&|(<>" or after not in " \t\n;&|)<>":
+                    return True
+            i = end
+        i += 1
+    return False
+
+
+def _plain(value: str, *, whole: bool) -> bool:
+    """``value`` stands for itself as one unquoted word (``~`` only as a whole word,
+    where the reader treats it as the shell does)."""
+    if _SPLITS.search(value) or not value:
+        return False
+    return whole or "~" not in value
+
+
+def _scope_for(text: str, *, positional: list[tuple[str, bool]] | None,
+               outer: str) -> _Scope | None:
+    """The literal values ``text`` gives its names, or ``None`` when nothing in it
+    can be substituted.  ``outer``: the texts of what runs it (a name they mention
+    may come exported from there, so it is never substituted nor called local)."""
+    if _NO_BINDING.search(text) or _quoting_unclear(text):
+        return None
+    try:
+        parsed = _c.parse_line(text)
+    except Exception:  # noqa: BLE001 - an unreadable text binds nothing
+        return None
+    scope = _Scope(ordered=not re.search(r"(?:^|[\s;&|(])trap\s", text))
+    if positional is not None and not _NO_POSITIONAL.search(text):
+        scope.positional = [word if not dyn and _plain(word, whole=True) else None
+                            for word, dyn in positional]
+    # The standalone assignments (statements of nothing but assignments), by name.
+    standalone: dict[str, list[tuple[int, str, bool]]] = {}
+    for index, cmd in enumerate(parsed.commands):
+        words = list(cmd.words)
+        while words and words[0] in _c.RESERVED_WORDS:
+            words = words[1:]
+        if not words or cmd.redirects or not all(_c._ASSIGNMENT.match(w) for w in words):
+            continue
+        dyn_all = list(cmd.dynamic)[len(cmd.words) - len(words):]
+        for word, dyn in zip(words, dyn_all, strict=False):
+            name, _, value = word.partition("=")
+            standalone.setdefault(name, []).append((index, value, dyn))
+    ordered_names = sorted(standalone, key=lambda n: standalone[n][0][0])
+    for name in ordered_names:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) or name in _SPECIAL_NAMES \
+                or _env.is_watched(name) or name in os.environ \
+                or name.upper().startswith(("SNOWPEA", "BASH", "XDG_")):
+            continue
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", outer):
+            continue  # what runs the text may export it (``export NAME=…; bash x.sh``)
+        places = _bare(text, name)
+        if len(places) != len(standalone[name]) or not all(
+                _ends_statement(text, place) for place in places):
+            continue  # ``export NAME``, ``read NAME``, ``NAME=$(…) prog``, ``NAME+=``…
+        scope.local.add(name)
+        if len(places) != 1:
+            continue  # assigned twice: which value a use sees is not known
+        index, raw, dyn = standalone[name][0]
+        if dyn:
+            values = _expand(raw, scope, index)
+        else:
+            values = [raw] if _plain(raw, whole=True) else None
+        if values is None or not values or any(not v for v in values):
+            continue
+        scope.bound[name] = _Binding(tuple(dict.fromkeys(values)), index,
+                                     _top_level(text, places[0]))
+    return scope
+
+
+def _expand(word: str, scope: _Scope, index: int) -> list[str] | None:
+    """Every text ``word`` (a word of the scope's own text, the ``index``-th
+    command) can expand to, or ``None`` when one part of it is not known."""
+    if "$(" in word or "`" in word or "$'" in word:
+        return None
+    matches = list(_EXPANSION.finditer(word))
+    if not matches:
+        return None
+    whole = len(matches) == 1 and matches[0].span() == (0, len(word))
+    pieces: list[list[str]] = []
+    position = 0
+    for match in matches:
+        literal = word[position:match.start()]
+        if "$" in literal:
+            return None
+        pieces.append([literal])
+        name = match.group("braced") or match.group("plain")
+        op = match.group("op")
+        default = match.group("default")
+        if op and op.endswith("="):
+            return None  # ``${X:=v}`` assigns
+        if op and default is not None and not _plain(default, whole=whole):
+            return None
+        values: list[str]
+        if name == "#":
+            if scope.positional is None:
+                return None
+            values = [str(len(scope.positional))]
+        elif name[0].isdigit():
+            number = int(name)
+            if scope.positional is None or number == 0:
+                return None
+            if number > len(scope.positional):
+                if not op or not default:
+                    return None  # empty: the word may vanish or be ``""``
+                values = [default]
+            else:
+                given = scope.positional[number - 1]
+                if given is None:
+                    return None
+                # The argument, or the default: both are judged.
+                values = [given, default] if op and default else [given]
+        elif name in scope.bound:
+            binding = scope.bound[name]
+            if not (binding.sure and scope.ordered and index > binding.index):
+                return None  # the use may see the name unset or not yet set
+            values = list(binding.values)
+            if op and default:
+                values.append(default)
+        else:
+            return None
+        if not whole and any(v.startswith("~") for v in values):
+            return None
+        pieces.append(values)
+        position = match.end()
+    if "$" in word[position:]:
+        return None
+    pieces.append([word[position:]])
+    results = [""]
+    for options in pieces:
+        results = [head + option for head in results for option in dict.fromkeys(options)]
+        if len(results) > MAX_VARIANTS:
+            return None
+    if any(not r for r in results):
+        return None
+    return results
+
+
+def _locate(text: str, words: list[str]) -> int | None:
+    """The 1-based line of ``text`` a simple command of ``words`` is on (best effort:
+    the first line holding its first two words; ``None`` when none does)."""
+    probes = [w for w in words[:8] if w and w.strip()]
+    if not probes or not text:
+        return None
+    best, found = 0, None
+    for number, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("#") or probes[0] not in line:
+            continue
+        score = sum(1 for w in probes if w in line)
+        if score > best:
+            best, found = score, number
+    return found
+
+
 def _echo_text(words: list[str]) -> str | None:
     """What ``echo …`` / ``printf …`` (literal words) writes; ``None`` when not known."""
     program = _c._program(words[0]) if words else ""
@@ -556,10 +992,25 @@ def _unescape(text: str) -> str:
 class _Probe(_c._Judge):
     """The classifier's walk, collecting commands and effects instead of a verdict."""
 
-    def __init__(self, request: _c.ClassifyRequest, view: ShellView, *, literals: bool = True):
+    def __init__(self, request: _c.ClassifyRequest, view: ShellView, *, literals: bool = True,
+                 positional: list[tuple[str, bool]] | None = None, outer: str = "",
+                 file: str | None = None, budget: list[int] | None = None):
         super().__init__(request)
+        #: Candidate command lines walked so far by this probe and every script
+        #: probe under it (m21): past :data:`MAX_WALKS` nothing more is substituted.
+        self._budget = budget if budget is not None else [0]
         self.view = view
         self.literals = literals
+        #: Reader precision (m21): the arguments of the script this probe reads,
+        #: the texts of what runs it, the file it is, and the scopes of the texts
+        #: being walked (the probe's own text, a ``sh -c`` body run with arguments).
+        self._positional = positional
+        self._outer = outer
+        self._file = file
+        self._text: str | None = None
+        self._scopes: list[_Scope] = []
+        self._pending: list[tuple[str, bool]] | None = None
+        self._resolving: list[int] = []
         #: The probe of the agent's own line (set by :func:`view`): only there is a
         #: run of snowpea's CLI vetted as read-only (m21) and ``PATH`` followed.
         self.root = False
@@ -588,7 +1039,38 @@ class _Probe(_c._Judge):
         self.hits.guard_all = tracked  # type: ignore[method-assign]
 
     # -- recording ---------------------------------------------------------
+    def _where(self) -> dict[str, Any]:
+        """The simple command being walked, and its script file and line (m21)."""
+        cmd = self._cmd
+        if cmd is None:
+            part = (self._text or "").strip().splitlines()[0] if (self._text or "").strip() \
+                else ""
+            words: list[str] = []
+        else:
+            words = list(cmd.words)
+            part = " ".join(words + [f"{op}{target}" for op, target, _ in cmd.redirects])
+        part = " ".join(part.split())
+        out: dict[str, Any] = {"part": part if len(part) <= 160 else part[:159] + "…"}
+        if self._file is not None:
+            out["file"] = self._file
+            redirects = [target for _, target, _ in cmd.redirects] if cmd is not None else []
+            line = _locate(self._text or "", words + redirects)
+            if line is not None:
+                out["line"] = line
+                written_as = " ".join((self._text or "").splitlines()[line - 1].split())
+                if written_as and len(written_as) <= 160:
+                    out["part"] = written_as  # as the script spells it (``SIZE=$(…)``)
+        return out
+
+    def _detail(self, why: str) -> None:
+        if why not in self.view.details:
+            try:
+                self.view.details[why] = self._where()
+            except Exception:  # noqa: BLE001 - an explanation never breaks the judgement
+                self.view.details[why] = {"part": ""}
+
     def _opaque(self, why: str) -> None:
+        self._detail(why)
         if why in STATEFUL_REASONS:
             self.view.stateful_shells.add(self._shell_id)
         if why not in self.view.opaque:
@@ -609,6 +1091,7 @@ class _Probe(_c._Judge):
             self._opaque(why)
 
     def _control(self, why: str) -> None:
+        self._detail(why)
         if why not in self.view.control:
             self.view.control.append(why)
 
@@ -616,17 +1099,87 @@ class _Probe(_c._Judge):
         """Nothing is left to copy at the end: every opaque mark of the classifier
         is taken (or dropped as analysed) when it is made (:meth:`_unseen`)."""
 
+    # -- reader precision (m21) ---------------------------------------------
+    def _scope_here(self) -> _Scope | None:
+        """The scope of the text whose command is being walked; ``None`` inside any
+        body (a substitution, a nested shell) the scope does not belong to."""
+        if self._scopes and self._scopes[-1].line_id == self._line:
+            return self._scopes[-1]
+        return None
+
+    def _resolved_path(self, raw: str) -> list[str] | None:
+        scope = self._scope_here()
+        if scope is None or "$" not in raw:
+            return None
+        return _expand(raw, scope, self._index)
+
+    def _variants(self, words: list[str],
+                  dynamic: list[bool]) -> list[tuple[list[str], list[bool]]] | None:
+        """``words`` with every expansion the scope knows replaced by its values
+        (one candidate line per combination); ``None`` when nothing changes."""
+        scope = self._scope_here()
+        if scope is None or not any(dynamic) or self._line in self._resolving:
+            return None
+        start = 0
+        while start < len(words) and (
+            (not dynamic[start] and words[start] in _c.RESERVED_WORDS)
+            or _c._ASSIGNMENT.match(words[start])
+        ):
+            start += 1
+        options: list[list[list[tuple[str, bool]]]] = []
+        changed = False
+        for position, (word, dyn) in enumerate(zip(words, dynamic, strict=False)):
+            if position < start or not dyn:
+                options.append([[(word, dyn)]])
+                continue
+            if word in ("$@", "${@}") and scope.positional is not None \
+                    and all(v is not None for v in scope.positional):
+                options.append([[(str(v), False) for v in scope.positional]])
+                changed = True
+                continue
+            values = _expand(word, scope, self._index)
+            if values is None:
+                options.append([[(word, dyn)]])
+                continue
+            options.append([[(value, False)] for value in values])
+            changed = True
+        if not changed:
+            return None
+        lines: list[list[tuple[str, bool]]] = [[]]
+        for choice in options:
+            lines = [head + option for head in lines for option in choice]
+            if len(lines) > MAX_VARIANTS:
+                return None
+        out = [([w for w, _ in line], [d for _, d in line]) for line in lines]
+        out = [item for item in out if item[0]]
+        if not out or self._budget[0] + len(out) > MAX_WALKS:
+            return None
+        self._budget[0] += len(out)
+        return out
+
     def _effect(self, raw: str, cwd: Path | None, kind: str, *, destructive: bool = False,
                 recursive: bool = False, dynamic: bool = False, program: str = "") -> None:
         dyn = dynamic or "$" in raw or "`" in raw
+        origin = None
+        if dyn:
+            try:
+                origin = self._where()
+            except Exception:  # noqa: BLE001 - an explanation never breaks the judgement
+                origin = None
         self.view.effects.append(Effect(raw, cwd, kind, destructive, recursive, dyn,
                                         program or (self._context[-1] if self._context else ""),
-                                        shell=self._shell_id))
+                                        shell=self._shell_id, origin=origin))
 
     # -- the classifier's hooks -------------------------------------------
     def check_write_path(self, raw: str, cwd: Path | None, rule: str, dynamic: bool) -> None:
         if self._own and self._own[-1] and rule != "redirect":
             return
+        if dynamic:
+            resolved = self._resolved_path(raw)
+            if resolved is not None:
+                for value in resolved:
+                    self.check_write_path(value, cwd, rule, False)
+                return
         program = self._context[-1] if self._context else ""
         tree = rule != "redirect" and program in _TREE_WRITERS
         # ``find -delete`` deletes below its root; an extraction only writes below.
@@ -645,6 +1198,12 @@ class _Probe(_c._Judge):
         dynamic: bool = False,
     ) -> None:
         del shell
+        if dynamic:
+            resolved = self._resolved_path(raw)
+            if resolved is not None:
+                for value in resolved:
+                    self.check_read_path(value, cwd, rule, recursive=recursive)
+                return
         # ``< file`` only ever reads; any other word is an operand of the program
         # being walked (which decides what happens to the file it names).
         self._effect(raw, cwd, "read", recursive=recursive, dynamic=dynamic,
@@ -656,6 +1215,7 @@ class _Probe(_c._Judge):
 
     # -- the walk ------------------------------------------------------------
     def line(self, command: str, cwd: Path | None, depth: int) -> None:
+        pending, self._pending = self._pending, None
         if depth > MAX_DEPTH:
             self._opaque("nesting")
             return
@@ -670,6 +1230,28 @@ class _Probe(_c._Judge):
             return
         self._line += 1
         line_id = self._line
+        scope: _Scope | None = None
+        if self._text is None:
+            # The probe's own text (the agent's line, or the script it reads).
+            self._text = command
+            scope = _scope_for(command, positional=self._positional, outer=self._outer)
+        elif pending is not None:
+            # ``sh -c '…' name A``: a new shell with its own arguments.
+            scope = _scope_for(command, positional=pending,
+                               outer=self._outer + "\n" + self._text)
+        if scope is not None:
+            scope.line_id = line_id
+            self._scopes.append(scope)
+            try:
+                self._walk_line(command, parsed, cwd, depth, line_id)
+            finally:
+                if self._scopes and self._scopes[-1] is scope and pending is not None:
+                    self._scopes.pop()
+            return
+        self._walk_line(command, parsed, cwd, depth, line_id)
+
+    def _walk_line(self, command: str, parsed: Any, cwd: Path | None, depth: int,
+                   line_id: int) -> None:
         for name in _env.references(command):
             # ``${HOME:=/x}``: an assignment inside an expansion.
             self._opaque(f"env-code:{name}")
@@ -723,6 +1305,16 @@ class _Probe(_c._Judge):
         stdin_args: bool,
     ) -> Path | None:
         words, dynamic = list(words), list(dynamic)
+        variants = self._variants(words, dynamic)
+        if variants is not None:
+            # m21: each value the text gives is judged as if it were spelled out.
+            self._resolving.append(self._line)
+            try:
+                ends = [self.words(w, d, cwd, depth, piped_in=piped_in, heredoc=heredoc,
+                                   stdin_args=stdin_args) for w, d in variants]
+            finally:
+                self._resolving.pop()
+            return ends[0] if all(end == ends[0] for end in ends) else None
         named_function = False
         while words and not dynamic[0] and words[0] in _c.RESERVED_WORDS:
             if words[0] in ("for", "select"):
@@ -745,8 +1337,9 @@ class _Probe(_c._Judge):
             while words and not dynamic[0] and words[0] in _c.RESERVED_WORDS \
                     and words[0] != "for":
                 words, dynamic = words[1:], dynamic[1:]
+        standalone = all(_c._ASSIGNMENT.match(word) for word in words)
         while words and _c._ASSIGNMENT.match(words[0]):
-            self._assignment(words[0], dynamic[0], cwd)
+            self._assignment(words[0], dynamic[0], cwd, standalone=standalone)
             words, dynamic = words[1:], dynamic[1:]
         if not words:
             return cwd
@@ -825,13 +1418,15 @@ class _Probe(_c._Judge):
                 pass  # the installed snowpea program itself (m21): not a script to read
             elif self.literals and "/" in words[0].replace("\\", "/") and not dynamic[0]:
                 # ``./x``, ``scripts/x``, ``/opt/tool/run``: the file itself runs.
-                self._script(words[0], cwd, depth, "shell")
+                self._script(words[0], cwd, depth, "shell",
+                             args=list(zip(rest, rest_dyn, strict=False)))
             elif self.literals and not dynamic[0]:
                 # Security review 8, H8-3 (c): a bare name that PATH resolves to a
                 # file the agent wrote (or one in a temporary folder) is its script.
                 found = path_program(words[0], cwd)
                 if found is not None:
-                    self._script(str(found), cwd, depth, "shell", strict=True)
+                    self._script(str(found), cwd, depth, "shell", strict=True,
+                                 args=list(zip(rest, rest_dyn, strict=False)))
             if self.literals:
                 self._project_runner(program, rest, rest_dyn, cwd, depth)
                 if program in ("awk", "gawk", "mawk", "nawk", "sed", "gsed"):
@@ -1190,7 +1785,13 @@ class _Probe(_c._Judge):
                 continue
             after = len(options)
             if after < len(rest):
-                self._body(rest[after], rest_dyn[after], cwd, depth, "shell-body")
+                # ``sh -c '…' name A B``: ``$1``… of the body are A, B (m21).
+                self._pending = list(zip(rest[after + 2:], rest_dyn[after + 2:],
+                                         strict=False))
+                try:
+                    self._body(rest[after], rest_dyn[after], cwd, depth, "shell-body")
+                finally:
+                    self._pending = None
             else:
                 self._opaque("shell-body")
             del index
@@ -1201,7 +1802,9 @@ class _Probe(_c._Judge):
             if rest_dyn[len(options)]:
                 self._opaque("script-dynamic")
             elif self.literals:
-                self._script(script, cwd, depth, "shell")
+                at = len(options) + 1
+                self._script(script, cwd, depth, "shell",
+                             args=list(zip(rest[at:], rest_dyn[at:], strict=False)))
             return
         cmd = self._cmd
         if heredoc and cmd is not None and cmd.stdin_text is not None:
@@ -1213,7 +1816,8 @@ class _Probe(_c._Judge):
             self._opaque("shell-stdin")
 
     # -- interpreters (security review 5, H4; review 6, H-2) ----------------------
-    def _assignment(self, word: str, dyn: bool, cwd: Path | None) -> None:
+    def _assignment(self, word: str, dyn: bool, cwd: Path | None, *,
+                    standalone: bool = False) -> None:
         """``NAME=value`` — before a command, alone, after ``env`` or ``export``.
 
         The classifier says which variables carry code or redirect configuration;
@@ -1233,6 +1837,13 @@ class _Probe(_c._Judge):
                 self.view.path_values.append(folders)
         why = _env.judge(name, value, dyn, cwd=cwd, user_home=self.ctx.user_home,
                          home=self.ctx.home)
+        scope = self._scope_here()
+        if why == f"env-code:{name.upper()}" and standalone and not appended \
+                and scope is not None and name in scope.local and not _env.is_watched(name):
+            # m21: a name only ever assigned on its own and never exported is the
+            # shell's own: nothing the line runs can read it (review 8, M8-2 is
+            # about what a program reads from its environment).
+            why = None
         if why is not None:
             self._opaque(why)
             if _env.is_code(name) and value.strip() and self.literals:
@@ -1771,8 +2382,12 @@ class _Probe(_c._Judge):
         self.view.scripts.extend(sub.scripts)
         self.view.mentions.extend(sub.mentions)
         for why in sub.control:
+            if why in sub.details:
+                self.view.details.setdefault(why, sub.details[why])
             self._control(why)  # snowpea's own CLI asks whoever wrote the script
         if count_opaque:
+            for why, where in sub.details.items():
+                self.view.details.setdefault(why, where)
             for why in sub.opaque:
                 # Copied as it is: the sub-walk tagged the shell it came from (m21).
                 if why not in self.view.opaque:
@@ -1794,10 +2409,12 @@ class _Probe(_c._Judge):
 
     def _script_file(self, raw: str, cwd: Path | None, depth: int, default: str, *,
                      root: Path | None = None, strict: bool = False,
-                     same_shell: bool = False) -> None:
+                     same_shell: bool = False,
+                     args: list[tuple[str, bool]] | None = None) -> None:
         """Read the script file ``raw`` and judge its text (H4 b).  ``strict``: it
         is the agent's own whatever its timestamps say (review 8, H8-3 c).
-        ``same_shell``: it runs in this very shell (``source``), not a new one."""
+        ``same_shell``: it runs in this very shell (``source``), not a new one.
+        ``args``: the words it is run with — its ``$1``… (m21)."""
         if depth > MAX_DEPTH:
             self._opaque("nesting")
             return
@@ -1817,13 +2434,19 @@ class _Probe(_c._Judge):
                 # holds is not known, and no setting lets that through unasked.
                 self._opaque("script-written")
             elif script.recent:
-                self._opaque(f"script-{script.digest if ':' not in script.digest else 'binary'}")
+                why = f"script-{script.digest if ':' not in script.digest else 'binary'}"
+                if why not in self.view.details:
+                    self.view.details[why] = {**self._where(), "subject": script.path}
+                self._opaque(why)
                 if same_shell:
                     self.view.stateful_shells.add(self._shell_id)  # m21: it may change ours
             return
         if script.language == "shell":
             sub = ShellView()
-            probe = _Probe(self.request, sub)
+            probe = _Probe(self.request, sub,
+                           positional=None if same_shell else args,
+                           outer=self._outer + "\n" + (self._text or ""),
+                           file=script.path, budget=self._budget)
             if same_shell:
                 probe._shell_id = self._shell_id
             probe.line(script.text, cwd, depth + 1)

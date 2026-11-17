@@ -228,6 +228,10 @@ async def test_an_unchecked_call_is_the_persons_alone(tmp_path: Path) -> None:
         await asyncio.sleep(0.01)
     pending = queue.list()[0]
     assert pending.reason == "cannot be checked against your block list"
+    # m21: what could not be checked, part by part, on the wire.
+    why = pending.model_dump(mode="json")["uncheckedWhy"]
+    assert why and why[0]["reason"] == "eval" and why[0]["part"] == "eval $X"
+    assert why[0]["text"] and why[0].get("file") is None
     assert pending.personOnly is True and pending.neverDelegable is True
     assert pending.route == "person"  # never Jarvis, never auto
     assert pending.remember is None
@@ -253,6 +257,9 @@ async def test_never_delegable_is_marked_on_ordinary_requests(tmp_path: Path) ->
             await asyncio.sleep(0.01)
         pending = queue.list()[0]
         assert bool(pending.neverDelegable) is never, command
+        # m21: an ordinary ask says nothing; snowpea's own CLI says what it is.
+        why = [entry.reason for entry in pending.uncheckedWhy or []]
+        assert why == (["snowpea-cli"] if never else []), command
         await queue.respond(pending.requestId, "deny")
         await task
 
