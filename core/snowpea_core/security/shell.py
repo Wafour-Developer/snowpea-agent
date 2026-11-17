@@ -165,6 +165,12 @@ class ShellView:
     #: control-plane check.  ``read only``: EVERY use of the literal in that code
     #: is a recognised read of exactly that expression (security review 7, H7-3).
     mentions: list[tuple[str, Path | None, bool]] = field(default_factory=list)
+    #: Runs of snowpea's own CLI that only read (m21, :func:`cli_read_only`):
+    #: judged like any read-only command unless :func:`_settle` finds a reason not to.
+    cli_reads: list[str] = field(default_factory=list)
+    #: ``PATH`` values the agent's own line gives (each a list of folders, with
+    #: ``"$PATH"`` for the inherited value); ``None`` once one cannot be modelled.
+    path_values: list[list[str]] | None = field(default_factory=list)
 
 
 #: Positive analysis or ask (security review 7, P1).  The classifier marks what
@@ -525,6 +531,9 @@ class _Probe(_c._Judge):
         super().__init__(request)
         self.view = view
         self.literals = literals
+        #: The probe of the agent's own line (set by :func:`view`): only there is a
+        #: run of snowpea's CLI vetted as read-only (m21) and ``PATH`` followed.
+        self.root = False
         self._line = -1
         self._index = 0
         self._cmd: _c._Cmd | None = None
@@ -745,8 +754,15 @@ class _Probe(_c._Judge):
                     if not dyn and word and "/" not in word and not word.startswith(("-", "~")):
                         self._effect(word, cwd, "read", program=program)
             if program == "snowpea" or program.startswith("snowpea-"):
-                # snowpea's own CLI talks to the daemon as the local person (H-1).
-                self._control("snowpea-cli")
+                # snowpea's own CLI talks to the daemon as the local person (H-1);
+                # a vetted read-only run of it is an ordinary read (m21).
+                vetted = self._cli_vetted(words, dynamic, cwd)
+                if vetted:
+                    self.view.cli_reads.append(" ".join(words))
+                else:
+                    self._control("snowpea-cli")
+            else:
+                vetted = False
             self._names(program, rest, rest_dyn, cwd)
             if program in ("ssh", "autossh", "mosh"):
                 self._ssh(rest, rest_dyn, depth)
@@ -758,6 +774,8 @@ class _Probe(_c._Judge):
             elif program in ("bun", "deno") and self.literals:
                 if self._js_runtime(program, rest, rest_dyn, cwd, depth, piped_in, heredoc):
                     claims.add("inline-code")
+            elif vetted:
+                pass  # the installed snowpea program itself (m21): not a script to read
             elif self.literals and "/" in words[0].replace("\\", "/") and not dynamic[0]:
                 # ``./x``, ``scripts/x``, ``/opt/tool/run``: the file itself runs.
                 self._script(words[0], cwd, depth, "shell")
@@ -1157,7 +1175,15 @@ class _Probe(_c._Judge):
         names is judged like an operand of a program nobody knows: ``X=<a control
         file>; echo … > $X`` names that file."""
         name, _, value = word.partition("=")
+        appended = name.endswith("+")
         name = name.rstrip("+").split("[", 1)[0]
+        if name.upper() == "PATH" and self.view.path_values is not None:
+            folders = None if appended or not (self.root and self._line == 0) else \
+                path_folders(value, self.ctx.user_home)
+            if folders is None:
+                self.view.path_values = None
+            else:
+                self.view.path_values.append(folders)
         why = _env.judge(name, value, dyn, cwd=cwd, user_home=self.ctx.user_home,
                          home=self.ctx.home)
         if why is not None:
@@ -1618,7 +1644,43 @@ class _Probe(_c._Judge):
         for why in finding.control:
             self._control(why)
 
+    def _cli_vetted(self, words: list[str], dynamic: list[bool], cwd: Path | None) -> bool:
+        """``snowpea <a vetted read-only shape>`` on the agent's own line, run by the
+        installed snowpea (m21).  Everything else stays a control action."""
+        if not (self.root and self._line == 0) or any(dynamic) or self.ctx.home is None \
+                or self.view.path_values is None:
+            return False
+        if _c._program(words[0]) != "snowpea" or not cli_read_only(words[1:]):
+            return False
+        entries = cli_entry_points()
+        if not entries:
+            return False
+        first = words[0]
+        if "/" in first or first.startswith("~"):
+            if first.startswith("~/"):
+                expanded = str(self.ctx.user_home) + first[1:]
+            elif first.startswith("~"):
+                return False
+            else:
+                expanded = first
+            if not os.path.isabs(expanded):
+                if cwd is None:
+                    return False
+                expanded = str(cwd / expanded)
+            return _real_file(expanded) in entries
+        found_any = False
+        for search in candidate_paths(self.view.path_values, self.ctx.user_home, cwd):
+            hit = _which(first, search)
+            if hit is None:
+                continue
+            if hit not in entries:
+                return False
+            found_any = True
+        return found_any
+
     def _merge(self, sub: ShellView, *, count_opaque: bool) -> None:
+        if sub.path_values is None or sub.path_values:
+            self.view.path_values = None  # a script set PATH: not followed
         self.view.commands.extend(sub.commands)
         self.view.effects.extend(sub.effects)
         self.view.texts.extend(sub.texts)
@@ -2059,6 +2121,235 @@ def path_program(name: str, cwd: Path | None) -> Path | None:
     return None
 
 
+# -- snowpea's own CLI, read only; PATH the line sets (m21) ------------------------------
+
+#: ``snowpea <words> [options]`` that only read and print nothing secret: each
+#: checked against the CLI's parser and handlers (``cli/main.py``,
+#: ``cli/commands.py``).  ``session list`` → ``session.list``, ``daemon status``
+#: → ``system.info`` + ``gateway.list`` (port, pid, version, counters — no
+#: token), ``agents`` → ``agent.list``.  ``project list`` and ``sessions`` are
+#: usage errors in every release (no such subcommand): nothing runs.  The
+#: options listed are the only ones vetted; any other word keeps the run a
+#: control action.
+CLI_READS: dict[tuple[str, ...], frozenset[str]] = {
+    ("session", "list"): frozenset({"--include-closed", "--json"}),
+    ("daemon", "status"): frozenset({"--json"}),
+    ("agents",): frozenset({"--json"}),
+    ("project", "list"): frozenset(),
+    ("sessions",): frozenset(),
+}
+#: ``--help`` after at most two of these words prints the parser's help and exits.
+_CLI_HELP_WORD = re.compile(r"[a-z][a-z0-9-]{0,31}")
+#: Words the CLI reads before argparse does (``remote up`` has a parser of its own).
+_CLI_HELP_NEVER: frozenset[str] = frozenset({"remote"})
+
+
+def cli_read_only(rest: list[str]) -> bool:
+    """``snowpea <rest>`` is one of the vetted read-only shapes."""
+    if rest in (["--version"], ["-V"]):
+        return True
+    if rest and rest[-1] in ("--help", "-h"):
+        names = rest[:-1]
+        return len(names) <= 2 and all(_CLI_HELP_WORD.fullmatch(word) for word in names) \
+            and not (names[:1] and names[0] in _CLI_HELP_NEVER)
+    for shape, options in CLI_READS.items():
+        if tuple(rest[:len(shape)]) == shape:
+            extra = rest[len(shape):]
+            return len(set(extra)) == len(extra) and all(word in options for word in extra)
+    return False
+
+
+def cli_local_only(text: str) -> bool:
+    """A vetted run that never reaches the daemon (``--help``, ``--version``)."""
+    words = text.split()
+    return bool(words) and words[-1] in ("--help", "-h", "--version", "-V")
+
+
+def _real_file(path: str) -> str | None:
+    try:
+        return os.path.realpath(path) if os.path.isfile(path) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _which(name: str, search: str) -> str | None:
+    import shutil
+
+    try:
+        found = shutil.which(name, path=search)
+    except (OSError, ValueError):
+        return None
+    return _real_file(found) if found else None
+
+
+def _daemon_path(cwd: Path | None) -> str:
+    from snowpea_core.exec.local import sanitized_path
+
+    return sanitized_path(os.environ.get("PATH", ""), cwd)
+
+
+def _agent_place(path: Path) -> bool:
+    """A file or folder the agent wrote, or one in a temporary folder."""
+    real = Path(os.path.realpath(path))
+    return written.contains(real) or written.under(real) or any(
+        folder == real or folder in real.parents for folder in temporary_dirs())
+
+
+def cli_entry_points() -> frozenset[str]:
+    """The installed snowpea program: the file ``snowpea`` names on the daemon's own
+    ``PATH``, and the one beside the daemon's Python (its venv) — never one the
+    agent wrote or one in a temporary folder."""
+    import sys
+
+    found: set[str] = set()
+    hit = _which("snowpea", _daemon_path(None))
+    if hit:
+        found.add(hit)
+    beside = _real_file(str(Path(sys.executable).parent / "snowpea"))
+    if beside:
+        found.add(beside)
+    return frozenset(path for path in found if not _agent_place(Path(path)))
+
+
+def path_folders(value: str, user_home: Path) -> list[str] | None:
+    """``PATH=value`` as folders (``"$PATH"`` for the inherited value), or ``None``
+    when one entry is not a plain absolute folder."""
+    out: list[str] = []
+    for entry in value.split(":"):
+        if entry in ("$PATH", "${PATH}"):
+            out.append("$PATH")
+            continue
+        text = entry
+        for token in ("${HOME}", "$HOME", "~"):
+            if text == token or text.startswith(token + "/"):
+                text = str(user_home) + text[len(token):]
+                break
+        if not text.startswith("/") or re.search(r"[$`*?\[\]\\~]", text):
+            return None
+        out.append(os.path.normpath(text))
+    return out
+
+
+def candidate_paths(values: list[list[str]] | None, user_home: Path,
+                    cwd: Path | None) -> list[str]:
+    """Every ``PATH`` a command of the line may run with: the inherited one, then
+    each value the line gave it so far (a prefix assignment covers one command
+    only, so the inherited one always counts too)."""
+    del user_home
+    base = _daemon_path(cwd)
+    out = [base]
+    current = base
+    for folders in values or []:
+        current = os.pathsep.join(current if folder == "$PATH" else folder
+                                  for folder in folders)
+        out.append(current)
+    return list(dict.fromkeys(out))
+
+
+#: Programs the shell runs itself, without looking at ``PATH``.
+_BUILTINS: frozenset[str] = frozenset(
+    {"cd", "echo", "printf", "export", "unset", "set", "test", "[", "[[", "true", "false",
+     ":", "read", "type", "command", "builtin", "exit", "return", "shift", "local",
+     "declare", "typeset", "readonly", "eval", "exec", "source", ".", "pwd", "pushd",
+     "popd", "alias", "unalias", "wait", "jobs", "trap", "umask", "hash", "let", "times"}
+)
+
+
+def path_change_harmless(view: ShellView, ctx: Any) -> bool:
+    """The ``PATH`` values the line sets change no program it runs (m21): every
+    folder added is the person's own (not one the agent wrote, not temporary,
+    not inside a project), nothing on the line writes into one of them, and
+    every program the line runs by name is the same file under every value
+    (snowpea's own program aside, when the new value finds the installed one)."""
+    if not view.path_values:
+        return False
+    known = [*(getattr(ctx, "projects", ()) or ()), getattr(ctx, "workdir", None)]
+    owners = [Path(os.path.normpath(str(p))) for p in known if p]
+    added: list[Path] = []
+    for folders in view.path_values:
+        for folder in folders:
+            if folder == "$PATH":
+                continue
+            path = Path(folder)
+            if _agent_place(path) or any(path == o or o in path.parents for o in owners):
+                return False
+            added.append(path)
+    for effect in view.effects:
+        if effect.kind != "write":
+            continue
+        if effect.dynamic:
+            return False
+        raw = effect.raw
+        if raw.startswith("~/"):
+            raw = str(ctx.user_home) + raw[1:]
+        if not raw.startswith("/"):
+            if effect.cwd is None:
+                return False
+            raw = str(effect.cwd / raw)
+        target = Path(os.path.normpath(raw))
+        if any(target == folder or folder in target.parents or target in folder.parents
+               for folder in added):
+            return False
+    cwd = getattr(ctx, "workdir", None)
+    paths = candidate_paths(view.path_values, ctx.user_home, cwd)
+    entries: frozenset[str] | None = None
+    for cmd in [*view.commands, *view.literal_commands]:
+        if not cmd.words or cmd.dynamic[:1] == [True]:
+            continue
+        name = cmd.words[0]
+        if "/" in name or name in _BUILTINS or name in _c.RESERVED_WORDS:
+            continue
+        found = {_which(name, search) for search in paths}
+        if len(found) <= 1:
+            continue
+        if name == "snowpea":
+            entries = cli_entry_points() if entries is None else entries
+            if found <= set(entries) | {None} and found & set(entries):
+                continue
+        return False
+    return True
+
+
+#: Text that changes what a run of snowpea's CLI is (its home, its variables,
+#: an alias or a function of that name): such a line keeps every run a control action.
+_CLI_SHADOW = re.compile(
+    r"SNOWPEA_|--home|(?:^|[\s;&|(])(?:HOME|XDG_[A-Z_]+)\+?=|\balias\b|\bunset\s+HOME\b"
+    r"|snowpea[\w-]*\s*\(\s*\)|\bfunction\s+snowpea", re.MULTILINE)
+
+
+def _settle(view: ShellView, ctx: Any) -> None:
+    """After the walk of the agent's own line (m21): a ``PATH`` it sets that changes
+    nothing it runs is not opaque; a vetted read-only run of snowpea's CLI stays an
+    ordinary read only when nothing on the line can change what that run is."""
+    if view.path_values and "env-code:PATH" in view.opaque and path_change_harmless(view, ctx):
+        view.opaque.remove("env-code:PATH")
+    if not view.cli_reads:
+        return
+    keep = not any(why.startswith(("env-code", "env-path", "function", "eval", "parse:",
+                                   "internal", "nesting")) for why in view.opaque)
+    keep = keep and not any(_CLI_SHADOW.search(text) for text in view.texts)
+    # A variable that loads code into what runs next (``PYTHONPATH``, ``LD_PRELOAD``…),
+    # even one the check otherwise lets through, would load it into the CLI.
+    keep = keep and not any(
+        _env.is_code(match.group(1))
+        for text in view.texts
+        for match in re.finditer(r"(?:^|[\s;&|(])([A-Za-z_][A-Za-z0-9_]*)\+?=", text)
+        if match.group(1).upper() != "PATH")
+    keep = keep and view.path_values is not None
+    if keep and not all(cli_local_only(text) for text in view.cli_reads):
+        # A run that reaches the daemon reaches the one in the CLI's own home: it
+        # must be the daemon judging this line, or the CLI would start another.
+        try:
+            from snowpea_core.config.paths import resolve_home
+
+            keep = ctx.home is not None and \
+                os.path.realpath(resolve_home()) == os.path.realpath(ctx.home)
+        except Exception:  # noqa: BLE001 - unknown is a control action
+            keep = False
+    if not keep and "snowpea-cli" not in view.control:
+        view.control.append("snowpea-cli")
+
+
 def temporary_dirs() -> set[Path]:
     """Folders anyone (the agent too) can fill: a program found there is not the system's."""
     import tempfile
@@ -2278,8 +2569,12 @@ def view(
     cwd: str | None,
     home: str | None = None,
     user_home: str | None = None,
+    projects: tuple[str, ...] = (),
 ) -> ShellView:
-    """Walk ``command`` (run in ``cwd``) and return what it runs and touches.  Never raises."""
+    """Walk ``command`` (run in ``cwd``) and return what it runs and touches.  Never raises.
+
+    ``projects``: the known project folders (a ``PATH`` the line points into one
+    of them is never followed, m21)."""
     result = ShellView()
     request = _c.ClassifyRequest(
         tool="shell", args={"command": command}, tags=("exec",), workdir=cwd, home=home,
@@ -2287,9 +2582,15 @@ def view(
     )
     try:
         probe = _Probe(request, result)
+        probe.root = True
         start = probe.ctx.workdir
         probe.line(command, start, 0)
         probe.finish()
+        from types import SimpleNamespace
+
+        _settle(result, SimpleNamespace(
+            workdir=probe.ctx.workdir, home=probe.ctx.home, user_home=probe.ctx.user_home,
+            projects=tuple(projects)))
     except Exception:  # noqa: BLE001 - a bug here makes the line unseeable, never allowed
         result.opaque.append("internal")
     return result

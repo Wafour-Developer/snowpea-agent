@@ -615,7 +615,8 @@ def check_command(command: str, lists: Lists, ctx: Context, cwd: Path | None = N
     Even with empty lists the line is read: the control-plane rule is always on.
     """
     view = sh.view(command, cwd=str(cwd or ctx.workdir) if (cwd or ctx.workdir) else None,
-                   home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home))
+                   home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home),
+                   projects=tuple(ctx.projects))
     return _judge_view(view, lists, ctx)
 
 
@@ -1216,7 +1217,8 @@ def _check_call(tool: str, args: dict[str, Any], lists: Lists, ctx: Context,
     if is_shell and command is not None:
         cwd = _tool_cwd(args, ctx)
         view = sh.view(command, cwd=str(cwd) if cwd else None,
-                       home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home))
+                       home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home),
+                       projects=tuple(ctx.projects))
         return _judge_view(view, lists, ctx)
     code = args.get("code") if isinstance(args.get("code"), str) else None
     if ctx.host_tool and "exec" not in tags:

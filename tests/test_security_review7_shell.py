@@ -335,7 +335,8 @@ LEGIT = [
 # -- harmless forms that now ask: the measured cost of P1 (kept honest on purpose) ----
 FALSE_POSITIVES = [
     # ``~/.local/bin`` is not on this test's PATH; when it IS on the daemon's it passes.
-    ("export PATH=$HOME/.local/bin:$PATH", "ooo"),
+    # m21: a folder of the person's own that changes no program the line runs.
+    ("export PATH=$HOME/.local/bin:$PATH", "aaa"),
     ("HOME=/tmp/fakehome npm test", "ooo"),
     ("sqlite3 ~/.snowpea/state.db '.tables'", "ooo"),
     ("ssh build.example.com uptime", "oao"),
@@ -366,7 +367,9 @@ def test_the_harmless_forms_that_now_ask(project: Path, line: str, expected: str
 def test_path_already_on_the_daemons_path_is_no_new_power(
         project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     line = "export PATH=$HOME/.local/bin:$PATH"
-    assert _states(line, project) == "ooo"
+    # m21: a folder of the person's own that changes no program the line runs.
+    assert _states(line, project) == "aaa"
+    assert _states(line + "; ls", project) == "aaa"
     monkeypatch.setenv("PATH", "/home/u/.local/bin:/usr/bin:/bin")
     assert _states(line, project) == "aaa"
     # … unless the agent wrote into that folder.
