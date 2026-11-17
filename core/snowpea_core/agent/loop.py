@@ -3496,11 +3496,16 @@ async def _run_one_call(
             return None
         if not decision.allowed:
             code = decision.code or errors.APPROVAL_DENIED
+            unshown = decision.by in ("origin-unreachable", "origin-no-answer")
             await hub.emit_event(
                 session.id,
-                events.error(code, f"{tool.name} was not approved ({decision.by})"),
+                events.error(code, f"{tool.name} was not approved ({decision.by})"
+                             + (f": {decision.reason}" if unshown and decision.reason else "")),
             )
             refusal = f"the user declined {tool.name}"
+            if unshown:
+                # 0.2.90: nobody saw the card; this is no person's "no".
+                refusal = f"{tool.name} was not run and the user did not decline it"
             if code == errors.APPROVAL_TIMEOUT:
                 # Silence is not a no: do not read it as a refusal, and do not
                 # find another way to the same end.

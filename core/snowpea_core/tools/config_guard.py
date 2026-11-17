@@ -127,7 +127,11 @@ def is_snowpea_config_path(path: str, *, workdir: Any = None, home: Any = None) 
 
     if is_settings_target(resolved, snowpea_home):
         return True
-    if _under(key, base):
+    if _under(key, base) and _person_project(resolved, snowpea_home):
+        # 0.2.90: a project a person registered inside the home is a project
+        # like any other (its .snowpea/settings.json is still configuration).
+        pass
+    elif _under(key, base):
         if _in_session_workspace(resolved, snowpea_home):
             return False
         return not any(
@@ -135,6 +139,13 @@ def is_snowpea_config_path(path: str, *, workdir: Any = None, home: Any = None) 
         )
     return pathcase.name_key(resolved.parent.name) == PROJECT_DIR and pathcase.name_key(
         resolved.name) in PROJECT_FILES
+
+
+def _person_project(resolved: Path, snowpea_home: Path) -> bool:
+    """``resolved`` (under ``snowpea_home``) lies in a project a person registered there."""
+    from snowpea_core.security.control_plane import person_project
+
+    return person_project(resolved.parts[len(snowpea_home.parts):], snowpea_home) is not None
 
 
 def home_of(core: Any) -> Any:

@@ -397,7 +397,7 @@ def person_only_host_ask(tool: str, risk: str | None, reason_code: str | None = 
 
 def _decided_by(by: str) -> str:
     """``user`` for any person's answer (origin surface, a client, a chat)."""
-    if by in ("timeout", "interrupted", "error", "origin-unreachable"):
+    if by in ("timeout", "interrupted", "error", "origin-unreachable", "origin-no-answer"):
         return by
     return "user"
 

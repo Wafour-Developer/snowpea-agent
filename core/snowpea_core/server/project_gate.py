@@ -28,6 +28,8 @@ field: "workdir"}``, for every caller: it is a bug whoever asks.  Underneath,
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 
 from snowpea_core.config.project import NOT_A_PROJECT, home_problem
@@ -70,4 +72,123 @@ def unsafe_write(exc: Exception, field: str = "workdir") -> RpcError:
                     {"reason": REASON, "field": field, "what": "home"})
 
 
-__all__ = ["INVALID_REASON", "REASON", "project_problem", "require_project", "unsafe_write"]
+#: The refusal of a folder under the home whose first name is snowpea's own (0.2.90).
+OWN_FOLDER = ("this folder is one of snowpea's own folders in its data folder ($SNOWPEA_HOME); "
+              "a project cannot live there — choose a folder with another name, or one outside "
+              "the data folder")
+
+
+def admit_home_project(core: Any, conn: Any, workdir: Any, *, field: str = "workdir") -> bool:
+    """0.2.90: a project folder inside snowpea's home (``SNOWPEA_HOME`` set to a
+    folder the person also works in).
+
+    A folder whose first name under the home is snowpea's own is refused up
+    front (``invalid_params``, ``details.what: "own"``).  Any other folder under
+    the home becomes a registered project — an ordinary place for the tools —
+    when a PERSON's connection asks (``person_gate.is_person``); an agent's
+    tool, Jarvis, a browser host or the connector never registers one.
+    Returns True when ``workdir`` is (now) such a project.  The home itself is
+    left to :func:`require_project`.
+    """
+    if not workdir:
+        return False
+    from snowpea_core.security import control_plane
+    from snowpea_core.server.person_gate import is_person
+
+    home = getattr(getattr(core, "paths", None), "home", None)
+    if home is None:
+        return False
+    problem = control_plane.home_project_problem(workdir, home)
+    if problem == "own":
+        raise RpcError(errors.INVALID_PARAMS, OWN_FOLDER,
+                       {"reason": REASON, "field": field, "what": "own"})
+    if problem is not None:
+        return False
+    rel = control_plane._real_parts(workdir, home)
+    if control_plane.person_project(rel, home) is not None:
+        return True
+    if not is_person(conn):
+        return False
+    control_plane.add_person_project(home, workdir)
+    return True
+
+
+def forget_home_project(core: Any, workdir: Any) -> None:
+    """The registration of ``workdir`` ends with its workspace row (0.2.90)."""
+    from snowpea_core.security import control_plane
+
+    home = getattr(getattr(core, "paths", None), "home", None)
+    if home is not None and workdir:
+        try:
+            control_plane.remove_person_project(home, workdir)
+        except OSError:
+            pass
+
+
+#: ``origin_surface`` of sessions no person created (an agent, Jarvis, a
+#: scheduled run, a skill draft, the connector, a messenger chat, a named agent).
+_NOT_A_PERSONS_SURFACES = frozenset({"jarvis-task", "jarvis", "scheduler", "skill",
+                                     "connector"})
+_NOT_A_PERSONS_PREFIXES = ("gateway:", "agent:", "jarvis")
+
+
+def _persons_session(row: Any) -> bool:
+    """A stored session a person started: top level, no job, no reserved surface."""
+    keys = row.keys()
+    if row["parent_session_id"] or ("job_id" in keys and row["job_id"]):
+        return False
+    if "kind" in keys and (row["kind"] or "chat") != "chat":
+        return False
+    surface = str(row["origin_surface"] or "")
+    return not (surface in _NOT_A_PERSONS_SURFACES
+                or surface.startswith(_NOT_A_PERSONS_PREFIXES))
+
+
+async def migrate_home_projects(core: Any) -> list[tuple[str, ...]]:
+    """ONE time per home, at the first 0.2.90 start: register the folders inside
+    the home that people worked in before 0.2.88 made them unusable.
+
+    The folders: the workdirs of stored top-level sessions a person started
+    (:func:`_persons_session`; not sub-agents, browser jobs, Jarvis, the
+    scheduler, messengers or named agents), and the sidebar's workspaces
+    whose sessions include such a session (or that have none: a person's
+    ``workspace.add``).  Each must resolve under the home with a first name
+    that is not snowpea's own (``control_plane.migrate_person_projects``).
+    """
+    import asyncio
+
+    from snowpea_core.security import control_plane
+    from snowpea_core.session.workspaces import canonical
+
+    home = getattr(getattr(core, "paths", None), "home", None)
+    store = getattr(core, "store", None)
+    if home is None or store is None:
+        return []
+    marker = Path(os.path.expanduser(os.fspath(home))).joinpath(*control_plane.MIGRATION_MARKER)
+    if marker.exists():
+        return []
+    rows = await asyncio.to_thread(store._query, "SELECT * FROM sessions")
+    persons: list[str] = []
+    others: set[str] = set()
+    for row in rows:
+        if not row["workdir"]:
+            continue
+        path = canonical(row["workdir"])
+        if _persons_session(row):
+            if path not in persons:
+                persons.append(path)
+        else:
+            others.add(path)
+    tables = await asyncio.to_thread(
+        store._query, "SELECT name FROM sqlite_master WHERE type='table' AND name='workspaces'")
+    if tables:
+        for row in await asyncio.to_thread(store._query, "SELECT path FROM workspaces"):
+            path = canonical(row["path"])
+            if path not in persons and path not in others:
+                persons.append(path)
+    return await asyncio.to_thread(control_plane.migrate_person_projects, home, persons)
+
+
+__all__ = ["INVALID_REASON", "OWN_FOLDER", "REASON", "admit_home_project",
+           "migrate_home_projects",
+           "forget_home_project", "project_problem", "require_project", "unsafe_write"]

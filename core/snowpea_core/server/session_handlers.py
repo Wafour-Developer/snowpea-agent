@@ -319,9 +319,12 @@ async def session_create_handler(
     from snowpea_core.server.settings_gate import host_choice_refusal
 
     host_choice_refusal(conn, params.hostToolsFrom)  # security review 6, L-2
-    # Security review 7, H-2: no session works inside snowpea's own home.
-    from snowpea_core.server.project_gate import require_project
+    # Security review 7, H-2: no session works inside snowpea's own home — but a
+    # folder a person opens there that is not one of snowpea's own names is
+    # their project (0.2.90, ``admit_home_project``).
+    from snowpea_core.server.project_gate import admit_home_project, require_project
 
+    admit_home_project(core, conn, params.workdir)
     require_project(core, params.workdir, dot=False)
     await _refresh_settings(core)
     session = await core.sessions.create(
