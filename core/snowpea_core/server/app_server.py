@@ -205,6 +205,10 @@ class Core:
         from snowpea_core.config.project import register_home
 
         register_home(self.paths.home)
+        # 0.2.90: the projects a person registered inside the home.
+        from snowpea_core.security.control_plane import load_person_projects
+
+        load_person_projects(self.paths.home)
 
     # -- settings hot reload (CORE-settings-reload) ---------------------
 

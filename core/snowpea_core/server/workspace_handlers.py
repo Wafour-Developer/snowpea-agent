@@ -69,6 +69,11 @@ async def workspace_add_handler(
 ) -> WorkspaceResult:
     if not params.path.strip():
         raise RpcError(errors.INVALID_PARAMS, "workspace.add needs a path")
+    # 0.2.90: a folder inside snowpea's home — refused when it is one of
+    # snowpea's own names, a registered project when a person adds it.
+    from snowpea_core.server.project_gate import admit_home_project
+
+    admit_home_project(core, _conn, params.path, field="path")
     item = await ws.add(_store(core), params.path, params.title)
     await _announce(core, "workspaces")
     counts = await ws.session_counts(_store(core))
@@ -92,8 +97,13 @@ async def workspace_rename_handler(
 async def workspace_remove_handler(
     _conn: RpcConnection | None, params: WorkspaceIdParams, core: Core
 ) -> Ok:
+    found = await ws.get(_store(core), params.id)
     if not await ws.remove(_store(core), params.id):
         raise RpcError(errors.NOT_FOUND, f"no workspace {params.id}")
+    if found is not None:
+        from snowpea_core.server.project_gate import forget_home_project
+
+        forget_home_project(core, found["path"])
     await _announce(core, "workspaces")
     return Ok(ok=True)
 

@@ -1054,6 +1054,19 @@ class ApprovalQueue:
                 request.model_dump(mode="json"),
                 timeout=None if entry.no_limit else float(request.timeoutSec),
             )
+            if answer.get("decision") not in ("allow", "deny"):
+                # 0.2.90: a reply with no decision (``null``, ``{}``, an older or
+                # broken host) is not a person's "no": nobody saw a card.  Say
+                # what refused it instead of "(origin)".
+                shown = str(answer.get("result") if set(answer) == {"result"} else answer)
+                log.warning("approval %s: the origin answered without a decision: %s",
+                            request.requestId, shown[:200])
+                if not entry.future.done():
+                    entry.future.set_result(Decision(
+                        "deny", "once", "origin-no-answer", errors.APPROVAL_DENIED,
+                        reason=("the surface that started this conversation could not show "
+                                f"the approval (it replied without a decision: {shown[:120]})")))
+                return
             allowed = answer.get("decision") == "allow"
             scope = str(answer.get("scope", "once"))
             from snowpea_core.server.person_gate import connection_kind
@@ -1111,7 +1124,9 @@ class ApprovalQueue:
             raise
         except Exception as exc:  # noqa: BLE001 - a dead surface denies, it never hangs
             log.warning("approval %s could not reach its origin: %s", request.requestId, exc)
-            decision = Decision("deny", "once", "origin-unreachable", errors.APPROVAL_DENIED)
+            decision = Decision("deny", "once", "origin-unreachable", errors.APPROVAL_DENIED,
+                                reason=("the surface that started this conversation could not "
+                                        f"show the approval: {str(exc)[:160]}"))
         if not entry.future.done():
             entry.future.set_result(decision)
 

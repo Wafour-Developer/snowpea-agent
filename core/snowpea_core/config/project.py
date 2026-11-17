@@ -71,11 +71,23 @@ def home_problem(workdir: Path | str, home: Path | str | None = None) -> str | N
         return "home"  # a path nobody can resolve is not a project either
     # Security review 8, H8-3: by identity, not by spelling — on a file system
     # that ignores case (macOS APFS, Windows) ``/USERS/me`` is ``/Users/me``.
-    if any(pathcase.within(real, found) for found in homes):
+    # 0.2.90: a project a person registered inside the home is a project (its
+    # own ``.snowpea`` included), unless a link takes it to snowpea's own names.
+    if any(pathcase.within(real, found) and not _person_project(real, found)
+           for found in homes):
         return "home"
-    if any(pathcase.within(dot, found) for found in homes):
+    if any(pathcase.within(dot, found) and not _person_project(dot, found)
+           for found in homes):
         return "parent"
     return None
+
+
+def _person_project(path: Path, home: Path) -> bool:
+    """``path`` (resolved) lies in a project a person registered inside ``home``."""
+    from snowpea_core.security import control_plane
+
+    rel = control_plane._real_parts(path, home)
+    return bool(rel) and control_plane.person_project(rel, home) is not None
 
 
 class ProjectSettingsUnsafe(ValueError):

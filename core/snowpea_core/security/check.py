@@ -97,6 +97,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "en": "{path} is one of snowpea's own control files ({what}); no tool changes it",
         "ko": "{path} 은(는) snowpea 자체 제어 파일입니다({what}). 도구로는 바꿀 수 없습니다",
     },
+    "control_stray": {
+        "en": "{path} is inside snowpea's data folder ($SNOWPEA_HOME). Register the folder "
+              "as a project (open it in snowpea), or move it out of the data folder",
+        "ko": "{path} 은(는) snowpea 데이터 폴더($SNOWPEA_HOME) 안에 있습니다. 이 폴더를 "
+              "프로젝트로 등록하거나(snowpea 에서 열기) 데이터 폴더 밖으로 옮기세요",
+    },
     "control_read": {
         "en": "{path} holds snowpea's own secrets ({what}); no tool reads it",
         "ko": "{path} 에는 snowpea 자체 비밀 정보가 있습니다({what}). 도구로는 읽을 수 없습니다",
@@ -774,7 +780,7 @@ def _control_hit(shape: _Shape, effect: sh.Effect,
             if _under(folded, key):
                 parts = path.parts[len(home.parts):]
                 hit = control_plane.judge_parts(parts, access, recursive=effect.recursive,
-                                                fold=fold)
+                                                fold=fold, home=home)
                 if hit is not None:
                     return hit[0], hit[1], control_plane.shown(home, parts)
             elif _under(key, folded) and write and effect.program != "git":
@@ -858,6 +864,10 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
                 continue
             if verdict == "blocked":
                 key = "control_write" if write else "control_read"
+                if entry.stray:
+                    # 0.2.90: a folder of the person's inside the home — say
+                    # how to make it an ordinary place to work in.
+                    key = "control_stray"
                 return Verdict(True, BY_SETTINGS,
                                message(key, ctx.locale, path=shown, what=entry.what),
                                match=shown, kind="control", level=entry.level), asks

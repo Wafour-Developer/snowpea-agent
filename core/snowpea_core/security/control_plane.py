@@ -54,6 +54,10 @@ class ControlEntry:
     #: The file tools may edit it behind a person's answer (``settings.json``:
     #: its ``security`` section stays blocked, see ``check._settings_tool``).
     tool_edit: bool = False
+    #: A name under the home that is not one of snowpea's own (:func:`own_name`):
+    #: a folder of the person's that is no registered project (the refusal says
+    #: how to make it one).
+    stray: bool = False
 
     @property
     def parts(self) -> tuple[str, ...]:
@@ -123,6 +127,199 @@ WORKING: tuple[str, ...] = (
     "plans", "sessions", "attachments", "tool-content", "audio", "cache", "checkpoints",
     "logs", "update-check.json", "teams", "memory.md", "extension-data",
 )
+
+#: Every other name snowpea keeps, or may keep later, directly under its home
+#: (0.2.90, home projects).  With the first parts of :data:`CONTROL` and
+#: :data:`WORKING` this is the AUTHORITATIVE set of snowpea's own names
+#: (:func:`own_name`): a folder under the home whose first name is one of them
+#: is never a person's project.  Patterns are matched without case.
+OWN_NAMES: tuple[str, ...] = (
+    "budget.json", "escalations.json", "projects.json", "jarvis",
+    "external", "security", "trust", "models", "web", "web_dist", "browser", "bin", "tmp",
+    "temp", "worktrees", "backups", "backup", "machine-id", "mcp*", "browser-guard*",
+    "gateway*", "update*", "install*", "setup*", "daemon*", "state*", "token*", "credential*",
+    "settings*", "hooks*", "plugins*", "extension*", "skills*", "commands*", "agents*",
+    "lsp*", "snowpea*", "*.json", "*.jsonl", "*.json5", "*.toml", "*.yaml", "*.yml",
+    "*.db", "*.db-*", "*.sqlite*", "*.lock", "*.log", "*.pid", "*.sock", "*.tmp", "*.ps1",
+    "*.sh", "*.bat", "*.cmd", "*.exe", "*.py", "*.md",
+    # Hidden names and spellings Windows reads as another name (8.3 short
+    # names ``SKILLS~1``, alternate streams ``skills::$DATA``).
+    ".*", "*~*", "*:*",
+)
+
+
+def own_name(name: str) -> bool:
+    """``name`` (directly under the home) is one of snowpea's own names.
+
+    Compared without case and without the trailing dots and spaces Windows
+    drops (``Skills.`` IS ``skills`` there), whatever the platform: a name
+    that is snowpea's anywhere is never a person's project anywhere.
+    """
+    text = name.rstrip(" .") if name not in (".", "..") else name
+    if not text or text in (".", ".."):
+        return True
+    key = pathcase.fold_text(text)
+    patterns = (*(entry.parts[0] for entry in CONTROL), *WORKING, *OWN_NAMES)
+    return any(fnmatch.fnmatchcase(key, pathcase.fold_text(pattern)) for pattern in patterns)
+
+
+# -- a person's projects under the home (0.2.90) ------------------------------
+#
+# A person may keep a project inside the home folder (``SNOWPEA_HOME`` set to a
+# folder they also work in).  A folder a PERSON registered — ``workspace.add``
+# or ``session.create`` from a person's connection — whose first name under the
+# home is not one of snowpea's own is an ordinary place, for reads and writes;
+# its own control files are judged by the project rules like any project's.
+# Recorded in ``$SNOWPEA_HOME/security/home-projects.json`` (``security/`` is a
+# write-level control folder: no tool adds a row).
+
+#: Where the registered projects are kept, under the home.
+PERSON_PROJECTS_FILE: tuple[str, ...] = ("security", "home-projects.json")
+
+#: ``home key`` -> the registered roots, as parts under that home.
+_PERSON_PROJECTS: dict[str, tuple[tuple[str, ...], ...]] = {}
+
+
+def _home_key(home: str | os.PathLike[str]) -> str:
+    real = os.path.realpath(os.path.expanduser(os.fspath(home)))
+    return str(pathcase.path_key(Path(real), None))
+
+
+def _real_parts(root: str | os.PathLike[str],
+                home: str | os.PathLike[str]) -> tuple[str, ...] | None:
+    """``root`` under ``home`` as parts, both with symlinks resolved; ``None`` outside."""
+    try:
+        real_root = Path(os.path.realpath(os.path.expanduser(os.fspath(root))))
+        real_home = Path(os.path.realpath(os.path.expanduser(os.fspath(home))))
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return None
+    return _relative(real_root, real_home, None)
+
+
+def home_project_problem(root: str | os.PathLike[str],
+                         home: str | os.PathLike[str] | None) -> str | None:
+    """Why ``root`` cannot be a person's project inside ``home``.
+
+    ``None``: it may (a folder under the home whose first name is not
+    snowpea's).  ``"home"``: it is the home.  ``"own"``: its first name under
+    the home is one of snowpea's own (:func:`own_name`).  ``"outside"``: it is
+    not under the home at all (an ordinary project; nothing to register).
+    """
+    if not home:
+        return "outside"
+    rel = _real_parts(root, home)
+    if rel is None:
+        return "outside"
+    if not rel:
+        return "home"
+    if own_name(rel[0]):
+        return "own"
+    return None
+
+
+def person_projects(home: str | os.PathLike[str] | None) -> tuple[tuple[str, ...], ...]:
+    """The registered roots of ``home``, as parts under it."""
+    if not home or not _PERSON_PROJECTS:
+        return ()
+    try:
+        return _PERSON_PROJECTS.get(_home_key(home), ())
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return ()
+
+
+def person_project(parts: tuple[str, ...] | None, home: str | os.PathLike[str] | None,
+                   *, fold: bool | None = None) -> tuple[str, ...] | None:
+    """The registered root that ``parts`` (a path under ``home``) is or lies in."""
+    if not parts or not home or not _PERSON_PROJECTS or own_name(parts[0]):
+        return None
+    for rel in person_projects(home):
+        if len(parts) >= len(rel) and all(
+            pathcase.name_key(got, fold) == pathcase.name_key(want, fold)
+            for got, want in zip(parts, rel, strict=False)
+        ):
+            return rel
+    return None
+
+
+def _projects_file(home: str | os.PathLike[str]) -> Path:
+    return Path(os.path.expanduser(os.fspath(home))).joinpath(*PERSON_PROJECTS_FILE)
+
+
+def _save_person_projects(home: str | os.PathLike[str]) -> None:
+    import json
+
+    from snowpea_core.util.atomic import write_atomic
+
+    path = _projects_file(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [list(rel) for rel in person_projects(home)]
+    write_atomic(path, json.dumps({"version": 1, "projects": rows}, ensure_ascii=False,
+                                  indent=2) + "\n")
+
+
+def add_person_project(home: str | os.PathLike[str], root: str | os.PathLike[str], *,
+                       save: bool = True) -> tuple[str, ...]:
+    """Register ``root`` (under ``home``) as a person's project.
+
+    The CALLER has checked that a person asked (``server.person_gate``).
+    ``ValueError(problem)`` when it may not be one (:func:`home_project_problem`).
+    """
+    problem = home_project_problem(root, home)
+    if problem is not None:
+        raise ValueError(problem)
+    rel = _real_parts(root, home)
+    assert rel and not own_name(rel[0])
+    # The home's secrets are never inside a project root (their first names
+    # are snowpea's own), so no registration reaches them.
+    assert entry_for(rel[:1], fold=True) is None and not working(rel[0], fold=True)
+    key = _home_key(home)
+    current = list(_PERSON_PROJECTS.get(key, ()))
+    if rel not in current:
+        current.append(rel)
+        _PERSON_PROJECTS[key] = tuple(current)
+        if save:
+            _save_person_projects(home)
+    return rel
+
+
+def remove_person_project(home: str | os.PathLike[str], root: str | os.PathLike[str]) -> bool:
+    """Forget ``root``; True when it was registered."""
+    rel = _real_parts(root, home)
+    key = _home_key(home)
+    current = list(_PERSON_PROJECTS.get(key, ()))
+    if rel is None or rel not in current:
+        return False
+    current.remove(rel)
+    _PERSON_PROJECTS[key] = tuple(current)
+    _save_person_projects(home)
+    return True
+
+
+def load_person_projects(home: str | os.PathLike[str]) -> tuple[tuple[str, ...], ...]:
+    """Read the registered projects of ``home`` (the daemon's start).  A row whose
+    first name is snowpea's own is dropped, whatever the file says."""
+    import json
+
+    found: list[tuple[str, ...]] = []
+    try:
+        data = json.loads(_projects_file(home).read_text(encoding="utf-8"))
+        rows = data.get("projects") if isinstance(data, dict) else None
+    except (OSError, ValueError, UnicodeDecodeError):
+        rows = None
+    for row in rows if isinstance(rows, list) else ():
+        if (isinstance(row, list) and row and all(isinstance(p, str) and p for p in row)
+                and not own_name(row[0])
+                and not any(p in (".", "..") or "/" in p or "\\" in p for p in row)):
+            rel = tuple(row)
+            if rel not in found:
+                found.append(rel)
+    _PERSON_PROJECTS[_home_key(home)] = tuple(found)
+    return tuple(found)
+
+
+def clear_person_projects() -> None:
+    """Forget every registration in this process (tests)."""
+    _PERSON_PROJECTS.clear()
 
 #: The logins of external CLIs in the USER's home (security review 7, L7-2):
 #: never read by a tool, whatever the person's own lists say — the same answer
@@ -238,6 +435,11 @@ def unlisted(parts: tuple[str, ...], *, fold: bool | None = None) -> ControlEntr
     siblings: read freely, never written by a tool."""
     if not parts or entry_for(parts[:1], fold=fold) is not None or working(parts[0], fold=fold):
         return None
+    if not own_name(parts[0]):
+        # 0.2.90: a folder of the person's, not registered as a project.
+        return ControlEntry(parts[0], "write",
+                            "a folder inside snowpea's data folder that is not a registered "
+                            "project", stray=True)
     return ControlEntry(parts[0], "write",
                         "a file in snowpea's own folder that is not working state; a hook, "
                         "plugin or extension keeps its files in $SNOWPEA_HOME/extension-data/")
@@ -360,7 +562,7 @@ def control_plane_effect(
         return None
     for base in homes(home, user_home):
         for form in forms:
-            hit = judge_parts(_relative(form, base, None), access)
+            hit = judge_parts(_relative(form, base, None), access, home=base)
             if hit is not None:
                 parts = _relative(form, base, None) or ()
                 return ControlEffect(hit[0], hit[1], str(base), shown(base, parts))
@@ -383,13 +585,18 @@ def control_plane_effect(
 
 
 def judge_parts(parts: tuple[str, ...] | None, access: str, *, recursive: bool = False,
-                fold: bool | None = None) -> tuple[str, ControlEntry] | None:
+                fold: bool | None = None,
+                home: str | os.PathLike[str] | None = None) -> tuple[str, ControlEntry] | None:
     """The verdict for a path inside a home, given as its parts under it.
 
     ``access``: ``read`` | ``write`` | ``delete``; ``recursive``: the act
     reaches everything below the path (``grep -r``, ``cp -r`` onto it).
+    ``home``: the home the parts are under; a path in a project a person
+    registered there (:func:`person_project`) is an ordinary path (0.2.90).
     """
     if parts is None:
+        return None
+    if home is not None and person_project(parts, home, fold=fold) is not None:
         return None
     entry = entry_for(parts, fold=fold) or unlisted(parts, fold=fold)
     if entry is not None:
@@ -428,7 +635,17 @@ def is_secret(path: str | os.PathLike[str], home: str | os.PathLike[str] | None)
 __all__ = [
     "CONTROL",
     "LEVELS",
+    "OWN_NAMES",
+    "PERSON_PROJECTS_FILE",
     "WORKING",
+    "add_person_project",
+    "clear_person_projects",
+    "home_project_problem",
+    "load_person_projects",
+    "own_name",
+    "person_project",
+    "person_projects",
+    "remove_person_project",
     "ControlEffect",
     "ControlEntry",
     "control_plane_effect",

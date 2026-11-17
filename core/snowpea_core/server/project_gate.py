@@ -70,4 +70,58 @@ def unsafe_write(exc: Exception, field: str = "workdir") -> RpcError:
                     {"reason": REASON, "field": field, "what": "home"})
 
 
-__all__ = ["INVALID_REASON", "REASON", "project_problem", "require_project", "unsafe_write"]
+#: The refusal of a folder under the home whose first name is snowpea's own (0.2.90).
+OWN_FOLDER = ("this folder is one of snowpea's own folders in its data folder ($SNOWPEA_HOME); "
+              "a project cannot live there — choose a folder with another name, or one outside "
+              "the data folder")
+
+
+def admit_home_project(core: Any, conn: Any, workdir: Any, *, field: str = "workdir") -> bool:
+    """0.2.90: a project folder inside snowpea's home (``SNOWPEA_HOME`` set to a
+    folder the person also works in).
+
+    A folder whose first name under the home is snowpea's own is refused up
+    front (``invalid_params``, ``details.what: "own"``).  Any other folder under
+    the home becomes a registered project — an ordinary place for the tools —
+    when a PERSON's connection asks (``person_gate.is_person``); an agent's
+    tool, Jarvis, a browser host or the connector never registers one.
+    Returns True when ``workdir`` is (now) such a project.  The home itself is
+    left to :func:`require_project`.
+    """
+    if not workdir:
+        return False
+    from snowpea_core.security import control_plane
+    from snowpea_core.server.person_gate import is_person
+
+    home = getattr(getattr(core, "paths", None), "home", None)
+    if home is None:
+        return False
+    problem = control_plane.home_project_problem(workdir, home)
+    if problem == "own":
+        raise RpcError(errors.INVALID_PARAMS, OWN_FOLDER,
+                       {"reason": REASON, "field": field, "what": "own"})
+    if problem is not None:
+        return False
+    rel = control_plane._real_parts(workdir, home)
+    if control_plane.person_project(rel, home) is not None:
+        return True
+    if not is_person(conn):
+        return False
+    control_plane.add_person_project(home, workdir)
+    return True
+
+
+def forget_home_project(core: Any, workdir: Any) -> None:
+    """The registration of ``workdir`` ends with its workspace row (0.2.90)."""
+    from snowpea_core.security import control_plane
+
+    home = getattr(getattr(core, "paths", None), "home", None)
+    if home is not None and workdir:
+        try:
+            control_plane.remove_person_project(home, workdir)
+        except OSError:
+            pass
+
+
+__all__ = ["INVALID_REASON", "OWN_FOLDER", "REASON", "admit_home_project",
+           "forget_home_project", "project_problem", "require_project", "unsafe_write"]
