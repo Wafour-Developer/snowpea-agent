@@ -388,7 +388,9 @@ async def test_a_session_answer_never_covers_a_compound_line(
     assert again.by == "cache"
     await queue.request(session, "shell", {"command": "git status ; id"})
     assert len(origin.asked) == 2
-    # A session answer to a compound line is kept to once and caches nothing.
+    # A pipe into a shell cannot be checked: the person's answer is for this call
+    # only (m21 remembers exact compound lines, never an uncheckable one), and
+    # caches nothing: a plain ``ls`` still asks.
     decided = await queue.request(session, "shell", {"command": "ls | sh"})
     assert decided.scope == "once"
     await queue.request(session, "shell", {"command": "ls"})

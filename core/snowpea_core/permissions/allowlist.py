@@ -43,6 +43,11 @@ SHELL_TARGET = "shell"
 #: Target of a folder rule: writes outside the project into this folder
 #: (addendum 29). Its pattern matches the resolved path of the file written.
 DIR_TARGET = "dir"
+#: Target of a script grant (m21): one exact command running script files as
+#: they were when a person allowed it (see :meth:`Allowlist.add_script`).  Its
+#: ``pattern`` is the command for people, never matched as a rule; an older core
+#: skips the entry (an unknown target matches nothing).
+SCRIPT_TARGET = "script"
 
 def _project_digest(workdir: Path | str) -> str:
     """The settings file's digest, or ``missing`` when it holds nothing that widens
@@ -247,6 +252,38 @@ def outside_folder(
     return str(folder)
 
 
+def _real(path: Path | str | None) -> str | None:
+    """``path`` resolved (symlinks followed), or ``None``."""
+    if path is None or not str(path).strip():
+        return None
+    try:
+        return str(Path(path).expanduser().resolve())
+    except (OSError, RuntimeError):
+        return None
+
+
+def _grant_of(entry: Any) -> dict[str, Any] | None:
+    """A script grant entry's details, or ``None`` when it is malformed."""
+    extra = getattr(entry, "model_extra", None) or {}
+    project, tool = extra.get("project"), extra.get("tool")
+    words, folder, scripts = extra.get("words"), extra.get("folder"), extra.get("scripts")
+    if not (isinstance(project, str) and isinstance(tool, str) and isinstance(folder, str)):
+        return None
+    if not (isinstance(words, list) and words and all(isinstance(w, str) for w in words)):
+        return None
+    if not (isinstance(scripts, list) and scripts):
+        return None
+    pairs: list[dict[str, str]] = []
+    for item in scripts:
+        if not (isinstance(item, dict) and isinstance(item.get("path"), str)
+                and isinstance(item.get("sha256"), str)):
+            return None
+        pairs.append({"path": item["path"], "sha256": item["sha256"]})
+    display = extra.get("display")
+    return {"project": project, "tool": tool, "words": list(words), "folder": folder,
+            "scripts": pairs, "display": display if isinstance(display, str) else None}
+
+
 def _matches_pattern(pattern: str, subject: str) -> bool:
     try:
         return re.search(pattern, subject) is not None
@@ -305,10 +342,33 @@ class AllowlistItem:
     host: str | None = None
     #: ``approval.ask`` reasonCode the entry is limited to; ``None`` for any call.
     reason_code: str | None = None
+    #: A script grant's details (m21, :data:`SCRIPT_TARGET`): ``tool``,
+    #: ``project``, ``words``, ``folder``, ``scripts`` [{path, sha256}],
+    #: ``display``.  ``None`` for every other entry.
+    grant: dict[str, Any] | None = None
+
+    @property
+    def kind(self) -> str | None:
+        """``"script"`` for a script grant, else ``None``."""
+        return "script" if self.target == SCRIPT_TARGET else None
+
+    def wire_extra(self) -> dict[str, Any]:
+        """``AllowlistPattern``'s 1.57.0 fields of a script grant (else nothing)."""
+        if self.grant is None:
+            return {}
+        scripts = self.grant["scripts"]
+        return {
+            "kind": "script",
+            "display": self.grant.get("display") or self.pattern,
+            "script": dict(scripts[0]),
+            "scripts": [dict(s) for s in scripts],
+        }
 
     @property
     def tool(self) -> str | None:
         """The tool (or dotted action, e.g. ``repl.upload``) a tool entry targets."""
+        if self.grant is not None:
+            return str(self.grant.get("tool") or "") or None
         if not self.target.startswith("tool:"):
             return None
         name = self.target[len("tool:") :]
@@ -378,7 +438,76 @@ class Allowlist:
                 getattr(e, "reason_code", None),
             )
             for e in self.settings.allowlist
+            if e.target != SCRIPT_TARGET
         ]
+
+    def _script_items(self, workdir: Path | str | None) -> list[AllowlistItem]:
+        """Script grants for the project at ``workdir`` (m21).  They live in the
+        owner's settings, never in the project's own file: a cloned repository
+        cannot grant its own scripts."""
+        project = _real(workdir)
+        if project is None:
+            return []
+        items: list[AllowlistItem] = []
+        for e in self.settings.allowlist:
+            if e.target != SCRIPT_TARGET:
+                continue
+            grant = _grant_of(e)
+            if grant is None or grant["project"] != project:
+                continue
+            items.append(AllowlistItem(
+                e.id, e.pattern, e.target, "project", None,
+                getattr(e, "created_at", None), grant=grant,
+            ))
+        return items
+
+    def script_grants(self, workdir: Path | str | None) -> list[AllowlistItem]:
+        """The script grants stored for the project at ``workdir``."""
+        return self._script_items(workdir)
+
+    def add_script(
+        self,
+        *,
+        workdir: Path | str,
+        tool: str,
+        words: list[str],
+        folder: str,
+        scripts: list[dict[str, str]],
+        display: str,
+    ) -> str:
+        """Store a script grant for the project at ``workdir`` and return its id.
+
+        A grant for the same command in the same folder is replaced (the person
+        allowed the new content).  Stored in the owner's settings with the
+        project's resolved path.
+        """
+        project = _real(workdir)
+        if project is None or not words or not scripts:
+            raise ValueError("a script grant needs a project, a command and its scripts")
+        kept = []
+        for e in self.settings.allowlist:
+            grant = _grant_of(e) if e.target == SCRIPT_TARGET else None
+            if grant is not None and (grant["project"], grant["tool"], grant["words"],
+                                      grant["folder"]) == (project, tool, list(words), folder):
+                continue
+            kept.append(e)
+        entry = AllowlistEntry(
+            id=new_id(),
+            pattern=" ".join(shlex.quote(word) for word in words),
+            target=SCRIPT_TARGET,
+            created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            kind="script",
+            project=project,
+            tool=tool,
+            words=list(words),
+            folder=folder,
+            scripts=[{"path": s["path"], "sha256": s["sha256"]} for s in scripts],
+            display=display,
+        )
+        self.settings.allowlist = [*kept, entry]
+        self._save_global()
+        log.info("allowlist += script grant %s (%s)", entry.pattern, project)
+        return entry.id
 
     # -- queries -------------------------------------------------------
     def list(
@@ -398,6 +527,7 @@ class Allowlist:
         items: list[AllowlistItem] = []
         if scope in (None, "project"):
             items.extend(self._project_items(workdir))
+            items.extend(self._script_items(workdir))
         if scope in (None, "global"):
             items.extend(
                 item

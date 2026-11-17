@@ -573,6 +573,7 @@ async def allowlist_list_handler(
                 createdAt=item.created_at,
                 hostToolsFrom=item.host,
                 reasonCode=item.reason_code,
+                **item.wire_extra(),
             )
             for item in items
         ]

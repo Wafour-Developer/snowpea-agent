@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
@@ -2290,8 +2290,33 @@ class ToolProgressParams(Payload):
 # --------------------------------------------------------------------------
 
 
+#: Fields 1.57.0 (m21) adds to ``ApprovalRemember`` and ``AllowlistPattern``:
+#: left out of the JSON while null, so a plain command's ``remember`` and an
+#: ordinary allowlist row stay exactly what 0.2.89 sent.
+_M21_OPTIONAL: tuple[str, ...] = ("exactLine", "kind", "display", "script", "scripts")
+
+
+def _omit_null_m21(data: Any) -> Any:
+    if isinstance(data, dict):
+        for key in _M21_OPTIONAL:
+            if key in data and data[key] is None:
+                del data[key]
+    return data
+
+
+class ScriptRef(Payload):
+    """A script file as a script grant holds it (1.57.0)."""
+
+    path: str = Field(description="Absolute path of the file.")
+    sha256: str = Field(description="Hex SHA-256 of its bytes when the person allowed it.")
+
+
 class ApprovalRemember(Payload):
     """What a remembered answer to a shell approval would allow (1.34.0, ``shellRemember``)."""
+
+    @model_serializer(mode="wrap")
+    def _wire(self, handler: Any) -> Any:
+        return _omit_null_m21(handler(self))
 
     pattern: str = Field(
         description=(
@@ -2315,8 +2340,41 @@ class ApprovalRemember(Payload):
             "The remembered answers the card may offer: ['project'], or "
             "['project', 'always'] when the rule cannot write or run anything whatever "
             "arguments follow. An 'always' answer to a ['project'] offer is stored for the "
-            "project."
+            "project. [] for an exact compound line (exactLine): nothing is stored."
         )
+    )
+    exactLine: bool | None = Field(
+        default=None,
+        description=(
+            "1.57.0: true for a compound line (one holding ; & | < > ` $( or a newline): "
+            "'allow for this session' remembers only this exact line (whitespace "
+            "normalised) run in this folder, for this session, in memory; 'project'/"
+            "'always' answers apply as 'session'. pattern is then the escaped line, "
+            "display the line itself. Null for every other request: a plain command's "
+            "session answer is unchanged."
+        ),
+    )
+    kind: Literal["script"] | None = Field(
+        default=None,
+        description=(
+            "1.57.0: 'script' on a person-only request that asks only because of what the "
+            "content of script files it runs does (a script grant): a person's allow "
+            "('session', or 'project' to keep it; 'always' is kept for the project) is "
+            "remembered for this exact command (display) and these files as they are now "
+            "(scripts), and asked again, saying the script changed, as soon as one "
+            "changes. Never offered to, nor stored from, a remote login, a connector, "
+            "Jarvis or a messenger. Null otherwise."
+        ),
+    )
+    script: ScriptRef | None = Field(
+        default=None, description="1.57.0, kind 'script': the script the command runs."
+    )
+    scripts: list[ScriptRef] | None = Field(
+        default=None,
+        description=(
+            "1.57.0, kind 'script': every file whose content the grant holds to (the "
+            "script, files it imports, the package.json or Makefile it runs a line of)."
+        ),
     )
 
 
@@ -2831,6 +2889,10 @@ class AllowlistListParams(Payload):
 class AllowlistPattern(Payload):
     """One stored allowlist entry."""
 
+    @model_serializer(mode="wrap")
+    def _wire(self, handler: Any) -> Any:
+        return _omit_null_m21(handler(self))
+
     patternId: str = Field(description="Stable id of the pattern.")
     pattern: str = Field(description="The glob or command prefix.")
     scope: AllowlistScope = Field(description="Where it is stored.")
@@ -2863,6 +2925,30 @@ class AllowlistPattern(Payload):
             "for a project rule on a loopback dev server origin; null for an entry that "
             "covers any call (1.7.0)."
         ),
+    )
+    kind: Literal["script"] | None = Field(
+        default=None,
+        description=(
+            "1.57.0: 'script' for a script grant: the exact command in pattern (e.g. "
+            "'bash bin/run.sh') may run unasked in this project while the files in "
+            "scripts are unchanged. tool names the tool; scope is 'project' (kept in the "
+            "owner's settings, never in the project's file). Removed with "
+            "permission.allowlist.remove like any entry. Null for a rule."
+        ),
+    )
+    display: str | None = Field(
+        default=None,
+        description=(
+            "1.57.0, kind 'script': the grant for people, e.g. 'bash bin/run.sh (while "
+            "bin/run.sh is unchanged)'."
+        ),
+    )
+    script: ScriptRef | None = Field(
+        default=None, description="1.57.0, kind 'script': the script the command runs."
+    )
+    scripts: list[ScriptRef] | None = Field(
+        default=None,
+        description="1.57.0, kind 'script': every file whose content the grant holds to.",
     )
 
 

@@ -177,6 +177,11 @@ class Verdict:
     #: ``security.unknownCode: "auto"`` lets it through in a session in auto mode
     #: (:func:`asks_in`).  False for every other verdict.
     relaxable: bool = False
+    #: m21 script grants: opaque ONLY because of what the content of the script
+    #: files in :attr:`scripts` does (each reason in :data:`UNRESOLVED_REASONS`,
+    #: none raised by the line itself, nothing on snowpea's controls): a person's
+    #: allow may be remembered for exactly these files as they are now.
+    script_grant: bool = False
 
     def asks_in(self, mode: str | None) -> bool:
         """The verdict puts the call to the person in a session in ``mode``."""
@@ -1030,12 +1035,53 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
     if unseen:
         only_code = all(why.startswith("code:") for why in unseen)
         relaxable = ctx.unknown_code == "auto" and all(why in relax for why in unseen)
+        # m21 script grants: every reason came from inside a script file the
+        # reader hashed, none from the line itself, and each is one the switch
+        # could let through (so never script-written, control-plane, snowpea).
+        script_grant = bool(scripts) and _script_only(view, unseen, relax, entries,
+                                                      extra_effects, ctx)
         return Verdict(opaque=True,
                        reason=UNKNOWN_CODE_REASON if only_code else UNCHECKED_REASON,
                        why=message("unknown_code" if only_code else "unchecked", ctx.locale),
                        unseen=tuple(dict.fromkeys(unseen)), scripts=scripts,
-                       relaxable=relaxable)
+                       relaxable=relaxable, script_grant=script_grant)
     return Verdict(scripts=scripts) if scripts else ALLOWED
+
+
+def _script_only(view: sh.ShellView, unseen: list[str], relax: set[str],
+                 entries: list[catalog.PathEntry], extra: Iterable[sh.Effect],
+                 ctx: Context) -> bool:
+    """m21 script grants: every reason in ``unseen`` is one the switch could let
+    through and was raised only by the content of a script file the line runs."""
+    in_file = {i for start, end in view.script_spans for i in range(start, end)}
+    own = [effect for i, effect in enumerate(view.effects) if i not in in_file]
+    _, own_unseen = _path_verdict([*own, *extra], entries, ctx)
+    path_reasons = {why for why in unseen if why not in view.opaque}
+    if own_unseen or (path_reasons and not in_file):
+        return False
+    return all(why in relax and _grantable(why) and why not in view.own_opaque
+               and (why in view.script_opaque or why in path_reasons)
+               for why in unseen)
+
+
+#: m21 script grants: the reasons a grant may cover say only WHERE a script
+#: writes or reads is not known.  Never that code or a program comes from
+#: somewhere the grant does not hash (an eval, a pipe into a shell, a computed
+#: program, a variable read as code, a module path): what such a script runs
+#: could change while its own bytes do not.
+_GRANTABLE: tuple[str, ...] = ("unknown-path", "unknown-read", "hard-linked", "test-subscript",
+                               "code:write:", "code:copy:", "code:move:", "code:chdir")
+
+
+def _grantable(why: str) -> bool:
+    from snowpea_core.security import envvars
+
+    if why.startswith("env-code:"):
+        name = why.split(":", 1)[1]
+        return name.upper() not in ("PATH", "DYNAMIC") and not envvars.is_code(name) \
+            and not envvars.is_resolve(name)
+    return any(why == head or (head.endswith(":") and why.startswith(head))
+               for head in _GRANTABLE)
 
 
 def _git_control(path: Path) -> bool:

@@ -207,6 +207,8 @@ class PermissionPolicy:
             verdict = self.promote_outside(verdict, args, session)
         elif verdict == "ask" and tag not in UNPROMOTABLE:
             verdict = self.promote(verdict, tool, args, session)
+            if verdict == "ask" and tag == "exec":
+                verdict = self.promote_chain(mode, tool, args, session)
         if (
             verdict == "ask"
             and mode == "plan"
@@ -392,6 +394,45 @@ class PermissionPolicy:
         if self.allowlist.matches(tool, args or {}, workdir=workdir, host=host):
             return "allow"
         return verdict
+
+    def promote_chain(
+        self, mode: str, tool: Tool | None, args: dict[str, Any] | None, session: Any
+    ) -> str:
+        """``allow`` for a ``;``/``&&``/``||``/``|`` chain every simple command of
+        which would run unasked on its own (m21): a stored rule covers it, or plan
+        mode lets it run as an inspection.  ``ask`` otherwise.
+
+        Only a chain :func:`~snowpea_core.permissions.shell_remember.segments`
+        splits cleanly qualifies (no redirection, substitution, variable or
+        quoted separator), and a part run by a shell or an interpreter is never
+        covered by a rule (it would run what the pipe feeds it).  The security
+        lists judged the whole line before this, and still ask what they cannot
+        see through.
+        """
+        from snowpea_core.permissions.allowlist import command_of
+        from snowpea_core.permissions.safe_commands import is_read_only
+        from snowpea_core.permissions.shell_remember import chain_program_ok, segments
+
+        if tool is None:
+            return "ask"
+        parts = segments(command_of(args or {}))
+        if parts is None:
+            return "ask"
+        workdir = getattr(session, "workdir", None)
+        host = getattr(session, "host_tools_from", None)
+        for part in parts:
+            if mode == "plan" and tool.name == PLAN_EXEC_TOOL and is_read_only(part):
+                continue
+            if (
+                self.allowlist is not None
+                and chain_program_ok(part)
+                and self.allowlist.matches(
+                    tool, {**(args or {}), "command": part}, workdir=workdir, host=host
+                )
+            ):
+                continue
+            return "ask"
+        return "allow"
 
     def risk(self, tag: PermissionTag) -> str:
         return RISK_BY_TAG.get(tag, "medium")
