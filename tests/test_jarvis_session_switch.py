@@ -590,12 +590,19 @@ async def test_browser_session_is_created_on_the_alias_and_runs_repl(tmp_path: P
         await _wait(lambda: any(c.get("name") == "repl" or c.get("tool") == "repl"
                                 for c in conn.invoked), 10)
         await _wait(lambda: session.turn_task is None or session.turn_task.done(), 10)
-        # Jarvis's words never carry a human origin, the first turn nor a follow-up.
-        assert set(session.turn_origins.values()) <= {"jarvis"}
-        follow = await _tool(core, "session_prompt", {"sessionId": session.id, "text": "again"})
+        # Jarvis's words never carry a human origin, the first turn nor a follow-up:
+        # what the host reads (tool.invoke userTurn / origin) says no person asked.
+        invoke = next(c for c in conn.invoked if c.get("name") == "repl")
+        assert invoke["userTurn"] is None and invoke["origin"] == "jarvis"
+        assert invoke["job"] is None
+        follow = await _tool(core, "session_prompt",
+                             {"sessionId": session.id, "text": "open the page again"})
         assert follow.ok, follow.error
+        await _wait(lambda: len([c for c in conn.invoked if c.get("name") == "repl"]) >= 2, 10)
         await _wait(lambda: session.turn_task is None or session.turn_task.done(), 10)
-        assert set(session.turn_origins.values()) <= {"jarvis"}
+        again = [c for c in conn.invoked if c.get("name") == "repl"][1]
+        assert again["userTurn"] is None and again["origin"] == "jarvis"
+        assert session.user_turn is None
         events = await core.store.events_of_kinds(session.id, ("message.user",), 0)
         assert events and all(
             (e["payload"].get("origin") or {}).get("kind") == "jarvis" for e in events)
@@ -666,17 +673,27 @@ PERSON_ONLY_ASKS = [
     ("payment.confirm", "send", "payment"),
     ("subscription.resume", "send", None),
     ("use_tab", "send", None),
+    ("repl.human", "send", None),  # the host hands the tab back to the person
+]
+#: (tool, reason code, where the host puts it) of payment steps of ordinary actions.
+PAYMENT_STEP_ASKS = [
+    ("repl.navigate", "payment.step", "args"),
+    ("repl.script", "payment.step", "top"),
+    ("repl.send", "payment", "args"),
 ]
 
 
 async def _host_ask(core: Any, conn: Any, session: Any, tool: str, permission: str,
-                    risk: str | None) -> tuple[asyncio.Future[Any], ApprovalRequest]:
+                    risk: str | None, *, args: dict[str, Any] | None = None,
+                    reason_code: str | None = None,
+                    ) -> tuple[asyncio.Future[Any], ApprovalRequest]:
     from snowpea_core.server.host_handlers import approval_ask_handler
 
     params = ApprovalAskParams(sessionId=session.id, tool=tool, permission=permission,
-                               reason="the page asks", args={"detail": {"origin":
-                                                                        "https://shop.example"}},
-                               risk=risk)
+                               reason="the page asks",
+                               args={"detail": {"origin": "https://shop.example"},
+                                     **(args or {})},
+                               risk=risk, reasonCode=reason_code)
     before = {r.requestId for r in _pending(core, session.id)}
     task = asyncio.ensure_future(approval_ask_handler(conn, params, core))
     await _wait(lambda: any(r.requestId not in before for r in _pending(core, session.id)), 5)
@@ -713,6 +730,20 @@ async def test_host_asks_follow_the_engine(tmp_path: Path, level: str) -> None:
             task, request = await _host_ask(core, conn, session, tool, permission, risk)
             assert request.route == "person", (tool, level)
             assert core.jarvis.engine.routed(request.requestId).reason == "person-only"
+            await core.approvals.respond(request.requestId, "deny", "once", by="test")
+            await asyncio.wait_for(task, 5)
+        for tool, code, where in PAYMENT_STEP_ASKS:
+            task, request = await _host_ask(
+                core, conn, session, tool, "send", None,
+                args={"reasonCode": code} if where == "args" else None,
+                reason_code=code if where == "top" else None)
+            assert request.args.get("reasonCode") == code
+            assert request.route == "person", (tool, code, level)
+            assert core.jarvis.engine.routed(request.requestId).reason == "person-only"
+            refused = await _tool(core, "approval_decide",
+                                  {"requestId": request.requestId, "decision": "allow"},
+                                  human=False)
+            assert not refused.ok
             await core.approvals.respond(request.requestId, "deny", "once", by="test")
             await asyncio.wait_for(task, 5)
     finally:

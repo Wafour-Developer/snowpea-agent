@@ -472,6 +472,7 @@ Escalate one host action through the approval pipeline. The approver's approval.
 | `forceAsk` | `boolean` | no | Always ask a person: the mode matrix may only deny (plan still denies write, send and config; a read is asked) and never auto-allows, not even in auto mode. The allowlist still applies unless risk is 'payment'. For any client's destructive or irreversible actions. |
 | `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"` | yes | Permission class of the escalated action. |
 | `reason` | `string` | yes | What will happen, shown to the person approving. |
+| `reasonCode` | `string \| null` | no | 1.56.0: the host's reason code for the ask, also accepted inside args (args.reasonCode wins). One starting with 'payment' (payment.step, ...) is always the person's: Jarvis and the engine never decide it. |
 | `risk` | `string \| null` | no | Risk hint shown with the approval; default from the permission. 'payment' also means: the allowlist is never consulted and the answer is never stored beyond this one call (scope is coerced to 'once'). |
 | `sessionId` | `string` | yes | Session whose tool call is running. |
 | `site` | `string \| null` | no | Origin of the page, e.g. https://github.com; derived from detail.origin or args.url if omitted. |
@@ -4766,7 +4767,7 @@ Ask the client to run one of its host tools.
 | `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |
 | `model` | `{ canSee: boolean; contextWindow?: number \| null; localStyle: boolean; } \| null` | no | 1.55.0: the session's current model, so a host can shape what it returns (a screenshot only for a model that can see, a shorter snapshot for a small window). Absent from older daemons. |
 | `name` | `string` | yes | Host tool name. |
-| `origin` | `"human" \| "agent" \| "member" \| "schedule" \| "system" \| null` | no | Who started the root conversation's running turn (1.23.0): the session's own person, the agent, a schedule, another gateway group member or the system. A delegated child reports its root's. |
+| `origin` | `"human" \| "agent" \| "member" \| "schedule" \| "system" \| "jarvis" \| null` | no | Who started the root conversation's running turn (1.23.0): the session's own person, the agent, a schedule, another gateway group member or the system. A delegated child reports its root's. |
 | `parentSessionId` | `string \| null` | no | The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. |
 | `sessionId` | `string` | yes | Session whose turn called the tool. |
 | `turnId` | `string` | no | Turn the call belongs to. |

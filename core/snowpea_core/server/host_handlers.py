@@ -275,6 +275,9 @@ async def approval_ask_handler(
     tool = replace(base, name=params.tool)
     detail = dict(params.detail or {})
     args = {**params.args, **({"detail": detail} if detail else {})}
+    if params.reasonCode and not args.get("reasonCode"):
+        # 1.56.0: a top-level reason code is shown and judged like args.reasonCode.
+        args["reasonCode"] = params.reasonCode
     site = site_of(args, params.site or (str(detail["origin"]) if detail.get("origin") else None))
     payment = (params.risk or "").strip().lower() == PAYMENT_RISK
     # onceOnly (a host that cannot name the site): never matched against, or
@@ -370,18 +373,24 @@ _SCOPES = ("once", "session", "project", "always", "site")
 #: Host asks that are the person's whatever was delegated (1.56.0, owner's
 #: exception table): money (``payment.confirm``, a recurring purchase or
 #: subscription being created, changed or resumed — any action in a
-#: ``payment.*`` / ``subscription.*`` / ``purchase.*`` / ``recurring*`` family)
-#: and ``use_tab`` (the person's own tabs).  Matched on the action name.
+#: ``payment.*`` / ``subscription.*`` / ``purchase.*`` / ``recurring*`` family),
+#: ``use_tab`` (the person's own tabs) and ``repl.human`` (the host hands the
+#: tab back to the person).  Matched on the action name.
 _PERSON_ONLY_HOST_ASK = re.compile(
     r"(^|[._\-])(payments?|subscriptions?|subscribe|purchases?|recurring\w*|checkout)"
-    r"([._\-]|$)|^use_tab([._\-]|$)",
+    r"([._\-]|$)|^use_tab([._\-]|$)|(^|\.)human$",
     re.IGNORECASE,
 )
 
 
-def person_only_host_ask(tool: str, risk: str | None) -> bool:
-    """A host ask only a person may answer: never Jarvis, never the engine alone."""
+def person_only_host_ask(tool: str, risk: str | None, reason_code: str | None = None) -> bool:
+    """A host ask only a person may answer: never Jarvis, never the engine alone.
+
+    Also any ask whose reason code (``args.reasonCode`` or the ask's own) starts
+    with ``payment`` (``payment.step``, ...)."""
     if (risk or "").strip().lower() == PAYMENT_RISK:
+        return True
+    if str(reason_code or "").strip().lower().startswith("payment"):
         return True
     return bool(_PERSON_ONLY_HOST_ASK.search(str(tool or "")))
 

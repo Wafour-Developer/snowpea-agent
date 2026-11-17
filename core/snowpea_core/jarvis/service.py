@@ -868,9 +868,16 @@ class JarvisService:
             # the browser's person answers it there).
             from snowpea_core.server.host_handlers import person_only_host_ask
 
-            tool = request.tool if isinstance(request, ApprovalRequest) else request.get("tool")
-            risk = request.risk if isinstance(request, ApprovalRequest) else request.get("risk")
-            person_only = person_only_host_ask(str(tool or ""), str(risk or ""))
+            if isinstance(request, ApprovalRequest):
+                tool, risk, args = request.tool, request.risk, request.args
+                code = request.reasonCode
+            else:
+                tool, risk = request.get("tool"), request.get("risk")
+                args, code = request.get("args"), request.get("reasonCode")
+            if isinstance(args, dict) and args.get("reasonCode"):
+                code = args.get("reasonCode")
+            person_only = person_only_host_ask(str(tool or ""), str(risk or ""),
+                                               str(code or ""))
         result = self.engine.route(
             classify,
             project=project,

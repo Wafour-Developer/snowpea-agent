@@ -2018,7 +2018,7 @@ class UserTurn(Payload):
     )
 
 
-TurnOrigin = Literal["human", "agent", "member", "schedule", "system"]
+TurnOrigin = Literal["human", "agent", "member", "schedule", "system", "jarvis"]
 
 
 class JobRunContext(Payload):
@@ -2534,6 +2534,14 @@ class ApprovalAskParams(Payload):
         description=(
             "What the running code is about to do, e.g. {origin, element, action}; shown "
             "with the approval and merged into its args."
+        ),
+    )
+    reasonCode: str | None = Field(
+        default=None,
+        description=(
+            "1.56.0: the host's reason code for the ask, also accepted inside args "
+            "(args.reasonCode wins). One starting with 'payment' (payment.step, ...) is "
+            "always the person's: Jarvis and the engine never decide it."
         ),
     )
 

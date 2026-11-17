@@ -294,6 +294,8 @@ export interface ApprovalAskParams {
   permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside";
   /** What will happen, shown to the person approving. */
   reason: string;
+  /** 1.56.0: the host's reason code for the ask, also accepted inside args (args.reasonCode wins). One starting with 'payment' (payment.step, ...) is always the person's: Jarvis and the engine never decide it. */
+  reasonCode?: string | null;
   /** Risk hint shown with the approval; default from the permission. 'payment' also means: the allowlist is never consulted and the answer is never stored beyond this one call (scope is coerced to 'once'). */
   risk?: string | null;
   /** Session whose tool call is running. */
@@ -8708,7 +8710,7 @@ export interface ToolInvokeParams {
   /** Host tool name. */
   name: string;
   /** Who started the root conversation's running turn (1.23.0): the session's own person, the agent, a schedule, another gateway group member or the system. A delegated child reports its root's. */
-  origin?: "human" | "agent" | "member" | "schedule" | "system" | null;
+  origin?: "human" | "agent" | "member" | "schedule" | "system" | "jarvis" | null;
   /** The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. */
   parentSessionId?: string | null;
   /** Session whose turn called the tool. */
