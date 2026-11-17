@@ -773,7 +773,8 @@ def test_written_paths_last_the_session_and_a_restart(tmp_path: Path) -> None:
     home = tmp_path / "home"
     script = tmp_path / "proj" / "dyn.sh"
     script.parent.mkdir()
-    script.write_text("X=rm\n$X -rf /tmp/thing\n", encoding="utf-8")
+    # (m21: ``X=rm`` alone is resolved now; a computed program is not.)
+    script.write_text("X=$(cat prog.txt)\n$X -rf /tmp/thing\n", encoding="utf-8")
     ctx = Context(workdir=script.parent, user_home=Path(USER), home=home,
                   projects=(str(script.parent),), mounts=(), env_venv=False)
 
@@ -799,7 +800,7 @@ def test_written_paths_last_the_session_and_a_restart(tmp_path: Path) -> None:
 
 def test_a_shell_line_that_writes_a_script_makes_it_the_agents(project: Path) -> None:
     script = project / "gen.sh"
-    script.write_text("X=rm\n$X -rf /tmp/thing\n", encoding="utf-8")
+    script.write_text("X=$(cat prog.txt)\n$X -rf /tmp/thing\n", encoding="utf-8")
     assert _state("bash gen.sh", project) == "allowed"
     # The check saw a line write it (a redirect): from then on it is the agent's.
     assert _state("printf 'X=rm\\n' > gen.sh", project) == "allowed"

@@ -203,7 +203,8 @@ HOSTILE = [
     ("SNOWPEA_HOME=/tmp/x; echo x > $SNOWPEA_HOME/a", "bbb"),
     ("PWD=/home/u/.snowpea/trust; echo x > $PWD/projects.json", "ooo"),
     ("XDG_CACHE_HOME=/tmp/x make", "ooo"),
-    ("X=/home/u/.snowpea/trust/projects.json; echo '{}' > $X", "ooo"),
+    # m21: the literal value is read, so the write is judged (and blocked) as spelled.
+    ("X=/home/u/.snowpea/trust/projects.json; echo '{}' > $X", "bbb"),
     ("echo ${HOME:=/tmp/x}", "ooo"),
     ("for HOME in /tmp/a /tmp/b; do echo x > ~/f; done", "ooo"),
     ("export PATH=/tmp/bin:$PATH", "ooo"),
