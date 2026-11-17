@@ -277,6 +277,33 @@ async def test_session_cache_never_serves_a_guarded_call(tmp_path: Path) -> None
     assert (await asked).by != "cache"
 
 
+async def test_an_off_shell_guarded_call_keeps_its_session_answer(tmp_path: Path) -> None:
+    # Browser host e2e: "for this session" on repl.clipboard is keyed by the
+    # tool alone (no first word), so it is served again, not asked every paste.
+    queue = ApprovalQueue(Settings(), Paths.create(tmp_path / "home"))
+    session = SimpleNamespace(id="s-1", workdir=str(tmp_path), origin_conn=None,
+                              host_tools_from=None, owned_by=None)
+    args = {"text": "hello"}
+    assert queue._classify(session, "repl.send", args, ("host",), None) == "guarded"
+    queue._cache.add(queue.cache_key("s-1", "repl.send", args))
+    served = await queue.request(session, "repl.send", {"text": "other"},
+                                 unattended=True, timeout_sec=1, tags=("host",))
+    assert served.by == "cache"
+    # A guarded off-shell tool that is not a browser action still asks.
+    fetch = {"url": "https://example.com/?q=1"}
+    assert queue._classify(session, "web_fetch", fetch, ("network",), None) == "guarded"
+    queue._cache.add(queue.cache_key("s-1", "web_fetch", fetch))
+    asked = asyncio.ensure_future(queue.request(
+        session, "web_fetch", fetch, unattended=True, timeout_sec=1, tags=("network",)))
+    for _ in range(100):
+        if queue.list():
+            break
+        await asyncio.sleep(0.01)
+    assert queue.list(), "web_fetch is still asked again"
+    await queue.respond(queue.list()[0].requestId, "deny")
+    assert (await asked).by != "cache"
+
+
 # -- H1 / H4 / browser gate ----------------------------------------------------------------
 
 

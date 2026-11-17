@@ -882,7 +882,12 @@ class ApprovalQueue:
         # a guarded or never-delegable call is never served from it (it asks
         # again).  A write outside the project keyed by its folder (1.30.0) is
         # exactly what the person allowed and keeps its "for this session".
-        first_word = folder is None
+        # 0.2.92: a browser action (``repl.clipboard``) is keyed by its tool
+        # alone, which is exactly what the card named, so a guarded one keeps
+        # its "for this session" (a ``onceOnly`` answer is never cached); other
+        # off-shell guarded tools (``web_fetch``) still ask, and ``never``
+        # always asks.
+        first_word = folder is None and not tool.startswith("repl.")
         line = self.line_key(session.id, tool, args, getattr(session, "workdir", None))
         if cacheable and not never and line is not None and line in self._lines:
             # m21: this very line, in this folder, allowed for this session by a
