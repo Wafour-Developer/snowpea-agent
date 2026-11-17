@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react60 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.55.0";
+var PROTOCOL_VERSION = "1.56.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -35629,6 +35629,14 @@ function messageLines(message, width = 80) {
       out.push({
         key,
         segments: [index === 0 ? { text: "\u2717 ", color: "red", bold: true } : mark, ...segments.map((segment) => ({ ...segment, color: "red" }))],
+        source: index
+      });
+      continue;
+    }
+    if (message.warning) {
+      out.push({
+        key,
+        segments: [index === 0 ? { text: "! ", color: "yellow", bold: true } : mark, ...segments],
         source: index
       });
       continue;
@@ -37616,7 +37624,8 @@ function reducer(state2, action) {
         role: "system",
         text: action.text,
         streaming: false,
-        ...action.blocked ? { blocked: true } : {}
+        ...action.blocked ? { blocked: true } : {},
+        ...action.warning ? { warning: true } : {}
       };
       return {
         ...state2,
@@ -37838,6 +37847,7 @@ function hostLabel(session) {
     case "terminal":
       return "other terminal";
     case "tmux":
+      if (session.terminal) return `tmux ${session.terminal.session} ${session.terminal.pane}`;
       return session.tmux ? `tmux ${session.tmux.session}` : "tmux";
     case "snowpea":
       return "opened by snowpea";
@@ -37857,6 +37867,15 @@ function viewOnlyReason(session) {
   return "This session is view only.";
 }
 function externalNote(session) {
+  const terminal = session.terminal;
+  if (terminal) {
+    if (terminal.prompt && !terminal.prompt.recognised) {
+      return "a prompt waits in the terminal \u2014 answer it there (/external snapshot shows the pane)";
+    }
+    if (terminal.prompt?.recognised) return "the terminal's permission prompt is in the approval queue";
+    const mode = terminal.modeState === "unconfirmed" ? " \xB7 mode switch not confirmed on screen" : "";
+    return `your tmux pane ${terminal.pane} \u2014 snowpea types only while the CLI is idle; prompts it does not recognise stay in the terminal${mode}`;
+  }
   if (session.approvals !== "person" || session.canSend === false) return null;
   return "tmux pane \u2014 answer permission prompts in the terminal; snowpea types only while you are not";
 }
@@ -37893,8 +37912,67 @@ function unrestrictedPrompt(input) {
     `Type "${UNRESTRICTED_WORD}" and press Enter to confirm, Esc to cancel.`
   ];
 }
-function confirmsUnrestricted(typed) {
-  return typed.trim().toLowerCase() === UNRESTRICTED_WORD;
+function confirmsUnrestricted(typed, word = UNRESTRICTED_WORD) {
+  return typed.trim().toLowerCase() === word.toLowerCase();
+}
+function nativeModesFor(info) {
+  const listed = info?.nativeModes ?? [];
+  if (listed.length === 0) return [];
+  const first = info?.defaultNativeMode;
+  const head = listed.find((mode) => mode.id === first);
+  return head ? [head, ...listed.filter((mode) => mode !== head)] : [...listed];
+}
+function nativeModeDescription(mode) {
+  if (mode.asks === "never" && mode.writes === "anywhere") {
+    return "never asks \u2014 snowpea no longer controls what it runs";
+  }
+  if (mode.writes === "none") {
+    return mode.asks === "never" ? "read-only; never asks" : "read-only; asks before anything else";
+  }
+  if (mode.writes === "plan") {
+    return mode.asks === "never" ? "plans first; writes only its plan file" : "plans first; writes only its plan file, asks before it starts the work";
+  }
+  if (mode.asks === "always") return "asks whenever a permission is needed";
+  if (mode.asks === "sometimes") {
+    return mode.approvals === "bridged" ? "proceeds on its own, asks when unsure" : "proceeds on its own; what it asks is not shown here";
+  }
+  return mode.writes === "workspace" ? "edits the project and runs commands without asking" : "never asks";
+}
+function nativeModeOf(session, infos) {
+  if (!session.nativeMode) return null;
+  const info = infos?.find((entry) => entry.id === session.ref.cli);
+  return info?.nativeModes?.find((mode) => mode.id === session.nativeMode) ?? null;
+}
+function sessionModeLabel(session, infos) {
+  if (session.mode === "unrestricted") return modeLabel2(session.mode);
+  const native = nativeModeOf(session, infos);
+  const terminal = session.terminal;
+  if (terminal && terminal.modeState === "unknown") return "mode not shown";
+  const unconfirmed = terminal?.modeState === "unconfirmed" ? " (unconfirmed)" : "";
+  if (native) return native.label + unconfirmed;
+  return (session.nativeMode ?? modeLabel2(session.mode)) + unconfirmed;
+}
+function chooseMode(info, word) {
+  const natives = nativeModesFor(info);
+  const native = natives.find((mode) => mode.id === word) ?? natives.find((mode) => mode.id.toLowerCase() === word.toLowerCase());
+  if (native) return { kind: "native", mode: native };
+  if (word === "default" || word === "readonly" || word === "unrestricted") {
+    return { kind: "legacy", mode: word };
+  }
+  return { kind: "unknown", offered: natives.map((mode) => mode.id) };
+}
+function personOnlyWord(mode) {
+  return mode.legacy === "unrestricted" ? UNRESTRICTED_WORD : mode.id.toLowerCase();
+}
+function personOnlyPrompt(input) {
+  if (input.mode.legacy === "unrestricted") return unrestrictedPrompt(input);
+  return [
+    `Switch ${cliLabel(input.cli)}${input.title ? ` "${input.title}"` : ""} to ${input.mode.label}?`,
+    `Folder: ${input.cwd}`,
+    `${input.mode.label}: ${nativeModeDescription(input.mode)}.`,
+    "Only you can choose it \u2014 Jarvis cannot. What it still asks comes here. This is recorded.",
+    `Type "${personOnlyWord(input.mode)}" and press Enter to confirm, Esc to cancel.`
+  ];
 }
 function modesFor(info) {
   const listed = info?.modes?.length ? info.modes : info?.capabilities?.modes;
@@ -37963,6 +38041,7 @@ function pickerLabel(row, width, showFolder) {
   const bits = [statusWord(row), hostLabel(row)];
   if (row.canSend === false) bits.push("view only");
   if (row.mode === "unrestricted") bits.push("UNRESTRICTED");
+  else if (row.nativeMode && row.nativeMode !== row.mode) bits.push(row.nativeMode);
   return spread(`${agentOfExternal(row.ref.cli).tag} ${title}${folder}`, bits.join(" \xB7 "), width);
 }
 function toSessionEvent(ref, event) {
@@ -39261,7 +39340,7 @@ var SlashRegistry = class {
 };
 
 // src/slash/jarvis.ts
-var JARVIS_USAGE = "/jarvis [on|off|status|back|sessions|waiting|open <n>|dismiss [n|all]|handback [n]|takeover [n] [minutes]]";
+var JARVIS_USAGE = "/jarvis [on|off|status|back|sessions|waiting|open <n>|dismiss [n|all]|handback [n]|takeover [n] [minutes]|share [on|off] [session]]";
 var JARVIS_ACTIONS = [
   { action: "on", summary: "Turn Jarvis mode on (beta): one session supervises the others." },
   { action: "off", summary: "Turn Jarvis mode off; every request goes to you again." },
@@ -39272,7 +39351,8 @@ var JARVIS_ACTIONS = [
   { action: "open", summary: "/jarvis open <n> \u2014 open the nth supervised session." },
   { action: "dismiss", summary: "Dismiss Jarvis's notices: /jarvis dismiss [n|all]." },
   { action: "handback", summary: "Give this session back to Jarvis now." },
-  { action: "takeover", summary: "Take this session back from Jarvis: /jarvis takeover [minutes]." }
+  { action: "takeover", summary: "Take this session back from Jarvis: /jarvis takeover [minutes]." },
+  { action: "share", summary: "Share this session with Jarvis or not: /jarvis share [on|off] (off by default)." }
 ];
 function parseJarvisCommand(line) {
   const match = /^\/jarvis(?:\s+(.*))?$/.exec(line.trim());
@@ -39297,6 +39377,12 @@ function parseJarvisCommand(line) {
       if (rest.length === 0 || rest.length === 1 && rest[0] === "all") return { kind: "dismiss", target: "all" };
       return rest.length === 1 && /^\d+$/.test(rest[0]) && Number(rest[0]) > 0 ? { kind: "dismiss", target: Number(rest[0]) } : { kind: "invalid", usage: JARVIS_USAGE };
     }
+    case "share": {
+      if (rest.length === 0) return { kind: "share", enabled: null, target: null };
+      const [state2, target, ...extra] = rest;
+      if (state2 !== "on" && state2 !== "off" || extra.length > 0) return { kind: "invalid", usage: JARVIS_USAGE };
+      return { kind: "share", enabled: state2 === "on", target: target ?? null };
+    }
     case "handback":
       return rest.length <= 1 ? { kind: "handback", target: rest[0] ?? null } : { kind: "invalid", usage: JARVIS_USAGE };
     case "takeover": {
@@ -39312,15 +39398,16 @@ function parseJarvisCommand(line) {
       return { kind: "invalid", usage: JARVIS_USAGE };
   }
 }
-var EXTERNAL_USAGE = "/external [new|open <cli>:<id>|close|stop|adopt|mode default|readonly|unrestricted|more|confirm-path <cli>]";
+var EXTERNAL_USAGE = "/external [new|open <cli>:<id>|close|stop|adopt|mode <mode>|snapshot|more|confirm-path <cli>]";
 var EXTERNAL_ACTIONS = [
   { action: "new", summary: "Start a new Claude Code, Codex, agy or Cursor session." },
   { action: "open", summary: "/external open <cli>:<id> \u2014 open a session by its handle." },
   { action: "close", summary: "Leave the open external session; it keeps running." },
   { action: "stop", summary: "Stop the process snowpea runs for the open session (the transcript stays)." },
   { action: "adopt", summary: "Let snowpea type into the tmux pane this Claude Code session runs in." },
-  { action: "mode", summary: "/external mode default|readonly|unrestricted \u2014 switch the open session." },
+  { action: "mode", summary: "/external mode <mode> \u2014 switch the open session to one of its CLI's modes (plan, auto, \u2026)." },
   { action: "more", summary: "Load earlier messages of the open session." },
+  { action: "snapshot", summary: "Show the tmux pane the open session runs in, as text (a prompt snowpea does not recognise)." },
   { action: "confirm-path", summary: "/external confirm-path <cli> \u2014 allow snowpea to run a CLI path you configured." }
 ];
 function parseExternalCommand(line) {
@@ -39335,6 +39422,7 @@ function parseExternalCommand(line) {
     case "stop":
     case "adopt":
     case "more":
+    case "snapshot":
       return rest.length === 0 ? { kind: action } : { kind: "invalid", usage: EXTERNAL_USAGE };
     case "open": {
       const ref = rest.length === 1 ? /^(claude|codex|agy|cursor):(\S+)$/.exec(rest[0]) : null;
@@ -39343,7 +39431,7 @@ function parseExternalCommand(line) {
     case "confirm-path":
       return rest.length === 1 && /^(claude|codex|agy|cursor)$/.test(rest[0]) ? { kind: "confirmPath", cli: rest[0] } : { kind: "invalid", usage: EXTERNAL_USAGE };
     case "mode":
-      return rest.length === 1 && ["default", "readonly", "unrestricted"].includes(rest[0]) ? { kind: "mode", mode: rest[0] } : { kind: "invalid", usage: EXTERNAL_USAGE };
+      return rest.length === 1 && /^[A-Za-z][A-Za-z0-9_-]{0,40}$/.test(rest[0]) ? { kind: "mode", mode: rest[0] } : { kind: "invalid", usage: EXTERNAL_USAGE };
     default:
       return { kind: "invalid", usage: EXTERNAL_USAGE };
   }
@@ -39404,6 +39492,7 @@ var initialJarvis = {
   escalations: [],
   sessionStates: {},
   notice: null,
+  announced: [],
   loadedAt: null
 };
 function newestFirst(entries) {
@@ -39445,15 +39534,17 @@ function jarvisReducer(state2, action) {
       return { ...state2, decisions: newestFirst([entry, ...rest]) };
     }
     case "event/escalation": {
-      const known = state2.escalations.some((entry) => entry.id === action.payload.id);
+      const key = noticeKey(action.payload);
+      const known = state2.escalations.some((entry) => entry.id === action.payload.id || noticeKey(entry) === key) || state2.announced.includes(key);
       if (known) return state2;
       const importance = action.payload.importance ?? "normal";
+      const quiet = !action.onScreen || importance === "low" || !!action.payload.sessionId && action.payload.sessionId === action.sessionId;
       const kept = isNotice(action.payload);
       return {
         ...state2,
         escalations: kept ? [action.payload, ...state2.escalations].slice(0, MAX_ESCALATIONS) : state2.escalations,
-        // Low-importance news stays in the panel; the rest also gets a toast.
-        notice: importance === "low" ? state2.notice : `Jarvis: ${action.payload.summary}`
+        notice: quiet ? state2.notice : `Jarvis: ${action.payload.summary}`,
+        announced: quiet ? state2.announced : [...state2.announced, key].slice(-200)
       };
     }
     case "escalations":
@@ -39493,6 +39584,9 @@ function withRequests(state2, requests) {
   };
 }
 var NOTICE_REASONS = /* @__PURE__ */ new Set(["finished", "error", "stalled", "budget", "jarvis"]);
+function noticeKey(entry) {
+  return entry.requestId ? `r:${entry.requestId}` : `s:${entry.sessionId ?? ""}:${entry.summary}`;
+}
 function isNotice(escalation) {
   return NOTICE_REASONS.has(escalation.reason);
 }
@@ -39828,7 +39922,7 @@ function approvalResolvedNote(payload, request, chosenScope) {
   return null;
 }
 function highEscalationLine(summary) {
-  return `Jarvis: ${summary.replace(/\s+/g, " ").trim()}`;
+  return summary.replace(/\s+/g, " ").trim();
 }
 function respondResultNote(requestId, result, request) {
   const chosen = takeChosenScope(requestId);
@@ -39976,6 +40070,43 @@ function statusLines2(status, now) {
   return lines;
 }
 
+// src/state/jarvis-switch.ts
+function hasSessionSwitch(capabilities) {
+  return (capabilities ?? []).includes("jarvisSessionSwitch");
+}
+function switchesFromRows(rows) {
+  const out = {};
+  for (const row of rows) {
+    if (typeof row.jarvisOn !== "boolean") continue;
+    out[row.sessionId] = { on: row.jarvisOn, locked: row.jarvisLocked ?? null };
+  }
+  return out;
+}
+var LOCK_TEXT = {
+  project_hidden: "its project is hidden from Jarvis (jarvis.expose off)",
+  jarvis_session: "it is Jarvis's own work",
+  browser_hidden: "browser sessions are hidden from Jarvis (jarvis.exposeBrowser off)"
+};
+function shareLine(state2) {
+  if (!state2) return "this session's Jarvis switch is not known yet";
+  if (state2.locked === "jarvis_session") return "Jarvis always sees this session: it is Jarvis's own work";
+  const now = state2.on ? "shared with Jarvis" : "not shared with Jarvis";
+  if (state2.locked) return `${now} \u2014 cannot be changed: ${LOCK_TEXT[state2.locked]}`;
+  return state2.on ? `${now} \u2014 /jarvis share off stops it` : `${now} \u2014 /jarvis share on lets Jarvis see and help here`;
+}
+function switchedLine(on) {
+  return on ? "shared with Jarvis \u2014 it can see this session and decide within your grants" : "not shared with Jarvis any more \u2014 what waited for Jarvis here is yours";
+}
+function lockedLine(reason) {
+  return typeof reason === "string" && reason in LOCK_TEXT ? `cannot change it: ${LOCK_TEXT[reason]}` : null;
+}
+var SHARED_MARK = "Jarvis: shared";
+function hiddenLine(count3) {
+  if (!count3 || count3 < 1) return null;
+  const what = count3 === 1 ? "1 session is" : `${count3} sessions are`;
+  return `${what} not shared with Jarvis \u2014 in a session: /jarvis share on`;
+}
+
 // src/hooks/useJarvisScreens.ts
 function steerOf(infos, cli) {
   return infos?.find((info) => info.id === cli)?.capabilities?.steer === true;
@@ -40005,6 +40136,9 @@ function useJarvisScreens(deps) {
   const diskNoticeRef = (0, import_react24.useRef)(diskNotice);
   diskNoticeRef.current = diskNotice;
   const support = supportOf(client.serverCapabilities?.());
+  const switchSupport = hasSessionSwitch(client.serverCapabilities?.());
+  const [switches, setSwitches] = (0, import_react24.useState)({});
+  const [hiddenCount, setHiddenCount] = (0, import_react24.useState)(null);
   const [jarvis, jarvisDispatch] = (0, import_react24.useReducer)(jarvisReducer, initialJarvis);
   const [external, viewDispatch] = (0, import_react24.useReducer)(viewReducer, null);
   const [ui, setUi] = (0, import_react24.useState)(null);
@@ -40028,6 +40162,8 @@ function useJarvisScreens(deps) {
   const jarvisOn = support.jarvis && jarvis.status?.enabled === true;
   const now = useClock(jarvisOn, 15e3);
   const onJarvisScreen = jarvisOn && jarvisSessionId !== null && sessionId === jarvisSessionId;
+  const onJarvisScreenRef = (0, import_react24.useRef)(onJarvisScreen);
+  onJarvisScreenRef.current = onJarvisScreen;
   const refresh = (0, import_react24.useCallback)(async (options = {}) => {
     if (!support.jarvis || refreshing.current) return;
     refreshing.current = true;
@@ -40045,6 +40181,7 @@ function useJarvisScreens(deps) {
       ]);
       if (overview) {
         jarvisDispatch({ type: "overview", rows: overview.rows ?? [], at: Date.now() });
+        setHiddenCount(typeof overview.hiddenCount === "number" ? overview.hiddenCount : null);
       }
       if (approvals || questions) {
         jarvisDispatch({
@@ -40061,6 +40198,7 @@ function useJarvisScreens(deps) {
           if (entry.jarvis) states[entry.sessionId] = entry.jarvis;
         }
         jarvisDispatch({ type: "sessionStates", states });
+        setSwitches(switchesFromRows(sessions.sessions ?? []));
       }
     } finally {
       refreshing.current = false;
@@ -40089,7 +40227,7 @@ function useJarvisScreens(deps) {
       onJarvisState: (payload) => jarvisDispatch({ type: "event/state", payload }),
       onJarvisDecision: (payload) => jarvisDispatch({ type: "event/decision", payload }),
       onJarvisEscalation: (payload) => {
-        jarvisDispatch({ type: "event/escalation", payload });
+        jarvisDispatch({ type: "event/escalation", payload, onScreen: onJarvisScreenRef.current, sessionId: sessionIdRef.current });
         void refresh();
       },
       onJarvisDelegation: (payload) => {
@@ -40411,6 +40549,34 @@ function useJarvisScreens(deps) {
           if (jarvisRef.current.waiting.length === 0) showToast("nothing is waiting for you");
           else setUi({ kind: "answer", requestId: jarvisRef.current.waiting[0].requestId });
           break;
+        case "share": {
+          if (!switchSupport) {
+            note("sharing one session with Jarvis needs a newer core \u2014 run /update");
+            break;
+          }
+          const params = command2.target && /^s-[0-9a-f]+$/.test(command2.target) ? { sessionId: command2.target } : targetParams(command2.target);
+          if (typeof params === "string") {
+            showToast(params.replace("/jarvis handback", "/jarvis share on"));
+            break;
+          }
+          const key = typeof params.sessionId === "string" ? params.sessionId : null;
+          if (command2.enabled === null) {
+            note(shareLine(key ? switches[key] : void 0));
+            break;
+          }
+          const enabled = command2.enabled;
+          void client.call("jarvis.session.set", { ...params, enabled }).then((result) => {
+            if (key) setSwitches((current2) => ({ ...current2, [key]: { on: Boolean(result?.enabled), locked: null } }));
+            showToast(switchedLine(Boolean(result?.enabled)));
+            void refresh();
+          }).catch((error) => {
+            const facts = rpcErrorFacts(error);
+            note(
+              facts.code === "jarvis_disabled" ? "Jarvis is off \u2014 /jarvis on" : lockedLine(facts.reason) ?? `jarvis.session.set failed: ${errorText(error)}`
+            );
+          });
+          break;
+        }
         case "handback":
         case "takeover": {
           const params = targetParams(command2.target);
@@ -40432,7 +40598,7 @@ function useJarvisScreens(deps) {
       }
       return true;
     },
-    [client, enterJarvis, gate, goBack, jarvisCall, note, openRow, resolveRow, showToast, targetParams]
+    [client, enterJarvis, gate, goBack, jarvisCall, note, openRow, refresh, resolveRow, showToast, switchSupport, switches, targetParams]
   );
   const waitingItem = ui?.kind === "answer" ? jarvis.waiting.find((item) => item.requestId === ui.requestId) ?? null : null;
   (0, import_react24.useEffect)(() => {
@@ -40533,6 +40699,7 @@ function useJarvisScreens(deps) {
           cli: choice.cli,
           project: workdir,
           mode: choice.mode,
+          ...choice.nativeMode ? { nativeMode: choice.nativeMode } : {},
           transport: "structured",
           ...choice.model ? { model: choice.model } : {}
         },
@@ -40549,6 +40716,21 @@ function useJarvisScreens(deps) {
     },
     [callTrusted, note, showOpened, workdir]
   );
+  const showSnapshot = (0, import_react24.useCallback)(() => {
+    const view = externalRef.current;
+    if (!view) {
+      showToast("open an external session first");
+      return;
+    }
+    if (!view.session.terminal) {
+      showToast("this session does not run in a tmux pane snowpea can read");
+      return;
+    }
+    void client.call("external.terminalSnapshot", { ref: view.ref }).then((result) => {
+      const lines = String(result.text ?? "").split("\n").slice(-30);
+      note([`tmux pane ${result.pane}:`, ...lines.map((line) => `  ${line}`)].join("\n"));
+    }).catch((error) => showToast(describeExternalError(error, view.ref.cli)));
+  }, [client, note, showToast]);
   const loadOlder = (0, import_react24.useCallback)(() => {
     const view = externalRef.current;
     if (!view) {
@@ -40668,11 +40850,11 @@ function useJarvisScreens(deps) {
     });
   }, [client, showOpened, showToast]);
   const answerAdopt = (0, import_react24.useCallback)(
-    (confirmed) => {
+    (confirmed2) => {
       const current2 = uiRef.current;
       if (current2?.kind !== "adopt") return;
       setUi(null);
-      void client.respondApproval(current2.request.requestId, confirmed ? "allow" : "deny", "once", confirmed ? void 0 : "declined by the person").catch((error) => note(`approval.respond failed: ${errorText(error)}`));
+      void client.respondApproval(current2.request.requestId, confirmed2 ? "allow" : "deny", "once", confirmed2 ? void 0 : "declined by the person").catch((error) => note(`approval.respond failed: ${errorText(error)}`));
     },
     [client, note]
   );
@@ -40694,8 +40876,8 @@ function useJarvisScreens(deps) {
           label: cliLabel(cli),
           onYes: () => {
             setUi(null);
-            void client.call("external.clis.confirmPath", { cli, path }).then((confirmed) => {
-              const next = confirmed?.clis ?? clisRef.current ?? [];
+            void client.call("external.clis.confirmPath", { cli, path }).then((confirmed2) => {
+              const next = confirmed2?.clis ?? clisRef.current ?? [];
               clisRef.current = next;
               setClis(next);
               showToast(`${cliLabel(cli)}: path confirmed`);
@@ -40716,12 +40898,53 @@ function useJarvisScreens(deps) {
     [client, showToast]
   );
   const changeMode = (0, import_react24.useCallback)(
-    (mode) => {
+    (word) => {
       const view = externalRef.current;
       if (!view) {
         showToast("open an external session first \u2014 /external");
         return;
       }
+      const cliInfo = clisRef.current?.find((entry) => entry.id === view.ref.cli);
+      const choice = chooseMode(cliInfo, word);
+      if (choice.kind === "unknown") {
+        showToast(
+          `${cliLabel(view.ref.cli)} has no mode ${word}` + (choice.offered.length > 0 ? ` \u2014 it has ${choice.offered.join(", ")}` : "")
+        );
+        return;
+      }
+      if (choice.kind === "native") {
+        const native = choice.mode;
+        if (view.session.nativeMode === native.id) {
+          showToast(`already ${native.label}`);
+          return;
+        }
+        if (view.session.terminal && !native.terminal) {
+          showToast(`${native.label}: switch it in the terminal`);
+          return;
+        }
+        if (native.personOnly) {
+          setUi({
+            kind: "unrestricted",
+            ref: view.ref,
+            nativeMode: native.id,
+            label: native.label,
+            word: personOnlyWord(native),
+            lines: personOnlyPrompt({
+              cli: view.ref.cli,
+              title: view.session.title,
+              cwd: view.session.cwd,
+              mode: native
+            })
+          });
+          return;
+        }
+        void client.call("external.setMode", { ref: view.ref, nativeMode: native.id }).then((result) => {
+          viewDispatch({ type: "session", session: result.session });
+          showToast(`mode: ${native.label} \u2014 ${nativeModeDescription(native)}`);
+        }).catch((error) => showToast(describeExternalError(error, view.ref.cli)));
+        return;
+      }
+      const mode = choice.mode;
       if (view.session.mode === mode) {
         showToast(`already ${modeLabel2(mode)}`);
         return;
@@ -40748,11 +40971,11 @@ function useJarvisScreens(deps) {
   );
   const confirmUnrestricted = (0, import_react24.useCallback)(() => {
     if (ui?.kind !== "unrestricted") return;
-    const ref = ui.ref;
+    const { ref, nativeMode, label } = ui;
     setUi(null);
-    void client.call("external.setMode", { ref, mode: "unrestricted" }).then((result) => {
+    void client.call("external.setMode", nativeMode ? { ref, nativeMode } : { ref, mode: "unrestricted" }).then((result) => {
       viewDispatch({ type: "session", session: result.session });
-      showToast("mode: UNRESTRICTED");
+      showToast(nativeMode && label && result.session.mode !== "unrestricted" ? `mode: ${label}` : "mode: UNRESTRICTED");
     }).catch((error) => showToast(describeExternalError(error, ref.cli)));
   }, [client, showToast, ui]);
   const handleExternal = (0, import_react24.useCallback)(
@@ -40792,6 +41015,9 @@ function useJarvisScreens(deps) {
         case "more":
           loadOlder();
           break;
+        case "snapshot":
+          showSnapshot();
+          break;
       }
       return true;
     },
@@ -40824,24 +41050,30 @@ function useJarvisScreens(deps) {
   }, [start, support.jarvis, jarvis.status, openPicker, enterJarvis, note]);
   const marker = (0, import_react24.useMemo)(() => {
     if (!jarvisOn || onJarvisScreen) return null;
+    const shared = switchSupport ? switches[sessionId] : void 0;
+    if (switchSupport && shared && !shared.on && shared.locked !== "jarvis_session") return null;
     const row = jarvis.rows.find((entry) => entry.sessionId === sessionId);
     const pause = (jarvis.status?.paused ?? []).find((entry) => entry.sessionId === sessionId);
     const merged = row ?? (pause ? { level: jarvis.status?.delegationDefault ?? null, pausedUntil: pause.until ?? null, takenOver: pause.reason === "takeover" && !pause.until } : null);
     const paused = pause && merged ? { ...merged, pausedUntil: pause.until ?? merged.pausedUntil, takenOver: merged.takenOver || pause.reason === "takeover" && !pause.until } : merged;
     const scoped = paused ? { ...paused, levelScope: jarvis.sessionStates[sessionId]?.levelScope ?? null } : paused;
-    return jarvisMarker(jarvis.status, scoped, now);
-  }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId]);
+    return jarvisMarker(jarvis.status, scoped, now) ?? (shared?.on ? SHARED_MARK : null);
+  }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId, switchSupport, switches]);
   const panel = (0, import_react24.useCallback)(
     (width, maxRows, diskNotice2 = null) => {
       if (!onJarvisScreen) return [];
       const lines = panelLines(jarvis, width, maxRows, now);
+      const hidden2 = switchSupport ? hiddenLine(hiddenCount) : null;
+      if (hidden2 && lines.length > 0) {
+        lines.splice(1, 0, ...wrapSegments("jarvis-hidden", [{ text: hidden2, dimColor: true }], Math.max(20, width), "  "));
+      }
       if (diskNotice2 && lines.length > 0) {
         const wrapped = wrapSegments("disk-notice", [{ text: `! ${diskNotice2}`, color: "yellow" }], Math.max(20, width), "  ");
         return [lines[0], ...wrapped, ...lines.slice(1)];
       }
       return lines;
     },
-    [jarvis, now, onJarvisScreen]
+    [jarvis, hiddenCount, now, onJarvisScreen, switchSupport]
   );
   return {
     support,
@@ -40875,6 +41107,8 @@ function useJarvisScreens(deps) {
     answerAdopt,
     /** True when the open session's CLI takes a message during a running turn. */
     canSteer: external ? steerOf(clis, external.ref.cli) : false,
+    /** The open session's mode as its CLI names it (1.56.0), else the bucket. */
+    externalModeLabel: external ? sessionModeLabel(external.session, clis) : null,
     confirmUnrestricted,
     marker,
     panel
@@ -41258,7 +41492,8 @@ function UnrestrictedConfirm({
   width,
   onConfirm,
   onCancel,
-  isActive = true
+  isActive = true,
+  word = UNRESTRICTED_WORD
 }) {
   const [typed, setTyped] = (0, import_react27.useState)("");
   const [wrong, setWrong] = (0, import_react27.useState)(false);
@@ -41270,7 +41505,7 @@ function UnrestrictedConfirm({
         return;
       }
       if (key.return) {
-        if (confirmsUnrestricted(typed)) onConfirm();
+        if (confirmsUnrestricted(typed, word)) onConfirm();
         else setWrong(true);
         return;
       }
@@ -41294,12 +41529,23 @@ function UnrestrictedConfirm({
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: fit(typed, Math.max(1, inner - 4)) }),
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { inverse: true, children: " " })
     ] }),
-    wrong ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "red", wrap: "truncate-end", children: `Type exactly "${UNRESTRICTED_WORD}", or Esc to cancel.` }) : null
+    wrong ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "red", wrap: "truncate-end", children: `Type exactly "${word}", or Esc to cancel.` }) : null
   ] });
 }
 
 // src/components/ExternalNewForm.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+function modeRows(info) {
+  const natives = nativeModesFor(info);
+  if (natives.length > 0) return natives.map((native) => ({ mode: native.legacy, native }));
+  return modesFor(info).map((mode) => ({ mode, native: null }));
+}
+function confirmed(row) {
+  return row.native ? row.native.personOnly : row.mode === "unrestricted";
+}
+function choiceOf(cli, row, model) {
+  return row.native ? { cli, mode: row.native.legacy, nativeMode: row.native.id, model } : { cli, mode: row.mode, model };
+}
 var EXTERNAL_NEW_ROWS = 14;
 var MODE_HINT = {
   default: "snowpea asks before it runs things",
@@ -41361,10 +41607,10 @@ function ModeStep({
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
     ChoiceList,
     {
-      options: modes.map((mode) => ({
-        label: modeLabel2(mode),
-        description: MODE_HINT[mode],
-        danger: mode === "unrestricted"
+      options: modes.map((row) => ({
+        label: row.native ? row.native.label : modeLabel2(row.mode),
+        description: row.native ? nativeModeDescription(row.native) : MODE_HINT[row.mode],
+        danger: confirmed(row)
       })),
       selectedIndex: index,
       color: currentAccent(),
@@ -41457,7 +41703,7 @@ function ExternalNewForm({
   );
   const [step, setStep] = (0, import_react28.useState)("cli");
   const [info, setInfo] = (0, import_react28.useState)(null);
-  const [mode, setMode] = (0, import_react28.useState)("default");
+  const [mode, setMode] = (0, import_react28.useState)({ mode: "default", native: null });
   const [model, setModel] = (0, import_react28.useState)(null);
   const [notice, setNotice] = (0, import_react28.useState)(null);
   const liveInfo = info ? infos.find((entry) => entry.id === info.id) ?? info : null;
@@ -41487,7 +41733,7 @@ function ExternalNewForm({
     step === "mode" && info ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
       ModeStep,
       {
-        modes: modesFor(liveInfo ?? info),
+        modes: modeRows(liveInfo ?? info),
         isActive,
         onBack: () => setStep("cli"),
         onChoose: (chosen) => {
@@ -41506,8 +41752,8 @@ function ExternalNewForm({
         onBack: () => setStep("mode"),
         onSubmit: (entered) => {
           setModel(entered);
-          if (mode === "unrestricted") setStep("confirm");
-          else onCreate({ cli: info.id, mode, model: entered });
+          if (confirmed(mode)) setStep("confirm");
+          else onCreate(choiceOf(info.id, mode, entered));
         }
       }
     ) : null,
@@ -41515,10 +41761,11 @@ function ExternalNewForm({
       UnrestrictedConfirm,
       {
         width: width - 4,
-        lines: unrestrictedPrompt({ cli: info.id, cwd: folder }),
+        lines: mode.native ? personOnlyPrompt({ cli: info.id, cwd: folder, mode: mode.native }) : unrestrictedPrompt({ cli: info.id, cwd: folder }),
+        word: mode.native ? personOnlyWord(mode.native) : void 0,
         isActive,
         onCancel: () => setStep("model"),
-        onConfirm: () => onCreate({ cli: info.id, mode: "unrestricted", model })
+        onConfirm: () => onCreate(choiceOf(info.id, mode, model))
       }
     ) : null
   ] });
@@ -41979,6 +42226,7 @@ function ScreenOverlays({
       UnrestrictedConfirm,
       {
         lines: ui.lines,
+        word: ui.word,
         width,
         onConfirm: screens.confirmUnrestricted,
         onCancel: () => screens.setUi(null)
@@ -41992,7 +42240,7 @@ function ScreenOverlays({
         view: ui.view,
         label: ui.label,
         width,
-        onAnswer: (confirmed) => confirmed ? ui.onYes() : ui.onNo()
+        onAnswer: (confirmed2) => confirmed2 ? ui.onYes() : ui.onNo()
       }
     );
   }
@@ -42022,11 +42270,11 @@ function ScreenOverlays({
         view,
         label: item.label,
         width,
-        onAnswer: (confirmed) => screens.answerApproval(
+        onAnswer: (confirmed2) => screens.answerApproval(
           item.requestId,
-          confirmed ? "allow" : "deny",
+          confirmed2 ? "allow" : "deny",
           "once",
-          confirmed ? void 0 : "declined by the person"
+          confirmed2 ? void 0 : "declined by the person"
         )
       }
     );
@@ -44952,7 +45200,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.88";
+var TUI_VERSION = "0.2.89";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
@@ -48237,10 +48485,12 @@ function App2({
       onJarvisDecision: (params) => screensRef.current?.listeners.onJarvisDecision?.(params),
       onJarvisEscalation: (params) => {
         screensRef.current?.listeners.onJarvisEscalation?.(params);
-        const id = typeof params?.id === "string" ? params.id : "";
-        if (params?.importance === "high" && typeof params.summary === "string" && params.summary !== "" && !highEscalationsRef.current.has(id)) {
-          highEscalationsRef.current.add(id);
-          dispatch({ type: "note", text: highEscalationLine(params.summary), blocked: true });
+        if (params && isTamperNotice(params) && typeof params.summary === "string" && params.summary !== "") {
+          const key = noticeKey(params);
+          if (!highEscalationsRef.current.has(key)) {
+            highEscalationsRef.current.add(key);
+            dispatch({ type: "note", text: highEscalationLine(params.summary), warning: true });
+          }
         }
       },
       onJarvisDelegation: (params) => screensRef.current?.listeners.onJarvisDelegation?.(params),
@@ -50105,9 +50355,9 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           view: proposalRequest,
           label: approvalLabel ?? proposalRequest.from,
           width: contentWidth,
-          onAnswer: (confirmed) => decideApproval(
-            { decision: confirmed ? "allow" : "deny", scope: "once" },
-            confirmed ? void 0 : "declined by the person"
+          onAnswer: (confirmed2) => decideApproval(
+            { decision: confirmed2 ? "allow" : "deny", scope: "once" },
+            confirmed2 ? void 0 : "declined by the person"
           )
         }
       )
@@ -50334,7 +50584,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       status: [
         externalOpen.state.turnActive ? "running" : externalOpen.session.status,
         hostLabel(externalOpen.session),
-        modeLabel2(externalOpen.session.mode)
+        screens.externalModeLabel ?? modeLabel2(externalOpen.session.mode)
       ].join(" \xB7 "),
       warning: externalWarning,
       viewOnly: externalViewOnly,
