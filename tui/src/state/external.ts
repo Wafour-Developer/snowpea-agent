@@ -48,11 +48,13 @@ export function extSessionId(ref: ExternalRef): string {
 // --- where it runs, and what that allows ---------------------------------------
 
 /** The words the picker and the screen header use for `host`. */
-export function hostLabel(session: Pick<ExternalSessionRow, "host" | "tmux">): string {
+export function hostLabel(session: Pick<ExternalSessionRow, "host" | "tmux"> & { terminal?: ExternalSessionRow["terminal"] }): string {
   switch (session.host) {
     case "terminal":
       return "other terminal";
     case "tmux":
+      // 1.56.0: the person's own tmux pane snowpea types into (the tmux bridge).
+      if (session.terminal) return `tmux ${session.terminal.session} ${session.terminal.pane}`;
       return session.tmux ? `tmux ${session.tmux.session}` : "tmux";
     case "snowpea":
       return "opened by snowpea";
@@ -83,7 +85,19 @@ export function viewOnlyReason(
  * A line for a session snowpea can type into but whose permission prompts the
  * person answers: a tmux pane (`approvals: person`). Null for any other.
  */
-export function externalNote(session: Pick<ExternalSessionRow, "approvals" | "host" | "canSend">): string | null {
+export function externalNote(
+  session: Pick<ExternalSessionRow, "approvals" | "host" | "canSend"> & { terminal?: ExternalSessionRow["terminal"] },
+): string | null {
+  const terminal = session.terminal;
+  if (terminal) {
+    // 1.56.0: the person's tmux pane, driven through the bridge.
+    if (terminal.prompt && !terminal.prompt.recognised) {
+      return "a prompt waits in the terminal — answer it there (/external snapshot shows the pane)";
+    }
+    if (terminal.prompt?.recognised) return "the terminal's permission prompt is in the approval queue";
+    const mode = terminal.modeState === "unconfirmed" ? " · mode switch not confirmed on screen" : "";
+    return `your tmux pane ${terminal.pane} — snowpea types only while the CLI is idle; prompts it does not recognise stay in the terminal${mode}`;
+  }
   if (session.approvals !== "person" || session.canSend === false) return null;
   return "tmux pane — answer permission prompts in the terminal; snowpea types only while you are not";
 }
@@ -197,8 +211,12 @@ export function sessionModeLabel(
 ): string {
   if (session.mode === "unrestricted") return modeLabel(session.mode);
   const native = nativeModeOf(session, infos);
-  if (native) return native.label;
-  return session.nativeMode ?? modeLabel(session.mode);
+  const terminal = (session as { terminal?: ExternalSessionRow["terminal"] }).terminal;
+  // A tmux pane whose mode snowpea cannot read, or did not see change, says so.
+  if (terminal && terminal.modeState === "unknown") return "mode not shown";
+  const unconfirmed = terminal?.modeState === "unconfirmed" ? " (unconfirmed)" : "";
+  if (native) return native.label + unconfirmed;
+  return (session.nativeMode ?? modeLabel(session.mode)) + unconfirmed;
 }
 
 /** What a word typed after `/external mode` asks for on this CLI. */

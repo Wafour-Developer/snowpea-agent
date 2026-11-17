@@ -846,6 +846,26 @@ export function useJarvisScreens(deps: ScreensDeps) {
     [callTrusted, note, showOpened, workdir],
   );
 
+  const showSnapshot = useCallback(() => {
+    const view = externalRef.current;
+    if (!view) {
+      showToast("open an external session first");
+      return;
+    }
+    if (!view.session.terminal) {
+      showToast("this session does not run in a tmux pane snowpea can read");
+      return;
+    }
+    void client
+      .call("external.terminalSnapshot", { ref: view.ref })
+      .then((result) => {
+        // The pane's text is the terminal's, untrusted: shown, never acted on.
+        const lines = String(result.text ?? "").split("\n").slice(-30);
+        note([`tmux pane ${result.pane}:`, ...lines.map((line) => `  ${line}`)].join("\n"));
+      })
+      .catch((error: unknown) => showToast(describeExternalError(error, view.ref.cli)));
+  }, [client, note, showToast]);
+
   const loadOlder = useCallback(() => {
     const view = externalRef.current;
     if (!view) {
@@ -1195,6 +1215,9 @@ export function useJarvisScreens(deps: ScreensDeps) {
           break;
         case "more":
           loadOlder();
+          break;
+        case "snapshot":
+          showSnapshot();
           break;
       }
       return true;

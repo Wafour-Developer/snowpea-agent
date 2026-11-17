@@ -100,12 +100,14 @@ export type ExternalCommand =
   | { kind: "mode"; mode: string }
   /** Load an older page of the open session. */
   | { kind: "more" }
+  /** Show the open session's tmux pane as text (`external.terminalSnapshot`, 1.56.0). */
+  | { kind: "snapshot" }
   /** Confirm a CLI's configured executable path (`external.clis.confirmPath`). */
   | { kind: "confirmPath"; cli: string }
   | { kind: "invalid"; usage: string };
 
 export const EXTERNAL_USAGE =
-  "/external [new|open <cli>:<id>|close|stop|adopt|mode <mode>|more|confirm-path <cli>]";
+  "/external [new|open <cli>:<id>|close|stop|adopt|mode <mode>|snapshot|more|confirm-path <cli>]";
 
 export const EXTERNAL_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
   { action: "new", summary: "Start a new Claude Code, Codex, agy or Cursor session." },
@@ -115,6 +117,7 @@ export const EXTERNAL_ACTIONS: ReadonlyArray<{ action: string; summary: string }
   { action: "adopt", summary: "Let snowpea type into the tmux pane this Claude Code session runs in." },
   { action: "mode", summary: "/external mode <mode> — switch the open session to one of its CLI's modes (plan, auto, …)." },
   { action: "more", summary: "Load earlier messages of the open session." },
+  { action: "snapshot", summary: "Show the tmux pane the open session runs in, as text (a prompt snowpea does not recognise)." },
   { action: "confirm-path", summary: "/external confirm-path <cli> — allow snowpea to run a CLI path you configured." },
 ];
 
@@ -130,6 +133,7 @@ export function parseExternalCommand(line: string): ExternalCommand | null {
     case "stop":
     case "adopt":
     case "more":
+    case "snapshot":
       return rest.length === 0 ? { kind: action } : { kind: "invalid", usage: EXTERNAL_USAGE };
     case "open": {
       const ref = rest.length === 1 ? /^(claude|codex|agy|cursor):(\S+)$/.exec(rest[0]) : null;
