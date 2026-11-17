@@ -17,7 +17,10 @@ from typing import Any
 import aiohttp
 import pytest
 import pytest_asyncio
-from _support import connect, make_daemon
+
+# Written when Jarvis supervised every session: every session is shared (1.56.0).
+from _support import connect
+from _support import make_shared_daemon as make_daemon
 from aiohttp import web
 
 from snowpea_core.config.credentials import CredentialStore

@@ -1240,6 +1240,10 @@ export interface ExternalCreateResult {
     cwd: string;
     /** Where its live process is: none (snowpea can continue it), terminal (view only until that process exits), tmux (view, input into the same pane) or snowpea. */
     host?: "none" | "terminal" | "tmux" | "snowpea";
+    /** As SessionSummary.jarvisLocked (project_hidden only). */
+    jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+    /** The session's Jarvis switch, keyed by its ref (1.56.0, capability jarvisSessionSwitch): as SessionSummary.jarvisOn; false by default. */
+    jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
@@ -1322,6 +1326,10 @@ export interface ExternalGetResult {
     cwd: string;
     /** Where its live process is: none (snowpea can continue it), terminal (view only until that process exits), tmux (view, input into the same pane) or snowpea. */
     host?: "none" | "terminal" | "tmux" | "snowpea";
+    /** As SessionSummary.jarvisLocked (project_hidden only). */
+    jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+    /** The session's Jarvis switch, keyed by its ref (1.56.0, capability jarvisSessionSwitch): as SessionSummary.jarvisOn; false by default. */
+    jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
@@ -1428,6 +1436,10 @@ export interface ExternalListResult {
     cwd: string;
     /** Where its live process is: none (snowpea can continue it), terminal (view only until that process exits), tmux (view, input into the same pane) or snowpea. */
     host?: "none" | "terminal" | "tmux" | "snowpea";
+    /** As SessionSummary.jarvisLocked (project_hidden only). */
+    jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+    /** The session's Jarvis switch, keyed by its ref (1.56.0, capability jarvisSessionSwitch): as SessionSummary.jarvisOn; false by default. */
+    jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
@@ -1537,6 +1549,10 @@ export interface ExternalOpenResult {
     cwd: string;
     /** Where its live process is: none (snowpea can continue it), terminal (view only until that process exits), tmux (view, input into the same pane) or snowpea. */
     host?: "none" | "terminal" | "tmux" | "snowpea";
+    /** As SessionSummary.jarvisLocked (project_hidden only). */
+    jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+    /** The session's Jarvis switch, keyed by its ref (1.56.0, capability jarvisSessionSwitch): as SessionSummary.jarvisOn; false by default. */
+    jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
@@ -1680,6 +1696,10 @@ export interface ExternalSetModeResult {
     cwd: string;
     /** Where its live process is: none (snowpea can continue it), terminal (view only until that process exits), tmux (view, input into the same pane) or snowpea. */
     host?: "none" | "terminal" | "tmux" | "snowpea";
+    /** As SessionSummary.jarvisLocked (project_hidden only). */
+    jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+    /** The session's Jarvis switch, keyed by its ref (1.56.0, capability jarvisSessionSwitch): as SessionSummary.jarvisOn; false by default. */
+    jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
@@ -2706,7 +2726,7 @@ export interface JarvisLedgerResult {
   nextBefore?: string | null;
 }
 
-/** `jarvis.overview` params. Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external. */
+/** `jarvis.overview` params. Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external. Since 1.56.0 (jarvisSessionSwitch) only sessions whose Jarvis switch is on; hiddenCount says how many are not shared. */
 export interface JarvisOverviewParams {
   /** Include external CLI sessions. */
   includeExternal?: boolean;
@@ -2722,6 +2742,8 @@ export interface JarvisOverviewParams {
 export interface JarvisOverviewResult {
   /** UTC ISO time the table was taken. */
   generatedAt: string;
+  /** 1.56.0 (jarvisSessionSwitch): how many open sessions (snowpea and the external ones snowpea has open) are not shared with Jarvis — switch off, or locked hidden — so a client can say 'N sessions are not shared with Jarvis'. The rows list only sessions whose switch is on. */
+  hiddenCount?: number;
   /** Newest activity first. */
   rows?: ({
     /** For an external session: as ExternalSessionRow.approvals ('person' for a tmux pane: its prompts are answered in the terminal, never by Jarvis). */
@@ -2850,6 +2872,158 @@ export interface JarvisProjectRenameResult {
     /** Absolute project root. */
     root: string;
   };
+}
+
+/** `jarvis.session.set` params. Jarvis mode (1.56.0, capability jarvisSessionSwitch): turn one session's Jarvis switch on or off. A person only: a local connection or a remote web login (jarvis_person_only for a browser, a connector or an in-process caller; Jarvis has no tool for it). jarvis_disabled while Jarvis mode is off; invalid_params (details.reason project_hidden / jarvis_session / browser_hidden) when the switch is locked. Off hands what waits for Jarvis there to the person at once (route null, reason session_off); on routes what waits as if just asked (session_on). Grants are not touched. Announced as jarvis.session.changed. */
+export interface JarvisSessionSetParams {
+  /** On: Jarvis sees and may supervise it; off: it does not. */
+  enabled: boolean;
+  /** An external CLI session (exactly one of the two). */
+  external?: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  } | null;
+  /** A snowpea session. */
+  sessionId?: string | null;
+}
+
+/** `jarvis.session.set` result. */
+export interface JarvisSessionSetResult {
+  /** The switch now (jarvisOn). */
+  enabled: boolean;
+  /** As given. */
+  external?: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  } | null;
+  /** As SessionSummary.jarvisLocked; never set when the call succeeded. */
+  jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+  /** The snowpea session's row after the change, when it is open; else null. */
+  session?: {
+    /** Named agent the session belongs to, when it has one. */
+    agent?: string | null;
+    /** Archived; hidden by default (1.47.0). */
+    archived?: boolean;
+    /** PLAN mode with every approval answered yes, switching to auto once the plan is done (1.32.0); false outside plan mode. */
+    autoAfterPlan?: boolean;
+    /** A browser session's browser: 'host' (Snowpea browser only) or 'local' (the user opted in to core's own browser); null for non-browser sessions. */
+    browserProvider?: "host" | "local" | null;
+    /** Tokens the session's current prompt occupies (CORE-context). */
+    contextUsed?: number;
+    /** Context window of the session's model; never null from 1.42.0 (null only before the session has reported one). */
+    contextWindow?: number | null;
+    /** Where contextWindow came from (1.42.0). */
+    contextWindowSource?: "settings" | "server" | "error" | "catalog" | "learned" | "assumed" | null;
+    /** UTC ISO-8601 creation timestamp. */
+    createdAt: string;
+    /** The effort in force (1.29.0): the pin, or what the settings give, clamped to what the model offers; null when the model has no effort setting or the session is closed. 'effort' stays the session's own pin. */
+    effectiveEffort?: "low" | "medium" | "high" | "max" | null;
+    /** Reasoning effort pinned to this session, or null when it follows agent.effortBy / agent.effort. */
+    effort?: "low" | "medium" | "high" | "max" | null;
+    /** Rule that decided effectiveEffort (1.29.0). */
+    effortSource?: "session" | "model" | "vendor" | "default" | null;
+    /** Tiers the session's model offers; [] means none (1.29.0). */
+    efforts?: ("low" | "medium" | "high" | "max")[] | null;
+    /** Turn of forkedFrom the fork was taken at; null for a non-fork (1.50.0). */
+    forkedAtTurnId?: string | null;
+    /** Session this one was forked from by session.fork; null otherwise (1.50.0). A fork keeps its source's title unchanged (1.53.0). */
+    forkedFrom?: string | null;
+    /** Client whose host tools the session uses (a browser profile's clientId); null for IDE, TUI and CLI sessions (addendum 8). */
+    hostToolsFrom?: string | null;
+    /** How Jarvis stands towards this session (1.53.0): exposed, delegation level and pause; null while Jarvis mode is off and on the Jarvis session itself. */
+    jarvis?: {
+      /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
+      exposed: boolean;
+      /** The grant in force (jarvis.delegation.list id); null for the default. */
+      grantId?: string | null;
+      /** Delegation in force (the most specific grant: session, then project, then global, then jarvis.delegation.default); null while Jarvis mode is off. */
+      level?: "staged" | "full" | null;
+      /** Which scope supplied level: a session, project or global grant, or jarvis.delegation.default (no grant); null while level is null. */
+      levelScope?: "session" | "project" | "global" | "default" | null;
+      /** UTC ISO time Jarvis's authority returns: set when the person types into the session (now + jarvis.quietMinutes, extended by each input) or takes it over with a limit. Null when Jarvis may decide now, or while takenOver holds it. */
+      pausedUntil?: string | null;
+      /** True after jarvis.takeover without a limit, until jarvis.handback. */
+      takenOver?: boolean;
+    } | null;
+    /** Why the switch cannot be changed (1.56.0): project_hidden (its project has jarvis.expose off: hidden whatever the switch says), jarvis_session (Jarvis's own session, its children or task workers: always on), browser_hidden (a browser-host session while jarvis.exposeBrowser is off). Null when it can. */
+    jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+    /** The session's Jarvis switch (1.56.0, capability jarvisSessionSwitch): true when Jarvis may see, read, steer and decide for it (within its grants); false (the default for a new session, jarvis.sessions.default) when, for Jarvis, it does not exist. Changed with jarvis.session.set. Kept while Jarvis mode is off. Null for a sub-agent row and from a daemon without the capability. */
+    jarvisOn?: boolean | null;
+    /** Scheduled job this run belongs to; null for other kinds. */
+    jobId?: string | null;
+    /** What opened the session: a human (chat), a scheduled job, a spawned subagent, or a persistent named agent (CORE-session-kind). */
+    kind?: "chat" | "scheduled" | "subagent" | "agent";
+    /** UTC ISO time of the last prompt or turn end. */
+    lastActivityAt?: string | null;
+    /** Latest prompt a person typed (a message.user whose origin is human, or one from before 1.53.0 without an origin); goal rounds, hand-backs, scheduled and delegation prompts never replace it (1.53.0). Falls back to the newest typed /command for a session that only ever ran commands. */
+    lastPrompt?: string | null;
+    /** UTC ISO time of the latest prompt a person sent (a message.user event); null when there is none. Goal rounds and other system turns do not move it (1.50.0); since 1.53.0 only a message.user whose origin is human (or has no origin) does. */
+    lastUserAt?: string | null;
+    /** The machine whose daemon listed the row (1.40.0): a client that caches rows from several daemons matches them by machine.id. */
+    machine?: {
+      /** True when the daemon runs inside Docker (or another Linux container). */
+      container: boolean;
+      /** socket.gethostname() of the daemon's machine. */
+      hostname: string;
+      /** UUID made once and kept in <home>/machine-id (mode 0600): stable for one machine and one state home, not derived from hardware. */
+      id: string;
+      /** The daemon machine's OS. */
+      os: "linux" | "darwin" | "windows";
+    } | null;
+    /** Current permission mode. */
+    mode: "plan" | "accept" | "auto";
+    /** Model id in use. */
+    model?: string | null;
+    /** The connection that owns approvals now; null when none ever attached in this daemon run (saved rows, schedules) (1.26.0). */
+    origin?: {
+      /** The client's stable id from hello — only when it is the caller's own (mine); other clients' ids are not handed out. */
+      clientId?: string | null;
+      /** 'browser', 'ide', 'tui', ... as the client said in hello. */
+      clientKind?: string | null;
+      /** False once that connection has closed. */
+      live: boolean;
+      /** True when the caller is that connection, or has the same clientId. */
+      mine?: boolean;
+    } | null;
+    /** Surface that owns approvals. */
+    originSurface?: string | null;
+    /** Session that caused this one: the thread that scheduled the job, or the parent that spawned the subagent. */
+    parentSessionId?: string | null;
+    /** Approvals waiting on a person. */
+    pendingApprovals?: number;
+    /** Questions waiting on a person. */
+    pendingQuestions?: number;
+    /** Pinned to the top of its workspace (1.47.0). */
+    pinned?: boolean;
+    /** Chat provider vendor in use. */
+    provider?: string | null;
+    /** 'jarvis' for the daemon's Jarvis session (1.53.0), a kind='agent' session a client without capability 'jarvis' shows as an ordinary named agent; null for every other session. */
+    role?: "jarvis" | null;
+    /** True while the daemon has a turn in flight for this session. Always false for a stored row, which by definition has no live turn — a client should trust this rather than infer a running turn from a replay that ends on turn.started (CORE-dangling-turns). */
+    running?: boolean;
+    /** Sequence number of the latest event. */
+    seq?: number;
+    /** Session id. */
+    sessionId: string;
+    /** What the session is doing now (1.7.0). */
+    status?: "idle" | "running" | "awaiting_approval" | "awaiting_question" | "error";
+    /** Short label (auto or renamed). */
+    title?: string | null;
+    /** UTC ISO start of the running turn. */
+    turnStartedAt?: string | null;
+    /** Absolute working directory. */
+    workdir: string;
+    /** Session workspace with tmp/ and artifacts/ (1.7.0). */
+    workspaceDir?: string | null;
+    /** Workspace the conversation's folder belongs to (1.47.0). */
+    workspaceId?: string | null;
+  } | null;
+  /** As given. */
+  sessionId?: string | null;
 }
 
 /** `jarvis.status` params. Jarvis mode (1.53.0, WP3): enabled, the Jarvis session, model, folder, budget, pauses. */
@@ -5257,6 +5431,10 @@ export interface SessionCreateResult {
     /** True after jarvis.takeover without a limit, until jarvis.handback. */
     takenOver?: boolean;
   } | null;
+  /** As SessionSummary.jarvisLocked (1.56.0, capability jarvisSessionSwitch). */
+  jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+  /** As SessionSummary.jarvisOn (1.56.0, capability jarvisSessionSwitch). */
+  jarvisOn?: boolean | null;
   /** As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. */
   role?: "jarvis" | null;
   /** Id of the new session. */
@@ -5623,6 +5801,10 @@ export interface SessionListResult {
       /** True after jarvis.takeover without a limit, until jarvis.handback. */
       takenOver?: boolean;
     } | null;
+    /** Why the switch cannot be changed (1.56.0): project_hidden (its project has jarvis.expose off: hidden whatever the switch says), jarvis_session (Jarvis's own session, its children or task workers: always on), browser_hidden (a browser-host session while jarvis.exposeBrowser is off). Null when it can. */
+    jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+    /** The session's Jarvis switch (1.56.0, capability jarvisSessionSwitch): true when Jarvis may see, read, steer and decide for it (within its grants); false (the default for a new session, jarvis.sessions.default) when, for Jarvis, it does not exist. Changed with jarvis.session.set. Kept while Jarvis mode is off. Null for a sub-agent row and from a daemon without the capability. */
+    jarvisOn?: boolean | null;
     /** Scheduled job this run belongs to; null for other kinds. */
     jobId?: string | null;
     /** What opened the session: a human (chat), a scheduled job, a spawned subagent, or a persistent named agent (CORE-session-kind). */
@@ -9256,8 +9438,8 @@ export interface ApprovalResolvedPayload {
 export interface ApprovalRouteChangedPayload {
   /** As ApprovalPendingNotification.hostToolsFrom. */
   hostToolsFrom?: string | null;
-  /** jarvis_enabled (it was waiting when Jarvis mode came on and has just been routed), jarvis_disabled (routing ended), paused (the person took the session back or typed in it: Jarvis's requests there are the person's), resumed (handed back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran out), declined (Jarvis's turn ended without deciding it), refused (the engine refused Jarvis's or its own decision, e.g. on a re-check). */
-  reason: "jarvis_enabled" | "jarvis_disabled" | "paused" | "resumed" | "budget" | "declined" | "refused";
+  /** jarvis_enabled (it was waiting when Jarvis mode came on and has just been routed), jarvis_disabled (routing ended), paused (the person took the session back or typed in it: Jarvis's requests there are the person's), resumed (handed back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran out), declined (Jarvis's turn ended without deciding it), refused (the engine refused Jarvis's or its own decision, e.g. on a re-check). 1.56.0 (jarvisSessionSwitch): session_on (the session's Jarvis switch was turned on while it waited: routed as if it had just been asked), session_off (the switch was turned off: route null, the person's as with Jarvis mode off). */
+  reason: "jarvis_enabled" | "jarvis_disabled" | "paused" | "resumed" | "budget" | "declined" | "refused" | "session_on" | "session_off";
   /** The waiting request. */
   requestId: string;
   /** The new route; null when Jarvis mode went off (no routing). */
@@ -9614,6 +9796,23 @@ export interface JarvisEscalationDismissedPayload {
   ids: string[];
 }
 
+/** `jarvis.session.changed` notification payload. */
+export interface JarvisSessionChangedPayload {
+  /** person (jarvis.session.set), grant (a session grant the person confirmed turned it on), jarvis (a session Jarvis created starts on). */
+  by: "person" | "grant" | "jarvis";
+  /** The switch now. */
+  enabled: boolean;
+  /** Or the external session. */
+  external?: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  } | null;
+  /** The snowpea session. */
+  sessionId?: string | null;
+}
+
 /** `jarvis.state` notification payload. */
 export interface JarvisStatePayload {
   /** What changed. */
@@ -9850,8 +10049,8 @@ export interface QuestionResolvedPayload {
 
 /** `question.route.changed` notification payload. */
 export interface QuestionRouteChangedPayload {
-  /** jarvis_enabled (it was waiting when Jarvis mode came on and has just been routed), jarvis_disabled (routing ended), paused (the person took the session back or typed in it: Jarvis's requests there are the person's), resumed (handed back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran out), declined (Jarvis's turn ended without deciding it), refused (the engine refused Jarvis's or its own decision, e.g. on a re-check). */
-  reason: "jarvis_enabled" | "jarvis_disabled" | "paused" | "resumed" | "budget" | "declined" | "refused";
+  /** jarvis_enabled (it was waiting when Jarvis mode came on and has just been routed), jarvis_disabled (routing ended), paused (the person took the session back or typed in it: Jarvis's requests there are the person's), resumed (handed back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran out), declined (Jarvis's turn ended without deciding it), refused (the engine refused Jarvis's or its own decision, e.g. on a re-check). 1.56.0 (jarvisSessionSwitch): session_on (the session's Jarvis switch was turned on while it waited: routed as if it had just been asked), session_off (the switch was turned off: route null, the person's as with Jarvis mode off). */
+  reason: "jarvis_enabled" | "jarvis_disabled" | "paused" | "resumed" | "budget" | "declined" | "refused" | "session_on" | "session_off";
   /** The waiting request. */
   requestId: string;
   /** The new route; null when Jarvis mode went off (no routing). */
@@ -9913,6 +10112,10 @@ export interface SessionsChangedPayload {
     /** True after jarvis.takeover without a limit, until jarvis.handback. */
     takenOver?: boolean;
   } | null;
+  /** As SessionSummary.jarvisLocked (1.56.0, capability jarvisSessionSwitch). */
+  jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
+  /** As SessionSummary.jarvisOn (1.56.0, capability jarvisSessionSwitch). */
+  jarvisOn?: boolean | null;
   /** create, prompt, turn, renamed, close, ... */
   reason: string;
   /** As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. */
@@ -10929,6 +11132,7 @@ export interface MethodMap {
   "jarvis.project.alias": { params: JarvisProjectAliasParams; result: JarvisProjectAliasResult };
   "jarvis.project.list": { params: JarvisProjectListParams; result: JarvisProjectListResult };
   "jarvis.project.rename": { params: JarvisProjectRenameParams; result: JarvisProjectRenameResult };
+  "jarvis.session.set": { params: JarvisSessionSetParams; result: JarvisSessionSetResult };
   "jarvis.status": { params: JarvisStatusParams; result: JarvisStatusResult };
   "jarvis.takeover": { params: JarvisTakeoverParams; result: JarvisTakeoverResult };
   "job.cancel": { params: JobCancelParams; result: JobCancelResult };
@@ -11152,6 +11356,7 @@ export type ClientMethod =
   | "jarvis.project.alias"
   | "jarvis.project.list"
   | "jarvis.project.rename"
+  | "jarvis.session.set"
   | "jarvis.status"
   | "jarvis.takeover"
   | "job.cancel"
@@ -11317,6 +11522,7 @@ export interface EventMap {
   "jarvis.delegation.changed": JarvisDelegationChangedPayload;
   "jarvis.escalation": JarvisEscalationPayload;
   "jarvis.escalation.dismissed": JarvisEscalationDismissedPayload;
+  "jarvis.session.changed": JarvisSessionChangedPayload;
   "jarvis.state": JarvisStatePayload;
   "job.event": JobEventPayload;
   "lsp.changed": LspChangedPayload;
@@ -11353,6 +11559,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "jarvis.delegation.changed",
   "jarvis.escalation",
   "jarvis.escalation.dismissed",
+  "jarvis.session.changed",
   "jarvis.state",
   "job.event",
   "lsp.changed",

@@ -82,6 +82,8 @@ def build_rows(
             continue  # external sessions come from their own source (hooks.overview_sources)
         if not projects.exposed(digest.project):
             continue
+        if not service.sees_digest(digest):
+            continue  # 1.56.0: its Jarvis switch is off
         if wanted is not None and digest.project != wanted:
             continue
         session = core.sessions.get(digest.session_id)

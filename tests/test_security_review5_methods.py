@@ -110,6 +110,8 @@ TABLE: dict[str, tuple[str, ...]] = {
         "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
         "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",
         "jarvis.handback", "jarvis.briefing.get",
+        # 1.56.0: the per-session Jarvis switch (grants nothing by itself).
+        "jarvis.session.set",
         # jarvis.briefing.set: a remote login only turns it off (review 8, H8-2).
         "jarvis.briefing.set", "mcp.preset.check",
         "security.get", "security.check", "security.presets.list", "project.trust.status",

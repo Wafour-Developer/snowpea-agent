@@ -877,6 +877,22 @@ class JarvisDelegationSettings(_Model):
     remoteGrant: bool = False
 
 
+class JarvisSessionsSettings(_Model):
+    """The per-session Jarvis switch (1.56.0, owner decision 2026-11-17).
+
+    Jarvis sees only the sessions whose switch is on; the switch itself lives
+    with the delegation rules (``jarvis/delegation.db``), never in this file.
+    """
+
+    #: What a NEW session starts with: ``off`` (default) or ``on``.  Sessions
+    #: Jarvis itself creates always start on; children and forks inherit their
+    #: parent's switch.  A local person's setting like every ``jarvis.*`` key
+    #: (``settings_gate.PERSON_LOCAL_ONLY``, ``hot_reload.GATED_SECTIONS``; the
+    #: ``settings_set`` tool refuses it).  A degraded settings document reads
+    #: it as ``off``.
+    default: Literal["off", "on"] = "off"
+
+
 class JarvisProactiveSettings(_Model):
     """What Jarvis tells the person without being asked (M19, 1.53.0)."""
 
@@ -1035,6 +1051,8 @@ class JarvisSettings(_Model):
     #: Jarvis's working folder and its only write root.
     folder: str = "~/Snowpea/Jarvis"
     delegation: JarvisDelegationSettings = Field(default_factory=JarvisDelegationSettings)
+    #: 1.56.0: which sessions Jarvis sees (the per-session switch's default).
+    sessions: JarvisSessionsSettings = Field(default_factory=JarvisSessionsSettings)
     #: Minutes without the person's input after which a paused session's
     #: delegation returns by itself.
     quietMinutes: int = Field(default=10, ge=1, le=24 * 60)

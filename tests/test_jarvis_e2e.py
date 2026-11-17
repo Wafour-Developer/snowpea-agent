@@ -29,7 +29,10 @@ import aiohttp
 import pytest
 import pytest_asyncio
 from _external_adapter import FAKE_CLAUDE
-from _support import RpcClient, connect, env_vars, make_daemon, pinned_cli
+
+# Written when Jarvis supervised every session: every session is shared (1.56.0).
+from _support import RpcClient, connect, env_vars, pinned_cli
+from _support import make_shared_daemon as make_daemon
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.external.claude import ClaudeAdapter
@@ -306,8 +309,8 @@ async def test_jarvis_mode_end_to_end(http: aiohttp.ClientSession, tmp_path: Pat
         await person.ok("settings.set", {"scope": "global",
                                          "patch": {"jarvis": {"exposeBrowser": False}}})
         await _wait(lambda: core.settings.jarvis.exposeBrowser is False, what="settings")
-        hidden = {r.get("sessionId"): r for r in await _overview(person)}[browser.id]
-        assert hidden["exposed"] is False and hidden["digest"] == ""
+        # 1.56.0: a hidden browser session is locked off: not in the overview at all.
+        assert browser.id not in {r.get("sessionId") for r in await _overview(person)}
         await person.ok("settings.set", {"scope": "global",
                                          "patch": {"jarvis": {"exposeBrowser": True}}})
 

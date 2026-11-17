@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
@@ -365,6 +366,24 @@ async def approval_ask_handler(
 #: ``approval.ask {risk}`` value whose answers are never remembered.
 PAYMENT_RISK = "payment"
 _SCOPES = ("once", "session", "project", "always", "site")
+
+#: Host asks that are the person's whatever was delegated (1.56.0, owner's
+#: exception table): money (``payment.confirm``, a recurring purchase or
+#: subscription being created, changed or resumed — any action in a
+#: ``payment.*`` / ``subscription.*`` / ``purchase.*`` / ``recurring*`` family)
+#: and ``use_tab`` (the person's own tabs).  Matched on the action name.
+_PERSON_ONLY_HOST_ASK = re.compile(
+    r"(^|[._\-])(payments?|subscriptions?|subscribe|purchases?|recurring\w*|checkout)"
+    r"([._\-]|$)|^use_tab([._\-]|$)",
+    re.IGNORECASE,
+)
+
+
+def person_only_host_ask(tool: str, risk: str | None) -> bool:
+    """A host ask only a person may answer: never Jarvis, never the engine alone."""
+    if (risk or "").strip().lower() == PAYMENT_RISK:
+        return True
+    return bool(_PERSON_ONLY_HOST_ASK.search(str(tool or "")))
 
 
 def _decided_by(by: str) -> str:

@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import os
 from collections.abc import Iterable
@@ -108,6 +109,9 @@ IDLE_TICK_SEC = 15.0
 MESSENGER_IMPORTANCE = frozenset({"high", "urgent"})
 #: Approvals whose classification the service keeps for a later re-check.
 ROUTED_KEPT = 4096
+#: One-time marker of the per-session switch migration (1.56.0), under
+#: ``$SNOWPEA_HOME/jarvis/``.
+SWITCH_MARKER = "session-switch-migrated.json"
 
 
 #: Credential directories under the user's home a Jarvis folder may neither be
@@ -212,6 +216,10 @@ class JarvisService:
             _wire_events(core, self.engine)
         self.engine.pause_listeners.append(self._on_pause)
         self.engine.ledger.listeners.append(self._on_ledger)
+        # 1.56.0: the per-session switch — the engine routes a session this
+        # service does not see to the person, and tells it of every change.
+        self.engine.involved_check = self.sees_ids
+        self.engine.switch_listeners.append(self._on_switch)
         self.hooks = Hooks()
         self.hooks.tools.append(_assistant_tools)
         self.projects = ProjectBook(core, self.home / "projects.json")
@@ -232,6 +240,17 @@ class JarvisService:
         sessions = getattr(core, "sessions", None)
         if sessions is not None:
             sessions.summary_extras = self.summary_fields
+            # 1.56.0: a new session's switch (default, inherited, or Jarvis's own).
+            sessions.on_created = self.session_created
+        from snowpea_core.tools.host_tools import HOST_TOOLS
+
+        # A Jarvis browser session ends when its browser host goes away.
+        HOST_TOOLS.drop_listeners[:] = [
+            listener for listener in HOST_TOOLS.drop_listeners
+            if getattr(listener, "__self__", None) is None
+            or not isinstance(listener.__self__, JarvisService)
+        ]
+        HOST_TOOLS.drop_listeners.append(self._host_dropped)
         overview.register_context_provider()
         from snowpea_core.jarvis import external as external_sessions
 
@@ -280,6 +299,10 @@ class JarvisService:
     # -- lifecycle -------------------------------------------------------
     async def start(self) -> None:
         """At daemon boot: come back if the setting is on."""
+        try:
+            await self.migrate_switches()
+        except Exception:  # noqa: BLE001 - the migration must never keep Jarvis down
+            log.warning("could not migrate the Jarvis session switches", exc_info=True)
         if self.enabled:
             async with self._lock:
                 await self._activate()
@@ -792,7 +815,11 @@ class JarvisService:
                 workdir=project,
                 jarvis_session=self.in_jarvis_family(session)
                 or request.sessionId == self._session_id,
-                browser_owned=self.browser_host(session),
+                # 1.56.0 (owner decision): a browser-host session a person shared
+                # with Jarvis (switch on, jarvis.exposeBrowser on) — or one Jarvis
+                # created — is judged like any other: its host asks follow the
+                # engine and the grants.  Not shared, it has no route at all.
+                browser_owned=self.browser_host(session) and not self.sees(session),
                 home=str(self.core.paths.home),
             ),
             project,
@@ -810,6 +837,10 @@ class JarvisService:
             return None
         if is_task_worker(session):
             return "person"  # a jarvis-task worker runs only its schedule
+        if not self.sees(session, external=request.external):
+            # 1.56.0: the session's switch is off: no route, exactly as with
+            # Jarvis mode off (no Jarvis, no engine auto-allow, no notice).
+            return None
         result = self._route_approval(request, session, tags)
         if request.external is not None:
             from snowpea_core.jarvis import external as external_sessions
@@ -831,6 +862,15 @@ class JarvisService:
             request.personOnly if isinstance(request, ApprovalRequest)
             else request.get("personOnly")
         )
+        if not person_only:
+            # 1.56.0: money and the person's own tabs are never Jarvis's or the
+            # engine's, whatever was delegated (the card itself stays as it was:
+            # the browser's person answers it there).
+            from snowpea_core.server.host_handlers import person_only_host_ask
+
+            tool = request.tool if isinstance(request, ApprovalRequest) else request.get("tool")
+            risk = request.risk if isinstance(request, ApprovalRequest) else request.get("risk")
+            person_only = person_only_host_ask(str(tool or ""), str(risk or ""))
         result = self.engine.route(
             classify,
             project=project,
@@ -917,8 +957,11 @@ class JarvisService:
             session = external_sessions.proxy_for_request(self, request)
         return session
 
-    async def route_pending(self) -> None:
-        """Route the requests that were already waiting when Jarvis mode came on.
+    async def route_pending(self, *, only: str | None = None,
+                            reason: str = "jarvis_enabled") -> None:
+        """Route the requests that were already waiting when Jarvis mode came on
+        (or, with ``only``, when that session's switch was turned on: reason
+        ``session_on``, 1.56.0).
 
         Each goes through the engine as if it had just been asked: ``route``
         is set on the pending request (``*.route.changed``, reason
@@ -934,11 +977,13 @@ class JarvisService:
             request = entry.request
             if request.route is not None:
                 continue
+            if only is not None and request.sessionId != only:
+                continue
             interactive = entry.origin_conn is not None
             route = self.route_approval(request, self._session_for(request), (), interactive)
             if route is None:
                 continue
-            await self.change_route("approval", request.requestId, route, "jarvis_enabled")
+            await self.change_route("approval", request.requestId, route, reason)
             await approvals._tell_observers(
                 "approval.pending",
                 {"request": entry.request.model_dump(mode="json"), "interactive": interactive},
@@ -948,12 +993,14 @@ class JarvisService:
             asked = item.request
             if asked.route is not None:
                 continue
+            if only is not None and asked.sessionId != only:
+                continue
             interactive = item.origin_conn is not None
             route = self.route_question(asked, self.core.sessions.get(asked.sessionId),
                                         interactive)
             if route is None:
                 continue
-            await self.change_route("question", asked.requestId, route, "jarvis_enabled")
+            await self.change_route("question", asked.requestId, route, reason)
             tell = getattr(questions.hub, "tell_observers", None)
             if tell is not None:
                 await tell(
@@ -1021,6 +1068,14 @@ class JarvisService:
         """``QuestionRequest.route``: Jarvis answers how-to questions unless paused."""
         if not self.running:
             return None
+        external = (
+            request.get("external") if isinstance(request, dict)
+            else getattr(request, "external", None)
+        )
+        if (session is not None and not self.sees(session, external=external)) or (
+            session is None and external is not None and not self.sees_ids(None, external)
+        ):
+            return None  # 1.56.0: switch off — no route, as with Jarvis mode off
         person_only = (
             request.get("personOnly") if isinstance(request, dict)
             else getattr(request, "personOnly", None)
@@ -1137,25 +1192,420 @@ class JarvisService:
     def summary_fields(self, session_id: str) -> dict[str, Any]:
         """``role`` / ``jarvis`` for a ``sessions.changed`` row (1.53.0)."""
         if self._session_id is not None and session_id == self._session_id:
-            return {"role": "jarvis"}
-        if not self.enabled:
-            return {}
+            return {"role": "jarvis", "jarvisOn": True, "jarvisLocked": "jarvis_session"}
         session = self.core.sessions.get(session_id)
         if session is None or getattr(session, "kind", "chat") == "subagent":
             return {}
+        on, locked = self.standing_of(session)
+        fields: dict[str, Any] = {"jarvisOn": on, "jarvisLocked": locked}
+        if not self.enabled:
+            return fields
         state = self.session_state(session_id, canonical(session.workdir))
-        return {"jarvis": state.model_dump(mode="json")}
+        return {**fields, "jarvis": state.model_dump(mode="json")}
 
     def decorate(self, row: SessionSummary) -> SessionSummary:
-        """``SessionSummary.role`` and ``.jarvis`` for ``session.list`` (1.53.0)."""
+        """``SessionSummary.role`` and ``.jarvis`` for ``session.list`` (1.53.0),
+        ``.jarvisOn`` / ``.jarvisLocked`` (1.56.0)."""
         if self._session_id is not None and row.sessionId == self._session_id:
-            return row.model_copy(update={"role": "jarvis", "jarvis": None})
-        if not self.enabled:
-            return row
+            return row.model_copy(update={"role": "jarvis", "jarvis": None, "jarvisOn": True,
+                                          "jarvisLocked": "jarvis_session"})
         if row.kind == "subagent":
+            return row
+        on, locked = self.standing_of_row(row)
+        row = row.model_copy(update={"jarvisOn": on, "jarvisLocked": locked})
+        if not self.enabled:
             return row
         project = canonical(row.workdir)
         return row.model_copy(update={"jarvis": self.session_state(row.sessionId, project)})
+
+    # -- the per-session switch (1.56.0) --------------------------------------
+    #
+    # Owner decision 2026-11-17: Jarvis sees only the sessions whose switch is
+    # on.  Everything Jarvis can reach goes through :meth:`sees` (and
+    # :meth:`involved` = running and sees): the intake's digests, the overview
+    # and its context table, route_approval / route_question (off: no route,
+    # exactly as with Jarvis mode off), the engine's routing and every re-check
+    # of a decision (``DelegationEngine.involved_check``), each Jarvis tool's
+    # target lookup and the ledger Jarvis reads.  The switch is stored with the
+    # delegation rules (``jarvis/delegation.db``, tamper-guarded), keyed like a
+    # grant: the session id, or ``ext:<cli>:<id>``.  Nothing stored reads as off.
+
+    def default_on(self) -> bool:
+        """``jarvis.sessions.default`` is ``on`` (a degraded jarvis section reads off)."""
+        settings = self.core.settings
+        try:
+            value = settings.jarvis.sessions.default
+        except AttributeError:
+            return False
+        if value != "on":
+            return False
+        degraded = getattr(settings, "degraded_sections", None)
+        try:
+            sections = degraded() if callable(degraded) else []
+        except Exception:  # noqa: BLE001 - unknown state is off
+            return False
+        return not any(section in ("*", "jarvis") or section.startswith("jarvis.")
+                       for section in sections)
+
+    def _switch_value(self, key: str, parent: str | None = None) -> bool:
+        """The stored switch of ``key``; a child with none follows its parent."""
+        value = self.engine.switch(key)
+        seen = {key}
+        while value is None and parent and parent not in seen:
+            seen.add(parent)
+            value = self.engine.switch(parent)
+            live = self.core.sessions.get(parent)
+            parent = getattr(live, "parent_session_id", None) if live is not None else None
+        return bool(value)
+
+    def standing(
+        self,
+        key: str,
+        *,
+        project: str | None,
+        browser: bool = False,
+        family: bool = False,
+        parent: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """``(switch, lock)`` of one session: ``SessionSummary.jarvisOn`` /
+        ``.jarvisLocked``.  The one place that judges both."""
+        if family:
+            return True, "jarvis_session"
+        on = self._switch_value(key, parent)
+        if project and not self.projects.exposed(project):
+            return on, "project_hidden"
+        if browser and not bool(self.core.settings.jarvis.exposeBrowser):
+            return on, "browser_hidden"
+        return on, None
+
+    @staticmethod
+    def _visible(on: bool, locked: str | None) -> bool:
+        return locked == "jarvis_session" or (on and locked is None)
+
+    def _external_project(self, ref: Any) -> str | None:
+        manager = getattr(self.core, "external", None)
+        records = getattr(manager, "_records", None) or {}
+        cli = ref.get("cli") if isinstance(ref, dict) else getattr(ref, "cli", None)
+        ext_id = ref.get("id") if isinstance(ref, dict) else getattr(ref, "id", None)
+        record = records.get((cli, ext_id))
+        return getattr(record, "project", None) if record is not None else None
+
+    def standing_of_external(self, ref: Any, project: str | None = None
+                             ) -> tuple[bool, str | None]:
+        from snowpea_core.jarvis.delegation import target_key
+
+        if not isinstance(ref, dict) and not hasattr(ref, "model_dump"):
+            ref = {"cli": getattr(ref, "cli", None), "id": getattr(ref, "id", None)}
+        key = target_key(None, ref)
+        if project is None:
+            project = self._external_project(ref)
+        return self.standing(key, project=project)
+
+    def standing_of(self, session: Any, *, external: Any = None) -> tuple[bool, str | None]:
+        """``(switch, lock)`` of a live session, or an external session's proxy."""
+        external = external if external is not None else getattr(session, "external", None)
+        if external is not None:
+            return self.standing_of_external(external, getattr(session, "project", None))
+        project = canonical(getattr(session, "project", None) or session.workdir)
+        return self.standing(
+            str(session.id),
+            project=project,
+            browser=self.browser_host(session),
+            family=self.in_jarvis_family(session) or is_task_worker(session),
+            parent=getattr(session, "parent_session_id", None),
+        )
+
+    def standing_of_row(self, row: Any) -> tuple[bool, str | None]:
+        """``(switch, lock)`` from a ``session.list`` row or a stored session row."""
+        get = row.get if isinstance(row, dict) else (lambda k, r=row: getattr(r, k, None))
+        session_id = str(get("sessionId") or get("id") or "")
+        live = self.core.sessions.get(session_id)
+        if live is not None:
+            return self.standing_of(live)
+        workdir = get("workdir")
+        host = get("hostToolsFrom") or get("host_tools_from")
+        parent = get("parentSessionId") or get("parent_session_id")
+        surface = get("originSurface") or get("origin_surface")
+        family = bool(self._session_id and parent == self._session_id) or (
+            surface == "jarvis-task")
+        return self.standing(
+            session_id,
+            project=canonical(str(workdir)) if workdir else None,
+            browser=bool(host),
+            family=family,
+            parent=parent,
+        )
+
+    def sees(self, session: Any, *, external: Any = None) -> bool:
+        """Jarvis may see ``session`` at all (its switch is on and nothing hides it)."""
+        if session is None:
+            return external is not None and self.sees_ids(None, external)
+        try:
+            return self._visible(*self.standing_of(session, external=external))
+        except Exception:  # noqa: BLE001 - unknown is not Jarvis's
+            log.debug("could not judge the Jarvis switch", exc_info=True)
+            return False
+
+    def sees_ids(self, session_id: str | None, external: Any) -> bool:
+        """:meth:`sees` by id (the engine's ``involved_check``)."""
+        try:
+            if external is not None:
+                return self._visible(*self.standing_of_external(external))
+            if not session_id:
+                return False
+            if str(session_id).startswith("ext:"):
+                from snowpea_core.jarvis.external import parse_key
+
+                parsed = parse_key(str(session_id))
+                if parsed is None:
+                    return False
+                return self._visible(*self.standing_of_external(
+                    {"cli": parsed[0], "id": parsed[1]}))
+            session = self.core.sessions.get(str(session_id))
+            if session is not None:
+                return self._visible(*self.standing_of(session))
+            return bool(self.engine.switch(str(session_id)))
+        except Exception:  # noqa: BLE001 - unknown is not Jarvis's
+            log.debug("could not judge the Jarvis switch", exc_info=True)
+            return False
+
+    def sees_digest(self, digest: Digest) -> bool:
+        """:meth:`sees` for the intake's digest of a session."""
+        if digest.session_id.startswith("ext:"):
+            return self.sees_ids(digest.session_id, None)
+        session = self.core.sessions.get(digest.session_id)
+        if session is not None:
+            return self.sees(session)
+        return self._visible(*self.standing(
+            digest.session_id, project=digest.project, browser=digest.browser))
+
+    def involved(self, session: Any, *, external: Any = None) -> bool:
+        """THE gate: Jarvis mode is running and Jarvis :meth:`sees` the session."""
+        return self.running and self.sees(session, external=external)
+
+    @staticmethod
+    def jarvis_browser_session(session: Any) -> bool:
+        """A session Jarvis created on the browser's host tools (1.56.0, browser
+        target of ``session_create``; it ends when its host disconnects)."""
+        return bool(
+            session is not None
+            and getattr(session, "origin_surface", None) == "jarvis"
+            and getattr(session, "host_tools_from", None)
+        )
+
+    # -- switching ------------------------------------------------------------
+    def session_created(self, session: Any) -> None:
+        """``SessionManager.on_created``: a new session's first switch value.
+
+        A child (a parent session) or a fork inherits; otherwise
+        ``jarvis.sessions.default``.  Jarvis's own family and task workers are
+        always on and store nothing; a session Jarvis creates is turned on by
+        its tool right after (with a ledger line and the event).
+        """
+        try:
+            if self._session_id is not None and session.id == self._session_id:
+                return
+            if self.in_jarvis_family(session) or is_task_worker(session):
+                return
+            if getattr(session, "kind", "chat") == "subagent":
+                return  # follows its parent at every look
+            parent = getattr(session, "parent_session_id", None)
+            if parent:
+                value = self._switch_value(str(parent), getattr(
+                    self.core.sessions.get(str(parent)), "parent_session_id", None))
+            else:
+                value = self.default_on()
+            self.engine.set_switch(str(session.id), value, by="new", quiet=True)
+        except Exception:  # noqa: BLE001 - a session is never refused over its switch
+            log.warning("could not store the Jarvis switch of %s", session.id, exc_info=True)
+
+    def inherit_switch(self, child_id: str, parent_id: str) -> None:
+        """A fork takes its source's switch (1.56.0)."""
+        with contextlib.suppress(Exception):
+            source = self.core.sessions.get(parent_id)
+            value = (
+                self.sees(source) if source is not None and self.in_jarvis_family(source)
+                else self._switch_value(parent_id, getattr(source, "parent_session_id", None))
+            )
+            self.engine.set_switch(child_id, value, by="fork", quiet=True)
+
+    def set_session_switch(
+        self, *, session_id: str | None = None, external: Any = None, enabled: bool,
+        by: str = "person",
+    ) -> tuple[bool, str | None]:
+        """Turn one session's switch on or off; ``(enabled, lock)`` after.
+
+        Callers check who asks (``jarvis.session.set``: a person; the session
+        tools: Jarvis's own new sessions only).  Raises :class:`JarvisError`
+        ``invalid_params`` when the switch is locked or the session unknown.
+        """
+        from snowpea_core.jarvis.delegation import target_key
+
+        if external is not None:
+            on, locked = self.standing_of_external(external)
+            key = target_key(None, external)
+        else:
+            session = self.core.sessions.get(str(session_id or ""))
+            if session is not None:
+                on, locked = self.standing_of(session)
+            else:
+                on, locked = self.standing(str(session_id or ""), project=None)
+            key = str(session_id or "")
+        if locked is not None:
+            raise JarvisError("invalid_params", f"the Jarvis switch is locked: {locked}")
+        self.engine.set_switch(key, bool(enabled), by=by)
+        return bool(enabled), None
+
+    def _on_switch(self, key: str, enabled: bool, by: str) -> None:
+        """The engine stored a switch change: announce it, then follow it."""
+        self._soon(self._switch_changed(key, enabled, by))
+
+    async def _switch_changed(self, key: str, enabled: bool, by: str) -> None:
+        from snowpea_core.jarvis.external import parse_key
+        from snowpea_core.server.protocol import JarvisSessionChangedNotification
+
+        parsed = parse_key(key)
+        wire_by = by if by in ("person", "grant", "jarvis") else "person"
+        payload = JarvisSessionChangedNotification(
+            sessionId=None if parsed else key,
+            external=({"cli": parsed[0], "id": parsed[1]} if parsed else None),  # type: ignore[arg-type]
+            enabled=enabled,
+            by=wire_by,  # type: ignore[arg-type]
+        ).model_dump(mode="json")
+        with contextlib.suppress(Exception):
+            await self.core.hub.notify("jarvis.session.changed", payload)
+        if not self.running or self.intake is None:
+            return
+        if not enabled:
+            await self._hand_over(key)
+            return
+        if parsed is None:
+            self.intake._digest_for(key)
+        else:
+            from snowpea_core.jarvis import external as external_sessions
+
+            ref = {"cli": parsed[0], "id": parsed[1]}
+            external_sessions._digest(self, key, self._external_project(ref), None)
+        # What already waits there is routed as if it had just been asked; the
+        # engine's own allow still goes through validate_decision (intake).
+        await self.route_pending(only=key, reason="session_on")
+
+    async def _hand_over(self, key: str) -> None:
+        """The switch went off: forget the session and give back what waits for Jarvis."""
+        intake = self.intake
+        if intake is not None:
+            intake.forget_session(key)
+        for kind in ("approval", "question"):
+            queue = self.core.approvals if kind == "approval" else self.core.questions
+            for entry in list(getattr(queue, "_pending", {}).values()):
+                request = entry.request
+                if request.sessionId != key or request.route is None:
+                    continue
+                await self.change_route(kind, request.requestId, None, "session_off")
+                self._classified.pop(request.requestId, None)
+
+    async def hidden_count(self) -> int:
+        """How many open sessions Jarvis does not see (``JarvisOverviewResult.hiddenCount``)."""
+        count = 0
+        seen: set[str] = set()
+        for session in self.core.sessions.all():
+            seen.add(session.id)
+            if session.id == self._session_id or getattr(session, "kind", "chat") == "subagent":
+                continue
+            if self.in_jarvis_family(session) or is_task_worker(session):
+                continue
+            if not self.sees(session):
+                count += 1
+        store = getattr(self.core, "store", None)
+        if store is not None:
+            with contextlib.suppress(Exception):
+                for row in await store.list_sessions(include_closed=False):
+                    if str(row["id"]) in seen or str(row["id"]) == self._session_id:
+                        continue
+                    if (row.get("kind") or "chat") == "subagent" or is_task_worker(row):
+                        continue
+                    if not self._visible(*self.standing_of_row(row)):
+                        count += 1
+        manager = getattr(self.core, "external", None)
+        if manager is not None:
+            with contextlib.suppress(Exception):
+                for row in manager.opened():
+                    if not self._visible(*self.standing_of_external(row["ref"],
+                                                                    row.get("project"))):
+                        count += 1
+        return count
+
+    async def migrate_switches(self) -> bool:
+        """First start after the upgrade (1.56.0): every session starts off.
+
+        Sessions with a live session-scope grant are switched on (the person
+        handed them to Jarvis); nothing else is stored, so the rest read off.
+        A one-time marker under ``$SNOWPEA_HOME/jarvis/``; one informational
+        notice for the Jarvis screen when Jarvis mode had been used before.
+        """
+        marker = self.home / SWITCH_MARKER
+        if marker.exists():
+            return False
+        used_before = self._session_id is not None
+        turned = 0
+        for grant in self.engine.list_grants(scope="session"):
+            if grant.target and self.engine.set_switch(grant.target, True, by="migration",
+                                                       quiet=True):
+                turned += 1
+        self.home.mkdir(parents=True, exist_ok=True)
+        from snowpea_core.util.atomic import write_atomic
+
+        write_atomic(marker, json.dumps({"migrated": self.now_iso(), "turnedOn": turned}))
+        if used_before:
+            with contextlib.suppress(Exception):
+                await self.escalate(
+                    reason="jarvis",
+                    summary=(
+                        "Jarvis now sees only the sessions you share with it. Existing sessions "
+                        "are not shared"
+                        + (f", except {turned} you had delegated to Jarvis" if turned else "")
+                        + ". Turn a session on with /jarvis on in it, or from the session list "
+                        "here; a session grant turns it on too."
+                    ),
+                    importance="normal",
+                    title="Jarvis sees only sessions you switch on",
+                )
+        return True
+
+    # -- the Jarvis browser session (1.56.0) ------------------------------------
+    def jarvis_browser_sessions(self) -> list[Any]:
+        return [s for s in self.core.sessions.all()
+                if self.jarvis_browser_session(s) and s.closed_at is None]
+
+    def _host_dropped(self, conn: Any) -> None:
+        """A host's socket closed: a Jarvis browser session it served ends."""
+        from snowpea_core.tools.host_tools import HOST_TOOLS
+
+        for session in self.jarvis_browser_sessions():
+            if HOST_TOOLS.for_session(session):
+                continue  # another browser host serves it
+            self._soon(self._end_browser_session(session))
+
+    async def _end_browser_session(self, session: Any) -> None:
+        from snowpea_core.server.session_handlers import interrupt_session
+
+        reason = "the browser disconnected; this Jarvis browser session ended"
+        with contextlib.suppress(Exception):
+            await interrupt_session(self.core, session)
+        with contextlib.suppress(Exception):
+            from snowpea_core.session import events
+
+            await self.core.hub.emit_event(
+                session.id, events.error("host_unavailable", reason))
+        with contextlib.suppress(Exception):
+            self.record_decision(
+                kind="interrupt", decided_by="auto", summary=reason,
+                session_id=session.id, project=canonical(session.workdir), importance="normal",
+            )
+        with contextlib.suppress(Exception):
+            await self.core.sessions.close(session.id)
+        with contextlib.suppress(Exception):
+            self.core.lifecycle.set_counter("sessions", len(self.core.sessions))
 
     # -- status and events ---------------------------------------------------
     async def status(self) -> JarvisStatusResult:

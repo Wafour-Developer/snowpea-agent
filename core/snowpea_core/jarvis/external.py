@@ -118,6 +118,11 @@ def _digest(service: JarvisService, key: str, project: str | None, title: str | 
     intake = service.intake
     if intake is None or not service.projects.exposed(project):
         return None
+    parsed = parse_key(key)
+    if parsed is None or not service._visible(*service.standing_of_external(
+            {"cli": parsed[0], "id": parsed[1]}, project)):
+        intake.forget_session(key)  # 1.56.0: its Jarvis switch is off
+        return None
     digest = intake.digests.get(key)
     if digest is None:
         from snowpea_core.jarvis.intake import Digest
@@ -190,6 +195,8 @@ def overview_rows(service: JarvisService) -> list[JarvisOverviewRow]:
         ref = row["ref"]
         key = key_of(ref["cli"], ref["id"])
         project = row.get("project")
+        if not service._visible(*service.standing_of_external(ref, project)):
+            continue  # 1.56.0: its Jarvis switch is off
         approvals = core.approvals.count(key)
         digest = intake.digests.get(key) if intake is not None else None
         state = service.engine.session_state(
@@ -256,6 +263,9 @@ async def target(service: JarvisService, key: str) -> tuple[Any, dict[str, Any]]
     project = row.get("project")
     if not project or not service.projects.exposed(project):
         raise unknown
+    if not service._visible(*service.standing_of_external(
+            {"cli": parsed[0], "id": parsed[1]}, project)):
+        raise unknown  # 1.56.0: its Jarvis switch is off — for Jarvis it does not exist
     return Target(key, None, project, False, row.get("title"), None), row
 
 
@@ -299,9 +309,12 @@ async def external_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                                              **kwargs)
     except ExternalError as exc:
         raise Refused(_refusal(exc)) from exc
-    rows = [r for r in listed["sessions"] if service.projects.exposed(r.get("project"))]
+    rows = [r for r in listed["sessions"] if service.projects.exposed(r.get("project"))
+            # 1.56.0: only the sessions the person shared with Jarvis.
+            and service._visible(*service.standing_of_external(r["ref"], r.get("project")))]
     if not rows:
-        return _result("no external sessions in the exposed projects", count=0)
+        return _result("no external sessions shared with you in the exposed projects",
+                       count=0)
     lines = ["session | project | title | status | host | mode | gated | updated | preview"]
     for row in rows:
         ref = row["ref"]
@@ -617,6 +630,8 @@ async def create(
         raise Refused(_refusal(exc)) from exc
     ref = created["ref"]
     key = key_of(ref["cli"], ref["id"])
+    # 1.56.0: a session Jarvis creates is Jarvis's work: its switch starts on.
+    service.engine.set_switch(key, True, by="jarvis")
     _digest(service, key, created.get("project"), title or created.get("title"),
             created.get("updatedAt"))
     turn = None
@@ -634,8 +649,8 @@ async def create(
                           ) from exc
     service.record_decision(
         kind="prompt", decided_by="jarvis",
-        summary=f"started a {adapter.title} session in {service.projects.name_of(root)}"
-        + (f": {prompt}" if prompt else ""),
+        summary=f"started a {adapter.title} session in {service.projects.name_of(root)} "
+        "(shared with Jarvis: on)" + (f": {prompt}" if prompt else ""),
         external=ref, project=root, importance="normal",
     )
     found = Target(key, None, root, False, title or created.get("title"), None)

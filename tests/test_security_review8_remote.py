@@ -197,6 +197,7 @@ JARVIS_ROWS: dict[str, str] = {
     "jarvis.disable": "yynnnnn", "jarvis.project.rename": "yynnnnn",
     "jarvis.project.alias": "yynnnnn", "jarvis.escalations.dismiss": "yynnnnn",
     "jarvis.handback": "yynnnnn",
+    "jarvis.session.set": "yynnnnn",  # 1.56.0: the per-session switch
     "jarvis.briefing.set": "yynnnnn",  # a remote login: only {enabled: false}
     "jarvis.delegation.set": "ynnnnnn",  # review 8, H8-2 (was yynnnn)
     "jarvis.delegation.revoke": "yyyyyyn",  # only takes authority away

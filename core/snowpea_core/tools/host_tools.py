@@ -241,6 +241,9 @@ class HostTools:
         #: Closed hosts' tools, by surface id and by clientId (``GONE_GRACE_SEC``).
         self._gone: dict[str, GoneHost] = {}
         self._clock: Callable[[], float] = time.monotonic
+        #: ``listener(conn)`` after a host's tools were dropped (its socket closed);
+        #: the Jarvis service ends its browser session there (1.56.0).
+        self.drop_listeners: list[Callable[[Any], None]] = []
 
     # -- registration --------------------------------------------------
     def register(
@@ -360,6 +363,11 @@ class HostTools:
                 if key:
                     self._gone[key] = gone
         _invalidate_tool_prompt()
+        for listener in list(self.drop_listeners):
+            try:
+                listener(conn)
+            except Exception:  # noqa: BLE001 - a listener never fails a close
+                log.debug("host drop listener failed", exc_info=True)
 
     def gone_for(self, session: Any, name: str | None = None) -> GoneHost | None:
         """The host that served ``session`` and has gone away, if it is recent.

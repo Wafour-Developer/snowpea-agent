@@ -887,6 +887,8 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",
     "jarvis.escalations.dismiss", "jarvis.ledger", "jarvis.delegation.list",
     "jarvis.delegation.revoke", "jarvis.takeover", "jarvis.handback",
+    # 1.56.0: the per-session Jarvis switch (a person's; grants nothing by itself).
+    "jarvis.session.set",
     # jarvis.briefing.set: only {enabled: false} (jarvis_assist_handlers).
     "jarvis.briefing.get", "jarvis.briefing.set", "mcp.preset.list", "mcp.preset.check",
 })

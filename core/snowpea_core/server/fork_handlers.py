@@ -109,6 +109,10 @@ async def session_fork_handler(
             pass
     fork.forked_from, fork.forked_at_turn_id = source.id, at_turn
     await store.update_fork(fork.id, source.id, at_turn)
+    jarvis = getattr(core, "jarvis", None)
+    if jarvis is not None:
+        # 1.56.0: a fork takes its source's Jarvis switch.
+        jarvis.inherit_switch(fork.id, source.id)
     fork.history.extend(list(kept))
     await persist_history(store, fork)
     top = await store.copy_events(source.id, fork.id, int(target["seq"]))

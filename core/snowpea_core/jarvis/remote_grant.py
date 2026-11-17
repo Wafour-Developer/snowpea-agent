@@ -174,6 +174,17 @@ def tool_refusal(before: Any, after: Any) -> str | None:
     if value(before) != value(after):
         return (f"{SETTING} is a local person's switch: change it in {WHERE}, "
                 "not from a session")
+
+    def sessions_default(settings: Any) -> Any:
+        try:
+            return settings.jarvis.sessions.default
+        except AttributeError:
+            return None
+
+    if sessions_default(before) != sessions_default(after):
+        # 1.56.0: which new sessions Jarvis sees is a local person's choice too.
+        return ("jarvis.sessions.default is a local person's setting: change it in "
+                "Settings > Jarvis, not from a session")
     return None
 
 

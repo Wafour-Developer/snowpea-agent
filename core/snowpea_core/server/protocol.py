@@ -279,6 +279,10 @@ class ExternalRef(Payload):
     id: str = Field(description="The CLI's own session (thread, chat) id.")
 
 
+#: Why a session's Jarvis switch cannot be changed (1.56.0, ``jarvisSessionSwitch``).
+JarvisSwitchLock = Literal["project_hidden", "jarvis_session", "browser_hidden"]
+
+
 class SessionJarvisState(Payload):
     """How Jarvis stands towards one session (1.53.0, capability ``jarvis``)."""
 
@@ -881,6 +885,14 @@ class SessionsChangedNotification(Payload):
         default=None,
         description="As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off.",
     )
+    jarvisOn: bool | None = Field(
+        default=None,
+        description="As SessionSummary.jarvisOn (1.56.0, capability jarvisSessionSwitch).",
+    )
+    jarvisLocked: JarvisSwitchLock | None = Field(
+        default=None,
+        description="As SessionSummary.jarvisLocked (1.56.0, capability jarvisSessionSwitch).",
+    )
 
 
 class UsageSummaryParams(Payload):
@@ -977,6 +989,14 @@ class SessionCreateResult(Payload):
     jarvis: SessionJarvisState | None = Field(
         default=None,
         description="As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off.",
+    )
+    jarvisOn: bool | None = Field(
+        default=None,
+        description="As SessionSummary.jarvisOn (1.56.0, capability jarvisSessionSwitch).",
+    )
+    jarvisLocked: JarvisSwitchLock | None = Field(
+        default=None,
+        description="As SessionSummary.jarvisLocked (1.56.0, capability jarvisSessionSwitch).",
     )
 
 
@@ -1235,6 +1255,25 @@ class SessionSummary(Payload):
         description=(
             "How Jarvis stands towards this session (1.53.0): exposed, delegation level "
             "and pause; null while Jarvis mode is off and on the Jarvis session itself."
+        ),
+    )
+    jarvisOn: bool | None = Field(
+        default=None,
+        description=(
+            "The session's Jarvis switch (1.56.0, capability jarvisSessionSwitch): true when "
+            "Jarvis may see, read, steer and decide for it (within its grants); false "
+            "(the default for a new session, jarvis.sessions.default) when, for Jarvis, it "
+            "does not exist. Changed with jarvis.session.set. Kept while Jarvis mode is off. "
+            "Null for a sub-agent row and from a daemon without the capability."
+        ),
+    )
+    jarvisLocked: JarvisSwitchLock | None = Field(
+        default=None,
+        description=(
+            "Why the switch cannot be changed (1.56.0): project_hidden (its project has "
+            "jarvis.expose off: hidden whatever the switch says), jarvis_session (Jarvis's "
+            "own session, its children or task workers: always on), browser_hidden (a "
+            "browser-host session while jarvis.exposeBrowser is off). Null when it can."
         ),
     )
     forkedAtTurnId: str | None = Field(
@@ -7083,6 +7122,8 @@ RouteChangeReason = Literal[
     "budget",
     "declined",
     "refused",
+    "session_on",
+    "session_off",
 ]
 
 
@@ -7101,7 +7142,10 @@ class _RouteChanged(Payload):
             "back or typed in it: Jarvis's requests there are the person's), resumed (handed "
             "back, or the quiet time ran out: routed again), budget (Jarvis's allowance ran "
             "out), declined (Jarvis's turn ended without deciding it), refused (the engine "
-            "refused Jarvis's or its own decision, e.g. on a re-check)."
+            "refused Jarvis's or its own decision, e.g. on a re-check). 1.56.0 "
+            "(jarvisSessionSwitch): session_on (the session's Jarvis switch was turned on "
+            "while it waited: routed as if it had just been asked), session_off (the switch "
+            "was turned off: route null, the person's as with Jarvis mode off)."
         )
     )
 
@@ -8396,6 +8440,59 @@ class JarvisOverviewResult(Payload):
         default_factory=list, description="Newest activity first."
     )
     generatedAt: str = Field(description="UTC ISO time the table was taken.")
+    hiddenCount: int = Field(
+        default=0,
+        description=(
+            "1.56.0 (jarvisSessionSwitch): how many open sessions (snowpea and the external "
+            "ones snowpea has open) are not shared with Jarvis — switch off, or locked "
+            "hidden — so a client can say 'N sessions are not shared with Jarvis'. The rows "
+            "list only sessions whose switch is on."
+        ),
+    )
+
+
+class JarvisSessionSetParams(Payload):
+    """``jarvis.session.set`` (1.56.0, capability ``jarvisSessionSwitch``)."""
+
+    sessionId: str | None = Field(default=None, description="A snowpea session.")
+    external: ExternalRef | None = Field(
+        default=None, description="An external CLI session (exactly one of the two)."
+    )
+    enabled: bool = Field(description="On: Jarvis sees and may supervise it; off: it does not.")
+
+
+class JarvisSessionSetResult(Payload):
+    """The session's switch after the change."""
+
+    sessionId: str | None = Field(default=None, description="As given.")
+    external: ExternalRef | None = Field(default=None, description="As given.")
+    enabled: bool = Field(description="The switch now (jarvisOn).")
+    jarvisLocked: JarvisSwitchLock | None = Field(
+        default=None,
+        description="As SessionSummary.jarvisLocked; never set when the call succeeded.",
+    )
+    session: SessionSummary | None = Field(
+        default=None,
+        description="The snowpea session's row after the change, when it is open; else null.",
+    )
+
+
+class JarvisSessionChangedNotification(Payload):
+    """``jarvis.session.changed`` (1.56.0): a session's Jarvis switch changed.
+
+    Daemon-wide to people (like every ``jarvis.*`` event); clients re-read
+    ``jarvis.overview`` and the session's row.
+    """
+
+    sessionId: str | None = Field(default=None, description="The snowpea session.")
+    external: ExternalRef | None = Field(default=None, description="Or the external session.")
+    enabled: bool = Field(description="The switch now.")
+    by: Literal["person", "grant", "jarvis"] = Field(
+        description=(
+            "person (jarvis.session.set), grant (a session grant the person confirmed "
+            "turned it on), jarvis (a session Jarvis created starts on)."
+        )
+    )
 
 
 class JarvisDecision(Payload):
@@ -9172,6 +9269,16 @@ class ExternalSessionRow(Payload):
             "terminal), so a UI can warn that blocked commands and protected folders do not "
             "apply inside it."
         ),
+    )
+    jarvisOn: bool | None = Field(
+        default=None,
+        description=(
+            "The session's Jarvis switch, keyed by its ref (1.56.0, capability "
+            "jarvisSessionSwitch): as SessionSummary.jarvisOn; false by default."
+        ),
+    )
+    jarvisLocked: JarvisSwitchLock | None = Field(
+        default=None, description="As SessionSummary.jarvisLocked (project_hidden only)."
     )
 
 
@@ -11315,7 +11422,27 @@ METHODS: dict[str, RpcMethod] = {
             "jarvis.overview",
             JarvisOverviewParams,
             JarvisOverviewResult,
-            "Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external.",
+            (
+                "Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and "
+                "external. Since 1.56.0 (jarvisSessionSwitch) only sessions whose Jarvis "
+                "switch is on; hiddenCount says how many are not shared."
+            ),
+        ),
+        _m(
+            "jarvis.session.set",
+            JarvisSessionSetParams,
+            JarvisSessionSetResult,
+            (
+                "Jarvis mode (1.56.0, capability jarvisSessionSwitch): turn one session's "
+                "Jarvis switch on or off. A person only: a local connection or a remote web "
+                "login (jarvis_person_only for a browser, a connector or an in-process "
+                "caller; Jarvis has no tool for it). jarvis_disabled while Jarvis mode is off; "
+                "invalid_params (details.reason project_hidden / jarvis_session / "
+                "browser_hidden) when the switch is locked. Off hands what waits for Jarvis "
+                "there to the person at once (route null, reason session_off); on routes "
+                "what waits as if just asked (session_on). Grants are not touched. Announced "
+                "as jarvis.session.changed."
+            ),
         ),
         _m(
             "jarvis.ledger",
@@ -11731,6 +11858,8 @@ EVENTS: dict[str, type[BaseModel]] = {
     "jarvis.delegation.changed": JarvisDelegationChangedNotification,
     "jarvis.escalation.dismissed": JarvisEscalationsDismissedNotification,
     "jarvis.access": JarvisAccessNotification,
+    # 1.56.0: a session's Jarvis switch changed (jarvisSessionSwitch).
+    "jarvis.session.changed": JarvisSessionChangedNotification,
     "external.event": ExternalEventNotification,
     "external.state": ExternalStateNotification,
     "external.clis.changed": ExternalClisChangedNotification,
@@ -11863,6 +11992,10 @@ CAPABILITIES: list[str] = [
     # 1.56.0: the tmux bridge — ExternalSessionRow.terminal/controllable,
     # ApprovalRequest.externalTerminal, external.terminalSnapshot.
     "externalTmux",
+    # 1.56.0: the per-session Jarvis switch — SessionSummary/ExternalSessionRow
+    # jarvisOn/jarvisLocked, jarvis.session.set, jarvis.session.changed,
+    # JarvisOverviewResult.hiddenCount, settings jarvis.sessions.default.
+    "jarvisSessionSwitch",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -12060,6 +12193,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "jarvis.project.alias",
         "jarvis.escalations.list",
         "jarvis.escalations.dismiss",
+        # 1.56.0 (capability jarvisSessionSwitch)
+        "jarvis.session.set",
         # M19 WP5 (1.53.0): the external.* family, answered by the common layer
         # (external_unavailable until an adapter for the CLI is registered).
         "external.clis",

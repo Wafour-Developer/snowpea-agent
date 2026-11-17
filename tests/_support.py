@@ -301,6 +301,37 @@ def delegate_everything(core: Any) -> Any:
     return grant
 
 
+def share_everything(core: Any, engine: Any = None) -> None:
+    """Every session is shared with Jarvis, as before the per-session switch (1.56.0).
+
+    For the tests written when Jarvis supervised every session: a session with
+    no stored switch reads on (one switched off explicitly stays off).  The
+    switch itself is tested in ``test_jarvis_session_switch.py``.
+    """
+    from snowpea_core.jarvis.delegation import engine_for
+
+    engine = engine if engine is not None else engine_for(core)
+    stored = engine.switch
+
+    def switch(key: str) -> bool | None:
+        value = stored(key)
+        return True if value is None else value
+
+    engine.switch = switch  # type: ignore[method-assign]
+
+
+async def make_shared_daemon(home: Path, settings: dict[str, Any] | None = None) -> Daemon:
+    """:func:`make_daemon` with :func:`share_everything`: new sessions start on
+    (``jarvis.sessions.default: "on"``) and one with no stored switch reads on."""
+    if settings is not None or not (home / "settings.json").exists():
+        # (A restart on an existing home keeps its settings file as it is.)
+        settings = json.loads(json.dumps(settings or {}))
+        settings.setdefault("jarvis", {}).setdefault("sessions", {}).setdefault("default", "on")
+    daemon = await make_daemon(home, settings)
+    share_everything(daemon.core)
+    return daemon
+
+
 def undelegate(core: Any, grant: Any) -> None:
     """Back to the staged default: the person revokes the global grant."""
     from snowpea_core.jarvis.delegation import Caller, engine_for

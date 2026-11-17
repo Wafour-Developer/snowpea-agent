@@ -17,7 +17,10 @@ from typing import Any
 
 import aiohttp
 import pytest
-from _support import connect, delegate_everything, make_daemon, undelegate
+
+# Written when Jarvis supervised every session: every session is shared (1.56.0).
+from _support import connect, delegate_everything, undelegate
+from _support import make_shared_daemon as make_daemon
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.jarvis import tools as jarvis_tools
@@ -336,18 +339,20 @@ async def test_expose_browser_both_values(http: aiohttp.ClientSession, tmp_path:
         )
         assert sent.ok, sent.error
         await _idle(browser)
-        # Off: status only.
+        # Off (1.56.0): the session is locked off (browser_hidden) — for Jarvis it
+        # does not exist.
         core.settings.jarvis.exposeBrowser = False
         listed = await _call(core, "session_list", {})
-        assert browser.id in listed.output and "status only" in listed.output
-        assert "Checked out the cart" not in listed.output
+        assert browser.id not in (listed.output or "")
+        assert "Checked out the cart" not in (listed.output or "")
         read = await _call(core, "session_read", {"sessionId": browser.id})
-        assert not read.ok and "browser" in read.error
+        assert not read.ok and "no session" in read.error
         sent = await _call(
             core, "session_prompt", {"sessionId": browser.id, "text": "go"}, human=True
         )
-        assert not sent.ok and "browser" in sent.error
-        # Its approvals are never Jarvis's, either way.
+        assert not sent.ok and "no session" in sent.error
+        # Shared and exposed (1.56.0, owner decision): its approvals follow the
+        # engine and the grants like any other session's.
         core.settings.jarvis.exposeBrowser = True
         delegate_everything(core)
         ask = asyncio.ensure_future(
@@ -362,12 +367,11 @@ async def test_expose_browser_both_values(http: aiohttp.ClientSession, tmp_path:
         )
         await _wait(lambda: core.approvals.list(browser.id))
         request = core.approvals.list(browser.id)[0]
-        assert request.route == "person"
-        refused = await _call(
-            core, "approval_decide", {"requestId": request.requestId, "decision": "allow"}
+        assert request.route == "jarvis"
+        decided = await _call(
+            core, "approval_decide", {"requestId": request.requestId, "decision": "deny"}
         )
-        assert not refused.ok
-        await core.approvals.respond(request.requestId, "deny")
+        assert decided.ok, decided.error
         await asyncio.wait_for(ask, 5)
     finally:
         await daemon.stop()
