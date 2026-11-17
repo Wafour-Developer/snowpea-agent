@@ -138,11 +138,24 @@ async def test_allowlist_and_auto_cannot_override_a_block_and_unchecked_asks(set
     await _call(setup, "run_cmd", {"command": "git push --force"})  # not in essential
     assert [name for name, _ in setup.ran] == ["run_cmd"]
     setup.ran.clear()
-    # A line that cannot be checked is asked, even in auto with an always rule.
+    # A line that cannot be checked is asked, even in auto with an always rule,
+    # under security.unknownCode "ask".
+    setup.core.settings.security.unknownCode = "ask"
     await _call(setup, "run_cmd", {"command": "$PAYLOAD"})
     assert [a["tool"] for a in setup.asked] == ["run_cmd"]
     assert setup.asked[0]["cacheable"] is False
     assert setup.ran == [("run_cmd", {"command": "$PAYLOAD"})]  # the person allowed it
+    # m21: under the default "auto" it is an ordinary auto-mode call (owner
+    # decision 2026-11-17: judged by what was seen; nothing here is blocked) …
+    setup.asked.clear()
+    setup.ran.clear()
+    setup.core.settings.security.unknownCode = "auto"
+    await _call(setup, "run_cmd", {"command": "$PAYLOAD"})
+    assert setup.asked == [] and setup.ran == [("run_cmd", {"command": "$PAYLOAD"})]
+    # … and asked again in accept mode.
+    setup.session.mode = "accept"
+    await _call(setup, "run_cmd", {"command": "$PAYLOAD"})
+    assert [a["tool"] for a in setup.asked] == ["run_cmd"]
 
 
 async def test_a_scheduled_worker_and_the_jarvis_session_are_blocked_too(setup: Any) -> None:

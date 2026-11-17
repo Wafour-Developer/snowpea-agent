@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.56.0";
+export const PROTOCOL_VERSION = "1.57.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -5190,8 +5190,8 @@ export interface SecurityGetResult {
     })[];
     presets?: string[];
   };
-  /** security.unknownCode (1.55.0, security review 6): what happens to code the check cannot resolve — a write whose target is computed while it runs, code it cannot parse, an interpreter fed code it cannot read. 'ask' (default): put to the person in every mode (ApprovalRequest.reason 'cannot tell what this code changes'). 'allow': let through. Either way snowpea's own control files stay protected and every blocked finding stays blocked. Written with settings.set {scope: 'global', patch: {security: {unknownCode}}} by a local person only; a project scope refuses it (invalid_params, details.reason 'global_only'). */
-  unknownCode?: "ask" | "allow";
+  /** security.unknownCode (1.55.0, security review 6; 'auto' 1.57.0): what happens to a command or script snowpea cannot tell the effect of before it runs — a write whose target is computed while it runs, a program named by a variable, a script it cannot read, code it cannot parse (ApprovalRequest.reason 'cannot be checked against your block list' or 'cannot tell what this code changes'). 'ask': put to the person in every mode. 'auto' (default since 1.57.0): let through unasked in a session in auto mode, asked in plan and accept. 'allow': let through unasked in every mode. What is let through is judged by what snowpea did see: a blocked command, a protected path and snowpea's own controls (its CLI, its files) still stop or ask whatever this says; a script or command whose target is computed at run time can then write to a protected folder without a prompt. Settings written by 0.2.88-0.2.89 hold 'ask' (the old default was written out) and keep it. Written with settings.set {scope: 'global', patch: {security: {unknownCode}}} by a local person only; a project scope refuses it (invalid_params, details.reason 'global_only'). */
+  unknownCode?: "ask" | "auto" | "allow";
   /** True only for a local person's connection: the only one settings.set accepts security.* from. A remote web login, a browser or a connector reads only. */
   writable: boolean;
 }

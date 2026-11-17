@@ -1981,7 +1981,8 @@ describe("protocol 1.54.0", () => {
       const view = app.view();
       expect(view).toContain("Approval required");
       expect(view).toContain("[always asks you]");
-      expect(view).toContain("cannot be checked against your block list");
+      expect(view).toContain("snowpea cannot tell what this will touch before it runs");
+      expect(view).not.toContain("block list");
       expect(view).not.toContain("Jarvis is deciding");
       // personOnly: one scope only.
       expect(view).not.toContain("this session only");

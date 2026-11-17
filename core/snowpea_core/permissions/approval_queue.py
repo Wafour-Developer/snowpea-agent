@@ -574,7 +574,11 @@ class ApprovalQueue:
         security = self._security(session, tool, args, tags, host_tool)
         if security.blocked:
             return await self._refuse_blocked(session, tool, args, security, external)
-        unchecked = bool(security.opaque)
+        # m21: what only snowpea cannot tell ahead is an ordinary call in a session
+        # in auto mode under security.unknownCode "auto" (Verdict.asks_in).
+        asks_in = getattr(security, "asks_in", None)
+        unchecked = bool(asks_in(getattr(session, "mode", None))) if callable(asks_in) \
+            else bool(security.opaque)
         if unchecked:
             person_only = True
             note = f"{security.why or UNCHECKED_REASON}. {note}".strip()

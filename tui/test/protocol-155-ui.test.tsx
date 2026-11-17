@@ -23,6 +23,8 @@ interface Opts {
   /** What `command.run` answers. */
   commandRun?: (params: any) => any;
   security?: Record<string, unknown>;
+  /** An older daemon: settings.set refuses unknownCode "auto" as invalid_params. */
+  refuseAuto?: boolean;
   settingsSetFail?: { code: string; message: string; details?: Record<string, unknown> };
 }
 
@@ -74,6 +76,9 @@ function fakeClient(opts: Opts = {}) {
         case "security.get":
           return security;
         case "settings.set": {
+          if (opts.refuseAuto && params.patch?.security?.unknownCode === "auto") {
+            throw Object.assign(new Error("not a valid value"), { data: { code: "invalid_params", details: { reason: "bad_value" } } });
+          }
           if (opts.settingsSetFail) {
             throw Object.assign(new Error(opts.settingsSetFail.message), { data: { code: opts.settingsSetFail.code, details: opts.settingsSetFail.details } });
           }
@@ -247,7 +252,7 @@ describe("a refusal on an open prompt (refused)", () => {
     const app = await mount(client);
     void client.ask({ ...request, requestId: "a-2", personOnly: false, reason: "cannot tell what this code changes" });
     await sleep(250);
-    expect(app.view()).toContain("cannot tell what this code changes");
+    expect(app.view()).toContain("snowpea cannot tell what this will touch before it runs");
     expect(app.view()).not.toContain("[always asks you]");
     app.done();
   });
@@ -346,28 +351,64 @@ describe("/security: code snowpea can't tell about", () => {
     const client = fakeClient();
     const app = await open(client);
     const view = app.view();
-    expect(view).toContain("Code snowpea can't tell about: [ask] / allow");
+    expect(view).toContain("Commands and scripts snowpea can't read before they run: [ask] / auto / allow");
     expect(view).toContain("snowpea's own files stay protected either way");
     app.done();
   });
 
-  it("u asks before allowing, then sends a global settings.set for security.unknownCode", async () => {
+  it("shows the value core reports: auto, allow", async () => {
+    for (const value of ["auto", "allow"]) {
+      const app = await open(fakeClient({ security: { unknownCode: value } }));
+      expect(app.view()).toContain(value === "auto" ? "ask / [auto] / allow" : "ask / auto / [allow]");
+      app.done();
+    }
+  });
+
+  it("u goes ask, auto (no question), allow (asks first), ask, each a global settings.set", async () => {
     const client = fakeClient();
     const app = await open(client);
     app.stdin.write("u");
+    await sleep(300);
+    const sets = () => client.calls.filter((c: any) => c.method === "settings.set");
+    expect(sets()[0].params).toEqual({ scope: "global", patch: { security: { unknownCode: "auto" } } });
+    expect(app.view()).toContain("ask / [auto] / allow");
+    app.stdin.write("u");
     await sleep(120);
     expect(app.view()).toContain("Let code snowpea can't tell about run without asking?");
-    expect(client.calls.some((c: any) => c.method === "settings.set")).toBe(false);
+    expect(sets()).toHaveLength(1);
     app.stdin.write("y");
     await sleep(300);
-    const set = client.calls.find((c: any) => c.method === "settings.set");
-    expect(set.params).toEqual({ scope: "global", patch: { security: { unknownCode: "allow" } } });
-    expect(app.view()).toContain("ask / [allow]");
+    expect(sets()[1].params).toEqual({ scope: "global", patch: { security: { unknownCode: "allow" } } });
+    expect(app.view()).toContain("ask / auto / [allow]");
     // Back to ask needs no question.
     app.stdin.write("u");
     await sleep(300);
-    const sets = client.calls.filter((c: any) => c.method === "settings.set");
-    expect(sets[1].params.patch).toEqual({ security: { unknownCode: "ask" } });
+    expect(sets()[2].params.patch).toEqual({ security: { unknownCode: "ask" } });
+    app.done();
+  });
+
+  it("an older daemon that refuses auto keeps the two-way switch and says why", async () => {
+    const client = fakeClient({ refuseAuto: true });
+    const app = await open(client);
+    app.stdin.write("u");
+    await sleep(300);
+    const view = app.view();
+    expect(view).toContain("[ask] / allow");
+    expect(view).not.toContain("auto /");
+    expect(view).toContain("This daemon is older and offers only ask and allow");
+    // The next press goes to allow, which asks first.
+    app.stdin.write("u");
+    await sleep(120);
+    expect(app.view()).toContain("Let code snowpea can't tell about run without asking?");
+    app.done();
+  });
+
+  it("does not change it for a connection that may not write", async () => {
+    const client = fakeClient({ security: { writable: false } });
+    const app = await open(client);
+    app.stdin.write("u");
+    await sleep(250);
+    expect(client.calls.some((c: any) => c.method === "settings.set")).toBe(false);
     app.done();
   });
 

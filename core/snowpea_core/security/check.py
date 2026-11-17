@@ -139,7 +139,13 @@ CONTROL_REASON = "acts on snowpea's own controls"
 UNKNOWN_CODE_REASON = "cannot tell what this code changes"
 #: Every ``reason`` a verdict (and ``ApprovalRequest.reason``) may carry.
 REASONS: tuple[str, ...] = (UNCHECKED_REASON, CONTROL_REASON, UNKNOWN_CODE_REASON)
-UNKNOWN_CODE_VALUES: tuple[str, ...] = ("ask", "allow")
+#: ``security.unknownCode`` (m21, owner decision 2026-11-17): ``ask`` asks the
+#: person whenever snowpea cannot tell what a call will touch; ``auto`` (the
+#: default) lets such a call through in a session in auto mode and asks in plan
+#: and accept; ``allow`` lets it through in every mode.  Only the reasons in
+#: :data:`UNRESOLVED_REASONS` are ever let through this way.
+UNKNOWN_CODE_VALUES: tuple[str, ...] = ("ask", "auto", "allow")
+UNKNOWN_CODE_DEFAULT = "auto"
 
 
 def message(key: str, locale: str | None, **values: Any) -> str:
@@ -166,6 +172,15 @@ class Verdict:
     #: ``(path, digest)`` of every script file the call runs, as judged (H4): an
     #: answer to a question about it holds only while they are unchanged.
     scripts: tuple[tuple[str, str], ...] = ()
+    #: Opaque only because snowpea cannot tell what the call will touch (every
+    #: reason in :data:`UNRESOLVED_REASONS`, nothing on snowpea's controls):
+    #: ``security.unknownCode: "auto"`` lets it through in a session in auto mode
+    #: (:func:`asks_in`).  False for every other verdict.
+    relaxable: bool = False
+
+    def asks_in(self, mode: str | None) -> bool:
+        """The verdict puts the call to the person in a session in ``mode``."""
+        return self.opaque and not (self.relaxable and mode == "auto")
 
     def to_wire(self) -> dict[str, Any]:
         out: dict[str, Any] = {"blocked": self.blocked, "by": self.by, "why": self.why,
@@ -615,7 +630,8 @@ def check_command(command: str, lists: Lists, ctx: Context, cwd: Path | None = N
     Even with empty lists the line is read: the control-plane rule is always on.
     """
     view = sh.view(command, cwd=str(cwd or ctx.workdir) if (cwd or ctx.workdir) else None,
-                   home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home))
+                   home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home),
+                   projects=tuple(ctx.projects))
     return _judge_view(view, lists, ctx)
 
 
@@ -830,21 +846,115 @@ _ALWAYS_UNSEEN: tuple[str, ...] = (
     # or configuration the agent wrote, a write where git or PATH finds programs.
     "git-program", "git-hook", "git-control", "path-write",
 )
-#: Code reasons ``security.unknownCode: "allow"`` lets through (security review 7,
-#: M7-2): a write, copy, move or delete whose TARGET is computed, and code too
-#: large or too odd to parse.  Every other ``code:*`` reason still asks under
-#: ``allow`` — a namespace or attribute lookup, an alias, native code, a string
-#: run as code, a computed spawn or import, a language without a table.
-_ALLOW_RELAXES: frozenset[str] = frozenset(
-    {"code:write:non-literal", "code:copy:non-literal", "code:move:non-literal",
-     "code:delete:non-literal", "code:delete-tree:non-literal", "code:parse", "code:unparsed",
-     "code:too-large", "code:too-many", "code:interpolated", "code:module"}
-)
 
 
 def _always(why: str) -> bool:
     return any(why == head or why.startswith(head if head.endswith(":") else head + ":")
                for head in _ALWAYS_UNSEEN)
+
+
+#: Reasons whose only meaning is "snowpea cannot tell before it runs what this
+#: will touch" (m21): what ``security.unknownCode`` ``auto`` (auto mode) and
+#: ``allow`` (every mode) stop asking about.  The call is then judged by what
+#: the reader DID see — a blocked command, a protected path, snowpea's own
+#: control files still stop it.  A name ending in ``:`` or ``-`` covers the
+#: family (``code:write:non-literal``, ``script-missing``).  Anything not listed
+#: (a reason added later included) keeps asking.
+UNRESOLVED_REASONS: tuple[str, ...] = (
+    # a path or a program only the shell knows
+    "unknown-path", "unknown-read", "hard-linked", "dynamic-program", "brace-program",
+    "substitution", "no-command", "stdin-args", "runs-commands", "test-subscript",
+    # code nobody can read ahead: inline, piped, in a script, an interpreter's
+    "code:", "eval", "shell-stdin", "shell-body", "shell-c", "shell-string",
+    "foreign-shell", "remote-shell", "ssh-option", "script-", "inline-code",
+    "inline-dynamic", "interpreter-stdin", "preload", "trap", "source", "encoded-payload",
+    "npm-script", "make-file", "make-recipe", "deno-task", "awk-program", "awk-program-file",
+    "awk-redirect", "sed-program", "sed-program-file", "db-shell", "db-script",
+    "editor-commands", "pager-commands", "curl-config", "case", "select", "coproc",
+    # a variable read by what runs next as code or configuration (not one the
+    # check resolves paths with: see below)
+    "env-code:", "env-path:",
+)
+#: Never let through by the switch, though their name matches above: the
+#: reader itself failed (``code:internal``); a variable whose value the reader
+#: resolves paths with (``HOME``, ``PWD``, ``TMPDIR``, ``SNOWPEA_HOME``,
+#: ``XDG_*``) or whose name it cannot read — what it saw is then not what runs;
+#: a script the same line writes before it runs it.  (``env-code:PATH`` too:
+#: :func:`unresolved` — a PATH the reader cannot vouch for changes which program
+#: each name on the line is.)
+_NEVER_RELAXED: frozenset[str] = frozenset({"code:internal", "env-code:dynamic",
+                                            "script-written"})
+#: Unseen parts that can change the shell's own state (a builtin named by a
+#: variable can be ``export HOME=…``): let through only when nothing in that
+#: shell depends on that state (``~``, ``$HOME``, a relative path).
+_STATEFUL_REASONS: frozenset[str] = sh.STATEFUL_REASONS
+
+
+#: snowpea named as a program, a module, its home or its variables — not as a
+#: folder name in a path (the owner's own checkout is ``…/snowpea/…``).
+_SNOWPEA_WORD = re.compile(
+    r"(?<![\w/.-])snowpea(?:[-_]\w+)?(?![\w/.-])|\.snowpea(?![\w-])|snowpea_core|SNOWPEA_",
+    re.IGNORECASE)
+#: Reasons where the PROGRAM that runs is not known (m21): its operands are
+#: judged as the worst any program could do to them before it may run unasked.
+_PROGRAM_UNKNOWN: frozenset[str] = frozenset({"dynamic-program", "brace-program", "eval",
+                                              "substitution", "no-command"})
+
+
+def _worst_case(view: sh.ShellView) -> list[sh.Effect]:
+    """The literal operands of every program only the shell knows (``$X -rf ~``;
+    the parser splits an unquoted ``` `echo rm` -rf / ``` into a pseudo-command
+    whose first word is an option), as deletions of everything below them."""
+    out: list[sh.Effect] = []
+    pseudo = [cmd for cmd in [*view.commands, *view.literal_commands]
+              if cmd.words and cmd.words[0].startswith("-")]
+    for cmd in [*view.unknown_programs, *pseudo]:
+        start = 0 if cmd in pseudo else 1
+        for word, dyn in zip(cmd.words[start:], cmd.dynamic[start:], strict=False):
+            if dyn or not word or (word.startswith("-") and "=" not in word):
+                continue
+            raw = word.split("=", 1)[1] if word.startswith("-") else word
+            out.append(sh.Effect(raw, cmd.cwd, "write", destructive=True, recursive=True,
+                                 program="dynamic"))
+    return out
+
+
+#: ``$NAME`` the reader resolves paths with: a path holding one depends on the
+#: shell's state; any other ``$NAME`` is unknown already (``unknown-path``).
+_STATE_NAMES = re.compile(r"\$\{?(?:HOME|PWD|OLDPWD|TMPDIR|SNOWPEA_HOME|XDG_[A-Z_]+)\b")
+
+
+def _state_dependent(effects: Iterable[sh.Effect], shells: set[int]) -> bool:
+    """A path the reader resolved through the shell's state (``~``, ``$HOME``, the
+    current folder) in a shell where an unseen part may change that state."""
+    for effect in effects:
+        if effect.shell not in shells:
+            continue
+        raw = effect.raw.strip()
+        if raw.startswith("~") or _STATE_NAMES.search(raw):
+            return True
+        if not raw.startswith(("/", "$", "`")):
+            return True  # relative: the current folder
+    return False
+
+
+def unresolved(why: str, *, stateful: bool = False) -> bool:
+    """``why`` only says the call's targets cannot be known ahead (:data:`UNRESOLVED_REASONS`).
+    ``stateful``: the line has a path that depends on the shell's state."""
+    from snowpea_core.security import envvars
+
+    if why in _NEVER_RELAXED or why.startswith(("control-plane", "snowpea-")):
+        return False
+    if why.startswith("env-code:"):
+        name = why.split(":", 1)[1]
+        # The names the reader resolves paths and programs with: with another
+        # value, what it saw (``~/x``, ``git``) is not what runs.
+        if envvars.is_resolve(name) or name.upper() == "PATH":
+            return False
+    if stateful and why in _STATEFUL_REASONS:
+        return False
+    return any(why == head or (head.endswith((":", "-")) and why.startswith(head))
+               for head in UNRESOLVED_REASONS)
 
 
 def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
@@ -883,15 +993,34 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         unseen.extend(why for why in view.opaque if why.startswith("code:") or _always(why))
     else:
         unseen.extend(why for why in view.opaque if _always(why))
-    unseen.extend(_program_places(effects, ctx))
-    if ctx.unknown_code == "allow":
-        # ``security.unknownCode: "allow"``: a computed TARGET of an ordinary write
-        # and code too odd to parse are let through.  Everything blocked above
-        # stayed blocked; what acts on snowpea's own controls and every other
-        # unreadable construct still asks below.
-        unseen = [why for why in unseen if why not in _ALLOW_RELAXES]
     if entries:
         unseen.extend(path_unseen)
+    # ``security.unknownCode`` (m21): what only says "cannot tell what this will
+    # touch" (UNRESOLVED_REASONS) is let through under ``allow`` and, in a session
+    # in auto mode, under ``auto`` (Verdict.relaxable).  Everything blocked above
+    # stayed blocked; snowpea's own controls (asks), writes where git or PATH
+    # finds programs (_program_places) and an unjudged call still ask below.
+    stateful = _state_dependent(effects, view.stateful_shells)
+    # A line (or a script it runs) that names snowpea anywhere — its CLI in a
+    # variable's value, its module or its folder in a string — and has parts
+    # snowpea cannot read is never let through unasked: what cannot be read may
+    # be an act on snowpea's own controls.
+    names_snowpea = any(_SNOWPEA_WORD.search(text) for text in view.texts)
+    relax = set() if names_snowpea else {
+        why for why in unseen if unresolved(why, stateful=stateful)}
+    if relax & _PROGRAM_UNKNOWN:
+        # ``$X -rf /``: the program is not known, what it is given is.  Every
+        # literal word and path of the line, judged as the worst any program could
+        # do to it (delete it with all below), must reach nothing protected and
+        # nothing of snowpea's own, or the unknown program is not let through.
+        worst = _worst_case(view)
+        hit, _ = _path_verdict(worst, path_entries(lists, ctx), ctx)
+        control, control_asks = _control_verdict(worst, ctx)
+        if hit is not None or control is not None or control_asks:
+            relax = set()
+    if ctx.unknown_code == "allow":
+        unseen = [why for why in unseen if why not in relax]
+    unseen.extend(_program_places(effects, ctx))
     scripts = tuple(dict.fromkeys(view.scripts))
     _note_writes(effects, ctx)
     if asks:
@@ -900,10 +1029,12 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
                        scripts=scripts)
     if unseen:
         only_code = all(why.startswith("code:") for why in unseen)
+        relaxable = ctx.unknown_code == "auto" and all(why in relax for why in unseen)
         return Verdict(opaque=True,
                        reason=UNKNOWN_CODE_REASON if only_code else UNCHECKED_REASON,
                        why=message("unknown_code" if only_code else "unchecked", ctx.locale),
-                       unseen=tuple(dict.fromkeys(unseen)), scripts=scripts)
+                       unseen=tuple(dict.fromkeys(unseen)), scripts=scripts,
+                       relaxable=relaxable)
     return Verdict(scripts=scripts) if scripts else ALLOWED
 
 
@@ -1216,7 +1347,8 @@ def _check_call(tool: str, args: dict[str, Any], lists: Lists, ctx: Context,
     if is_shell and command is not None:
         cwd = _tool_cwd(args, ctx)
         view = sh.view(command, cwd=str(cwd) if cwd else None,
-                       home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home))
+                       home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home),
+                       projects=tuple(ctx.projects))
         return _judge_view(view, lists, ctx)
     code = args.get("code") if isinstance(args.get("code"), str) else None
     if ctx.host_tool and "exec" not in tags:

@@ -539,7 +539,7 @@ async def test_a_lost_record_is_told_once_and_shown_in_security_get(core: Core,
     (core.paths.home / "trust" / "projects.json").unlink()
     result = await get_handler(_conn("ide"), SecurityGetParams(), core)
     assert any("no project is trusted" in line for line in result.problems)
-    assert result.unknownCode == "ask"
+    assert result.unknownCode == "auto"
     sent: list[tuple[str, dict[str, Any]]] = []
     events: list[Any] = []
 

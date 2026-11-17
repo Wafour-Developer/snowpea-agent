@@ -167,7 +167,7 @@ async def test_repointing_the_link_is_a_disk_edit_that_waits(tmp_path: Path) -> 
     assert core.settings_file_changed()
     await core.reload_settings()
     assert sorted(core.settings_waiting) == ["security"]
-    assert core.settings.security.unknownCode == "ask"
+    assert core.settings.security.unknownCode == "auto"  # m21: the daemon keeps its default
 
 
 def _home_with_link(tmp_path: Path, target: Path) -> tuple[Path, Path]:

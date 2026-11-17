@@ -283,9 +283,10 @@ def problems_in(raw: Any) -> list[str]:
         return found
     for key in raw:
         if key == "unknownCode":
-            if raw[key] not in ("ask", "allow", None):
-                found.note(f"security.unknownCode must be 'ask' or 'allow', not {raw[key]!r}",
-                           None, "unknownCode", "must be 'ask' or 'allow'")
+            if raw[key] not in ("ask", "auto", "allow", None):
+                found.note("security.unknownCode must be 'ask', 'auto' or 'allow', not "
+                           f"{raw[key]!r}", None, "unknownCode",
+                           "must be 'ask', 'auto' or 'allow'")
         elif key not in ("blockedCommands", "protectedPaths"):
             found.note("security." + str(key) + " is not a setting (blockedCommands, "
                        "protectedPaths, unknownCode)", None, key, "not a setting")

@@ -1188,17 +1188,20 @@ class SecuritySettings(_Model):
 
     blockedCommands: SecurityBlockedCommands = Field(default_factory=SecurityBlockedCommands)
     protectedPaths: SecurityProtectedPaths = Field(default_factory=SecurityProtectedPaths)
-    #: Code the check cannot resolve (a write whose target is computed, code it
-    #: cannot parse, a module or stdin it cannot read): ``ask`` (default) puts it
-    #: to the person in every mode, ``allow`` lets it run.  Security review 6,
-    #: M-1.  A local person's only; the control-plane rule and every blocked
-    #: finding apply either way.  Anything but ``"allow"`` reads as ``ask``.
-    unknownCode: str = "ask"
+    #: Commands and scripts snowpea cannot tell the effect of before they run (a
+    #: write whose target is computed, a program named by a variable, a script it
+    #: cannot read, code it cannot parse): ``ask`` puts them to the person in every
+    #: mode; ``auto`` (the default since 0.2.90) lets them run unasked in a session
+    #: in auto mode and asks in plan and accept; ``allow`` lets them run unasked in
+    #: every mode.  Security review 6, M-1; m21.  A local person's only; the
+    #: control-plane rule and every blocked finding apply whatever it says.  A
+    #: value other than these three reads as ``ask``.
+    unknownCode: str = "auto"
 
     @field_validator("unknownCode", mode="before")
     @classmethod
     def _unknown_code(cls, value: Any) -> Any:
-        return "allow" if value == "allow" else "ask"
+        return value if value in ("auto", "allow") else "ask"
 
 
 class Settings(_Model):

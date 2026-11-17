@@ -16,6 +16,7 @@ import {
 import { recordOfListRow } from "../src/state/history.js";
 import {
   OWN_FILES_LINE,
+  nextUnknownCode,
   normalizeConfig,
   problemItemText,
   saveProblems,
@@ -202,19 +203,31 @@ describe("refusals are kept for the open request and dropped when it is answered
 });
 
 describe("security.get 1.55.0", () => {
-  it("defaults unknownCode to ask and reads allow", () => {
+  it("reads ask, auto and allow; a missing value (an older core) is ask; an unknown one is shown as auto", () => {
     expect(normalizeConfig({} as never).unknownCode).toBe("ask");
+    expect(normalizeConfig({ unknownCode: "ask" } as never).unknownCode).toBe("ask");
+    expect(normalizeConfig({ unknownCode: "auto" } as never).unknownCode).toBe("auto");
     expect(normalizeConfig({ unknownCode: "allow" } as never).unknownCode).toBe("allow");
-    expect(normalizeConfig({ unknownCode: "maybe" } as never).unknownCode).toBe("ask");
+    expect(normalizeConfig({ unknownCode: "maybe" } as never).unknownCode).toBe("auto");
   });
 
-  it("draws the row and says it in the status", () => {
-    expect(unknownCodeSegments("ask").map((s) => s.text).join("")).toBe("Code snowpea can't tell about: [ask] / allow");
-    expect(unknownCodeSegments("allow").map((s) => s.text).join("")).toBe("Code snowpea can't tell about: ask / [allow]");
-    expect(unknownCodePatch("allow")).toEqual({ security: { unknownCode: "allow" } });
-    const text = statusLines(normalizeConfig({ unknownCode: "allow" } as never), null).join("\n");
-    expect(text).toContain("allow (runs without asking)");
-    expect(text).toContain(OWN_FILES_LINE);
+  it("draws the three choices (two for an older daemon), cycles them and says each in the status", () => {
+    const row = (value: "ask" | "auto" | "allow", withAuto = true) => unknownCodeSegments(value, withAuto).map((s) => s.text).join("");
+    expect(row("ask")).toBe("Commands and scripts snowpea can't read before they run: [ask] / auto / allow");
+    expect(row("auto")).toBe("Commands and scripts snowpea can't read before they run: ask / [auto] / allow");
+    expect(row("allow")).toBe("Commands and scripts snowpea can't read before they run: ask / auto / [allow]");
+    expect(row("ask", false)).toBe("Commands and scripts snowpea can't read before they run: [ask] / allow");
+    expect(nextUnknownCode("ask")).toBe("auto");
+    expect(nextUnknownCode("auto")).toBe("allow");
+    expect(nextUnknownCode("allow")).toBe("ask");
+    expect(nextUnknownCode("ask", false)).toBe("allow");
+    expect(nextUnknownCode("allow", false)).toBe("ask");
+    expect(unknownCodePatch("auto")).toEqual({ security: { unknownCode: "auto" } });
+    const text = (value: string) => statusLines(normalizeConfig({ unknownCode: value } as never), null).join("\n");
+    expect(text("ask")).toContain("ask: always asked");
+    expect(text("auto")).toContain("not asked in a session in auto mode; plan and accept mode still ask");
+    expect(text("allow")).toContain("never asked, in any mode");
+    expect(text("allow")).toContain(OWN_FILES_LINE);
   });
 
   it("uses problemItems, not the sentences", () => {

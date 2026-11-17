@@ -553,7 +553,7 @@ describe("checking text", () => {
     await press(app, ENTER, 200);
     const view = app.view();
     expect(view).toContain("OPAQUE");
-    expect(view).toContain("cannot be checked against your list; snowpea will ask you");
+    expect(view).toContain("snowpea cannot tell what this will touch before it runs");
     expect(view).not.toContain("BLOCKED by");
     // Yellow, as the SGR stream shows it.
     expect(colorOf(app.stdout.text(), "OPAQUE")).toBe(33);

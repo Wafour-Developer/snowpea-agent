@@ -24,6 +24,8 @@ import {
   SECURITY_CLAIM,
   SECURITY_LIMITS,
   UNKNOWN_CODE_ALLOW_CONFIRM,
+  OLD_DAEMON_LINE,
+  nextUnknownCode,
   unknownCodeMeaning,
   unknownCodeSegments,
   type UnknownCode,
@@ -55,7 +57,7 @@ import { RenderedLines } from "./RenderedLines.js";
 
 export type SaveResult =
   | { ok: true; config: SecurityConfig }
-  | { ok: false; message: string; readOnly?: string; entries?: EntryProblem[]; others?: string[] };
+  | { ok: false; message: string; readOnly?: string; entries?: EntryProblem[]; others?: string[]; autoRefused?: boolean };
 
 export type CheckResult = SecurityVerdict | { error: string };
 
@@ -126,6 +128,8 @@ export function SecurityScreen({
   const [notes, setNotes] = useState<Note[]>([]);
   const [readOnly, setReadOnly] = useState<string | null>(initialReadOnly);
   const [effCursor, setEffCursor] = useState(0);
+  /** The daemon refused "auto" (it knows only ask/allow): the switch stays two-way. */
+  const [noAuto, setNoAuto] = useState(false);
   /** Core's reason for an entry it refused, by tab and the entry's text; gone when the entry changes. */
   const [entryProblems, setEntryProblems] = useState<Record<Tab, Map<string, string>>>({ commands: new Map(), paths: new Map() });
   /** The lists changed on the daemon while there were unsaved edits here. */
@@ -237,7 +241,7 @@ export function SecurityScreen({
   /** Flip `security.unknownCode`; letting code through asks first. */
   const switchUnknownCode = () => {
     if (!onSetUnknownCode || locked()) return;
-    const next: UnknownCode = base.unknownCode === "ask" ? "allow" : "ask";
+    const next: UnknownCode = nextUnknownCode(base.unknownCode, !noAuto);
     const run = () => {
       setMode({ k: "saving" });
       setNotes([{ text: "Saving…", dim: true }]);
@@ -246,6 +250,9 @@ export function SecurityScreen({
         if (result.ok) {
           setBase((current) => ({ ...current, unknownCode: result.config.unknownCode }));
           setNotes([{ text: unknownCodeMeaning(result.config.unknownCode), color: "green" }]);
+        } else if (result.autoRefused) {
+          setNoAuto(true);
+          say(OLD_DAEMON_LINE(), "yellow");
         } else if (result.readOnly) {
           setReadOnly(result.readOnly);
           say(result.readOnly, "yellow");
@@ -452,10 +459,9 @@ export function SecurityScreen({
         one === tab ? { text: `[${TAB_TITLE[one]}]`, bold: true, color: "cyan" } : { text: ` ${TAB_TITLE[one]} `, dimColor: true },
       ]),
     },
-    ...wrapSegments("unknown", unknownCodeSegments(base.unknownCode), inner, "  "),
+    ...wrapSegments("unknown", unknownCodeSegments(base.unknownCode, !noAuto), inner, "  "),
   ];
-  const intro: Line[] = [
-    ...wrapSegments("intro", [{ text: INTRO[tab], dimColor: true }], inner, ""),
+  const intro: Line[] = [    ...wrapSegments("intro", [{ text: INTRO[tab], dimColor: true }], inner, ""),
     ...wrapSegments("limits", [{ text: SECURITY_LIMITS, dimColor: true }], inner, ""),
     ...wrapSegments("own", [{ text: OWN_FILES_LINE, dimColor: true }], inner, ""),
     ...wrapSegments("claim", [{ text: SECURITY_CLAIM(), color: "yellow" }], inner, ""),

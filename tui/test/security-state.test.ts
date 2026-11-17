@@ -27,6 +27,8 @@ import {
   securitySupported,
   settingsPatch,
   SECURITY_CLAIM,
+  UNKNOWN_CODE_LEAD,
+  unknownCodeMeaning,
   statusLines,
   tabRows,
   togglePreset,
@@ -238,7 +240,7 @@ describe("verdicts and status", () => {
     const line = verdictLine(verdict({ opaque: true, why: "cannot be checked against your block list" }), catalog);
     expect(line.kind).toBe("opaque");
     expect(line.blocked).toBe(false);
-    expect(line.text).toContain("cannot be checked against your list; snowpea will ask you");
+    expect(line.text).toContain("snowpea cannot tell what this will touch before it runs, so it asks you");
   });
 
   it("sends unsaved edits as the draft of a check", () => {
@@ -257,7 +259,8 @@ describe("verdicts and status", () => {
       "Blocked commands: 1 presets on (Essential safety), 1 of your own",
       "Protected folders: 1 presets on (System), 1 of your own",
       "In force now: 2 command patterns, 2 folders",
-      "Code snowpea can't tell about: ask (put to you). snowpea's own files stay protected either way, and anything on your block lists stays blocked.",
+      `Commands and scripts snowpea can't read before they run: ${unknownCodeMeaning("ask")} snowpea's own files stay protected either way, and anything on your block lists stays blocked.`,
+      UNKNOWN_CODE_LEAD(),
       "Change them with /security. They apply to sessions that go through snowpea.",
     ]);
   });
