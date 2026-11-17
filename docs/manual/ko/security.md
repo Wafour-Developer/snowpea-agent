@@ -149,7 +149,7 @@ snowpea 는 자기 파일도 조심해서 씁니다. 파일마다 옆에 임의�
 
 ## snowpea 가 확인할 수 없는 줄
 
-실행 전에 무엇을 건드릴지 snowpea 가 알 수 없는 줄(변수로 정해지는 프로그램, 읽을 수 없는 스크립트, 실행 중에 계산되는 쓰기 대상)은 "차단 목록과 대조할 수 없습니다" 표시와 함께 사용자에게 묻고, 자비스가 결정하지 않습니다. 거절하는 것이 아니라 사용자가 결정합니다. 기본값 `security.unknownCode: "auto"`(아래)에서는 자동 모드 세션에서 이런 줄을 묻지 않고 실행합니다. snowpea 자체 제어에 닿는 줄은 언제나 묻습니다.
+실행 전에 무엇을 건드릴지 snowpea 가 알 수 없는 줄(변수로 정해지는 프로그램, 읽을 수 없는 스크립트, 실행 중에 계산되는 쓰기 대상)은 "snowpea가 실행 전에 무엇을 건드릴지 알 수 없어 확인합니다" 표시와 함께, 확인하지 못한 부분(명령, 원인이 스크립트 안에 있으면 그 파일과 줄)을 하나씩 보여 주며 사용자에게 묻고, 자비스가 결정하지 않습니다. 리터럴 인자로 실행한 스크립트나 변수에 리터럴 값 하나만 넣는 스크립트(`OUT=${1:-/tmp/shot.png}`, `ADB=/opt/sdk/adb`)는 그 값으로 읽어 다른 줄과 똑같이 확인합니다. 거절하는 것이 아니라 사용자가 결정합니다. 기본값 `security.unknownCode: "auto"`(아래)에서는 자동 모드 세션에서 이런 줄을 묻지 않고 실행합니다. snowpea 자체 제어에 닿는 줄은 언제나 묻습니다.
 
 snowpea 프로그램을 읽기만 하려고 실행하는 것은 평범한 읽기입니다: `snowpea --help`, `snowpea --version`, `snowpea session list`, `snowpea daemon status`, `snowpea agents`(`export PATH="$HOME/.local/bin:$PATH"` 뒤에서도). 그 밖의 `snowpea …`(`project trust`, `--home`, `daemon stop` 등)는 어떤 모드든 묻습니다.
 

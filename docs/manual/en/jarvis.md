@@ -218,7 +218,7 @@ Notices stay in the list until you dismiss them.
 
 ## Security lists
 
-Blocked commands and protected folders apply to Jarvis exactly as to you: they are checked before anything Jarvis, its workers or a delegation could decide. A blocked command on a line snowpea reads is never put to Jarvis, is not run, and cannot be granted (what a script or program does once it runs is not read; see the limits below); Jarvis's ledger records the block. A line snowpea cannot check against the lists (a program in a variable, `eval`, a script piped into a shell) is always routed to you, never to Jarvis — the card says "cannot be checked against your block list". External sessions that run unrestricted, or that answer their prompts in their own terminal, are marked in the overview: the lists do not reach inside them. See [Security lists](security.md) for the presets, the pattern syntax and the limits.
+Blocked commands and protected folders apply to Jarvis exactly as to you: they are checked before anything Jarvis, its workers or a delegation could decide. A blocked command on a line snowpea reads is never put to Jarvis, is not run, and cannot be granted (what a script or program does once it runs is not read; see the limits below); Jarvis's ledger records the block. A line snowpea cannot check against the lists (a program in a variable, `eval`, a script piped into a shell) is always routed to you, never to Jarvis — the card says "snowpea cannot tell what this will touch before it runs, so it asks you". External sessions that run unrestricted, or that answer their prompts in their own terminal, are marked in the overview: the lists do not reach inside them. See [Security lists](security.md) for the presets, the pattern syntax and the limits.
 
 ## Projects
 

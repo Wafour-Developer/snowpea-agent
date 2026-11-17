@@ -149,7 +149,7 @@ At start snowpea takes `settings.json` as it is — unless it is not a regular f
 
 ## Lines snowpea cannot check
 
-When snowpea cannot tell before a line runs what it will touch (a program named by a variable, a script it cannot read, a write whose target is computed), it puts the line to you, marked "cannot be checked against your block list"; Jarvis does not decide it. It is not refused — you decide. With the default `security.unknownCode: "auto"` (below) such a line runs without a question in a session in auto mode. A line that acts on snowpea's own controls always asks.
+When snowpea cannot tell before a line runs what it will touch (a program named by a variable, a script it cannot read, a write whose target is computed), it puts the line to you, marked "snowpea cannot tell what this will touch before it runs, so it asks you", with each part it could not check listed (the command, and the script file and line when the cause is inside a script); Jarvis does not decide it. A script run with literal arguments, or one that gives a variable a single literal value (`OUT=${1:-/tmp/shot.png}`, `ADB=/opt/sdk/adb`), is read with those values and checked like any other line. It is not refused — you decide. With the default `security.unknownCode: "auto"` (below) such a line runs without a question in a session in auto mode. A line that acts on snowpea's own controls always asks.
 
 Running snowpea's own program only to read is an ordinary read: `snowpea --help`, `snowpea --version`, `snowpea session list`, `snowpea daemon status`, `snowpea agents` (also after `export PATH="$HOME/.local/bin:$PATH"`). Every other `snowpea …` (`project trust`, `--home`, `daemon stop`, …) asks you in every mode.
 
