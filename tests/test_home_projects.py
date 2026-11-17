@@ -320,3 +320,57 @@ async def test_session_create_and_workspace_add_over_the_wire(tmp_path: Path) ->
             assert ("second project",) in cp.person_projects(home)
     finally:
         await daemon.stop()
+
+
+# -- the one-time migration of 0.2.90 ------------------------------------------------------
+
+
+async def test_the_first_start_registers_the_projects_people_used(tmp_path: Path) -> None:
+    from _support import make_daemon
+
+    home = tmp_path / "snowpea.ai"
+    for folder in (PROJECT, "skills/x", "jarvis made", "worker made", "scheduled"):
+        (home / folder).mkdir(parents=True)
+    daemon = await make_daemon(home)
+    try:
+        sessions = daemon.core.sessions
+        await sessions.create(home / PROJECT, mode="auto", origin_surface="ide")
+        await sessions.create(home / "skills" / "x", mode="auto", origin_surface="ide")
+        await sessions.create(home / "jarvis made", mode="auto", origin_surface="jarvis")
+        await sessions.create(home / "worker made", mode="auto", origin_surface="jarvis-task")
+        await sessions.create(home / "scheduled", mode="auto", origin_surface="scheduler")
+    finally:
+        await daemon.stop()
+    # As a 0.2.89 home: no record, no marker.
+    marker = home.joinpath(*cp.MIGRATION_MARKER)
+    record = home / "security" / "home-projects.json"
+    marker.unlink()
+    if record.exists():
+        record.unlink()
+    cp.clear_person_projects()
+
+    daemon = await make_daemon(home)
+    try:
+        assert cp.person_projects(home) == ((PROJECT,),)
+        assert not _write(home, f"{PROJECT}/{FILE}").blocked
+        for folder in ("skills/x/a.txt", "jarvis made/a.txt", "worker made/a.txt",
+                       "scheduled/a.txt"):
+            verdict = _write(home, folder)
+            assert verdict.blocked or config_guard.is_config_path(str(home / folder),
+                                                                  home=home), folder
+        saved = json.loads(record.read_text(encoding="utf-8"))
+        assert saved["projects"] == [[PROJECT]] and saved["migrated"] == [[PROJECT]]
+        assert marker.exists()
+    finally:
+        await daemon.stop()
+
+    # A second start changes nothing, even with a new folder in the store.
+    before = record.read_text(encoding="utf-8")
+    cp.clear_person_projects()
+    daemon = await make_daemon(home)
+    try:
+        (home / "later").mkdir()
+        assert cp.person_projects(home) == ((PROJECT,),)
+        assert record.read_text(encoding="utf-8") == before
+    finally:
+        await daemon.stop()

@@ -1054,6 +1054,14 @@ class Daemon:
                 core.checkpoints.cleanup_orphans({str(row["id"]) for row in stored_sessions})
             except Exception:  # noqa: BLE001 - cleanup must not stop startup
                 log.warning("could not clean orphaned checkpoints", exc_info=True)
+            # Once per home (0.2.90): the projects people used inside the home
+            # before 0.2.88 made them unusable are registered again.
+            try:
+                from snowpea_core.server.project_gate import migrate_home_projects
+
+                await migrate_home_projects(core)
+            except Exception:  # noqa: BLE001 - a failed migration must not stop startup
+                log.warning("could not register the projects inside the home", exc_info=True)
         # Before the gateway: a binding that targets a named agent's session
         # needs that session to exist again (M7 contract §6).
         await core.named_agents.restore()

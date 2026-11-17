@@ -253,8 +253,58 @@ def _save_person_projects(home: str | os.PathLike[str]) -> None:
     path = _projects_file(home)
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = [list(rel) for rel in person_projects(home)]
-    write_atomic(path, json.dumps({"version": 1, "projects": rows}, ensure_ascii=False,
-                                  indent=2) + "\n")
+    data: dict[str, object] = {"version": 1, "projects": rows}
+    # The rows the one-time 0.2.90 migration registered, kept while registered.
+    migrated = [row for row in _MIGRATED.get(_home_key(home), ()) if list(row) in rows]
+    if migrated:
+        data["migrated"] = [list(row) for row in migrated]
+    write_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+#: ``home key`` -> the rows the one-time migration registered (``migrated: true``).
+_MIGRATED: dict[str, tuple[tuple[str, ...], ...]] = {}
+
+#: Written once the 0.2.90 migration ran for a home (never runs again).
+MIGRATION_MARKER: tuple[str, ...] = ("security", "home-projects-migrated.json")
+
+
+def migrate_person_projects(home: str | os.PathLike[str],
+                            folders: list[str]) -> list[tuple[str, ...]]:
+    """ONE time per home (0.2.90): register ``folders`` — the existing projects a
+    person used inside the home before 0.2.88 made them unusable — when each,
+    resolved, lies under the home with a first name that is not snowpea's own.
+
+    The caller picks the folders (the session store's top-level sessions that
+    no agent, Jarvis, scheduler or messenger created, and the workspaces of
+    such sessions).  The marker makes it once: a later start does nothing.
+    """
+    import json
+    import logging
+
+    from snowpea_core.util.atomic import write_atomic
+
+    marker = Path(os.path.expanduser(os.fspath(home))).joinpath(*MIGRATION_MARKER)
+    if marker.exists():
+        return []
+    added: list[tuple[str, ...]] = []
+    for folder in folders:
+        if home_project_problem(folder, home) is not None:
+            continue
+        rel = _real_parts(folder, home)
+        if not rel or rel in person_projects(home) or rel in added:
+            continue
+        added.append(add_person_project(home, folder, save=False))
+        logging.getLogger("snowpea.security").info(
+            "registered %s as a project inside snowpea's home (it was used before 0.2.88)",
+            "/".join(rel))
+    key = _home_key(home)
+    if added:
+        _MIGRATED[key] = (*_MIGRATED.get(key, ()), *added)
+        _save_person_projects(home)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(marker, json.dumps({"version": 1, "registered": [list(r) for r in added]},
+                                    ensure_ascii=False) + "\n")
+    return added
 
 
 def add_person_project(home: str | os.PathLike[str], root: str | os.PathLike[str], *,
@@ -314,12 +364,17 @@ def load_person_projects(home: str | os.PathLike[str]) -> tuple[tuple[str, ...],
             if rel not in found:
                 found.append(rel)
     _PERSON_PROJECTS[_home_key(home)] = tuple(found)
+    marked = data.get("migrated") if rows is not None and isinstance(data, dict) else None
+    _MIGRATED[_home_key(home)] = tuple(
+        tuple(row) for row in (marked if isinstance(marked, list) else ())
+        if isinstance(row, list) and tuple(row) in found)
     return tuple(found)
 
 
 def clear_person_projects() -> None:
     """Forget every registration in this process (tests)."""
     _PERSON_PROJECTS.clear()
+    _MIGRATED.clear()
 
 #: The logins of external CLIs in the USER's home (security review 7, L7-2):
 #: never read by a tool, whatever the person's own lists say — the same answer
