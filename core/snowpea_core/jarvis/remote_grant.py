@@ -45,7 +45,7 @@ SLACK_SEC = 300
 #: The setting's dotted name, for messages.
 SETTING = "jarvis.delegation.remoteGrant"
 #: Where a local person turns it on, in words.
-WHERE = "Settings > Jarvis > Delegation on this computer"
+WHERE = "Settings > Jarvis > Delegations on this computer"
 
 #: Why a remote web login gives no grant while the switch is off (the text keeps
 #: "local connection": security review 8, H8-2).

@@ -237,7 +237,7 @@ Every connection that comes in through the remote listener is a **remote sign-in
 A few things are kept on this computer all the same, so that a mistake or a borrowed session cannot change them by a click. Through snowpea's own screens a remote sign-in cannot:
 
 - turn Jarvis mode on, or change Jarvis settings;
-- make or widen a delegation grant (it can still revoke one, take a session over and hand it back). The exception: with **Settings > Jarvis > Delegation > Allow delegation from a remote web login** turned on here (off by default), a remote sign-in made with the password can give a grant for one session or project, without guarded kinds, for at most 24 hours, after typing the password again. Whoever knows the password can then do the same; see [Delegation from a remote sign-in](web.md#delegation-from-a-remote-sign-in);
+- make or widen a delegation grant (it can still revoke one, take a session over and hand it back). The exception: with **Settings > Jarvis > Delegations > Allow delegation from a remote web login** turned on here (off by default), a remote sign-in made with the password can give a grant for one session or project, without guarded kinds, for at most 24 hours, after typing the password again. Whoever knows the password can then do the same; see [Delegation from a remote sign-in](web.md#delegation-from-a-remote-sign-in);
 - turn the briefing on or change it (it can turn it off), also by asking Jarvis;
 - change the security lists or the remote-access settings themselves;
 - open an external session unrestricted, or confirm the path of an external CLI.
