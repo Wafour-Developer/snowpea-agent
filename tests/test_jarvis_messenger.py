@@ -14,7 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest_asyncio
-from _support import env_vars, make_daemon
+
+# Written when Jarvis supervised every session: every session is shared (1.56.0).
+from _support import env_vars
+from _support import make_shared_daemon as make_daemon
 
 from snowpea_core.gateway.base import approval_callback, question_callback
 from snowpea_core.gateway.fake import FakeAdapter

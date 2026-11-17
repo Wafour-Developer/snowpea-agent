@@ -18,7 +18,10 @@ from typing import Any
 import aiohttp
 import pytest
 from _external_adapter import FAKE_CLAUDE
-from _support import connect, env_vars, make_daemon, pinned_cli
+
+# Written when Jarvis supervised every session: every session is shared (1.56.0).
+from _support import connect, env_vars, pinned_cli
+from _support import make_shared_daemon as make_daemon
 
 from snowpea_core.external.claude import ClaudeAdapter
 from snowpea_core.jarvis import tools as jarvis_tools

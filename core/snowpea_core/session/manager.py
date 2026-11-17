@@ -80,6 +80,9 @@ class SessionManager:
         #: ``session id -> extra sessions.changed fields`` (``role``,
         #: ``jarvis``; 1.53.0), installed by the Jarvis service.
         self.summary_extras: Any = None
+        #: ``callback(session)`` for every new session, before it is announced
+        #: (1.56.0): the Jarvis service stores its per-session switch.
+        self.on_created: Any = None
 
     def mark_active(self, session: Session) -> bool:
         """Make ``session`` the active one; False for a subagent or job run.
@@ -272,6 +275,12 @@ class SessionManager:
                 except Exception:  # noqa: BLE001 - the sidebar row is not worth a failed create
                     log.debug("could not add the workspace of %s", session.id, exc_info=True)
         log.info("session %s created (%s, mode=%s)", session.id, session.workdir, session.mode)
+        created = self.on_created
+        if created is not None:
+            try:
+                created(session)
+            except Exception:  # noqa: BLE001 - a hook never fails a create
+                log.warning("on_created hook failed for %s", session.id, exc_info=True)
         await self.announce_sessions_changed("created", session.id)
         return session
 

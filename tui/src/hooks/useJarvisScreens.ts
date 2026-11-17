@@ -72,6 +72,16 @@ import {
   type WaitingItem,
 } from "../state/jarvis.js";
 import { parseExternalCommand, parseJarvisCommand } from "../slash/jarvis.js";
+import {
+  SHARED_MARK,
+  hasSessionSwitch,
+  hiddenLine,
+  lockedLine,
+  shareLine,
+  switchedLine,
+  switchesFromRows,
+  type SessionSwitch,
+} from "../state/jarvis-switch.js";
 import { cliLabel } from "../state/external.js";
 import { wrapSegments } from "../state/security.js";
 
@@ -167,6 +177,10 @@ export function useJarvisScreens(deps: ScreensDeps) {
   const diskNoticeRef = useRef(diskNotice);
   diskNoticeRef.current = diskNotice;
   const support: Support = supportOf(client.serverCapabilities?.());
+  // 1.56.0: the per-session Jarvis switch (an older daemon: nothing shown).
+  const switchSupport = hasSessionSwitch(client.serverCapabilities?.());
+  const [switches, setSwitches] = useState<Record<string, SessionSwitch>>({});
+  const [hiddenCount, setHiddenCount] = useState<number | null>(null);
   const [jarvis, jarvisDispatch] = useReducer(jarvisReducer, initialJarvis);
   const [external, viewDispatch] = useReducer(viewReducer, null);
   const [ui, setUi] = useState<ScreenUi | null>(null);
@@ -223,6 +237,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
       ]);
       if (overview) {
         jarvisDispatch({ type: "overview", rows: overview.rows ?? [], at: Date.now() });
+        setHiddenCount(typeof overview.hiddenCount === "number" ? overview.hiddenCount : null);
       }
       if (approvals || questions) {
         jarvisDispatch({
@@ -239,6 +254,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
           if (entry.jarvis) states[entry.sessionId] = entry.jarvis;
         }
         jarvisDispatch({ type: "sessionStates", states });
+        setSwitches(switchesFromRows((sessions.sessions ?? []) as Parameters<typeof switchesFromRows>[0]));
       }
     } finally {
       refreshing.current = false;
@@ -671,6 +687,41 @@ export function useJarvisScreens(deps: ScreensDeps) {
           if (jarvisRef.current.waiting.length === 0) showToast("nothing is waiting for you");
           else setUi({ kind: "answer", requestId: jarvisRef.current.waiting[0].requestId });
           break;
+        case "share": {
+          if (!switchSupport) {
+            note("sharing one session with Jarvis needs a newer core — run /update");
+            break;
+          }
+          // A session not shared yet is in no overview row: name it by its id.
+          const params =
+            command.target && /^s-[0-9a-f]+$/.test(command.target) ? { sessionId: command.target } : targetParams(command.target);
+          if (typeof params === "string") {
+            showToast(params.replace("/jarvis handback", "/jarvis share on"));
+            break;
+          }
+          const key = typeof params.sessionId === "string" ? params.sessionId : null;
+          if (command.enabled === null) {
+            note(shareLine(key ? switches[key] : undefined));
+            break;
+          }
+          const enabled = command.enabled;
+          void client
+            .call("jarvis.session.set", { ...params, enabled })
+            .then((result) => {
+              if (key) setSwitches((current) => ({ ...current, [key]: { on: Boolean(result?.enabled), locked: null } }));
+              showToast(switchedLine(Boolean(result?.enabled)));
+              void refresh();
+            })
+            .catch((error: unknown) => {
+              const facts = rpcErrorFacts(error);
+              note(
+                facts.code === "jarvis_disabled"
+                  ? "Jarvis is off — /jarvis on"
+                  : (lockedLine(facts.reason) ?? `jarvis.session.set failed: ${errorText(error)}`),
+              );
+            });
+          break;
+        }
         case "handback":
         case "takeover": {
           const params = targetParams(command.target);
@@ -695,7 +746,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
       }
       return true;
     },
-    [client, enterJarvis, gate, goBack, jarvisCall, note, openRow, resolveRow, showToast, targetParams],
+    [client, enterJarvis, gate, goBack, jarvisCall, note, openRow, refresh, resolveRow, showToast, switchSupport, switches, targetParams],
   );
 
   // --- answering what waits for the person ---------------------------------------
@@ -1266,6 +1317,9 @@ export function useJarvisScreens(deps: ScreensDeps) {
 
   const marker = useMemo(() => {
     if (!jarvisOn || onJarvisScreen) return null;
+    // 1.56.0: a session not shared with Jarvis carries no Jarvis mark at all.
+    const shared = switchSupport ? switches[sessionId] : undefined;
+    if (switchSupport && shared && !shared.on && shared.locked !== "jarvis_session") return null;
     const row = jarvis.rows.find((entry) => entry.sessionId === sessionId);
     const pause = (jarvis.status?.paused ?? []).find((entry) => entry.sessionId === sessionId);
     const merged =
@@ -1276,13 +1330,18 @@ export function useJarvisScreens(deps: ScreensDeps) {
     // A pause the status knows about wins over a stale overview row.
     const paused = pause && merged ? { ...merged, pausedUntil: pause.until ?? merged.pausedUntil, takenOver: merged.takenOver || (pause.reason === "takeover" && !pause.until) } : merged;
     const scoped = paused ? { ...paused, levelScope: jarvis.sessionStates[sessionId]?.levelScope ?? null } : paused;
-    return jarvisMarker(jarvis.status, scoped, now);
-  }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId]);
+    return jarvisMarker(jarvis.status, scoped, now) ?? (shared?.on ? SHARED_MARK : null);
+  }, [jarvis.rows, jarvis.sessionStates, jarvis.status, jarvisOn, now, onJarvisScreen, sessionId, switchSupport, switches]);
 
   const panel = useCallback(
     (width: number, maxRows: number, diskNotice: string | null = null): PanelLine[] => {
       if (!onJarvisScreen) return [];
       const lines = panelLines(jarvis, width, maxRows, now);
+      // 1.56.0: what Jarvis does not see, under the title.
+      const hidden = switchSupport ? hiddenLine(hiddenCount) : null;
+      if (hidden && lines.length > 0) {
+        lines.splice(1, 0, ...wrapSegments("jarvis-hidden", [{ text: hidden, dimColor: true }], Math.max(20, width), "  "));
+      }
       // Jarvis settings edited on disk wait for the person: the same line as everywhere, wrapped under the title.
       if (diskNotice && lines.length > 0) {
         const wrapped = wrapSegments("disk-notice", [{ text: `! ${diskNotice}`, color: "yellow" }], Math.max(20, width), "  ");
@@ -1290,7 +1349,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
       }
       return lines;
     },
-    [jarvis, now, onJarvisScreen],
+    [jarvis, hiddenCount, now, onJarvisScreen, switchSupport],
   );
 
   return {

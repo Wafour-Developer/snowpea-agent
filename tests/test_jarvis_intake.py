@@ -14,7 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest_asyncio
-from _support import make_daemon
+
+# Written when Jarvis supervised every session: every session is shared (1.56.0).
+from _support import make_shared_daemon as make_daemon
+from _support import share_everything
 
 from snowpea_core.jarvis import overview
 from snowpea_core.jarvis.classify import ClassifyRequest, Verdict
@@ -109,6 +112,7 @@ class Harness:
         self.core.settings.jarvis.enabled = True
         self.core.settings.jarvis.folder = str(tmp / "JarvisFolder")
         self.service = JarvisService(self.core, clock=self.clock, engine=self.engine)
+        share_everything(self.core, self.engine)
         self.core.jarvis = self.service
         self.wakes: list[str] = []
         self.notes: list[tuple[str, dict[str, Any]]] = []

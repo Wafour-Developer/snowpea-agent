@@ -17,7 +17,10 @@ from typing import Any
 
 import aiohttp
 import pytest
-from _support import connect, delegate_everything, make_daemon, undelegate
+
+# Written when Jarvis supervised every session: every session is shared (1.56.0).
+from _support import connect, delegate_everything, undelegate
+from _support import make_shared_daemon as make_daemon
 
 from snowpea_core.cli import main as cli_main
 from snowpea_core.jarvis.clock import Clock
@@ -218,7 +221,15 @@ async def test_jarvis_cannot_answer_its_own_or_browser_requests(
         browser = await core.sessions.create(project, mode="auto")
         browser.host_tools_from = "browser-1"
         ask = await _approval(core, browser, "make build")
-        assert _pending(core, browser.id).route == "person"
+        # 1.56.0 (owner decision): a browser session the person shared with
+        # Jarvis follows the engine and the grants like any other.
+        assert _pending(core, browser.id).route == "jarvis"
+        await core.approvals.respond(_pending(core, browser.id).requestId, "deny")
+        await asyncio.wait_for(ask, 5)
+        # Not shared: no route at all, as with Jarvis mode off.
+        core.jarvis_delegation.set_switch(browser.id, False, by="test")
+        ask = await _approval(core, browser, "make build")
+        assert _pending(core, browser.id).route is None
         await core.approvals.respond(_pending(core, browser.id).requestId, "deny")
         await asyncio.wait_for(ask, 5)
     finally:
@@ -356,12 +367,10 @@ async def test_browser_sessions_follow_expose_browser(
         )
         assert row["exposed"] is True and "Booked the table" in row["digest"]
         core.settings.jarvis.exposeBrowser = False
-        row = next(
-            r
-            for r in (await client.ok("jarvis.overview", {}))["rows"]
-            if r["sessionId"] == browser.id
-        )
-        assert row["exposed"] is False and row["digest"] == "" and row["status"] == "idle"
+        # 1.56.0: hidden browser sessions are locked off (browser_hidden): not listed.
+        overview = await client.ok("jarvis.overview", {})
+        assert browser.id not in {r["sessionId"] for r in overview["rows"]}
+        assert overview["hiddenCount"] >= 1
     finally:
         await daemon.stop()
 

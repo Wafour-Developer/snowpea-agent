@@ -363,6 +363,11 @@ async def _target(service: JarvisService, session_id: str, *, read: bool) -> Tar
     project = canonical(workdir)
     if not service.projects.exposed(project):
         raise unknown
+    # 1.56.0: a session whose Jarvis switch is off does not exist for Jarvis.
+    visible = (service.sees(session) if session is not None
+               else service._visible(*service.standing_of_row(row)))
+    if not visible:
+        raise unknown
     if browser and not core.settings.jarvis.exposeBrowser:
         raise Refused(
             "that is a browser session; with jarvis.exposeBrowser off Jarvis sees only its "
@@ -621,6 +626,13 @@ async def ledger_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except ValueError as exc:
         raise Refused(str(exc)) from exc
     hidden = {e.id for e in entries if e.project and not service.projects.exposed(e.project)}
+    # 1.56.0: entries about a session whose switch is off now stay in the
+    # person's jarvis.ledger, but Jarvis's own reading leaves them out.
+    hidden |= {
+        e.id for e in entries
+        if (e.sessionId or e.external is not None)
+        and not service.sees_ids(e.sessionId, e.external)
+    }
     lines = [
         f"{e.ts} {e.decidedBy} {e.kind} {e.decision or ''} {e.sessionId or '-'}: {e.summary}"
         + (
@@ -794,8 +806,100 @@ async def _prepare(core: Any, session: Any) -> None:
         await session_handlers.announce_model(core, session)
 
 
+#: Why there is no browser session to create.
+BROWSER_NOT_RUNNING = (
+    "the browser is not running (no snowpea browser is connected); ask the person to open "
+    "it, then try again"
+)
+
+
+def _title_from(prompt: str, title: str | None) -> str | None:
+    if title:
+        return title
+    first = " ".join((prompt.strip().splitlines() or [""])[0].split())
+    return (first[:59] + "…" if len(first) > 60 else first) or None
+
+
+async def _create_browser_session(
+    service: JarvisService, ctx: ToolContext, args: dict[str, Any]
+) -> ToolResult:
+    """``session_create {browser: true}`` (1.56.0): a session on the browser's
+    host tools, exactly as a browser routine runs (``hostToolsFrom: "browser"``,
+    no origin connection, unattended).  Jarvis's work: its switch starts on.
+    Every approval in it is the person's (``JarvisService.jarvis_browser_session``),
+    and it ends when its browser host disconnects."""
+    from types import SimpleNamespace
+
+    from snowpea_core.server.settings_gate import BROWSER_ALIAS
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    if args.get("cli") or args.get("model") or args.get("mode") or args.get("nativeMode"):
+        raise Refused("cli, model and mode are for an external CLI session, not a browser one")
+    core = service.core
+    if not core.settings.jarvis.exposeBrowser:
+        # The stricter reading (1.56.0): with browser sessions hidden from
+        # Jarvis, Jarvis does not run one of its own either.
+        raise Refused("jarvis.exposeBrowser is off: browser sessions are hidden from you, so "
+                      "you do not start one either; tell the person")
+    if not HOST_TOOLS.for_session(SimpleNamespace(host_tools_from=BROWSER_ALIAS,
+                                                  origin_conn=None)):
+        raise Refused(BROWSER_NOT_RUNNING)
+    busy = [s for s in service.jarvis_browser_sessions() if s.turn_live]
+    if busy:
+        raise Refused(
+            f"your browser session {busy[0].id} is still running; one at a time — wait for it "
+            "to finish (session_read), or send it more with session_prompt"
+        )
+    name = _text(args, "project", required=False)
+    if name:
+        root = service.projects.resolve(name)
+        if root is None or not service.projects.exposed(root):
+            raise Refused(f"no exposed project called {name!r}; see project_list")
+        workdir = Path(root)
+    else:
+        workdir = service.folder()
+    _authorized(service, ctx, None, str(workdir))
+    prompt = _plain(_text(args, "prompt", limit=PROMPT_MAX_CHARS))
+    title = _title_from(prompt, _text(args, "title", required=False, limit=120) or None)
+    who = _cause_for(ctx, service, core.sessions.default_mode(workdir), "starting a session")
+    session = await core.sessions.create(workdir=workdir, origin_surface="jarvis",
+                                         origin_conn=None)
+    session.unattended = True
+    session.host_tools_from = BROWSER_ALIAS
+    session.title = title
+    if core.store is not None:
+        with contextlib.suppress(Exception):
+            await core.store.update_host_tools_from(session.id, BROWSER_ALIAS)
+        if title:
+            with contextlib.suppress(Exception):
+                await core.store.update_title(session.id, title)
+    service.engine.set_switch(session.id, True, by="jarvis")
+    core.lifecycle.set_counter("sessions", len(core.sessions))
+    await _prepare(core, session)
+    await core.sessions.announce_sessions_changed("created", session.id)
+    root = canonical(str(workdir))
+    target = Target(session.id, session, root, True, title, BROWSER_ALIAS)
+    turn = _start(service, session, prompt, None, who)
+    service.record_decision(
+        kind="prompt",
+        decided_by="jarvis",
+        summary=f"started a browser session (shared with Jarvis: on): {prompt}",
+        session_id=session.id,
+        project=root,
+        importance="normal",
+    )
+    await _access(service, target, "create", (prompt or title or "browser session")[:160])
+    return _result(
+        f"created browser session {session.id} (on the snowpea browser's tools; every approval "
+        f"in it is the person's); turn {turn} started",
+        sessionId=session.id,
+    )
+
+
 async def session_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     service = _service(ctx)
+    if args.get("browser"):
+        return await _create_browser_session(service, ctx, args)
     name = _text(args, "project")
     root = service.projects.resolve(name)
     if root is None or not service.projects.exposed(root):
@@ -829,6 +933,8 @@ async def session_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if core.store is not None:
             with contextlib.suppress(Exception):
                 await core.store.update_title(session.id, title)
+    # 1.56.0: a session Jarvis creates is Jarvis's work: its switch starts on.
+    service.engine.set_switch(session.id, True, by="jarvis")
     core.lifecycle.set_counter("sessions", len(core.sessions))
     await _prepare(core, session)
     await core.sessions.announce_sessions_changed("created", session.id)
@@ -839,8 +945,8 @@ async def session_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     service.record_decision(
         kind="prompt",
         decided_by="jarvis",
-        summary=f"started a session in {service.projects.name_of(root)}"
-        + (f": {prompt}" if prompt else ""),
+        summary=f"started a session in {service.projects.name_of(root)} "
+        "(shared with Jarvis: on)" + (f": {prompt}" if prompt else ""),
         session_id=session.id,
         project=root,
         importance="normal",
@@ -1392,9 +1498,22 @@ def build_tools(service: JarvisService) -> list[Tool]:
             "session_create",
             "Start a new session in an exposed project, optionally with a first message: a "
             "snowpea session, or with cli an external CLI session (Claude Code, Codex, agy, "
-            "Cursor). Only for the person's request or inside delegated work.",
+            "Cursor), or with browser: true a session that works in the person's snowpea "
+            "browser (its page and repl tools; only while the browser is running, one at a "
+            "time, every approval in it is the person's). Only for the person's request or "
+            "inside delegated work. A session you create is shared with you (switch on).",
             {
-                "project": {"type": "string", "description": "Project name, alias or root."},
+                "project": {
+                    "type": "string",
+                    "description": "Project name, alias or root (optional with browser).",
+                },
+                "browser": {
+                    "type": "boolean",
+                    "description": (
+                        "Create the session on the snowpea browser's host tools (as a browser "
+                        "routine runs) and give it prompt as its task."
+                    ),
+                },
                 "prompt": {"type": "string", "description": "First message (plain text)."},
                 "title": {"type": "string"},
                 "cli": {
@@ -1423,7 +1542,7 @@ def build_tools(service: JarvisService) -> list[Tool]:
                     ),
                 },
             },
-            ["project"],
+            [],
             session_create,
             tag="delegate",
         ),

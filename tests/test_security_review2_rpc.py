@@ -54,6 +54,7 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     "jarvis.delegation.revoke": (P, P, P, P),  # an unknown id: not_found for anyone
     "jarvis.takeover": (P, P, P, P),  # anyone may take authority away
     "jarvis.handback": (P, P, R, R),
+    "jarvis.session.set": (P, P, R, R),  # 1.56.0: a person's, a remote login too
     "jarvis.briefing.get": (P, P, R, R),
     "jarvis.briefing.set": (P, P, R, R),
     "mcp.preset.list": (P, P, P, P),
@@ -170,6 +171,7 @@ async def _params(daemon: Daemon, ide: RpcClient, tmp_path: Path) -> dict[str, d
         "jarvis.delegation.revoke": {"id": "g-nope"},
         "jarvis.takeover": {"sessionId": sid},
         "jarvis.handback": {"sessionId": sid},
+        "jarvis.session.set": {"sessionId": sid, "enabled": True},
         "jarvis.briefing.get": {}, "jarvis.briefing.set": {"enabled": False},
         "mcp.preset.list": {}, "mcp.preset.check": {"id": "nope"},
         "mcp.preset.apply": {"id": "nope"}, "mcp.preset.remove": {"id": "nope"},

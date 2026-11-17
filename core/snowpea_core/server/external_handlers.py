@@ -154,6 +154,24 @@ def _rpc(exc: ExternalError) -> RpcError:
     return RpcError(exc.code, exc.message, exc.details)
 
 
+def _with_switch(core: Core, result: dict[str, Any]) -> dict[str, Any]:
+    """``ExternalSessionRow.jarvisOn`` / ``.jarvisLocked`` (1.56.0) on every row."""
+    service = getattr(core, "jarvis", None)
+    if service is None:
+        return result
+    rows = list(result.get("sessions") or [])
+    if isinstance(result.get("session"), dict):
+        rows.append(result["session"])
+    for row in rows:
+        ref = row.get("ref") if isinstance(row, dict) else None
+        if not isinstance(ref, dict):
+            continue
+        with contextlib.suppress(Exception):
+            on, locked = service.standing_of_external(ref, row.get("project"))
+            row["jarvisOn"], row["jarvisLocked"] = on, locked
+    return result
+
+
 async def _call(coro: Awaitable[Any]) -> Any:
     try:
         return await coro
@@ -235,7 +253,7 @@ async def list_handler(
             row for row in result["sessions"]
             if (row["ref"]["cli"], row["ref"]["id"]) in own
         ]
-    return ExternalListResult.model_validate(result)
+    return ExternalListResult.model_validate(_with_switch(core, result))
 
 
 async def open_handler(
@@ -247,7 +265,7 @@ async def open_handler(
             transport=params.transport, trust=params.trust, native_mode=params.nativeMode,
         )
     )
-    return ExternalOpenResult.model_validate(result)
+    return ExternalOpenResult.model_validate(_with_switch(core, result))
 
 
 async def read_handler(
@@ -281,7 +299,7 @@ async def set_mode_handler(
         ensure_manager(core).set_mode(params.ref.cli, params.ref.id, params.mode, conn=conn,
                                       native_mode=params.nativeMode)
     )
-    return ExternalCreateResult.model_validate(result)
+    return ExternalCreateResult.model_validate(_with_switch(core, result))
 
 
 async def interrupt_handler(
@@ -311,7 +329,16 @@ async def create_handler(
             native_mode=params.nativeMode,
         )
     )
-    return ExternalCreateResult.model_validate(result)
+    jarvis = getattr(core, "jarvis", None)
+    session_row = result.get("session") if isinstance(result, dict) else None
+    if jarvis is not None and isinstance(session_row, dict) and jarvis.default_on():
+        # 1.56.0: a new external session starts as jarvis.sessions.default says.
+        with contextlib.suppress(Exception):
+            from snowpea_core.jarvis.delegation import target_key
+
+            jarvis.engine.set_switch(target_key(None, session_row["ref"]), True, by="new",
+                                     quiet=True)
+    return ExternalCreateResult.model_validate(_with_switch(core, result))
 
 
 async def close_handler(conn: RpcConnection, params: ExternalRefParams, core: Core) -> Ok:
@@ -325,7 +352,7 @@ async def get_handler(
 ) -> ExternalGetResult:
     _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(ensure_manager(core).get(params.ref.cli, params.ref.id))
-    return ExternalGetResult.model_validate(result)
+    return ExternalGetResult.model_validate(_with_switch(core, result))
 
 
 async def terminal_snapshot_handler(

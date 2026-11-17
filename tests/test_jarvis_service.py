@@ -13,7 +13,10 @@ from typing import Any
 
 import aiohttp
 import pytest
-from _support import connect, delegate_everything, make_daemon
+
+# Written when Jarvis supervised every session: every session is shared (1.56.0).
+from _support import connect, delegate_everything
+from _support import make_shared_daemon as make_daemon
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.agent import named, runtime_context

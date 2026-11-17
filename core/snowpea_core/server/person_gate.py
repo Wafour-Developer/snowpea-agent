@@ -195,6 +195,10 @@ PERSON_METHODS: dict[str, bool] = {
     "jarvis.project.alias": False,
     "jarvis.escalations.dismiss": False,
     "jarvis.briefing.set": False,
+    # 1.56.0: a session's Jarvis switch — a person's, a remote web login too
+    # (per-session state that grants nothing by itself); never Jarvis, a
+    # browser, a connector or an in-process caller.
+    "jarvis.session.set": False,
     # Presets write credentials, MCP servers, read tags and jobs.
     "mcp.preset.apply": True,
     "mcp.preset.remove": True,

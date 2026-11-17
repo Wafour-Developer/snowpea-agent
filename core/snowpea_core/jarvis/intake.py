@@ -321,6 +321,8 @@ class Intake:
             project = canonical(str(row["workdir"]))
             if not self.service.projects.exposed(project):
                 continue
+            if not self.service._visible(*self.service.standing_of_row(row)):
+                continue  # 1.56.0: its Jarvis switch is off
             session_id = str(row["id"])
             digest = Digest(
                 session_id=session_id,
@@ -343,9 +345,15 @@ class Intake:
             # The project was hidden since: forget what was seen there.
             self.digests.pop(session_id, None)
             return None
+        if digest is not None and not self.service.sees_digest(digest):
+            # 1.56.0: the session's Jarvis switch is off: it does not exist for Jarvis.
+            self.forget_session(session_id)
+            return None
         if digest is None:
             if session is None:
                 return None
+            if not self.service.sees(session):
+                return None  # 1.56.0: switch off
             if is_task_worker(session):
                 return None  # a jarvis-task worker runs only its schedule
             if getattr(session, "parent_session_id", None) and session.kind == "subagent":
@@ -477,6 +485,19 @@ class Intake:
                 digest.unfinished_since = self.service.clock.monotonic()
                 self._plan_stall()
             await self._on_turn_end(digest, reason)
+
+    def forget_session(self, session_id: str) -> None:
+        """The session's Jarvis switch went off (1.56.0): drop its digest and every
+        wake line or notice about it that has not gone out yet."""
+        self.digests.pop(session_id, None)
+        for request_id in [rid for rid, sid in self._requests.items() if sid == session_id]:
+            self._requests.pop(request_id, None)
+        self._routed = [item for item in self._routed if item.session_id != session_id]
+        self._notices = [item for item in self._notices if item.session_id != session_id]
+        if not self._routed:
+            self._routed_due = None
+        if not self._notices:
+            self._notice_due = None
 
     def _end_session(self, session_id: str) -> None:
         try:

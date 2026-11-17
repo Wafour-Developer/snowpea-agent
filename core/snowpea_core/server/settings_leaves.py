@@ -96,6 +96,9 @@ COMMAND_LIKE: dict[str, tuple[str, frozenset[str]]] = {
     # 1.56.0: lets a remote web login give Jarvis grants (with its password
     # again): authority of the daemon itself, a local person's switch only.
     "jarvis.delegation.remoteGrant": (DAEMON, NOBODY),
+    # 1.56.0: whether a new session starts in Jarvis's sight (the per-session
+    # switch's default): a local person's choice, like the switch above.
+    "jarvis.sessions.default": (DAEMON, NOBODY),
 }
 
 #: Schema leaves that are open mappings (``Any``): the fields inside them that

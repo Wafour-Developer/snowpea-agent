@@ -23,10 +23,15 @@ export type JarvisCommand =
   | { kind: "waiting" }
   /** Dismiss notices: the nth, or all of them. */
   | { kind: "dismiss"; target: number | "all" }
+  /**
+   * The session's own Jarvis switch (1.56.0, `jarvis.session.set`): show it
+   * (`enabled: null`), or turn it on/off for this session or the one named.
+   */
+  | { kind: "share"; enabled: boolean | null; target: string | null }
   | { kind: "invalid"; usage: string };
 
 export const JARVIS_USAGE =
-  "/jarvis [on|off|status|back|sessions|waiting|open <n>|dismiss [n|all]|handback [n]|takeover [n] [minutes]]";
+  "/jarvis [on|off|status|back|sessions|waiting|open <n>|dismiss [n|all]|handback [n]|takeover [n] [minutes]|share [on|off] [session]]";
 
 export const JARVIS_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
   { action: "on", summary: "Turn Jarvis mode on (beta): one session supervises the others." },
@@ -39,6 +44,7 @@ export const JARVIS_ACTIONS: ReadonlyArray<{ action: string; summary: string }> 
   { action: "dismiss", summary: "Dismiss Jarvis's notices: /jarvis dismiss [n|all]." },
   { action: "handback", summary: "Give this session back to Jarvis now." },
   { action: "takeover", summary: "Take this session back from Jarvis: /jarvis takeover [minutes]." },
+  { action: "share", summary: "Share this session with Jarvis or not: /jarvis share [on|off] (off by default)." },
 ];
 
 /** `null` when the line is not a `/jarvis` command. */
@@ -66,6 +72,13 @@ export function parseJarvisCommand(line: string): JarvisCommand | null {
       return rest.length === 1 && /^\d+$/.test(rest[0]) && Number(rest[0]) > 0
         ? { kind: "dismiss", target: Number(rest[0]) }
         : { kind: "invalid", usage: JARVIS_USAGE };
+    }
+    case "share": {
+      // `/jarvis share` shows it; `/jarvis share on|off [session]` switches it.
+      if (rest.length === 0) return { kind: "share", enabled: null, target: null };
+      const [state, target, ...extra] = rest;
+      if ((state !== "on" && state !== "off") || extra.length > 0) return { kind: "invalid", usage: JARVIS_USAGE };
+      return { kind: "share", enabled: state === "on", target: target ?? null };
     }
     case "handback":
       return rest.length <= 1 ? { kind: "handback", target: rest[0] ?? null } : { kind: "invalid", usage: JARVIS_USAGE };

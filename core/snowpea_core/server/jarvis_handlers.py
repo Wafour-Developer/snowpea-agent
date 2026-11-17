@@ -30,6 +30,8 @@ from snowpea_core.server.protocol import (
     JarvisProjectListResult,
     JarvisProjectRenameParams,
     JarvisProjectResult,
+    JarvisSessionSetParams,
+    JarvisSessionSetResult,
     JarvisStatusResult,
 )
 
@@ -47,6 +49,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "jarvis.project.alias",
     "jarvis.escalations.list",
     "jarvis.escalations.dismiss",
+    "jarvis.session.set",
 )
 
 _CODES = {
@@ -102,7 +105,63 @@ async def jarvis_overview_handler(
         )
     except JarvisError as exc:
         raise _rpc_error(exc) from exc
-    return JarvisOverviewResult(rows=rows, generatedAt=service.now_iso())
+    return JarvisOverviewResult(rows=rows, generatedAt=service.now_iso(),
+                                hiddenCount=await service.hidden_count())
+
+
+async def jarvis_session_set_handler(
+    conn: RpcConnection | None, params: JarvisSessionSetParams, core: Core
+) -> JarvisSessionSetResult:
+    """``jarvis.session.set`` (1.56.0): one session's Jarvis switch.
+
+    A person's only: the dispatcher's ``PERSON_METHODS`` entry refuses a
+    browser, a connector and an in-process caller before this runs, and it is
+    checked again here (a local person and a remote web login pass).  Jarvis
+    has no tool that reaches it.
+    """
+    from snowpea_core.server.person_gate import require_person
+
+    require_person(conn, "call jarvis.session.set")
+    service = service_of(core)
+    if not service.enabled:
+        raise RpcError(errors.JARVIS_DISABLED,
+                       "Jarvis mode is off; turn it on with jarvis.enable")
+    if (params.sessionId is None) == (params.external is None):
+        raise RpcError(errors.INVALID_PARAMS, "give exactly one of sessionId and external")
+    if params.sessionId is not None:
+        session_id = params.sessionId
+        live = core.sessions.get(session_id)
+        if live is None:
+            store = getattr(core, "store", None)
+            row = await store.session(session_id) if store is not None else None
+            if row is None:
+                raise RpcError(errors.NOT_FOUND, f"no such session: {session_id}")
+            standing = service.standing_of_row(row)
+        else:
+            standing = service.standing_of(live)
+    else:
+        standing = service.standing_of_external(params.external)
+    locked = standing[1]
+    if locked is not None:
+        raise RpcError(errors.INVALID_PARAMS,
+                       f"this session's Jarvis switch cannot be changed ({locked})",
+                       {"reason": locked})
+    try:
+        enabled, _ = service.set_session_switch(
+            session_id=params.sessionId, external=params.external,
+            enabled=params.enabled, by="person",
+        )
+    except JarvisError as exc:
+        raise _rpc_error(exc) from exc
+    # The event, the hand-over (off) and the routing (on) run before the answer.
+    await service.settle()
+    summary = None
+    if params.sessionId is not None:
+        live = core.sessions.get(params.sessionId)
+        if live is not None:
+            summary = service.decorate(live.summary())
+    return JarvisSessionSetResult(sessionId=params.sessionId, external=params.external,
+                                  enabled=enabled, session=summary)
 
 
 async def jarvis_project_list_handler(
@@ -171,6 +230,7 @@ def register_jarvis_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("jarvis.project.alias", jarvis_project_alias_handler)
     dispatcher.register("jarvis.escalations.list", jarvis_escalations_list_handler)
     dispatcher.register("jarvis.escalations.dismiss", jarvis_escalations_dismiss_handler)
+    dispatcher.register("jarvis.session.set", jarvis_session_set_handler)
     return dispatcher
 
 

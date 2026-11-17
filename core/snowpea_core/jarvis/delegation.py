@@ -424,11 +424,21 @@ CREATE TABLE IF NOT EXISTS pauses (
     set_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS switches (
+    target TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL,
+    set_by TEXT NOT NULL,
+    set_at TEXT NOT NULL
+);
 """
 SCHEMA_VERSION = "1"
 
 GrantListener = Callable[[str, JarvisGrant], None]
 PauseListener = Callable[[str, PauseState], None]
+#: ``(target key, enabled, by)`` whenever a session's Jarvis switch changes (1.56.0).
+SwitchListener = Callable[[str, bool, str], None]
+#: ``(session_id, external) -> bool``: the Jarvis service's gate (1.56.0).
+InvolvedCheck = Callable[[str | None, Any], bool]
 
 
 class _GuardedLock:
@@ -503,6 +513,14 @@ class DelegationEngine:
         self.pause_listeners: list[PauseListener] = []
         #: True once :func:`_wire_events` announces this engine's changes.
         self.events_wired = False
+        #: ``(target, enabled, by)`` whenever a session's Jarvis switch changes.
+        self.switch_listeners: list[SwitchListener] = []
+        self._switch_cache: dict[str, bool | None] = {}
+        #: The Jarvis service's gate (:meth:`JarvisService.involved_ids`), installed
+        #: by the service: routing and every re-check send a session it does not
+        #: involve to the person (1.56.0).  ``None`` (an engine with no service: a
+        #: CLI, a unit test) gates nothing.
+        self.involved_check: InvolvedCheck | None = None
 
     # -- plumbing ------------------------------------------------------------
     @property
@@ -569,6 +587,7 @@ class DelegationEngine:
                 with contextlib.suppress(OSError):
                     os.chmod(self.dir, 0o700)
                 self._db = self._guard.load(self._prepare)
+                self._switch_cache.clear()
 
     def _guard_check(self) -> None:
         if self._db is not None and self._guard.armed:
@@ -823,6 +842,10 @@ class DelegationEngine:
                     grant_id=grant.id, reason="remote-grant", importance="high")
             except Exception:  # noqa: BLE001 - the grant itself stands
                 log.warning("could not ledger a remote grant", exc_info=True)
+        if scope == "session" and stored_target:
+            # 1.56.0: handing one session to Jarvis puts it in Jarvis's sight in
+            # the same confirmed action (a project or global grant does not).
+            self.set_switch(stored_target, True, by="grant")
         self._emit_grant("set", grant)
         return grant, (replaced.id if replaced is not None else None)
 
@@ -963,6 +986,74 @@ class DelegationEngine:
         return Effective(
             level=grant.level, allow=frozenset(grant.allow), grant=grant, source=source
         )
+
+    # -- the per-session switch (1.56.0) -----------------------------------------
+    def switch(self, key: str) -> bool | None:
+        """The stored Jarvis switch of a session (``ext:<cli>:<id>`` for an
+        external one); ``None`` when nothing was ever stored for it.
+
+        Read on every event the intake sees, so it is kept in memory: the
+        daemon is the store's only writer (the tamper guard puts any outside
+        change back), and :meth:`set_switch` updates both."""
+        key = str(key)
+        if key in self._switch_cache:
+            return self._switch_cache[key]
+        with self._lock:
+            row = self._conn().execute(
+                "SELECT enabled FROM switches WHERE target = ?", (key,)
+            ).fetchone()
+        value = None if row is None else bool(row["enabled"])
+        self._switch_cache[key] = value
+        while len(self._switch_cache) > 4096:
+            self._switch_cache.pop(next(iter(self._switch_cache)))
+        return value
+
+    def switches(self) -> dict[str, bool]:
+        """Every stored switch, ``target -> enabled``."""
+        with self._lock:
+            rows = self._conn().execute("SELECT target, enabled FROM switches").fetchall()
+        return {str(row["target"]): bool(row["enabled"]) for row in rows}
+
+    def set_switch(self, key: str, enabled: bool, *, by: str, quiet: bool = False) -> bool:
+        """Store a session's Jarvis switch; True when it changed.
+
+        Not a person check: the callers are the ``jarvis.session.set`` handler
+        (person gate first), a grant a person confirmed (:meth:`set_grant`), the
+        Jarvis service for a session it creates or one created as a child, and
+        the one-time migration.  Nothing a model or a tool produces reaches it.
+        ``quiet`` skips the listeners (a new session's first value).
+        """
+        key = _check_session_target(key)
+        stamp = _iso(self.now())
+        with self._lock:
+            db = self._conn()
+            row = db.execute("SELECT enabled FROM switches WHERE target = ?", (key,)).fetchone()
+            if row is not None and bool(row["enabled"]) == bool(enabled):
+                return False
+            db.execute(
+                "INSERT INTO switches (target, enabled, set_by, set_at) VALUES (?,?,?,?) "
+                "ON CONFLICT(target) DO UPDATE SET enabled = excluded.enabled, "
+                "set_by = excluded.set_by, set_at = excluded.set_at",
+                (key, 1 if enabled else 0, str(by)[:120], stamp),
+            )
+            self._switch_cache[key] = bool(enabled)
+        if not quiet:
+            for listener in list(self.switch_listeners):
+                try:
+                    listener(key, bool(enabled), by)
+                except Exception:  # noqa: BLE001
+                    log.warning("switch listener failed", exc_info=True)
+        return True
+
+    def _involved(self, session_id: str | None, external: Any) -> bool:
+        check = self.involved_check
+        if check is None:
+            return True
+        try:
+            return bool(check(session_id, external))
+        except Exception:  # noqa: BLE001 - an unknown session is not Jarvis's
+            log.warning("the Jarvis session gate failed", exc_info=True)
+            return False
 
     # -- pauses ----------------------------------------------------------------
     def _pause_row(self, key: str) -> sqlite3.Row | None:
@@ -1199,6 +1290,9 @@ class DelegationEngine:
             return RouteResult("person", verdict, self.default_level, None, "never")
         if request.session_id is None and external is None:
             return RouteResult("person", verdict, self.default_level, None, "no-session")
+        if not self._involved(request.session_id, external):
+            # 1.56.0: the session's Jarvis switch is off (or Jarvis may not see it).
+            return RouteResult("person", verdict, self.default_level, None, "switch-off")
         if not exposed:
             return RouteResult("person", verdict, self.default_level, None, "not-exposed")
         pause = self.pause_state(request.session_id, external=external)
@@ -1309,6 +1403,8 @@ class DelegationEngine:
             return "person"
         if self.jarvis_session_id is not None and session_id == self.jarvis_session_id:
             return "person"
+        if not self._involved(session_id, external):
+            return "person"  # 1.56.0: the session's Jarvis switch is off
         state = self.pause_state(session_id, external=external)
         return "person" if state.paused else "jarvis"
 
