@@ -32,6 +32,7 @@ swap between a question and its answer is caught.  Nothing here runs anything.
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
@@ -86,6 +87,16 @@ _VALUED_BY: dict[str, frozenset[str]] = {
     "setfacl": frozenset({"-m", "-x", "-M", "-X", "--modify", "--remove", "--modify-file",
                           "--remove-file", "--set", "--set-file"}),
 }
+#: Unseen parts that can change the shell's own state: a builtin named by a
+#: variable can be ``export HOME=…`` or ``cd``; ``eval`` and ``source`` run
+#: text in this very shell (m21, :attr:`ShellView.stateful_shells`).
+STATEFUL_REASONS: frozenset[str] = frozenset({"dynamic-program", "eval", "brace-program",
+                                              "source", "script-dynamic", "printf-v"})
+#: Ids of the shells a walk sees (:attr:`Effect.shell`).
+_SHELL_IDS = itertools.count(1)
+#: Write programs that change a file's mode, owner or times, never what it holds.
+_ATTRIBUTE_ONLY: frozenset[str] = frozenset({"chmod", "chown", "chgrp", "chattr", "setfacl",
+                                             "touch"})
 #: Most nested bodies (``sh -c "bash -c '…'"``) followed before the line is opaque.
 MAX_DEPTH = 6
 #: String literals of inline code searched for command lines.
@@ -142,6 +153,9 @@ class Effect:
     #: The path holds an expansion only the shell knows.
     dynamic: bool = False
     program: str = ""
+    #: Which shell runs it (m21): the agent's own line is one, each script file
+    #: it runs another.  An unseen part can change only its own shell's state.
+    shell: int = 0
 
 
 @dataclass
@@ -165,6 +179,13 @@ class ShellView:
     #: control-plane check.  ``read only``: EVERY use of the literal in that code
     #: is a recognised read of exactly that expression (security review 7, H7-3).
     mentions: list[tuple[str, Path | None, bool]] = field(default_factory=list)
+    #: Commands whose program only the shell knows (``$X -rf ~``), kept for what
+    #: they are given (m21: ``check._worst_case``).
+    unknown_programs: list[Command] = field(default_factory=list)
+    #: Shells (:attr:`Effect.shell`) where an unseen part may change the shell's
+    #: own state (a builtin named by a variable, ``eval``, ``source`` of an
+    #: unknown file): their paths that depend on it are not what was judged.
+    stateful_shells: set[int] = field(default_factory=set)
     #: Runs of snowpea's own CLI that only read (m21, :func:`cli_read_only`):
     #: judged like any read-only command unless :func:`_settle` finds a reason not to.
     cli_reads: list[str] = field(default_factory=list)
@@ -534,6 +555,8 @@ class _Probe(_c._Judge):
         #: The probe of the agent's own line (set by :func:`view`): only there is a
         #: run of snowpea's CLI vetted as read-only (m21) and ``PATH`` followed.
         self.root = False
+        #: This probe's shell (m21, :attr:`Effect.shell`).
+        self._shell_id = next(_SHELL_IDS)
         self._line = -1
         self._index = 0
         self._cmd: _c._Cmd | None = None
@@ -556,6 +579,8 @@ class _Probe(_c._Judge):
 
     # -- recording ---------------------------------------------------------
     def _opaque(self, why: str) -> None:
+        if why in STATEFUL_REASONS:
+            self.view.stateful_shells.add(self._shell_id)
         if why not in self.view.opaque:
             self.view.opaque.append(why)
 
@@ -578,7 +603,8 @@ class _Probe(_c._Judge):
                 recursive: bool = False, dynamic: bool = False, program: str = "") -> None:
         dyn = dynamic or "$" in raw or "`" in raw
         self.view.effects.append(Effect(raw, cwd, kind, destructive, recursive, dyn,
-                                        program or (self._context[-1] if self._context else "")))
+                                        program or (self._context[-1] if self._context else ""),
+                                        shell=self._shell_id))
 
     # -- the classifier's hooks -------------------------------------------
     def check_write_path(self, raw: str, cwd: Path | None, rule: str, dynamic: bool) -> None:
@@ -710,6 +736,10 @@ class _Probe(_c._Judge):
         if dynamic[0]:
             # ``$X args`` / ``$(echo rm) -rf``: what runs is not in the line.
             self._opaque("dynamic-program")
+            # m21: what it is given is still seen (check._worst_case).
+            self.view.unknown_programs.append(Command(
+                words=list(words), dynamic=list(dynamic), cwd=cwd, piped_in=piped_in,
+                stdin_args=stdin_args, line=max(self._line, 0), index=self._index))
             return cwd
         if depth > MAX_DEPTH + 4:
             self._opaque("nesting")
@@ -1071,7 +1101,7 @@ class _Probe(_c._Judge):
                 if rest_dyn[0]:
                     self._opaque("script-dynamic")
                 else:
-                    self._script(rest[0], cwd, depth, "shell")
+                    self._script(rest[0], cwd, depth, "shell", same_shell=True)
                 self._claims[-1].add("source")
             return False
         if family in _c.SHELLS and family != "busybox":
@@ -1188,6 +1218,17 @@ class _Probe(_c._Judge):
                          home=self.ctx.home)
         if why is not None:
             self._opaque(why)
+            if _env.is_code(name) and value.strip() and self.literals:
+                # m21: ``EDITOR='rm -rf ~' git commit`` — a variable that names a
+                # command line: what it plainly says is judged against the block
+                # list (its unseen part stays one), whatever security.unknownCode says.
+                sub = ShellView()
+                try:
+                    _Probe(self.request, sub, literals=False).line(value, cwd, MAX_DEPTH - 1)
+                except Exception:  # noqa: BLE001 - a best effort never breaks the judgement
+                    sub = ShellView()
+                self.view.literal_commands.extend(sub.commands)
+                self.view.literal_commands.extend(sub.literal_commands)
         for part in value.split(":"):
             if part.startswith(("/", "~", "./", "../", "$HOME", "${HOME}", "$SNOWPEA_HOME",
                                 "${SNOWPEA_HOME}", "$PWD", "${PWD}", "$TMPDIR", "${TMPDIR}")):
@@ -1644,6 +1685,25 @@ class _Probe(_c._Judge):
         for why in finding.control:
             self._control(why)
 
+    def _written_here(self, path: str) -> bool:
+        """A write earlier on the line lands on ``path`` (or may: its target is unknown)."""
+        target = os.path.normpath(path)
+        for effect in self.view.effects:
+            if effect.kind != "write" or effect.program in _ATTRIBUTE_ONLY:
+                continue
+            if effect.dynamic:
+                return True
+            raw = effect.raw
+            if raw.startswith("~/"):
+                raw = str(self.ctx.user_home) + raw[1:]
+            if not raw.startswith("/"):
+                if effect.cwd is None:
+                    return True
+                raw = str(effect.cwd / raw)
+            if os.path.normpath(raw) == target:
+                return True
+        return False
+
     def _cli_vetted(self, words: list[str], dynamic: list[bool], cwd: Path | None) -> bool:
         """``snowpea <a vetted read-only shape>`` on the agent's own line, run by the
         installed snowpea (m21).  Everything else stays a control action."""
@@ -1681,6 +1741,8 @@ class _Probe(_c._Judge):
     def _merge(self, sub: ShellView, *, count_opaque: bool) -> None:
         if sub.path_values is None or sub.path_values:
             self.view.path_values = None  # a script set PATH: not followed
+        self.view.unknown_programs.extend(sub.unknown_programs)
+        self.view.stateful_shells |= sub.stateful_shells
         self.view.commands.extend(sub.commands)
         self.view.effects.extend(sub.effects)
         self.view.texts.extend(sub.texts)
@@ -1691,12 +1753,16 @@ class _Probe(_c._Judge):
             self._control(why)  # snowpea's own CLI asks whoever wrote the script
         if count_opaque:
             for why in sub.opaque:
-                self._opaque(why)
+                # Copied as it is: the sub-walk tagged the shell it came from (m21).
+                if why not in self.view.opaque:
+                    self.view.opaque.append(why)
 
     def _script(self, raw: str, cwd: Path | None, depth: int, default: str, *,
-                root: Path | None = None, strict: bool = False) -> None:
+                root: Path | None = None, strict: bool = False,
+                same_shell: bool = False) -> None:
         """Read the script file ``raw`` and judge its text (H4 b).  ``strict``: it
-        is the agent's own whatever its timestamps say (review 8, H8-3 c)."""
+        is the agent's own whatever its timestamps say (review 8, H8-3 c).
+        ``same_shell``: it runs in this very shell (``source``), not a new one."""
         if depth > MAX_DEPTH:
             self._opaque("nesting")
             return
@@ -1711,12 +1777,20 @@ class _Probe(_c._Judge):
         if "snowpea_core" in Path(script.path).parts:
             self._control("snowpea-cli")
         if script.text is None:
-            if script.recent:
+            if self._written_here(script.path):
+                # m21: a script this very line writes before it runs it: what it
+                # holds is not known, and no setting lets that through unasked.
+                self._opaque("script-written")
+            elif script.recent:
                 self._opaque(f"script-{script.digest if ':' not in script.digest else 'binary'}")
+                if same_shell:
+                    self.view.stateful_shells.add(self._shell_id)  # m21: it may change ours
             return
         if script.language == "shell":
             sub = ShellView()
             probe = _Probe(self.request, sub)
+            if same_shell:
+                probe._shell_id = self._shell_id
             probe.line(script.text, cwd, depth + 1)
             probe.finish()
             # A pre-existing script the person owns: what it plainly does is

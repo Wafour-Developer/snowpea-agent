@@ -3311,6 +3311,14 @@ async def _security_verdict(
     return verdict
 
 
+def _asks_unseen(security: Any, session: Session) -> bool:
+    """The verdict puts the call to the person in this session's mode (m21)."""
+    asks_in = getattr(security, "asks_in", None)
+    if callable(asks_in):
+        return bool(asks_in(getattr(session, "mode", None)))
+    return bool(getattr(security, "opaque", False))
+
+
 def skill_refuses(session: Session, name: str) -> bool:
     """True when the session's narrowed tool list excludes the tool ``name``.
 
@@ -3421,9 +3429,12 @@ async def _run_one_call(
         # context may hold the page text that asked for the switch, so every
         # change is put to the person — no mode, rule or cached answer skips it.
         verdict = "ask"
-    if security.opaque and verdict != "deny":
-        # Part of the line cannot be checked against the lists: the person
-        # decides, in every mode (the approval queue makes it person-only).
+    # Part of the line cannot be checked against the lists: the person decides,
+    # in every mode (the approval queue makes it person-only) — except what only
+    # snowpea cannot tell ahead, in auto mode under security.unknownCode "auto"
+    # (m21): that is an ordinary auto-mode call, judged by what was seen.
+    unchecked = _asks_unseen(security, session)
+    if unchecked and verdict != "deny":
         verdict = "ask"
     if getattr(session, "read_only", False) and (
         tag in READ_ONLY_REFUSED or verdict == "ask" or tool.name in READ_ONLY_REFUSED_TOOLS
@@ -3470,7 +3481,7 @@ async def _run_one_call(
             unattended=unattended,
             cancel_event=session.interrupt,
             note=_source_note(tool, GUARD_NOTE if guarded else policy.note(tag)),
-            cacheable=tag not in UNPROMOTABLE and not guarded and not security.opaque,
+            cacheable=tag not in UNPROMOTABLE and not guarded and not unchecked,
             guard=AGENT_SWITCH_GUARD if guarded else None,
             tags=(tag,),
             host_tool=on_host,

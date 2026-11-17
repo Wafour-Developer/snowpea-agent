@@ -107,12 +107,13 @@ def context(
 
 
 def unknown_code(settings: Any) -> str:
-    """``security.unknownCode`` of the GLOBAL settings (``ask`` unless it says ``allow``).
+    """``security.unknownCode`` of the GLOBAL settings: ``ask``, ``auto`` or ``allow``
+    (no settings at all: ``ask``; anything unrecognised: ``ask``).
 
     A project file cannot set it: it would take a question away.
     """
     value = getattr(getattr(settings, "security", None), "unknownCode", "ask")
-    return "allow" if value == "allow" else "ask"
+    return value if value in ("auto", "allow") else "ask"
 
 
 def lists_for(settings: Any, workdir: Any) -> Lists:

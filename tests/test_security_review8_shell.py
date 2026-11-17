@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 from test_security_review7_shell import LEGIT as LEGIT7
-from test_security_review7_shell import _ctx, _states, project  # noqa: F401 - the fixture
+from test_security_review7_shell import _ctx, _states, expect, project  # noqa: F401 - the fixture
 
 from snowpea_core.security import control_plane as cp
 from snowpea_core.security import shell as sh
@@ -159,24 +159,24 @@ FALSE_POSITIVES = [
 
 @pytest.mark.parametrize(("line", "expected"), HOSTILE)
 def test_what_must_not_pass(project: Path, line: str, expected: str) -> None:  # noqa: F811
-    assert _states(line, project) == expected, line
+    assert _states(line, project) == expect(line, expected), line
 
 
 @pytest.mark.parametrize(("line", "expected"), LEGIT)
 def test_what_stays_allowed(project: Path, line: str, expected: str) -> None:  # noqa: F811
-    assert _states(line, project) == expected, line
+    assert _states(line, project) == expect(line, expected), line
 
 
 @pytest.mark.parametrize(("line", "expected"), LEGIT7)
 def test_round_7s_legit_rows_stay_allowed(project: Path, line: str,  # noqa: F811
                                           expected: str) -> None:
-    assert _states(line, project) == expected, line
+    assert _states(line, project) == expect(line, expected), line
 
 
 @pytest.mark.parametrize(("line", "expected"), FALSE_POSITIVES)
 def test_the_harmless_forms_that_now_ask(project: Path, line: str,  # noqa: F811
                                          expected: str) -> None:
-    assert _states(line, project) == expected, line
+    assert _states(line, project) == expect(line, expected), line
 
 
 def test_the_home_is_default_deny_with_a_working_allow_list() -> None:

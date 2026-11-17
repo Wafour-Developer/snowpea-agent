@@ -346,7 +346,7 @@ async def test_security_settings_edited_on_disk_wait_for_a_local_person(
     reloaded, keys = await core.reload_settings()
     assert reloaded and keys == ["agents"]
     assert core.settings.agents.max_concurrent == 7
-    assert core.settings.security.unknownCode == "ask"
+    assert core.settings.security.unknownCode == "auto"
     assert core.settings.jarvis.enabled is False and core.settings.web.remote.enabled is False
     assert sorted(core.settings_waiting) == ["jarvis", "security", "web.remote"]
     changed = [payload for method, payload in core.sent if method == "settings.changed"]
@@ -362,7 +362,7 @@ async def test_security_settings_edited_on_disk_wait_for_a_local_person(
         with pytest.raises(RpcError) as refused:
             await accept_disk_change_handler(conn, SettingsAcceptDiskChangeParams(), core)
         assert refused.value.code != errors.INVALID_PARAMS
-    assert core.settings.security.unknownCode == "ask"
+    assert core.settings.security.unknownCode == "auto"
     answer = await accept_disk_change_handler(_conn("ide"), SettingsAcceptDiskChangeParams(),
                                               core)
     assert answer.applied == ["jarvis", "security", "web.remote"] and answer.discarded == []
@@ -383,9 +383,9 @@ async def test_discarding_writes_the_daemons_values_back(settings_core: Core) ->
     answer = await accept_disk_change_handler(
         _conn("tui"), SettingsAcceptDiskChangeParams(accept=False), core)
     assert answer.applied == [] and answer.discarded == ["security"]
-    assert core.settings.security.unknownCode == "ask" and core.settings_waiting == {}
+    assert core.settings.security.unknownCode == "auto" and core.settings_waiting == {}
     on_disk = json.loads(core.paths.settings_json.read_text(encoding="utf-8"))
-    assert on_disk["security"]["unknownCode"] == "ask"
+    assert on_disk["security"]["unknownCode"] == "auto"
     assert await core.reload_settings() == (False, [])
 
 
@@ -399,7 +399,7 @@ async def test_the_daemons_own_save_makes_nothing_wait(settings_core: Core) -> N
     core.mark_settings_saved()
     assert core.settings_waiting == {} and await core.reload_settings() == (False, [])
     assert json.loads(core.paths.settings_json.read_text(encoding="utf-8"))[
-        "security"]["unknownCode"] == "ask"
+        "security"]["unknownCode"] == "auto"
 
 
 def test_a_start_takes_settings_as_they_are(tmp_path: Path) -> None:
