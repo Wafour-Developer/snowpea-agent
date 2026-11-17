@@ -44,6 +44,7 @@ from snowpea_core.external.base import (
     LaunchSpec,
     SessionInfo,
 )
+from snowpea_core.external.modes import NativeMode
 from snowpea_core.external.proc import (
     ExternalError,
     LedgerHook,
@@ -161,6 +162,8 @@ class _Record:
     host: str = "none"
     status: str = "idle"
     mode: str | None = None
+    #: The CLI's own mode id (1.56.0); ``mode`` is its legacy bucket.
+    native_mode: str | None = None
     error: str | None = None
     channel: ExternalChannel | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -239,6 +242,9 @@ class _Host:
         if title and title != self._record.info.title:
             self._record.info.title = title
             await self._manager._announce(self._record)
+
+    async def mode_known(self, native_mode: str) -> None:
+        await self._manager._mode_known(self._record, native_mode)
 
 
 class ExternalManager:
@@ -340,13 +346,46 @@ class ExternalManager:
     def _implicit_mode(self, record: _Record) -> str:
         """The mode a session continues in when the request names none.
 
-        The session's last mode unless that was ``unrestricted``: a continued
-        session (after an idle stop, a restart, a takeover) never comes back
-        unrestricted without a new, explicit choice.
+        The session's last mode unless that was ``unrestricted`` or another
+        person-only mode: a continued session (after an idle stop, a restart, a
+        takeover) never comes back in one without a new, explicit choice.
         """
+        return self._implicit(record)[0]
+
+    def _implicit(self, record: _Record) -> tuple[str, NativeMode]:
+        """``(legacy, row)`` a session continues in when the request names none."""
+        found = self._cached_discovery(record.cli)
         if record.mode and record.mode != "unrestricted":
-            return record.mode
-        return self.default_mode(record.adapter)
+            row = (record.adapter.native_entry(record.native_mode, found)
+                   if record.native_mode else
+                   record.adapter.native_for_legacy(record.mode, found))
+            if row is not None and not row.person_only and row.legacy != "unrestricted":
+                return row.legacy, row
+        return self.default_native(record.adapter, found)
+
+    def default_native(self, adapter: ExternalAdapter, found: Discovery | None = None
+                       ) -> tuple[str, NativeMode]:
+        """``(legacy, row)`` of :meth:`default_mode`: never a person-only row."""
+        legacy = self.default_mode(adapter)
+        row = adapter.native_for_legacy(legacy, found)
+        if row is None or row.person_only:
+            row = next((r for r in adapter.native_modes(found) if not r.person_only), None)
+        if row is None:
+            raise ExternalError(errors.EXTERNAL_UNAVAILABLE,
+                                f"{adapter.title} offers no mode snowpea can start it in")
+        return row.legacy, row
+
+    def _default_native_id(self, adapter: ExternalAdapter, found: Discovery | None) -> str:
+        try:
+            return self.default_native(adapter, found)[1].id
+        except ExternalError:
+            return adapter.legacy_native.get(self.default_mode(adapter), self.default_mode(adapter))
+
+    def resolve_mode(self, adapter: ExternalAdapter, mode: str | None, native_mode: str | None,
+                     found: Discovery | None = None) -> tuple[str, NativeMode] | None:
+        """A request's ``(legacy, row)``: ``nativeMode`` wins over ``mode``; ``None``
+        when it names neither (:meth:`ExternalAdapter.resolve_mode`)."""
+        return adapter.resolve_mode(mode, native_mode, found or self._cached_discovery(adapter.id))
 
     def _require_trust(self, root: str | None, cwd: str, conn: Any, trust: bool) -> None:
         """A CLI may start in ``root`` only when the person trusted it (security review M4).
@@ -539,6 +578,14 @@ class ExternalManager:
                     else ("readonly" if cli == "cursor" else "default")
                 ),
                 "modes": list(adapter.capabilities.modes) if adapter is not None else [],
+                "nativeModes": (
+                    [row.to_wire() for row in adapter.native_modes(None)]
+                    if adapter is not None else []
+                ),
+                "defaultNativeMode": (
+                    self._default_native_id(adapter, None) if adapter is not None
+                    else ("ask" if cli == "cursor" else "default")
+                ),
                 "models": [],
                 "modelsLoaded": False,
                 "pendingPath": self.pending_path(cli),
@@ -558,6 +605,8 @@ class ExternalManager:
                 row["capabilities"] = found.capabilities.to_wire()
                 row["modes"] = list(found.capabilities.modes)
             row["approvalPolicy"] = found.approval_policy
+            row["nativeModes"] = [entry.to_wire() for entry in adapter.native_modes(found)]
+            row["defaultNativeMode"] = self._default_native_id(adapter, found)
             problems = list(found.problems)
             if not found.installed:
                 problems.insert(0, f"{adapter.binary} was not found")
@@ -705,17 +754,34 @@ class ExternalManager:
         return out
 
     # -- rows -------------------------------------------------------------
+    def _row_of(self, record: _Record, found: Discovery | None) -> NativeMode | None:
+        """The native row a session runs in (from the full table: a row the CLI
+        switched to itself is still described)."""
+        if record.native_mode:
+            from snowpea_core.external.modes import find
+
+            return find(record.adapter.table(), record.native_mode)
+        return None
+
     def _approvals(self, record: _Record, found: Discovery | None) -> str:
         if record.host == "tmux":
             return "person"
         if record.host != "snowpea":
             return "none"
-        return record.adapter.approvals(record.mode or "default", found)
+        value = record.adapter.approvals(record.mode or "default", found)
+        row = self._row_of(record, found)
+        if row is not None and row.approvals == "none" and value == "bridged":
+            # The mode's prompts are answered by the CLI itself (dontAsk), not here.
+            return "none"
+        return value
 
     def _controlled(self, record: _Record, found: Discovery | None) -> bool:
         if record.host not in ("snowpea", "tmux"):
             return True
-        return record.adapter.controlled(record.mode or "default", found)
+        if not record.adapter.controlled(record.mode or "default", found):
+            return False
+        row = self._row_of(record, found)
+        return not (row is not None and row.uncontrolled)
 
     def _can_send(self, record: _Record) -> bool:
         if record.host == "terminal":
@@ -743,6 +809,7 @@ class ExternalManager:
             "approvals": self._approvals(record, found),
             "tmux": record.channel.tmux if record.channel is not None else None,
             "mode": record.mode if record.host in ("snowpea", "tmux") else None,
+            "nativeMode": record.native_mode if record.host in ("snowpea", "tmux") else None,
             "controlled": self._controlled(record, found),
             "preview": _preview(info.preview),
             "model": info.model,
@@ -784,6 +851,7 @@ class ExternalManager:
             "approvals": row["approvals"],
             "tmux": row["tmux"],
             "mode": row["mode"],
+            "nativeMode": row["nativeMode"],
             "controlled": row["controlled"],
             "title": row["title"],
             "error": clean_text(record.error) if record.status == "error" and record.error
@@ -1033,6 +1101,7 @@ class ExternalManager:
             "approvals": "none",
             "tmux": live.tmux if live is not None else None,
             "mode": None,
+            "nativeMode": None,
             "controlled": True,
             "preview": _preview(info.preview),
             "model": info.model,
@@ -1098,6 +1167,7 @@ class ExternalManager:
         self, cli: str, session_id: str, *, limit: int = 200, mode: str | None = None,
         conn: Any = None, transport: str | None = None,
         confirmation: PersonConfirmation | None = None, trust: bool = False,
+        native_mode: str | None = None,
     ) -> dict[str, Any]:
         """``external.open``: subscribe and return the newest page; continue a free session.
 
@@ -1111,7 +1181,8 @@ class ExternalManager:
             raise ExternalError(errors.INVALID_PARAMS, f"unknown transport {transport!r}")
         try:
             return await self._open(record, found, limit=limit, mode=mode, conn=conn,
-                                    transport=transport, confirmation=confirmation, trust=trust)
+                                    transport=transport, confirmation=confirmation, trust=trust,
+                                    native_mode=native_mode)
         except ExternalError:
             await self._maybe_forget(record)
             raise
@@ -1119,7 +1190,7 @@ class ExternalManager:
     async def _open(
         self, record: _Record, found: Discovery, *, limit: int, mode: str | None, conn: Any,
         transport: str | None = None, confirmation: PersonConfirmation | None = None,
-        trust: bool = False,
+        trust: bool = False, native_mode: str | None = None,
     ) -> dict[str, Any]:
         cli, session_id = record.cli, record.id
         async with record.lock:
@@ -1136,16 +1207,17 @@ class ExternalManager:
                         f"{record.adapter.title} cannot share a tmux terminal on this machine",
                     )
                 if record.host == "none" or adopt:
-                    chosen = proc.validate_mode(mode, record.adapter.capabilities.modes)
-                    chosen = chosen or self._implicit_mode(record)
+                    resolved = self.resolve_mode(record.adapter, mode, native_mode, found)
+                    chosen, row = resolved or self._implicit(record)
                     self._require_trust(record.project, record.real_cwd or record.info.cwd,
                                         conn, trust)
                     grant = self._grant_if_unrestricted(record, chosen, conn, "open",
-                                                        confirmation=confirmation)
+                                                        confirmation=confirmation, row=row)
                     try:
                         await self._start_channel(
                             record, chosen, grant, found, resume=True,
                             transport="tmux" if adopt or transport == "tmux" else "structured",
+                            native_mode=row.id,
                         )
                     except ExternalError as exc:
                         if exc.code in (errors.JARVIS_PERSON_ONLY, errors.INVALID_PARAMS):
@@ -1279,13 +1351,16 @@ class ExternalManager:
     def _grant_if_unrestricted(
         self, record_or_cli: _Record | str, mode: str, conn: Any, action: str,
         project: str | None = None, confirmation: PersonConfirmation | None = None,
+        row: NativeMode | None = None,
     ) -> UnrestrictedGrant | None:
-        """The person's grant for ``unrestricted`` (a ledger entry), or ``jarvis_person_only``.
+        """The person's grant for a person-only mode (a ledger entry), or ``jarvis_person_only``.
 
-        ``confirmation`` comes from :func:`proc.person_confirmation_from_gateway`
-        (a messenger's bound person); otherwise ``conn`` must be a person.
+        ``unrestricted`` and every native row with ``personOnly`` (1.56.0: Claude
+        Code auto, acceptEdits, ...) need it, with the same gate: a person's own
+        connection (a remote web login may not), or ``confirmation`` from
+        :func:`proc.person_confirmation_from_gateway` (a messenger's bound person).
         """
-        if mode != "unrestricted":
+        if mode != "unrestricted" and not (row is not None and row.person_only):
             return None
         if confirmation is None:
             confirmation = proc.confirm_person(conn, self._settings())
@@ -1296,11 +1371,13 @@ class ExternalManager:
         return proc.grant_unrestricted(
             confirmation, cli=cli, session_id=session_id, project=project, action=action,
             home=self.home, ledger=self.ledger,
+            mode_label=row.label if row is not None and mode != "unrestricted" else None,
         )
 
     async def _start_channel(
         self, record: _Record, mode: str, grant: UnrestrictedGrant | None, found: Discovery,
         *, resume: bool, model: str | None = None, transport: str = "structured",
+        native_mode: str | None = None,
     ) -> None:
         assert found.executable is not None
         # The folder is validated again now and the CLI starts in its real path,
@@ -1321,6 +1398,7 @@ class ExternalManager:
             model=model,
             grant=grant,
             transport=transport,  # type: ignore[arg-type]
+            native_mode=native_mode,
         )
         channel = record.adapter.channel(spec, _Host(self, record))
         try:
@@ -1346,6 +1424,8 @@ class ExternalManager:
         # An adopted pane started with a bypass flag runs unrestricted whatever
         # was asked (security review M5).
         record.mode = getattr(channel, "actual_mode", None) or mode
+        record.native_mode = (getattr(channel, "actual_native", None)
+                              or getattr(channel, "native_mode", None) or native_mode)
         record.host = channel.host
         record.error = None
         record.last_activity = time.monotonic()
@@ -1408,11 +1488,12 @@ class ExternalManager:
                 previous_host = record.host
                 # Continued in its last controlled mode: unrestricted needs a new,
                 # explicit choice (external.open / external.setMode), never a send.
-                mode = self._implicit_mode(record)
+                mode, row = self._implicit(record)
                 self._require_trust(record.project, record.real_cwd or record.info.cwd,
                                     conn, trust)
                 try:
-                    await self._start_channel(record, mode, None, found, resume=True)
+                    await self._start_channel(record, mode, None, found, resume=True,
+                                              native_mode=row.id)
                 except ExternalError:
                     if record.host != previous_host:
                         await self._announce(record, None, previous_host)
@@ -1420,16 +1501,21 @@ class ExternalManager:
                 await self._announce(record, None, previous_host)
             channel = record.channel
             assert channel is not None
+            row = self._row_of(record, found)
             if (
-                record.mode == "unrestricted"
+                (record.mode == "unrestricted" or (row is not None and row.person_only))
                 and not proc.is_human_connection(conn)
                 and confirmation is None
             ):
-                # Nothing gates what an unrestricted CLI does with a prompt: only
-                # the person types into it (security review M5).
+                # Nothing gates what an unrestricted CLI does with a prompt, and a
+                # person-only mode (auto, accept edits) decides much on its own:
+                # only the person types into it (security review M5, 1.56.0).
                 raise ExternalError(
                     errors.JARVIS_PERSON_ONLY,
-                    "this session runs unrestricted; only the person may send to it",
+                    "this session runs unrestricted; only the person may send to it"
+                    if record.mode == "unrestricted" or row is None else
+                    f"this session runs in mode {row.label}, which only the person chose; "
+                    "only the person may send to it",
                 )
             if record.turn_id is not None:
                 if record.adapter.capabilities.steer and channel.can_steer:
@@ -1678,6 +1764,7 @@ class ExternalManager:
         self, cli: str, project: str, *, model: str | None = None, mode: str | None = None,
         transport: str = "structured", conn: Any = None,
         confirmation: PersonConfirmation | None = None, trust: bool = False,
+        native_mode: str | None = None,
     ) -> dict[str, Any]:
         """``external.create``: a new session in a registered project, already open.
 
@@ -1688,7 +1775,8 @@ class ExternalManager:
         roots = await self.roots()
         cwd = proc.validate_cwd(project, roots)
         proc.validate_model(model)
-        chosen = proc.validate_mode(mode, adapter.capabilities.modes) or self.default_mode(adapter)
+        resolved = self.resolve_mode(adapter, mode, native_mode, found)
+        chosen, row = resolved or self.default_native(adapter, found)
         if transport == "tmux" and not (adapter.capabilities.tmux and proc.tmux_supported()):
             raise ExternalError(
                 errors.EXTERNAL_UNAVAILABLE,
@@ -1697,7 +1785,7 @@ class ExternalManager:
         root = proc.project_of(cwd, [str(Path(r).resolve()) for r in roots])
         self._require_trust(root, cwd, conn, trust)
         grant = self._grant_if_unrestricted(cli, chosen, conn, "create", project=root,
-                                            confirmation=confirmation)
+                                            confirmation=confirmation, row=row)
         record = _Record(
             adapter=adapter,
             info=SessionInfo(id="", cwd=cwd, updated_at=utc_now()),
@@ -1706,7 +1794,8 @@ class ExternalManager:
             real_cwd=cwd,
         )
         await self._start_channel(
-            record, chosen, grant, found, resume=False, model=model, transport=transport
+            record, chosen, grant, found, resume=False, model=model, transport=transport,
+            native_mode=row.id,
         )
         channel = record.channel
         assert channel is not None
@@ -1723,24 +1812,50 @@ class ExternalManager:
         await self._announce(record, None, "none")
         return {"session": self._row(record)}
 
-    async def set_mode(self, cli: str, session_id: str, mode: str, *, conn: Any = None,
-                       confirmation: PersonConfirmation | None = None) -> dict[str, Any]:
-        """``external.setMode``: from the next turn; ``unrestricted`` only from a person."""
-        record, _found = await self._load(cli, session_id)
-        chosen = proc.validate_mode(mode, record.adapter.capabilities.modes)
-        assert chosen is not None
+    async def set_mode(self, cli: str, session_id: str, mode: str | None = None, *,
+                       conn: Any = None, confirmation: PersonConfirmation | None = None,
+                       native_mode: str | None = None) -> dict[str, Any]:
+        """``external.setMode``: from the next turn; a person-only mode only from a person.
+
+        ``native_mode`` (1.56.0) wins over ``mode``; one of them is required.
+        """
+        record, found = await self._load(cli, session_id)
+        resolved = self.resolve_mode(record.adapter, mode, native_mode, found)
+        if resolved is None:
+            raise ExternalError(errors.INVALID_PARAMS, "mode or nativeMode is required")
+        chosen, row = resolved
         async with record.lock:
             if record.host == "terminal":
                 raise ExternalError(
                     errors.EXTERNAL_VIEW_ONLY, "this session runs in another terminal"
                 )
             grant = self._grant_if_unrestricted(record, chosen, conn, "setMode",
-                                                confirmation=confirmation)
-            if record.channel is not None and record.channel.alive:
-                await record.channel.set_mode(chosen, grant)
+                                                confirmation=confirmation, row=row)
+            channel = record.channel
+            if channel is not None and channel.alive:
+                before = channel.native_mode
+                channel.native_mode = row.id
+                try:
+                    await channel.set_mode(chosen, grant)
+                except BaseException:
+                    channel.native_mode = before
+                    raise
             record.mode = chosen
+            record.native_mode = row.id
             await self._announce(record)
             return {"session": self._row(record)}
+
+    async def _mode_known(self, record: _Record, native_mode: str) -> None:
+        """The CLI switched its own mode (plan approved): the row says so."""
+        from snowpea_core.external.modes import find
+
+        row = find(record.adapter.table(), native_mode)
+        if row is None or row.id == record.native_mode:
+            return
+        record.native_mode = row.id
+        if record.mode != "unrestricted":
+            record.mode = row.legacy
+        await self._announce(record)
 
     async def close(self, cli: str, session_id: str, *, conn: Any = None) -> None:
         """``external.close``: stop snowpea's process for it and unsubscribe ``conn``."""

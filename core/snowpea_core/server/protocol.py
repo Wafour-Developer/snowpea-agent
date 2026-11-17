@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
 
-PROTOCOL_VERSION = "1.55.0"
+PROTOCOL_VERSION = "1.56.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -238,6 +238,13 @@ ExternalApprovals = Literal["bridged", "person", "degraded", "none"]
 #: longer controls what it runs.  Only a human connection may choose
 #: ``unrestricted``; Jarvis can only ask the person to confirm it.
 ExternalSessionMode = Literal["default", "readonly", "unrestricted"]
+#: Does the CLI stop and ask the person in a native mode (1.56.0).
+ExternalNativeAsks = Literal["always", "sometimes", "never"]
+#: What a native mode lets the CLI write (1.56.0): ``plan`` only its plan or
+#: notes file; ``workspace`` the project folder; ``anywhere`` everything.
+ExternalNativeWrites = Literal["none", "plan", "workspace", "anywhere"]
+#: Whether a native mode's prompts reach snowpea's approval queue (1.56.0).
+ExternalNativeApprovals = Literal["bridged", "none"]
 #: How urgent a Jarvis notice is (1.53.0): clients badge every one, raise an
 #: OS notification from ``normal`` up (jarvis.notify.os), and the messenger
 #: forwards ``high`` and ``urgent`` (jarvis.notify.messenger).
@@ -8374,7 +8381,8 @@ class JarvisDecision(Payload):
             "approval or question answered; continue (a stopped or incomplete turn was "
             "resumed); prompt or interrupt sent to the session; escalate (handed to the "
             "person); unrestricted (an external session was created, opened or switched to "
-            "mode 'unrestricted' — always decidedBy 'person', with external and project)."
+            "mode 'unrestricted' or, since 1.56.0, another personOnly native mode named in "
+            "summary — always decidedBy 'person', with external and project)."
         )
     )
     importance: JarvisImportance = Field(
@@ -8820,6 +8828,48 @@ class ExternalCliCapabilities(Payload):
     )
 
 
+class ExternalNativeMode(Payload):
+    """One of a CLI's own modes, as the CLI names it (1.56.0, capability externalNativeModes).
+
+    Discovery decides which a CLI offers (its installed --help). Clients show
+    ``label`` as given plus a one-line description built from asks/writes; the words
+    "read-only" only for writes 'none'.
+    """
+
+    id: str = Field(
+        description=(
+            "The CLI's own id: claude default|acceptEdits|plan|auto|dontAsk|bypassPermissions; "
+            "codex untrusted|read-only|default|full-access; agy default|accept-edits|auto|plan|"
+            "dangerously-skip-permissions; cursor ask|plan|agent|yolo."
+        )
+    )
+    label: str = Field(description="The CLI's own name for it, short, not translated.")
+    asks: ExternalNativeAsks = Field(
+        description=(
+            "Does the CLI stop and ask the person: always (whenever a permission is needed), "
+            "sometimes (it proceeds alone and asks when unsure), never."
+        )
+    )
+    writes: ExternalNativeWrites = Field(
+        description=(
+            "What it may write without asking first or after the person allowed it: none, "
+            "plan (only its plan or notes file), workspace (the project), anywhere."
+        )
+    )
+    approvals: ExternalNativeApprovals = Field(
+        description="bridged: what it still asks becomes a snowpea approval; none: nothing is."
+    )
+    personOnly: bool = Field(
+        description=(
+            "Only a person may choose it, with the same gate and ledger entry as "
+            "'unrestricted' (a remote web login may not); Jarvis may only ask the person."
+        )
+    )
+    legacy: ExternalSessionMode = Field(
+        description="What an old client sees in 'mode' for a session in this mode."
+    )
+
+
 class ExternalCliInfo(Payload):
     """One external agent CLI on the daemon host (1.53.0)."""
 
@@ -8866,6 +8916,21 @@ class ExternalCliInfo(Payload):
         description=(
             "Modes this CLI offers, also when it is not installed (as capabilities.modes): "
             "claude and codex all three, agy default|unrestricted, cursor all three."
+        ),
+    )
+    nativeModes: list[ExternalNativeMode] = Field(
+        default_factory=list,
+        description=(
+            "The CLI's own modes (1.56.0), in the CLI's order: what its installed version "
+            "offers (discovery decides; a mode its version lacks is not listed). Before "
+            "discovery or when not installed, the modes every supported version has."
+        ),
+    )
+    defaultNativeMode: str = Field(
+        default="default",
+        description=(
+            "The native mode id a new or continued session gets unless one is chosen "
+            "(defaultMode's mode; never a personOnly one)."
         ),
     )
     models: list[str] = Field(
@@ -8944,6 +9009,13 @@ class ExternalSessionRow(Payload):
         default=None,
         description="How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere.",
     )
+    nativeMode: str | None = Field(
+        default=None,
+        description=(
+            "The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); "
+            "'mode' is that mode's legacy bucket. Null when it runs elsewhere."
+        ),
+    )
     controlled: bool = Field(
         default=True,
         description=(
@@ -9021,6 +9093,14 @@ class ExternalOpenParams(Payload):
         description=(
             "Mode when this continues a host 'none' session; omitted uses the CLI's "
             "defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only)."
+        ),
+    )
+    nativeMode: str | None = Field(
+        default=None,
+        description=(
+            "The CLI's own mode id (1.56.0, from external.clis nativeModes); wins over mode. "
+            "Unknown or not offered by this CLI: invalid_params. A personOnly mode only from "
+            "a human connection (else jarvis_person_only), with a ledger entry."
         ),
     )
     transport: Literal["structured", "tmux"] | None = Field(
@@ -9114,6 +9194,10 @@ class ExternalCreateParams(Payload):
             "asks the person through a person-only confirmation instead."
         ),
     )
+    nativeMode: str | None = Field(
+        default=None,
+        description="As ExternalOpenParams.nativeMode (1.56.0): wins over mode.",
+    )
     transport: Literal["structured", "tmux"] = Field(
         default="structured",
         description=(
@@ -9132,12 +9216,21 @@ class ExternalSetModeParams(Payload):
     """Switch a session snowpea runs to another mode (1.53.0); takes effect from its next turn."""
 
     ref: ExternalRef = Field(description="The external session (host 'snowpea' or 'tmux').")
-    mode: ExternalSessionMode = Field(
+    mode: ExternalSessionMode | None = Field(
+        default=None,
         description=(
             "default, readonly or unrestricted. 'unrestricted' only from a human connection "
             "(IDE, web, TUI, or the bound approver in a messenger); every such switch is a "
-            "ledger entry."
-        )
+            "ledger entry. Optional since 1.56.0 when nativeMode is given; one of the two is "
+            "required (else invalid_params)."
+        ),
+    )
+    nativeMode: str | None = Field(
+        default=None,
+        description=(
+            "As ExternalOpenParams.nativeMode (1.56.0): wins over mode; a personOnly mode "
+            "only from a human connection, and every such switch is a ledger entry."
+        ),
     )
 
 
@@ -9192,6 +9285,9 @@ class ExternalStateNotification(Payload):
     tmux: ExternalTmux | None = Field(default=None, description="With host 'tmux': where.")
     mode: ExternalSessionMode | None = Field(
         default=None, description="As ExternalSessionRow.mode, now."
+    )
+    nativeMode: str | None = Field(
+        default=None, description="As ExternalSessionRow.nativeMode, now (1.56.0)."
     )
     controlled: bool = Field(default=True, description="As ExternalSessionRow.controlled, now.")
     title: str | None = Field(default=None, description="Title, when known.")
@@ -11596,6 +11692,9 @@ CAPABILITIES: list[str] = [
     "commandsBesideTurn",
     # project.trust.status/set/revoke, project.trust.changed — 1.55.0 (security review 5).
     "projectTrust",
+    # 1.56.0: ExternalCliInfo.nativeModes/defaultNativeMode, ExternalSessionRow.nativeMode,
+    # external.create/open/setMode nativeMode (each CLI's own modes).
+    "externalNativeModes",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

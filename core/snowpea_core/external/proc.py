@@ -459,13 +459,16 @@ def grant_unrestricted(
     action: str,
     home: Path,
     ledger: LedgerHook | None = None,
+    mode_label: str | None = None,
 ) -> UnrestrictedGrant:
     """Record the person's choice in the ledger and return the grant.
 
     ``action`` is ``create``, ``open`` or ``setMode``.  ``ledger`` is the
     daemon's writer (the delegation engine's ledger); without one the hook
     installed with :func:`set_ledger_hook`, else the default file.  The ledger
-    write is part of the grant: if it fails, there is no grant.
+    write is part of the grant: if it fails, there is no grant.  ``mode_label``
+    names a person-only native mode that is not a bypass (1.56.0, e.g. Claude
+    Code "Auto"); the entry keeps kind ``unrestricted`` and says which mode.
     """
     if not isinstance(confirmation, PersonConfirmation) or confirmation._mint is not _MINT:
         raise ExternalError(errors.JARVIS_PERSON_ONLY, "unrestricted needs a person's grant")
@@ -481,6 +484,9 @@ def grant_unrestricted(
         "summary": (
             f"{cli} session {'created' if action == 'create' else 'switched'} to unrestricted "
             "mode: snowpea does not control what it runs"
+            if not mode_label else
+            f"{cli} session {'created' if action == 'create' else 'switched'} to mode "
+            f"{mode_label[:40]}, chosen by the person: the CLI decides more on its own"
         ),
         "decision": action,
         "decidedBy": "person",
@@ -1149,17 +1155,34 @@ class ProcessSupervisor:
         env: Mapping[str, str],
         cli: str,
         timeout: float,
+        with_stderr: bool = False,
     ) -> tuple[int | None, bytes]:
         """Run a helper to the end: ``(returncode, stdout)``; ``(None, b"")`` on a timeout.
 
         A helper that overruns ``timeout`` is stopped with its whole tree.
+        ``with_stderr`` appends the last lines of its stderr (the bounded tail
+        :class:`ExternalProcess` keeps) to the output: a CLI that prints its
+        usage there, such as ``agy --help``.
         """
         try:
-            handle = await self.spawn_helper(argv, cwd=cwd, env=env, cli=cli)
+            handle = await self.spawn_helper(argv, cwd=cwd, env=env, cli=cli,
+                                             stderr=with_stderr)
         except ExternalError:
             return None, b""
+
+        async def collect() -> bytes:
+            if not with_stderr:
+                return (await handle.proc.communicate())[0]
+            assert handle.proc.stdout is not None
+            data = await handle.proc.stdout.read()
+            await handle.proc.wait()
+            if handle._stderr_task is not None:
+                await handle._stderr_task
+            tail = handle.stderr_tail(50)
+            return data + (b"\n" + tail.encode("utf-8") if tail else b"")
+
         try:
-            out, _ = await asyncio.wait_for(handle.proc.communicate(), timeout)
+            out = await asyncio.wait_for(collect(), timeout)
         except (TimeoutError, asyncio.CancelledError) as exc:
             await handle.terminate(grace=0.5)
             if isinstance(exc, asyncio.CancelledError):

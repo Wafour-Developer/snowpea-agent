@@ -58,6 +58,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.external import modes as native_modes
 from snowpea_core.external import proc
 from snowpea_core.external.base import (
     ALL_MODES,
@@ -71,6 +72,7 @@ from snowpea_core.external.base import (
     Liveness,
     SessionInfo,
 )
+from snowpea_core.external.modes import NativeMode
 from snowpea_core.external.proc import ExternalError, ExternalProcess, PinnedExecutable
 from snowpea_core.external.timeline import (
     RecordFilter,
@@ -91,6 +93,26 @@ MIN_VERSION: tuple[int, int, int] = (2026, 10, 1)
 #: it is refused until snowpea is updated (cursor versions are dates).
 MAX_VERSION: tuple[int, int, int] = (2027, 12, 31)
 _VERSION_RE = re.compile(r"(\d{4})\.(\d{1,2})\.(\d{1,2})")
+
+#: Cursor's modes (1.56.0), from ``cursor-agent --help`` 2026.11.13: ``--mode``
+#: choices ``plan`` ("read-only/planning (analyze, propose plans, no edits)")
+#: and ``ask`` ("Q&A style ... (read-only)"); no ``--mode`` is its agent mode;
+#: ``--yolo`` ("Run Everything").  Print mode has no permission prompt at all
+#: (spike S4), so nothing is ever bridged: the agent edits and runs shell in
+#: its sandbox unasked.  ``launch``: ``args`` added as they are, ``bypass``
+#: released only by a person's grant.  ``--auto-review`` is not offered: its
+#: prompts cannot be answered in print mode.  Plan is described as writing
+#: its plan (not verified by a run; never called read-only).
+NATIVE_MODES: tuple[NativeMode, ...] = (
+    NativeMode("ask", "Ask", "never", "none", "none", False, "readonly",
+               launch={"args": ("--mode", "ask")}),
+    NativeMode("plan", "Plan", "never", "plan", "none", False, "readonly",
+               launch={"args": ("--mode", "plan")}, requires="plan"),
+    NativeMode("agent", "Agent", "never", "workspace", "none", False, "default"),
+    NativeMode("yolo", "Run Everything", "never", "anywhere", "none", True, "unrestricted",
+               launch={"bypass": ("--yolo",)}),
+)
+LEGACY_NATIVE: dict[str, str] = {"default": "agent", "readonly": "ask", "unrestricted": "yolo"}
 
 #: Environment variable that marks every process a channel starts (and the
 #: ``worker-server`` they leave behind).  Not ``SNOWPEA_*``: those are scrubbed.
@@ -617,11 +639,20 @@ class CursorChannel(ExternalChannel):
             )
         return chat
 
-    def _check_mode(self, mode: str, grant: proc.UnrestrictedGrant | None) -> None:
+    def _row(self, mode: str | None = None, native_mode: str | None = None) -> NativeMode:
+        mode = mode or self.mode
         proc.validate_mode(mode, self.adapter.capabilities.modes)
-        if mode == "unrestricted" and grant is None:
+        mode_id = native_mode or self.native_mode or LEGACY_NATIVE.get(mode, "")
+        row = native_modes.find(NATIVE_MODES, mode_id)
+        if row is None:
+            raise ExternalError(errors.INVALID_PARAMS, f"unknown Cursor mode {mode_id!r}")
+        return row
+
+    def _check_mode(self, mode: str, grant: proc.UnrestrictedGrant | None) -> None:
+        row = self._row(mode)
+        if (row.person_only or row.launch.get("bypass")) and grant is None:
             raise ExternalError(errors.JARVIS_PERSON_ONLY,
-                                "unrestricted needs a person's confirmation")
+                                f"Cursor mode {row.label} needs a person's confirmation")
 
     async def set_mode(self, mode: str, grant: proc.UnrestrictedGrant | None) -> None:
         self._check_mode(mode, grant)
@@ -638,17 +669,19 @@ class CursorChannel(ExternalChannel):
             "--workspace", self.spec.cwd,
             "--resume", proc.validate_session_id(self.session_id),
         ]
-        if self.mode == "readonly":
-            args += ["--mode", "ask"]
+        row = self._row()
+        args += list(row.launch.get("args") or ())
         model = proc.validate_model(self.spec.model)
         if model:
             args += ["--model", model]
         bypass = None
-        if self.mode == "unrestricted":
+        flags = list(row.launch.get("bypass") or ())
+        if row.person_only or flags:
             if self.grant is None:
                 raise ExternalError(errors.JARVIS_PERSON_ONLY,
-                                    "unrestricted needs a person's confirmation")
-            bypass = proc.bypass_args(self.grant, ["--yolo"])
+                                    f"Cursor mode {row.label} needs a person's confirmation")
+            if flags:
+                bypass = proc.bypass_args(self.grant, flags)
         return proc.build_argv(
             self.spec.executable, args, bypass=bypass,
             forbidden=self.adapter.forbidden_args,
@@ -964,6 +997,8 @@ class CursorAdapter(ExternalAdapter):
     forbidden_args = ("-f", "--force", "--approve-mcps")
     forbidden_pairs = (("--sandbox", "disabled"),)
     builtin_default_mode = "readonly"
+    native_table = NATIVE_MODES
+    legacy_native = LEGACY_NATIVE
 
     LOGIN_HINT = "Cursor agent is not logged in; run `cursor-agent login` in a terminal"
 
@@ -993,6 +1028,9 @@ class CursorAdapter(ExternalAdapter):
         logged_in = await self._logged_in(found.executable)
         if logged_in is False:
             found.problems.append(self.LOGIN_HINT)
+        code, out = await self._run(found.executable, ["--help"])
+        choices = native_modes.help_choices(out, "--mode") if code == 0 else None
+        found.native_modes = native_modes.offered(NATIVE_MODES, choices)
         return found
 
     async def _logged_in(self, executable: PinnedExecutable) -> bool | None:

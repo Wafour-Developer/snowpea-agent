@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.55.0";
+export const PROTOCOL_VERSION = "1.56.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1038,6 +1038,8 @@ export interface ExternalClisResult {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
+    defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
     enabled?: boolean;
     /** claude, codex, agy or cursor. */
@@ -1050,6 +1052,23 @@ export interface ExternalClisResult {
     modelsLoaded?: boolean;
     /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
     modes?: ("default" | "readonly" | "unrestricted")[];
+    /** The CLI's own modes (1.56.0), in the CLI's order: what its installed version offers (discovery decides; a mode its version lacks is not listed). Before discovery or when not installed, the modes every supported version has. */
+    nativeModes?: ({
+      /** bridged: what it still asks becomes a snowpea approval; none: nothing is. */
+      approvals: "bridged" | "none";
+      /** Does the CLI stop and ask the person: always (whenever a permission is needed), sometimes (it proceeds alone and asks when unsure), never. */
+      asks: "always" | "sometimes" | "never";
+      /** The CLI's own id: claude default|acceptEdits|plan|auto|dontAsk|bypassPermissions; codex untrusted|read-only|default|full-access; agy default|accept-edits|auto|plan|dangerously-skip-permissions; cursor ask|plan|agent|yolo. */
+      id: string;
+      /** The CLI's own name for it, short, not translated. */
+      label: string;
+      /** What an old client sees in 'mode' for a session in this mode. */
+      legacy: "default" | "readonly" | "unrestricted";
+      /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
+      personOnly: boolean;
+      /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
+      writes: "none" | "plan" | "workspace" | "anywhere";
+    })[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
     /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
@@ -1094,6 +1113,8 @@ export interface ExternalClisConfirmPathResult {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
+    defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
     enabled?: boolean;
     /** claude, codex, agy or cursor. */
@@ -1106,6 +1127,23 @@ export interface ExternalClisConfirmPathResult {
     modelsLoaded?: boolean;
     /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
     modes?: ("default" | "readonly" | "unrestricted")[];
+    /** The CLI's own modes (1.56.0), in the CLI's order: what its installed version offers (discovery decides; a mode its version lacks is not listed). Before discovery or when not installed, the modes every supported version has. */
+    nativeModes?: ({
+      /** bridged: what it still asks becomes a snowpea approval; none: nothing is. */
+      approvals: "bridged" | "none";
+      /** Does the CLI stop and ask the person: always (whenever a permission is needed), sometimes (it proceeds alone and asks when unsure), never. */
+      asks: "always" | "sometimes" | "never";
+      /** The CLI's own id: claude default|acceptEdits|plan|auto|dontAsk|bypassPermissions; codex untrusted|read-only|default|full-access; agy default|accept-edits|auto|plan|dangerously-skip-permissions; cursor ask|plan|agent|yolo. */
+      id: string;
+      /** The CLI's own name for it, short, not translated. */
+      label: string;
+      /** What an old client sees in 'mode' for a session in this mode. */
+      legacy: "default" | "readonly" | "unrestricted";
+      /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
+      personOnly: boolean;
+      /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
+      writes: "none" | "plan" | "workspace" | "anywhere";
+    })[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
     /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
@@ -1144,6 +1182,8 @@ export interface ExternalCreateParams {
   mode?: "default" | "readonly" | "unrestricted" | null;
   /** Model id for the CLI; validated, never a flag. */
   model?: string | null;
+  /** As ExternalOpenParams.nativeMode (1.56.0): wins over mode. */
+  nativeMode?: string | null;
   /** A registered project root; anything else is refused. */
   project: string;
   /** structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. */
@@ -1170,6 +1210,8 @@ export interface ExternalCreateResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1228,6 +1270,8 @@ export interface ExternalGetResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1310,6 +1354,8 @@ export interface ExternalListResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1345,6 +1391,8 @@ export interface ExternalOpenParams {
   limit?: number;
   /** Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). */
   mode?: "default" | "readonly" | "unrestricted" | null;
+  /** The CLI's own mode id (1.56.0, from external.clis nativeModes); wins over mode. Unknown or not offered by this CLI: invalid_params. A personOnly mode only from a human connection (else jarvis_person_only), with a ledger entry. */
+  nativeMode?: string | null;
   /** Session to open. */
   ref: {
     /** claude, codex, agy or cursor. */
@@ -1393,6 +1441,8 @@ export interface ExternalOpenResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -1479,8 +1529,10 @@ export interface ExternalSendResult {
 
 /** `external.setMode` params. External sessions (1.53.0, WP6): switch a session to default, readonly or unrestricted; unrestricted only from a human connection. */
 export interface ExternalSetModeParams {
-  /** default, readonly or unrestricted. 'unrestricted' only from a human connection (IDE, web, TUI, or the bound approver in a messenger); every such switch is a ledger entry. */
-  mode: "default" | "readonly" | "unrestricted";
+  /** default, readonly or unrestricted. 'unrestricted' only from a human connection (IDE, web, TUI, or the bound approver in a messenger); every such switch is a ledger entry. Optional since 1.56.0 when nativeMode is given; one of the two is required (else invalid_params). */
+  mode?: "default" | "readonly" | "unrestricted" | null;
+  /** As ExternalOpenParams.nativeMode (1.56.0): wins over mode; a personOnly mode only from a human connection, and every such switch is a ledger entry. */
+  nativeMode?: string | null;
   /** The external session (host 'snowpea' or 'tmux'). */
   ref: {
     /** claude, codex, agy or cursor. */
@@ -1508,6 +1560,8 @@ export interface ExternalSetModeResult {
     mode?: "default" | "readonly" | "unrestricted" | null;
     /** Model it last used, when recorded. */
     model?: string | null;
+    /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
+    nativeMode?: string | null;
     /** Last message, one line. */
     preview?: string;
     /** Registered project root containing cwd; null when none. */
@@ -2449,7 +2503,7 @@ export interface JarvisLedgerResult {
     id: string;
     /** How prominently clients show it (badge / OS / messenger). */
     importance?: "low" | "normal" | "high" | "urgent";
-    /** approval or question answered; continue (a stopped or incomplete turn was resumed); prompt or interrupt sent to the session; escalate (handed to the person); unrestricted (an external session was created, opened or switched to mode 'unrestricted' — always decidedBy 'person', with external and project). */
+    /** approval or question answered; continue (a stopped or incomplete turn was resumed); prompt or interrupt sent to the session; escalate (handed to the person); unrestricted (an external session was created, opened or switched to mode 'unrestricted' or, since 1.56.0, another personOnly native mode named in summary — always decidedBy 'person', with external and project). */
     kind: "approval" | "question" | "continue" | "prompt" | "interrupt" | "escalate" | "unrestricted";
     /** Project root of that session. */
     project?: string | null;
@@ -9089,6 +9143,8 @@ export interface ExternalClisChangedPayload {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
+    defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
     enabled?: boolean;
     /** claude, codex, agy or cursor. */
@@ -9101,6 +9157,23 @@ export interface ExternalClisChangedPayload {
     modelsLoaded?: boolean;
     /** Modes this CLI offers, also when it is not installed (as capabilities.modes): claude and codex all three, agy default|unrestricted, cursor all three. */
     modes?: ("default" | "readonly" | "unrestricted")[];
+    /** The CLI's own modes (1.56.0), in the CLI's order: what its installed version offers (discovery decides; a mode its version lacks is not listed). Before discovery or when not installed, the modes every supported version has. */
+    nativeModes?: ({
+      /** bridged: what it still asks becomes a snowpea approval; none: nothing is. */
+      approvals: "bridged" | "none";
+      /** Does the CLI stop and ask the person: always (whenever a permission is needed), sometimes (it proceeds alone and asks when unsure), never. */
+      asks: "always" | "sometimes" | "never";
+      /** The CLI's own id: claude default|acceptEdits|plan|auto|dontAsk|bypassPermissions; codex untrusted|read-only|default|full-access; agy default|accept-edits|auto|plan|dangerously-skip-permissions; cursor ask|plan|agent|yolo. */
+      id: string;
+      /** The CLI's own name for it, short, not translated. */
+      label: string;
+      /** What an old client sees in 'mode' for a session in this mode. */
+      legacy: "default" | "readonly" | "unrestricted";
+      /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
+      personOnly: boolean;
+      /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
+      writes: "none" | "plan" | "workspace" | "anywhere";
+    })[];
     /** Absolute executable path pinned at discovery. */
     path?: string | null;
     /** The resolved real path of a jarvis.external.clis.<id>.path override the person has not confirmed yet: it is not run (not even --version) and the CLI shows as not installed until external.clis.confirmPath {cli, path: pendingPath}. Null when there is no override or it is confirmed. */
@@ -9149,6 +9222,8 @@ export interface ExternalStatePayload {
   host: "none" | "terminal" | "tmux" | "snowpea";
   /** As ExternalSessionRow.mode, now. */
   mode?: "default" | "readonly" | "unrestricted" | null;
+  /** As ExternalSessionRow.nativeMode, now (1.56.0). */
+  nativeMode?: string | null;
   /** Status before. */
   previous?: "idle" | "running" | "error" | null;
   /** Host before. */
@@ -9233,7 +9308,7 @@ export interface JarvisDecisionPayload {
     id: string;
     /** How prominently clients show it (badge / OS / messenger). */
     importance?: "low" | "normal" | "high" | "urgent";
-    /** approval or question answered; continue (a stopped or incomplete turn was resumed); prompt or interrupt sent to the session; escalate (handed to the person); unrestricted (an external session was created, opened or switched to mode 'unrestricted' — always decidedBy 'person', with external and project). */
+    /** approval or question answered; continue (a stopped or incomplete turn was resumed); prompt or interrupt sent to the session; escalate (handed to the person); unrestricted (an external session was created, opened or switched to mode 'unrestricted' or, since 1.56.0, another personOnly native mode named in summary — always decidedBy 'person', with external and project). */
     kind: "approval" | "question" | "continue" | "prompt" | "interrupt" | "escalate" | "unrestricted";
     /** Project root of that session. */
     project?: string | null;

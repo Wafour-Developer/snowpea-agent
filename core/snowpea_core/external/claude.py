@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import difflib
 import json
 import logging
@@ -43,6 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.external import modes as native_modes
 from snowpea_core.external import proc
 from snowpea_core.external.base import (
     ALL_MODES,
@@ -57,6 +59,7 @@ from snowpea_core.external.base import (
     SessionInfo,
     unavailable,
 )
+from snowpea_core.external.modes import NativeMode
 from snowpea_core.external.proc import ExternalError, ExternalProcess, UnrestrictedGrant
 from snowpea_core.external.timeline import (
     USER_ASSISTANT_ONLY,
@@ -77,6 +80,46 @@ MIN_VERSION: tuple[int, int, int] = (2, 1, 0)
 MAX_MAJOR = 2
 #: Model aliases the CLI's ``--model`` accepts (a full model id works too).
 MODEL_ALIASES: tuple[str, ...] = ("fable", "opus", "sonnet", "haiku")
+
+#: Claude Code's permission modes (1.56.0), checked against ``claude --help``
+#: of 2.1.326: ``--permission-mode`` choices ``acceptEdits, auto,
+#: bypassPermissions, manual, dontAsk, plan`` (``default`` is still accepted
+#: as the old name of ``manual``).  ``launch``: ``permissionMode`` is the
+#: value passed (``--permission-mode=<value>``), ``bypass`` the flags only a
+#: person's grant releases.  A row with ``requires`` is offered only when the
+#: installed version lists that choice.
+NATIVE_MODES: tuple[NativeMode, ...] = (
+    NativeMode("default", "Default", "always", "workspace", "bridged", False, "default",
+               launch={"permissionMode": "default"}),
+    NativeMode("acceptEdits", "Accept edits", "sometimes", "workspace", "bridged", True,
+               "default", launch={"permissionMode": "acceptEdits", "granted": True},
+               requires="acceptEdits"),
+    NativeMode("plan", "Plan", "always", "plan", "bridged", False, "readonly",
+               launch={"permissionMode": "plan"}),
+    NativeMode("auto", "Auto", "sometimes", "workspace", "bridged", True, "default",
+               launch={"permissionMode": "auto", "granted": True}, requires="auto"),
+    NativeMode("dontAsk", "Don't ask", "never", "workspace", "none", True, "default",
+               launch={"permissionMode": "dontAsk", "granted": True}, requires="dontAsk"),
+    NativeMode("bypassPermissions", "Bypass permissions", "never", "anywhere", "none", True,
+               "unrestricted", launch={"bypass": ("--dangerously-skip-permissions",)}),
+)
+LEGACY_NATIVE: dict[str, str] = {
+    "default": "default", "readonly": "plan", "unrestricted": "bypassPermissions",
+}
+
+
+def claude_native_modes(help_text: str | None) -> tuple[NativeMode, ...]:
+    """The rows ``claude --help`` offers; the default row is labelled as that
+    version names it (``Manual`` once ``manual`` is the listed choice)."""
+    choices = native_modes.help_choices(help_text or "", "--permission-mode")
+    rows = native_modes.offered(NATIVE_MODES, choices)
+    if choices and "manual" in choices and "default" not in choices:
+        rows = tuple(
+            dataclasses.replace(row, label="Manual", launch={"permissionMode": "manual"})
+            if row.id == "default" else row
+            for row in rows
+        )
+    return rows
 
 #: Claude's own session ids are uuids; transcripts with other stems (old
 #: ``agent-*.jsonl`` sidechains) are not sessions.
@@ -801,13 +844,16 @@ class ClaudeAdapter(ExternalAdapter):
         modes=ALL_MODES,
     )
     forbidden_args = ("--allow-dangerously-skip-permissions",)
-    #: Modes that let the CLI approve on its own, out of snowpea's sight.
+    #: Modes that let the CLI approve on its own, out of snowpea's sight: only
+    #: the mode table produces them, behind a person's grant.
     forbidden_pairs = (
         ("--permission-mode", "auto"),
         ("--permission-mode", "acceptEdits"),
         ("--permission-mode", "bypassPermissions"),
         ("--permission-mode", "dontAsk"),
     )
+    native_table = NATIVE_MODES
+    legacy_native = LEGACY_NATIVE
 
     def __init__(
         self,
@@ -852,6 +898,7 @@ class ClaudeAdapter(ExternalAdapter):
             logged_in = await self._logged_in(found.executable.path)
             if logged_in is False:
                 problems.append("Claude Code is not logged in: run `claude auth login`")
+        help_text = await self._help(found.executable.path)
         tmux_ok = await _tmux_usable()
         capabilities = CliCapabilities(
             streaming=True, approvals="bridged", live_view=True, tmux=tmux_ok, modes=ALL_MODES
@@ -861,7 +908,21 @@ class ClaudeAdapter(ExternalAdapter):
             executable=found.executable,
             capabilities=capabilities,
             problems=problems,
+            native_modes=claude_native_modes(help_text),
         )
+
+    async def _help(self, path: str) -> str | None:
+        """``claude --help`` (local, no tokens): which permission modes it accepts."""
+        code, out = await self.helper_supervisor().run_helper(
+            [path, "--help"],
+            cwd=tempfile.gettempdir(),
+            env=proc.scrubbed_env(),
+            cli="claude",
+            timeout=self.auth_timeout,
+        )
+        if code != 0:
+            return None
+        return out.decode("utf-8", "replace")[:200_000]
 
     async def _logged_in(self, path: str) -> bool | None:
         """``loggedIn`` from ``claude auth status --json``; ``None`` when unknown.
@@ -1046,33 +1107,54 @@ class ClaudeAdapter(ExternalAdapter):
             "that one exits",
         )
 
+    def mode_row(self, mode: str, native_mode: str | None) -> NativeMode:
+        """The table row a channel runs (``native_mode``, else the legacy ``mode``'s)."""
+        if mode not in ALL_MODES:
+            raise ExternalError(errors.INVALID_PARAMS, f"unknown mode {mode!r}")
+        row = native_modes.find(self.native_table, native_mode or LEGACY_NATIVE[mode])
+        if row is None:
+            raise ExternalError(errors.INVALID_PARAMS, f"unknown Claude Code mode {native_mode!r}")
+        return row
+
     def argv(self, spec: LaunchSpec, mode: str, grant: UnrestrictedGrant | None,
-             session_args: list[str], *, structured: bool) -> list[str]:
-        """The full command line for ``spec`` in ``mode`` (both transports)."""
+             session_args: list[str], *, structured: bool,
+             native_mode: str | None = None) -> list[str]:
+        """The full command line for ``spec`` in ``mode`` (both transports).
+
+        Everything mode-related comes from the row of :data:`NATIVE_MODES`;
+        the flags of a person-only row are released only by ``grant``.
+        """
+        row = self.mode_row(mode, native_mode if native_mode is not None else spec.native_mode)
         args: list[str] = []
         if structured:
             args += [
                 "-p", "--input-format", "stream-json", "--output-format", "stream-json",
                 "--verbose", "--include-partial-messages", "--replay-user-messages",
             ]
-        if mode == "readonly":
-            args += ["--permission-mode", "plan"]
-        elif mode == "default":
-            args += ["--permission-mode", "default"]
-        if structured and mode != "unrestricted":
+        launch = row.launch
+        value = launch.get("permissionMode")
+        released: list[str] = list(launch.get("bypass") or ())
+        if isinstance(value, str):
+            if launch.get("granted"):
+                released.insert(0, f"--permission-mode={value}")
+            else:
+                args += ["--permission-mode", value]
+        if structured and row.approvals == "bridged":
             args += ["--permission-prompts", "host", "--permission-prompt-tool", "stdio"]
+        elif structured and not launch.get("bypass"):
+            # Nobody answers here: anything that would still prompt is denied.
+            args += ["--permission-prompts", "none"]
         args += session_args
         model = proc.validate_model(spec.model)
         if model:
             args += ["--model", model]
         bypass = None
-        if mode == "unrestricted":
+        if row.person_only or released:
             if grant is None:
                 raise ExternalError(errors.JARVIS_PERSON_ONLY,
-                                    "unrestricted mode needs a person's grant")
-            bypass = proc.bypass_args(grant, ["--dangerously-skip-permissions"])
-        elif mode not in ("default", "readonly"):
-            raise ExternalError(errors.INVALID_PARAMS, f"unknown mode {mode!r}")
+                                    f"Claude Code mode {row.label} needs a person's grant")
+            if released:
+                bypass = proc.bypass_args(grant, released)
         return proc.build_argv(spec.executable, args, bypass=bypass,
                                forbidden=self.forbidden_args,
                                forbidden_pairs=self.forbidden_pairs)
@@ -1103,6 +1185,7 @@ class ClaudeChannel(ExternalChannel):
         self.reader: asyncio.Task[None] | None = None
         self.closing = False
         self.started_mode: str | None = None
+        self.started_native: str | None = None
         self.started_grant: UnrestrictedGrant | None = None
         self.initialized: asyncio.Future[None] | None = None
         self.approval_tasks: dict[str, asyncio.Task[None]] = {}
@@ -1146,12 +1229,14 @@ class ClaudeChannel(ExternalChannel):
     async def _spawn(self, *, resume: bool) -> None:
         assert self.session_id is not None
         session_args = ["--resume" if resume else "--session-id", self.session_id]
-        argv = self.adapter.argv(self.spec, self.mode, self.grant, session_args, structured=True)
+        argv = self.adapter.argv(self.spec, self.mode, self.grant, session_args, structured=True,
+                                 native_mode=self.native_mode)
         process = await self.host_api.supervisor.spawn(
             argv, cwd=self.spec.cwd, env=self.host_api.env, cli="claude", ref=self.session_id
         )
         self.process = process
         self.started_mode = self.mode
+        self.started_native = self.native_mode
         self.started_grant = self.grant
         self.closing = False
         self.initialized = asyncio.get_running_loop().create_future()
@@ -1343,13 +1428,9 @@ class ClaudeChannel(ExternalChannel):
                        request: dict[str, Any]) -> None:
         tool = str(request.get("tool_name") or "tool")
         args = request.get("input") if isinstance(request.get("input"), dict) else {}
-        if tool == "ExitPlanMode" and self.started_mode == "readonly":
-            body: dict[str, Any] = {
-                "behavior": "deny",
-                "message": "This session is read-only in snowpea; describe the plan instead "
-                           "of leaving plan mode.",
-                "interrupt": False,
-            }
+        body: dict[str, Any]
+        if tool == "ExitPlanMode":
+            body = await self._plan_exit(args)
         else:
             path = args.get("file_path") or args.get("notebook_path") or args.get("path")
             description = request.get("description")
@@ -1381,6 +1462,47 @@ class ClaudeChannel(ExternalChannel):
             await process.write_line({"type": "control_response", "response": {
                 "subtype": "success", "request_id": request_id, "response": body}})
 
+    async def _plan_exit(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Plan mode's "ready to code?" prompt: the person's to answer, never a rule's.
+
+        Bridged as a person-only approval (tool ``ExitPlanMode``, the plan in
+        ``args.plan``).  Allowed: Claude Code leaves plan mode for the default
+        mode (said explicitly with ``setMode``), and the session row follows.
+        """
+        ask = ApprovalAsk(
+            tool="ExitPlanMode",
+            args=dict(args),
+            risk="medium",
+            note="Claude Code finished its plan and asks to start working on it "
+                 "(it leaves plan mode for the default mode, which asks before each change)",
+            person_only=True,
+        )
+        try:
+            answer = await self.host_api.ask_approval(ask)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a broken queue keeps planning
+            log.warning("plan approval bridge failed; staying in plan mode", exc_info=True)
+            answer = None
+        if answer is None or not answer.allow:
+            reason = (answer.reason if answer is not None else "") or \
+                "The person wants to keep planning; refine the plan instead."
+            return {"behavior": "deny", "message": reason, "interrupt": False}
+        leave_to = "default"
+        if self.native_mode == "plan" or (self.native_mode is None and self.mode == "readonly"):
+            # The next turns run as the CLI now does; no restart for it.
+            self.mode = self.started_mode = "default"
+            self.native_mode = self.started_native = leave_to
+            with contextlib.suppress(Exception):
+                await self.host_api.mode_known(leave_to)
+        return {
+            "behavior": "allow",
+            "updatedInput": dict(args),
+            "updatedPermissions": [
+                {"type": "setMode", "mode": leave_to, "destination": "session"}
+            ],
+        }
+
     def _cancel_approvals(self) -> None:
         for task in list(self.approval_tasks.values()):
             task.cancel()
@@ -1391,7 +1513,8 @@ class ClaudeChannel(ExternalChannel):
         if "\x00" in text:
             raise ExternalError(errors.INVALID_PARAMS, "prompt contains NUL")
         restart = self.process is None or not self.process.alive or (
-            self.started_mode != self.mode or self.started_grant is not self.grant
+            self.started_mode != self.mode or self.started_native != self.native_mode
+            or self.started_grant is not self.grant
         )
         if restart:
             # A mode switch takes effect between turns: the process restarts

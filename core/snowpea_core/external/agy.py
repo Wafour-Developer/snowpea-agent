@@ -53,6 +53,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.external import modes as native_modes
 from snowpea_core.external import proc
 from snowpea_core.external.base import (
     ApprovalAsk,
@@ -66,6 +67,7 @@ from snowpea_core.external.base import (
     Liveness,
     SessionInfo,
 )
+from snowpea_core.external.modes import NativeMode
 from snowpea_core.external.proc import (
     ExternalError,
     ExternalProcess,
@@ -92,6 +94,44 @@ SUPPORTED_MAJOR = 1
 AUTO_POLICIES: frozenset[str] = frozenset({"always-proceed", "proceed-in-sandbox"})
 #: agy's own default when the setting is absent.
 DEFAULT_POLICY = "request-review"
+
+#: agy's session modes (1.56.0): ``agy --help`` 1.5.9 lists ``--mode (accept-edits,
+#: auto, plan)``; ACP ``session/new`` reports ``default`` too, and the binary
+#: describes them: default "Ask before edits and commands, per your permission
+#: settings", accept-edits "auto-approve file edits, prompt for commands", auto
+#: "auto-approve edits and safe commands, prompt on irreversible actions", plan
+#: "research and plan without making changes" (spike S3: it still writes its
+#: plan, outside the workspace, and asks in the chat whether to go on).
+#: ``launch``: ``acpMode`` is set with ACP ``session/set_mode``; ``bypass`` flags
+#: are released only by a person's grant.  With ``toolPermission`` set to run
+#: unasked, every row reads ``asks: never``, ``approvals: none`` (discovery).
+NATIVE_MODES: tuple[NativeMode, ...] = (
+    NativeMode("default", "Default", "sometimes", "workspace", "bridged", False, "default",
+               launch={"acpMode": "default"}),
+    NativeMode("accept-edits", "Accept edits", "sometimes", "workspace", "bridged", True,
+               "default", launch={"acpMode": "accept-edits"}, requires="accept-edits"),
+    NativeMode("auto", "Auto", "sometimes", "workspace", "bridged", True, "default",
+               launch={"acpMode": "auto"}, requires="auto"),
+    NativeMode("plan", "Plan", "sometimes", "plan", "bridged", False, "default",
+               launch={"acpMode": "plan"}, requires="plan"),
+    NativeMode("dangerously-skip-permissions", "Skip permissions", "never", "anywhere",
+               "none", True, "unrestricted",
+               launch={"acpMode": "default", "bypass": ("--dangerously-skip-permissions",)}),
+)
+LEGACY_NATIVE: dict[str, str] = {
+    "default": "default", "unrestricted": "dangerously-skip-permissions",
+}
+
+
+def agy_native_modes(help_text: str | None, policy: str) -> tuple[NativeMode, ...]:
+    """The rows ``agy --help`` offers, as agy's own approval policy makes them."""
+    choices = native_modes.help_choices(help_text or "", "--mode")
+    rows = native_modes.offered(NATIVE_MODES, choices)
+    return native_modes.without_asks(rows) if policy == "auto" else rows
+
+
+#: Seconds ``agy --help`` may take at discovery.
+HELP_TIMEOUT_SEC = 15.0
 #: How to sign in, for the "not logged in" message.
 LOGIN_HINT = "agy acp --login"
 #: Words in a ``session/new``/``session/load`` error that mean "not signed in".
@@ -853,6 +893,8 @@ class AgyAdapter(ExternalAdapter):
     )
     forbidden_args = ("--dangerously-skip-permissions",)
     builtin_default_mode = "default"
+    native_table = NATIVE_MODES
+    legacy_native = LEGACY_NATIVE
 
     def __init__(self, data_dir: str | os.PathLike[str] | None = None) -> None:
         self.data_dir = Path(data_dir) if data_dir is not None else default_data_dir()
@@ -884,10 +926,12 @@ class AgyAdapter(ExternalAdapter):
             problems.append(problem)
         permission = read_tool_permission(self.data_dir)
         policy = policy_of(permission)
+        help_text = await self._help(found.executable)
         base = {f.name: getattr(found, f.name) for f in dataclasses.fields(Discovery)}
         base.update(
             problems=problems,
             approval_policy=policy,
+            native_modes=agy_native_modes(help_text, policy),
             capabilities=dataclasses.replace(
                 self.capabilities, approvals="bridged" if policy == "asks" else "degraded"
             ),
@@ -895,6 +939,17 @@ class AgyAdapter(ExternalAdapter):
         return AgyDiscovery(
             **base, tool_permission=permission, signed_in=_sign_in_hint(self.data_dir)
         )
+
+    async def _help(self, executable: PinnedExecutable) -> str | None:
+        """``agy --help`` (local, no tokens): which session modes it has."""
+        code, out = await self.helper_supervisor().run_helper(
+            [executable.path, "--help"], cwd=tempfile.gettempdir(), env=self.base_env(),
+            cli="agy", timeout=HELP_TIMEOUT_SEC, with_stderr=True,
+        )
+        if code is None:
+            return None
+        # agy prints its usage on stdout or stderr depending on the release.
+        return out.decode("utf-8", "replace")[:200_000]
 
     def _policy(self, discovery: Discovery | None) -> str:
         if discovery is not None and discovery.approval_policy in ("asks", "auto"):
@@ -1107,6 +1162,9 @@ class AgyChannel(ExternalChannel):
         self.adapter = adapter
         self.conn: AcpConnection | None = None
         self.started_unrestricted: bool | None = None
+        #: agy's current ACP mode and the ones it offers (``session/new``).
+        self.acp_mode: str | None = None
+        self.acp_modes: set[str] | None = None
         self.closing = False
         self.loading = False
         self.turn_id: str | None = None
@@ -1132,9 +1190,18 @@ class AgyChannel(ExternalChannel):
         return set()
 
     # -- start ------------------------------------------------------------------
-    async def start(self) -> None:
+    def _row(self) -> NativeMode:
+        """The session's row of :data:`NATIVE_MODES`."""
         if self.mode not in self.adapter.capabilities.modes:
             raise ExternalError(errors.INVALID_PARAMS, f"agy does not offer mode {self.mode!r}")
+        mode_id = self.native_mode or LEGACY_NATIVE.get(self.mode, "")
+        row = native_modes.find(NATIVE_MODES, mode_id)
+        if row is None:
+            raise ExternalError(errors.INVALID_PARAMS, f"agy does not offer mode {mode_id!r}")
+        return row
+
+    async def start(self) -> None:
+        self._row()
         await self._spawn(resume=bool(self.spec.resume and self.session_id))
         if self.spec.model:
             await self._set_model(self.spec.model)
@@ -1149,12 +1216,15 @@ class AgyChannel(ExternalChannel):
                     "here once that one exits",
                 )
         bypass = None
-        if self.mode == "unrestricted":
+        row = self._row()
+        flags = list(row.launch.get("bypass") or ())
+        if row.person_only or flags:
             if self.grant is None:
                 raise ExternalError(
-                    errors.JARVIS_PERSON_ONLY, "unrestricted needs a person's grant"
+                    errors.JARVIS_PERSON_ONLY, f"agy mode {row.label} needs a person's grant"
                 )
-            bypass = proc.bypass_args(self.grant, ["--dangerously-skip-permissions"])
+            if flags:
+                bypass = proc.bypass_args(self.grant, flags)
         argv = proc.build_argv(
             self.spec.executable, ["acp"], bypass=bypass, forbidden=self.adapter.forbidden_args
         )
@@ -1169,7 +1239,9 @@ class AgyChannel(ExternalChannel):
         conn.on_exit = exited
         self.conn = conn
         self.closing = False
-        self.started_unrestricted = self.mode == "unrestricted"
+        self.started_unrestricted = bool(flags)
+        self.acp_mode = None
+        self.acp_modes = None
         conn.start()
         try:
             await conn.initialize()
@@ -1209,12 +1281,47 @@ class AgyChannel(ExternalChannel):
         except BaseException:
             await self._stop()
             raise
+        modes = result.get("modes") if isinstance(result, dict) else None
+        if isinstance(modes, dict):
+            current = modes.get("currentModeId")
+            self.acp_mode = current if isinstance(current, str) else None
+            available = modes.get("availableModes")
+            if isinstance(available, list):
+                self.acp_modes = {str(m.get("id")) for m in available
+                                  if isinstance(m, dict) and m.get("id")}
+        try:
+            await self._apply_mode()
+        except BaseException:
+            await self._stop()
+            raise
         models = result.get("models")
         if isinstance(models, dict):
             self.models = [str(m.get("modelId")) for m in models.get("availableModels") or []
                            if isinstance(m, dict) and m.get("modelId")]
             current = models.get("currentModelId")
             self.current_model = current if isinstance(current, str) else None
+
+    async def _apply_mode(self) -> None:
+        """Put the conversation in the row's ACP mode (``session/set_mode``)."""
+        target = self._row().launch.get("acpMode")
+        if not isinstance(target, str) or target == self.acp_mode:
+            return
+        if self.acp_modes is not None and target not in self.acp_modes:
+            raise ExternalError(
+                errors.INVALID_PARAMS, f"this agy does not offer mode {target!r} here"
+            )
+        assert self.conn is not None and self.session_id is not None
+        params = {"sessionId": self.session_id, "modeId": target}
+        proc.scan_payload(params)
+        try:
+            await self.conn.request("session/set_mode", params, timeout=CALL_TIMEOUT_SEC)
+        except AcpError as exc:
+            raise ExternalError(
+                errors.EXTERNAL_UNAVAILABLE, f"agy refused mode {target!r}: {exc.message}"
+            ) from exc
+        except AcpGone as exc:
+            raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "agy exited") from exc
+        self.acp_mode = target
 
     async def _set_model(self, model: str) -> None:
         proc.validate_model(model)
@@ -1251,6 +1358,20 @@ class AgyChannel(ExternalChannel):
     # -- frames -------------------------------------------------------------------
     async def _on_update(self, update: dict[str, Any]) -> None:
         kind = update.get("sessionUpdate")
+        if kind == "current_mode_update":
+            current = update.get("currentModeId")
+            if isinstance(current, str) and current != self.acp_mode:
+                self.acp_mode = current
+                row = native_modes.find(NATIVE_MODES, current)
+                if (row is not None and not self.loading and not self.started_unrestricted
+                        and not row.launch.get("bypass")):
+                    # agy changed its own mode (plan -> default once the chat said
+                    # so): the session row follows what it now runs in.
+                    self.native_mode = current
+                    self.mode = row.legacy
+                    with contextlib.suppress(Exception):
+                        await self.host_api.mode_known(current)
+            return
         if kind == "session_info_update":
             title = update.get("title")
             if isinstance(title, str) and title.strip():
@@ -1375,10 +1496,13 @@ class AgyChannel(ExternalChannel):
     # -- turns --------------------------------------------------------------------
     async def send(self, text: str, turn_id: str) -> None:
         if self.started_unrestricted is not None and \
-                self.started_unrestricted != (self.mode == "unrestricted"):
+                self.started_unrestricted != bool(self._row().launch.get("bypass")):
             # The bypass flag is a process flag: restart, continuing the conversation.
             await self._stop()
             await self._spawn(resume=True)
+        elif self.alive:
+            # A session mode is the conversation's: switched in place.
+            await self._apply_mode()
         conn = self.conn
         if conn is None or self.session_id is None or not self.alive:
             raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "agy is not running")

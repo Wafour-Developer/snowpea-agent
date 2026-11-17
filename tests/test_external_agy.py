@@ -290,6 +290,41 @@ async def test_auto_policy_is_reported_honestly(env: Env) -> None:
     assert state["approvals"] == "none" and state["controlled"] is False
 
 
+async def test_native_modes_are_agys_own_session_modes(env: Env) -> None:
+    """1.56.0: agy's modes come from its --help; a mode is set with ACP session/set_mode
+    (no restart), and what agy still asks in a mode is bridged as in default."""
+    found = await env.manager.discover("agy", refresh=True)
+    assert [m.id for m in env.adapter.native_modes(found)] == [
+        "default", "accept-edits", "auto", "plan", "dangerously-skip-permissions"]
+    conn = Conn()
+    with env_vars(FAKE_CLI_SCENARIO="approval"):
+        row = await _create(env, conn, native_mode="plan")
+        assert (row["mode"], row["nativeMode"]) == ("default", "plan")
+        assert [f["params"]["modeId"] for f in env.sent("session/set_mode")] == ["plan"]
+        await _turn(env, conn, row["ref"], "plan it")
+        assert env.hub.pending() == []  # the fake plans instead of running the command
+        ref = row["ref"]
+        switched = (await env.manager.set_mode("agy", ref["id"], native_mode="default",
+                                               conn=conn))["session"]
+        assert (switched["mode"], switched["nativeMode"]) == ("default", "default")
+        turn = (await env.manager.send("agy", ref["id"], "run it", conn=conn))["turnId"]
+        request = (await until(env.hub.pending))[0]
+        assert request["tool"] == "run_command"
+        await env.approvals.respond(request["requestId"], "deny", conn=conn, reason="no")
+        await until(lambda: _of(conn, turn, "turn.done"))
+    assert [f["params"]["modeId"] for f in env.sent("session/set_mode")] == ["plan", "default"]
+    assert len(env.starts()) == 1  # switched in place
+    # accept-edits and auto are the person's: never Jarvis or another in-process caller.
+    for native in ("accept-edits", "auto", "dangerously-skip-permissions"):
+        with pytest.raises(ExternalError) as caught:
+            await _create(env, None, native_mode=native)
+        assert caught.value.code == errors.JARVIS_PERSON_ONLY
+    with env_vars(FAKE_AGY_MODES="plan"):
+        older = await env.manager.discover("agy", refresh=True)
+    assert [m.id for m in env.adapter.native_modes(older)] == [
+        "default", "plan", "dangerously-skip-permissions"]
+
+
 # -- listing ----------------------------------------------------------------------------
 
 

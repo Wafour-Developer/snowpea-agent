@@ -162,6 +162,22 @@ def version_requested(default: str) -> bool:
     return False
 
 
+def help_requested(text: str, *, stderr: bool = False) -> bool:
+    """``<cli> --help``: print ``text`` (where the real CLI prints its usage)."""
+    if sys.argv[1:] in (["--help"], ["-h"]):
+        print(text, file=sys.stderr if stderr else sys.stdout)
+        return True
+    return False
+
+
+def help_modes(env: str, default: list[str]) -> list[str]:
+    """The mode choices a fake's ``--help`` lists (``env``: comma-separated override)."""
+    raw = os.environ.get(env)
+    if raw is None:
+        return list(default)
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
 def arg_value(flag: str, argv: list[str] | None = None) -> str | None:
     args = sys.argv[1:] if argv is None else argv
     for index, arg in enumerate(args):

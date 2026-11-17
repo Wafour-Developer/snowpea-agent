@@ -575,25 +575,45 @@ async def test_mode_change_restarts_with_resume(env: Env) -> None:
     assert starts(env.log)[-1]["bypass"] == []
 
 
-async def test_readonly_refuses_to_leave_plan_mode(tmp_path: Path) -> None:
-    host = StubHost(tmp_path / "home")
-    spec = LaunchSpec(cwd=str(tmp_path), project=None, executable=pinned(), mode="readonly")
-    channel = ClaudeAdapter().channel(spec, host)
-    assert isinstance(channel, claude_mod.ClaudeChannel)
-    channel.started_mode = "readonly"
+async def test_plan_exit_is_the_persons_to_answer(tmp_path: Path) -> None:
+    """1.56.0: plan mode's ExitPlanMode prompt is bridged as a person-only approval.
 
-    class Sink:
-        lines: list[dict[str, Any]] = []
+    Denied, Claude Code keeps planning; allowed, it leaves plan mode for the
+    default mode (said with setMode) and the session row follows.
+    """
+    for allow in (False, True):
+        host = StubHost(tmp_path / "home", answer=ApprovalAnswer(allow=allow, reason="no"))
+        spec = LaunchSpec(cwd=str(tmp_path), project=None, executable=pinned(), mode="readonly",
+                          native_mode="plan")
+        channel = ClaudeAdapter().channel(spec, host)
+        assert isinstance(channel, claude_mod.ClaudeChannel)
+        channel.started_mode, channel.started_native = "readonly", "plan"
 
-        async def write_line(self, value: dict[str, Any]) -> None:
-            self.lines.append(value)
+        class Sink:
+            def __init__(self) -> None:
+                self.lines: list[dict[str, Any]] = []
 
-    sink = Sink()
-    await channel._approve(sink, "r1", {"tool_name": "ExitPlanMode",  # type: ignore[arg-type]
-                                        "input": {"plan": "x"}})
-    assert host.asks == []
-    body = sink.lines[0]["response"]["response"]
-    assert body["behavior"] == "deny" and "read-only" in body["message"]
+            async def write_line(self, value: dict[str, Any]) -> None:
+                self.lines.append(value)
+
+        sink = Sink()
+        await channel._approve(sink, "r1", {  # type: ignore[arg-type]
+            "tool_name": "ExitPlanMode", "input": {"plan": "x"}})
+        assert [a.tool for a in host.asks] == ["ExitPlanMode"]
+        assert host.asks[0].person_only is True
+        body = sink.lines[0]["response"]["response"]
+        if allow:
+            assert body["behavior"] == "allow"
+            assert body["updatedPermissions"] == [
+                {"type": "setMode", "mode": "default", "destination": "session"}]
+            assert (channel.mode, channel.native_mode) == ("default", "default")
+            # The process already runs in the default mode: no restart for it.
+            assert (channel.started_mode, channel.started_native) == ("default", "default")
+            assert host.modes == ["default"]
+        else:
+            assert body["behavior"] == "deny" and body["message"] == "no"
+            assert (channel.mode, channel.native_mode) == ("readonly", "plan")
+            assert host.modes == []
 
 
 async def test_cli_dies_mid_turn(env: Env) -> None:

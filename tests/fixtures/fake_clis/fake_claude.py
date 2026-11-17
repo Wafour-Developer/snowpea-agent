@@ -4,8 +4,12 @@
 Supported command lines::
 
     fake_claude.py --version
+    fake_claude.py --help
+        lists ``--permission-mode`` choices like 2.1.326 (``FAKE_CLAUDE_MODES``:
+        a comma-separated list instead, to stand in for another version).
     fake_claude.py -p --input-format stream-json --output-format stream-json --verbose
-        [--permission-mode default|plan|acceptEdits] [--permission-prompts host]
+        [--permission-mode[=]default|plan|acceptEdits|auto|dontAsk]
+        [--permission-prompts host|none]
         [--permission-prompt-tool stdio] (--session-id <uuid> | --resume <uuid>)
         [--model <m>] [--replay-user-messages] [--include-partial-messages]
         [--dangerously-skip-permissions]
@@ -53,6 +57,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
 
 VERSION = "2.1.325 (Claude Code, fake)"
+MODES = ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"]
+
+
+def help_text() -> str:
+    choices = ", ".join(f'"{m}"' for m in c.help_modes("FAKE_CLAUDE_MODES", MODES))
+    return (
+        "Usage: claude [options] [command] [prompt]\n\nOptions:\n"
+        "  -p, --print                           Print response and exit\n"
+        "  --permission-mode <mode>              Permission mode to use for the session\n"
+        f"                                        (choices: {choices})\n"
+        "  --permission-prompts <target>         Who answers permission prompts\n"
+    )
 OWNER_EMAIL = "owner@example.com"
 
 
@@ -265,7 +281,14 @@ class Claude:
         message_id = "msg_" + c.new_id().replace("-", "")[:20]
         self.assistant(message_id, {"type": "thinking", "thinking": "", "signature": "sig"})
         denials: list[dict] = []
-        if scenario == "approval" and self.mode != "plan":
+        if scenario == "plan" and self.mode == "plan":
+            outcome = self.plan_exit(message_id)
+            if outcome == "interrupted":
+                return self.finish(interrupted=True, denials=denials)
+            reply = "Plan approved: leaving plan mode" if outcome == "allow" \
+                else "Still planning"
+            message_id = "msg_" + c.new_id().replace("-", "")[:20]
+        elif scenario == "approval" and self.mode != "plan":
             outcome = self.tool(message_id, denials)
             if outcome == "interrupted":
                 return self.finish(interrupted=True, denials=denials)
@@ -318,7 +341,12 @@ class Claude:
                                     "input": tool_input})
         decision = "allow"
         message = ""
-        if not self.bypass and self.mode != "acceptEdits":
+        # acceptEdits and auto let edits through unasked and still ask for a
+        # command; dontAsk denies what is not pre-approved, without asking.
+        quiet = self.bypass or (self.mode in ("acceptEdits", "auto") and not bash)
+        if self.mode == "dontAsk" and not self.bypass:
+            decision, message = "deny", "denied: not pre-approved (dontAsk)"
+        elif not quiet:
             if not self.host_prompts:
                 decision, message = "deny", "permission prompts are not answered by a host"
             else:
@@ -358,6 +386,32 @@ class Claude:
         c.write({"type": "user", "message": {"role": "user", "content": [result]},
                  "tool_use_result": extra, "uuid": uid, **self.base()})
         return decision
+
+    def plan_exit(self, message_id: str) -> str:
+        """Plan mode's ExitPlanMode prompt: allowed, the session leaves plan mode."""
+        tool_id = "toolu_" + c.new_id().replace("-", "")[:20]
+        tool_input = {"plan": "1. write note.txt\n2. done"}
+        self.assistant(message_id, {"type": "tool_use", "id": tool_id, "name": "ExitPlanMode",
+                                    "input": tool_input})
+        if not self.host_prompts:
+            return "deny"
+        rid = c.new_id()
+        waiter = c.Waiter()
+        self.pending[rid] = waiter
+        c.write({"type": "control_request", "request_id": rid, "request": {
+            "subtype": "can_use_tool", "tool_name": "ExitPlanMode",
+            "display_name": "ExitPlanMode", "input": tool_input, "tool_use_id": tool_id}})
+        answer = waiter.wait()
+        self.pending.pop(rid, None)
+        if answer is None or self.interrupted.is_set():
+            return "interrupted"
+        if answer.get("behavior") != "allow":
+            return "deny"
+        for update in answer.get("updatedPermissions") or []:
+            if isinstance(update, dict) and update.get("type") == "setMode":
+                self.mode = str(update.get("mode") or "default")
+        c.log("mode", self.mode)
+        return "allow"
 
     def finish(self, *, interrupted: bool, denials: list[dict], result: str = "") -> None:
         c.write({"type": "result", "subtype": "success", "is_error": False,
@@ -630,6 +684,8 @@ def fake_terminal() -> int:
 
 def main() -> int:
     if c.version_requested(VERSION):
+        return 0
+    if c.help_requested(help_text()):
         return 0
     c.log_start()
     if c.has_flag("--fake-terminal"):

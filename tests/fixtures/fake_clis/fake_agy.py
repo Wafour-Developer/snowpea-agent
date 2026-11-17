@@ -2,6 +2,9 @@
 """Fake ``agy acp`` (Agent Client Protocol, JSON-RPC 2.0 NDJSON), after spike S3.
 
     fake_agy.py --version
+    fake_agy.py --help
+        usage on stderr, as agy 1.5.9 prints it: ``--mode`` lists
+        ``(accept-edits, auto, plan)`` (``FAKE_AGY_MODES`` overrides the list).
     fake_agy.py acp [--mode default|accept-edits|auto|plan]
         [--dangerously-skip-permissions]
 
@@ -42,6 +45,17 @@ except ImportError:  # pragma: no cover - Windows
 
 VERSION = "1.5.7 (fake agy)"
 MODES = ["default", "accept-edits", "auto", "plan"]
+
+
+def help_text() -> str:
+    listed = ", ".join(c.help_modes("FAKE_AGY_MODES", MODES[1:]))
+    return (
+        "Usage of agy:\n"
+        "  --dangerously-skip-permissions  Auto-approve all tool permission requests\n"
+        f"  --mode                          Set the agent execution mode for this session "
+        f"({listed})\n"
+        "  --model                         Model for the current CLI session\n"
+    )
 
 
 class Agy:
@@ -295,6 +309,8 @@ def fake_terminal() -> int:
 
 def main() -> int:
     if c.version_requested(VERSION):
+        return 0
+    if c.help_requested(help_text(), stderr=True):
         return 0
     c.log_start()
     if c.has_flag("--fake-terminal"):

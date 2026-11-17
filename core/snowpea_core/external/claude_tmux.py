@@ -365,11 +365,13 @@ class ClaudeTmuxChannel(ExternalChannel):
         #: The mode the process really runs in when it differs from the one asked
         #: (an adopted pane started with a bypass flag); the manager reports it.
         self.actual_mode: str | None = None
+        self.actual_native: str | None = None
         #: snowpea started this pane (and may stop it); adopted panes are the person's.
         self.owned = False
         self.closing = False
         self.dead = False
         self.started_mode: str | None = None
+        self.started_native: str | None = None
         self.started_grant: UnrestrictedGrant | None = None
         self.turn_id: str | None = None
         self.turns_done = 0
@@ -434,7 +436,7 @@ class ClaudeTmuxChannel(ExternalChannel):
             )
         session_args = ["--resume" if resume else "--session-id", self.session_id]
         argv = self.adapter.argv(self.spec, self.mode, self.grant, session_args,
-                                 structured=False)
+                                 structured=False, native_mode=self.native_mode)
         prefix = _scope_prefix()
         _code, out = await server.run(
             "new-session", "-d", "-P", "-F", "#{session_name}\t#{pane_id}\t#{pane_pid}",
@@ -454,6 +456,7 @@ class ClaudeTmuxChannel(ExternalChannel):
         self.owned = True
         self.dead = False
         self.started_mode = self.mode
+        self.started_native = self.native_mode
         self.started_grant = self.grant
         self.tmux = {"session": name, "pane": self.pane}
         await self._wait_ready()
@@ -561,7 +564,9 @@ class ClaudeTmuxChannel(ExternalChannel):
             # mode was asked for (controlled: false; only the person sends).
             self.mode = "unrestricted"
             self.actual_mode = "unrestricted"
+            self.native_mode = self.actual_native = "bypassPermissions"
         self.started_mode = self.mode
+        self.started_native = self.native_mode
         self.started_grant = self.grant
         self.tmux = {"session": info["session"], "pane": info["pane"]}
 
@@ -674,7 +679,8 @@ class ClaudeTmuxChannel(ExternalChannel):
         refuse_text(text)
         if not self.alive:
             raise unavailable("the Claude Code pane is not running")
-        if self.started_mode != self.mode or self.started_grant is not self.grant:
+        if (self.started_mode != self.mode or self.started_native != self.native_mode
+                or self.started_grant is not self.grant):
             await self._restart()
         assert self.server is not None and self.pane is not None and self.tail is not None
         data = self.status()
@@ -736,7 +742,7 @@ class ClaudeTmuxChannel(ExternalChannel):
             await self.server.key(self.pane, "Escape")
 
     async def set_mode(self, mode: str, grant: UnrestrictedGrant | None) -> None:
-        if not self.owned and mode != self.mode:
+        if not self.owned and (mode != self.mode or self.native_mode != self.started_native):
             raise ExternalError(
                 errors.EXTERNAL_VIEW_ONLY,
                 "this pane was started outside snowpea; change its mode there (Shift+Tab)",

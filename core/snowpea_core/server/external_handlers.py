@@ -242,7 +242,7 @@ async def open_handler(
     result = await _call(
         ensure_manager(core).open(
             params.ref.cli, params.ref.id, limit=params.limit, mode=params.mode, conn=conn,
-            transport=params.transport, trust=params.trust,
+            transport=params.transport, trust=params.trust, native_mode=params.nativeMode,
         )
     )
     return ExternalOpenResult.model_validate(result)
@@ -276,7 +276,8 @@ async def set_mode_handler(
 ) -> ExternalCreateResult:
     _own_only(conn, core, params.ref.cli, params.ref.id)
     result = await _call(
-        ensure_manager(core).set_mode(params.ref.cli, params.ref.id, params.mode, conn=conn)
+        ensure_manager(core).set_mode(params.ref.cli, params.ref.id, params.mode, conn=conn,
+                                      native_mode=params.nativeMode)
     )
     return ExternalCreateResult.model_validate(result)
 
@@ -305,6 +306,7 @@ async def create_handler(
             transport=params.transport,
             conn=conn,
             trust=params.trust,
+            native_mode=params.nativeMode,
         )
     )
     return ExternalCreateResult.model_validate(result)

@@ -55,6 +55,7 @@ from typing import Any
 
 from snowpea_core import __version__
 from snowpea_core.config.paths import resolve_home
+from snowpea_core.external import modes as native_modes
 from snowpea_core.external import proc
 from snowpea_core.external.base import (
     ALL_MODES,
@@ -71,6 +72,7 @@ from snowpea_core.external.base import (
     SessionInfo,
     unavailable,
 )
+from snowpea_core.external.modes import NativeMode
 from snowpea_core.external.proc import (
     ExternalError,
     ExternalProcess,
@@ -152,6 +154,33 @@ _TURN_POLICY: dict[str, dict[str, Any]] = {
 }
 _UNRESTRICTED_THREAD = {"approvalPolicy": "never", "sandbox": "danger-full-access"}
 _UNRESTRICTED_TURN = {"approvalPolicy": "never", "sandboxPolicy": {"type": "dangerFullAccess"}}
+_WORKSPACE_TURN_SANDBOX = _TURN_POLICY["default"]["sandboxPolicy"]
+
+#: Codex's modes (1.56.0): its permission presets as codex-cli 0.167.1 names
+#: them (``/permissions``: "Read Only", "Default", "Full Access"; the
+#: app-server schema's ``AskForApproval`` ``untrusted | on-request | never``
+#: and ``SandboxMode``).  ``launch``: ``thread`` (thread/start, thread/resume)
+#: and ``turn`` (turn/start override); ``granted`` values are released only
+#: through :func:`proc.unrestricted_values` with the person's grant.
+#: Plan mode (``collaborationMode``) is not offered: it is experimental in
+#: the app-server and needs a model name per turn.
+NATIVE_MODES: tuple[NativeMode, ...] = (
+    NativeMode("untrusted", "Untrusted", "always", "workspace", "bridged", False, "default",
+               launch={"thread": _THREAD_POLICY["default"], "turn": _TURN_POLICY["default"]}),
+    NativeMode("read-only", "Read Only", "never", "none", "none", False, "readonly",
+               launch={"thread": _THREAD_POLICY["readonly"], "turn": _TURN_POLICY["readonly"]}),
+    NativeMode("default", "Default", "sometimes", "workspace", "bridged", True, "default",
+               launch={"granted": True,
+                       "thread": {"approvalPolicy": "on-request", "sandbox": "workspace-write"},
+                       "turn": {"approvalPolicy": "on-request",
+                                "sandboxPolicy": _WORKSPACE_TURN_SANDBOX}}),
+    NativeMode("full-access", "Full Access", "never", "anywhere", "none", True, "unrestricted",
+               launch={"granted": True, "thread": _UNRESTRICTED_THREAD,
+                       "turn": _UNRESTRICTED_TURN}),
+)
+LEGACY_NATIVE: dict[str, str] = {
+    "default": "untrusted", "readonly": "read-only", "unrestricted": "full-access",
+}
 
 #: Free text in a request: the prompt and the folder it runs in are not
 #: protocol values (the folder is a registered project, checked by the manager).
@@ -908,6 +937,7 @@ class CodexChannel(ExternalChannel):
         self.dead = False
         self.closed = False
         self.applied_mode: str | None = None
+        self.applied_native: str | None = None
         #: The snowpea turn running now, and codex's id for it.
         self.turn_open = False
         self.codex_turn: str | None = None
@@ -931,19 +961,28 @@ class CodexChannel(ExternalChannel):
         pid = self.server.pid
         return {pid} if pid is not None and self.alive else set()
 
-    def _policy(self, table: dict[str, dict[str, Any]], granted: Mapping[str, Any]
-                ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        if self.mode == "unrestricted":
+    def _row(self) -> NativeMode:
+        mode_id = self.native_mode or LEGACY_NATIVE.get(self.mode, "")
+        row = native_modes.find(NATIVE_MODES, mode_id)
+        if row is None:
+            raise ExternalError(errors.INVALID_PARAMS, f"unknown Codex mode {mode_id!r}")
+        return row
+
+    def _policy(self, which: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """``(scanned, trusted)`` policy values of the session's row for ``thread``/``turn``."""
+        row = self._row()
+        values = dict(row.launch[which])
+        if row.person_only or row.launch.get("granted"):
             if self.grant is None:
                 raise ExternalError(errors.JARVIS_PERSON_ONLY,
-                                    "unrestricted needs a person's grant")
-            return {}, proc.unrestricted_values(self.grant, granted)
-        return dict(table.get(self.mode) or table["default"]), None
+                                    f"Codex mode {row.label} needs a person's grant")
+            return {}, proc.unrestricted_values(self.grant, values)
+        return values, None
 
     # -- start ------------------------------------------------------------
     async def start(self) -> None:
         await self.adapter.ensure_server(self.spec.executable)
-        policy, trusted = self._policy(_THREAD_POLICY, _UNRESTRICTED_THREAD)
+        policy, trusted = self._policy("thread")
         if self.spec.model:
             policy["model"] = proc.validate_model(self.spec.model)
         if self.spec.resume and self.session_id:
@@ -981,6 +1020,7 @@ class CodexChannel(ExternalChannel):
             self.attached = True
             await self.host_api.id_known(new_id)
         self.applied_mode = self.mode
+        self.applied_native = self.native_mode
 
     # -- turns ------------------------------------------------------------
     async def send(self, text: str, turn_id: str) -> None:
@@ -991,8 +1031,8 @@ class CodexChannel(ExternalChannel):
             "input": [{"type": "text", "text": text, "text_elements": []}],
         }
         trusted: dict[str, Any] | None = None
-        if self.mode != self.applied_mode:
-            policy, trusted = self._policy(_TURN_POLICY, _UNRESTRICTED_TURN)
+        if self.mode != self.applied_mode or self.native_mode != self.applied_native:
+            policy, trusted = self._policy("turn")
             params.update(policy)
         self.turn_open = True
         self.codex_turn = None
@@ -1005,6 +1045,7 @@ class CodexChannel(ExternalChannel):
             self.turn_open = False
             raise
         self.applied_mode = self.mode
+        self.applied_native = self.native_mode
         turn = result.get("turn") if isinstance(result, Mapping) else None
         started = turn.get("id") if isinstance(turn, Mapping) else None
         if isinstance(started, str):
@@ -1340,6 +1381,8 @@ class CodexAdapter(ExternalAdapter):
         streaming=True, approvals="bridged", live_view=True, tmux=False, modes=ALL_MODES,
         steer=True,
     )
+    native_table = NATIVE_MODES
+    legacy_native = LEGACY_NATIVE
     forbidden_args = (
         "--dangerously-bypass-approvals-and-sandbox",
         "--yolo",
