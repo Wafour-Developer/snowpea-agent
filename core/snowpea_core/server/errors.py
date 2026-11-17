@@ -137,6 +137,32 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
         "${VAR}, stores a rule or a setting, or writes a skill, agent or command file that "
         "widens what runs; details.what says which",
     ),
+    "reauth_required": (
+        JARVIS_PERSON_ONLY,
+        "1.56.0: a remote web login gives Jarvis a grant only with the remote sign-in password "
+        "again (reauth); none was sent",
+    ),
+    "reauth_failed": (
+        JARVIS_PERSON_ONLY,
+        "1.56.0: the remote sign-in password (reauth) was wrong; it counts toward the sign-in "
+        "limits like a failed sign-in",
+    ),
+    "reauth_rate_limited": (
+        JARVIS_PERSON_ONLY,
+        "1.56.0: too many wrong remote passwords (sign-ins and reauth together); "
+        "details.retryAfter is the wait in seconds",
+    ),
+    "reauth_unavailable": (
+        JARVIS_PERSON_ONLY,
+        "1.56.0: this remote login was made with the access link, not a password, so it cannot "
+        "re-authenticate and gives no grant",
+    ),
+    "remote_grant_limit": (
+        JARVIS_PERSON_ONLY,
+        "1.56.0: a grant from a remote web login beyond its limits; details.what is 'scope' "
+        "(session or project only), 'allow' (guarded classes stay local) or 'expiry' (at most "
+        "24 h)",
+    ),
     "snowpea_home": (
         INVALID_PARAMS,
         "the folder is snowpea's own home (or its .snowpea directory is): not a project, for "

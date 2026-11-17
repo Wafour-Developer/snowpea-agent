@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.55.0` (semver)
+- **Protocol version:** `1.56.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.55.0"
+    "protocolVersion": "1.56.0"
   }
 }
 ```
@@ -66,6 +66,7 @@ Server capabilities advertised in the `system.hello` result:
 - `jarvis`
 - `jarvisBriefing`
 - `jarvisDelegation`
+- `jarvisRemoteGrant`
 - `jobRuns`
 - `lineage`
 - `llmSample`
@@ -574,7 +575,9 @@ Answer a pending approval and unblock the turn.
 |---|---|---|---|
 | `actor` | `"person" \| null` | no | A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set 'person' (a click) to allow with a scope wider than 'once' (security review 3); ignored for other kinds. |
 | `decision` | `"allow" \| "deny"` | yes | allow runs the tool, deny ends the turn. |
+| `grantExpiresAt` | `string \| null` | no | 1.56.0, with reauth: when the grant ends (UTC ISO). It may only shorten the proposal; a remote grant ends within 24 h whatever is given (default: 24 h, or the proposal's expiry when sooner). |
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
+| `reauth` | `string \| null` | no | 1.56.0: the remote sign-in password again, to allow Jarvis's delegation_set proposal from a remote web login while settings jarvis.delegation.remoteGrant is on (session or project scope, no guarded classes, at most 24 h). Checked like a sign-in and counted with its failures; never stored, logged or echoed. Ignored on every other answer. |
 | `requestId` | `string` | yes | Request being answered. |
 | `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | How long the decision applies. From a remote web login (and a connector) an allow never stores a rule (1.55.0): 'project', 'always' and 'site' are applied as 'session'; the result's scope and approval.resolved say what applied. |
 
@@ -1637,7 +1640,7 @@ Jarvis mode (1.53.0, WP2): delegation grants in force.
 | field | type | required | description |
 |---|---|---|---|
 | `default` | `"staged" \| "full"` | no | jarvis.delegation.default. |
-| `grants` | `({ allow?: ("deploy" \| "outside_destructive" \| "secret_send")[]; expiresAt?: string \| null; grantedAt: string; grantedBy: string; id: string; level: "staged" \| "full"; note?: string; proposedBy?: "person" \| "jarvis"; scope: "global" \| "project" \| "session"; target?: string \| null; })[]` | no | Newest first. |
+| `grants` | `({ allow?: ("deploy" \| "outside_destructive" \| "secret_send")[]; expiresAt?: string \| null; grantedAt: string; grantedBy: string; id: string; level: "staged" \| "full"; note?: string; proposedBy?: "person" \| "jarvis"; remoteLogin?: boolean; scope: "global" \| "project" \| "session"; target?: string \| null; })[]` | no | Newest first. |
 
 ### `jarvis.delegation.revoke`
 
@@ -1671,6 +1674,7 @@ Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is 
 | `expiresAt` | `string \| null` | no | UTC ISO expiry. Omitted: a session grant lasts while the session does, a project grant 24 h. |
 | `level` | `"staged" \| "full"` | yes | staged or full. |
 | `note` | `string` | no | Shown in the grants list and the ledger. |
+| `reauth` | `string \| null` | no | 1.56.0: the remote sign-in password again. From a remote web login a grant needs settings jarvis.delegation.remoteGrant on (a local person's switch) and this: scope session or project, no allow, expiresAt within 24 h (default 24 h). Checked like a sign-in and counted with its failures (details.reason reauth_required, reauth_failed, reauth_rate_limited, reauth_unavailable for a login made with the access link); never stored, logged or echoed. Ignored from a local connection. |
 | `scope` | `"global" \| "project" \| "session"` | yes | global, project or session. |
 | `target` | `string \| null` | no | Required for project (a root) and session (an id); omitted for global. |
 
@@ -1678,7 +1682,7 @@ Jarvis mode (1.53.0, WP2): create or replace a grant. The calling connection is 
 
 | field | type | required | description |
 |---|---|---|---|
-| `grant` | `{ allow?: ("deploy" \| "outside_destructive" \| "secret_send")[]; expiresAt?: string \| null; grantedAt: string; grantedBy: string; id: string; level: "staged" \| "full"; note?: string; proposedBy?: "person" \| "jarvis"; scope: "global" \| "project" \| "session"; target?: string \| null; }` | yes | The grant now in force. |
+| `grant` | `{ allow?: ("deploy" \| "outside_destructive" \| "secret_send")[]; expiresAt?: string \| null; grantedAt: string; grantedBy: string; id: string; level: "staged" \| "full"; note?: string; proposedBy?: "person" \| "jarvis"; remoteLogin?: boolean; scope: "global" \| "project" \| "session"; target?: string \| null; }` | yes | The grant now in force. |
 | `replaced` | `string \| null` | no | Id of the grant it replaced, if any. |
 
 ### `jarvis.disable`
@@ -5265,7 +5269,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `grant` | `{ allow?: ("deploy" \| "outside_destructive" \| "secret_send")[]; expiresAt?: string \| null; grantedAt: string; grantedBy: string; id: string; level: "staged" \| "full"; note?: string; proposedBy?: "person" \| "jarvis"; scope: "global" \| "project" \| "session"; target?: string \| null; }` | yes | The grant as it is now. |
+| `grant` | `{ allow?: ("deploy" \| "outside_destructive" \| "secret_send")[]; expiresAt?: string \| null; grantedAt: string; grantedBy: string; id: string; level: "staged" \| "full"; note?: string; proposedBy?: "person" \| "jarvis"; remoteLogin?: boolean; scope: "global" \| "project" \| "session"; target?: string \| null; }` | yes | The grant as it is now. |
 | `reason` | `"set" \| "revoked" \| "expired"` | yes | What happened. |
 
 ### `jarvis.escalation`
@@ -6027,6 +6031,11 @@ Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a 
 | `person_only` | `jarvis_person_only` | only a person's connection may do this (details.kind says who asked) |
 | `project_add_only` | `invalid_params` | a project's security lists may only add entries; details.removed names the rest |
 | `project_settings_invalid` | `invalid_params` | the project's .snowpea/settings.json on disk does not validate: it is left as it is and not written over with defaults plus the change; fix or remove it first |
+| `reauth_failed` | `jarvis_person_only` | 1.56.0: the remote sign-in password (reauth) was wrong; it counts toward the sign-in limits like a failed sign-in |
+| `reauth_rate_limited` | `jarvis_person_only` | 1.56.0: too many wrong remote passwords (sign-ins and reauth together); details.retryAfter is the wait in seconds |
+| `reauth_required` | `jarvis_person_only` | 1.56.0: a remote web login gives Jarvis a grant only with the remote sign-in password again (reauth); none was sent |
+| `reauth_unavailable` | `jarvis_person_only` | 1.56.0: this remote login was made with the access link, not a password, so it cannot re-authenticate and gives no grant |
+| `remote_grant_limit` | `jarvis_person_only` | 1.56.0: a grant from a remote web login beyond its limits; details.what is 'scope' (session or project only), 'allow' (guarded classes stay local) or 'expiry' (at most 24 h) |
 | `settings_unreadable` | `invalid_params` | the global settings.json could not be read as a whole (not JSON, not an object, or not a regular file of the user's): snowpea runs on defaults and does not write over it; details.path is the file, details.invalid the copy kept as it was. Fix the file, then system.reloadSettings (or restart) and try again |
 | `snowpea_home` | `invalid_params` | the folder is snowpea's own home (or its .snowpea directory is): not a project, for any caller; details.field names the parameter, details.what is 'home' or 'parent' |
 | `untrusted_project` | `external_unavailable` | first external CLI session in this project: confirm with trust: true; details.project |

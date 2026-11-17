@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.55.0";
+export const PROTOCOL_VERSION = "1.56.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -119,6 +119,11 @@ export type ErrorDetailReason =
   | "person_only"
   | "project_add_only"
   | "project_settings_invalid"
+  | "reauth_failed"
+  | "reauth_rate_limited"
+  | "reauth_required"
+  | "reauth_unavailable"
+  | "remote_grant_limit"
   | "settings_unreadable"
   | "snowpea_home"
   | "untrusted_project"
@@ -136,6 +141,11 @@ export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>
   person_only: "jarvis_person_only",
   project_add_only: "invalid_params",
   project_settings_invalid: "invalid_params",
+  reauth_failed: "jarvis_person_only",
+  reauth_rate_limited: "jarvis_person_only",
+  reauth_required: "jarvis_person_only",
+  reauth_unavailable: "jarvis_person_only",
+  remote_grant_limit: "jarvis_person_only",
   settings_unreadable: "invalid_params",
   snowpea_home: "invalid_params",
   untrusted_project: "external_unavailable",
@@ -475,8 +485,12 @@ export interface ApprovalRespondParams {
   actor?: "person" | null;
   /** allow runs the tool, deny ends the turn. */
   decision: "allow" | "deny";
+  /** 1.56.0, with reauth: when the grant ends (UTC ISO). It may only shorten the proposal; a remote grant ends within 24 h whatever is given (default: 24 h, or the proposal's expiry when sooner). */
+  grantExpiresAt?: string | null;
   /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
   reason?: string;
+  /** 1.56.0: the remote sign-in password again, to allow Jarvis's delegation_set proposal from a remote web login while settings jarvis.delegation.remoteGrant is on (session or project scope, no guarded classes, at most 24 h). Checked like a sign-in and counted with its failures; never stored, logged or echoed. Ignored on every other answer. */
+  reauth?: string | null;
   /** Request being answered. */
   requestId: string;
   /** How long the decision applies. From a remote web login (and a connector) an allow never stores a rule (1.55.0): 'project', 'always' and 'site' are applied as 'session'; the result's scope and approval.resolved say what applied. */
@@ -2141,6 +2155,8 @@ export interface JarvisDelegationListResult {
     note?: string;
     /** jarvis when it came from Jarvis's delegation_set proposal. */
     proposedBy?: "person" | "jarvis";
+    /** 1.56.0: given from a remote web login (re-authenticated with the remote password, settings jarvis.delegation.remoteGrant on): session or project, no guarded classes, ends within 24 h. */
+    remoteLogin?: boolean;
     /** global, project or session; the most specific wins. */
     scope: "global" | "project" | "session";
     /** Project root for 'project'; session id (or 'ext:<cli>:<id>') for 'session'; null for 'global'. */
@@ -2170,6 +2186,8 @@ export interface JarvisDelegationSetParams {
   level: "staged" | "full";
   /** Shown in the grants list and the ledger. */
   note?: string;
+  /** 1.56.0: the remote sign-in password again. From a remote web login a grant needs settings jarvis.delegation.remoteGrant on (a local person's switch) and this: scope session or project, no allow, expiresAt within 24 h (default 24 h). Checked like a sign-in and counted with its failures (details.reason reauth_required, reauth_failed, reauth_rate_limited, reauth_unavailable for a login made with the access link); never stored, logged or echoed. Ignored from a local connection. */
+  reauth?: string | null;
   /** global, project or session. */
   scope: "global" | "project" | "session";
   /** Required for project (a root) and session (an id); omitted for global. */
@@ -2196,6 +2214,8 @@ export interface JarvisDelegationSetResult {
     note?: string;
     /** jarvis when it came from Jarvis's delegation_set proposal. */
     proposedBy?: "person" | "jarvis";
+    /** 1.56.0: given from a remote web login (re-authenticated with the remote password, settings jarvis.delegation.remoteGrant on): session or project, no guarded classes, ends within 24 h. */
+    remoteLogin?: boolean;
     /** global, project or session; the most specific wins. */
     scope: "global" | "project" | "session";
     /** Project root for 'project'; session id (or 'ext:<cli>:<id>') for 'session'; null for 'global'. */
@@ -9276,6 +9296,8 @@ export interface JarvisDelegationChangedPayload {
     note?: string;
     /** jarvis when it came from Jarvis's delegation_set proposal. */
     proposedBy?: "person" | "jarvis";
+    /** 1.56.0: given from a remote web login (re-authenticated with the remote password, settings jarvis.delegation.remoteGrant on): session or project, no guarded classes, ends within 24 h. */
+    remoteLogin?: boolean;
     /** global, project or session; the most specific wins. */
     scope: "global" | "project" | "session";
     /** Project root for 'project'; session id (or 'ext:<cli>:<id>') for 'session'; null for 'global'. */

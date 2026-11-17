@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
 
-PROTOCOL_VERSION = "1.55.0"
+PROTOCOL_VERSION = "1.56.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2535,6 +2535,24 @@ class ApprovalRespondParams(Payload):
         description=(
             "Why the human refused; quoted back to the model as the tool's refusal "
             "so the next turn can answer it (M15b \u00a71)."
+        ),
+    )
+    reauth: str | None = Field(
+        default=None,
+        description=(
+            "1.56.0: the remote sign-in password again, to allow Jarvis's delegation_set "
+            "proposal from a remote web login while settings jarvis.delegation.remoteGrant is "
+            "on (session or project scope, no guarded classes, at most 24 h). Checked like a "
+            "sign-in and counted with its failures; never stored, logged or echoed. Ignored on "
+            "every other answer."
+        ),
+    )
+    grantExpiresAt: str | None = Field(
+        default=None,
+        description=(
+            "1.56.0, with reauth: when the grant ends (UTC ISO). It may only shorten the "
+            "proposal; a remote grant ends within 24 h whatever is given (default: 24 h, or "
+            "the proposal's expiry when sooner)."
         ),
     )
 
@@ -8478,6 +8496,14 @@ class JarvisGrant(Payload):
         ),
     )
     note: str = Field(default="", description="Free text the person or proposal gave.")
+    remoteLogin: bool = Field(
+        default=False,
+        description=(
+            "1.56.0: given from a remote web login (re-authenticated with the remote password, "
+            "settings jarvis.delegation.remoteGrant on): session or project, no guarded "
+            "classes, ends within 24 h."
+        ),
+    )
 
 
 class JarvisDelegationListParams(Payload):
@@ -8520,6 +8546,17 @@ class JarvisDelegationSetParams(Payload):
         ),
     )
     note: str = Field(default="", description="Shown in the grants list and the ledger.")
+    reauth: str | None = Field(
+        default=None,
+        description=(
+            "1.56.0: the remote sign-in password again. From a remote web login a grant needs "
+            "settings jarvis.delegation.remoteGrant on (a local person's switch) and this: "
+            "scope session or project, no allow, expiresAt within 24 h (default 24 h). Checked "
+            "like a sign-in and counted with its failures (details.reason reauth_required, "
+            "reauth_failed, reauth_rate_limited, reauth_unavailable for a login made with the "
+            "access link); never stored, logged or echoed. Ignored from a local connection."
+        ),
+    )
 
 
 class JarvisDelegationSetResult(Payload):
@@ -11596,6 +11633,9 @@ CAPABILITIES: list[str] = [
     "commandsBesideTurn",
     # project.trust.status/set/revoke, project.trust.changed — 1.55.0 (security review 5).
     "projectTrust",
+    # 1.56.0: jarvis.delegation.set / approval.respond reauth, approval.respond
+    # grantExpiresAt, JarvisGrant.remoteLogin (settings jarvis.delegation.remoteGrant).
+    "jarvisRemoteGrant",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
