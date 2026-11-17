@@ -107,6 +107,11 @@ class Session:
     #: The connection that created (or last resumed) the session; interactive
     #: ``approval.request`` calls go only here (contract §7).
     origin_conn: Any = None
+    #: 0.2.91: the person's connection whose words started (or last steered)
+    #: the running turn (``person_gate.asker_for``): that turn's
+    #: ``approval.request`` / ``question.request`` go here, not to the origin.
+    #: ``None`` (a Jarvis, scheduled or messenger turn): the origin, as before.
+    asker_conn: Any = None
     #: Turn ids already closed out of band — ``SessionManager.finish_open_turns``
     #: writes ``turn.done`` for the turn in flight at shutdown, and then
     #: ``close_all`` sets :attr:`interrupt`, which would otherwise make the
@@ -452,6 +457,94 @@ def origin_of(session: Session, caller: Any = None) -> SessionOrigin | None:
         live=not getattr(conn, "closed", False),
         mine=mine,
     )
+
+
+def _live(conn: Any) -> bool:
+    return conn is not None and not getattr(conn, "closed", False)
+
+
+def asking_conn(session: Any, lookup: Any = None) -> Any:
+    """Where ``session``'s approvals and questions are asked now (0.2.91), or ``None``.
+
+    The running turn's asker (:attr:`Session.asker_conn`) — a delegated child
+    has none of its own and follows the nearest one up the
+    ``parent_session_id`` chain (``lookup``: session id -> session) — while it
+    is open; else the session's origin while it is open; else ``None``: the
+    request goes to the shared queue, where any surface may answer it.
+    """
+    current = session
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen and len(seen) < 16:
+        seen.add(id(current))
+        asker = getattr(current, "asker_conn", None)
+        if _live(asker):
+            return asker
+        parent = getattr(current, "parent_session_id", None)
+        current = lookup(parent) if parent and callable(lookup) else None
+    origin = getattr(session, "origin_conn", None)
+    return origin if _live(origin) else None
+
+
+#: How long the desktop app shows a relayed card before it answers for nobody
+#: (snowpea-ide ``APPROVAL_TIMEOUT_MS`` / ``QUESTION_TIMEOUT_MS``): an approval
+#: gets ``{decision: "deny", scope: "once"}``, a question ``{answers: []}``.
+CLIENT_APPROVAL_CARD_SEC = 300.0
+CLIENT_QUESTION_CARD_SEC = 600.0
+#: A client's timer and ours start a moment apart.
+CLIENT_CLOCK_SLACK_SEC = 1.0
+
+
+def client_timed_out(reply: Any, waited: float, clock_sec: float, card_sec: float) -> bool:
+    """True when ``reply`` is the asking client's own card timing out (0.2.91).
+
+    The shape a client sends when nobody answered its card — an approval's bare
+    deny (no reason, no ``actor``), a question's empty ``answers`` — arriving
+    no sooner than the core's own clock (``clock_sec``) or the desktop app's
+    card window (``card_sec``), whichever is shorter.  A person's quick "no"
+    is a deny, as before.
+    """
+    if not isinstance(reply, dict):
+        return False
+    if "answers" in reply or "decision" not in reply:
+        answers = reply.get("answers")
+        bare = isinstance(answers, list) and not any(
+            isinstance(a, dict) and (a.get("selected") or str(a.get("text") or "").strip())
+            for a in answers)
+    else:
+        bare = (reply.get("decision") == "deny" and not str(reply.get("reason") or "").strip()
+                and not reply.get("actor"))
+    limit = min(clock_sec, card_sec) if clock_sec > 0 else card_sec
+    return bare and waited >= limit - CLIENT_CLOCK_SLACK_SEC
+
+
+def surface_name(conn: Any) -> str:
+    """A connection as a person would name it: "the desktop app", "the browser", ..."""
+    if getattr(conn, "remote_login", False):
+        return "the remote web page"
+    kind = str(getattr(conn, "client_kind", None) or "").lower()
+    return {
+        "ide": "the desktop app", "desktop": "the desktop app", "app": "the desktop app",
+        "tui": "the terminal (TUI)",
+        "cli": "the command line", "web": "the web page", "browser": "the browser",
+    }.get(kind, f"the {kind} client" if kind else "the client that was asked")
+
+
+async def withdraw(conn: Any, prefix: str, request_id: str) -> None:
+    """Tell ``conn`` its card for ``request_id`` is no longer its to show (0.2.91).
+
+    ``{approval|question}.resolved {by: "rerouted", outcome: "withdrawn"}``
+    (1.53.0's shape; ``decision`` null for an approval): the request moved to
+    the surface the person is typing on.  A closed connection is skipped.
+    """
+    if not _live(conn):
+        return
+    body: dict[str, Any] = {"requestId": request_id, "by": "rerouted", "outcome": "withdrawn"}
+    if prefix == "approval":
+        body["decision"] = None
+    try:
+        await conn.notify(f"{prefix}.resolved", body)
+    except Exception:  # noqa: BLE001 - a dying connection: its card dies with it
+        pass
 
 
 def inherited_override(core: Any, session: Any, attr: str) -> bool | None:

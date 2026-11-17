@@ -6999,6 +6999,114 @@ class JobFailed(Payload):
     text: str = Field(default="", description="What the run reported, or the error.")
 
 
+class ApprovalAsked(Payload):
+    """An approval was put to a person (0.2.91, stored for the conversation's record).
+
+    What the card showed and where it was sent, so an export can say which
+    approvals were asked; ``approval.answered`` with the same ``requestId``
+    says how it ended.  A call tagged ``secret`` or ``config`` keeps its
+    arguments out (``summary`` "arguments withheld", ``argsWithheld`` true).
+    """
+
+    kind: Literal["approval.asked"] = "approval.asked"
+    requestId: str = Field(description="The approval request.")
+    tool: str = Field(description="The tool the call was for.")
+    risk: str | None = Field(default=None, description="low | medium | high, as on the card.")
+    summary: str = Field(
+        default="",
+        description=(
+            "What the card showed of the call, at most 240 characters: the command line, "
+            "the path or URL, else the arguments as JSON; 'arguments withheld' for a "
+            "secret or config call."
+        ),
+    )
+    argsWithheld: bool = Field(default=False, description="True when the arguments were kept out.")
+    reasonCode: str | None = Field(default=None, description="ApprovalRequest.reasonCode.")
+    unchecked: bool = Field(
+        default=False,
+        description="True when the card said snowpea could not check the call (uncheckedWhy).",
+    )
+    personOnly: bool = Field(default=False, description="Only a person could answer it.")
+    route: str | None = Field(default=None, description="ApprovalRequest.route when it was asked.")
+    askedConn: str = Field(
+        description=(
+            "Where it was asked: the person's surface (ide, desktop, app, tui, cli, web, "
+            "person), remote (a remote web login), browser, connector, or none (the shared "
+            "queue: every surface could answer)."
+        )
+    )
+
+
+class ApprovalAnswered(Payload):
+    """How an asked approval ended (0.2.91; follows ``approval.asked``)."""
+
+    kind: Literal["approval.answered"] = "approval.answered"
+    requestId: str = Field(description="The approval request.")
+    tool: str = Field(description="The tool the call was for.")
+    decision: Literal["allow", "deny"] = Field(description="allow | deny.")
+    scope: str | None = Field(default=None, description="The scope applied; null for a deny.")
+    by: str = Field(
+        description=(
+            "Who or what ended it: origin (the asked surface's person), origin-timeout (that "
+            "surface's own card timed out), origin-no-answer, origin-unreachable, client "
+            "(approval.respond from a surface), gateway:<platform>:<user>, jarvis, "
+            "jarvis:auto, timeout, interrupted, security, error."
+        )
+    )
+    reason: str | None = Field(
+        default=None, description="The reason given or recorded, at most 300 characters."
+    )
+    waitedMs: int = Field(default=0, description="Milliseconds from asked to answered.")
+
+
+class QuestionAskedItem(Payload):
+    """One question of a ``question.asked`` batch."""
+
+    header: str | None = Field(default=None, description="The tab title.")
+    question: str = Field(description="The question.")
+    options: list[str] = Field(default_factory=list, description="The option labels.")
+    secret: bool = Field(default=False, description="Its answer is never stored.")
+
+
+class QuestionAsked(Payload):
+    """Questions were put to a person (0.2.91, stored for the conversation's record)."""
+
+    kind: Literal["question.asked"] = "question.asked"
+    requestId: str = Field(description="The question request.")
+    questions: list[QuestionAskedItem] = Field(default_factory=list, description="The batch.")
+    personOnly: bool = Field(default=False, description="Only a person could answer it.")
+    questionKind: str | None = Field(default=None, description="QuestionRequest.kind ('mode').")
+    route: str | None = Field(default=None, description="QuestionRequest.route when asked.")
+    askedConn: str = Field(description="As approval.asked.askedConn.")
+
+
+class QuestionAnsweredItem(Payload):
+    """One answer of a ``question.answered`` batch."""
+
+    selected: list[str] = Field(default_factory=list, description="Picked option labels.")
+    text: str | None = Field(default=None, description="Typed text; null when withheld.")
+    withheld: bool = Field(default=False, description="A secret question: nothing kept.")
+    declined: bool = Field(default=False, description="Declined (Esc, or no way to ask).")
+    timedOut: bool = Field(default=False, description="Nobody answered.")
+
+
+class QuestionAnswered(Payload):
+    """How asked questions ended (0.2.91; follows ``question.asked``)."""
+
+    kind: Literal["question.answered"] = "question.answered"
+    requestId: str = Field(description="The question request.")
+    by: str = Field(
+        description=(
+            "Who or what ended it: origin, origin-timeout, origin-unreachable, client, "
+            "jarvis, timeout, interrupted, error, unknown."
+        )
+    )
+    answers: list[QuestionAnsweredItem] = Field(
+        default_factory=list, description="One per question."
+    )
+    waitedMs: int = Field(default=0, description="Milliseconds from asked to answered.")
+
+
 SessionEventPayload = Annotated[
     MessageUser
     | MessageDelta
@@ -7042,7 +7150,11 @@ SessionEventPayload = Annotated[
     | LspDiagnostics
     | LoopSuspected
     | JobDone
-    | JobFailed,
+    | JobFailed
+    | ApprovalAsked
+    | ApprovalAnswered
+    | QuestionAsked
+    | QuestionAnswered,
     Field(discriminator="kind"),
 ]
 
@@ -7094,6 +7206,10 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "loop.suspected": LoopSuspected,
     "job.done": JobDone,
     "job.failed": JobFailed,
+    "approval.asked": ApprovalAsked,
+    "approval.answered": ApprovalAnswered,
+    "question.asked": QuestionAsked,
+    "question.answered": QuestionAnswered,
 }
 
 SESSION_EVENT_KINDS: tuple[str, ...] = tuple(SESSION_EVENT_MODELS)

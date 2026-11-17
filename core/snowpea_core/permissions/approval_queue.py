@@ -69,6 +69,14 @@ from snowpea_core.server.protocol import (
     ExternalRef,
     ScriptRef,
 )
+from snowpea_core.session import events as event_builders
+from snowpea_core.session.session import (
+    CLIENT_APPROVAL_CARD_SEC,
+    asking_conn,
+    client_timed_out,
+    surface_name,
+    withdraw,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.manager import EventHub
@@ -453,6 +461,10 @@ class _Pending:
     #: The browser clientId owning the job this run serves: only that
     #: browser's connection may answer (1.23.0).
     owner: str | None = None
+    #: 0.2.91: the core's own clock for this request (``approvals.timeoutSec``
+    #: when the asker is waited for without one): a deny that arrives after it
+    #: is the asking client's own card timing out, not a person's "no".
+    clock_sec: float = 0.0
 
 
 
@@ -881,7 +893,11 @@ class ApprovalQueue:
         ) and self.cached(session.id, tool, args, folder):
             return Decision("allow", "session", "cache")
 
-        origin = None if unattended else getattr(session, "origin_conn", None)
+        # 0.2.91: the surface the person is prompting from (the turn's asker),
+        # else the session's open origin, else nobody: the shared queue.
+        origin = None if unattended else asking_conn(session, self._lookup())
+        if origin is None:
+            unattended = True
         # An explicit timeout_sec is a caller's own deadline and always counts
         # (0 expires at once).  Otherwise a person at the session is waited for.
         no_limit = timeout_sec is None and waits_for_a_person(origin)
@@ -938,8 +954,10 @@ class ApprovalQueue:
             cacheable=cacheable,
             host=getattr(session, "host_tools_from", None),
             owner=getattr(session, "owned_by", None),
+            clock_sec=float(timeout if timeout else self.timeout_sec),
         )
         self._pending[request.requestId] = entry
+        asked_at = asyncio.get_running_loop().time()
         await self._announce_status(session.id, "awaiting_approval", entry.host)
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
@@ -949,7 +967,10 @@ class ApprovalQueue:
             "approval.pending",
             {"request": request.model_dump(mode="json"), "interactive": origin is not None},
         )
-        outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
+        # 0.2.91: the conversation's record says what was asked and where (after
+        # the observers, so Jarvis's routing is not held up by the store write).
+        await self._record(session.id, event_builders.approval_asked(request, origin, tags))
+        outer =float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
         try:
             decision = await self._await_decision(entry, outer, cancel_event)
         except RpcError as exc:  # pragma: no cover - transport failure
@@ -978,13 +999,31 @@ class ApprovalQueue:
             decision,
             # The origin answered its own dialog and needs no echo; a decision
             # made elsewhere (the owner's messenger) must close that dialog.
-            notify_exclude=origin if decision.by == "origin" else None,
+            notify_exclude=entry.origin_conn if decision.by == "origin" else None,
             workdir=entry.workdir,
             unattended=entry.unattended,
             cacheable=entry.cacheable,
             host=entry.host,
         )
+        waited_ms = int((asyncio.get_running_loop().time() - asked_at) * 1000)
+        await self._record(session.id,
+                           event_builders.approval_answered(request, decision, waited_ms))
         return decision
+
+    async def _record(self, session_id: str, event: Any) -> None:
+        """Store ``approval.asked`` / ``.answered`` with a live session's events (0.2.91).
+
+        Nothing for a session the hub does not know (an external CLI's bridged
+        prompt), and a failed write never fails the approval.
+        """
+        lookup = self._lookup()
+        emit = getattr(self.hub, "emit_event", None)
+        if emit is None or lookup is None or lookup(session_id) is None:
+            return
+        try:
+            await emit(session_id, event)
+        except Exception:  # noqa: BLE001 - the record is a side note
+            log.debug("could not record %s for %s", event[0], session_id, exc_info=True)
 
     async def _broadcast_pending(self, request: ApprovalRequest, host: str | None = None) -> None:
         """Announce an unattended request to every authenticated surface.
@@ -1048,12 +1087,26 @@ class ApprovalQueue:
     async def _ask_origin(self, entry: _Pending) -> None:
         """Send ``approval.request`` to the origin connection and record the answer."""
         request = entry.request
+        started = asyncio.get_running_loop().time()
         try:
             answer = await entry.origin_conn.call(
                 "approval.request",
                 request.model_dump(mode="json"),
                 timeout=None if entry.no_limit else float(request.timeoutSec),
             )
+            waited = asyncio.get_running_loop().time() - started
+            if client_timed_out(answer, waited, entry.clock_sec, CLIENT_APPROVAL_CARD_SEC):
+                # 0.2.91: the asking client's own card gave up (the desktop app
+                # answers {decision: "deny", scope: "once"} after 300 s), so
+                # nobody answered: not a person's "no".
+                surface = surface_name(entry.origin_conn)
+                log.warning("approval %s: %s answered a bare deny after %.1f s: its own "
+                            "timeout", request.requestId, surface, waited)
+                if not entry.future.done():
+                    entry.future.set_result(Decision(
+                        "deny", "once", "origin-timeout", errors.APPROVAL_DENIED,
+                        reason=f"nobody answered on {surface} within {int(round(waited))} s"))
+                return
             if answer.get("decision") not in ("allow", "deny"):
                 # 0.2.90: a reply with no decision (``null``, ``{}``, an older or
                 # broken host) is not a person's "no": nobody saw a card.  Say
@@ -1129,6 +1182,42 @@ class ApprovalQueue:
                                         f"show the approval: {str(exc)[:160]}"))
         if not entry.future.done():
             entry.future.set_result(decision)
+
+    def _lookup(self) -> Any:
+        """Session id -> live session (``asking_conn`` walks a child's parents)."""
+        sessions = getattr(self.hub, "sessions", None)
+        lookup = getattr(sessions, "get", None)
+        return lookup if callable(lookup) else None
+
+    async def follow_asker(self) -> int:
+        """Move waiting requests to their session's new asker (0.2.91); how many moved.
+
+        The person started typing on another surface while a request waited on
+        the old one: the request is asked there again, and the old surface's
+        card is withdrawn (``approval.resolved {outcome: "withdrawn"}``, as for
+        a request routed to Jarvis).  A shared-queue request, one routed to
+        Jarvis, or one whose session has no new open asker stays where it is.
+        """
+        lookup = self._lookup()
+        if lookup is None:
+            return 0
+        moved = 0
+        for entry in list(self._pending.values()):
+            if entry.unattended or entry.origin_conn is None or entry.future.done():
+                continue
+            if entry.request.route == "jarvis" or entry.owner is not None:
+                continue
+            target = asking_conn(lookup(entry.request.sessionId), lookup)
+            if target is None or target is entry.origin_conn:
+                continue
+            old, task = entry.origin_conn, entry.task
+            entry.origin_conn = target
+            entry.task = asyncio.ensure_future(self._ask_origin(entry))
+            if task is not None and not task.done():
+                task.cancel()
+            await withdraw(old, "approval", entry.request.requestId)
+            moved += 1
+        return moved
 
     async def _refused_to_origin(self, entry: _Pending, message: str) -> None:
         """Re-announce a still-open request to the origin whose reply was refused (1.55.0)."""

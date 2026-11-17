@@ -1678,6 +1678,32 @@ def note_caller(session: Session, turn_id: str, who: Any) -> None:
         callers.pop(next(key for key in callers if key != SPAWNER))
 
 
+def note_asker(core: Any, session: Session, who: Any, *, starts_turn: bool = False) -> None:
+    """Make the person whose words start or steer the turn its asker (0.2.91).
+
+    ``approval.request`` / ``question.request`` of the turn go to the surface
+    the person is actually typing on (``person_gate.asker_for``), not to
+    whichever client opened or last resumed the session.  A turn nobody typed
+    (Jarvis, a schedule, a messenger, the agent's own) has no asker
+    (``starts_turn``): its requests go to the origin, as before.  A steer from
+    another surface moves the requests already waiting there (``follow_asker``).
+    """
+    from snowpea_core.server.person_gate import asker_for
+
+    conn = asker_for(session, who)
+    if conn is None:
+        if starts_turn:
+            session.asker_conn = None
+        return
+    if session.asker_conn is conn:
+        return
+    session.asker_conn = conn
+    for queue in (getattr(core, "approvals", None), getattr(core, "questions", None)):
+        follow = getattr(queue, "follow_asker", None)
+        if follow is not None:
+            asyncio.ensure_future(follow())
+
+
 #: ``Session.turn_callers`` key for work started in an IDLE session's name by an
 #: RPC (``agent.spawn``, ``team.start``): the children it runs have no turn of
 #: the parent to answer for them.
@@ -2021,6 +2047,7 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
         remaining = len(steered) - index - 1
         # The running turn now carries this caller's words too (review 7, H-1).
         note_caller(session, session.current_turn or "", queued.who)
+        note_asker(core, session, queued.who)
         if session.user_turn is not None and not session.is_subagent:
             if queued.origin == "human":
                 session.user_turn["steers"].append(queued.text)
@@ -2093,6 +2120,7 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
             session.interrupt.clear()
             session.current_turn = queued.turn_id
             note_caller(session, queued.turn_id, queued.who)
+            note_asker(core, session, queued.who, starts_turn=True)
             if queued.command is not None:
                 # A slash command's turn (1.55.0): the registry runs it, with
                 # its turn.started/turn.done, in this same FIFO.
@@ -3496,14 +3524,17 @@ async def _run_one_call(
             return None
         if not decision.allowed:
             code = decision.code or errors.APPROVAL_DENIED
-            unshown = decision.by in ("origin-unreachable", "origin-no-answer")
+            unshown = decision.by in ("origin-unreachable", "origin-no-answer", "origin-timeout")
             await hub.emit_event(
                 session.id,
                 events.error(code, f"{tool.name} was not approved ({decision.by})"
                              + (f": {decision.reason}" if unshown and decision.reason else "")),
             )
             refusal = f"the user declined {tool.name}"
-            if unshown:
+            if decision.by == "origin-timeout":
+                # 0.2.91: the asking client's card timed out; nobody said no.
+                refusal = f"{tool.name} was not run; nobody answered the approval"
+            elif unshown:
                 # 0.2.90: nobody saw the card; this is no person's "no".
                 refusal = f"{tool.name} was not run and the user did not decline it"
             if code == errors.APPROVAL_TIMEOUT:
