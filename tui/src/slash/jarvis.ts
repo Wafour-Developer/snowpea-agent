@@ -97,7 +97,7 @@ export type ExternalCommand =
   /** Type into the person's own tmux pane (`external.open` with `transport: "tmux"`). */
   | { kind: "adopt" }
   /** Switch the open session's mode. */
-  | { kind: "mode"; mode: "default" | "readonly" | "unrestricted" }
+  | { kind: "mode"; mode: string }
   /** Load an older page of the open session. */
   | { kind: "more" }
   /** Confirm a CLI's configured executable path (`external.clis.confirmPath`). */
@@ -105,7 +105,7 @@ export type ExternalCommand =
   | { kind: "invalid"; usage: string };
 
 export const EXTERNAL_USAGE =
-  "/external [new|open <cli>:<id>|close|stop|adopt|mode default|readonly|unrestricted|more|confirm-path <cli>]";
+  "/external [new|open <cli>:<id>|close|stop|adopt|mode <mode>|more|confirm-path <cli>]";
 
 export const EXTERNAL_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
   { action: "new", summary: "Start a new Claude Code, Codex, agy or Cursor session." },
@@ -113,7 +113,7 @@ export const EXTERNAL_ACTIONS: ReadonlyArray<{ action: string; summary: string }
   { action: "close", summary: "Leave the open external session; it keeps running." },
   { action: "stop", summary: "Stop the process snowpea runs for the open session (the transcript stays)." },
   { action: "adopt", summary: "Let snowpea type into the tmux pane this Claude Code session runs in." },
-  { action: "mode", summary: "/external mode default|readonly|unrestricted — switch the open session." },
+  { action: "mode", summary: "/external mode <mode> — switch the open session to one of its CLI's modes (plan, auto, …)." },
   { action: "more", summary: "Load earlier messages of the open session." },
   { action: "confirm-path", summary: "/external confirm-path <cli> — allow snowpea to run a CLI path you configured." },
 ];
@@ -140,8 +140,10 @@ export function parseExternalCommand(line: string): ExternalCommand | null {
         ? { kind: "confirmPath", cli: rest[0] }
         : { kind: "invalid", usage: EXTERNAL_USAGE };
     case "mode":
-      return rest.length === 1 && ["default", "readonly", "unrestricted"].includes(rest[0])
-        ? { kind: "mode", mode: rest[0] as "default" | "readonly" | "unrestricted" }
+      // A CLI's own mode id (1.56.0: plan, acceptEdits, read-only, …) or a bucket;
+      // the open session's CLI decides which exist.
+      return rest.length === 1 && /^[A-Za-z][A-Za-z0-9_-]{0,40}$/.test(rest[0])
+        ? { kind: "mode", mode: rest[0] }
         : { kind: "invalid", usage: EXTERNAL_USAGE };
     default:
       return { kind: "invalid", usage: EXTERNAL_USAGE };

@@ -4,6 +4,11 @@
  * Steps are one small list or line each, so every key means what it means in
  * the other pickers: ↑↓ and Enter, Esc to go back (and out at the first step).
  * Choosing `unrestricted` ends with the typed confirmation.
+ *
+ * With a 1.56.0 daemon the mode step lists the CLI's own modes (`nativeModes`:
+ * label plus a line built from what each asks and writes); a mode only a
+ * person may choose ends with the typed confirmation too. An older daemon
+ * keeps the three buckets.
  */
 
 import React, { useState } from "react";
@@ -13,15 +18,19 @@ import { mouseReports } from "../input/mouse.js";
 import { currentAccent } from "../layout/palette.js";
 import { fit } from "../layout/fit.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
-import type { ExternalCli, ExternalCliInfo, ExternalModeName } from "../rpc/sdk.js";
+import type { ExternalCli, ExternalCliInfo, ExternalModeName, ExternalNativeMode } from "../rpc/sdk.js";
 import {
   EXTERNAL_CLIS,
   cliLabel,
   modeLabel,
   modesFor,
   modelsNote,
+  nativeModeDescription,
+  nativeModesFor,
   pendingPathLine,
   pendingPathLines,
+  personOnlyPrompt,
+  personOnlyWord,
   unavailableReason,
   unrestrictedPrompt,
   usable,
@@ -33,7 +42,29 @@ import { UnrestrictedConfirm } from "./UnrestrictedConfirm.js";
 export interface NewExternalChoice {
   cli: ExternalCli;
   mode: ExternalModeName;
+  /** The CLI's own mode (1.56.0); sent as `nativeMode`, which wins over `mode`. */
+  nativeMode?: string;
   model: string | null;
+}
+
+/** One row of the mode step: a bucket (older daemon) or one of the CLI's own modes. */
+type ModeRow = { mode: ExternalModeName; native: ExternalNativeMode | null };
+
+function modeRows(info: ExternalCliInfo): ModeRow[] {
+  const natives = nativeModesFor(info);
+  if (natives.length > 0) return natives.map((native) => ({ mode: native.legacy, native }));
+  return modesFor(info).map((mode) => ({ mode, native: null }));
+}
+
+/** A row that ends with the typed confirmation. */
+function confirmed(row: ModeRow): boolean {
+  return row.native ? row.native.personOnly : row.mode === "unrestricted";
+}
+
+function choiceOf(cli: ExternalCli, row: ModeRow, model: string | null): NewExternalChoice {
+  return row.native
+    ? { cli, mode: row.native.legacy, nativeMode: row.native.id, model }
+    : { cli, mode: row.mode, model };
 }
 
 /** Rows the form occupies at most. */
@@ -100,8 +131,8 @@ function ModeStep({
   onBack,
   isActive,
 }: {
-  modes: ExternalModeName[];
-  onChoose: (mode: ExternalModeName) => void;
+  modes: ModeRow[];
+  onChoose: (mode: ModeRow) => void;
   onBack: () => void;
   isActive: boolean;
 }): React.ReactElement {
@@ -116,10 +147,10 @@ function ModeStep({
   });
   return (
     <ChoiceList
-      options={modes.map((mode) => ({
-        label: modeLabel(mode),
-        description: MODE_HINT[mode],
-        danger: mode === "unrestricted",
+      options={modes.map((row) => ({
+        label: row.native ? row.native.label : modeLabel(row.mode),
+        description: row.native ? nativeModeDescription(row.native) : MODE_HINT[row.mode],
+        danger: confirmed(row),
       }))}
       selectedIndex={index}
       color={currentAccent()}
@@ -246,7 +277,7 @@ export function ExternalNewForm({
   );
   const [step, setStep] = useState<Step>("cli");
   const [info, setInfo] = useState<ExternalCliInfo | null>(null);
-  const [mode, setMode] = useState<ExternalModeName>("default");
+  const [mode, setMode] = useState<ModeRow>({ mode: "default", native: null });
   const [model, setModel] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // `external.clis.changed` brings the model list in while the form is open.
@@ -285,7 +316,7 @@ export function ExternalNewForm({
       ) : null}
       {step === "mode" && info ? (
         <ModeStep
-          modes={modesFor(liveInfo ?? info)}
+          modes={modeRows(liveInfo ?? info)}
           isActive={isActive}
           onBack={() => setStep("cli")}
           onChoose={(chosen) => {
@@ -303,18 +334,23 @@ export function ExternalNewForm({
           onBack={() => setStep("mode")}
           onSubmit={(entered) => {
             setModel(entered);
-            if (mode === "unrestricted") setStep("confirm");
-            else onCreate({ cli: info.id, mode, model: entered });
+            if (confirmed(mode)) setStep("confirm");
+            else onCreate(choiceOf(info.id, mode, entered));
           }}
         />
       ) : null}
       {step === "confirm" && info ? (
         <UnrestrictedConfirm
           width={width - 4}
-          lines={unrestrictedPrompt({ cli: info.id, cwd: folder })}
+          lines={
+            mode.native
+              ? personOnlyPrompt({ cli: info.id, cwd: folder, mode: mode.native })
+              : unrestrictedPrompt({ cli: info.id, cwd: folder })
+          }
+          word={mode.native ? personOnlyWord(mode.native) : undefined}
           isActive={isActive}
           onCancel={() => setStep("model")}
-          onConfirm={() => onCreate({ cli: info.id, mode: "unrestricted", model })}
+          onConfirm={() => onCreate(choiceOf(info.id, mode, model))}
         />
       ) : null}
     </Box>

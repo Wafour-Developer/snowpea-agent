@@ -1,5 +1,6 @@
 /**
- * Switching an external session to unrestricted mode takes a typed word.
+ * Switching an external session to unrestricted mode takes a typed word; so does
+ * any other mode only a person may choose (1.56.0, e.g. Claude Code's auto).
  *
  * Unrestricted means snowpea stops gating what the CLI runs, so a single key
  * would be too easy to hit: the person types `unrestricted` and presses Enter.
@@ -23,12 +24,15 @@ export function UnrestrictedConfirm({
   onConfirm,
   onCancel,
   isActive = true,
+  word = UNRESTRICTED_WORD,
 }: {
   lines: string[];
   width: number;
   onConfirm: () => void;
   onCancel: () => void;
   isActive?: boolean;
+  /** The word to type (1.56.0: a person-only native mode's own id, e.g. "auto"). */
+  word?: string;
 }): React.ReactElement {
   const [typed, setTyped] = useState("");
   const [wrong, setWrong] = useState(false);
@@ -40,7 +44,7 @@ export function UnrestrictedConfirm({
         return;
       }
       if (key.return) {
-        if (confirmsUnrestricted(typed)) onConfirm();
+        if (confirmsUnrestricted(typed, word)) onConfirm();
         else setWrong(true);
         return;
       }
@@ -70,7 +74,7 @@ export function UnrestrictedConfirm({
         <Text inverse> </Text>
       </Box>
       {wrong ? (
-        <Text color="red" wrap="truncate-end">{`Type exactly "${UNRESTRICTED_WORD}", or Esc to cancel.`}</Text>
+        <Text color="red" wrap="truncate-end">{`Type exactly "${word}", or Esc to cancel.`}</Text>
       ) : null}
     </Box>
   );

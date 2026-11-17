@@ -17,6 +17,7 @@ import type {
   ExternalCliInfo,
   ExternalEvent,
   ExternalModeName,
+  ExternalNativeMode,
   ExternalRef,
   ExternalSessionRow,
   ExternalState,
@@ -134,8 +135,109 @@ export function unrestrictedPrompt(input: { cli: string; title?: string | null; 
   ];
 }
 
-export function confirmsUnrestricted(typed: string): boolean {
-  return typed.trim().toLowerCase() === UNRESTRICTED_WORD;
+export function confirmsUnrestricted(typed: string, word: string = UNRESTRICTED_WORD): boolean {
+  return typed.trim().toLowerCase() === word.toLowerCase();
+}
+
+// --- the CLIs' own modes (1.56.0) ------------------------------------------------
+
+/**
+ * The modes a CLI offers as the CLI names them, its default first. Empty for a
+ * daemon older than 1.56.0 (no `nativeModes`): the three buckets apply then.
+ */
+export function nativeModesFor(info: ExternalCliInfo | null | undefined): ExternalNativeMode[] {
+  const listed = info?.nativeModes ?? [];
+  if (listed.length === 0) return [];
+  const first = info?.defaultNativeMode;
+  const head = listed.find((mode) => mode.id === first);
+  return head ? [head, ...listed.filter((mode) => mode !== head)] : [...listed];
+}
+
+/**
+ * One truthful line for a native mode, built from what it asks and writes.
+ * "read-only" only when it writes nothing at all.
+ */
+export function nativeModeDescription(mode: Pick<ExternalNativeMode, "asks" | "writes" | "approvals">): string {
+  if (mode.asks === "never" && mode.writes === "anywhere") {
+    return "never asks — snowpea no longer controls what it runs";
+  }
+  if (mode.writes === "none") {
+    return mode.asks === "never" ? "read-only; never asks" : "read-only; asks before anything else";
+  }
+  if (mode.writes === "plan") {
+    return mode.asks === "never"
+      ? "plans first; writes only its plan file"
+      : "plans first; writes only its plan file, asks before it starts the work";
+  }
+  if (mode.asks === "always") return "asks whenever a permission is needed";
+  if (mode.asks === "sometimes") {
+    return mode.approvals === "bridged"
+      ? "proceeds on its own, asks when unsure"
+      : "proceeds on its own; what it asks is not shown here";
+  }
+  return mode.writes === "workspace"
+    ? "edits the project and runs commands without asking"
+    : "never asks";
+}
+
+/** The open session's native mode as its CLI lists it, when the daemon said which. */
+export function nativeModeOf(
+  session: Pick<ExternalSessionRow, "nativeMode" | "ref">,
+  infos: readonly ExternalCliInfo[] | null | undefined,
+): ExternalNativeMode | null {
+  if (!session.nativeMode) return null;
+  const info = infos?.find((entry) => entry.id === session.ref.cli);
+  return info?.nativeModes?.find((mode) => mode.id === session.nativeMode) ?? null;
+}
+
+/** The mode the header shows: the CLI's own label when known, else the bucket. */
+export function sessionModeLabel(
+  session: Pick<ExternalSessionRow, "mode" | "nativeMode" | "ref">,
+  infos?: readonly ExternalCliInfo[] | null,
+): string {
+  if (session.mode === "unrestricted") return modeLabel(session.mode);
+  const native = nativeModeOf(session, infos);
+  if (native) return native.label;
+  return session.nativeMode ?? modeLabel(session.mode);
+}
+
+/** What a word typed after `/external mode` asks for on this CLI. */
+export type ModeChoice =
+  | { kind: "native"; mode: ExternalNativeMode }
+  | { kind: "legacy"; mode: ExternalModeName }
+  | { kind: "unknown"; offered: string[] };
+
+export function chooseMode(info: ExternalCliInfo | null | undefined, word: string): ModeChoice {
+  const natives = nativeModesFor(info);
+  const native = natives.find((mode) => mode.id === word) ??
+    natives.find((mode) => mode.id.toLowerCase() === word.toLowerCase());
+  if (native) return { kind: "native", mode: native };
+  if (word === "default" || word === "readonly" || word === "unrestricted") {
+    return { kind: "legacy", mode: word };
+  }
+  return { kind: "unknown", offered: natives.map((mode) => mode.id) };
+}
+
+/** The word a person types to choose a person-only native mode. */
+export function personOnlyWord(mode: Pick<ExternalNativeMode, "id" | "legacy">): string {
+  return mode.legacy === "unrestricted" ? UNRESTRICTED_WORD : mode.id.toLowerCase();
+}
+
+/** The explanation above the typed confirmation of a person-only native mode. */
+export function personOnlyPrompt(input: {
+  cli: string;
+  title?: string | null;
+  cwd: string;
+  mode: ExternalNativeMode;
+}): string[] {
+  if (input.mode.legacy === "unrestricted") return unrestrictedPrompt(input);
+  return [
+    `Switch ${cliLabel(input.cli)}${input.title ? ` "${input.title}"` : ""} to ${input.mode.label}?`,
+    `Folder: ${input.cwd}`,
+    `${input.mode.label}: ${nativeModeDescription(input.mode)}.`,
+    "Only you can choose it — Jarvis cannot. What it still asks comes here. This is recorded.",
+    `Type "${personOnlyWord(input.mode)}" and press Enter to confirm, Esc to cancel.`,
+  ];
 }
 
 /** The modes a CLI offers for a new session, default first. */
@@ -248,6 +350,7 @@ export function pickerLabel(row: ExternalSessionRow, width: number, showFolder: 
   const bits = [statusWord(row), hostLabel(row)];
   if (row.canSend === false) bits.push("view only");
   if (row.mode === "unrestricted") bits.push("UNRESTRICTED");
+  else if (row.nativeMode && row.nativeMode !== row.mode) bits.push(row.nativeMode);
   return spread(`${agentOfExternal(row.ref.cli).tag} ${title}${folder}`, bits.join(" · "), width);
 }
 

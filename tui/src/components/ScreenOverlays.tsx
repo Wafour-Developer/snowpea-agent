@@ -139,6 +139,7 @@ export function ScreenOverlays({
     return (
       <UnrestrictedConfirm
         lines={ui.lines}
+        word={ui.word}
         width={width}
         onConfirm={screens.confirmUnrestricted}
         onCancel={() => screens.setUi(null)}

@@ -3689,7 +3689,7 @@ export function App({
       status={[
         externalOpen.state.turnActive ? "running" : externalOpen.session.status,
         hostLabel(externalOpen.session),
-        externalModeLabel(externalOpen.session.mode),
+        screens.externalModeLabel ?? externalModeLabel(externalOpen.session.mode),
       ].join(" · ")}
       warning={externalWarning}
       viewOnly={externalViewOnly}
