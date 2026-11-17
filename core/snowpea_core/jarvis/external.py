@@ -213,6 +213,7 @@ def overview_rows(service: JarvisService) -> list[JarvisOverviewRow]:
                 status=status,
                 host=row.get("host"),
                 mode=row.get("mode"),
+                nativeMode=row.get("nativeMode"),
                 controlled=bool(row.get("controlled", True)),
                 approvals=row.get("approvals"),
                 pendingApprovals=approvals,

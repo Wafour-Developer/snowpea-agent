@@ -47,6 +47,10 @@ class NativeMode:
     #: A token the installed CLI must list (e.g. ``auto`` among Claude Code's
     #: ``--permission-mode`` choices); ``None`` when every supported version has it.
     requires: str | None = field(default=None, compare=False)
+    #: How to switch to it in the CLI's own terminal UI (the tmux bridge):
+    #: ``{"slash": "/plan"}`` (a slash command) or ``{"cycle": True}`` (the mode
+    #: key, Shift+Tab, pressed until the pane shows it); ``None``: not there.
+    terminal: Mapping[str, Any] | None = field(default=None, compare=False)
 
     def to_wire(self) -> dict[str, Any]:
         return {

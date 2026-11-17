@@ -109,11 +109,12 @@ NATIVE_MODES: tuple[NativeMode, ...] = (
     NativeMode("default", "Default", "sometimes", "workspace", "bridged", False, "default",
                launch={"acpMode": "default"}),
     NativeMode("accept-edits", "Accept edits", "sometimes", "workspace", "bridged", True,
-               "default", launch={"acpMode": "accept-edits"}, requires="accept-edits"),
+               "default", launch={"acpMode": "accept-edits"}, requires="accept-edits",
+               terminal={"cycle": True}),
     NativeMode("auto", "Auto", "sometimes", "workspace", "bridged", True, "default",
-               launch={"acpMode": "auto"}, requires="auto"),
+               launch={"acpMode": "auto"}, requires="auto", terminal={"cycle": True}),
     NativeMode("plan", "Plan", "sometimes", "plan", "bridged", False, "default",
-               launch={"acpMode": "plan"}, requires="plan"),
+               launch={"acpMode": "plan"}, requires="plan", terminal={"cycle": True}),
     NativeMode("dangerously-skip-permissions", "Skip permissions", "never", "anywhere",
                "none", True, "unrestricted",
                launch={"acpMode": "default", "bypass": ("--dangerously-skip-permissions",)}),
@@ -1125,8 +1126,9 @@ class AgyAdapter(ExternalAdapter):
             yield indexed_items(info.id, steps) if steps else []
 
     async def liveness(self, info: SessionInfo, *, own_pids: set[int]) -> Liveness:
-        if self.holders(info.id, own_pids):
-            return Liveness(host="terminal")
+        held = self.holders(info.id, own_pids)
+        if held:
+            return Liveness(host="terminal", pids=tuple(sorted(held)))
         return Liveness()
 
     # -- running --------------------------------------------------------------

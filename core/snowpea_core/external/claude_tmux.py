@@ -89,12 +89,30 @@ WINDOW = ("200", "50")
 _TRUST_MARKERS = ("quick safety check", "trust this folder", "do you trust")
 
 
+#: The tmux binary, resolved once on ``PATH`` and pinned (absolute, real path),
+#: like the CLI binaries; ``set_tmux_binary`` overrides it (tests: a fake tmux).
+_TMUX_BINARY: list[str | None] = []
+
+
+def set_tmux_binary(path: str | None) -> None:
+    """Pin ``path`` as the tmux binary (``None`` forgets the pin; looked up again)."""
+    _TMUX_BINARY.clear()
+    if path is not None:
+        if not os.path.isabs(path):
+            raise ExternalError(errors.INVALID_PARAMS, "the tmux binary must be an absolute path")
+        _TMUX_BINARY.append(path)
+
+
 def tmux_executable() -> str | None:
+    if _TMUX_BINARY:
+        return _TMUX_BINARY[0]
     found = shutil.which("tmux")
     if not found:
         return None
     with contextlib.suppress(OSError, RuntimeError):
-        return str(Path(found).resolve(strict=True))
+        resolved = str(Path(found).resolve(strict=True))
+        _TMUX_BINARY.append(resolved)
+        return resolved
     return None
 
 
@@ -232,6 +250,13 @@ class Tmux:
             raise unavailable(f"could not run tmux: {exc.strerror or exc}") from exc
         try:
             out, err = await asyncio.wait_for(child.communicate(data), timeout)
+        except asyncio.CancelledError:
+            # A watcher stopped mid-call: reap this tmux client, then go.
+            with contextlib.suppress(ProcessLookupError):
+                child.kill()
+            with contextlib.suppress(BaseException):
+                await asyncio.shield(child.wait())
+            raise
         except TimeoutError as exc:
             with contextlib.suppress(ProcessLookupError):
                 child.kill()

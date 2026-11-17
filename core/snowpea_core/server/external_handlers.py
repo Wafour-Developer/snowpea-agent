@@ -37,6 +37,7 @@ from snowpea_core.server.protocol import (
     ExternalSendParams,
     ExternalSendResult,
     ExternalSetModeParams,
+    ExternalTerminalSnapshotResult,
     Ok,
 )
 from snowpea_core.session import workspaces as ws
@@ -60,6 +61,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "external.close",
     "external.get",
     "external.unwatch",
+    "external.terminalSnapshot",
 )
 
 
@@ -326,6 +328,15 @@ async def get_handler(
     return ExternalGetResult.model_validate(result)
 
 
+async def terminal_snapshot_handler(
+    conn: RpcConnection, params: ExternalRefParams, core: Core
+) -> ExternalTerminalSnapshotResult:
+    """``external.terminalSnapshot``: people only (PERSON_METHODS), the pane's plain text."""
+    require_person(conn, "read a terminal", local=False)
+    result = await _call(ensure_manager(core).terminal_snapshot(params.ref.cli, params.ref.id))
+    return ExternalTerminalSnapshotResult.model_validate(result)
+
+
 async def unwatch_handler(conn: RpcConnection, params: ExternalRefParams, core: Core) -> Ok:
     await _call(ensure_manager(core).unwatch(params.ref.cli, params.ref.id, conn=conn))
     return Ok(ok=True)
@@ -344,6 +355,7 @@ def register_external_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("external.close", close_handler)
     dispatcher.register("external.get", get_handler)
     dispatcher.register("external.unwatch", unwatch_handler)
+    dispatcher.register("external.terminalSnapshot", terminal_snapshot_handler)
     return dispatcher
 
 

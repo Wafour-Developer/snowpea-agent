@@ -105,9 +105,10 @@ _VERSION_RE = re.compile(r"(\d{4})\.(\d{1,2})\.(\d{1,2})")
 #: its plan (not verified by a run; never called read-only).
 NATIVE_MODES: tuple[NativeMode, ...] = (
     NativeMode("ask", "Ask", "never", "none", "none", False, "readonly",
-               launch={"args": ("--mode", "ask")}),
+               launch={"args": ("--mode", "ask")}, terminal={"cycle": True}),
     NativeMode("plan", "Plan", "never", "plan", "none", False, "readonly",
-               launch={"args": ("--mode", "plan")}, requires="plan"),
+               launch={"args": ("--mode", "plan")}, requires="plan",
+               terminal={"cycle": True}),
     NativeMode("agent", "Agent", "never", "workspace", "none", False, "default"),
     NativeMode("yolo", "Run Everything", "never", "anywhere", "none", True, "unrestricted",
                launch={"bypass": ("--yolo",)}),
@@ -1279,7 +1280,7 @@ class CursorAdapter(ExternalAdapter):
             if transcript:
                 with contextlib.suppress(OSError):
                     busy = time.time() - Path(transcript).stat().st_mtime < _BUSY_WINDOW_SEC
-            return Liveness(host="terminal", busy=busy)
+            return Liveness(host="terminal", busy=busy, pids=(pid,))
         return Liveness()
 
     # -- running ----------------------------------------------------------

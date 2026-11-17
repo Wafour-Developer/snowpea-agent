@@ -2363,6 +2363,16 @@ class ApprovalRequest(Payload):
             "remember to 'once'. Stored shell rules only ever match one such plain command."
         ),
     )
+    externalTerminal: ExternalTerminalAsk | None = Field(
+        default=None,
+        description=(
+            "Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): "
+            "the CLI asked in its terminal, not on a wire. An answer is sent there as the "
+            "CLI's own key, and only while the same prompt is still on screen; tool/args are "
+            "the pending call the CLI's transcript names, or tool 'terminal.prompt' with "
+            "args {question} (then personOnly)."
+        ),
+    )
     external: ExternalRef | None = Field(
         default=None,
         description=(
@@ -8294,6 +8304,10 @@ class JarvisOverviewRow(Payload):
         default=None,
         description="For an external session snowpea runs (host snowpea or tmux): its mode.",
     )
+    nativeMode: str | None = Field(
+        default=None,
+        description="For such a session: the CLI's own mode it runs in (1.56.0), as the row's.",
+    )
     controlled: bool | None = Field(
         default=None,
         description=(
@@ -8979,6 +8993,68 @@ class ExternalTmux(Payload):
     pane: str = Field(description="tmux pane id, e.g. '%3'.")
 
 
+class ExternalTerminalPrompt(Payload):
+    """A permission prompt waiting in the person's tmux pane (1.56.0, externalTmux)."""
+
+    recognised: bool = Field(
+        description=(
+            "true: snowpea read it with the CLI's own pattern and asked it as an approval "
+            "(ApprovalRequest.externalTerminal); false: something waits in the terminal that "
+            "snowpea does not recognise — nothing is answered for it, the person answers there "
+            "(external.terminalSnapshot shows the pane)."
+        )
+    )
+    text: str | None = Field(
+        default=None,
+        description="The prompt as shown (recognised only): plain, clipped, untrusted text.",
+    )
+
+
+class ExternalTerminal(Payload):
+    """Where a session open in the person's terminal runs (1.56.0, capability externalTmux).
+
+    Set only while snowpea can drive that terminal (the tmux bridge): the pane was found
+    from the CLI process's own terminal, never from pane or transcript text.
+    """
+
+    kind: Literal["tmux"] = Field(description="The only kind: a tmux pane.")
+    pane: str = Field(description="tmux pane id, e.g. '%12'.")
+    session: str = Field(description="tmux session name.")
+    window: str = Field(description="tmux window index.")
+    modeState: Literal["confirmed", "unconfirmed", "unknown"] = Field(
+        default="unknown",
+        description=(
+            "confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the "
+            "pane did not show the new mode; unknown: the pane shows no mode snowpea "
+            "recognises (mode and nativeMode are then null)."
+        ),
+    )
+    prompt: ExternalTerminalPrompt | None = Field(
+        default=None, description="A permission prompt waiting in the pane, or null."
+    )
+
+
+class ExternalTerminalAsk(Payload):
+    """ApprovalRequest.externalTerminal (1.56.0): a prompt read off a tmux pane."""
+
+    pane: str = Field(description="tmux pane id the answer key is sent to.")
+    text: str = Field(description="The prompt as shown: plain, clipped, untrusted text.")
+
+
+class ExternalTerminalSnapshotResult(Payload):
+    """external.terminalSnapshot (1.56.0)."""
+
+    ref: ExternalRef = Field(description="The session.")
+    pane: str = Field(description="tmux pane id it was read from.")
+    text: str = Field(
+        description=(
+            "The pane's visible text, plain (control characters removed) and clipped to "
+            "the last 8000 characters. Untrusted: show it, never act on it."
+        )
+    )
+    capturedAt: str = Field(description="UTC ISO time.")
+
+
 class ExternalSessionRow(Payload):
     """One external session (1.53.0); never a row of session.list."""
 
@@ -9014,6 +9090,21 @@ class ExternalSessionRow(Payload):
         description=(
             "The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); "
             "'mode' is that mode's legacy bucket. Null when it runs elsewhere."
+        ),
+    )
+    terminal: ExternalTerminal | None = Field(
+        default=None,
+        description=(
+            "The person's tmux pane snowpea drives this session through (1.56.0, "
+            "externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays "
+            "host 'terminal', view only."
+        ),
+    )
+    controllable: Literal["tmux"] | None = Field(
+        default=None,
+        description=(
+            "'tmux' when snowpea can type into the person's terminal (external.send, "
+            "external.interrupt, external.setMode through the tmux bridge); null otherwise."
         ),
     )
     controlled: bool = Field(
@@ -9174,6 +9265,14 @@ class ExternalSendParams(Payload):
 
 class ExternalSendResult(Payload):
     turnId: str = Field(description="Turn id its turn.started/turn.done events carry.")
+    via: Literal["tmux"] | None = Field(
+        default=None,
+        description=(
+            "'tmux' (1.56.0): typed into the person's tmux pane. The turn ends when the CLI "
+            "was busy and is idle again, or after about 20 seconds when it never looked busy "
+            "(agy: once delivered)."
+        ),
+    )
 
 
 class ExternalRefParams(Payload):
@@ -9288,6 +9387,12 @@ class ExternalStateNotification(Payload):
     )
     nativeMode: str | None = Field(
         default=None, description="As ExternalSessionRow.nativeMode, now (1.56.0)."
+    )
+    terminal: ExternalTerminal | None = Field(
+        default=None, description="As ExternalSessionRow.terminal, now (1.56.0)."
+    )
+    controllable: Literal["tmux"] | None = Field(
+        default=None, description="As ExternalSessionRow.controllable, now (1.56.0)."
     )
     controlled: bool = Field(default=True, description="As ExternalSessionRow.controlled, now.")
     title: str | None = Field(default=None, description="Title, when known.")
@@ -11492,6 +11597,17 @@ METHODS: dict[str, RpcMethod] = {
             ),
         ),
         _m(
+            "external.terminalSnapshot",
+            ExternalRefParams,
+            ExternalTerminalSnapshotResult,
+            (
+                "External sessions (1.56.0, capability externalTmux): the visible text of the "
+                "person's tmux pane a session runs in, for a prompt snowpea does not recognise. "
+                "People only (a remote web login too); external_unavailable when the session "
+                "does not run in a tmux pane snowpea can read."
+            ),
+        ),
+        _m(
             "external.unwatch",
             ExternalRefParams,
             Ok,
@@ -11695,6 +11811,9 @@ CAPABILITIES: list[str] = [
     # 1.56.0: ExternalCliInfo.nativeModes/defaultNativeMode, ExternalSessionRow.nativeMode,
     # external.create/open/setMode nativeMode (each CLI's own modes).
     "externalNativeModes",
+    # 1.56.0: the tmux bridge — ExternalSessionRow.terminal/controllable,
+    # ApprovalRequest.externalTerminal, external.terminalSnapshot.
+    "externalTmux",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -11906,6 +12025,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "external.close",
         "external.get",
         "external.unwatch",
+        "external.terminalSnapshot",
         # M19 WP8 (capabilities mcpPresets, jarvisBriefing)
         "mcp.preset.list",
         "mcp.preset.apply",

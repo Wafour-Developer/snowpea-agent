@@ -351,6 +351,13 @@ export interface ApprovalListResult {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     } | null;
+    /** Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). */
+    externalTerminal?: {
+      /** tmux pane id the answer key is sent to. */
+      pane: string;
+      /** The prompt as shown: plain, clipped, untrusted text. */
+      text: string;
+    } | null;
     /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
     folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
@@ -411,6 +418,13 @@ export interface ApprovalRequestParams {
     cli: "claude" | "codex" | "agy" | "cursor";
     /** The CLI's own session (thread, chat) id. */
     id: string;
+  } | null;
+  /** Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). */
+  externalTerminal?: {
+    /** tmux pane id the answer key is sent to. */
+    pane: string;
+    /** The prompt as shown: plain, clipped, untrusted text. */
+    text: string;
   } | null;
   /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
   folder?: string | null;
@@ -1200,6 +1214,8 @@ export interface ExternalCreateResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1227,6 +1243,26 @@ export interface ExternalCreateResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1260,6 +1296,8 @@ export interface ExternalGetResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1287,6 +1325,26 @@ export interface ExternalGetResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1344,6 +1402,8 @@ export interface ExternalListResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1371,6 +1431,26 @@ export interface ExternalListResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1431,6 +1511,8 @@ export interface ExternalOpenResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1458,6 +1540,26 @@ export interface ExternalOpenResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1525,6 +1627,8 @@ export interface ExternalSendParams {
 export interface ExternalSendResult {
   /** Turn id its turn.started/turn.done events carry. */
   turnId: string;
+  /** 'tmux' (1.56.0): typed into the person's tmux pane. The turn ends when the CLI was busy and is idle again, or after about 20 seconds when it never looked busy (agy: once delivered). */
+  via?: "tmux" | null;
 }
 
 /** `external.setMode` params. External sessions (1.53.0, WP6): switch a session to default, readonly or unrestricted; unrestricted only from a human connection. */
@@ -1550,6 +1654,8 @@ export interface ExternalSetModeResult {
     approvals?: "bridged" | "person" | "degraded" | "none";
     /** external.send is accepted now: host none, snowpea, or tmux (pane running). */
     canSend?: boolean;
+    /** 'tmux' when snowpea can type into the person's terminal (external.send, external.interrupt, external.setMode through the tmux bridge); null otherwise. */
+    controllable?: "tmux" | null;
     /** False when snowpea cannot gate what it does: mode 'unrestricted', cursor outside 'readonly', agy with approvalPolicy 'auto'. Clients warn; Jarvis's guarded-class rules do not apply inside it. */
     controlled?: boolean;
     /** Working directory the CLI recorded. */
@@ -1577,6 +1683,26 @@ export interface ExternalSetModeResult {
     securityListsApply?: boolean | null;
     /** idle, running or error. */
     status: "idle" | "running" | "error";
+    /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
+    terminal?: {
+      /** The only kind: a tmux pane. */
+      kind: "tmux";
+      /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+      modeState?: "confirmed" | "unconfirmed" | "unknown";
+      /** tmux pane id, e.g. '%12'. */
+      pane: string;
+      /** A permission prompt waiting in the pane, or null. */
+      prompt?: {
+        /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+        recognised: boolean;
+        /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+        text?: string | null;
+      } | null;
+      /** tmux session name. */
+      session: string;
+      /** tmux window index. */
+      window: string;
+    } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
     /** With host 'tmux': where. */
@@ -1589,6 +1715,34 @@ export interface ExternalSetModeResult {
     /** UTC ISO time of its last entry. */
     updatedAt?: string | null;
   };
+}
+
+/** `external.terminalSnapshot` params. External sessions (1.56.0, capability externalTmux): the visible text of the person's tmux pane a session runs in, for a prompt snowpea does not recognise. People only (a remote web login too); external_unavailable when the session does not run in a tmux pane snowpea can read. */
+export interface ExternalTerminalSnapshotParams {
+  /** The external session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+}
+
+/** `external.terminalSnapshot` result. */
+export interface ExternalTerminalSnapshotResult {
+  /** UTC ISO time. */
+  capturedAt: string;
+  /** tmux pane id it was read from. */
+  pane: string;
+  /** The session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+  /** The pane's visible text, plain (control characters removed) and clipped to the last 8000 characters. Untrusted: show it, never act on it. */
+  text: string;
 }
 
 /** `external.unwatch` params. External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok. */
@@ -2575,6 +2729,8 @@ export interface JarvisOverviewResult {
     levelScope?: "session" | "project" | "global" | "default" | null;
     /** For an external session snowpea runs (host snowpea or tmux): its mode. */
     mode?: "default" | "readonly" | "unrestricted" | null;
+    /** For such a session: the CLI's own mode it runs in (1.56.0), as the row's. */
+    nativeMode?: string | null;
     /** For a snowpea session: as SessionSummary.originSurface (1.54.0): the surface that owns its approvals ('gateway:<platform>:<chat>' for a messenger session, 'scheduler', 'jarvis-task', a client's surface id, …). */
     originSurface?: string | null;
     /** As SessionJarvisState.pausedUntil. */
@@ -9005,6 +9161,13 @@ export interface ApprovalPendingPayload {
       /** The CLI's own session (thread, chat) id. */
       id: string;
     } | null;
+    /** Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). */
+    externalTerminal?: {
+      /** tmux pane id the answer key is sent to. */
+      pane: string;
+      /** The prompt as shown: plain, clipped, untrusted text. */
+      text: string;
+    } | null;
     /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
     folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
@@ -9214,6 +9377,8 @@ export interface ExternalStatePayload {
   approvals: "bridged" | "person" | "degraded" | "none";
   /** As ExternalSessionRow.canSend, now. */
   canSend: boolean;
+  /** As ExternalSessionRow.controllable, now (1.56.0). */
+  controllable?: "tmux" | null;
   /** As ExternalSessionRow.controlled, now. */
   controlled?: boolean;
   /** With status 'error': why. */
@@ -9237,6 +9402,26 @@ export interface ExternalStatePayload {
   };
   /** Status now. */
   status: "idle" | "running" | "error";
+  /** As ExternalSessionRow.terminal, now (1.56.0). */
+  terminal?: {
+    /** The only kind: a tmux pane. */
+    kind: "tmux";
+    /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
+    modeState?: "confirmed" | "unconfirmed" | "unknown";
+    /** tmux pane id, e.g. '%12'. */
+    pane: string;
+    /** A permission prompt waiting in the pane, or null. */
+    prompt?: {
+      /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
+      recognised: boolean;
+      /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
+      text?: string | null;
+    } | null;
+    /** tmux session name. */
+    session: string;
+    /** tmux window index. */
+    window: string;
+  } | null;
   /** Title, when known. */
   title?: string | null;
   /** With host 'tmux': where. */
@@ -10682,6 +10867,7 @@ export interface MethodMap {
   "external.read": { params: ExternalReadParams; result: ExternalReadResult };
   "external.send": { params: ExternalSendParams; result: ExternalSendResult };
   "external.setMode": { params: ExternalSetModeParams; result: ExternalSetModeResult };
+  "external.terminalSnapshot": { params: ExternalTerminalSnapshotParams; result: ExternalTerminalSnapshotResult };
   "external.unwatch": { params: ExternalUnwatchParams; result: ExternalUnwatchResult };
   "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
   "fs.glob": { params: FsGlobParams; result: FsGlobResult };
@@ -10905,6 +11091,7 @@ export type ClientMethod =
   | "external.read"
   | "external.send"
   | "external.setMode"
+  | "external.terminalSnapshot"
   | "external.unwatch"
   | "file.complete"
   | "fs.glob"

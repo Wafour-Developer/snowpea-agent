@@ -115,6 +115,8 @@ class Liveness:
     host: Literal["none", "terminal", "tmux"] = "none"
     busy: bool = False
     tmux: dict[str, str] | None = None
+    #: The processes holding it (1.56.0): where the tmux bridge looks for a pane.
+    pids: tuple[int, ...] = ()
 
 
 @dataclass
@@ -131,6 +133,10 @@ class ApprovalAsk:
     #: never the engine, never an unattended rule.  E.g. adopting a tmux pane the
     #: person started themselves.
     person_only: bool = False
+    #: A prompt read off a tmux pane (1.56.0): ``{pane, text}`` (plain, clipped,
+    #: untrusted); ``ApprovalRequest.externalTerminal``.  Never answered from the
+    #: session's "allow for this session" memory.
+    terminal: dict[str, Any] | None = None
 
 
 @dataclass
@@ -269,6 +275,10 @@ class ExternalChannel(ABC):
     def pids(self) -> set[int]:
         """Pids of the processes this channel runs (to tell them from the person's)."""
         return set()
+
+    async def precheck(self, text: str) -> None:
+        """Refuse a send before the manager publishes anything (default: nothing)."""
+        return None
 
 
 class ExternalAdapter(ABC):

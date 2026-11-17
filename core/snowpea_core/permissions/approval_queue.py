@@ -546,6 +546,7 @@ class ApprovalQueue:
         tags: tuple[str, ...] | None = None,
         person_only: bool = False,
         external: ExternalRef | None = None,
+        external_terminal: dict[str, Any] | None = None,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied.
 
@@ -627,6 +628,7 @@ class ApprovalQueue:
             ),
             personOnly=True if person_only else None,
             external=external,
+            externalTerminal=external_terminal,
             argsEscaped=True if escaped else None,
             neverDelegable=True if never else None,
             reason=(security.reason or UNCHECKED_REASON) if unchecked else None,

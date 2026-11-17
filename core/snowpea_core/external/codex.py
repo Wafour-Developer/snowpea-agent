@@ -1712,7 +1712,7 @@ class CodexAdapter(ExternalAdapter):
         if self.server.pid is not None:
             ours.add(self.server.pid)
         if holders - ours:
-            return Liveness(host="terminal", busy=busy)
+            return Liveness(host="terminal", busy=busy, pids=tuple(sorted(holders - ours)))
         return Liveness()
 
     @staticmethod

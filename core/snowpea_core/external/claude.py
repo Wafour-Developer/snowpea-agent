@@ -90,14 +90,15 @@ MODEL_ALIASES: tuple[str, ...] = ("fable", "opus", "sonnet", "haiku")
 #: installed version lists that choice.
 NATIVE_MODES: tuple[NativeMode, ...] = (
     NativeMode("default", "Default", "always", "workspace", "bridged", False, "default",
-               launch={"permissionMode": "default"}),
+               launch={"permissionMode": "default"}, terminal={"cycle": True}),
     NativeMode("acceptEdits", "Accept edits", "sometimes", "workspace", "bridged", True,
                "default", launch={"permissionMode": "acceptEdits", "granted": True},
-               requires="acceptEdits"),
+               requires="acceptEdits", terminal={"cycle": True}),
     NativeMode("plan", "Plan", "always", "plan", "bridged", False, "readonly",
-               launch={"permissionMode": "plan"}),
+               launch={"permissionMode": "plan"}, terminal={"slash": "/plan"}),
     NativeMode("auto", "Auto", "sometimes", "workspace", "bridged", True, "default",
-               launch={"permissionMode": "auto", "granted": True}, requires="auto"),
+               launch={"permissionMode": "auto", "granted": True}, requires="auto",
+               terminal={"cycle": True}),
     NativeMode("dontAsk", "Don't ask", "never", "workspace", "none", True, "default",
                launch={"permissionMode": "dontAsk", "granted": True}, requires="dontAsk"),
     NativeMode("bypassPermissions", "Bypass permissions", "never", "anywhere", "none", True,
@@ -820,9 +821,11 @@ def liveness_of(session_id: str, own_pids: set[int]) -> tuple[Liveness, dict[str
     data = max(holders, key=status_time)
     busy = data.get("status") in ("busy", "waiting")
     pane = tmux_field(data.get("tmux"))
+    pid = data.get("pid")
+    pids = (pid,) if isinstance(pid, int) and pid > 0 else ()
     if pane is not None:
-        return Liveness(host="tmux", busy=busy, tmux=pane), data
-    return Liveness(host="terminal", busy=busy), data
+        return Liveness(host="tmux", busy=busy, tmux=pane, pids=pids), data
+    return Liveness(host="terminal", busy=busy, pids=pids), data
 
 
 # ---------------------------------------------------------------------------

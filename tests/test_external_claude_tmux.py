@@ -449,6 +449,8 @@ async def test_adopting_over_external_open_is_the_persons_call(tmp_path: Path,
                                                 poll_interval=0.05)]),
         roots=roots, poll_interval=0.1, sweep_interval=3600,
     )
+    # The automatic tmux bridge (1.56.0) is off here: this is the explicit adoption.
+    manager.tmux_sockets = []
     with env_vars(FAKE_CLI_LOG=str(tmp_path / "fake.log"), FAKE_CLI_SCENARIO=None):
         write_transcript(str(project), [user("earlier", str(project))], session_id=sid)
         pane, pid = _person_pane(socket, project, sid)
