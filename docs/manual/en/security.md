@@ -149,7 +149,9 @@ At start snowpea takes `settings.json` as it is — unless it is not a regular f
 
 ## Lines snowpea cannot check
 
-Whatever snowpea could not read on a line is put to you, in every mode, marked "cannot be checked against your block list"; Jarvis does not decide it. It is not refused — you decide.
+When snowpea cannot tell before a line runs what it will touch (a program named by a variable, a script it cannot read, a write whose target is computed), it puts the line to you, marked "cannot be checked against your block list"; Jarvis does not decide it. It is not refused — you decide. With the default `security.unknownCode: "auto"` (below) such a line runs without a question in a session in auto mode. A line that acts on snowpea's own controls always asks.
+
+Running snowpea's own program only to read is an ordinary read: `snowpea --help`, `snowpea --version`, `snowpea session list`, `snowpea daemon status`, `snowpea agents` (also after `export PATH="$HOME/.local/bin:$PATH"`). Every other `snowpea …` (`project trust`, `--home`, `daemon stop`, …) asks you in every mode.
 
 What cannot be read: the program comes from a variable or a substitution (`$CMD …`, `` `echo rm` … ``), `eval` of a variable, a script piped into a shell (`… | sh`), a `sh -c` built from variables, inline code for a program snowpea has no reader for (`mongosh --eval`, `gdb -ex`, `Rscript -e`, `elixir -e`, …), a command sent to another machine (`ssh host 'command'`; on this machine the command is read) or handed over to run later (`crontab file`, `at`, `batch`, `launchctl load`), a function that takes the name of a shell builtin (`cd() { … }`), a path only the shell knows and nothing in front of it tells where it lands. These first ones are asked **even when both lists are empty**, because an act on snowpea's own files could hide there.
 
@@ -180,15 +182,19 @@ Common harmless things that ask, so you know why you see the card: a script the 
 
 ### `security.unknownCode`
 
-If those questions are more than you want, you can switch some of them off on the Security screen, or in `$SNOWPEA_HOME/settings.json` (a hand edit of this setting waits for your confirmation, see above):
+"Commands and scripts snowpea cannot read ahead" on the Security screen, or in `$SNOWPEA_HOME/settings.json` (a hand edit of this setting waits for your confirmation, see above):
 
 ```json
-{ "security": { "unknownCode": "allow" } }
+{ "security": { "unknownCode": "auto" } }
 ```
 
-`"ask"` is the default. What `"allow"` means, exactly: code runs without a question when the only thing snowpea could not tell is **which path** an ordinary write, copy, move or delete lands on (`os.remove(path)`, `open(out, "w")`), when the code is too large or too odd to parse, or when it is `python -m` of a module snowpea does not know.
+- `"ask"`: asked in every mode.
+- `"auto"` (the default since 0.2.90): not asked in a session in auto mode; asked in plan and accept.
+- `"allow"`: not asked in any mode.
 
-It does **not** switch off the rest. These still ask with `"allow"`: a command built from variables (`subprocess.run(cmd)`); a call reached through `getattr`, `globals()`, an alias or a computed import; `exec`/`eval` of a computed string and the other ways to run a string as code; native code (`ctypes`); code fed to an interpreter that snowpea never saw (`curl … | python3`); code in a language snowpea has no reader for; anything that touches snowpea's own files or command; the git and variable cases above. Blocked commands and protected folders are still refused.
+What it gives up: with `"auto"` (in auto mode) or `"allow"`, a script or command whose target is computed while it runs can write to a protected folder without a question. What snowpea can read is still judged: blocked commands and protected paths it sees are refused. These always ask, whatever the setting: anything that acts on snowpea's own files or command (or names snowpea next to something unreadable); a program only the shell knows given a protected path (`$X -rf ~`); a change to `HOME`, `PWD`, `PATH` or a similar variable; git told to run a program, a write where git or `PATH` finds programs; a script the same line writes and then runs.
+
+Settings written by snowpea 0.2.88 and 0.2.89 hold `"ask"` (the old default). The first start of 0.2.90 changes a stored `"ask"` to `"auto"` once, says so on the Security screen and records it in `$SNOWPEA_HOME/security/unknown-code-migrated.json`; after that it never changes it again, so if you set `"ask"` back it stays.
 
 Only you, on a local connection, can change it; a project cannot.
 

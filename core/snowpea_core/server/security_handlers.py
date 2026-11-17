@@ -125,6 +125,11 @@ async def get_handler(
         problems.append(
             f"{credentials} is a symbolic link: no stored credential is used; replace the "
             "link with the file itself")
+    if getattr(core, "unknown_code_migrated", False) and \
+            enforce.unknown_code(core.settings) == "auto":
+        # 0.2.90, once per home: told on this screen until the person changes it
+        # or the daemon restarts.
+        problems.append(enforce.UNKNOWN_CODE_MIGRATED_NOTE)
     waiting = sorted(getattr(core, "settings_waiting", None) or {})
     if waiting:
         problems.append(

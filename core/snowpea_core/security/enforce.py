@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -114,6 +115,64 @@ def unknown_code(settings: Any) -> str:
     """
     value = getattr(getattr(settings, "security", None), "unknownCode", "ask")
     return value if value in ("auto", "allow") else "ask"
+
+
+#: Where the one-time ``security.unknownCode`` migration of 0.2.90 is recorded
+#: (under ``$SNOWPEA_HOME``; ``security/`` is a write-level control folder, so no
+#: tool removes the marker to run the migration again).
+UNKNOWN_CODE_MARKER: tuple[str, ...] = ("security", "unknown-code-migrated.json")
+#: What ``security.get`` says while this daemon run migrated the value.
+UNKNOWN_CODE_MIGRATED_NOTE = (
+    "snowpea 0.2.90 changed 'Commands and scripts snowpea cannot read ahead' from ask to "
+    "auto (not asked in auto mode, asked in plan and accept); set it back to ask on this "
+    "screen if you want every such command asked")
+
+
+def migrate_unknown_code(settings: Any, paths: Any) -> bool:
+    """Once per home, at the daemon's start (owner decision 2026-11-17): a GLOBAL
+    ``settings.json`` that stores ``security.unknownCode: "ask"`` — what every
+    0.2.88/0.2.89 file holds, since the old default was written out — becomes
+    ``"auto"``, the default since 0.2.90.  Returns True when it changed the value.
+
+    The marker makes it once: after it exists nothing is migrated again, so a
+    person who sets ``ask`` later keeps it.  ``allow``, ``auto`` or no key: only
+    the marker is written.  A degraded or unreadable settings file: nothing at
+    all (the value stays ``ask``; the next start looks again).  Project files are
+    never read here: the setting is global only.  Never raises.
+    """
+    import datetime
+
+    from snowpea_core.util.atomic import write_atomic
+
+    try:
+        marker = Path(paths.home).joinpath(*UNKNOWN_CODE_MARKER)
+        if os.path.lexists(marker):
+            return False
+        degraded = settings.degraded_sections()
+        if "security" in degraded or "*" in degraded:
+            return False
+        try:
+            raw = json.loads(Path(paths.settings_json).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raw = {}
+        section = raw.get("security") if isinstance(raw, dict) else None
+        stored = section.get("unknownCode") if isinstance(section, dict) else None
+        changed = False
+        if stored == "ask":
+            settings.security.unknownCode = "auto"
+            settings.set_section("security")
+            settings.save(paths)
+            changed = True
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+        write_atomic(marker, json.dumps({"at": stamp, "from": stored,
+                                         "to": "auto" if changed else stored}) + "\n")
+        if changed:
+            log.info("security.unknownCode migrated once from 'ask' to 'auto' (0.2.90 default)")
+        return changed
+    except Exception:  # noqa: BLE001 - a failed migration leaves the setting as it was
+        log.warning("could not migrate security.unknownCode", exc_info=True)
+        return False
 
 
 def lists_for(settings: Any, workdir: Any) -> Lists:

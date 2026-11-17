@@ -195,6 +195,9 @@ class Core:
     #: External CLI sessions (M19 WP5, ``external.manager.ExternalManager``);
     #: built by ``server.external_handlers.ensure_manager``.
     external: Any = None
+    #: This daemon's start migrated ``security.unknownCode`` from ``ask`` to
+    #: ``auto`` (once per home, 0.2.90): ``security.get`` says so while it holds.
+    unknown_code_migrated: bool = False
 
     def __post_init__(self) -> None:
         # Security review 7, H-2: this daemon's home is never a project folder
@@ -969,11 +972,18 @@ class Daemon:
                     + "".join(f"; {note}" for note in notes))
             log.error("%s", line)
             print(line, file=sys.stderr, flush=True)
+        # Once per home (0.2.90): a stored "ask" — the old default, written out —
+        # becomes "auto".  Saved before the file's stamp is taken below, so it is
+        # the daemon's own write and nothing waits for a person.
+        from snowpea_core.security.enforce import migrate_unknown_code
+
+        unknown_code_migrated = migrate_unknown_code(settings, paths)
         if self._preissued_token:
             write_token(paths, self._preissued_token)
         token = ensure_token(paths)
         core = Core(settings=settings, paths=paths, token=token)
         core.checkpoints = CheckpointStore(paths, settings)
+        core.unknown_code_migrated = unknown_code_migrated
         core.settings_stamp = hot_reload.stamp(paths.settings_json)
         core.allowlist.bind(paths, settings)
         core.policy.bind(core.allowlist)

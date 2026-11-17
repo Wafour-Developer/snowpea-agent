@@ -10253,7 +10253,10 @@ class SecurityGetResult(SecurityLists):
             "controls (its CLI, its files) still stop or ask whatever this says; a script "
             "or command whose target is computed at run time can then write to a protected "
             "folder without a prompt. Settings written by 0.2.88-0.2.89 hold 'ask' (the "
-            "old default was written out) and keep it. Written with settings.set {scope: "
+            "old default was written out): the first start of 0.2.90 changes a stored "
+            "'ask' to 'auto' once (marker $SNOWPEA_HOME/security/unknown-code-migrated.json; "
+            "problems carries one line saying so until the value changes or the daemon "
+            "restarts), never again after. Written with settings.set {scope: "
             "'global', patch: {security: {unknownCode}}} by a local person only; a project "
             "scope refuses it (invalid_params, details.reason 'global_only')."
         ),
