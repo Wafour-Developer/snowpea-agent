@@ -77,7 +77,7 @@ Every connection through the second listener is a **remote sign-in**, with the l
 Some things a remote sign-in cannot do through snowpea's own screens; the page says the change needs a local connection. They are kept on this computer so that a mistake, or a session someone borrowed for a minute, cannot change them by a click. This is not a wall against a person who holds the link — that person can run commands — so do not count on it as one.
 
 - **Remote access itself**: the listener, its address, the password, the link, `maxMode`. Also the daemon's settings, updates, restarts and extensions.
-- **Jarvis**: turning Jarvis mode on, giving it any authority (a delegation grant — a remote sign-in can still take a grant back, take a session over and hand it back), an external CLI's path, opening an external session unrestricted. The **briefing** — a recurring Jarvis task that carries your words — a remote sign-in can only turn off, also by asking Jarvis to change it.
+- **Jarvis**: turning Jarvis mode on, giving it any authority (a delegation grant — a remote sign-in can still take a grant back, take a session over and hand it back; with **Allow delegation from a remote web login** turned on here it can give a limited grant, see [Delegation from a remote sign-in](#delegation-from-a-remote-sign-in)), an external CLI's path, opening an external session unrestricted. The **briefing** — a recurring Jarvis task that carries your words — a remote sign-in can only turn off, also by asking Jarvis to change it.
 - **The security lists** (blocked commands, protected paths) and **project trust**.
 - **Allowlist rules.** A remote sign-in cannot add a rule, and when it answers an approval with "always" or "for this project" the answer holds until the session ends and no rule is stored.
 - **Messengers**: a token, the user and channel ids, the on/off switch, binding a chat to a session or to a named agent.
@@ -96,6 +96,26 @@ Limits of these rules, stated plainly:
 - MCP servers you add on this computer expand any `${VARIABLE}` from the daemon's environment (except `SNOWPEA_*`) and any credential name in `credentials.json`. Only add servers you trust there.
 - Memory entries a remote sign-in writes are not marked as its own.
 - The messenger chat bound to you is you, from another device: `maxMode` and the rules above do not narrow it.
+
+### Delegation from a remote sign-in
+
+By default a remote sign-in cannot give Jarvis any authority: the page tells you to confirm the grant on this computer, or where to turn the switch below on. If you mostly work from another machine, you can allow it, within fixed limits:
+
+1. On this computer, open **Settings > Jarvis > Delegation** and turn on **Allow delegation from a remote web login** (`jarvis.delegation.remoteGrant`, off by default). Only a local connection can change this switch: a remote sign-in, a browser host, the remote connector and the agent's own settings tool are refused, and an edit of `settings.json` on disk while the daemon runs waits until you accept it on this computer (see [Settings that wait for you](security.md#settings-that-wait-for-you)); like every setting there, an edit made while snowpea is not running is taken at the next start. If `settings.json` is broken, the switch counts as off.
+2. From the remote page, confirm a grant (Jarvis's proposal card, or the delegation card's actions). The page asks for your **remote password again** and for how long: 1 hour, 8 hours or 24 hours.
+
+The limits are enforced by the daemon, not by the page:
+
+- **The password again.** It is checked like a sign-in, and a wrong one counts toward the same [sign-in limits](#sign-in-limits) (from that address and from everywhere); past them the answer is "too many attempts". A sign-in made with the **access link** has no password to give, so it cannot give a grant: set a password and sign in with it. The password is never stored, written to a log or the ledger, or sent back in an error.
+- **One session or one project.** Never "everywhere".
+- **Staged or full, but no guarded kinds.** Deploy, push and release; deleting or writing outside the project; secrets and sending data out stay a confirmation on this computer. A proposal that includes one cannot be confirmed from the remote page; it stays waiting for you here.
+- **At most 24 hours.** A grant from a remote sign-in always ends; the default is 24 hours. A proposal from Jarvis with a later expiry is cut to 24 hours, or to what you chose.
+- **Marked.** The grant shows **From a remote login** in the grants list, and the ledger records each one. Revoking a grant from the remote page is allowed (it only takes authority away).
+- **Still a person's press.** Jarvis cannot confirm its own proposal, and neither can a messenger bot, a browser host, the remote connector or anything inside snowpea.
+
+Changing the password, signing out or stopping the listener does not end grants given this way; they end at their expiry, with their session, or when you revoke them.
+
+**The risk, plainly:** with this switch on, whoever knows the remote password can let Jarvis decide risky requests (but not the guarded kinds) in one session or project for up to 24 hours, without you at this computer. Use a long password, put the page behind TLS, and leave the switch off if you do not need it.
 
 ### Limiting the mode (`maxMode`)
 

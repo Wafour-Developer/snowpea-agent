@@ -84,7 +84,7 @@ A grant applies to one of these scopes:
 2. Jarvis shows a confirmation card. The card names the scope, the level, the guarded kinds you chose to hand over (see below), the expiry, and Jarvis's reason.
 3. Press **Confirm** once. Only you can press it. Nothing Jarvis reads can confirm a grant. In a messenger, the confirmation is a one-press reply from your bound chat.
 
-A remote web sign-in cannot hand over a guarded kind in a grant (see [Using Jarvis from another computer](#using-jarvis-from-another-computer)). Do that on the machine itself.
+A remote web sign-in cannot hand over a guarded kind in a grant (see [Using Jarvis from another computer](#using-jarvis-from-another-computer)). Do that on the machine itself. By default it cannot give a grant at all; with **Allow delegation from a remote web login** turned on at this computer it can give one session or project, without guarded kinds, for at most 24 hours, after entering the remote password again ([snowpea web](web.md#delegation-from-a-remote-sign-in)).
 
 Press **Decline** to change nothing. Jarvis keeps the authority it already has.
 
@@ -237,7 +237,7 @@ Every connection that comes in through the remote listener is a **remote sign-in
 A few things are kept on this computer all the same, so that a mistake or a borrowed session cannot change them by a click. Through snowpea's own screens a remote sign-in cannot:
 
 - turn Jarvis mode on, or change Jarvis settings;
-- make or widen a delegation grant (it can still revoke one, take a session over and hand it back);
+- make or widen a delegation grant (it can still revoke one, take a session over and hand it back). The exception: with **Settings > Jarvis > Delegation > Allow delegation from a remote web login** turned on here (off by default), a remote sign-in made with the password can give a grant for one session or project, without guarded kinds, for at most 24 hours, after typing the password again. Whoever knows the password can then do the same; see [Delegation from a remote sign-in](web.md#delegation-from-a-remote-sign-in);
 - turn the briefing on or change it (it can turn it off), also by asking Jarvis;
 - change the security lists or the remote-access settings themselves;
 - open an external session unrestricted, or confirm the path of an external CLI.
@@ -361,7 +361,7 @@ Two settings are decided by you, not by Jarvis: `jarvis.external.clis.<id>.defau
 
 Jarvis mode is a beta. These are the limits you should know before you rely on it.
 
-- **One daemon token.** Every snowpea client on the machine (the desktop app, the IDE, the terminal UI, browser hosts and the remote connector) uses the same daemon token file in snowpea's home folder. snowpea cannot yet tell two local clients apart, so any local program that can read that file counts as you. Separate credentials for each client are future work. A sign-in through the remote web listener is different: every such connection is marked as a remote sign-in and is refused the Jarvis, security and remote-access settings and any new delegation grant (see [Using Jarvis from another computer](#using-jarvis-from-another-computer)).
+- **One daemon token.** Every snowpea client on the machine (the desktop app, the IDE, the terminal UI, browser hosts and the remote connector) uses the same daemon token file in snowpea's home folder. snowpea cannot yet tell two local clients apart, so any local program that can read that file counts as you. Separate credentials for each client are future work. A sign-in through the remote web listener is different: every such connection is marked as a remote sign-in and is refused the Jarvis, security and remote-access settings and any new delegation grant, unless you allowed limited grants from a remote sign-in at this computer (see [Using Jarvis from another computer](#using-jarvis-from-another-computer)).
 - **The classifier reads the command line, not what runs inside it.** Jarvis judges an action from the command, its arguments and the file paths it names. It cannot see what a script or a program does once it runs. A script that deletes files can run as a safe command if its command line looks harmless. The security lists check the same command line, so they have the same limit; a line they cannot check is routed to you.
 - **External CLIs in unrestricted mode.** snowpea does not control what an unrestricted CLI does. Jarvis can read and summarise such a session, but it cannot instruct it or start one, and its guarded-kind rules and the security lists do not apply inside it. Only you can choose unrestricted, and only for one session at a time.
 - **Other tools' record formats can change.** Claude Code, Codex, agy and Cursor agent do not publish stable formats for their session records. A new CLI version can change them. snowpea checks the CLI version and shows an error when it cannot read a session.
