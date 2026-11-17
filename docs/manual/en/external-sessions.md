@@ -63,24 +63,48 @@ When the CLI asks for permission, the request appears in snowpea as an ordinary 
 
 ## Modes
 
-Each session runs in one mode. Change it with the mode switch in the app or `/external mode <mode>` in the terminal UI.
+Each CLI has its own modes, and snowpea offers them under the CLI's own names. Pick one when you start a session, or change it with the mode switch in the app or `/external mode <mode>` in the terminal UI. snowpea asks the installed CLI which modes it has, so a mode your version lacks is not offered.
 
-| Mode | Claude Code | Codex | agy | Cursor agent |
+Each mode is described by two things: whether the CLI stops to ask you, and what it may write.
+
+| CLI | Mode | Asks you | Writes | Who may choose it |
 |---|---|---|---|---|
-| **Default (asks)** | Asks for each permission. Its prompts become snowpea approvals. | Asks for each permission. Its requests become snowpea approvals. | Follows agy's own approval setting. | Edits and sandboxed shell commands run without a prompt. Approvals are limited. |
-| **Read-only** | Plans and reads. It does not change files or run commands. | Read-only sandbox. | Not offered. agy has no read-only mode. | Ask mode. Read-only. **This is Cursor's starting mode.** |
-| **Unrestricted (no asking)** | Runs with every permission prompt skipped. | Runs with approvals set to never and no sandbox. | Runs with every permission prompt skipped. | Runs with `--yolo`: shell commands, edits and network calls run without asking. |
+| Claude Code | **Manual** (`default`; called Default before 2.1.326) | Whenever a permission is needed | The project, after you allow it | Anyone, Jarvis included |
+| Claude Code | **Plan** (`plan`) | Whenever a permission is needed, and before it starts the work | Only its plan file | Anyone |
+| Claude Code | **Accept edits** (`acceptEdits`) | Before commands; edits go through | The project | Only you |
+| Claude Code | **Auto** (`auto`) | Sometimes: it proceeds on its own and asks when unsure | The project | Only you |
+| Claude Code | **Don't ask** (`dontAsk`) | Never: what your own Claude Code rules do not allow is refused | What your rules allow | Only you |
+| Claude Code | **Bypass permissions** (`bypassPermissions`) | Never | Anywhere | Only you |
+| Codex | **Untrusted** (`untrusted`) | Before anything not known to be safe | The project (sandbox) | Anyone. snowpea's default for Codex |
+| Codex | **Read Only** (`read-only`) | Never | Nothing (read-only sandbox) | Anyone |
+| Codex | **Default** (`default`) | Sometimes: Codex decides when to ask | The project (sandbox) | Only you |
+| Codex | **Full Access** (`full-access`) | Never | Anywhere, with network | Only you |
+| agy | **Default** (`default`) | Per agy's own approval setting | The project | Anyone |
+| agy | **Plan** (`plan`) | Per agy's setting; asks in the chat before it starts the work | Only its plan | Anyone |
+| agy | **Accept edits** (`accept-edits`) | Before commands; edits go through | The project | Only you |
+| agy | **Auto** (`auto`) | Sometimes: edits and safe commands go through, irreversible actions ask | The project | Only you |
+| agy | **Skip permissions** (`dangerously-skip-permissions`) | Never | Anywhere | Only you |
+| Cursor agent | **Ask** (`ask`) | Never | Nothing. **Cursor's starting mode.** | Anyone |
+| Cursor agent | **Plan** (`plan`) | Never | Only its plan | Anyone |
+| Cursor agent | **Agent** (`agent`) | Never: Cursor has no prompts to bring here | The project (sandbox) | Anyone |
+| Cursor agent | **Run Everything** (`yolo`) | Never | Anywhere | Only you |
 
-Cursor agent offers all three modes: read-only (its starting mode), default and unrestricted.
+Things to know:
 
-What **unrestricted** means:
+- **Plan mode is not read-only.** It writes its plan. When Claude Code finishes a plan, it asks to start the work. That question comes to you as an approval, and only you can answer it: Jarvis and automatic rules cannot. If you allow it, the session continues in the default mode, which asks before each change. If you deny it, Claude Code keeps planning. agy asks the same question in the chat instead.
+- **Auto still asks sometimes.** In Claude Code's and agy's auto mode the CLI decides most actions alone. Whatever it still asks comes to snowpea as an ordinary approval, as in the default mode.
+- **The words "read-only"** are used only for a mode that writes nothing: Codex Read Only and Cursor Ask.
+- **A mode marked "Only you"** goes through the same check as unrestricted mode below: only a person at the app, the web app or the terminal UI can choose it, not a remote web sign-in, and each choice is written to Jarvis's ledger. Jarvis cannot choose it and does not send work into a session that runs in it. A session you continue later comes back in the CLI's default mode, not in that mode.
+- **Older clients** still see three modes: default, read-only and unrestricted. Each CLI mode maps to one of them. For example Claude Code's Plan shows as read-only and Auto shows as default.
+
+What **unrestricted** means (Bypass permissions, Full Access, Skip permissions, Run Everything):
 
 - The CLI runs without asking. snowpea does not control what it does, so Jarvis cannot decide its approvals and its guarded-kind rules and the security lists do not apply inside it.
 - **Only you can choose it, and only for one session.** The choice is never remembered. It is not a default, and a session you continue does not come back in unrestricted mode. snowpea shows a confirmation that names the CLI, what the mode allows, and the folder, and it writes each switch to Jarvis's ledger.
 - A remote web sign-in cannot choose it either. See [Using Jarvis from another computer](jarvis.md#using-jarvis-from-another-computer).
 - Jarvis cannot start an unrestricted session. From a messenger, you can allow one with a single press in the chat, in a turn that you started yourself. See [Jarvis mode](jarvis.md#messengers).
 
-Raising a session's mode is always yours. Jarvis can start a session in default or read-only mode and cannot change a session's mode afterwards.
+Raising a session's mode is always yours. Jarvis can start a session in a mode that anyone may choose (for example Claude Code's Plan) and cannot change a session's mode afterwards.
 
 ## Trust a project for external CLIs
 
@@ -129,9 +153,9 @@ Jarvis is limited to the same rules as above. In short:
 | Jarvis can | Jarvis cannot |
 |---|---|
 | List external sessions and read them (up to 200 entries, in summaries) | Read an external session in a project you hid from it |
-| Send an instruction to a session snowpea controls and that is not paused | Send into a paused session, or into a session in unrestricted mode |
-| Interrupt a running turn | Start a session in unrestricted mode |
-| Start a session in default or read-only mode | Change a session's mode |
+| Send an instruction to a session snowpea controls and that is not paused | Send into a paused session, or into a session in unrestricted mode or another mode only you may choose |
+| Interrupt a running turn | Start a session in unrestricted mode or another mode only you may choose (it can ask you for one) |
+| Start a session in a mode anyone may choose, such as Plan | Change a session's mode |
 | Decide the approvals routed to it, under the delegation rules | Decide approvals in a shared terminal (tmux) session |
 
 When you type into a session that Jarvis manages, Jarvis pauses there. See [Stepping in](jarvis.md#stepping-in).
@@ -140,8 +164,8 @@ When you type into a session that Jarvis manages, Jarvis pauses there. See [Step
 
 - **Claude Code.** Its history comes from its own project records. Its approvals stream into snowpea. A shared terminal (tmux) is available on Linux and macOS.
 - **Codex.** All Codex sessions share one `codex app-server` process that snowpea runs. After its terminal closes, Codex takes about a minute to release the session (measured at 57 seconds), so **Continue here** may wait for a short time. Codex is the only CLI that takes text into a running turn (**Add to turn**).
-- **agy.** Its approvals follow agy's own setting. If that setting is to run without asking, agy may never ask, and snowpea cannot change it for one session. agy has no read-only mode.
-- **Cursor agent.** It does not send approval requests to snowpea. Its default mode is read-only. The default mode lets it edit and run sandboxed shell commands without a prompt. Unrestricted mode runs it with `--yolo`. Cursor agent can leave helper processes running. snowpea cleans them up when it stops.
+- **agy.** Its approvals follow agy's own setting. If that setting is to run without asking, agy may never ask, and snowpea cannot change it for one session; its modes then all show as never asking. agy has no read-only mode: its plan mode writes a plan.
+- **Cursor agent.** It does not send approval requests to snowpea. It starts in Ask mode, which is read-only. Agent mode lets it edit and run sandboxed shell commands without a prompt. Run Everything runs it with `--yolo`. Cursor agent can leave helper processes running. snowpea cleans them up when it stops.
 - **Windows.** Shared terminal (tmux) is not available on Windows. snowpea starts external CLI processes without a console window and ends a CLI's whole process tree together when it stops one. Cleaning up leftover CLI processes after an unclean daemon exit needs the process start time, which Windows does not give, so such leftovers are not cleaned up automatically there.
 
 ## Terminal UI commands
@@ -154,7 +178,7 @@ When you type into a session that Jarvis manages, Jarvis pauses there. See [Step
 | `/external close` | Leaves the open session. It keeps running. |
 | `/external stop` | Stops the open session's process. The history stays. |
 | `/external adopt` | Lets snowpea type into the tmux pane the open Claude Code session runs in. You confirm first. |
-| `/external mode default`, `readonly`, `unrestricted` | Switches the open session's mode. Unrestricted asks for confirmation. |
+| `/external mode <mode>` | Switches the open session to one of its CLI's modes, by the id in the table above (for example `plan`, `auto`, `read-only`). `default`, `readonly` and `unrestricted` still work. A mode only you may choose asks you to type its name to confirm. |
 | `/external more` | Loads earlier messages of the open session |
 | `/external confirm-path <cli>` | Confirms the path you configured for a CLI |
 
