@@ -158,7 +158,8 @@ def test_execute_code_bodies(project: Path) -> None:
     assert not plain.blocked and not plain.opaque
     node = check_call("execute_code", {"code": "require('fs').rmSync('/', {recursive: true})",
                                        "language": "javascript"}, ESSENTIAL, ctx)
-    assert not node.blocked  # "javascript" is not a family snowpea maps: read as python
+    # "javascript" is read by the node table (it used to fall back to Python).
+    assert node.blocked
     node = check_call("execute_code", {"code": "require('fs').rmSync('/', {recursive: true})",
                                        "language": "node"}, ESSENTIAL, ctx)
     assert node.blocked

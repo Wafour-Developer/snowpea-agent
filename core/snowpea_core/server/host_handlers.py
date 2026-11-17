@@ -76,7 +76,7 @@ from snowpea_core.server.protocol import (
     UsageSummaryResult,
 )
 from snowpea_core.session.workspace import ensure_workspace, list_artifacts
-from snowpea_core.tools.host_tools import HOST_TOOLS, HostToolError, content_store
+from snowpea_core.tools.host_tools import HOST_TOOLS, HostToolError, content_store, runs_on_host
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -340,6 +340,10 @@ async def approval_ask_handler(
         cacheable=not unremembered,
         site=site,
         tags=(params.permission,) if params.permission else None,
+        # The action belongs to a tool this host registered and runs (resolved
+        # from the session's registry above), so its code is the host's —
+        # unless the tool itself is an ``exec`` tool.
+        host_tool=runs_on_host(session, base) and base.permission != "exec",
     )
     scope = decision.scope if decision.scope in _SCOPES else "once"
     if payment or guarded:

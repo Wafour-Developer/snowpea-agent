@@ -69,7 +69,7 @@ from snowpea_core.tools import deferred as deferred_tools
 from snowpea_core.tools import host_tools as host_tools_mod
 from snowpea_core.tools import mcp_client, output_spill, repeat_guard, result_hooks, view_image
 from snowpea_core.tools.call_paths import call_paths
-from snowpea_core.tools.host_tools import HOST_TOOLS, drop_owned_context
+from snowpea_core.tools.host_tools import HOST_TOOLS, drop_owned_context, runs_on_host
 from snowpea_core.tools.registry import (
     ProgressEmitter,
     Tool,
@@ -3290,13 +3290,19 @@ def _jarvis_refusal(
 
 
 async def _security_verdict(
-    core: Core, session: Session, name: str, args: dict[str, Any], tag: str
+    core: Core, session: Session, name: str, args: dict[str, Any], tag: str,
+    *, host_tool: bool = False,
 ) -> Any:
-    """The security lists' verdict on one call; a block is announced here."""
+    """The security lists' verdict on one call; a block is announced here.
+
+    ``host_tool``: the call goes to the session's connected host
+    (:func:`~snowpea_core.tools.host_tools.runs_on_host`).
+    """
     from snowpea_core.security import enforce
 
     await enforce.refresh_projects(core)
-    verdict = enforce.judge_for_core(core, session, name, dict(args or {}), (tag,))
+    verdict = enforce.judge_for_core(core, session, name, dict(args or {}), (tag,),
+                                     host_tool=host_tool)
     if verdict.blocked:
         await enforce.announce(
             hub=core.hub, paths=getattr(core, "paths", None), session_id=session.id, tool=name,
@@ -3386,7 +3392,12 @@ async def _run_one_call(
     # The security lists come before everything else (1.54.0): no mode, rule,
     # cached answer or Jarvis decision runs a blocked command or changes a
     # protected path; a line they cannot see through always asks the person.
-    security = await _security_verdict(core, session, tool.name, call.arguments, tag)
+    # Whether the host runs it comes from how the call is dispatched (the tool
+    # object the registry gave for this session), never from its name or args.
+    # A host tool tagged ``exec`` keeps its code read like any other.
+    on_host = runs_on_host(session, tool) and tool.permission != "exec"
+    security = await _security_verdict(core, session, tool.name, call.arguments, tag,
+                                       host_tool=on_host)
     if security.blocked:
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
         await _fail_call(
@@ -3462,6 +3473,7 @@ async def _run_one_call(
             cacheable=tag not in UNPROMOTABLE and not guarded and not security.opaque,
             guard=AGENT_SWITCH_GUARD if guarded else None,
             tags=(tag,),
+            host_tool=on_host,
         )
         if session.interrupt.is_set():
             view_image.flush_tool_image_messages(core, session, append=False)

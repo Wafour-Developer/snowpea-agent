@@ -204,6 +204,12 @@ class Context:
     #: resolve to the person; ``allow`` lets it through (the control-plane rule
     #: and every blocked finding still apply).
     unknown_code: str = "ask"
+    #: The call goes to a tool a connected host registered and runs itself (a
+    #: browser's ``repl``), as the engine dispatches it — set by the caller from
+    #: its registry, never from the tool's name or arguments.  Such a tool's
+    #: ``code`` is the host's (the page's JavaScript) and is not read as local
+    #: code unless the tool is tagged ``exec``; its paths are judged as usual.
+    host_tool: bool = False
 
     def __post_init__(self) -> None:
         if self.env_venv is None:
@@ -1213,7 +1219,11 @@ def _check_call(tool: str, args: dict[str, Any], lists: Lists, ctx: Context,
                        home=str(ctx.home) if ctx.home else None, user_home=str(ctx.user_home))
         return _judge_view(view, lists, ctx)
     code = args.get("code") if isinstance(args.get("code"), str) else None
-    if code is None and lower in _c.CODE_TOOL_NAMES:
+    if ctx.host_tool and "exec" not in tags:
+        # The host runs it (a browser page's script), not this machine: the
+        # host judges it.  Its path-like arguments are still judged below.
+        code = None
+    elif code is None and lower in _c.CODE_TOOL_NAMES:
         code = next((v for v in args.values() if isinstance(v, str)), None)
     view = sh.ShellView()
     if code:

@@ -2305,7 +2305,8 @@ def code_view(code: str, *, cwd: str | None, home: str | None = None,
     try:
         literal_commands(code, request, result)
         probe = _Probe(request, result)
-        lang = _code.LANGUAGES.get(_c._family(str(language or "python").lower()), "python")
+        lang = _code.CODE_LANGUAGE_NAMES.get(
+            _c._family(str(language or "python").strip().lower()), "python")
         probe.apply_code(_code.analyse(code, lang), probe.ctx.workdir, 0, count_opaque=True)
         probe.finish()
     except Exception:  # noqa: BLE001 - a bug here makes the code unseeable, never allowed

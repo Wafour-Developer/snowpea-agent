@@ -988,6 +988,23 @@ def runs_owned_job(core: Any, session: Any) -> bool:
     return owned_run_owner(core, session) is not None
 
 
+def runs_on_host(session: Any, tool: Any) -> bool:
+    """True when ``tool`` is the one a host registered and ``session`` dispatches to.
+
+    The engine's own state decides — the tool object came from the registry
+    (a host tool wins its name for a session, ``ToolRegistry.get``) and the
+    session's host serves that very tool now — never the tool's name or its
+    arguments: a core or MCP tool of the same name is not a host tool.
+    """
+    if session is None or tool is None:
+        return False
+    source = str(getattr(tool, "source", "") or "")
+    if not source.startswith("host:"):
+        return False
+    served = HOST_TOOLS.for_session(session).get(str(getattr(tool, "name", "")))
+    return served is not None and getattr(served, "source", None) == source
+
+
 def drop_owned_context(session: Any, origin: str) -> None:
     """Fail closed: a turn nobody scheduled ends an owned run's authority.
 
@@ -1191,4 +1208,5 @@ __all__ = [
     "HostTools",
     "PERMISSION_TAGS",
     "result_from_answer",
+    "runs_on_host",
 ]

@@ -89,6 +89,7 @@ def context(
     workdir: Any = None,
     projects: Iterable[str] = (),
     locale: str | None = None,
+    host_tool: bool = False,
 ) -> Context:
     work = None
     if workdir:
@@ -101,6 +102,7 @@ def context(
         projects=tuple(str(p) for p in projects),
         locale=locale,
         unknown_code=unknown_code(settings),
+        host_tool=bool(host_tool),
     )
 
 
@@ -133,11 +135,16 @@ def judge(
     tags: Iterable[str] = (),
     projects: Iterable[str] = (),
     locale: str | None = None,
+    host_tool: bool = False,
 ) -> Verdict:
-    """The verdict for one call; never raises."""
+    """The verdict for one call; never raises.
+
+    ``host_tool``: the call is dispatched to a tool the session's connected
+    host registered and runs (:func:`~snowpea_core.tools.host_tools.runs_on_host`).
+    """
     lists = lists_for(settings, workdir)
     ctx = context(settings=settings, home=home, workdir=workdir, projects=projects,
-                  locale=locale)
+                  locale=locale, host_tool=host_tool)
     if home:
         # What the agent wrote is remembered under this home (review 6, M-8).
         written.set_home(home)
@@ -167,7 +174,7 @@ def note_written(core: Any, session: Any, paths: Iterable[str]) -> None:
 
 
 def judge_for_core(core: Any, session: Any, tool: str, args: Mapping[str, Any] | None,
-                   tags: Iterable[str] = ()) -> Verdict:
+                   tags: Iterable[str] = (), *, host_tool: bool = False) -> Verdict:
     paths = getattr(core, "paths", None)
     return judge(
         settings=getattr(core, "settings", None),
@@ -177,6 +184,7 @@ def judge_for_core(core: Any, session: Any, tool: str, args: Mapping[str, Any] |
         args=args,
         tags=tags,
         projects=live_projects(core),
+        host_tool=host_tool,
     )
 
 

@@ -482,13 +482,15 @@ class ApprovalQueue:
         return found
 
     def _security(
-        self, session: Any, tool: str, args: dict[str, Any], tags: tuple[str, ...] | None
+        self, session: Any, tool: str, args: dict[str, Any], tags: tuple[str, ...] | None,
+        host_tool: bool = False,
     ) -> Any:
         from snowpea_core.security import enforce
 
         return enforce.judge(
             settings=self.settings, home=self._home(), workdir=getattr(session, "workdir", None),
             tool=tool, args=args, tags=tuple(tags or ()), projects=self._projects(),
+            host_tool=host_tool,
         )
 
     async def _refuse_blocked(
@@ -549,6 +551,7 @@ class ApprovalQueue:
         tags: tuple[str, ...] | None = None,
         person_only: bool = False,
         external: ExternalRef | None = None,
+        host_tool: bool = False,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied.
 
@@ -560,11 +563,14 @@ class ApprovalQueue:
         (``ApprovalRequest.personOnly``): never cached, never remembered.
         ``external`` (1.53.0) marks a prompt bridged from an external CLI
         session (``session.id`` is then ``ext:<cli>:<id>``).
+        ``host_tool``: the caller dispatches ``tool`` to the session's connected
+        host (:func:`~snowpea_core.tools.host_tools.runs_on_host`), so the
+        security check judges it as the agent loop did.
         """
         # The security lists first (1.54.0): a blocked call is refused here,
         # never shown, cached, routed or answerable; a call they cannot check is
         # the person's alone.
-        security = self._security(session, tool, args, tags)
+        security = self._security(session, tool, args, tags, host_tool)
         if security.blocked:
             return await self._refuse_blocked(session, tool, args, security, external)
         unchecked = bool(security.opaque)

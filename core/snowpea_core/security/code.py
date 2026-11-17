@@ -55,6 +55,18 @@ LANGUAGES: dict[str, str] = {
     "perl": "perl", "ruby": "ruby", "php": "php",
 }
 
+#: A code tool's ``language`` argument (``{code, language: "javascript"}``) to
+#: the table that reads it.  Kept apart from :data:`LANGUAGES`, which names
+#: programs on a command line (``ts`` is also moreutils' timestamp filter).
+#: JavaScript and TypeScript go to the node table, which reads top-level
+#: ``await`` and ``for await`` as ordinary calls; without these names such code
+#: was read as Python and could never be judged (``code:parse``).
+CODE_LANGUAGE_NAMES: dict[str, str] = {
+    **LANGUAGES,
+    "javascript": "node", "js": "node", "mjs": "node", "cjs": "node", "jsx": "node",
+    "typescript": "node", "ts": "node",
+}
+
 #: Largest script file read whole; a bigger one is "unreadable".
 MAX_SCRIPT_BYTES = 256 * 1024
 #: Most primitives judged in one piece of code.
@@ -955,6 +967,7 @@ def argv_text(words: list[str]) -> str:
 
 
 __all__ = [
+    "CODE_LANGUAGE_NAMES",
     "LANGUAGES",
     "MAX_SCRIPT_BYTES",
     "RECENT_SEC",
