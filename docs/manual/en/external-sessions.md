@@ -22,7 +22,7 @@ Each external session has a **host**. The host says where its process runs, and 
 |---|---|---|
 | **Run by snowpea** | snowpea runs the session's process and handles its approvals | Send, interrupt, change mode, stop. Approvals appear in snowpea. |
 | **In another terminal** | You run the session in a plain terminal. snowpea follows it live. | View only. snowpea cannot type into that terminal. When the terminal closes, the session becomes available: continue it here. |
-| **Shared terminal (tmux)** | The session runs in a tmux pane. Claude Code only. | View, and snowpea may type into the same pane after you allow it. You answer its approval prompts in the terminal. |
+| **Shared terminal (tmux)** | The session runs in a tmux pane: one snowpea started, or your own pane with any of the four CLIs. | Send, stop and switch modes in the same pane. Prompts snowpea recognises come to snowpea; you answer the rest in the terminal. See [Sessions in your tmux pane](#sessions-in-your-tmux-pane). |
 | **Not running** | No process is running. snowpea shows the history. | Read the history. Send a message or press **Continue here** to start it under snowpea. |
 
 Shared terminal (tmux) works on Linux and macOS only. It is not available on Windows.
@@ -57,7 +57,7 @@ When the CLI asks for permission, the request appears in snowpea as an ordinary 
 
 - **Allow for this session** remembers that one exact call: the same tool with the same whole command line, or the same arguments. It never applies to a request that Jarvis's guarded rules or the never-yours rules cover. Those always come to you.
 - **Blocked commands.** A command on your [security list](security.md) is refused before anything is asked. This holds for the approvals snowpea handles. It does not reach inside an unrestricted session or a shared terminal (tmux) session.
-- **Approvals in the terminal.** A shared terminal (tmux) session answers its prompts in the terminal. snowpea and Jarvis do not decide them.
+- **Approvals in the terminal.** A shared terminal (tmux) session answers its prompts in the terminal. In your own tmux pane, only prompts snowpea recognises come here as approvals, and the answer key is sent only while the same prompt is on screen ([Sessions in your tmux pane](#sessions-in-your-tmux-pane)).
 - **Limited approvals.** Some modes have no per-action prompt. Edits are allowed automatically and everything else is blocked. The composer labels such a session.
 - **agy** follows the approval setting in agy's own configuration. If agy is set to run without asking, it may never ask you. snowpea cannot change that for one session.
 
@@ -105,6 +105,19 @@ What **unrestricted** means (Bypass permissions, Full Access, Skip permissions, 
 - Jarvis cannot start an unrestricted session. From a messenger, you can allow one with a single press in the chat, in a turn that you started yourself. See [Jarvis mode](jarvis.md#messengers).
 
 Raising a session's mode is always yours. Jarvis can start a session in a mode that anyone may choose (for example Claude Code's Plan) and cannot change a session's mode afterwards.
+
+## Sessions in your tmux pane
+
+A session that is open in another terminal is view only, because a second process on the same session would split its history. There is one exception: when that terminal is a **tmux pane**, snowpea can drive the same process through tmux. Nothing new is started.
+
+- **How snowpea finds the pane.** It starts from the process that holds the session, takes that process's terminal, and looks for the tmux pane with that terminal. It never uses text on the screen or in the transcript to pick a pane. A terminal that is not tmux stays view only until you close it, as before.
+- **What you can do.** Send messages, stop a running turn with the CLI's own key (Escape for Claude Code, Codex and agy; Cursor agent has none here), and switch modes. Reading works as before, from the CLI's own history files.
+- **The guard.** Before every key it sends, snowpea checks that the pane still exists, that its terminal is still the CLI's terminal, that the CLI is still running, and that the CLI, not a shell, a pager or an editor, is in the foreground. If any check fails, nothing is sent and the session goes back to view only. Text that reached a shell prompt would run as a command, so there is no "send anyway".
+- **How text goes in.** As a bracketed paste, so a line break in your message cannot send it early, followed by Enter. Control characters such as Escape are refused, and so is a message that starts with `/` or `!` (the CLIs' command and shell prefixes).
+- **Busy CLI.** While the CLI is working, or while a prompt waits in the terminal, snowpea does not send. Wait, or stop the turn.
+- **Who may type.** You, at the app, the web app or the terminal UI. Jarvis or a remote web sign-in may send only when the pane shows a mode snowpea recognises, that anyone may choose and that asks before it acts. Mode switches are always yours. Every key snowpea sends is logged with the pane, never with your text.
+- **Modes.** Claude Code: plan with its `/plan` command; Manual, Accept edits and Auto with Shift+Tab, pressed until the status line shows the mode. agy and Cursor agent: Shift+Tab the same way. Codex has no mode switch here, because its `/permissions` opens a list. After a switch snowpea checks the screen; if the screen does not show the new mode, the session says **unconfirmed** instead of claiming it. When the screen shows no mode snowpea knows, the session says **mode not shown**.
+- **Permission prompts (best effort).** A prompt in a terminal is not sent to snowpea the way a prompt from a session snowpea runs is. snowpea reads the screen. It recognises Claude Code's prompt ("Do you want to …? 1. Yes … Esc to cancel") and Codex's ("Would you like to run the following command? … (y) … (esc)") and shows them as approvals. Your answer goes to the terminal as the CLI's key (Claude Code `1` or Escape, Codex `y` or Escape), and only while the same prompt is still on screen. Only you can answer Codex's prompts, because part of their text is written by the model. Jarvis may answer a recognised Claude Code prompt under the usual delegation rules. A prompt snowpea does not recognise, including every agy and Cursor agent prompt, is never answered for you: the session says a prompt waits in the terminal, and **/external snapshot** (or the snapshot in the app) shows the pane's text.
 
 ## Trust a project for external CLIs
 
@@ -179,6 +192,7 @@ When you type into a session that Jarvis manages, Jarvis pauses there. See [Step
 | `/external stop` | Stops the open session's process. The history stays. |
 | `/external adopt` | Lets snowpea type into the tmux pane the open Claude Code session runs in. You confirm first. |
 | `/external mode <mode>` | Switches the open session to one of its CLI's modes, by the id in the table above (for example `plan`, `auto`, `read-only`). `default`, `readonly` and `unrestricted` still work. A mode only you may choose asks you to type its name to confirm. |
+| `/external snapshot` | Shows the text of the tmux pane the open session runs in |
 | `/external more` | Loads earlier messages of the open session |
 | `/external confirm-path <cli>` | Confirms the path you configured for a CLI |
 
