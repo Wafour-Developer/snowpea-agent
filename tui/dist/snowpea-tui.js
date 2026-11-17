@@ -45303,7 +45303,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.90";
+var TUI_VERSION = "0.2.91";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
