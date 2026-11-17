@@ -397,7 +397,8 @@ def person_only_host_ask(tool: str, risk: str | None, reason_code: str | None = 
 
 def _decided_by(by: str) -> str:
     """``user`` for any person's answer (origin surface, a client, a chat)."""
-    if by in ("timeout", "interrupted", "error", "origin-unreachable", "origin-no-answer"):
+    if by in ("timeout", "interrupted", "error", "origin-unreachable", "origin-no-answer",
+              "origin-timeout"):
         return by
     return "user"
 
@@ -800,6 +801,8 @@ async def session_steer_handler(
         mark_active(core, conn, session)
         # Security review 7, H-1: the running turn carries this caller's words now.
         agent_loop.note_caller(session, session.current_turn or "", who)
+        # 0.2.91: the person typing here now is who the turn asks from now on.
+        agent_loop.note_asker(core, session, who)
         session.rpc_steers.append(text)
         session.user_waiting.set()
         return SessionSteerResult(ok=True, started=False)

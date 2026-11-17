@@ -28,6 +28,13 @@ from snowpea_core.config.settings import Settings
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import QuestionItem, QuestionRequest
+from snowpea_core.session.session import (
+    CLIENT_QUESTION_CARD_SEC,
+    asking_conn,
+    client_timed_out,
+    surface_name,
+    withdraw,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.manager import EventHub
@@ -78,6 +85,9 @@ class _Pending:
     no_limit: bool = False
     #: The session asking (who may answer a ``personOnly`` question depends on it).
     session: Any = None
+    #: 0.2.91: the core's own clock (``questions.timeoutSec`` when the asker is
+    #: waited for without one): empty answers after it are the client's timeout.
+    clock_sec: float = 0.0
 
 
 class QuestionQueue:
@@ -168,7 +178,9 @@ class QuestionQueue:
         if getattr(session, "owned_by", None):
             # Nobody may put words into a browser-owned job's run (1.23.0).
             return _declined(len(questions), by="owned-run")
-        origin = getattr(session, "origin_conn", None)
+        # 0.2.91: the surface the person is prompting from (the turn's asker),
+        # else the session's open origin, else nobody (every surface sees it).
+        origin = asking_conn(session, self._lookup())
         # An explicit timeout_sec is a caller's own deadline and always counts
         # (0 expires at once).  Otherwise a person at the session is waited for.
         # An interactive browser chat has a person too; only jobs (owned runs,
@@ -200,7 +212,7 @@ class QuestionQueue:
         loop = asyncio.get_running_loop()
         entry = _Pending(
             request=request, future=loop.create_future(), origin_conn=origin, no_limit=no_limit,
-            session=session,
+            session=session, clock_sec=float(timeout if timeout else self.timeout_sec),
         )
         self._pending[request.requestId] = entry
         host = getattr(session, "host_tools_from", None)
@@ -270,12 +282,25 @@ class QuestionQueue:
     async def _ask_origin(self, entry: _Pending) -> None:
         """Send ``question.request`` to the origin connection and record the answer."""
         request = entry.request
+        started = asyncio.get_running_loop().time()
         try:
             reply = await entry.origin_conn.call(
                 "question.request",
                 request.model_dump(mode="json"),
                 timeout=None if entry.no_limit else float(request.timeoutSec),
             )
+            waited = asyncio.get_running_loop().time() - started
+            if client_timed_out(reply, waited, entry.clock_sec, CLIENT_QUESTION_CARD_SEC):
+                # 0.2.91: the asking client's card gave up (the desktop app
+                # sends {answers: []}): nobody answered, nobody declined.
+                log.warning("question %s: %s sent no answers after %.1f s: its own timeout",
+                            request.requestId, surface_name(entry.origin_conn), waited)
+                if not entry.future.done():
+                    entry.future.set_result([
+                        Answer(timed_out=True, by="origin-timeout")
+                        for _ in range(len(request.questions))
+                    ])
+                return
             answers = _answers_from(reply.get("answers"), by="origin")
             if request.personOnly:
                 actor = reply.get("actor") if isinstance(reply, dict) else None
@@ -306,6 +331,36 @@ class QuestionQueue:
             answers = _declined(len(request.questions), by="origin-unreachable")
         if not entry.future.done():
             entry.future.set_result(_padded(answers, len(request.questions)))
+
+    def _lookup(self) -> Any:
+        """Session id -> live session (``asking_conn`` walks a child's parents)."""
+        sessions = getattr(self.hub, "sessions", None)
+        lookup = getattr(sessions, "get", None)
+        return lookup if callable(lookup) else None
+
+    async def follow_asker(self) -> int:
+        """Move waiting questions to their session's new asker (0.2.91); how many moved.
+
+        As ``ApprovalQueue.follow_asker``: asked again on the surface the
+        person now types on; the old surface's card is withdrawn
+        (``question.resolved {outcome: "withdrawn"}``).
+        """
+        moved = 0
+        lookup = self._lookup()
+        for entry in list(self._pending.values()):
+            if entry.origin_conn is None or entry.future.done() or entry.request.route == "jarvis":
+                continue
+            target = asking_conn(entry.session, lookup)
+            if target is None or target is entry.origin_conn:
+                continue
+            old, task = entry.origin_conn, entry.task
+            entry.origin_conn = target
+            entry.task = asyncio.ensure_future(self._ask_origin(entry))
+            if task is not None and not task.done():
+                task.cancel()
+            await withdraw(old, "question", entry.request.requestId)
+            moved += 1
+        return moved
 
     async def _refused_to_origin(self, entry: _Pending, why: str) -> None:
         """Re-announce a still-open question to the origin whose reply was refused (1.55.0)."""
@@ -403,8 +458,9 @@ def person_refusal(conn: Any, session: Any, actor: str | None, *, by: str = "") 
         host = getattr(session, "host_tools_from", None) if session is not None else None
         if host is not None and host != mine:
             return "another browser's session"
-        if host is None and session is not None and getattr(session, "origin_conn", None) \
-                is not conn:
+        if host is None and session is not None and conn not in (
+                getattr(session, "origin_conn", None), getattr(session, "asker_conn", None)):
+            # (0.2.91: the browser the person is prompting from counts as well.)
             return "a session this browser did not open"
         return None
     return f"a {getattr(conn, 'client_kind', None) or kind} connection is not a person"

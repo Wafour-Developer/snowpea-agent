@@ -154,6 +154,34 @@ def connection_kind(conn: Any) -> ConnectionKind:
     return "browser" if kind == "browser" else "connector"
 
 
+def asker_for(session: Any, who: Any) -> Any:
+    """The connection a turn's approvals and questions go to (0.2.91), or ``None``.
+
+    The person's own connection whose words start (or steer) the turn: a local
+    person or a remote web login (it keeps its own limits when it answers), or
+    the browser that hosts or opened the session (its panel is where the person
+    types).  Never a connector, a closed connection, a messenger, Jarvis, a
+    scheduled job or another in-process caller (``who.conn`` is ``None``), and
+    never for a browser-owned job's run.  ``None`` leaves the session's origin
+    in charge, as before.
+    """
+    if not isinstance(who, CallerSnapshot) or who.conn is None:
+        return None
+    if getattr(session, "owned_by", None):
+        return None
+    conn = who.conn
+    if connection_kind(conn) in ("closed", "none"):
+        return None
+    if who.kind in ("person", "remote_login"):
+        return conn
+    if who.kind == "browser":
+        client_id = getattr(conn, "client_id", None)
+        if client_id and client_id in (getattr(session, "host_tools_from", None),
+                                       getattr(session, "origin_client_id", None)):
+            return conn
+    return None
+
+
 def is_person(conn: Any, *, local: bool = False) -> bool:
     """True for a person's connection (``local``: not a remote web login)."""
     kind = connection_kind(conn)
@@ -282,6 +310,7 @@ async def hide_task_worker(conn: Any, core: Any, session_id: str) -> None:
 __all__ = [
     "NOBODY",
     "CallerSnapshot",
+    "asker_for",
     "ConnectionKind",
     "connection_kind",
     "live_conn",
