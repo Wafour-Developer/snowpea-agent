@@ -296,6 +296,46 @@ async def test_jarvis_tools_for_external_sessions(tmp_path: Path) -> None:
             await daemon.stop()
 
 
+async def test_jarvis_asks_for_person_only_native_modes_but_never_sets_them(
+        tmp_path: Path) -> None:
+    """1.56.0: Jarvis may start a CLI in one of its own modes (plan); a personOnly
+    one (auto, accept edits, bypass) it can only ask the person for, and it never
+    sends work into a session the person put in one."""
+    with env_vars(FAKE_CLI_SCENARIO="normal", FAKE_CLI_SCENARIO_FILE=None,
+                  FAKE_CLI_LOG=str(tmp_path / "fake.log")):
+        daemon = await _daemon(tmp_path)
+        try:
+            core = daemon.core
+            root = await _project(core, tmp_path / "proj")
+            for native in ("auto", "acceptEdits", "dontAsk"):
+                refused = await _call(core, "session_create",
+                                      {"project": root, "cli": "claude", "nativeMode": native},
+                                      human=True)
+                assert not refused.ok and "person's to choose" in refused.error, refused.error
+            unknown = await _call(core, "session_create",
+                                  {"project": root, "cli": "claude", "nativeMode": "yolo"},
+                                  human=True)
+            assert not unknown.ok and "does not offer" in unknown.error
+            assert core.external._records == {}
+            created = await _call(core, "session_create",
+                                  {"project": root, "cli": "claude", "nativeMode": "plan"},
+                                  human=True)
+            assert created.ok, created.error
+            assert "plan (readonly)" in created.output
+            key = created.meta["sessionId"]
+            cli, ext_id = key.split(":")[1:]
+            row = (await core.external.get(cli, ext_id))["session"]
+            assert (row["mode"], row["nativeMode"]) == ("readonly", "plan")
+            # The person switches it to auto: Jarvis no longer sends into it.
+            record = core.external._records[(cli, ext_id)]
+            record.native_mode, record.mode = "auto", "default"
+            refused = await _call(core, "external_send", {"sessionId": key, "text": "go"},
+                                  human=True)
+            assert not refused.ok and "only the person" in refused.error
+        finally:
+            await daemon.stop()
+
+
 async def test_a_persons_send_pauses_jarvis_there(tmp_path: Path) -> None:
     with env_vars(FAKE_CLI_SCENARIO="normal", FAKE_CLI_SCENARIO_FILE=None,
                   FAKE_CLI_LOG=str(tmp_path / "fake.log")):

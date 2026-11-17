@@ -312,7 +312,7 @@ async def external_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             str(row.get("title") or "-")[:60],
             status,
             row["host"] + (" (view only)" if not row["canSend"] else ""),
-            str(row.get("mode") or "-"),
+            _mode_text(row),
             "yes" if row.get("controlled", True) else "NO (snowpea cannot gate it)",
             str(row.get("updatedAt") or "-"),
             str(row.get("preview") or "")[:120],
@@ -368,7 +368,7 @@ async def external_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     lines = [
         f"{found.session_id} — {found.title or 'untitled'} "
         f"({service.projects.name_of(found.project)}; {row['status']}, host {row['host']}, "
-        f"mode {row.get('mode') or '-'}"
+        f"mode {_mode_text(row)}"
         + ("" if row.get("controlled", True) else "; UNCONTROLLED") + ")"
     ]
     if page.get("hasMore") and events:
@@ -379,6 +379,27 @@ async def external_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         text = text[: READ_MAX_CHARS - 40] + "\n… [cut; read an older page with beforeSeq]"
     await _access(service, found, "read", f"read {len(events)} entries")
     return _result(fence(f"external:{found.session_id}", text), count=len(events))
+
+
+def _mode_text(row: dict[str, Any]) -> str:
+    """``plan (readonly)``: the CLI's own mode and its legacy bucket."""
+    native = row.get("nativeMode")
+    legacy = row.get("mode")
+    if native and legacy and native != legacy:
+        return f"{native} ({legacy})"
+    return str(native or legacy or "-")
+
+
+def _person_only_row(manager: Any, row: dict[str, Any]) -> Any:
+    """The session's native mode when only a person may choose it (else ``None``)."""
+    native = row.get("nativeMode")
+    adapter = manager.registry.get((row.get("ref") or {}).get("cli")) if native else None
+    if adapter is None:
+        return None
+    from snowpea_core.external.modes import find
+
+    entry = find(adapter.table(), native)
+    return entry if entry is not None and entry.person_only else None
 
 
 def _not_unrestricted(row: dict[str, Any]) -> None:
@@ -425,6 +446,13 @@ async def external_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     _not_unrestricted(row)
     manager = _manager(service)
     assert manager is not None
+    person_only = _person_only_row(manager, row)
+    if person_only is not None:
+        raise Refused(
+            f"that session runs in mode {person_only.label}, which only the person chooses "
+            "(the CLI decides more on its own there); only the person works in it — tell "
+            "them instead"
+        )
     ref = _ref(found.session_id)
     try:
         sent = await manager.send(
@@ -442,7 +470,7 @@ async def external_send(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     now = (await manager.get(ref["cli"], ref["id"]))["session"]
     return _result(
         f"sent to {found.session_id} (turn {sent['turnId']}); it runs in mode "
-        f"{now.get('mode') or '-'}" + ("" if now.get("controlled", True)
+        f"{_mode_text(now)}" + ("" if now.get("controlled", True)
                                        else ", which snowpea does not gate"),
         turnId=sent["turnId"],
     )
@@ -513,11 +541,14 @@ async def _person_allows_unrestricted(
 async def create(
     service: JarvisService, root: str, cli: str, *, model: str | None, mode: str | None,
     prompt: str, title: str | None, ctx: ToolContext | None = None,
+    native_mode: str | None = None,
 ) -> ToolResult:
     """``session_create {cli}``: a new external session.
 
     Never ``unrestricted`` by Jarvis's choice: that needs the person's own
     confirmation for the message being answered (:func:`_person_allows_unrestricted`).
+    ``native_mode`` (1.56.0) names one of the CLI's own modes; a person-only
+    one (Claude Code auto, accept edits, ...) Jarvis can only ask the person for.
     """
     from snowpea_core.jarvis.tools import PROMPT_PREFIX, Refused, Target, _result
 
@@ -532,6 +563,23 @@ async def create(
     if adapter is None:
         raise Refused(f"{cli} is not supported by this snowpea")
     chosen = manager.controlled_default_mode(adapter) if mode in (None, "default") else mode
+    row = None
+    if native_mode:
+        try:
+            found_now = await manager.discover(cli)
+        except Exception:  # noqa: BLE001 - unknown: the table rows every version has
+            found_now = None
+        try:
+            resolved = manager.resolve_mode(adapter, None, native_mode, found_now)
+        except ExternalError as exc:
+            raise Refused(_refusal(exc)) from exc
+        assert resolved is not None
+        chosen, row = resolved
+        if row.person_only and chosen != "unrestricted":
+            raise Refused(
+                f"{adapter.title} mode {row.label} is the person's to choose (the CLI "
+                "decides more on its own there); ask them to pick it in the app"
+            )
     if chosen not in adapter.capabilities.modes:
         offered = [m for m in adapter.capabilities.modes if m != "unrestricted"]
         raise Refused(f"{adapter.title} offers {', '.join(offered)}, not {chosen}")
@@ -549,7 +597,8 @@ async def create(
             found = await manager.discover(cli)
         except Exception:  # noqa: BLE001 - unknown is not controlled
             found = None
-        if found is None or not adapter.controlled(chosen, found):
+        if found is None or not adapter.controlled(chosen, found) or (
+                row is not None and row.uncontrolled):
             raise Refused(
                 f"{adapter.title} in mode {chosen} does not ask before it acts, so snowpea "
                 "could not gate it; you never start such a session — "
@@ -560,7 +609,9 @@ async def create(
     try:
         proc.validate_model(model)
         created = (await manager.create(cli, root, model=model, mode=chosen,
-                                        confirmation=confirmation))["session"]
+                                        confirmation=confirmation,
+                                        native_mode=row.id if row is not None else None,
+                                        ))["session"]
     except ExternalError as exc:
         raise Refused(_refusal(exc)) from exc
     ref = created["ref"]
@@ -589,7 +640,7 @@ async def create(
     found = Target(key, None, root, False, title or created.get("title"), None)
     await _access(service, found, "create", (prompt or title or "new session")[:160])
     return _result(
-        f"created {key} ({adapter.title}) in {root} (mode {created.get('mode')})"
+        f"created {key} ({adapter.title}) in {root} (mode {_mode_text(created)})"
         + (f"; turn {turn} started" if turn else ""),
         sessionId=key,
     )
