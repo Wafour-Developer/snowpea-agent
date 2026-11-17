@@ -1,6 +1,6 @@
 # Jarvis mode (beta)
 
-Jarvis mode is a supervising conversation. One Jarvis session watches every session in your projects, reports what they are doing, decides the things you delegated to it, and brings you the rest. Use it when you run several sessions at once, or when you want work to keep moving while you are away from the screen.
+Jarvis mode is a supervising conversation. One Jarvis session watches the sessions you share with it, reports what they are doing, decides the things you delegated to it, and brings you the rest. Use it when you run several sessions at once, or when you want work to keep moving while you are away from the screen.
 
 This feature is in beta. It may misjudge a request, and some kinds of session cannot be decided for yet. Read [the security notes and known limits](#security-notes-and-known-limits) before you delegate anything.
 
@@ -14,7 +14,7 @@ Without Jarvis, every session waits for you. You approve each command, answer ea
 
 With Jarvis mode on:
 
-- Jarvis reads the state of every exposed session and keeps a running picture of it.
+- Jarvis reads the state of every session you share with it and keeps a running picture of it. A new session is not shared until you switch it on; see [Which sessions Jarvis sees](#which-sessions-jarvis-sees).
 - Jarvis answers the approvals and questions you allowed it to handle, and logs each decision.
 - Jarvis keeps a session going when you handed that session over completely.
 - Jarvis tells you, in one list, what finished, what failed, and what needs you.
@@ -37,11 +37,45 @@ Jarvis runs as one session per daemon. It uses the model you choose in `jarvis.m
 
 The working folder is `~/Snowpea/Jarvis` by default (`jarvis.folder`). Jarvis writes its reports and to-do list there. The folder must not be inside snowpea's own home folder or a credentials folder. Settings refuses such a path, and Jarvis does not start on one.
 
+## Which sessions Jarvis sees
+
+Jarvis sees only the sessions you share with it. Each session has its own Jarvis switch, and a new session starts **not shared**.
+
+- **Shared (on):** the session is in Jarvis's overview. Jarvis can read it, send it instructions, and decide its approvals and questions within your delegations. You get Jarvis's notices about it.
+- **Not shared (off, the default):** for Jarvis the session does not exist. It is not in the overview, Jarvis's tools cannot read or instruct it, and its approvals and questions come to you exactly as with Jarvis mode off. Nothing is auto-allowed there. You get no Jarvis notices about it.
+
+How to switch:
+
+| Where | How |
+|---|---|
+| Terminal UI, in the session | `/jarvis share on` or `/jarvis share off`. `/jarvis share` alone shows the switch. The status line shows **Jarvis: shared** while it is on. |
+| Terminal UI, Jarvis screen | The screen says how many sessions are not shared. `/jarvis share on <session id>` shares one. |
+| Desktop app or snowpea web | The Jarvis switch in the session header, or in the Jarvis screen's session list. |
+
+A remote web login can switch a session too. Jarvis, a session's own tools, and messenger or browser connections cannot.
+
+What turns a session on by itself:
+
+- **A session delegation.** When you confirm a delegation for one session ("hand it over"), the same confirmation shares that session. A project or "everything" delegation does **not** share sessions. It applies to the sessions you share.
+- **Jarvis's own sessions.** A session Jarvis starts for you (snowpea, external CLI or browser) starts shared, and the ledger says so.
+- **Children and forks** take the switch of the session they come from.
+
+Turning a session off does not remove its delegations. They simply have no effect while it is off. What was waiting for Jarvis in that session comes to you at once. Turning it on routes what waits there as if it had just been asked.
+
+Other rules:
+
+- A project hidden from Jarvis (`jarvis.expose` off) hides all its sessions, whatever their switch says. The switch is shown locked.
+- Browser sessions can be shared only while `jarvis.exposeBrowser` is on.
+- `jarvis.sessions.default` (`off` or `on`) decides what a new session starts with. Only you can change it, on this computer.
+- Ledger entries about a session you turned off stay in your ledger, but Jarvis no longer reads them.
+
+**After the upgrade:** existing sessions are not shared, except sessions you had delegated to Jarvis one by one. The Jarvis screen shows this once.
+
 ## What Jarvis can and cannot do
 
 | Jarvis can | Jarvis cannot |
 |---|---|
-| Read the state, summary and recent history of every session in an exposed project | Read a project you hid from it |
+| Read the state, summary and recent history of every session you share with it, in an exposed project | Read a session you did not share, or a project you hid from it |
 | Read the global memory and the memory of exposed projects | Write to any memory except its own |
 | Write files, but only in its own working folder | Write files in your projects. Changes go through a worker session. |
 | Send instructions to sessions snowpea runs, and to external sessions snowpea controls | Instruct a session snowpea does not control, such as an unrestricted external session |
@@ -116,7 +150,8 @@ These requests always go to you. No grant changes that, and Jarvis cannot decide
 - Raising a session's permission mode.
 - Questions that mention a guarded action, or that ask for a secret.
 - A line snowpea cannot check against your blocked-command list. See [Security lists](#security-lists).
-- Approvals of a browser session. Their approvals stay with the browser connection in this release.
+- In a browser session: payments, recurring purchases (creating, changing or resuming one) and using your own tabs. The rest of a browser session you share follows your delegations (1.56.0).
+- Anything in a session you did not share with Jarvis.
 
 ### See and revoke delegations
 
@@ -191,7 +226,7 @@ Jarvis supervises the projects that you expose to it.
 
 - **Exposure is per project.** Every project is exposed by default. Turn off **Expose to Jarvis** in the project's settings to hide it completely. Jarvis then cannot see its sessions, its transcripts or its memory. Hidden projects are listed in Settings as a count, for example "1 project(s) are hidden from Jarvis." The switch is stored as `jarvis.expose` in the project's own `.snowpea/settings.json`. If that file cannot be read, snowpea treats the project as hidden.
 - **A project under a hidden project is hidden too.** If a folder above a registered project is hidden, so is the project.
-- **Browser sessions** (sessions that the snowpea browser runs) follow `jarvis.exposeBrowser`, which is on by default. When it is off, Jarvis sees only the status of those sessions. It cannot read their transcripts or instruct them.
+- **Browser sessions** (sessions that the snowpea browser runs) follow `jarvis.exposeBrowser`, which is on by default. When it is off, those sessions are hidden from Jarvis (since 1.56.0 not even their status is listed) and cannot be shared. When it is on, a browser session you share follows your delegations like any other session.
 - **Names.** Jarvis refers to projects by the names snowpea shows for them, and by any alias you gave a project. Use the same name in conversation. For example, "the website project" works when that is the project's name or alias.
 - **Renaming and aliases.** A project's display name and aliases are kept in snowpea's home folder, outside every project, so a session working in a project cannot rename it. They are changed by a client through the `jarvis.project.rename` and `jarvis.project.alias` calls (see the [protocol reference](protocol.md)). Jarvis has no tool to set them, and you cannot set them by asking Jarvis.
 
@@ -306,6 +341,17 @@ You can speak to Jarvis with push-to-talk.
 
 Change the shortcut and the send-on-release behaviour in **Settings → Audio → Push-to-talk**. The same screen has a switch that reads Jarvis's answers aloud. See [Voice](voice.md) for the speech settings.
 
+## A browser session Jarvis starts
+
+While the snowpea browser is running, Jarvis can start a session that works in the browser: ask it to "do this in the browser". The session runs on the browser's own tools, exactly like a browser routine, gets a title from the task, and starts shared. Rules:
+
+- Only while a browser is connected. Otherwise Jarvis says the browser is not running.
+- One at a time. Jarvis waits for its running browser session before it starts another.
+- Only for your request or inside work you delegated, like every session Jarvis starts. Not while `jarvis.exposeBrowser` is off.
+- Its messages are Jarvis's, never yours, so the browser's own person-only rules hold.
+- What the browser asks follows your delegations like any other request: page actions, sending and uploading are the "secrets or sending" kind. **Payments, recurring purchases and using your own tabs are always yours.** Jarvis only ever answers once.
+- If the browser disconnects, the session ends with a note instead of waiting.
+
 ## External agent CLIs under Jarvis
 
 Jarvis can read and, under the delegation rules, instruct sessions of Claude Code, Codex, agy and Cursor agent. Four things in this area are yours to confirm, and Jarvis can do none of them:
@@ -330,7 +376,8 @@ All Jarvis settings are in `settings.json` under `jarvis`. Per-project exposure 
 | `jarvis.delegation.projectTtlHours` | `24` | Lifetime, in hours, of a project grant given without an expiry. |
 | `jarvis.quietMinutes` | `10` | Minutes without your input after which Jarvis returns to a session you typed in. |
 | `jarvis.stallMinutes` | `15` | Minutes a fully delegated session may sit still before Jarvis looks at it. |
-| `jarvis.exposeBrowser` | `true` | Whether Jarvis reads and instructs browser sessions. When off, it sees only their status. |
+| `jarvis.exposeBrowser` | `true` | Whether browser sessions can be shared with Jarvis. When off, they are hidden from Jarvis and their switch is locked. |
+| `jarvis.sessions.default` | `off` | Whether a new session starts shared with Jarvis (`on`) or not (`off`). Yours to change, on this computer. |
 | `jarvis.proactive.finished` | `true` | Notice when a session finishes. |
 | `jarvis.proactive.error` | `true` | Notice when a session fails or stops with an error. |
 | `jarvis.proactive.needsYou` | `true` | Notice when something needs you. |
@@ -365,7 +412,7 @@ Jarvis mode is a beta. These are the limits you should know before you rely on i
 - **The classifier reads the command line, not what runs inside it.** Jarvis judges an action from the command, its arguments and the file paths it names. It cannot see what a script or a program does once it runs. A script that deletes files can run as a safe command if its command line looks harmless. The security lists check the same command line, so they have the same limit; a line they cannot check is routed to you.
 - **External CLIs in unrestricted mode.** snowpea does not control what an unrestricted CLI does. Jarvis can read and summarise such a session, but it cannot instruct it or start one, and its guarded-kind rules and the security lists do not apply inside it. Only you can choose unrestricted, and only for one session at a time.
 - **Other tools' record formats can change.** Claude Code, Codex, agy and Cursor agent do not publish stable formats for their session records. A new CLI version can change them. snowpea checks the CLI version and shows an error when it cannot read a session.
-- **Browser sessions.** Jarvis can read and instruct browser sessions, but it does not decide their approvals in this release.
+- **Browser sessions.** Since 1.56.0 a browser session you share follows your delegations like any other: page actions, sending and uploading are the "secrets or sending" kind, so Jarvis decides them only when you handed that kind over. Payments, recurring purchases and your own tabs are always yours. Core recognises those by the browser's action name (`payment.*`, `subscription.*`, `purchase.*`, `recurring…`, `checkout`, `use_tab`, or `risk: payment`); an action the browser names differently is judged by its kind.
 - **Windows.** The tmux shared-terminal option is not available on Windows. Processes of external CLIs have no console window of their own, and snowpea ends a CLI's whole process tree together when it stops one. snowpea cleans up leftover external CLI processes after an unclean daemon exit only when it can read the process's start time, which it cannot on Windows, so such leftovers stay until you end them yourself.
 - **Jarvis cannot fetch a URL.** It searches the web with short queries only. It cannot open a link that you paste.
 - **Jarvis cannot read snowpea's own files.** Its reads exclude snowpea's home folder, and the file a linked `settings.json` points at. Searches leave out lines from secret files.
