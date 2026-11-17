@@ -121,7 +121,7 @@ def test_tables_say_the_truth() -> None:
             if row.legacy == "readonly":
                 assert row.writes in ("none", "plan"), row
             assert set(row.to_wire()) == {"id", "label", "asks", "writes", "approvals",
-                                          "personOnly", "legacy"}
+                                          "personOnly", "legacy", "terminal"}
         for legacy, native in adapter_cls.legacy_native.items():
             row = modes.find(table, native)
             assert row is not None and row.legacy == legacy

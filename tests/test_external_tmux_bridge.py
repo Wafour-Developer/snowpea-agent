@@ -264,7 +264,15 @@ def test_mode_tables_say_how_to_switch_in_the_terminal() -> None:
     assert claude["plan"] == {"slash": "/plan"}
     assert claude["default"] == claude["acceptEdits"] == claude["auto"] == {"cycle": True}
     assert claude["dontAsk"] is None and claude["bypassPermissions"] is None
-    assert all(row.terminal is None for row in CODEX_MODES)  # /permissions is a picker
+    codex = {row.id: row.terminal for row in CODEX_MODES}
+    assert codex == {"untrusted": None, "read-only": {"picker": "Read Only"},
+                     "default": {"picker": "Default"},
+                     "full-access": {"picker": "Full Access"}}
+    assert [row.to_wire()["terminal"] for row in CODEX_MODES] == [None, "picker", "picker",
+                                                                    "picker"]
+    assert {row.id: row.to_wire()["terminal"] for row in CLAUDE_MODES} == {
+        "default": "keys", "acceptEdits": "keys", "plan": "slash", "auto": "keys",
+        "dontAsk": None, "bypassPermissions": None}
     agy = {row.id: row.terminal for row in AGY_MODES}
     assert agy["plan"] == agy["accept-edits"] == agy["auto"] == {"cycle": True}
     assert agy["default"] is None and agy["dangerously-skip-permissions"] is None
@@ -277,7 +285,7 @@ def test_mode_tables_say_how_to_switch_in_the_terminal() -> None:
         profile = PROFILES[cli]
         shown = {mode for _text, mode in profile.indicators} | {profile.default_mode}
         for row in table:
-            if row.terminal:
+            if row.terminal and not row.terminal.get("picker"):
                 assert row.id in shown, (cli, row.id)
 
 
@@ -379,8 +387,8 @@ def test_snapshot_text_is_plain_and_clipped() -> None:
     assert len(text) == tmux_mod.SNAPSHOT_MAX
 
 
-def test_native_mode_rows_keep_terminal_out_of_the_wire() -> None:
-    assert "terminal" not in modes.find(CLAUDE_MODES, "plan").to_wire()  # type: ignore[union-attr]
+def test_native_mode_rows_say_how_a_terminal_switches() -> None:
+    assert modes.find(CLAUDE_MODES, "plan").to_wire()["terminal"] == "slash"  # type: ignore[union-attr]
 
 
 # -- real tmux, private server only ---------------------------------------------------

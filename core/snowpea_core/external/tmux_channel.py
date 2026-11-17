@@ -39,7 +39,8 @@ from snowpea_core.external.tmux import (
     BUSY_TERMINAL_PROMPT,
     TerminalBridge,
     TerminalPrompt,
-    refuse_text,
+    check_text,
+    looks_like_dialog,
 )
 from snowpea_core.server import errors
 
@@ -106,6 +107,11 @@ class TmuxBridgeChannel(ExternalChannel):
         self.ask_task: asyncio.Task[None] | None = None
         #: The CLI waits for an answer the profile does not recognise.
         self.waiting = False
+        #: A list or dialog a slash command left open (unrecognised: answered there).
+        self.dialog = False
+        #: The next send may be a single-line slash command (the local person only;
+        #: the manager sets it per send).
+        self.allow_slash = False
         #: Who the next keys are for (the manager sets it): person, jarvis, remote.
         self.actor = "person"
         self.turn_id: str | None = None
@@ -134,7 +140,8 @@ class TmuxBridgeChannel(ExternalChannel):
             "modeState": self.mode_state,
             "prompt": (
                 {"recognised": True, "text": self.asked.text} if self.asked is not None
-                else {"recognised": False, "text": None} if self.waiting else None
+                else {"recognised": False, "text": None} if self.waiting or self.dialog
+                else None
             ),
         }
 
@@ -214,6 +221,11 @@ class TmuxBridgeChannel(ExternalChannel):
                         return
                 status = await self._status()
                 self._busy = status in ("busy", "waiting")
+                if self.dialog and not looks_like_dialog(await self.bridge.capture()):
+                    self.dialog = False
+                    note = getattr(self.host_api, "changed", None)
+                    if note is not None:
+                        await note()
                 await self._prompts(status)
                 self._turns(status)
         except asyncio.CancelledError:
@@ -317,9 +329,9 @@ class TmuxBridgeChannel(ExternalChannel):
     # -- turns ------------------------------------------------------------------
     async def precheck(self, text: str) -> None:
         """Refuse before anything is published: bad text, the guard, a busy CLI, a prompt."""
-        refuse_text(text)
+        check_text(text, slash_ok=self.allow_slash)
         await self.bridge.guard()
-        if self.asked is not None or self.waiting:
+        if self.asked is not None or self.waiting or self.dialog:
             raise ExternalError(errors.SESSION_BUSY,
                                 "a permission prompt is open in the terminal; answer it first",
                                 {"reason": BUSY_TERMINAL_PROMPT})
@@ -334,6 +346,20 @@ class TmuxBridgeChannel(ExternalChannel):
                                 {"reason": BUSY_TERMINAL_BUSY})
 
     async def send(self, text: str, turn_id: str) -> None:
+        if self.allow_slash and text.lstrip().startswith("/"):
+            # A slash command starts no model turn: settle, and say so when it
+            # left a list or dialog open (answered in the terminal).
+            await self.bridge.send_slash_text(text, by=self.actor)
+            self.turn_id = turn_id
+            await asyncio.sleep(0.8)
+            if looks_like_dialog(await self.bridge.capture()):
+                self.dialog = True
+                note = getattr(self.host_api, "changed", None)
+                if note is not None:
+                    await note()
+            await self._detect_mode()
+            self._end_turn("complete")
+            return
         await self.bridge.send_text(text, by=self.actor)
         self.turn_id = turn_id
         self._busy_seen = False
@@ -363,7 +389,7 @@ class TmuxBridgeChannel(ExternalChannel):
                 f"snowpea cannot switch {self.adapter.title} to that mode in the terminal; "
                 "switch it there",
             )
-        if self._busy or self.asked is not None or self.waiting:
+        if self._busy or self.asked is not None or self.waiting or self.dialog:
             raise ExternalError(errors.SESSION_BUSY,
                                 "the CLI is busy in the terminal; switch modes when it is idle",
                                 {"reason": BUSY_TERMINAL_BUSY})

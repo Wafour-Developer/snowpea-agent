@@ -1677,6 +1677,10 @@ class ExternalManager:
                 )
             if self._bridge_of(record) is not None:
                 self._bridge_send_allowed(record, conn, confirmation)
+                # A slash command only from the person at a local surface.
+                channel.allow_slash = bool(  # type: ignore[attr-defined]
+                    confirmation is None and proc.is_human_connection(conn)
+                    and not getattr(conn, "remote_login", False))
                 channel.actor = (  # type: ignore[attr-defined]
                     "person" if proc.is_human_connection(conn) and not getattr(
                         conn, "remote_login", False) else

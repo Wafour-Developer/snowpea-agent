@@ -1110,6 +1110,11 @@ export function useJarvisScreens(deps: ScreensDeps) {
           showToast(`already ${native.label}`);
           return;
         }
+        if (view.session.terminal && !native.terminal) {
+          // 1.56.0: in the person's tmux pane only modes with a terminal switch work.
+          showToast(`${native.label}: switch it in the terminal`);
+          return;
+        }
         if (native.personOnly) {
           setUi({
             kind: "unrestricted",

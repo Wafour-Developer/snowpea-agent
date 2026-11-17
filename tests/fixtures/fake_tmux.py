@@ -8,6 +8,7 @@ call (argv and stdin) to ``$FAKE_TMUX_LOG`` (JSON lines)::
                 "window": "1", "command": "claude", "dead": false}],
      "screens": {"%3": ["screen 0", "screen 1"]},   # capture-pane shows screens[at]
      "at": {"%3": 0},                                 # BTab moves it one on
+     "on_key": {"Down": 1, "Enter": 1, "literal": 0},  # instead: per key, the move
      "fail": ["paste-buffer"]}                        # subcommands that exit 1
 
 Supported: ``-V``, ``[-S path | -L name] list-panes -a -F <fmt>`` (the columns of
@@ -60,8 +61,11 @@ def main() -> int:
         return 0
     if command == "send-keys":
         target = args[args.index("-t") + 1]
-        if args[-1] == "BTab" and path:
-            world.setdefault("at", {})[target] = world.get("at", {}).get(target, 0) + 1
+        key = "literal" if "-l" in args else args[-1]
+        moves = world.get("on_key")
+        step = moves.get(key, 0) if isinstance(moves, dict) else (1 if key == "BTab" else 0)
+        if step and path:
+            world.setdefault("at", {})[target] = max(0, world.get("at", {}).get(target, 0) + step)
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(world, handle)
         return 0

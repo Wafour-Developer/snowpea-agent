@@ -8882,6 +8882,15 @@ class ExternalNativeMode(Payload):
     legacy: ExternalSessionMode = Field(
         description="What an old client sees in 'mode' for a session in this mode."
     )
+    terminal: Literal["slash", "keys", "picker"] | None = Field(
+        default=None,
+        description=(
+            "How a session in the person's tmux pane (externalTmux) is switched to it: slash "
+            "(the CLI's slash command), keys (its mode key, Shift+Tab, until the pane shows "
+            "it), picker (a slash command that opens a list, navigated entry by entry); null: "
+            "not from snowpea there (grey it out)."
+        ),
+    )
 
 
 class ExternalCliInfo(Payload):

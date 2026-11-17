@@ -61,7 +61,20 @@ class NativeMode:
             "approvals": self.approvals,
             "personOnly": self.person_only,
             "legacy": self.legacy,
+            "terminal": self.terminal_kind,
         }
+
+    @property
+    def terminal_kind(self) -> str | None:
+        """How a tmux-bridged session switches to it: slash, keys, picker or None."""
+        entry = self.terminal or {}
+        if entry.get("picker"):
+            return "picker"
+        if entry.get("slash"):
+            return "slash"
+        if entry.get("cycle"):
+            return "keys"
+        return None
 
     @property
     def uncontrolled(self) -> bool:

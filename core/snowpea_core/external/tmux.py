@@ -78,7 +78,7 @@ PAGERS_EDITORS = frozenset({
     "micro", "hx", "helix", "kak", "joe", "ed", "mc", "tig", "lazygit",
 })
 #: Keys the bridge may send; anything else is refused before tmux runs.
-KEYS = frozenset({"Enter", "Escape", "BTab", "y", "1"})
+KEYS = frozenset({"Enter", "Escape", "BTab", "Up", "Down", "y", "1"})
 #: Longest pane snapshot handed out (characters).
 SNAPSHOT_MAX = 8_000
 #: Longest prompt text carried in an approval.
@@ -270,6 +270,45 @@ class PromptRule:
 
 
 @dataclass(frozen=True)
+class PickerRule:
+    """A list a slash command opens, navigated entry by entry (pinned patterns only)."""
+
+    command: str
+    #: A line that must be on screen while the picker is open.
+    header: re.Pattern[str]
+    #: One entry: ``selected`` marker, then the label (compared exactly).
+    option: re.Pattern[str]
+    #: Shown once the choice took effect; ``{label}`` is the entry's label.
+    confirm: str
+
+
+#: An open list or dialog after a slash command: a selected numbered entry or
+#: an "esc" hint near the bottom (generic, only ever used to say "waiting").
+DIALOG_RE = re.compile(r"^\s*[›❯>]\s*\d+\.\s|Esc to (?:cancel|close|go back)\b|\(esc\)")
+
+
+def looks_like_dialog(screen: str) -> bool:
+    lines = [line for line in clean_screen(screen).split("\n") if line.strip()][-12:]
+    return any(DIALOG_RE.search(line) for line in lines)
+
+
+_SLASH_RE = re.compile(r"/[A-Za-z][\w.:-]{0,60}(?: [^\x00-\x1f\x7f-\x9f]*)?")
+
+
+def check_text(text: str, *, slash_ok: bool) -> None:
+    """What may be typed: :func:`refuse_text`, except a single-line slash command
+    from the local person (``slash_ok``).  ``!`` stays refused for everyone."""
+    stripped = text.lstrip()
+    if slash_ok and stripped.startswith("/"):
+        if "\n" in text or "\r" in text:
+            raise ExternalError(errors.INVALID_PARAMS, "a slash command is a single line")
+        if len(text) > 2_000 or not _SLASH_RE.fullmatch(stripped.rstrip()):
+            raise ExternalError(errors.INVALID_PARAMS, "not a slash command snowpea types")
+        return
+    refuse_text(text)
+
+
+@dataclass(frozen=True)
 class TerminalProfile:
     """What snowpea knows about one CLI's terminal UI (evidence in the module docs)."""
 
@@ -284,6 +323,8 @@ class TerminalProfile:
     prompt: PromptRule | None = None
     #: The CLI says busy/idle reliably (else a send ends its turn once delivered).
     busy_signal: bool = True
+    #: The list a ``picker`` mode entry is chosen in.
+    picker: PickerRule | None = None
 
 
 PROFILES: dict[str, TerminalProfile] = {
@@ -314,6 +355,16 @@ PROFILES: dict[str, TerminalProfile] = {
     "codex": TerminalProfile(
         cli="codex",
         interrupt="Escape",
+        # codex 0.167.1 strings: "/permissions - choose what Codex is allowed to
+        # do", the picker title "Update Model Permissions", the presets "Read
+        # Only", "Default", "Full Access", "Permissions updated to ".  Entries are
+        # numbered, the highlighted one starts with "›" (spike S5 dialogs).
+        picker=PickerRule(
+            command="/permissions",
+            header=re.compile(r"^\s*Update Model Permissions\s*$"),
+            option=re.compile(r"^\s*(?P<sel>›)?\s*\d+\.\s+(?P<label>\S.*?)(?:\s{2,}.*|\s+\(current\))?$"),
+            confirm="Permissions updated to {label}",
+        ),
         prompt=PromptRule(
             question=re.compile(r"^\s*Would you like to (?:run the following command|make the "
                                 r"following edits|grant these permissions)\?\s*$"),
@@ -520,6 +571,9 @@ class TerminalBridge:
             await self.slash(slash, by=by)
             await asyncio.sleep(settle)
             return await self.current_mode() == target
+        picker = terminal.get("picker")
+        if isinstance(picker, str):
+            return await self.pick(picker, by=by, settle=settle)
         if terminal.get("cycle"):
             for _ in range(MAX_CYCLE):
                 if await self.current_mode() == target:
@@ -528,6 +582,77 @@ class TerminalBridge:
                 await asyncio.sleep(settle)
             return await self.current_mode() == target
         raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "this mode cannot be switched there")
+
+    def _picker_state(self, screen: str) -> tuple[list[str], int] | None:
+        """``(labels, selected index)`` of the open picker, or None when it is not shown."""
+        rule = self.profile.picker
+        assert rule is not None
+        lines = clean_screen(screen, limit=SNAPSHOT_MAX * 4).split("\n")
+        start = next((i for i, line in enumerate(lines) if rule.header.match(line)), None)
+        if start is None:
+            return None
+        labels: list[str] = []
+        selected = -1
+        for line in lines[start + 1:start + 20]:
+            found = rule.option.match(line)
+            if found is None:
+                if labels:
+                    break
+                continue
+            if found.group("sel"):
+                selected = len(labels)
+            labels.append(found.group("label").strip())
+        if not labels or selected < 0:
+            return None
+        return labels, selected
+
+    async def _leave_picker(self, by: str) -> None:
+        """Escape once, and only while the picker is still on screen."""
+        if self._picker_state(await self.capture()) is not None:
+            await self.key("Escape", by=by)
+
+    async def pick(self, label: str, *, by: str, settle: float = 0.4) -> bool:
+        """Choose ``label`` in the profile's picker; True once the screen confirms it.
+
+        Every step must match the pinned patterns: the picker header, exactly one
+        highlighted entry, the wanted label exactly once.  One arrow key per step,
+        re-read after each; Enter only on the wanted line.  Anything else: Escape
+        once (only while the picker is shown) and stop.
+        """
+        rule = self.profile.picker
+        if rule is None:
+            raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "this CLI has no mode picker")
+        await self.slash(rule.command, by=by)
+        await asyncio.sleep(settle)
+        for _ in range(12):
+            state = self._picker_state(await self.capture())
+            if state is None:
+                return False
+            labels, selected = state
+            if labels.count(label) != 1:
+                await self._leave_picker(by)
+                return False
+            want = labels.index(label)
+            if want == selected:
+                await self.key("Enter", by=by)
+                await asyncio.sleep(settle)
+                screen = await self.capture()
+                return (self._picker_state(screen) is None
+                        and rule.confirm.format(label=label) in clean_screen(screen))
+            await self.key("Down" if want > selected else "Up", by=by)
+            await asyncio.sleep(settle)
+        await self._leave_picker(by)
+        return False
+
+    async def send_slash_text(self, text: str, *, by: str) -> None:
+        """A person's single-line slash command: typed literally, then Enter."""
+        check_text(text, slash_ok=True)
+        pane = await self.guard()
+        await self.server.run("send-keys", "-t", pane.pane, "-l", "--", text.strip())
+        await asyncio.sleep(0.1)
+        pane = await self.guard()
+        await self.server.run("send-keys", "-t", pane.pane, "Enter")
+        self._record("slash", by, chars=len(text))
 
     async def prompt(self) -> TerminalPrompt | None:
         return recognise(self.profile, await self.capture())
@@ -571,7 +696,10 @@ __all__ = [
     "Pane",
     "Probe",
     "ProcFacts",
+    "PickerRule",
     "PromptRule",
+    "check_text",
+    "looks_like_dialog",
     "TerminalBridge",
     "TerminalProfile",
     "TerminalPrompt",

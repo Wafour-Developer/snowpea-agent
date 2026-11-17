@@ -1080,6 +1080,8 @@ export interface ExternalClisResult {
       legacy: "default" | "readonly" | "unrestricted";
       /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
       personOnly: boolean;
+      /** How a session in the person's tmux pane (externalTmux) is switched to it: slash (the CLI's slash command), keys (its mode key, Shift+Tab, until the pane shows it), picker (a slash command that opens a list, navigated entry by entry); null: not from snowpea there (grey it out). */
+      terminal?: "slash" | "keys" | "picker" | null;
       /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
       writes: "none" | "plan" | "workspace" | "anywhere";
     })[];
@@ -1155,6 +1157,8 @@ export interface ExternalClisConfirmPathResult {
       legacy: "default" | "readonly" | "unrestricted";
       /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
       personOnly: boolean;
+      /** How a session in the person's tmux pane (externalTmux) is switched to it: slash (the CLI's slash command), keys (its mode key, Shift+Tab, until the pane shows it), picker (a slash command that opens a list, navigated entry by entry); null: not from snowpea there (grey it out). */
+      terminal?: "slash" | "keys" | "picker" | null;
       /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
       writes: "none" | "plan" | "workspace" | "anywhere";
     })[];
@@ -9334,6 +9338,8 @@ export interface ExternalClisChangedPayload {
       legacy: "default" | "readonly" | "unrestricted";
       /** Only a person may choose it, with the same gate and ledger entry as 'unrestricted' (a remote web login may not); Jarvis may only ask the person. */
       personOnly: boolean;
+      /** How a session in the person's tmux pane (externalTmux) is switched to it: slash (the CLI's slash command), keys (its mode key, Shift+Tab, until the pane shows it), picker (a slash command that opens a list, navigated entry by entry); null: not from snowpea there (grey it out). */
+      terminal?: "slash" | "keys" | "picker" | null;
       /** What it may write without asking first or after the person allowed it: none, plan (only its plan or notes file), workspace (the project), anywhere. */
       writes: "none" | "plan" | "workspace" | "anywhere";
     })[];
