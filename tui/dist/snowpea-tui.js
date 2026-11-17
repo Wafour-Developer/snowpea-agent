@@ -932,8 +932,8 @@ var require_react_development = __commonJS({
         }
         var didWarnAboutMaps = false;
         var userProvidedKeyEscapeRegex = /\/+/g;
-        function escapeUserProvidedKey(text6) {
-          return text6.replace(userProvidedKeyEscapeRegex, "$&/");
+        function escapeUserProvidedKey(text7) {
+          return text7.replace(userProvidedKeyEscapeRegex, "$&/");
         }
         function getElementKey(element, index) {
           if (typeof element === "object" && element !== null && element.key != null) {
@@ -10323,8 +10323,8 @@ var require_react_reconciler_development = __commonJS({
                     didNotFindHydratableInstanceWithinContainer(parentContainer, type, props);
                     break;
                   case HostText:
-                    var text6 = fiber.pendingProps;
-                    didNotFindHydratableTextInstanceWithinContainer(parentContainer, text6);
+                    var text7 = fiber.pendingProps;
+                    didNotFindHydratableTextInstanceWithinContainer(parentContainer, text7);
                     break;
                   case SuspenseComponent:
                     didNotFindHydratableSuspenseInstanceWithinContainer(parentContainer);
@@ -10415,8 +10415,8 @@ var require_react_reconciler_development = __commonJS({
               return false;
             }
             case HostText: {
-              var text6 = fiber.pendingProps;
-              var textInstance = canHydrateTextInstance(nextInstance, text6);
+              var text7 = fiber.pendingProps;
+              var textInstance = canHydrateTextInstance(nextInstance, text7);
               if (textInstance !== null) {
                 fiber.stateNode = textInstance;
                 hydrationParentFiber = fiber;
@@ -17243,8 +17243,8 @@ var require_react_reconciler_development = __commonJS({
               } else if (node.tag === HostText) {
                 var _instance = node.stateNode;
                 if (needsVisibilityToggle && isHidden2) {
-                  var text6 = node.memoizedProps;
-                  _instance = cloneHiddenTextInstance(_instance, text6, node);
+                  var text7 = node.memoizedProps;
+                  _instance = cloneHiddenTextInstance(_instance, text7, node);
                 }
                 appendInitialChild(parent, _instance);
               } else if (node.tag === HostPortal) ;
@@ -17287,8 +17287,8 @@ var require_react_reconciler_development = __commonJS({
               } else if (node.tag === HostText) {
                 var _instance2 = node.stateNode;
                 if (needsVisibilityToggle && isHidden2) {
-                  var text6 = node.memoizedProps;
-                  _instance2 = cloneHiddenTextInstance(_instance2, text6, node);
+                  var text7 = node.memoizedProps;
+                  _instance2 = cloneHiddenTextInstance(_instance2, text7, node);
                 }
                 appendChildToContainerChildSet(containerChildSet, _instance2);
               } else if (node.tag === HostPortal) ;
@@ -19868,10 +19868,10 @@ var require_react_reconciler_development = __commonJS({
             value: role
           };
         }
-        function createTextSelector(text6) {
+        function createTextSelector(text7) {
           return {
             $$typeof: TEXT_TYPE,
-            value: text6
+            value: text7
           };
         }
         function createTestNameSelector(id) {
@@ -28453,12 +28453,12 @@ var enterAlternativeScreen = ESC + "?1049h";
 var exitAlternativeScreen = ESC + "?1049l";
 var beginSynchronizedOutput = ESC + "?2026h";
 var endSynchronizedOutput = ESC + "?2026l";
-var synchronizedOutput = (text6) => beginSynchronizedOutput + text6 + endSynchronizedOutput;
+var synchronizedOutput = (text7) => beginSynchronizedOutput + text7 + endSynchronizedOutput;
 var beep = BEL;
-var link = (text6, url) => {
+var link = (text7, url) => {
   const openLink = wrapOsc(`${OSC}8${SEP}${SEP}${url}${BEL}`);
   const closeLink = wrapOsc(`${OSC}8${SEP}${SEP}${BEL}`);
-  return openLink + text6 + closeLink;
+  return openLink + text7 + closeLink;
 };
 var image = (data, options = {}) => {
   let returnValue = `${OSC}1337;File=inline=1`;
@@ -30294,20 +30294,20 @@ function widestLine(string) {
 
 // ../node_modules/ink/build/measure-text.js
 var cache = {};
-var measureText = (text6) => {
-  if (text6.length === 0) {
+var measureText = (text7) => {
+  if (text7.length === 0) {
     return {
       width: 0,
       height: 0
     };
   }
-  const cachedDimensions = cache[text6];
+  const cachedDimensions = cache[text7];
   if (cachedDimensions) {
     return cachedDimensions;
   }
-  const width = widestLine(text6);
-  const height = text6.split("\n").length;
-  cache[text6] = { width, height };
+  const width = widestLine(text7);
+  const height = text7.split("\n").length;
+  cache[text7] = { width, height };
   return { width, height };
 };
 var measure_text_default = measureText;
@@ -30773,15 +30773,15 @@ function getIndexOfNearestSpace(string, wantedIndex, shouldSearchRight) {
   }
   return wantedIndex;
 }
-function cliTruncate(text6, columns, options = {}) {
+function cliTruncate(text7, columns, options = {}) {
   const {
     position = "end",
     space = false,
     preferTruncationOnSpace = false
   } = options;
   let { truncationCharacter = "\u2026" } = options;
-  if (typeof text6 !== "string") {
-    throw new TypeError(`Expected \`input\` to be a string, got ${typeof text6}`);
+  if (typeof text7 !== "string") {
+    throw new TypeError(`Expected \`input\` to be a string, got ${typeof text7}`);
   }
   if (typeof columns !== "number") {
     throw new TypeError(`Expected \`columns\` to be a number, got ${typeof columns}`);
@@ -30792,19 +30792,19 @@ function cliTruncate(text6, columns, options = {}) {
   if (columns === 1) {
     return truncationCharacter;
   }
-  const length = stringWidth(text6);
+  const length = stringWidth(text7);
   if (length <= columns) {
-    return text6;
+    return text7;
   }
   if (position === "start") {
     if (preferTruncationOnSpace) {
-      const nearestSpace = getIndexOfNearestSpace(text6, length - columns + 1, true);
-      return truncationCharacter + sliceAnsi(text6, nearestSpace, length).trim();
+      const nearestSpace = getIndexOfNearestSpace(text7, length - columns + 1, true);
+      return truncationCharacter + sliceAnsi(text7, nearestSpace, length).trim();
     }
     if (space === true) {
       truncationCharacter += " ";
     }
-    return truncationCharacter + sliceAnsi(text6, length - columns + stringWidth(truncationCharacter), length);
+    return truncationCharacter + sliceAnsi(text7, length - columns + stringWidth(truncationCharacter), length);
   }
   if (position === "middle") {
     if (space === true) {
@@ -30812,36 +30812,36 @@ function cliTruncate(text6, columns, options = {}) {
     }
     const half = Math.floor(columns / 2);
     if (preferTruncationOnSpace) {
-      const spaceNearFirstBreakPoint = getIndexOfNearestSpace(text6, half);
-      const spaceNearSecondBreakPoint = getIndexOfNearestSpace(text6, length - (columns - half) + 1, true);
-      return sliceAnsi(text6, 0, spaceNearFirstBreakPoint) + truncationCharacter + sliceAnsi(text6, spaceNearSecondBreakPoint, length).trim();
+      const spaceNearFirstBreakPoint = getIndexOfNearestSpace(text7, half);
+      const spaceNearSecondBreakPoint = getIndexOfNearestSpace(text7, length - (columns - half) + 1, true);
+      return sliceAnsi(text7, 0, spaceNearFirstBreakPoint) + truncationCharacter + sliceAnsi(text7, spaceNearSecondBreakPoint, length).trim();
     }
-    return sliceAnsi(text6, 0, half) + truncationCharacter + sliceAnsi(text6, length - (columns - half) + stringWidth(truncationCharacter), length);
+    return sliceAnsi(text7, 0, half) + truncationCharacter + sliceAnsi(text7, length - (columns - half) + stringWidth(truncationCharacter), length);
   }
   if (position === "end") {
     if (preferTruncationOnSpace) {
-      const nearestSpace = getIndexOfNearestSpace(text6, columns - 1);
-      return sliceAnsi(text6, 0, nearestSpace) + truncationCharacter;
+      const nearestSpace = getIndexOfNearestSpace(text7, columns - 1);
+      return sliceAnsi(text7, 0, nearestSpace) + truncationCharacter;
     }
     if (space === true) {
       truncationCharacter = ` ${truncationCharacter}`;
     }
-    return sliceAnsi(text6, 0, columns - stringWidth(truncationCharacter)) + truncationCharacter;
+    return sliceAnsi(text7, 0, columns - stringWidth(truncationCharacter)) + truncationCharacter;
   }
   throw new Error(`Expected \`options.position\` to be either \`start\`, \`middle\` or \`end\`, got ${position}`);
 }
 
 // ../node_modules/ink/build/wrap-text.js
 var cache2 = {};
-var wrapText = (text6, maxWidth, wrapType) => {
-  const cacheKey = text6 + String(maxWidth) + String(wrapType);
+var wrapText = (text7, maxWidth, wrapType) => {
+  const cacheKey = text7 + String(maxWidth) + String(wrapType);
   const cachedText = cache2[cacheKey];
   if (cachedText) {
     return cachedText;
   }
-  let wrappedText = text6;
+  let wrappedText = text7;
   if (wrapType === "wrap") {
-    wrappedText = wrapAnsi(text6, maxWidth, {
+    wrappedText = wrapAnsi(text7, maxWidth, {
       trim: false,
       hard: true
     });
@@ -30854,7 +30854,7 @@ var wrapText = (text6, maxWidth, wrapType) => {
     if (wrapType === "truncate-start") {
       position = "start";
     }
-    wrappedText = cliTruncate(text6, maxWidth, { position });
+    wrappedText = cliTruncate(text7, maxWidth, { position });
   }
   cache2[cacheKey] = wrappedText;
   return wrappedText;
@@ -30863,7 +30863,7 @@ var wrap_text_default = wrapText;
 
 // ../node_modules/ink/build/squash-text-nodes.js
 var squashTextNodes = (node) => {
-  let text6 = "";
+  let text7 = "";
   for (let index = 0; index < node.childNodes.length; index++) {
     const childNode = node.childNodes[index];
     if (childNode === void 0) {
@@ -30880,9 +30880,9 @@ var squashTextNodes = (node) => {
         nodeText = childNode.internal_transform(nodeText, index);
       }
     }
-    text6 += nodeText;
+    text7 += nodeText;
   }
-  return text6;
+  return text7;
 };
 var squash_text_nodes_default = squashTextNodes;
 
@@ -30954,20 +30954,20 @@ var setAttribute = (node, key, value) => {
 var setStyle = (node, style) => {
   node.style = style;
 };
-var createTextNode = (text6) => {
+var createTextNode = (text7) => {
   const node = {
     nodeName: "#text",
-    nodeValue: text6,
+    nodeValue: text7,
     yogaNode: void 0,
     parentNode: void 0,
     style: {}
   };
-  setTextNodeValue(node, text6);
+  setTextNodeValue(node, text7);
   return node;
 };
 var measureTextNode = function(node, width) {
-  const text6 = node.nodeName === "#text" ? node.nodeValue : squash_text_nodes_default(node);
-  const dimensions = measure_text_default(text6);
+  const text7 = node.nodeName === "#text" ? node.nodeValue : squash_text_nodes_default(node);
+  const dimensions = measure_text_default(text7);
   if (dimensions.width <= width) {
     return dimensions;
   }
@@ -30975,7 +30975,7 @@ var measureTextNode = function(node, width) {
     return dimensions;
   }
   const textWrap = node.style?.textWrap ?? "wrap";
-  const wrappedText = wrap_text_default(text6, width, textWrap);
+  const wrappedText = wrap_text_default(text7, width, textWrap);
   return measure_text_default(wrappedText);
 };
 var findClosestYogaNode = (node) => {
@@ -30988,11 +30988,11 @@ var markNodeAsDirty = (node) => {
   const yogaNode = findClosestYogaNode(node);
   yogaNode?.markDirty();
 };
-var setTextNodeValue = (node, text6) => {
-  if (typeof text6 !== "string") {
-    text6 = String(text6);
+var setTextNodeValue = (node, text7) => {
+  if (typeof text7 !== "string") {
+    text7 = String(text7);
   }
-  node.nodeValue = text6;
+  node.nodeValue = text7;
   markNodeAsDirty(node);
 };
 
@@ -31326,19 +31326,19 @@ var reconciler_default = (0, import_react_reconciler.default)({
     }
     return node;
   },
-  createTextInstance(text6, _root, hostContext) {
+  createTextInstance(text7, _root, hostContext) {
     if (!hostContext.isInsideText) {
-      throw new Error(`Text string "${text6}" must be rendered inside <Text> component`);
+      throw new Error(`Text string "${text7}" must be rendered inside <Text> component`);
     }
-    return createTextNode(text6);
+    return createTextNode(text7);
   },
   resetTextContent() {
   },
   hideTextInstance(node) {
     setTextNodeValue(node, "");
   },
-  unhideTextInstance(node, text6) {
-    setTextNodeValue(node, text6);
+  unhideTextInstance(node, text7) {
+    setTextNodeValue(node, text7);
   },
   getPublicInstance: (instance) => instance,
   hideInstance(node) {
@@ -32064,14 +32064,14 @@ var renderBorder = (x, y, node, output) => {
 var render_border_default = renderBorder;
 
 // ../node_modules/ink/build/render-node-to-output.js
-var applyPaddingToText = (node, text6) => {
+var applyPaddingToText = (node, text7) => {
   const yogaNode = node.childNodes[0]?.yogaNode;
   if (yogaNode) {
     const offsetX = yogaNode.getComputedLeft();
     const offsetY = yogaNode.getComputedTop();
-    text6 = "\n".repeat(offsetY) + indentString(text6, offsetX);
+    text7 = "\n".repeat(offsetY) + indentString(text7, offsetX);
   }
-  return text6;
+  return text7;
 };
 var renderNodeToOutput = (node, output, options) => {
   const { offsetX = 0, offsetY = 0, transformers = [], skipStaticElements } = options;
@@ -32090,16 +32090,16 @@ var renderNodeToOutput = (node, output, options) => {
       newTransformers = [node.internal_transform, ...transformers];
     }
     if (node.nodeName === "ink-text") {
-      let text6 = squash_text_nodes_default(node);
-      if (text6.length > 0) {
-        const currentWidth = widestLine(text6);
+      let text7 = squash_text_nodes_default(node);
+      if (text7.length > 0) {
+        const currentWidth = widestLine(text7);
         const maxWidth = get_max_width_default(yogaNode);
         if (currentWidth > maxWidth) {
           const textWrap = node.style.textWrap ?? "wrap";
-          text6 = wrap_text_default(text6, maxWidth, textWrap);
+          text7 = wrap_text_default(text7, maxWidth, textWrap);
         }
-        text6 = applyPaddingToText(node, text6);
-        output.write(x, y, text6, { transformers: newTransformers });
+        text7 = applyPaddingToText(node, text7);
+        output.write(x, y, text7, { transformers: newTransformers });
       }
       return;
     }
@@ -32458,16 +32458,16 @@ var Output = class {
     this.width = width;
     this.height = height;
   }
-  write(x, y, text6, options) {
+  write(x, y, text7, options) {
     const { transformers } = options;
-    if (!text6) {
+    if (!text7) {
       return;
     }
     this.operations.push({
       type: "write",
       x,
       y,
-      text: text6,
+      text: text7,
       transformers
     });
   }
@@ -32505,15 +32505,15 @@ var Output = class {
         clips.pop();
       }
       if (operation.type === "write") {
-        const { text: text6, transformers } = operation;
+        const { text: text7, transformers } = operation;
         let { x, y } = operation;
-        let lines = text6.split("\n");
+        let lines = text7.split("\n");
         const clip2 = clips.at(-1);
         if (clip2) {
           const clipHorizontally = typeof clip2?.x1 === "number" && typeof clip2?.x2 === "number";
           const clipVertically = typeof clip2?.y1 === "number" && typeof clip2?.y2 === "number";
           if (clipHorizontally) {
-            const width = widestLine(text6);
+            const width = widestLine(text7);
             if (x + width < clip2.x1 || x > clip2.x2) {
               continue;
             }
@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react60 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.56.0";
+var PROTOCOL_VERSION = "1.57.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -34372,28 +34372,28 @@ async function connect(options) {
 
 // src/layout/text-width.ts
 var segmenter2 = new Intl.Segmenter(void 0, { granularity: "grapheme" });
-function graphemes(text6) {
-  return Array.from(segmenter2.segment(text6), ({ segment, index }) => ({
+function graphemes(text7) {
+  return Array.from(segmenter2.segment(text7), ({ segment, index }) => ({
     text: segment,
     index,
     width: graphemeWidth(segment)
   }));
 }
-function graphemeWidth(text6) {
-  if (/^[\p{Mark}\p{Control}\p{Format}]+$/u.test(text6)) return 0;
-  if (new RegExp("\\p{Emoji_Presentation}|\\p{Regional_Indicator}|\\uFE0F|\\u20E3", "u").test(text6)) return 2;
-  const code = text6.codePointAt(0) ?? 0;
+function graphemeWidth(text7) {
+  if (/^[\p{Mark}\p{Control}\p{Format}]+$/u.test(text7)) return 0;
+  if (new RegExp("\\p{Emoji_Presentation}|\\p{Regional_Indicator}|\\uFE0F|\\u20E3", "u").test(text7)) return 2;
+  const code = text7.codePointAt(0) ?? 0;
   if (code >= 4352 && (code <= 4447 || code === 9001 || code === 9002 || code >= 11904 && code <= 42191 && code !== 12351 || code >= 44032 && code <= 55203 || code >= 63744 && code <= 64255 || code >= 65040 && code <= 65049 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 131072 && code <= 262141)) return 2;
   return 1;
 }
-function textWidth(text6) {
-  return graphemes(text6).reduce((sum, part) => sum + part.width, 0);
+function textWidth(text7) {
+  return graphemes(text7).reduce((sum, part) => sum + part.width, 0);
 }
 
 // src/layout/fit.ts
-function fit(text6, width) {
+function fit(text7, width) {
   if (width <= 0) return "";
-  const flat = text6.replace(/[\r\n\t]+/g, " ");
+  const flat = text7.replace(/[\r\n\t]+/g, " ");
   if (textWidth(flat) <= width) return flat;
   if (width === 1) return "\u2026";
   let used = 0;
@@ -34405,10 +34405,10 @@ function fit(text6, width) {
   }
   return `${out}\u2026`;
 }
-function wrapWords(text6, width, maxLines) {
+function wrapWords(text7, width, maxLines) {
   const rows = [];
   let row = "";
-  const words = text6.replace(/[\r\n\t]+/g, " ").split(" ").filter(Boolean);
+  const words = text7.replace(/[\r\n\t]+/g, " ").split(" ").filter(Boolean);
   for (let index = 0; index < words.length; index += 1) {
     const next = row ? `${row} ${words[index]}` : words[index];
     if (textWidth(next) <= width) {
@@ -34424,9 +34424,9 @@ function wrapWords(text6, width, maxLines) {
   if (row) rows.push(row);
   return rows;
 }
-function padEnd(text6, width) {
-  const gap = width - textWidth(text6);
-  return gap > 0 ? text6 + " ".repeat(gap) : text6;
+function padEnd(text7, width) {
+  const gap = width - textWidth(text7);
+  return gap > 0 ? text7 + " ".repeat(gap) : text7;
 }
 function spread(left2, right2, width) {
   const rightWidth = textWidth(right2);
@@ -34823,8 +34823,8 @@ var TuiHistory = class {
    * A prompt repeated straight away is not recorded twice: walking back through
    * a history full of the same line is the thing that makes history useless.
    */
-  add(text6, workdir, now = Date.now()) {
-    const trimmed = text6.trim();
+  add(text7, workdir, now = Date.now()) {
+    const trimmed = text7.trim();
     if (trimmed.length === 0) return;
     if (this.entries[this.entries.length - 1]?.text === trimmed) return;
     this.entries.push({ text: trimmed, at: now, workdir });
@@ -35292,9 +35292,9 @@ var ESCAPES5 = /(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)?|(?:\x1b[PX^
 var CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
 var BIDI = /[‪-‮⁦-⁩]/g;
 var ANY = /[\x00-\x08\x0b-\x1f\x7f-\x9f‪-‮⁦-⁩]/;
-function sanitizeText(text6) {
-  if (!ANY.test(text6)) return text6;
-  return text6.replace(/\r\n/g, "\n").replace(ESCAPES5, "").replace(CONTROLS, "").replace(BIDI, "");
+function sanitizeText(text7) {
+  if (!ANY.test(text7)) return text7;
+  return text7.replace(/\r\n/g, "\n").replace(ESCAPES5, "").replace(CONTROLS, "").replace(BIDI, "");
 }
 function sanitizeDeep(value, depth = 0) {
   if (typeof value === "string") return sanitizeText(value);
@@ -35380,9 +35380,9 @@ function lspTable(all, workdir) {
   return [`language servers (${ready} ready${tail})`, ...rows].join("\n") + elsewhere;
 }
 function diagnosticLineColor(line) {
-  const text6 = line.trimStart();
-  if (text6.startsWith("ERROR")) return "red";
-  if (text6.startsWith("WARNING")) return "yellow";
+  const text7 = line.trimStart();
+  if (text7.startsWith("ERROR")) return "red";
+  if (text7.startsWith("WARNING")) return "yellow";
   return void 0;
 }
 function diagnosticsBadge(diagnostics) {
@@ -35434,15 +35434,15 @@ function sliceSegments(segments, start, end2) {
     cursor = segEnd;
     if (segEnd <= start) continue;
     if (segStart >= end2) break;
-    const text6 = segment.text.slice(Math.max(0, start - segStart), Math.min(segment.text.length, end2 - segStart));
-    if (text6.length > 0) out.push({ ...segment, text: text6 });
+    const text7 = segment.text.slice(Math.max(0, start - segStart), Math.min(segment.text.length, end2 - segStart));
+    if (text7.length > 0) out.push({ ...segment, text: text7 });
   }
   return out;
 }
 function wrapLine(line, width, indent = "") {
   if (width <= 0 || plainLength(line.segments) <= width) return [line];
-  const text6 = lineText(line);
-  const parts = graphemes(text6);
+  const text7 = lineText(line);
+  const parts = graphemes(text7);
   const out = [];
   let start = 0;
   while (start < parts.length) {
@@ -35460,7 +35460,7 @@ function wrapLine(line, width, indent = "") {
       while (space > start && parts[space]?.text !== " ") space -= 1;
       if (space > start) end2 = space;
     }
-    const segments = sliceSegments(line.segments, parts[start].index, parts[end2]?.index ?? text6.length);
+    const segments = sliceSegments(line.segments, parts[start].index, parts[end2]?.index ?? text7.length);
     out.push({
       key: `${line.key}-w${out.length}`,
       segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments,
@@ -35471,48 +35471,48 @@ function wrapLine(line, width, indent = "") {
   }
   return out;
 }
-function inlineSegments(text6) {
+function inlineSegments(text7) {
   const parts = [];
   const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
   let last = 0;
   let match;
-  while ((match = pattern.exec(text6)) !== null) {
-    if (match.index > last) parts.push({ text: text6.slice(last, match.index) });
+  while ((match = pattern.exec(text7)) !== null) {
+    if (match.index > last) parts.push({ text: text7.slice(last, match.index) });
     const token = match[0];
     if (token.startsWith("`")) parts.push({ text: token.slice(1, -1), color: "cyan" });
     else if (token.startsWith("**")) parts.push({ text: token.slice(2, -2), bold: true });
     else parts.push({ text: token.slice(1, -1), italic: true });
     last = match.index + token.length;
   }
-  if (last < text6.length) parts.push({ text: text6.slice(last) });
-  return parts.length > 0 ? parts : [{ text: text6 }];
+  if (last < text7.length) parts.push({ text: text7.slice(last) });
+  return parts.length > 0 ? parts : [{ text: text7 }];
 }
 function tableCells(raw) {
-  const text6 = raw.trim();
-  if (!text6.includes("|")) return null;
+  const text7 = raw.trim();
+  if (!text7.includes("|")) return null;
   const cells2 = [];
   let cell = "";
   let ticks = 0;
-  for (let i = 0; i < text6.length; i += 1) {
-    if (text6[i] === "\\" && text6[i + 1] === "|") {
+  for (let i = 0; i < text7.length; i += 1) {
+    if (text7[i] === "\\" && text7[i + 1] === "|") {
       cell += "|";
       i += 1;
-    } else if (text6[i] === "`") {
+    } else if (text7[i] === "`") {
       let end2 = i + 1;
-      while (text6[end2] === "`") end2 += 1;
+      while (text7[end2] === "`") end2 += 1;
       const count3 = end2 - i;
       if (ticks === 0) ticks = count3;
       else if (ticks === count3) ticks = 0;
-      cell += text6.slice(i, end2);
+      cell += text7.slice(i, end2);
       i = end2 - 1;
-    } else if (text6[i] === "|" && ticks === 0) {
+    } else if (text7[i] === "|" && ticks === 0) {
       cells2.push(cell.trim());
       cell = "";
-    } else cell += text6[i];
+    } else cell += text7[i];
   }
   cells2.push(cell.trim());
-  if (text6.startsWith("|")) cells2.shift();
-  if (text6.endsWith("|") && cells2.at(-1) === "") cells2.pop();
+  if (text7.startsWith("|")) cells2.shift();
+  if (text7.endsWith("|") && cells2.at(-1) === "") cells2.pop();
   return cells2.length > 0 ? cells2 : null;
 }
 function tableAt(source, start, width, id) {
@@ -35580,8 +35580,8 @@ function tableAt(source, start, width, id) {
   return { lines, end: end2 };
 }
 function messageSource(message) {
-  const text6 = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
-  return (message.streaming ? `${text6}\u2026` : text6).split("\n");
+  const text7 = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
+  return (message.streaming ? `${text7}\u2026` : text7).split("\n");
 }
 function messageLines(message, width = 80) {
   const out = [];
@@ -35754,11 +35754,11 @@ function setUiLanguage(tag) {
   current = asUiLanguage(tag);
   return current;
 }
-function detectLanguage(text6) {
-  if (!text6) return DEFAULT;
+function detectLanguage(text7) {
+  if (!text7) return DEFAULT;
   let kana = 0;
   let han = 0;
-  for (const character of text6) {
+  for (const character of text7) {
     const code = character.codePointAt(0) ?? 0;
     if (code >= 44032 && code <= 55203 || code >= 4352 && code <= 4607 || code >= 12592 && code <= 12687) {
       return "ko";
@@ -35933,16 +35933,16 @@ function contextWindowLine(message, details) {
 }
 function hookFailedLine(message) {
   const flat = sanitizeText(message).replace(/\s+/g, " ").trim();
-  const text6 = flat === "" ? "a plugin guard hook is not running" : flat;
-  return `${text6}  (/skill hooks)`;
+  const text7 = flat === "" ? "a plugin guard hook is not running" : flat;
+  return `${text7}  (/skill hooks)`;
 }
 function projectUntrustedLine(message) {
   const flat = sanitizeText(message).replace(/\s+/g, " ").trim();
-  const text6 = flat === "" ? say(
+  const text7 = flat === "" ? say(
     "This project's own hooks, MCP servers and commands are switched off until you trust it.",
     "\uC774 \uD504\uB85C\uC81D\uD2B8\uC758 \uD6C5, MCP \uC11C\uBC84, \uBA85\uB839\uC740 \uC2E0\uB8B0\uD558\uAE30 \uC804\uAE4C\uC9C0 \uAEBC\uC838 \uC788\uC2B5\uB2C8\uB2E4."
   ) : flat;
-  return /\(\/trust\)\s*$/.test(text6) ? text6 : `${text6}  (/trust)`;
+  return /\(\/trust\)\s*$/.test(text7) ? text7 : `${text7}  (/trust)`;
 }
 function sessionErrorView(code, message, details) {
   switch (code) {
@@ -36122,14 +36122,14 @@ function mcpSubCommands(draft, servers = [], catalog = []) {
     source: "core"
   }));
 }
-function isBareMcpAdd(text6) {
-  return /^\/mcp\s+add\s*$/.test(text6.trim());
+function isBareMcpAdd(text7) {
+  return /^\/mcp\s+add\s*$/.test(text7.trim());
 }
-function isBareMcpCatalog(text6) {
-  return /^\/mcp\s+catalog\s*$/.test(text6.trim());
+function isBareMcpCatalog(text7) {
+  return /^\/mcp\s+catalog\s*$/.test(text7.trim());
 }
-function parseMcpConfigure(text6) {
-  const match = /^\/mcp\s+configure\s+([A-Za-z0-9_-]{1,64})\s*$/.exec(text6.trim());
+function parseMcpConfigure(text7) {
+  const match = /^\/mcp\s+configure\s+([A-Za-z0-9_-]{1,64})\s*$/.exec(text7.trim());
   return match ? match[1] : null;
 }
 function isValidMcpName(name) {
@@ -36299,14 +36299,14 @@ function summaryLine({ mode, shells, agents }) {
   const tail = [" \xB7 \u21E7Tab change mode \xB7 Ctrl+P plan"];
   if (shells > 0) tail.push(` \xB7 ${shells} ${shells === 1 ? "shell" : "shells"}`);
   if (agents > 0) tail.push(` \xB7 \u2190 ${agents} ${agents === 1 ? "agent" : "agents"}`);
-  const text6 = `${MODE_CHIP[mode]}${tail.join("")}`;
+  const text7 = `${MODE_CHIP[mode]}${tail.join("")}`;
   const segments = [
     { text: chip.prefix, dimColor: true },
     { text: chip.word, color: modeColor(mode) },
     { text: chip.suffix, dimColor: true },
     { text: tail.join(""), dimColor: true }
   ];
-  return { text: text6, segments };
+  return { text: text7, segments };
 }
 function compactionDivider(before, after, width, reason) {
   const label = reason === "overflow" ? ` compacted: request too long (${formatTokens(before)} \u2192 ${formatTokens(after)} tokens) ` : ` compacted (${formatTokens(before)} \u2192 ${formatTokens(after)} tokens) `;
@@ -36603,8 +36603,8 @@ function basename(path) {
   const at = Math.max(cut.lastIndexOf("/"), cut.lastIndexOf("\\"));
   return at === -1 ? cut : cut.slice(at + 1);
 }
-function clip(text6, max) {
-  const flat = text6.replace(/\s+/g, " ").trim();
+function clip(text7, max) {
+  const flat = text7.replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, Math.max(1, max - 1))}\u2026`;
 }
 function toolLabel(call) {
@@ -36874,13 +36874,13 @@ function isCreation(patch) {
 function pushTimeline(state2, item) {
   return [...state2.timeline, item];
 }
-function appendDelta(state2, text6) {
+function appendDelta(state2, text7) {
   const last = state2.messages[state2.messages.length - 1];
   if (last && last.role === "assistant" && last.streaming) {
-    const messages = state2.messages.slice(0, -1).concat({ ...last, text: last.text + text6 });
+    const messages = state2.messages.slice(0, -1).concat({ ...last, text: last.text + text7 });
     return { ...state2, messages };
   }
-  const message = { id: nextId("msg"), role: "assistant", text: text6, streaming: true };
+  const message = { id: nextId("msg"), role: "assistant", text: text7, streaming: true };
   return {
     ...state2,
     messages: [...state2.messages, message],
@@ -36959,9 +36959,9 @@ function withLimitNote(state2, payload) {
   };
 }
 function planForReview(state2, payload) {
-  const text6 = typeof payload.text === "string" ? payload.text : "";
-  if (!text6.trim()) return state2;
-  const message = { id: nextId("msg"), role: "assistant", text: text6, streaming: false };
+  const text7 = typeof payload.text === "string" ? payload.text : "";
+  if (!text7.trim()) return state2;
+  const message = { id: nextId("msg"), role: "assistant", text: text7, streaming: false };
   const timeline = [...state2.timeline];
   let at = timeline.findIndex((item) => {
     if (item.kind === "tool") {
@@ -36979,19 +36979,19 @@ function planForReview(state2, payload) {
   return { ...state2, messages: [...state2.messages, message], timeline };
 }
 function finishMessage(state2, payload) {
-  let text6 = typeof payload.text === "string" ? payload.text : void 0;
+  let text7 = typeof payload.text === "string" ? payload.text : void 0;
   const payloadKind = String(payload.kind ?? payload.messageKind ?? "");
   if (payloadKind === "interrupted" && uiLanguage() === "ko") {
-    text6 = "\uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC744 \uBC14\uAFC0\uC9C0 \uC54C\uB824\uC8FC\uC138\uC694 \u2014 \uB2E4\uC74C \uBA54\uC2DC\uC9C0\uAC00 \uC774 \uC138\uC158\uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.";
+    text7 = "\uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC744 \uBC14\uAFC0\uC9C0 \uC54C\uB824\uC8FC\uC138\uC694 \u2014 \uB2E4\uC74C \uBA54\uC2DC\uC9C0\uAC00 \uC774 \uC138\uC158\uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.";
   }
   const role = payloadKind === "interrupted" ? "note" : typeof payload.role === "string" ? payload.role : "assistant";
   const last = state2.messages[state2.messages.length - 1];
   if (last && last.streaming && last.role === role) {
-    const messages = state2.messages.slice(0, -1).concat({ ...last, text: text6 ?? last.text, streaming: false });
+    const messages = state2.messages.slice(0, -1).concat({ ...last, text: text7 ?? last.text, streaming: false });
     return withLimitNote({ ...state2, messages }, payload);
   }
-  if (text6 === void 0) return state2;
-  const message = { id: nextId("msg"), role, text: text6, streaming: false };
+  if (text7 === void 0) return state2;
+  const message = { id: nextId("msg"), role, text: text7, streaming: false };
   return withLimitNote(
     {
       ...state2,
@@ -37057,17 +37057,17 @@ function settleFolds(messages) {
 function parseSkillExpansion(payload) {
   const raw = payload.expansion;
   if (!raw || typeof raw !== "object") return void 0;
-  const text6 = raw.text;
-  if (typeof text6 !== "string") return void 0;
+  const text7 = raw.text;
+  if (typeof text7 !== "string") return void 0;
   return {
     kind: "skill",
     name: String(raw.name ?? ""),
-    chars: text6.length,
-    lines: text6.split("\n").length
+    chars: text7.length,
+    lines: text7.split("\n").length
   };
 }
-function wakeLine(text6, label) {
-  const lines = text6.replace(/\n+$/, "").split("\n");
+function wakeLine(text7, label) {
+  const lines = text7.replace(/\n+$/, "").split("\n");
   const first = (lines.find((line) => line.trim() !== "") ?? "").trim();
   const headline = first === "" || /^<\/?untrusted/.test(first) ? "" : first;
   const shown = Array.from(headline).length > 100 ? `${Array.from(headline).slice(0, 99).join("")}\u2026` : headline;
@@ -37084,13 +37084,13 @@ function applySessionEvent(state2, event, options = {}) {
     // The prompt that opened the turn. Live, this surface drew it already; on a
     // replay it is the only record of what was asked.
     case "message.user": {
-      const text6 = String(payload.text ?? "");
+      const text7 = String(payload.text ?? "");
       const originKind = payload.origin?.kind;
       if (originKind === "system" || originKind === "jarvis") {
         const message2 = {
           id: nextId("msg"),
           role: "system",
-          text: wakeLine(text6, originKind === "jarvis" ? "Jarvis" : "wake"),
+          text: wakeLine(text7, originKind === "jarvis" ? "Jarvis" : "wake"),
           streaming: false
         };
         return {
@@ -37104,7 +37104,7 @@ function applySessionEvent(state2, event, options = {}) {
         if (!expansion) return null;
         for (let index = messages.length - 1; index >= 0; index -= 1) {
           const entry = messages[index];
-          if (entry.role === "user" && entry.text === text6 && !entry.expansion) {
+          if (entry.role === "user" && entry.text === text7 && !entry.expansion) {
             const next = messages.slice();
             const { awaitingFold: _, ...rest } = entry;
             next[index] = { ...rest, expansion };
@@ -37113,7 +37113,7 @@ function applySessionEvent(state2, event, options = {}) {
         }
         return null;
       };
-      const echo = base.pendingEchoes.indexOf(text6);
+      const echo = base.pendingEchoes.indexOf(text7);
       if (echo !== -1) {
         const pendingEchoes = base.pendingEchoes.slice();
         pendingEchoes.splice(echo, 1);
@@ -37123,7 +37123,7 @@ function applySessionEvent(state2, event, options = {}) {
       const merged = attachExpansion(base.messages);
       if (merged) return { ...base, messages: settleFolds(merged) };
       const slashEcho = base.messages.findIndex(
-        (entry) => entry.role === "user" && entry.text === text6 && entry.awaitingFold
+        (entry) => entry.role === "user" && entry.text === text7 && entry.awaitingFold
       );
       if (slashEcho !== -1) {
         const messages = base.messages.slice();
@@ -37135,7 +37135,7 @@ function applySessionEvent(state2, event, options = {}) {
       const message = {
         id: nextId("msg"),
         role: "user",
-        text: text6,
+        text: text7,
         streaming: false,
         attachments: files.length > 0 ? files : void 0,
         expansion
@@ -37147,12 +37147,12 @@ function applySessionEvent(state2, event, options = {}) {
       };
     }
     case "message.delta": {
-      const text6 = String(payload.text ?? "");
+      const text7 = String(payload.text ?? "");
       const settled = { ...base, messages: settleFolds(base.messages) };
       return {
-        ...appendDelta(settled, text6),
-        streamedChars: base.streamedChars + text6.length,
-        stepStreamed: base.stepStreamed + text6.length
+        ...appendDelta(settled, text7),
+        streamedChars: base.streamedChars + text7.length,
+        stepStreamed: base.stepStreamed + text7.length
       };
     }
     // One model call. Live (and in a full replay) its text already arrived as
@@ -37161,10 +37161,10 @@ function applySessionEvent(state2, event, options = {}) {
     case "step.started":
       return { ...base, stepStreamed: 0 };
     case "step.done": {
-      const text6 = typeof payload.text === "string" ? payload.text : "";
-      if (base.stepStreamed > 0 || !text6) return { ...base, stepStreamed: 0 };
+      const text7 = typeof payload.text === "string" ? payload.text : "";
+      if (base.stepStreamed > 0 || !text7) return { ...base, stepStreamed: 0 };
       const settled = { ...base, messages: settleFolds(base.messages) };
-      return { ...appendDelta(settled, text6), stepStreamed: 0 };
+      return { ...appendDelta(settled, text7), stepStreamed: 0 };
     }
     // Thinking, not an answer: counted for the working line, never appended.
     case "message.reasoning":
@@ -37412,7 +37412,7 @@ function applySessionEvent(state2, event, options = {}) {
       const turnId = started.turnId ?? "";
       const waited = typeof started.queued === "boolean" ? started.queued : base.queued.some((entry) => entry.turnId === turnId);
       const stamped = Date.parse(typeof event.ts === "string" ? event.ts : "");
-      const text6 = started.prompt ?? "";
+      const text7 = started.prompt ?? "";
       return {
         ...base,
         turnActive: true,
@@ -37420,7 +37420,7 @@ function applySessionEvent(state2, event, options = {}) {
         turnWaited: waited,
         lastTurnReason: null,
         lastTurnError: null,
-        promptTexts: text6.length > 0 && turnId.length > 0 ? { ...base.promptTexts, [turnId]: text6 } : base.promptTexts,
+        promptTexts: text7.length > 0 && turnId.length > 0 ? { ...base.promptTexts, [turnId]: text7 } : base.promptTexts,
         queued: base.queued.filter((entry) => entry.turnId !== turnId)
       };
     }
@@ -37436,7 +37436,7 @@ function applySessionEvent(state2, event, options = {}) {
       const waitingChanged = waiting !== base.toolCalls[index].waiting;
       if (arriving.length === 0 && progressed.truncated !== true && !waitingChanged) return base;
       const call = base.toolCalls[index];
-      const progress2 = [...call.progress ?? [], ...arriving.map((text6) => ({ text: text6, stream }))];
+      const progress2 = [...call.progress ?? [], ...arriving.map((text7) => ({ text: text7, stream }))];
       const toolCalls = base.toolCalls.slice();
       toolCalls[index] = {
         ...call,
@@ -37459,15 +37459,15 @@ function applySessionEvent(state2, event, options = {}) {
       };
     }
     case "provider.retry": {
-      const text6 = providerRetryLine(payload);
-      if (!text6) return base;
+      const text7 = providerRetryLine(payload);
+      if (!text7) return base;
       const last = base.messages.at(-1);
       if (last?.retryNotice) {
         const messages = base.messages.slice();
-        messages[messages.length - 1] = { ...last, text: text6 };
+        messages[messages.length - 1] = { ...last, text: text7 };
         return { ...base, messages };
       }
-      const message = { id: nextId("msg"), role: "system", text: text6, streaming: false, retryNotice: true };
+      const message = { id: nextId("msg"), role: "system", text: text7, streaming: false, retryNotice: true };
       return {
         ...base,
         messages: [...base.messages, message],
@@ -37475,9 +37475,9 @@ function applySessionEvent(state2, event, options = {}) {
       };
     }
     case "hook.continue": {
-      const text6 = hookContinueLine(payload);
-      if (!text6) return base;
-      const message = { id: nextId("msg"), role: "system", text: text6, streaming: false };
+      const text7 = hookContinueLine(payload);
+      if (!text7) return base;
+      const message = { id: nextId("msg"), role: "system", text: text7, streaming: false };
       return {
         ...base,
         messages: [...base.messages, message],
@@ -37515,8 +37515,8 @@ function applySessionEvent(state2, event, options = {}) {
         queued[index] = { ...queued[index], position };
         return { ...base, queued };
       }
-      const text6 = base.promptTexts[turnId] ?? "";
-      return { ...base, queued: [...base.queued, { turnId, text: text6, position }] };
+      const text7 = base.promptTexts[turnId] ?? "";
+      return { ...base, queued: [...base.queued, { turnId, text: text7, position }] };
     }
     case "turn.dequeued": {
       const turnId = String(payload.turnId ?? "");
@@ -38193,13 +38193,13 @@ function externalReducer(view, action) {
 }
 function rpcErrorFacts(error) {
   const raw = error;
-  const text6 = (value) => typeof value === "string" && value ? value : void 0;
+  const text7 = (value) => typeof value === "string" && value ? value : void 0;
   const details = raw?.data?.details ?? {};
   return {
-    code: text6(raw?.data?.code) ?? text6(raw?.code),
-    reason: text6(details["reason"]),
-    project: text6(details["project"]),
-    kind: text6(details["kind"])
+    code: text7(raw?.data?.code) ?? text7(raw?.code),
+    reason: text7(details["reason"]),
+    project: text7(details["project"]),
+    kind: text7(details["kind"])
   };
 }
 function isUntrustedProject(error) {
@@ -38269,6 +38269,10 @@ function describeExternalError(error, cli, kind = "send") {
 }
 
 // src/state/security.ts
+function readUnknownCode(value) {
+  if (value === "ask" || value === "allow" || value === "auto") return value;
+  return value === void 0 || value === null ? "ask" : "auto";
+}
 function securitySupported(capabilities) {
   return (capabilities ?? []).includes("securityLists");
 }
@@ -38320,7 +38324,7 @@ function normalizeConfig(raw) {
     problems: problemItems.length > 0 ? problemItems.map(problemItemText) : structured ? [] : sentences.filter((sentence) => !fileNotice(sentence)),
     problemItems,
     notices,
-    unknownCode: raw?.unknownCode === "allow" ? "allow" : "ask",
+    unknownCode: readUnknownCode(raw?.unknownCode),
     projectAdds: additions(raw?.project),
     blockedCommands: {
       presets: texts(raw?.blockedCommands?.presets),
@@ -38466,7 +38470,7 @@ function byLabel(by, catalog) {
   return found ? found.title : kind === "commands" || kind === "paths" ? id : by;
 }
 var NOTHING_RUN = "Nothing was run \u2014 the text was only checked against your lists.";
-var OPAQUE_LINE = "cannot be checked against your list; snowpea will ask you";
+var OPAQUE_LINE = "snowpea cannot tell what this will touch before it runs, so it asks you";
 function verdictLine(verdict, catalog) {
   if (verdict.blocked) {
     const level2 = verdict.level ? ` (${LEVEL_LABEL[verdict.level]})` : "";
@@ -38535,15 +38539,52 @@ var PATTERN_HELP = [
   { kind: "head", text: "Protected folders" },
   { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." }
 ];
-var UNKNOWN_CODE_LABEL = "Code snowpea can't tell about";
+var UNKNOWN_CODE_LABEL = "Commands and scripts snowpea can't read before they run";
+var unknownCodeLabel = () => say(UNKNOWN_CODE_LABEL, "\uC2E4\uD589 \uC804\uC5D0 \uC54C \uC218 \uC5C6\uB294 \uBA85\uB839\xB7\uC2A4\uD06C\uB9BD\uD2B8");
+function unknownCodeName(value) {
+  if (value === "ask") return say("ask", "\uD56D\uC0C1 \uBB3B\uAE30");
+  if (value === "auto") return say("auto", "auto \uBAA8\uB4DC\uC5D0\uC11C\uB294 \uBB3B\uC9C0 \uC54A\uC74C (\uAE30\uBCF8)");
+  return say("allow", "\uC5B4\uB5A4 \uBAA8\uB4DC\uC5D0\uC11C\uB3C4 \uBB3B\uC9C0 \uC54A\uC74C");
+}
+function nextUnknownCode(value, withAuto = true) {
+  if (!withAuto) return value === "ask" ? "allow" : "ask";
+  return value === "ask" ? "auto" : value === "auto" ? "allow" : "ask";
+}
 var OWN_FILES_LINE = "snowpea's own files stay protected either way, and anything on your block lists stays blocked.";
-function unknownCodeSegments(value) {
-  const pick = (one) => one === value ? { text: `[${one}]`, bold: true, color: one === "allow" ? "yellow" : "green" } : { text: one, dimColor: true };
-  return [{ text: `${UNKNOWN_CODE_LABEL}: ` }, pick("ask"), { text: " / " }, pick("allow")];
+function unknownCodeSegments(value, withAuto = true) {
+  const pick = (one) => one === value ? { text: `[${unknownCodeName(one)}]`, bold: true, color: one === "allow" ? "yellow" : "green" } : { text: unknownCodeName(one), dimColor: true };
+  const choices = withAuto ? ["ask", "auto", "allow"] : ["ask", "allow"];
+  return [
+    { text: `${unknownCodeLabel()}: ` },
+    ...choices.flatMap((one, index) => index === 0 ? [pick(one)] : [{ text: " / " }, pick(one)])
+  ];
 }
 function unknownCodeMeaning(value) {
-  return value === "ask" ? "ask: code it cannot read (a computed target, a script it cannot follow) is put to you in every mode." : "allow: such code runs without asking. Control-plane asks and blocked findings still apply.";
+  if (value === "ask") {
+    return say(
+      "ask: always asked when snowpea cannot tell what a command or script will touch.",
+      "\uD56D\uC0C1 \uBB3B\uAE30: snowpea\uAC00 \uC2E4\uD589 \uC804\uC5D0 \uBB34\uC5C7\uC744 \uAC74\uB4DC\uB9B4\uC9C0 \uC54C \uC218 \uC5C6\uB294 \uBA85\uB839\xB7\uC2A4\uD06C\uB9BD\uD2B8\uB294 \uB9E4\uBC88 \uBB3B\uC2B5\uB2C8\uB2E4."
+    );
+  }
+  if (value === "auto") {
+    return say(
+      "auto (default): not asked in a session in auto mode; plan and accept mode still ask.",
+      "auto \uBAA8\uB4DC\uC5D0\uC11C\uB294 \uBB3B\uC9C0 \uC54A\uC74C (\uAE30\uBCF8): auto \uBAA8\uB4DC \uC138\uC158\uC740 \uADF8\uB300\uB85C \uC2E4\uD589\uD558\uACE0, plan\xB7accept \uBAA8\uB4DC\uC5D0\uC11C\uB294 \uACC4\uC18D \uBB3B\uC2B5\uB2C8\uB2E4."
+    );
+  }
+  return say(
+    "allow: never asked, in any mode. Blocked commands, protected folders it can see and its own control files still apply.",
+    "\uC5B4\uB5A4 \uBAA8\uB4DC\uC5D0\uC11C\uB3C4 \uBB3B\uC9C0 \uC54A\uC74C: \uCC28\uB2E8 \uBAA9\uB85D, \uBCF4\uC774\uB294 \uBCF4\uD638 \uD3F4\uB354, snowpea \uC790\uCCB4 \uC81C\uC5B4 \uD30C\uC77C\uC740 \uADF8\uB300\uB85C \uB9C9\uC2B5\uB2C8\uB2E4."
+  );
 }
+var OLD_DAEMON_LINE = () => say(
+  "This daemon is older and offers only ask and allow; update it for the auto-mode choice.",
+  "\uC774 \uB370\uBAAC\uC740 \uC624\uB798\uB41C \uBC84\uC804\uC774\uB77C '\uD56D\uC0C1 \uBB3B\uAE30'\uC640 '\uC5B4\uB5A4 \uBAA8\uB4DC\uC5D0\uC11C\uB3C4 \uBB3B\uC9C0 \uC54A\uC74C'\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4. \uC5C5\uB370\uC774\uD2B8\uD558\uBA74 auto \uBAA8\uB4DC \uC120\uD0DD\uC744 \uC4F8 \uC218 \uC788\uC2B5\uB2C8\uB2E4."
+);
+var UNKNOWN_CODE_LEAD = () => say(
+  "Decides whether snowpea asks about commands whose effect it cannot work out before they run (a path computed while it runs, a program chosen by a variable). If it does not ask, such a command may write to a protected folder without a check. The block list and snowpea's own file protection stay as they are.",
+  "snowpea\uAC00 \uC2E4\uD589 \uC804\uC5D0 \uBB34\uC5C7\uC744 \uAC74\uB4DC\uB9B4\uC9C0 \uC54C\uC544\uB0BC \uC218 \uC5C6\uB294 \uBA85\uB839(\uC2E4\uD589 \uC911\uC5D0 \uACC4\uC0B0\uB418\uB294 \uACBD\uB85C, \uBCC0\uC218\uB85C \uC815\uD574\uC9C0\uB294 \uD504\uB85C\uADF8\uB7A8 \uB4F1)\uC5D0 \uB300\uD574 \uBB3B\uB294\uC9C0 \uC815\uD569\uB2C8\uB2E4. \uBB3B\uC9C0 \uC54A\uC73C\uBA74, \uADF8\uB7F0 \uBA85\uB839\uC774 \uBCF4\uD638 \uD3F4\uB354\uC5D0 \uC4F0\uB354\uB77C\uB3C4 \uD655\uC778 \uC5C6\uC774 \uC9C0\uB098\uAC08 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uCC28\uB2E8 \uBAA9\uB85D\uACFC snowpea \uC790\uCCB4 \uD30C\uC77C \uBCF4\uD638\uB294 \uADF8\uB300\uB85C\uC785\uB2C8\uB2E4."
+);
 var UNKNOWN_CODE_ALLOW_CONFIRM = [
   "Let code snowpea can't tell about run without asking?",
   "A write whose target is computed while it runs, or a script it cannot follow, will no longer ask you. Blocked commands and protected folders still apply.",
@@ -38568,7 +38609,8 @@ function statusLines(config, catalog, diskNotice = null) {
     `Blocked commands: ${config.blockedCommands.presets.length} presets on (${names(commandOn)}), ${config.blockedCommands.custom.length} of your own`,
     `Protected folders: ${config.protectedPaths.presets.length} presets on (${names(pathOn)}), ${config.protectedPaths.custom.length} of your own`,
     `In force now: ${config.effective.commands.length} command patterns, ${config.effective.paths.length} folders`,
-    `${UNKNOWN_CODE_LABEL}: ${config.unknownCode === "allow" ? "allow (runs without asking)" : "ask (put to you)"}. ${OWN_FILES_LINE}`,
+    `${unknownCodeLabel()}: ${unknownCodeMeaning(config.unknownCode)} ${OWN_FILES_LINE}`,
+    UNKNOWN_CODE_LEAD(),
     ...config.projectAdds > 0 ? [`This project adds ${config.projectAdds} entries of its own (they do not remove yours).`] : [],
     ...problemNote(config.problems) ? [`! ${problemNote(config.problems)}`] : [],
     ...config.notices.map((notice) => `! ${notice}`),
@@ -39747,15 +39789,15 @@ function noticeLine(entry) {
 function budget(total, room) {
   return Math.max(0, Math.min(total, room));
 }
-function tagSegments(text6, external, color) {
+function tagSegments(text7, external, color) {
   const identity = !external ? null : "kind" in external ? external : agentOfExternal(external.cli);
-  const at = identity && identity.tag ? text6.indexOf(identity.tag) : -1;
-  if (!identity || at < 0) return [{ text: text6, color }];
+  const at = identity && identity.tag ? text7.indexOf(identity.tag) : -1;
+  if (!identity || at < 0) return [{ text: text7, color }];
   const end2 = at + identity.tag.length;
   return [
-    ...at > 0 ? [{ text: text6.slice(0, at), color }] : [],
+    ...at > 0 ? [{ text: text7.slice(0, at), color }] : [],
     { text: identity.tag, color: identity.color, bold: true },
-    ...end2 < text6.length ? [{ text: text6.slice(end2), color }] : []
+    ...end2 < text7.length ? [{ text: text7.slice(end2), color }] : []
   ];
 }
 function panelLines(state2, width, maxRows, now) {
@@ -40467,8 +40509,8 @@ function useJarvisScreens(deps) {
   const jarvisCall = (0, import_react24.useCallback)(
     (method, params, done) => {
       void client.call(method, params).then((result) => {
-        const text6 = done(result);
-        if (text6) showToast(text6);
+        const text7 = done(result);
+        if (text7) showToast(text7);
         void refresh();
       }).catch((error) => {
         const code = rpcErrorFacts(error).code;
@@ -40749,7 +40791,7 @@ function useJarvisScreens(deps) {
     });
   }, [client, showToast]);
   const sendExternal = (0, import_react24.useCallback)(
-    (text6) => {
+    (text7) => {
       const view = externalRef.current;
       if (!view) return;
       const why = viewOnlyReason(view.session);
@@ -40761,10 +40803,10 @@ function useJarvisScreens(deps) {
         showToast(`${cliLabel(view.ref.cli)} is still answering \u2014 Esc stops the turn, then send`);
         return;
       }
-      viewDispatch({ type: "sent", text: text6 });
+      viewDispatch({ type: "sent", text: text7 });
       callTrusted(
         "external.send",
-        { ref: view.ref, text: text6 },
+        { ref: view.ref, text: text7 },
         {
           cli: view.ref.cli,
           project: view.session.project ?? workdir,
@@ -41211,6 +41253,49 @@ function scrollIndicator(view) {
 // src/components/ApprovalPrompt.tsx
 var import_react26 = __toESM(require_react(), 1);
 
+// src/state/ask-why.ts
+var OPAQUE = "cannot be checked against your block list";
+var UNKNOWN_CODE = "cannot tell what this code changes";
+function isUncheckable(reason) {
+  const text7 = (reason ?? "").toLowerCase();
+  return text7.includes(OPAQUE) || text7.includes(UNKNOWN_CODE);
+}
+function askReasonWords(reason) {
+  if (reason === null) return null;
+  if (isUncheckable(reason)) {
+    return say(
+      "snowpea cannot tell what this will touch before it runs, so it asks you",
+      "snowpea\uAC00 \uC2E4\uD589 \uC804\uC5D0 \uBB34\uC5C7\uC744 \uAC74\uB4DC\uB9B4\uC9C0 \uC54C \uC218 \uC5C6\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4"
+    );
+  }
+  return reason;
+}
+var askSettingLine = () => say("To turn this check off in auto mode: /security", "auto \uBAA8\uB4DC\uC5D0\uC11C \uC774\uB7F0 \uD655\uC778\uC744 \uB044\uB824\uBA74: \uC124\uC815 > \uBCF4\uC548 (/security)");
+var text6 = (value) => typeof value === "string" ? sanitizeText(value).trim() : "";
+function readUncheckedWhy(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry;
+    const item = {
+      part: text6(e["part"]),
+      file: text6(e["file"]) || null,
+      line: typeof e["line"] === "number" && Number.isFinite(e["line"]) ? e["line"] : null,
+      reason: text6(e["reason"]),
+      text: text6(e["text"])
+    };
+    if (item.part || item.reason || item.text) out.push(item);
+  }
+  return out;
+}
+function uncheckedLine(item) {
+  const where = item.file ? item.line !== null ? say(`${item.file}, line ${item.line}`, `${item.file} ${item.line}\uBC88\uC9F8 \uC904`) : item.file : item.part;
+  const body = item.text || (item.file ? item.part : "");
+  const head = body ? `${where}: ${body}` : where;
+  return item.reason ? `${head} \u2014 ${item.reason}` : head;
+}
+
 // src/components/ConfirmMenu.tsx
 var import_react25 = __toESM(require_react(), 1);
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
@@ -41337,10 +41422,12 @@ function approvalOptions(mode, request) {
     return [option];
   });
 }
+var WHOLE_ARGS = /* @__PURE__ */ new Set(["command", "cmd"]);
 function formatArgs(args, max = 72) {
   return Object.entries(args ?? {}).map(([key, value]) => {
-    const text6 = typeof value === "string" ? value : JSON.stringify(value);
-    const flat = String(text6).replace(/\s+/g, " ");
+    const text7 = typeof value === "string" ? value : JSON.stringify(value);
+    const flat = String(text7).replace(/\s+/g, " ");
+    if (WHOLE_ARGS.has(key) && typeof value === "string") return `${key}: ${flat}`;
     return `${key}: ${flat.length > max ? `${flat.slice(0, max - 1)}\u2026` : flat}`;
   });
 }
@@ -41363,6 +41450,7 @@ function ApprovalPrompt({
   const [reason, setReason] = (0, import_react26.useState)(null);
   const alwaysAsks = alwaysAsksYou(request);
   const why = alwaysAsksReason(request);
+  const unchecked = readUncheckedWhy(request.uncheckedWhy);
   use_input_default(
     (input, key) => {
       if (mouseReports(input).length > 0) return;
@@ -41388,9 +41476,17 @@ function ApprovalPrompt({
       label ? `Approval required \xB7 ${label}` : "Approval required",
       alwaysAsks ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "red", children: `  [${ALWAYS_ASKS}]` }) : null
     ] }),
-    why ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: alwaysAsks ? "red" : "yellow", wrap: "truncate-end", children: [
+    why ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: alwaysAsks ? "red" : "yellow", wrap: "wrap", children: [
       "  ",
-      why
+      askReasonWords(why)
+    ] }) : null,
+    unchecked.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, wrap: "wrap", children: [
+      "  \xB7 ",
+      uncheckedLine(item)
+    ] }, `${request.requestId}-u${index}`)),
+    isUncheckable(why) ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, wrap: "wrap", children: [
+      "  ",
+      askSettingLine()
     ] }) : null,
     refusal ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { bold: true, color: "red", wrap: "wrap", children: [
       "  \u2717 ",
@@ -41410,7 +41506,7 @@ function ApprovalPrompt({
       "  \u25B2 ",
       request.note
     ] }) : null,
-    formatArgs(request.args).map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+    formatArgs(request.args).map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, wrap: "wrap", children: [
       "  ",
       line
     ] }, `${request.requestId}-a${index}`)),
@@ -41669,12 +41765,12 @@ function ModelText({
   width,
   note
 }) {
-  const [text6, setText] = (0, import_react28.useState)("");
+  const [text7, setText] = (0, import_react28.useState)("");
   use_input_default(
     (input, key) => {
       if (mouseReports(input).length > 0) return;
       if (key.escape) return onBack();
-      if (key.return) return onSubmit(text6.trim() || null);
+      if (key.return) return onSubmit(text7.trim() || null);
       if (key.backspace || key.delete) return setText((value) => value.slice(0, -1));
       if (input && !key.ctrl && !key.meta && !key.tab) setText((value) => value + input);
     },
@@ -41683,7 +41779,7 @@ function ModelText({
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "model: " }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { children: fit(text6, Math.max(1, width - 16)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { children: fit(text7, Math.max(1, width - 16)) }),
       /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { inverse: true, children: " " })
     ] }),
     note ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: note }) : null,
@@ -41890,14 +41986,14 @@ var CONFIRM_LABEL = "\uD655\uC778 / Confirm";
 var NOT_ANSWERED = "(not answered)";
 var blank = () => ({ selected: [], text: null });
 var QUESTION_MAX_LINES = 8;
-function clampQuestion(text6) {
-  const lines = text6.split("\n");
-  if (lines.length <= QUESTION_MAX_LINES) return text6;
+function clampQuestion(text7) {
+  const lines = text7.split("\n");
+  if (lines.length <= QUESTION_MAX_LINES) return text7;
   const kept = lines.slice(0, QUESTION_MAX_LINES - 1);
   return [...kept, `\u2026 (+${lines.length - kept.length} lines)`].join("\n");
 }
-function questionTextRows(text6, width) {
-  return clampQuestion(text6).split("\n").reduce((rows, line) => rows + Math.max(1, Math.ceil(textWidth(line) / Math.max(1, width))), 0);
+function questionTextRows(text7, width) {
+  return clampQuestion(text7).split("\n").reduce((rows, line) => rows + Math.max(1, Math.ceil(textWidth(line) / Math.max(1, width))), 0);
 }
 function questionPromptRows(request, width = 80) {
   const questions = request.questions ?? [];
@@ -41968,9 +42064,9 @@ function QuestionPrompt({
     (input, key) => {
       if (!typing || mouseReports(input).length > 0) return;
       if (key.return) {
-        const text6 = draft.trim();
-        const keep = multi || text6.length === 0 ? answer.selected : [];
-        patch({ selected: keep, text: text6.length > 0 ? text6 : null });
+        const text7 = draft.trim();
+        const keep = multi || text7.length === 0 ? answer.selected : [];
+        patch({ selected: keep, text: text7.length > 0 ? text7 : null });
         setTyping(false);
         setDraft("");
         setCursor(confirmRow);
@@ -42444,6 +42540,7 @@ function SecurityScreen({
   const [notes, setNotes] = (0, import_react34.useState)([]);
   const [readOnly, setReadOnly] = (0, import_react34.useState)(initialReadOnly);
   const [effCursor, setEffCursor] = (0, import_react34.useState)(0);
+  const [noAuto, setNoAuto] = (0, import_react34.useState)(false);
   const [entryProblems, setEntryProblems] = (0, import_react34.useState)({ commands: /* @__PURE__ */ new Map(), paths: /* @__PURE__ */ new Map() });
   const [elsewhere, setElsewhere] = (0, import_react34.useState)(false);
   const [helpTop, setHelpTop] = (0, import_react34.useState)(0);
@@ -42452,7 +42549,7 @@ function SecurityScreen({
   const rows = tabRows(tab2, catalog, draft);
   const cursor = Math.min(cursors[tab2], Math.max(0, rows.length - 1));
   const row = rows[cursor];
-  const say2 = (text6, color) => setNotes([{ text: text6, color }]);
+  const say2 = (text7, color) => setNotes([{ text: text7, color }]);
   const moveTo = (index) => setCursors((current2) => ({ ...current2, [tab2]: index }));
   const confirm2 = (lines, yes) => {
     setNotes([]);
@@ -42537,7 +42634,7 @@ function SecurityScreen({
   };
   const switchUnknownCode = () => {
     if (!onSetUnknownCode || locked()) return;
-    const next = base.unknownCode === "ask" ? "allow" : "ask";
+    const next = nextUnknownCode(base.unknownCode, !noAuto);
     const run = () => {
       setMode({ k: "saving" });
       setNotes([{ text: "Saving\u2026", dim: true }]);
@@ -42546,6 +42643,9 @@ function SecurityScreen({
         if (result.ok) {
           setBase((current2) => ({ ...current2, unknownCode: result.config.unknownCode }));
           setNotes([{ text: unknownCodeMeaning(result.config.unknownCode), color: "green" }]);
+        } else if (result.autoRefused) {
+          setNoAuto(true);
+          say2(OLD_DAEMON_LINE(), "yellow");
         } else if (result.readOnly) {
           setReadOnly(result.readOnly);
           say2(result.readOnly, "yellow");
@@ -42721,7 +42821,7 @@ function SecurityScreen({
   );
   const inner = Math.max(20, width - 4);
   const rowsLeft = Math.max(4, height - 2);
-  const bold = (text6, color) => ({ text: text6, bold: true, color });
+  const bold = (text7, color) => ({ text: text7, bold: true, color });
   const titleLeft = "Security lists";
   const titleMid = dirty ? "  \u25CF unsaved changes" : "";
   const counter3 = mode.k === "effective" ? "" : rows.length > 0 ? `${cursor + 1}/${rows.length}` : "";
@@ -42738,7 +42838,7 @@ function SecurityScreen({
         one === tab2 ? { text: `[${TAB_TITLE[one]}]`, bold: true, color: "cyan" } : { text: ` ${TAB_TITLE[one]} `, dimColor: true }
       ])
     },
-    ...wrapSegments("unknown", unknownCodeSegments(base.unknownCode), inner, "  ")
+    ...wrapSegments("unknown", unknownCodeSegments(base.unknownCode, !noAuto), inner, "  ")
   ];
   const intro = [
     ...wrapSegments("intro", [{ text: INTRO[tab2], dimColor: true }], inner, ""),
@@ -42759,7 +42859,7 @@ function SecurityScreen({
     foot.push(...wrapSegments(`note-${index}`, [{ text: note.text, color: note.color, dimColor: note.dim, bold: note.color === "red" }], inner, "  "));
   });
   if (mode.k === "confirm") {
-    mode.lines.forEach((text6, index) => foot.push(...wrapSegments(`ask-${index}`, [{ text: text6, color: "yellow", bold: index === mode.lines.length - 1 }], inner, "  ")));
+    mode.lines.forEach((text7, index) => foot.push(...wrapSegments(`ask-${index}`, [{ text: text7, color: "yellow", bold: index === mode.lines.length - 1 }], inner, "  ")));
   }
   if (mode.k === "input") {
     const prompt = mode.action === "check" ? tab2 === "commands" ? "Command to check (it is NOT run):" : "Folder or file to check (nothing is touched):" : mode.action === "add" ? tab2 === "commands" ? "Command pattern to block:" : "Folder to protect (absolute path):" : "Edit entry:";
@@ -42951,6 +43051,9 @@ function useSecurityScreen(deps) {
       try {
         await client.call("settings.set", { scope: "global", patch: unknownCodePatch(value) });
       } catch (error) {
+        if (value === "auto" && rpcErrorFacts(error).code === "invalid_params" && rpcErrorFacts(error).reason !== "global_only") {
+          return { ok: false, message: rpcErrorText(error), autoRefused: true };
+        }
         if (rpcErrorFacts(error).code === "jarvis_person_only") {
           return { ok: false, message: rpcErrorText(error), readOnly: personOnlyReadOnlyLine(error) };
         }
@@ -42965,10 +43068,10 @@ function useSecurityScreen(deps) {
     [client, loadConfig]
   );
   const check = (0, import_react35.useCallback)(
-    async (what, text6, draft = null) => {
+    async (what, text7, draft = null) => {
       try {
         const raw = await client.call("security.check", {
-          [what]: text6,
+          [what]: text7,
           workdir,
           locale: uiLanguage(),
           ...draft ? { draft: draftOf(draft) } : {}
@@ -43002,10 +43105,10 @@ function useSecurityScreen(deps) {
               return;
             }
             const verdict = verdictLine(result, catalog);
-            const text6 = `${verdict.text}
+            const text7 = `${verdict.text}
 ${NOTHING_RUN}`;
-            if (verdict.blocked) warn(text6);
-            else note(text6);
+            if (verdict.blocked) warn(text7);
+            else note(text7);
           }
         );
       }
@@ -43081,7 +43184,7 @@ function WebScreen({
       mounted.current = false;
     };
   }, []);
-  const say2 = (text6, color) => setNotes([{ text: text6, color }]);
+  const say2 = (text7, color) => setNotes([{ text: text7, color }]);
   const applyStatus = (next, replaceLink) => {
     setStatus(next);
     setLink(replaceLink !== void 0 ? replaceLink : next.accessUrl);
@@ -43340,7 +43443,7 @@ function WebScreen({
   );
   const inner = Math.max(20, width - 4);
   const rowsLeft = Math.max(6, height - 2);
-  const bold = (text6, color) => ({ text: text6, bold: true, color });
+  const bold = (text7, color) => ({ text: text7, bold: true, color });
   const wrap2 = (key, segments, indent = "  ") => wrapSegments(key, segments, inner, indent);
   const head = wrap2("title", [bold("Remote access", "cyan")], "");
   const body = [];
@@ -43415,7 +43518,7 @@ function WebScreen({
     if (message) live.push(...wrap2("f-message", [{ text: "    \u2717 ", color: "red", bold: true }, { text: message, color: "red" }], "      "));
     hintParts.push("Tab/\u2191\u2193 field", "Space toggles", "Enter next / start", "Esc cancel");
   } else if (mode.k === "confirm") {
-    mode.lines.forEach((text6, index) => live.push(...wrap2(`ask-${index}`, [{ text: text6, color: "yellow", bold: index === mode.lines.length - 1 }])));
+    mode.lines.forEach((text7, index) => live.push(...wrap2(`ask-${index}`, [{ text: text7, color: "yellow", bold: index === mode.lines.length - 1 }])));
     hintParts.push(mode.keys.includes("k") ? "y stop \xB7 k stop and keep off \xB7 n / Esc cancel" : "y yes \xB7 n / Esc no");
   } else if (mode.k === "password") {
     const prompt = mode.step === "username" ? "Username for sign-in:" : mode.step === "password" ? `New password (at least ${MIN_PASSWORD} characters, hidden):` : "Repeat the password:";
@@ -43604,7 +43707,7 @@ function TrustScreen({ status: initial, width, height, onTrust, onRevoke, onRelo
   const rows = trustRows(status);
   const at = Math.min(cursor, Math.max(0, rows.length - 1));
   const row = rows[at];
-  const say1 = (text6, color) => setNotes([{ text: text6, color }]);
+  const say1 = (text7, color) => setNotes([{ text: text7, color }]);
   const take = (next) => {
     setStatus(next);
     setCursor((current2) => Math.min(current2, Math.max(0, trustRows(next).length - 1)));
@@ -43636,7 +43739,7 @@ function TrustScreen({ status: initial, width, height, onTrust, onRevoke, onRelo
         say1(say(`Trusted: ${result.status.scopes.map(scopeTitle).join(", ")}. Files are pinned as they were shown.`, `\uC2E0\uB8B0\uD568: ${result.status.scopes.map(scopeTitle).join(", ")}. \uBCF4\uC5EC \uB4DC\uB9B0 \uADF8\uB300\uB85C \uD30C\uC77C\uC774 \uACE0\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`), "green");
       } else if (result.kind === "changed") {
         if (result.status) take(result.status);
-        setNotes(changedLines(result.files).map((text6, index) => ({ text: text6, color: index === 0 ? "red" : index === 1 ? "yellow" : void 0, dim: index > 1 })));
+        setNotes(changedLines(result.files).map((text7, index) => ({ text: text7, color: index === 0 ? "red" : index === 1 ? "yellow" : void 0, dim: index > 1 })));
       } else {
         say1(result.message, result.kind === "refused" ? "yellow" : "red");
       }
@@ -43712,7 +43815,7 @@ function TrustScreen({ status: initial, width, height, onTrust, onRevoke, onRelo
   );
   const inner = Math.max(20, width - 4);
   const rowsLeft = Math.max(4, height - 2);
-  const bold = (text6, color) => ({ text: text6, bold: true, color });
+  const bold = (text7, color) => ({ text: text7, bold: true, color });
   const picked = TRUST_SCOPES.filter((scope) => selected.has(scope)).length;
   const counter3 = rows.length > 0 ? `${at + 1}/${rows.length}` : "";
   const titleLeft = say("Project trust", "\uD504\uB85C\uC81D\uD2B8 \uC2E0\uB8B0");
@@ -44002,11 +44105,11 @@ function DiskSettingsScreen({ waiting, width, height, onDecide, onClose, isActiv
     { isActive }
   );
   const inner = Math.max(20, width - 4);
-  const bold = (text6, color) => ({ text: text6, bold: true, color });
+  const bold = (text7, color) => ({ text: text7, bold: true, color });
   const wrap2 = (key, segments, indent = "  ") => wrapSegments(key, segments, inner, indent);
   const head = wrap2("title", [bold(say("Settings edited on disk", "\uB514\uC2A4\uD06C\uC5D0\uC11C \uC218\uC815\uB41C \uC124\uC815"), "cyan")], "");
   const settledElsewhere = phase.k === "choose" && waiting.length === 0;
-  const body = phase.k === "done" ? wrap2("result", [{ text: phase.result.ok ? phase.result.line : phase.result.message, color: phase.result.ok ? "green" : "red", bold: !phase.result.ok }]) : settledElsewhere ? wrap2("elsewhere", [{ text: DISK_NOTHING_WAITS(), color: "green" }]) : choiceLines(shown).flatMap((text6, index) => wrap2(`c-${index}`, [{ text: text6, color: index === 1 ? "yellow" : void 0, dimColor: index === 2 }]));
+  const body = phase.k === "done" ? wrap2("result", [{ text: phase.result.ok ? phase.result.line : phase.result.message, color: phase.result.ok ? "green" : "red", bold: !phase.result.ok }]) : settledElsewhere ? wrap2("elsewhere", [{ text: DISK_NOTHING_WAITS(), color: "green" }]) : choiceLines(shown).flatMap((text7, index) => wrap2(`c-${index}`, [{ text: text7, color: index === 1 ? "yellow" : void 0, dimColor: index === 2 }]));
   const hint = wrap2(
     "hint",
     [
@@ -44254,13 +44357,13 @@ function count2(event, field) {
 }
 function mergeLive(kind, older, newer) {
   if (kind === "message.delta") {
-    const text6 = (event) => {
+    const text7 = (event) => {
       const value = event.payload?.text;
       return typeof value === "string" ? value : "";
     };
     return {
       ...newer,
-      payload: { ...newer.payload, text: text6(older) + text6(newer) }
+      payload: { ...newer.payload, text: text7(older) + text7(newer) }
     };
   }
   if (kind === "message.reasoning") return newer;
@@ -44346,8 +44449,8 @@ function createLiveEventThrottle(deliver, { setTimer = setTimeout, clearTimer = 
 function deltaText(event) {
   if (event.kind !== "message.delta") return null;
   const payload = event.payload;
-  const text6 = payload?.text;
-  return typeof text6 === "string" ? text6 : "";
+  const text7 = payload?.text;
+  return typeof text7 === "string" ? text7 : "";
 }
 function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const pending = /* @__PURE__ */ new Map();
@@ -44374,8 +44477,8 @@ function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer
   };
   return {
     push(sessionId, event) {
-      const text6 = deltaText(event);
-      if (text6 === null) {
+      const text7 = deltaText(event);
+      if (text7 === null) {
         const entry2 = pending.get(sessionId);
         if (entry2) {
           pending.delete(sessionId);
@@ -44386,7 +44489,7 @@ function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer
       }
       const entry = pending.get(sessionId);
       if (entry) {
-        entry.text += text6;
+        entry.text += text7;
         entry.event = event;
         return;
       }
@@ -44395,7 +44498,7 @@ function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer
         arm();
         return;
       }
-      pending.set(sessionId, { event, text: text6 });
+      pending.set(sessionId, { event, text: text7 });
     },
     flush() {
       drain();
@@ -44608,20 +44711,20 @@ async function endRecording(runtime, handle) {
       );
       return null;
     }
-    const text6 = (stopped.text ?? "").trim();
-    if (text6.length === 0) {
+    const text7 = (stopped.text ?? "").trim();
+    if (text7.length === 0) {
       runtime.onToast("nothing was heard");
       return null;
     }
-    return text6;
+    return text7;
   } catch (error) {
     if (audioErrorCode(error) === "not_recording") return null;
     runtime.onToast(describeAudioError(error));
     return null;
   }
 }
-async function speak(runtime, text6) {
-  const said = text6.trim();
+async function speak(runtime, text7) {
+  const said = text7.trim();
   if (said.length === 0) return null;
   if (!runtime.capabilities.tts) {
     runtime.onToast(runtime.capabilities.reasons.tts ?? "no text-to-speech backend is configured");
@@ -44860,8 +44963,8 @@ function filterAgents(candidates, prefix) {
 }
 function applyAgentCompletion(draft, query, name) {
   const inserted = `${name} `;
-  const text6 = draft.slice(0, query.start) + inserted + draft.slice(query.end);
-  return { text: text6, cursor: query.start + inserted.length };
+  const text7 = draft.slice(0, query.start) + inserted + draft.slice(query.end);
+  return { text: text7, cursor: query.start + inserted.length };
 }
 function candidateTag(candidate) {
   if (candidate.model) return candidate.model;
@@ -44870,8 +44973,8 @@ function candidateTag(candidate) {
 
 // src/state/editor.ts
 var WHITESPACE = /^\s$/u;
-function partsOf(text6) {
-  return graphemes(text6).map((part) => ({
+function partsOf(text7) {
+  return graphemes(text7).map((part) => ({
     ...part,
     end: part.index + part.text.length
   }));
@@ -44913,9 +45016,9 @@ function nextBoundary(parts, cursor, textLength) {
 function withCursor(state2, cursor) {
   return { text: state2.text, cursor };
 }
-function normalizedCursor(text6, cursor, parts = partsOf(text6)) {
-  const clamped = clamp(cursor, 0, text6.length);
-  return floorBoundary(parts, clamped, text6.length);
+function normalizedCursor(text7, cursor, parts = partsOf(text7)) {
+  const clamped = clamp(cursor, 0, text7.length);
+  return floorBoundary(parts, clamped, text7.length);
 }
 function isWhitespace(part) {
   return WHITESPACE.test(part.text);
@@ -44932,9 +45035,9 @@ function locateCursorRow(lines, cursor) {
   }
   return Math.max(0, lines.length - 1);
 }
-function cursorAtColumn(text6, line, column) {
+function cursorAtColumn(text7, line, column) {
   if (column <= 0) return line.start;
-  const local = partsOf(text6.slice(line.start, line.end));
+  const local = partsOf(text7.slice(line.start, line.end));
   let used = 0;
   for (const part of local) {
     const partStart = line.start + part.index;
@@ -44961,8 +45064,8 @@ function insert(state2, chunk) {
   if (chunk.length === 0) return state2;
   const parts = partsOf(state2.text);
   const at = normalizedCursor(state2.text, state2.cursor, parts);
-  const text6 = state2.text.slice(0, at) + chunk + state2.text.slice(at);
-  return { text: text6, cursor: at + chunk.length };
+  const text7 = state2.text.slice(0, at) + chunk + state2.text.slice(at);
+  return { text: text7, cursor: at + chunk.length };
 }
 function backspace(state2) {
   if (state2.text.length === 0 || state2.cursor <= 0) return state2;
@@ -45042,10 +45145,10 @@ function wordRight(state2) {
   while (index < parts.length && isWhitespace(parts[index])) index += 1;
   return withCursor(state2, index < parts.length ? parts[index].index : state2.text.length);
 }
-function layout(text6, width, cursor = text6.length) {
+function layout(text7, width, cursor = text7.length) {
   const limit = safeWidth(width);
-  const safeCursor = clamp(cursor, 0, text6.length);
-  const parts = partsOf(text6);
+  const safeCursor = clamp(cursor, 0, text7.length);
+  const parts = partsOf(text7);
   const lines = [];
   let start = 0;
   let used = 0;
@@ -45063,9 +45166,9 @@ function layout(text6, width, cursor = text6.length) {
     }
     used += part.width;
   }
-  lines.push({ start, end: text6.length, cells: used });
-  if (used >= limit && safeCursor === text6.length && !text6.endsWith("\n")) {
-    lines.push({ start: text6.length, end: text6.length, cells: 0 });
+  lines.push({ start, end: text7.length, cells: used });
+  if (used >= limit && safeCursor === text7.length && !text7.endsWith("\n")) {
+    lines.push({ start: text7.length, end: text7.length, cells: 0 });
   }
   const cursorRow = locateCursorRow(lines, safeCursor);
   const line = lines[cursorRow] ?? { start: 0, end: 0, cells: 0 };
@@ -45073,7 +45176,7 @@ function layout(text6, width, cursor = text6.length) {
   return {
     lines,
     cursorRow,
-    cursorCol: textWidth(text6.slice(line.start, stop))
+    cursorCol: textWidth(text7.slice(line.start, stop))
   };
 }
 
@@ -45114,19 +45217,19 @@ function formatSize(bytes) {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
-function stripPasteMarkers(text6) {
-  return text6.replace(/\u001B?\[20[01]~/g, "");
+function stripPasteMarkers(text7) {
+  return text7.replace(/\u001B?\[20[01]~/g, "");
 }
-function fromFileUrl(text6) {
-  const rest = text6.slice("file://".length).replace(/^localhost/, "");
+function fromFileUrl(text7) {
+  const rest = text7.slice("file://".length).replace(/^localhost/, "");
   try {
     return decodeURIComponent(rest);
   } catch {
     return rest;
   }
 }
-function unquote(text6) {
-  const trimmed = text6.trim();
+function unquote(text7) {
+  const trimmed = text7.trim();
   if (trimmed.length >= 2) {
     const first = trimmed[0];
     const last = trimmed[trimmed.length - 1];
@@ -45136,18 +45239,18 @@ function unquote(text6) {
   }
   return trimmed;
 }
-function normalizePath(text6) {
-  const bare = unquote(text6).replace(/\\ /g, " ");
+function normalizePath(text7) {
+  const bare = unquote(text7).replace(/\\ /g, " ");
   return bare.startsWith("file://") ? fromFileUrl(bare) : bare;
 }
 var counter2 = 0;
-function scanAttachments(text6, probe) {
+function scanAttachments(text7, probe) {
   const attachments = [];
   const rejected = [];
   const seen = /* @__PURE__ */ new Set();
   let textLines = 0;
   const candidates = [];
-  for (const line of stripPasteMarkers(text6).split(/[\r\n]+/)) {
+  for (const line of stripPasteMarkers(text7).split(/[\r\n]+/)) {
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
     const whole = normalizePath(trimmed);
@@ -45200,7 +45303,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.89";
+var TUI_VERSION = "0.2.90";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
@@ -45904,14 +46007,14 @@ function buildAgentRows({
   }
   return rows;
 }
-function cells(text6) {
-  return textWidth(text6);
+function cells(text7) {
+  return textWidth(text7);
 }
-function fitCells(text6, room) {
-  if (cells(text6) <= room) return text6;
+function fitCells(text7, room) {
+  if (cells(text7) <= room) return text7;
   let out = "";
   let used = 0;
-  for (const part of graphemes(text6)) {
+  for (const part of graphemes(text7)) {
     if (used + part.width > room - 1) break;
     out += part.text;
     used += part.width;
@@ -46249,44 +46352,44 @@ var import_react48 = __toESM(require_react(), 1);
 
 // src/state/fileRefs.ts
 var TRAILING_PUNCT_CHARS = /* @__PURE__ */ new Set([".", ",", ";", ":", ")", "!", "?"]);
-function findAllFileRefs(text6) {
+function findAllFileRefs(text7) {
   const refs = [];
-  const len = text6.length;
+  const len = text7.length;
   let i = 0;
   while (i < len) {
-    if (text6[i] !== "@") {
+    if (text7[i] !== "@") {
       i += 1;
       continue;
     }
     if (i > 0) {
-      const prev = text6[i - 1];
+      const prev = text7[i - 1];
       if (prev === "\\" || /\w/.test(prev)) {
         i += 1;
         continue;
       }
     }
     const start = i;
-    if (i + 1 < len && text6[i + 1] === '"') {
+    if (i + 1 < len && text7[i + 1] === '"') {
       let closeIdx = -1;
       let j2 = i + 2;
-      while (j2 < len && text6[j2] !== "\n") {
-        if (text6[j2] === '"') {
+      while (j2 < len && text7[j2] !== "\n") {
+        if (text7[j2] === '"') {
           closeIdx = j2;
           break;
         }
         j2 += 1;
       }
       if (closeIdx !== -1) {
-        const query2 = text6.slice(i + 2, closeIdx);
+        const query2 = text7.slice(i + 2, closeIdx);
         let tokenEnd = closeIdx + 1;
         let lineRange2;
-        const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text6.slice(tokenEnd));
+        const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text7.slice(tokenEnd));
         if (rangeMatch2) {
           lineRange2 = rangeMatch2[1];
           tokenEnd += rangeMatch2[0].length;
         }
         refs.push({
-          raw: text6.slice(start, tokenEnd),
+          raw: text7.slice(start, tokenEnd),
           start,
           end: tokenEnd,
           query: query2,
@@ -46297,9 +46400,9 @@ function findAllFileRefs(text6) {
         continue;
       } else {
         const end2 = j2;
-        const query2 = text6.slice(i + 2, end2);
+        const query2 = text7.slice(i + 2, end2);
         refs.push({
-          raw: text6.slice(start, end2),
+          raw: text7.slice(start, end2),
           start,
           end: end2,
           query: query2,
@@ -46310,10 +46413,10 @@ function findAllFileRefs(text6) {
       }
     }
     let j = i + 1;
-    while (j < len && !/\s/.test(text6[j]) && text6[j] !== "@") {
+    while (j < len && !/\s/.test(text7[j]) && text7[j] !== "@") {
       j += 1;
     }
-    const rawSegment = text6.slice(i + 1, j);
+    const rawSegment = text7.slice(i + 1, j);
     let pathEnd = j;
     let trailingPunct = "";
     if (rawSegment.length === 0) {
@@ -46328,15 +46431,15 @@ function findAllFileRefs(text6) {
       continue;
     }
     let p = j - 1;
-    while (p > i && TRAILING_PUNCT_CHARS.has(text6[p])) {
-      if (text6[p] === "." && (p === i + 1 || text6[p - 1] === "/")) {
+    while (p > i && TRAILING_PUNCT_CHARS.has(text7[p])) {
+      if (text7[p] === "." && (p === i + 1 || text7[p - 1] === "/")) {
         break;
       }
       p -= 1;
     }
-    trailingPunct = text6.slice(p + 1, j);
+    trailingPunct = text7.slice(p + 1, j);
     pathEnd = p + 1;
-    const fullPathSegment = text6.slice(i + 1, pathEnd);
+    const fullPathSegment = text7.slice(i + 1, pathEnd);
     let query = fullPathSegment;
     let lineRange;
     const rangeMatch = /^(.+?):(\d+(?:-\d+)?)$/.exec(fullPathSegment);
@@ -46345,7 +46448,7 @@ function findAllFileRefs(text6) {
       lineRange = rangeMatch[2];
     }
     refs.push({
-      raw: text6.slice(start, pathEnd),
+      raw: text7.slice(start, pathEnd),
       start,
       end: pathEnd,
       query,
@@ -46357,28 +46460,28 @@ function findAllFileRefs(text6) {
   }
   return refs;
 }
-function findFileRefToken(text6, cursor) {
-  if (text6.length === 0 || cursor <= 0) return null;
-  const len = text6.length;
+function findFileRefToken(text7, cursor) {
+  if (text7.length === 0 || cursor <= 0) return null;
+  const len = text7.length;
   let atPos = -1;
   let inQuotes = false;
   for (let k = cursor - 1; k >= 0; k -= 1) {
-    const ch = text6[k];
+    const ch = text7[k];
     if (ch === "\n") break;
     if (ch === '"') inQuotes = true;
     if (ch === "@") {
-      if (k === 0 || text6[k - 1] !== "\\" && !/\w/.test(text6[k - 1])) {
+      if (k === 0 || text7[k - 1] !== "\\" && !/\w/.test(text7[k - 1])) {
         atPos = k;
       }
       break;
     }
   }
   if (atPos === -1) return null;
-  if (atPos + 1 < len && text6[atPos + 1] === '"') {
+  if (atPos + 1 < len && text7[atPos + 1] === '"') {
     let closeIdx = -1;
     let j2 = atPos + 2;
-    while (j2 < len && text6[j2] !== "\n") {
-      if (text6[j2] === '"') {
+    while (j2 < len && text7[j2] !== "\n") {
+      if (text7[j2] === '"') {
         closeIdx = j2;
         break;
       }
@@ -46387,17 +46490,17 @@ function findFileRefToken(text6, cursor) {
     if (closeIdx !== -1) {
       let tokenEnd = closeIdx + 1;
       let lineRange2;
-      const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text6.slice(tokenEnd));
+      const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text7.slice(tokenEnd));
       if (rangeMatch2) {
         lineRange2 = rangeMatch2[1];
         tokenEnd += rangeMatch2[0].length;
       }
       if (cursor > atPos && cursor <= tokenEnd) {
         return {
-          raw: text6.slice(atPos, tokenEnd),
+          raw: text7.slice(atPos, tokenEnd),
           start: atPos,
           end: tokenEnd,
-          query: text6.slice(atPos + 2, closeIdx),
+          query: text7.slice(atPos + 2, closeIdx),
           quoted: true,
           lineRange: lineRange2
         };
@@ -46407,10 +46510,10 @@ function findFileRefToken(text6, cursor) {
       const end2 = j2;
       if (cursor > atPos && cursor <= end2) {
         return {
-          raw: text6.slice(atPos, end2),
+          raw: text7.slice(atPos, end2),
           start: atPos,
           end: end2,
-          query: text6.slice(atPos + 2, end2),
+          query: text7.slice(atPos + 2, end2),
           quoted: true
         };
       }
@@ -46418,11 +46521,11 @@ function findFileRefToken(text6, cursor) {
     }
   }
   let j = atPos + 1;
-  while (j < len && !/\s/.test(text6[j]) && text6[j] !== "@") {
+  while (j < len && !/\s/.test(text7[j]) && text7[j] !== "@") {
     j += 1;
   }
   if (cursor <= atPos || cursor > j) return null;
-  const rawSegment = text6.slice(atPos + 1, j);
+  const rawSegment = text7.slice(atPos + 1, j);
   if (rawSegment.length === 0) {
     return {
       raw: "@",
@@ -46435,8 +46538,8 @@ function findFileRefToken(text6, cursor) {
   let pathEnd = j;
   let trailingPunct = "";
   let p = j - 1;
-  while (p > atPos && TRAILING_PUNCT_CHARS.has(text6[p])) {
-    if (text6[p] === "." && (cursor === j || p === atPos + 1 || text6[p - 1] === "/")) {
+  while (p > atPos && TRAILING_PUNCT_CHARS.has(text7[p])) {
+    if (text7[p] === "." && (cursor === j || p === atPos + 1 || text7[p - 1] === "/")) {
       break;
     }
     if (cursor > p) {
@@ -46444,12 +46547,12 @@ function findFileRefToken(text6, cursor) {
     }
     p -= 1;
   }
-  trailingPunct = text6.slice(p + 1, j);
+  trailingPunct = text7.slice(p + 1, j);
   pathEnd = p + 1;
   if (cursor > pathEnd && trailingPunct.length > 0) {
     return null;
   }
-  const fullPathSegment = text6.slice(atPos + 1, pathEnd);
+  const fullPathSegment = text7.slice(atPos + 1, pathEnd);
   let query = fullPathSegment;
   let lineRange;
   const rangeMatch = /^(.+?):(\d+(?:-\d+)?)$/.exec(fullPathSegment);
@@ -46458,7 +46561,7 @@ function findFileRefToken(text6, cursor) {
     lineRange = rangeMatch[2];
   }
   return {
-    raw: text6.slice(atPos, pathEnd),
+    raw: text7.slice(atPos, pathEnd),
     start: atPos,
     end: pathEnd,
     query,
@@ -46467,7 +46570,7 @@ function findFileRefToken(text6, cursor) {
     trailingPunct: trailingPunct.length > 0 ? trailingPunct : void 0
   };
 }
-function applyFileCompletion(text6, token, entry) {
+function applyFileCompletion(text7, token, entry) {
   const path = typeof entry === "string" ? entry : entry.path;
   const isDir = typeof entry === "object" && entry.kind === "dir" || path.endsWith("/");
   const normalizedPath = isDir && !path.endsWith("/") ? `${path}/` : path;
@@ -46478,7 +46581,7 @@ function applyFileCompletion(text6, token, entry) {
   } else {
     replacement = hasSpaces ? `@"${normalizedPath}" ` : `@${normalizedPath} `;
   }
-  const newText = text6.slice(0, token.start) + replacement + text6.slice(token.end);
+  const newText = text7.slice(0, token.start) + replacement + text7.slice(token.end);
   const nextCursor = token.start + replacement.length;
   return { text: newText, cursor: nextCursor };
 }
@@ -46677,12 +46780,12 @@ function Chat({
     setAgentsDismissed(false);
     onChange?.(safe.text);
   };
-  const replace = (text6, nextCursor = text6.length) => update({ text: text6, cursor: nextCursor });
+  const replace = (text7, nextCursor = text7.length) => update({ text: text7, cursor: nextCursor });
   (0, import_react48.useEffect)(() => {
     if (!insert2) return;
     const current2 = editorRef.current;
-    const text6 = current2.text.length > 0 ? ` ${insert2}` : insert2;
-    update(insert(current2, text6));
+    const text7 = current2.text.length > 0 ? ` ${insert2}` : insert2;
+    update(insert(current2, text7));
     onInserted?.();
   }, [insert2]);
   (0, import_react48.useEffect)(() => {
@@ -46840,12 +46943,12 @@ function Chat({
             }
           }
         }
-        const text6 = value2.trim();
-        if (text6.length === 0) return;
-        setHistory((h) => [...h, text6]);
+        const text7 = value2.trim();
+        if (text7.length === 0) return;
+        setHistory((h) => [...h, text7]);
         setHistoryIndex(null);
         replace("");
-        onSubmit(text6);
+        onSubmit(text7);
         return;
       }
       if (key.ctrl && input === "d") {
@@ -46929,11 +47032,11 @@ function Chat({
       if (row < first || row >= first + shown) return null;
       const prefix = row === 0 ? "> " : "  ";
       if (row !== draft.cursorRow) {
-        const text6 = value.slice(line.start, line.end);
+        const text7 = value.slice(line.start, line.end);
         return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
           /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
-          /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: text6 }),
-          band ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(text6))) }) : null
+          /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: text7 }),
+          band ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(text7))) }) : null
         ] }, `draft-${row}`);
       }
       const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
@@ -47012,8 +47115,8 @@ function colorizeFileRefs(lines) {
     return { ...line, segments };
   });
 }
-function padCells(text6, width) {
-  return text6 + " ".repeat(Math.max(0, width - textWidth(text6)));
+function padCells(text7, width) {
+  return text7 + " ".repeat(Math.max(0, width - textWidth(text7)));
 }
 function MessageView({
   message,
@@ -47378,11 +47481,11 @@ function skillSubCommands(draft, skills = []) {
     source: "core"
   }));
 }
-function isBareSkillCreate(text6) {
-  return /^\/skill\s+create\s*$/.test(text6.trim());
+function isBareSkillCreate(text7) {
+  return /^\/skill\s+create\s*$/.test(text7.trim());
 }
-function parseSkillEdit(text6) {
-  const match = /^\/skill\s+edit\s+(\S+)\s*$/.exec(text6.trim());
+function parseSkillEdit(text7) {
+  const match = /^\/skill\s+edit\s+(\S+)\s*$/.exec(text7.trim());
   return match ? match[1] : null;
 }
 function skillCreateCommand({
@@ -47395,9 +47498,9 @@ function skillCreateCommand({
   if (scope === "global") parts.push("--global");
   return parts.join(" ");
 }
-function createdSkillName(text6) {
-  const runIt = /Run it with \/([A-Za-z0-9][\w.-]*)/.exec(text6);
-  const named = /(?:Created|Learned) skill ['"`]?([A-Za-z0-9][\w.-]*)/.exec(text6);
+function createdSkillName(text7) {
+  const runIt = /Run it with \/([A-Za-z0-9][\w.-]*)/.exec(text7);
+  const named = /(?:Created|Learned) skill ['"`]?([A-Za-z0-9][\w.-]*)/.exec(text7);
   const found = runIt?.[1] ?? named?.[1];
   if (!found) return null;
   const trimmed = found.replace(/[.\-]+$/, "");
@@ -47967,25 +48070,25 @@ function SectionRule({
 var import_jsx_runtime41 = __toESM(require_jsx_runtime(), 1);
 var PROMPT_PREVIEW = 60;
 function bannerParts(width, hasLastSession, maxRows = Number.POSITIVE_INFINITY) {
-  const text6 = 2;
+  const text7 = 2;
   const last = hasLastSession ? 3 : 0;
   const tips = TIPS.length + 2;
   const big = bigLogoRows(width) + 1;
-  if (big + text6 + last + tips <= maxRows) return { bigLogo: true, tips: true };
-  if (big + text6 + last <= maxRows) return { bigLogo: true, tips: false };
-  return { bigLogo: false, tips: 1 + text6 + last + tips <= maxRows };
+  if (big + text7 + last + tips <= maxRows) return { bigLogo: true, tips: true };
+  if (big + text7 + last <= maxRows) return { bigLogo: true, tips: false };
+  return { bigLogo: false, tips: 1 + text7 + last + tips <= maxRows };
 }
 var TIPS = [
   "/help lists every command the daemon offers",
   "Shift+Tab cycles plan \u2192 accept \u2192 auto",
   "/setup configures providers and models"
 ];
-function centre(text6, width) {
-  const room = Math.max(0, Math.floor(width) - [...text6].length);
-  return `${" ".repeat(Math.floor(room / 2))}${text6}`;
+function centre(text7, width) {
+  const room = Math.max(0, Math.floor(width) - [...text7].length);
+  return `${" ".repeat(Math.floor(room / 2))}${text7}`;
 }
-function previewPrompt(text6, max = PROMPT_PREVIEW) {
-  const flat = text6.replace(/\s+/g, " ").trim();
+function previewPrompt(text7, max = PROMPT_PREVIEW) {
+  const flat = text7.replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}\u2026`;
 }
 function LaunchBanner({
@@ -48097,8 +48200,8 @@ function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, is
   const inner = Math.max(1, width - 4);
   const rows = Math.max(1, height - 3);
   const lines = [];
-  const add = (text6, color, bold = false) => {
-    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text: text6, color, bold }] }, inner));
+  const add = (text7, color, bold = false) => {
+    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text: text7, color, bold }] }, inner));
   };
   const workflows = commands.filter((command2) => WORKFLOW_COMMANDS.includes(command2.name));
   const others = commands.filter((command2) => !WORKFLOW_COMMANDS.includes(command2.name));
@@ -48115,7 +48218,7 @@ function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, is
   if (!commands.length) add("no commands reported by the daemon");
   commandRows(others);
   add("Keys", "cyan", true);
-  KEYS.forEach((text6) => add(text6));
+  KEYS.forEach((text7) => add(text7));
   const maxOffset = Math.max(0, lines.length - rows);
   const start = Math.min(offset, maxOffset);
   use_input_default((_input, key) => {
@@ -48139,9 +48242,9 @@ var PHASE_COLOR = {
   failed: "red"
 };
 function UpdateBanner({ update }) {
-  const text6 = bannerText(update);
-  if (text6 === null) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime45.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime45.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text6 }) });
+  const text7 = bannerText(update);
+  if (text7 === null) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime45.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime45.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text7 }) });
 }
 
 // src/app.tsx
@@ -48798,8 +48901,8 @@ function App2({
   (0, import_react60.useEffect)(() => () => {
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
   }, []);
-  const showToast = (0, import_react60.useCallback)((text6) => {
-    setModeToast(text6);
+  const showToast = (0, import_react60.useCallback)((text7) => {
+    setModeToast(text7);
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
@@ -48935,7 +49038,7 @@ function App2({
   const degradedRef = (0, import_react60.useRef)([]);
   degradedRef.current = daemon.degraded;
   const sessionElapsedMs = useElapsed();
-  const note = (0, import_react60.useCallback)((text6) => dispatch({ type: "note", text: text6 }), []);
+  const note = (0, import_react60.useCallback)((text7) => dispatch({ type: "note", text: text7 }), []);
   const screens = useJarvisScreens({
     client,
     workdir,
@@ -48949,7 +49052,7 @@ function App2({
   });
   screensRef.current = screens;
   const externalOpen = screens.external;
-  const warn = (0, import_react60.useCallback)((text6) => dispatch({ type: "note", text: text6, blocked: true }), []);
+  const warn = (0, import_react60.useCallback)((text7) => dispatch({ type: "note", text: text7, blocked: true }), []);
   const security = useSecurityScreen({
     client,
     workdir,
@@ -49304,9 +49407,9 @@ function App2({
     [lines.length, layout2.transcriptRows]
   );
   const takePaste = (0, import_react60.useCallback)(
-    (text6) => {
+    (text7) => {
       if (!probe) return false;
-      const { attachments: found, rejected, textLines } = scanAttachments(text6, probe);
+      const { attachments: found, rejected, textLines } = scanAttachments(text7, probe);
       if (textLines > 0) return false;
       for (const entry of rejected) showToast(`${entry.path}: ${entry.reason}`);
       if (found.length === 0) return rejected.length > 0;
@@ -49492,8 +49595,8 @@ function App2({
         showToast(outcome2.message);
         return outcome2.state;
       });
-      void endRecording(runtime, handle).then((text6) => {
-        if (text6) setInsert(text6);
+      void endRecording(runtime, handle).then((text7) => {
+        if (text7) setInsert(text7);
       });
       return;
     }
@@ -49650,48 +49753,48 @@ function App2({
     [client, refreshMcp, sessionId, workdir]
   );
   const submit = (0, import_react60.useCallback)(
-    (text6) => {
+    (text7) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       setScrollOffset(0);
       setSkillChip(null);
       setSkillHint(false);
       const screensNow = screensRef.current;
-      if (securityRef.current?.handleCommand(text6)) {
-        history?.add(text6, workdir);
+      if (securityRef.current?.handleCommand(text7)) {
+        history?.add(text7, workdir);
         return;
       }
-      if (webRef.current?.handleCommand(text6)) {
-        history?.add(text6, workdir);
+      if (webRef.current?.handleCommand(text7)) {
+        history?.add(text7, workdir);
         return;
       }
-      if (trustRef.current?.handleCommand(text6)) {
-        history?.add(text6, workdir);
+      if (trustRef.current?.handleCommand(text7)) {
+        history?.add(text7, workdir);
         return;
       }
-      if (diskRef.current?.handleCommand(text6)) {
-        history?.add(text6, workdir);
+      if (diskRef.current?.handleCommand(text7)) {
+        history?.add(text7, workdir);
         return;
       }
-      if (screensNow?.handleCommand(text6)) {
-        history?.add(text6, workdir);
+      if (screensNow?.handleCommand(text7)) {
+        history?.add(text7, workdir);
         return;
       }
       if (screensNow?.external) {
-        history?.add(text6, workdir);
-        screensNow.sendExternal(text6);
+        history?.add(text7, workdir);
+        screensNow.sendExternal(text7);
         return;
       }
-      if (/^\/delegate(\s|$)/.test(text6.trim())) {
-        dispatch({ type: "user/message", text: text6, attachments: [], expectEvent: false });
-        history?.add(text6, workdir);
-        void client.prompt(sessionId, text6).then((result) => {
+      if (/^\/delegate(\s|$)/.test(text7.trim())) {
+        dispatch({ type: "user/message", text: text7, attachments: [], expectEvent: false });
+        history?.add(text7, workdir);
+        void client.prompt(sessionId, text7).then((result) => {
           const turnId = result?.turnId;
-          if (turnId) dispatch({ type: "prompt/turn", turnId, text: text6 });
+          if (turnId) dispatch({ type: "prompt/turn", turnId, text: text7 });
           return result;
         }).catch((error) => dispatch({ type: "error", message: rpcErrorText(error) }));
         return;
       }
-      if (/^\/update\s*$/.test(text6.trim())) {
+      if (/^\/update\s*$/.test(text7.trim())) {
         void client.checkUpdate(true).then((check) => {
           setUpdate((current2) => fromCheck(current2, check));
           setUpdateAvailable(Boolean(check.available) && !check.error);
@@ -49708,7 +49811,7 @@ function App2({
         });
         return;
       }
-      const mouse = /^\/mouse(?:\s+(on|off))?\s*$/.exec(text6.trim());
+      const mouse = /^\/mouse(?:\s+(on|off))?\s*$/.exec(text7.trim());
       if (mouse) {
         const next = mouse[1] ? mouse[1] === "on" : !mouseOn;
         setMouseOn(next);
@@ -49717,7 +49820,7 @@ function App2({
         );
         return;
       }
-      const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text6.trim());
+      const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text7.trim());
       if (resume) {
         if (state2.turnActive) {
           showToast("interrupt the current turn before resuming another session");
@@ -49727,11 +49830,11 @@ function App2({
         else openResumePicker();
         return;
       }
-      if (/^\/(?:new|session\s+new)\s*$/.test(text6.trim())) {
+      if (/^\/(?:new|session\s+new)\s*$/.test(text7.trim())) {
         startNewSession();
         return;
       }
-      if (/^\/sessions\s*$/.test(text6.trim())) {
+      if (/^\/sessions\s*$/.test(text7.trim())) {
         if (state2.turnActive) {
           showToast("interrupt the current turn before resuming another session");
           return;
@@ -49739,8 +49842,8 @@ function App2({
         openResumePicker();
         return;
       }
-      const sessionDelete = /^\/session\s+delete\s+(\S+)\s*$/.exec(text6.trim());
-      const sessionClear = /^\/session\s+clear(?:\s+(--all))?\s*$/.exec(text6.trim());
+      const sessionDelete = /^\/session\s+delete\s+(\S+)\s*$/.exec(text7.trim());
+      const sessionClear = /^\/session\s+clear(?:\s+(--all))?\s*$/.exec(text7.trim());
       if (sessionDelete || sessionClear) {
         const params = sessionDelete ? { sessionId: sessionDelete[1] } : sessionClear?.[1] ? { all: true } : { workdir };
         void client.call("session.deleteSaved", params).then(
@@ -49750,7 +49853,7 @@ function App2({
         );
         return;
       }
-      if (/^\/lsp\s*$/.test(text6.trim())) {
+      if (/^\/lsp\s*$/.test(text7.trim())) {
         void client.call("lsp.status", {}).then((result) => {
           const servers = readLspStatus(result);
           dispatch({ type: "lsp/status", servers });
@@ -49760,46 +49863,46 @@ function App2({
         );
         return;
       }
-      if (isBareSkillCreate(text6)) {
+      if (isBareSkillCreate(text7)) {
         setSkillForm(true);
         return;
       }
-      const edit = parseSkillEdit(text6);
+      const edit = parseSkillEdit(text7);
       if (edit) {
         editSkill(edit);
         return;
       }
-      if (isBareMcpAdd(text6)) {
+      if (isBareMcpAdd(text7)) {
         setMcpForm(emptyDraft());
         return;
       }
-      if (isBareMcpCatalog(text6)) {
+      if (isBareMcpCatalog(text7)) {
         openMcpCatalog();
         return;
       }
-      const configure = parseMcpConfigure(text6);
+      const configure = parseMcpConfigure(text7);
       if (configure) {
         openMcpConfigure(configure);
         return;
       }
-      if (/^\/model\s*$/.test(text6.trim())) {
+      if (/^\/model\s*$/.test(text7.trim())) {
         openModelPicker();
         return;
       }
-      if (/^\/vision\s*$/.test(text6.trim())) {
+      if (/^\/vision\s*$/.test(text7.trim())) {
         openModelPicker("vision");
         return;
       }
-      const attach = /^\/attach\s+(.+)$/.exec(text6.trim());
+      const attach = /^\/attach\s+(.+)$/.exec(text7.trim());
       if (attach) {
         if (!takePaste(attach[1])) showToast(`no readable file at ${attach[1]}`);
         return;
       }
-      if (/^\/(voice|rec|tts)\b/.test(text6.trim()) && !audioOffered()) {
+      if (/^\/(voice|rec|tts)\b/.test(text7.trim()) && !audioOffered()) {
         showToast("this daemon has no audio support");
         return;
       }
-      const voiceCmd = /^\/voice(?:\s+(on|off))?\s*$/.exec(text6.trim());
+      const voiceCmd = /^\/voice(?:\s+(on|off))?\s*$/.exec(text7.trim());
       if (voiceCmd) {
         const wanted = voiceCmd[1] === "on" ? true : voiceCmd[1] === "off" ? false : null;
         setVoice((current2) => {
@@ -49815,12 +49918,12 @@ function App2({
         });
         return;
       }
-      if (/^\/rec\s*$/.test(text6.trim())) {
+      if (/^\/rec\s*$/.test(text7.trim())) {
         toggleRecording();
         return;
       }
-      const ttsVoices = /^\/tts\s+voices\s*$/.exec(text6.trim());
-      const ttsVoice = /^\/tts\s+voice\s+(\S+)(?:\s+(\S+))?\s*$/.exec(text6.trim());
+      const ttsVoices = /^\/tts\s+voices\s*$/.exec(text7.trim());
+      const ttsVoice = /^\/tts\s+voice\s+(\S+)(?:\s+(\S+))?\s*$/.exec(text7.trim());
       if (ttsVoices || ttsVoice) {
         const engine = capabilities?.ttsProvider;
         if (!engine) {
@@ -49855,7 +49958,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         }).catch((error) => showToast(`voices: ${rpcErrorText(error)}`));
         return;
       }
-      const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text6.trim());
+      const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text7.trim());
       if (tts) {
         setVoice((current2) => {
           const outcome = setTts(current2, capabilities, tts[1] !== "off", {
@@ -49866,40 +49969,40 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         });
         return;
       }
-      const beside = text6.startsWith("/") && state2.turnActive && commandsBesideTurnSupported(client.serverCapabilities?.());
+      const beside = text7.startsWith("/") && state2.turnActive && commandsBesideTurnSupported(client.serverCapabilities?.());
       const sent = attachments.map(({ name, mime, size }) => ({ name, mime, size }));
       if (!beside) {
         dispatch({
           type: "user/message",
-          text: text6,
+          text: text7,
           attachments: sent,
-          expectEvent: !text6.startsWith("/")
+          expectEvent: !text7.startsWith("/")
         });
       }
       setAttachments([]);
-      history?.add(text6, workdir);
+      history?.add(text7, workdir);
       if (!beside && state2.messages.every((message) => message.role !== "user")) {
-        sessions?.remember({ sessionId, workdir, firstPrompt: text6, at: Date.now() });
+        sessions?.remember({ sessionId, workdir, firstPrompt: text7, at: Date.now() });
       }
-      const commandName = text6.startsWith("/") ? `/${text6.slice(1).split(/\s/)[0]}` : null;
+      const commandName = text7.startsWith("/") ? `/${text7.slice(1).split(/\s/)[0]}` : null;
       if (!beside) setRunningCommand(commandName);
       const registry = registryRef.current;
-      const run = text6.startsWith("/") ? registry.dispatch(text6).then(async (result) => {
+      const run = text7.startsWith("/") ? registry.dispatch(text7).then(async (result) => {
         if (beside && !ranBesideTurn(result)) {
-          dispatch({ type: "user/message", text: text6, attachments: [], expectEvent: false });
+          dispatch({ type: "user/message", text: text7, attachments: [], expectEvent: false });
         }
-        if (/^(help|skill|plugin)/.test(text6.slice(1))) {
+        if (/^(help|skill|plugin)/.test(text7.slice(1))) {
           const commands = await registry.refresh();
           dispatch({ type: "commands", commands });
         }
-        if (/^team(?:\s|$)/.test(text6.slice(1))) {
+        if (/^team(?:\s|$)/.test(text7.slice(1))) {
           setAgentRosterVersion((version2) => version2 + 1);
         }
-        if (text6.slice(1).startsWith("help") && !(beside && ranBesideTurn(result))) setShowHelp(true);
+        if (text7.slice(1).startsWith("help") && !(beside && ranBesideTurn(result))) setShowHelp(true);
         return result;
       }) : client.prompt(
         sessionId,
-        text6,
+        text7,
         attachments.map((attachment) => ({
           kind: attachment.mime.startsWith("image/") ? "image" : "file",
           name: attachment.name,
@@ -49910,7 +50013,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       );
       void run.then((result) => {
         const turnId = result?.turnId;
-        if (turnId && !ranBesideTurn(result)) dispatch({ type: "prompt/turn", turnId, text: text6 });
+        if (turnId && !ranBesideTurn(result)) dispatch({ type: "prompt/turn", turnId, text: text7 });
         return result;
       }).catch((error) => {
         if (!beside) setRunningCommand(null);
@@ -49948,13 +50051,13 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
   const createSkill = (0, import_react60.useCallback)(
     (form) => {
       setSkillForm(false);
-      const text6 = skillCreateCommand(form);
-      dispatch({ type: "user/message", text: text6, attachments: [], expectEvent: false });
-      history?.add(text6, workdir);
+      const text7 = skillCreateCommand(form);
+      dispatch({ type: "user/message", text: text7, attachments: [], expectEvent: false });
+      history?.add(text7, workdir);
       setRunningCommand("/skill create");
-      void client.prompt(sessionId, text6).then((result) => {
+      void client.prompt(sessionId, text7).then((result) => {
         const turnId = result?.turnId;
-        if (turnId) dispatch({ type: "prompt/turn", turnId, text: text6 });
+        if (turnId) dispatch({ type: "prompt/turn", turnId, text: text7 });
         return result;
       }).catch((error) => {
         setRunningCommand(null);
@@ -51041,9 +51144,9 @@ function splitKeypresses(stdin) {
     if (queued.length > 0) return queued.shift();
     const chunk = read(size);
     if (chunk === null || chunk === void 0) return chunk;
-    const text6 = typeof chunk === "string" ? chunk : String(chunk);
-    if (!needsSplit(text6)) return chunk;
-    const [first, ...rest] = splitKeys(text6);
+    const text7 = typeof chunk === "string" ? chunk : String(chunk);
+    if (!needsSplit(text7)) return chunk;
+    const [first, ...rest] = splitKeys(text7);
     queued.push(...rest);
     return first;
   };
@@ -51217,11 +51320,11 @@ var TuiClient = class {
    * bytes twice, once here to base64 them and once there, would be work for
    * nothing.
    */
-  prompt(sessionId, text6, attachments = []) {
-    if (!this.languagePinned && text6.trim().length > 0) setUiLanguage(detectLanguage(text6));
+  prompt(sessionId, text7, attachments = []) {
+    if (!this.languagePinned && text7.trim().length > 0) setUiLanguage(detectLanguage(text7));
     return this.call("session.prompt", {
       sessionId,
-      text: text6,
+      text: text7,
       ...attachments.length > 0 ? { attachments } : {}
     });
   }
