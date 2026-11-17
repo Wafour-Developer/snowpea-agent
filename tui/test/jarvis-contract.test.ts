@@ -162,7 +162,7 @@ describe("notices that persist", () => {
   it("keeps only the notice reasons; a waiting request is answered, not dismissed", () => {
     expect(["finished", "error", "stalled", "budget", "jarvis"].every((reason) => isNotice({ reason } as never))).toBe(true);
     expect(["guarded", "risky", "never", "question"].some((reason) => isNotice({ reason } as never))).toBe(false);
-    const state = jarvisReducer(initialJarvis, { type: "event/escalation", payload: e("g", "guarded") });
+    const state = jarvisReducer(initialJarvis, { type: "event/escalation", payload: e("g", "guarded"), onScreen: true });
     expect(state.escalations).toEqual([]);
     expect(state.notice).toContain("g news");
   });

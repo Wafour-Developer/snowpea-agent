@@ -229,7 +229,7 @@ describe("approvals and notices", () => {
     expect(respondResultNote("r3", { scope: "session" }, undefined)).toBeNull();
   });
 
-  it("a high-importance Jarvis notice is one line", () => {
-    expect(highEscalationLine("Something  outside\nsnowpea")).toBe("Jarvis: Something outside snowpea");
+  it("a tamper warning is one line", () => {
+    expect(highEscalationLine("Something  outside\nsnowpea")).toBe("Something outside snowpea");
   });
 });

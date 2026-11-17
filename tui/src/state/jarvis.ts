@@ -94,6 +94,8 @@ export interface JarvisState {
   sessionStates: Record<string, SessionJarvisState>;
   /** The latest thing worth a toast; the app shows and clears it. */
   notice: string | null;
+  /** Dedupe keys of the notices already toasted (see noticeKey), newest last. */
+  announced: string[];
   loadedAt: number | null;
 }
 
@@ -107,6 +109,7 @@ export const initialJarvis: JarvisState = {
   escalations: [],
   sessionStates: {},
   notice: null,
+  announced: [],
   loadedAt: null,
 };
 
@@ -125,7 +128,8 @@ export type JarvisAction =
   | { type: "decisions"; entries: JarvisLedgerEntry[] }
   | { type: "event/state"; payload: JarvisStateEvent }
   | { type: "event/decision"; payload: JarvisDecisionEvent }
-  | { type: "event/escalation"; payload: JarvisEscalationEvent }
+  /** `onScreen`: the Jarvis screen is open; `sessionId`: the session the person is in. Outside the screen nothing is toasted. */
+  | { type: "event/escalation"; payload: JarvisEscalationEvent; onScreen?: boolean; sessionId?: string }
   | { type: "escalations"; entries: JarvisEscalationEvent[] }
   | { type: "event/dismissed"; payload: JarvisEscalationDismissed }
   | { type: "sessionStates"; states: Record<string, SessionJarvisState> }
@@ -184,9 +188,14 @@ export function jarvisReducer(state: JarvisState, action: JarvisAction): JarvisS
     }
 
     case "event/escalation": {
-      const known = state.escalations.some((entry) => entry.id === action.payload.id);
+      const key = noticeKey(action.payload);
+      const known =
+        state.escalations.some((entry) => entry.id === action.payload.id || noticeKey(entry) === key) ||
+        state.announced.includes(key);
       if (known) return state;
       const importance = action.payload.importance ?? "normal";
+      // Only the Jarvis screen toasts, and never for the session the person is in (it shows its own prompt).
+      const quiet = !action.onScreen || importance === "low" || (!!action.payload.sessionId && action.payload.sessionId === action.sessionId);
       // A waiting approval or question is answered, not dismissed: only the
       // other reasons are kept as notices (what `jarvis.escalations.list` holds).
       const kept = isNotice(action.payload);
@@ -195,8 +204,8 @@ export function jarvisReducer(state: JarvisState, action: JarvisAction): JarvisS
         escalations: kept
           ? [action.payload, ...state.escalations].slice(0, MAX_ESCALATIONS)
           : state.escalations,
-        // Low-importance news stays in the panel; the rest also gets a toast.
-        notice: importance === "low" ? state.notice : `Jarvis: ${action.payload.summary}`,
+        notice: quiet ? state.notice : `Jarvis: ${action.payload.summary}`,
+        announced: quiet ? state.announced : [...state.announced, key].slice(-200),
       };
     }
 
@@ -249,6 +258,11 @@ function withRequests(state: JarvisState, requests: WaitingItem[]): JarvisState 
 
 /** The escalations that persist as notices; the rest are requests waiting in the queue. */
 const NOTICE_REASONS = new Set(["finished", "error", "stalled", "budget", "jarvis"]);
+
+/** One need, however often the daemon repeats it: the request id, else the summary within its session. */
+export function noticeKey(entry: Pick<JarvisEscalationEvent, "requestId" | "sessionId" | "summary">): string {
+  return entry.requestId ? `r:${entry.requestId}` : `s:${entry.sessionId ?? ""}:${entry.summary}`;
+}
 
 export function isNotice(escalation: Pick<JarvisEscalationEvent, "reason">): boolean {
   return NOTICE_REASONS.has(escalation.reason);
@@ -751,7 +765,7 @@ export function approvalResolvedNote(
 
 /** A high-importance Jarvis notice, as the transcript line that stays (the toast alone would be gone). */
 export function highEscalationLine(summary: string): string {
-  return `Jarvis: ${summary.replace(/\s+/g, " ").trim()}`;
+  return summary.replace(/\s+/g, " ").trim();
 }
 
 /**

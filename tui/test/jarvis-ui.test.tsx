@@ -501,14 +501,27 @@ describe("Jarvis mode", () => {
     app.done();
   });
 
-  it("toasts an escalation pushed by the daemon", async () => {
+  it("stays silent in an ordinary session: no transcript line, no toast, no status text", async () => {
     const client = fakeClient();
     const app = await mount(client);
+    const before = app.view();
+    for (let n = 0; n < 3; n += 1) {
+      client.emit("onJarvisEscalation", {
+        id: "e" + n, ts: new Date().toISOString(), reason: "guarded", summary: "approve shell ls " + n, importance: "high", sessionId: "s-" + (n + 2), requestId: "r-" + n,
+      });
+    }
     client.emit("onJarvisEscalation", {
-      id: "e1", ts: new Date().toISOString(), reason: "guarded", summary: "git push needs you", importance: "high", sessionId: "s-2",
+      id: "u1", ts: new Date().toISOString(), reason: "jarvis", summary: "urgent thing", importance: "urgent", sessionId: "s-9", requestId: "r-9",
     });
-    await sleep(200);
-    expect(app.view()).toContain("Jarvis: git push needs you");
+    await sleep(250);
+    const view = app.view();
+    expect(view).not.toContain("needs you");
+    expect(view).not.toContain("approve shell ls");
+    expect(view).not.toContain("urgent thing");
+    expect(view).not.toContain("Jarvis:");
+    expect(view).not.toContain("✗");
+    expect(view).not.toContain("/jarvis");
+    expect(view).toBe(before);
     app.done();
   });
 

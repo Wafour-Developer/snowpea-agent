@@ -198,7 +198,7 @@ describe("a long tamper notice", () => {
     const app = await mount(client);
     const summary =
       "Something outside snowpea changed the trusted-projects record (3 times since the last notice); putting the file back failed, so the copy snowpea holds is the one in force.";
-    client.emit("onJarvisEscalation", { id: "t1", ts: "2026-11-16T07:00:00Z", reason: "error", summary, importance: "high" });
+    client.emit("onJarvisEscalation", { id: "t1", ts: "2026-11-16T07:00:00Z", reason: "error", summary, importance: "high", kind: "tamper" });
     await sleep(300);
     expect(app.view()).toContain("(3 times since the last notice)");
     expect(app.view()).toContain("putting the file back failed, so the copy snowpea holds is the one in force.");

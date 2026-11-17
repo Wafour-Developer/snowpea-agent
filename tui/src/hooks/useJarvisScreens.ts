@@ -195,6 +195,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
   const now = useClock(jarvisOn, 15_000);
   /** True while the open session is the Jarvis session. */
   const onJarvisScreen = jarvisOn && jarvisSessionId !== null && sessionId === jarvisSessionId;
+  const onJarvisScreenRef = useRef(onJarvisScreen);
+  onJarvisScreenRef.current = onJarvisScreen;
 
   // --- reading Jarvis ---------------------------------------------------------
 
@@ -272,7 +274,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
       onJarvisState: (payload) => jarvisDispatch({ type: "event/state", payload }),
       onJarvisDecision: (payload) => jarvisDispatch({ type: "event/decision", payload }),
       onJarvisEscalation: (payload) => {
-        jarvisDispatch({ type: "event/escalation", payload });
+        jarvisDispatch({ type: "event/escalation", payload, onScreen: onJarvisScreenRef.current, sessionId: sessionIdRef.current });
         void refresh();
       },
       onJarvisDelegation: (payload) => {

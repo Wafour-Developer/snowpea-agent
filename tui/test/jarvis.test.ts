@@ -150,17 +150,36 @@ describe("jarvisReducer", () => {
     expect(state.decisions.filter((e) => e.id === "d14")).toHaveLength(1);
   });
 
-  it("toasts an escalation once, and not a low-importance one", () => {
-    const base = { id: "e1", ts: inMinutes(0), reason: "finished" as const, summary: "git push needs you", importance: "high" as const };
-    let state = jarvisReducer(initialJarvis, { type: "event/escalation", payload: base });
+  it("toasts an escalation once on the Jarvis screen only, never for the session the person is in", () => {
+    const base = { id: "e1", ts: inMinutes(0), reason: "finished" as const, summary: "git push needs you", importance: "high" as const, sessionId: "s-2" };
+    const on = { onScreen: true, sessionId: "s-1" };
+    // An ordinary session: silent.
+    expect(jarvisReducer(initialJarvis, { type: "event/escalation", payload: base, sessionId: "s-1" }).notice).toBeNull();
+    let state = jarvisReducer(initialJarvis, { type: "event/escalation", payload: base, ...on });
     expect(state.notice).toBe("Jarvis: git push needs you");
     state = jarvisReducer(state, { type: "notice/clear" });
-    state = jarvisReducer(state, { type: "event/escalation", payload: base });
+    state = jarvisReducer(state, { type: "event/escalation", payload: base, ...on });
     expect(state.notice).toBeNull();
     expect(state.escalations).toHaveLength(1);
-    const quiet = jarvisReducer(initialJarvis, { type: "event/escalation", payload: { ...base, id: "e2", importance: "low" } });
+    // The same need under another id (no request id): same session + summary does not stack.
+    state = jarvisReducer(state, { type: "event/escalation", payload: { ...base, id: "e9" }, ...on });
+    expect(state.escalations).toHaveLength(1);
+    expect(state.notice).toBeNull();
+    // The session the person is in shows its own prompt.
+    const own = jarvisReducer(initialJarvis, { type: "event/escalation", payload: { ...base, sessionId: "s-1" }, ...on });
+    expect(own.notice).toBeNull();
+    const quiet = jarvisReducer(initialJarvis, { type: "event/escalation", payload: { ...base, id: "e2", summary: "other", importance: "low" }, ...on });
     expect(quiet.notice).toBeNull();
     expect(quiet.escalations).toHaveLength(1);
+  });
+
+  it("does not stack waiting-request escalations with the same request id", () => {
+    const wait = { id: "e1", ts: inMinutes(0), reason: "guarded" as const, summary: "approve shell ls", importance: "high" as const, sessionId: "s-2", requestId: "r-1" };
+    let state = jarvisReducer(initialJarvis, { type: "event/escalation", payload: wait, onScreen: true, sessionId: "s-1" });
+    expect(state.notice).toBe("Jarvis: approve shell ls");
+    state = jarvisReducer(state, { type: "notice/clear" });
+    state = jarvisReducer(state, { type: "event/escalation", payload: { ...wait, id: "e2" }, onScreen: true, sessionId: "s-1" });
+    expect(state.notice).toBeNull();
   });
 
   it("says when a delegation changed, and forgets an answered request", () => {

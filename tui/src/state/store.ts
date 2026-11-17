@@ -53,6 +53,8 @@ export interface Message {
   retryNotice?: boolean;
   /** A line about something the security lists refused: drawn in red. */
   blocked?: boolean;
+  /** A line that is a warning, not an error: drawn with a yellow "!" (an urgent Jarvis notice). */
+  warning?: boolean;
   /**
    * A command that ran beside the running turn (`command.result`, 1.55.0): a
    * compact aside, not a turn. It never counts as a waiting prompt.
@@ -435,7 +437,7 @@ export type Action =
   /** One `mcp.changed` notification, applied without waiting for `mcp.list`. */
   | { type: "mcp/changed"; payload: unknown }
   /** A line this surface wrote itself, e.g. the `/lsp` table. */
-  | { type: "note"; text: string; blocked?: boolean }
+  | { type: "note"; text: string; blocked?: boolean; warning?: boolean }
   /** `session.prompt` answered: this turn id is the text we just sent. */
   | { type: "prompt/turn"; turnId: string; text: string }
   | {
@@ -1523,6 +1525,7 @@ export function reducer(state: State, action: Action): State {
         text: action.text,
         streaming: false,
         ...(action.blocked ? { blocked: true } : {}),
+        ...(action.warning ? { warning: true } : {}),
       };
       return {
         ...state,

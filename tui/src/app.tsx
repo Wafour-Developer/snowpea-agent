@@ -68,7 +68,7 @@ import {
   viewOnlyReason,
 } from "./state/external.js";
 import { refusalOf, rpcErrorText } from "./state/errors.js";
-import { JARVIS_DECIDING, approvalResolvedNote, highEscalationLine, respondResultNote, personOnlyView, rememberChosenScope, requestLabel, supportOf, takeChosenScope } from "./state/jarvis.js";
+import { JARVIS_DECIDING, approvalResolvedNote, highEscalationLine, isTamperNotice, noticeKey, respondResultNote, personOnlyView, rememberChosenScope, requestLabel, supportOf, takeChosenScope } from "./state/jarvis.js";
 import {
   bannerText,
   cancel as cancelUpdate,
@@ -935,12 +935,15 @@ export function App({
       onJarvisDecision: (params) => screensRef.current?.listeners.onJarvisDecision?.(params),
       onJarvisEscalation: (params) => {
         screensRef.current?.listeners.onJarvisEscalation?.(params);
-        // High importance (the delegation store being changed from outside, security review 7) is more
-        // than a toast: a red line in the transcript, once per notice.
-        const id = typeof params?.id === "string" ? params.id : "";
-        if (params?.importance === "high" && typeof params.summary === "string" && params.summary !== "" && !highEscalationsRef.current.has(id)) {
-          highEscalationsRef.current.add(id);
-          dispatch({ type: "note", text: highEscalationLine(params.summary), blocked: true });
+        // Outside the Jarvis screen a notice is silent: the session's own prompt is enough. The one
+        // exception is a tamper alert (the delegation store changed from outside): a neutral security
+        // warning, once per request.
+        if (params && isTamperNotice(params as any) && typeof params.summary === "string" && params.summary !== "") {
+          const key = noticeKey(params);
+          if (!highEscalationsRef.current.has(key)) {
+            highEscalationsRef.current.add(key);
+            dispatch({ type: "note", text: highEscalationLine(params.summary), warning: true });
+          }
         }
       },
       onJarvisDelegation: (params) => screensRef.current?.listeners.onJarvisDelegation?.(params),

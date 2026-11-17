@@ -303,6 +303,14 @@ export function messageLines(message: Message, width = 80): Line[] {
       });
       continue;
     }
+    if (message.warning) {
+      out.push({
+        key,
+        segments: [index === 0 ? { text: "! ", color: "yellow", bold: true } : mark, ...segments],
+        source: index,
+      });
+      continue;
+    }
     out.push({ key, segments: [mark, ...segments], source: index });
   }
 

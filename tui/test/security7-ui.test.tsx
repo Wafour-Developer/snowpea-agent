@@ -316,8 +316,8 @@ describe("/security: the honest claim", () => {
   });
 });
 
-describe("a high-importance Jarvis notice", () => {
-  it("is written into the transcript once, not only toasted", async () => {
+describe("a tamper alert", () => {
+  it("is written into the transcript once, as a warning", async () => {
     const client = fakeClient();
     const app = await mount(client);
     const notice = {
@@ -326,15 +326,16 @@ describe("a high-importance Jarvis notice", () => {
       reason: "error",
       summary: "Something outside snowpea changed Jarvis's delegation rules; the change was not applied and the rules were put back.",
       importance: "high",
+      kind: "tamper",
     };
     client.emit("onJarvisEscalation", notice);
     await sleep(300);
-    expect(app.view()).toContain("Jarvis: Something outside snowpea changed Jarvis's delegation rules");
-    const once = app.view().split("Jarvis: Something outside").length - 1;
+    expect(app.view()).toContain("Something outside snowpea changed Jarvis's delegation rules");
+    const once = app.view().split("Something outside").length - 1;
     // The same notice again (a reconnect) adds nothing.
     client.emit("onJarvisEscalation", notice);
     await sleep(300);
-    expect(app.view().split("Jarvis: Something outside").length - 1).toBe(once);
+    expect(app.view().split("Something outside").length - 1).toBe(once);
     app.done();
   });
 });
