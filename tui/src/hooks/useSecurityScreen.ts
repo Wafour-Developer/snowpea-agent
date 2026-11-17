@@ -151,6 +151,10 @@ export function useSecurityScreen(deps: SecurityDeps) {
       try {
         await client.call("settings.set", { scope: "global", patch: unknownCodePatch(value) });
       } catch (error) {
+        // An older daemon does not know "auto": invalid_params, and not the global-only refusal.
+        if (value === "auto" && rpcErrorFacts(error).code === "invalid_params" && rpcErrorFacts(error).reason !== "global_only") {
+          return { ok: false, message: rpcErrorText(error), autoRefused: true };
+        }
         if (rpcErrorFacts(error).code === "jarvis_person_only") {
           return { ok: false, message: rpcErrorText(error), readOnly: personOnlyReadOnlyLine(error) };
         }

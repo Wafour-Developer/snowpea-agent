@@ -50,13 +50,20 @@ export interface EffectivePath {
   exempt: string[];
 }
 
-export type UnknownCode = "ask" | "allow";
+/** `ask` always asks; `auto` (default since 0.2.90) skips it in auto mode; `allow` never asks. */
+export type UnknownCode = "ask" | "auto" | "allow";
 
 /** One entry core refused or skipped: which list it was in, which entry, and why. */
 export interface ProblemItem {
   list: Tab | null;
   entry: string | null;
   reason: string;
+}
+
+/** A missing value is an older core's "ask"; a value this TUI does not know is shown as the default, "auto". */
+export function readUnknownCode(value: unknown): UnknownCode {
+  if (value === "ask" || value === "allow" || value === "auto") return value;
+  return value === undefined || value === null ? "ask" : "auto";
 }
 
 /** `security.get`, normalised. */
@@ -185,7 +192,7 @@ export function normalizeConfig(raw: SecurityGet | null | undefined): SecurityCo
     problems: problemItems.length > 0 ? problemItems.map(problemItemText) : structured ? [] : sentences.filter((sentence) => !fileNotice(sentence)),
     problemItems,
     notices,
-    unknownCode: (raw as any)?.unknownCode === "allow" ? "allow" : "ask",
+    unknownCode: readUnknownCode((raw as any)?.unknownCode),
     projectAdds: additions((raw as any)?.project),
     blockedCommands: {
       presets: texts(raw?.blockedCommands?.presets),
@@ -402,7 +409,7 @@ export function byLabel(by: string | null, catalog: PresetCatalog | null): strin
 export const NOTHING_RUN = "Nothing was run — the text was only checked against your lists.";
 
 /** What an opaque verdict says: not refused, but put to the person. */
-export const OPAQUE_LINE = "cannot be checked against your list; snowpea will ask you";
+export const OPAQUE_LINE = "snowpea cannot tell what this will touch before it runs, so it asks you";
 
 export type VerdictKind = "blocked" | "opaque" | "ok";
 
@@ -502,23 +509,70 @@ export const PATTERN_HELP: ReadonlyArray<{ kind: "head" | "line" | "example"; te
 
 // --- code snowpea cannot read (1.55.0 `security.unknownCode`) --------------------------
 
-export const UNKNOWN_CODE_LABEL = "Code snowpea can't tell about";
+export const UNKNOWN_CODE_LABEL = "Commands and scripts snowpea can't read before they run";
+const unknownCodeLabel = (): string => say(UNKNOWN_CODE_LABEL, "실행 전에 알 수 없는 명령·스크립트");
+
+/** The value as the person reads it. */
+export function unknownCodeName(value: UnknownCode): string {
+  if (value === "ask") return say("ask", "항상 묻기");
+  if (value === "auto") return say("auto", "auto 모드에서는 묻지 않음 (기본)");
+  return say("allow", "어떤 모드에서도 묻지 않음");
+}
+
+/** The next value on `u`: ask, auto, allow, and round; two-way when the daemon refused "auto". */
+export function nextUnknownCode(value: UnknownCode, withAuto = true): UnknownCode {
+  if (!withAuto) return value === "ask" ? "allow" : "ask";
+  return value === "ask" ? "auto" : value === "auto" ? "allow" : "ask";
+}
 
 /** One line saying snowpea's own files are protected whichever way the switch is set. */
 export const OWN_FILES_LINE = "snowpea's own files stay protected either way, and anything on your block lists stays blocked.";
 
-/** `ask` puts such code to you in every mode; `allow` lets it through. */
-export function unknownCodeSegments(value: UnknownCode): Segment[] {
+/** `ask` always asks; `auto` skips it in auto mode; `allow` never asks. `withAuto` false: a daemon that only knows ask/allow. */
+export function unknownCodeSegments(value: UnknownCode, withAuto = true): Segment[] {
   const pick = (one: UnknownCode): Segment =>
-    one === value ? { text: `[${one}]`, bold: true, color: one === "allow" ? "yellow" : "green" } : { text: one, dimColor: true };
-  return [{ text: `${UNKNOWN_CODE_LABEL}: ` }, pick("ask"), { text: " / " }, pick("allow")];
+    one === value
+      ? { text: `[${unknownCodeName(one)}]`, bold: true, color: one === "allow" ? "yellow" : "green" }
+      : { text: unknownCodeName(one), dimColor: true };
+  const choices: UnknownCode[] = withAuto ? ["ask", "auto", "allow"] : ["ask", "allow"];
+  return [
+    { text: `${unknownCodeLabel()}: ` },
+    ...choices.flatMap((one, index): Segment[] => (index === 0 ? [pick(one)] : [{ text: " / " }, pick(one)])),
+  ];
 }
 
 export function unknownCodeMeaning(value: UnknownCode): string {
-  return value === "ask"
-    ? "ask: code it cannot read (a computed target, a script it cannot follow) is put to you in every mode."
-    : "allow: such code runs without asking. Control-plane asks and blocked findings still apply.";
+  if (value === "ask") {
+    return say(
+      "ask: always asked when snowpea cannot tell what a command or script will touch.",
+      "항상 묻기: snowpea가 실행 전에 무엇을 건드릴지 알 수 없는 명령·스크립트는 매번 묻습니다.",
+    );
+  }
+  if (value === "auto") {
+    return say(
+      "auto (default): not asked in a session in auto mode; plan and accept mode still ask.",
+      "auto 모드에서는 묻지 않음 (기본): auto 모드 세션은 그대로 실행하고, plan·accept 모드에서는 계속 묻습니다.",
+    );
+  }
+  return say(
+    "allow: never asked, in any mode. Blocked commands, protected folders it can see and its own control files still apply.",
+    "어떤 모드에서도 묻지 않음: 차단 목록, 보이는 보호 폴더, snowpea 자체 제어 파일은 그대로 막습니다.",
+  );
 }
+
+/** Said when the daemon refused "auto": it is an older one that knows only ask and allow. */
+export const OLD_DAEMON_LINE = (): string =>
+  say(
+    "This daemon is older and offers only ask and allow; update it for the auto-mode choice.",
+    "이 데몬은 오래된 버전이라 '항상 묻기'와 '어떤 모드에서도 묻지 않음'만 지원합니다. 업데이트하면 auto 모드 선택을 쓸 수 있습니다.",
+  );
+
+/** The description, as the screen and the status say it. */
+export const UNKNOWN_CODE_LEAD = (): string =>
+  say(
+    "Decides whether snowpea asks about commands whose effect it cannot work out before they run (a path computed while it runs, a program chosen by a variable). If it does not ask, such a command may write to a protected folder without a check. The block list and snowpea's own file protection stay as they are.",
+    "snowpea가 실행 전에 무엇을 건드릴지 알아낼 수 없는 명령(실행 중에 계산되는 경로, 변수로 정해지는 프로그램 등)에 대해 묻는지 정합니다. 묻지 않으면, 그런 명령이 보호 폴더에 쓰더라도 확인 없이 지나갈 수 있습니다. 차단 목록과 snowpea 자체 파일 보호는 그대로입니다.",
+  );
 
 /** Before letting unreadable code through, say what that gives up. */
 export const UNKNOWN_CODE_ALLOW_CONFIRM: readonly string[] = [
@@ -556,7 +610,8 @@ export function statusLines(config: SecurityConfig, catalog: PresetCatalog | nul
     `Blocked commands: ${config.blockedCommands.presets.length} presets on (${names(commandOn)}), ${config.blockedCommands.custom.length} of your own`,
     `Protected folders: ${config.protectedPaths.presets.length} presets on (${names(pathOn)}), ${config.protectedPaths.custom.length} of your own`,
     `In force now: ${config.effective.commands.length} command patterns, ${config.effective.paths.length} folders`,
-    `${UNKNOWN_CODE_LABEL}: ${config.unknownCode === "allow" ? "allow (runs without asking)" : "ask (put to you)"}. ${OWN_FILES_LINE}`,
+    `${unknownCodeLabel()}: ${unknownCodeMeaning(config.unknownCode)} ${OWN_FILES_LINE}`,
+    UNKNOWN_CODE_LEAD(),
     ...(config.projectAdds > 0 ? [`This project adds ${config.projectAdds} entries of its own (they do not remove yours).`] : []),
     ...(problemNote(config.problems) ? [`! ${problemNote(config.problems)}`] : []),
     ...config.notices.map((notice) => `! ${notice}`),

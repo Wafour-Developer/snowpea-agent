@@ -17,6 +17,7 @@ import { mouseReports } from "../input/mouse.js";
 
 import type { ApprovalDecision, ApprovalScope, Mode } from "../rpc/sdk.js";
 import { refusalWords } from "../state/errors.js";
+import { askReasonWords, askSettingLine, isUncheckable, readUncheckedWhy, uncheckedLine } from "../state/ask-why.js";
 import { ALWAYS_ASKS, alwaysAsksReason, alwaysAsksYou } from "../state/jarvis.js";
 import { type ApprovalEntry } from "../state/store.js";
 import { ConfirmMenu, type ConfirmOption } from "./ConfirmMenu.js";
@@ -122,10 +123,14 @@ export function approvalOptions(
   });
 }
 
+/** The arguments that say what will run: shown whole, never cut (the part that caused the ask may be at the end). */
+const WHOLE_ARGS = new Set(["command", "cmd"]);
+
 export function formatArgs(args: Record<string, unknown> | undefined, max = 72): string[] {
   return Object.entries(args ?? {}).map(([key, value]) => {
     const text = typeof value === "string" ? value : JSON.stringify(value);
     const flat = String(text).replace(/\s+/g, " ");
+    if (WHOLE_ARGS.has(key) && typeof value === "string") return `${key}: ${flat}`;
     return `${key}: ${flat.length > max ? `${flat.slice(0, max - 1)}…` : flat}`;
   });
 }
@@ -167,6 +172,7 @@ export function ApprovalPrompt({
   const [reason, setReason] = useState<string | null>(null);
   const alwaysAsks = alwaysAsksYou(request);
   const why = alwaysAsksReason(request);
+  const unchecked = readUncheckedWhy((request as { uncheckedWhy?: unknown }).uncheckedWhy);
 
   // The reason field owns the keyboard once it is open: Enter sends the
   // refusal, Esc goes back to the menu, and nothing leaks into the chat draft.
@@ -198,9 +204,21 @@ export function ApprovalPrompt({
         {alwaysAsks ? <Text color="red">{`  [${ALWAYS_ASKS}]`}</Text> : null}
       </Text>
       {why ? (
-        <Text color={alwaysAsks ? "red" : "yellow"} wrap="truncate-end">
+        <Text color={alwaysAsks ? "red" : "yellow"} wrap="wrap">
           {"  "}
-          {why}
+          {askReasonWords(why)}
+        </Text>
+      ) : null}
+      {unchecked.map((item, index) => (
+        <Text key={`${request.requestId}-u${index}`} dimColor wrap="wrap">
+          {"  · "}
+          {uncheckedLine(item)}
+        </Text>
+      ))}
+      {isUncheckable(why) ? (
+        <Text dimColor wrap="wrap">
+          {"  "}
+          {askSettingLine()}
         </Text>
       ) : null}
       {refusal ? (
@@ -222,7 +240,7 @@ export function ApprovalPrompt({
         </Text>
       ) : null}
       {formatArgs(request.args).map((line, index) => (
-        <Text key={`${request.requestId}-a${index}`} dimColor wrap="truncate-end">
+        <Text key={`${request.requestId}-a${index}`} dimColor wrap="wrap">
           {"  "}
           {line}
         </Text>
