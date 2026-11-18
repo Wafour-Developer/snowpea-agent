@@ -930,6 +930,58 @@ def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
         handle.close()
 
 
+def uv_tool_dir() -> Path:
+    """uv's tools directory: ``UV_TOOL_DIR``, else ``$XDG_DATA_HOME/uv/tools``."""
+    explicit = os.environ.get("UV_TOOL_DIR")
+    if explicit:
+        return Path(explicit)
+    data = os.environ.get("XDG_DATA_HOME")
+    base = Path(data) if data else Path.home() / ".local" / "share"
+    return base / "uv" / "tools"
+
+
+def uv_tool_bin_dir() -> Path:
+    """Where uv links executables: ``UV_TOOL_BIN_DIR``, ``XDG_BIN_HOME``, ``~/.local/bin``."""
+    return Path(os.environ.get("UV_TOOL_BIN_DIR") or os.environ.get("XDG_BIN_HOME") or uv_bin_dir())
+
+
+def clear_quarantine(paths: Paths, platform: str | None = None) -> None:
+    """macOS: drop ``com.apple.quarantine`` from the engine ``uv tool install`` just wrote.
+
+    A quarantine-enabled GUI parent makes macOS tag every installed file, and
+    Gatekeeper then refuses to load the venv's native ``.so`` files.  Only the
+    tool's own directory and the ``snowpea`` entry point are touched, never the
+    whole bin dir.  Best effort: a failure is logged and never fails the update.
+    """
+    if (platform or sys.platform) != "darwin":
+        return
+    tools = uv_tool_dir()
+    tool = tools / PACKAGE
+    entry = uv_tool_bin_dir() / "snowpea"
+    try:
+        from snowpea_core.util.atomic import open_append
+
+        with open_append(paths.update_log, binary=True) as handle:
+            for target in (tool, entry):
+                try:
+                    if not target.exists():
+                        continue
+                    if target is tool and tools.resolve() not in target.resolve().parents:
+                        continue
+                    done = subprocess.run(  # noqa: S603 - fixed argv, exact path
+                        ["xattr", "-dr", "com.apple.quarantine", str(target)],
+                        capture_output=True,
+                        timeout=120,
+                        check=False,
+                    )
+                    line = f"=== xattr -dr com.apple.quarantine {target} -> {done.returncode}\n"
+                    handle.write(line.encode())
+                except (OSError, subprocess.SubprocessError) as exc:
+                    handle.write(f"=== xattr {target} failed: {exc}\n".encode())
+    except Exception:  # noqa: BLE001 - best effort, never fails the update
+        log.debug("could not clear the quarantine flag", exc_info=True)
+
+
 def replaces_running_core() -> bool:
     """True on Windows when the upgrade would rewrite the files this core runs from.
 
@@ -1142,6 +1194,7 @@ async def watch_update(
                 write_install_json(core.paths, method, tracking_source)
             except OSError:
                 log.warning("could not persist update tracking source", exc_info=True)
+        clear_quarantine(core.paths)
         core.restart_required = True
         read_version = version_reader or installed_cli_version
         installed = read_version() or latest.lstrip("v")
