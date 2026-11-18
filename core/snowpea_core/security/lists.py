@@ -287,8 +287,12 @@ def problems_in(raw: Any) -> list[str]:
                 found.note("security.unknownCode must be 'ask', 'auto' or 'allow', not "
                            f"{raw[key]!r}", None, "unknownCode",
                            "must be 'ask', 'auto' or 'allow'")
+        elif key == "enabled":
+            if not (raw[key] is None or isinstance(raw[key], bool)):
+                found.note(f"security.enabled must be true or false, not {raw[key]!r}", None,
+                           "enabled", "must be true or false")
         elif key not in ("blockedCommands", "protectedPaths"):
-            found.note("security." + str(key) + " is not a setting (blockedCommands, "
+            found.note("security." + str(key) + " is not a setting (enabled, blockedCommands, "
                        "protectedPaths, unknownCode)", None, key, "not a setting")
     for name, ids in (("blockedCommands", catalog.COMMAND_PRESET_IDS),
                       ("protectedPaths", catalog.PATH_PRESET_IDS)):

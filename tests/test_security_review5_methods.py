@@ -71,6 +71,9 @@ TABLE: dict[str, tuple[str, ...]] = {
         "gateway.list", "gateway.unbind", "gateway.sync", "permission.allowlist.list",
         "external.open", "external.send", "external.setMode", "external.interrupt",
         "external.create", "external.close",
+        # 1.58.0 (was yynnnn): a browser's Settings page shows the security master
+        # switch and the lists it may now change with the marker (reads only).
+        "security.get", "security.check", "security.presets.list",
     ),
     # A browser host's own runtime: never a remote login (M3) or a connector.
     "ynnyyy": (
@@ -101,7 +104,7 @@ TABLE: dict[str, tuple[str, ...]] = {
                # Security review 8, M-1 (was yynyny): a provider sign-in is the
                # account the owner's traffic and billing go to.
                "provider.loginWeb"),
-    # People (local and remote): Jarvis, security lists, project trust status.
+    # People (local and remote): Jarvis, project trust status.
     "yynnnn": (
         # Security review 6 (the browser team's source check): no browser calls
         # these, marker or not, any version.
@@ -116,7 +119,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         "jarvis.session.set",
         # jarvis.briefing.set: a remote login only turns it off (review 8, H8-2).
         "jarvis.briefing.set", "mcp.preset.check",
-        "security.get", "security.check", "security.presets.list", "project.trust.status",
+        "project.trust.status",
     ),
     # A local person only.
     "ynnnnn": (

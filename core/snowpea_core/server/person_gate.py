@@ -238,6 +238,8 @@ PERSON_METHODS: dict[str, bool] = {
     # Security lists (1.54.0): people read and try them (a remote web login
     # too, read-only: security.get says writable false); only a local person
     # changes them, through settings.set (settings_gate.PERSON_LOCAL_ONLY).
+    # 1.58.0: a browser reads them too and its Settings page changes the switch
+    # and the lists (BROWSER_READABLE, settings_gate.BROWSER_PERSON_SECURITY_KEYS).
     "security.presets.list": False,
     "security.get": False,
     "security.check": False,
@@ -269,10 +271,20 @@ PERSON_METHODS: dict[str, bool] = {
 }
 
 
+#: Of :data:`PERSON_METHODS`, the reads a browser connection may call too
+#: (1.58.0): its Settings page shows the security master switch and the lists
+#: it may change (``settings_gate.BROWSER_PERSON_SECURITY_KEYS``).
+BROWSER_READABLE: frozenset[str] = frozenset(
+    {"security.presets.list", "security.get", "security.check"}
+)
+
+
 def method_refusal(method: str, conn: Any) -> None:
     """Raise ``jarvis_person_only`` when ``method`` is a person's and ``conn`` is not."""
     local = PERSON_METHODS.get(method)
     if local is not None:
+        if method in BROWSER_READABLE and connection_kind(conn) == "browser":
+            return
         require_person(conn, f"call {method}", local=local)
 
 

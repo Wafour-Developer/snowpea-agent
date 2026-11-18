@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.57.0` (semver)
+- **Protocol version:** `1.58.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.57.0"
+    "protocolVersion": "1.58.0"
   }
 }
 ```
@@ -97,6 +97,7 @@ Server capabilities advertised in the `system.hello` result:
 - `providerStatusEvents`
 - `readOnlyDelegation`
 - `securityLists`
+- `securityMasterSwitch`
 - `sessionAttachments`
 - `sessionContinue`
 - `sessionEffort`
@@ -3235,13 +3236,16 @@ Security lists (1.54.0): the stored global lists, a project's additions, the eff
 | field | type | required | description |
 |---|---|---|---|
 | `blockedCommands` | `{ custom?: string[]; presets?: string[]; }` | no |  |
-| `effective` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; commands?: ({ by: string; pattern: string; })[]; paths?: ({ by: string; exempt?: string[]; level: "write" \| "all"; path: string; scope: "tree" \| "self"; })[]; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; }` | no | The lists in force: the global ones plus the project's additions. |
-| `problemItems` | `({ entry?: string \| null; list: "commands" \| "paths" \| null; reason: string; })[]` | no | 1.55.0: the same problems, structured, in the same order. settings.set and security.check refuse a bad security value with invalid_params whose details carry both problems (text) and problemItems (this shape). |
+| `disabledAt` | `string \| null` | no | 1.58.0: SecuritySwitchState.disabledAt. |
+| `disabledBy` | `string \| null` | no | 1.58.0: SecuritySwitchState.disabledBy. |
+| `effective` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; commands?: ({ by: string; pattern: string; })[]; paths?: ({ by: string; exempt?: string[]; level: "write" \| "all"; path: string; scope: "tree" \| "self"; })[]; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; }` | no | What is in force; empty lists while enabled is false (1.58.0). |
+| `enabled` | `boolean` | no | 1.58.0 (securityMasterSwitch): security.enabled, the master switch (SecuritySwitchState.enabled). While false, problems starts with a line and problemItems with an item of code 'security-disabled'. Written with settings.set {scope: 'global', patch: {security: {enabled}}}; a project scope refuses it (invalid_params, details.reason 'global_only'). |
+| `problemItems` | `({ code?: string \| null; entry?: string \| null; list: "commands" \| "paths" \| null; reason: string; })[]` | no | 1.55.0: the same problems, structured, in the same order. settings.set and security.check refuse a bad security value with invalid_params whose details carry both problems (text) and problemItems (this shape). |
 | `problems` | `string[]` | no | Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. |
 | `project` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; } \| null` | no | What the workdir's .snowpea/settings.json adds; null without. |
 | `protectedPaths` | `{ custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }` | no |  |
-| `unknownCode` | `"ask" \| "auto" \| "allow"` | no | security.unknownCode (1.55.0, security review 6; 'auto' 1.57.0): what happens to a command or script snowpea cannot tell the effect of before it runs — a write whose target is computed while it runs, a program named by a variable, a script it cannot read, code it cannot parse (ApprovalRequest.reason 'cannot be checked against your block list' or 'cannot tell what this code changes'). 'ask': put to the person in every mode. 'auto' (default since 1.57.0): let through unasked in a session in auto mode, asked in plan and accept. 'allow': let through unasked in every mode. What is let through is judged by what snowpea did see: a blocked command, a protected path and snowpea's own controls (its CLI, its files) still stop or ask whatever this says; a script or command whose target is computed at run time can then write to a protected folder without a prompt. Settings written by 0.2.88-0.2.89 hold 'ask' (the old default was written out): the first start of 0.2.90 changes a stored 'ask' to 'auto' once (marker $SNOWPEA_HOME/security/unknown-code-migrated.json; problems carries one line saying so until the value changes or the daemon restarts), never again after. Written with settings.set {scope: 'global', patch: {security: {unknownCode}}} by a local person only; a project scope refuses it (invalid_params, details.reason 'global_only'). |
-| `writable` | `boolean` | yes | True only for a local person's connection: the only one settings.set accepts security.* from. A remote web login, a browser or a connector reads only. |
+| `unknownCode` | `"ask" \| "auto" \| "allow"` | no | security.unknownCode (1.55.0, security review 6; 'auto' 1.57.0): what happens to a command or script snowpea cannot tell the effect of before it runs — a write whose target is computed while it runs, a program named by a variable, a script it cannot read, code it cannot parse (ApprovalRequest.reason 'cannot be checked against your block list' or 'cannot tell what this code changes'). 'ask': put to the person in every mode. 'auto' (default since 1.57.0): let through unasked in a session in auto mode, asked in plan and accept. 'allow': let through unasked in every mode. What is let through is judged by what snowpea did see: a blocked command, a protected path and snowpea's own controls (its CLI, its files) still stop or ask whatever this says; a script or command whose target is computed at run time can then write to a protected folder without a prompt. Settings written by 0.2.88-0.2.89 hold 'ask' (the old default was written out): the first start of 0.2.90 changes a stored 'ask' to 'auto' once (marker $SNOWPEA_HOME/security/unknown-code-migrated.json; problems carries one line saying so until the value changes or the daemon restarts), never again after. Written with settings.set {scope: 'global', patch: {security: {unknownCode}}} by a local person (and, 1.58.0, a browser's Settings page with actor 'person'); a project scope refuses it (invalid_params, details.reason 'global_only'). Reported as stored: while enabled is false the check applies 'allow' whatever this says. |
+| `writable` | `boolean` | yes | True for a local person's connection, and (1.58.0) for a browser connection of version 0.3.0 or later: its Settings page may change security.enabled, security.unknownCode, security.blockedCommands and security.protectedPaths with settings.set {scope: 'global', patch: {security: {...}}, actor: 'person'} (no other security key, never without the marker). A remote web login or a connector reads only. |
 
 ### `security.presets.list`
 
@@ -5516,6 +5520,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `keys` | `string[]` | no | Top-level settings sections that changed, e.g. ['providers']. |
 | `scope` | `"global" \| "project"` | no | Which document was reloaded; "global" for $SNOWPEA_HOME/settings.json. |
+| `security` | `{ disabledAt?: string \| null; disabledBy?: string \| null; enabled?: boolean; } \| null` | no | 1.58.0 (securityMasterSwitch): the security master switch as it is now, sent whenever keys holds 'security' (a change of security.enabled included), so every surface can show that security checks are off and who turned them off. Absent otherwise. |
 | `waitingKeys` | `string[]` | no | 1.55.0 (security reviews 7 and 8): the settings paths that can run programs or widen access ('security', 'jarvis', 'web.remote', 'allowlist', 'mcp.permissions', or a dotted program/endpoint/daemon leaf such as 'mcp.servers.foo.command' or 'providers.openai.base_url') when settings.json was edited on disk while the daemon runs and that path differs: the edit is not applied until a local person accepts it (settings.acceptDiskChange). Sent with keys possibly empty; an empty list after a non-empty one means nothing waits any more. |
 
 ### `system.updateProgress`

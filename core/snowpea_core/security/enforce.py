@@ -102,7 +102,7 @@ def context(
         home=Path(str(home)) if home else None,
         projects=tuple(str(p) for p in projects),
         locale=locale,
-        unknown_code=unknown_code(settings),
+        unknown_code=effective_unknown_code(settings),
         host_tool=bool(host_tool),
     )
 
@@ -115,6 +115,69 @@ def unknown_code(settings: Any) -> str:
     """
     value = getattr(getattr(settings, "security", None), "unknownCode", "ask")
     return value if value in ("auto", "allow") else "ask"
+
+
+def enabled(settings: Any) -> bool:
+    """``security.enabled`` of the GLOBAL settings (1.58.0); only ``False`` is off."""
+    return getattr(getattr(settings, "security", None), "enabled", True) is not False
+
+
+def effective_unknown_code(settings: Any) -> str:
+    """What the check applies: ``allow`` while the switch is off, else :func:`unknown_code`."""
+    return unknown_code(settings) if enabled(settings) else "allow"
+
+
+#: Who switched the checks off and when (1.58.0): under ``$SNOWPEA_HOME/security/``,
+#: a write-level control folder no session's tool may change (next to
+#: ``home-projects.json``), so a session cannot rewrite who turned them off.
+SWITCH_RECORD: tuple[str, ...] = ("security", "switch.json")
+#: ``security.get`` problem code while the checks are off.
+DISABLED_CODE = "security-disabled"
+DISABLED_NOTE = (
+    "security checks are off (security.enabled: false): blocked commands and protected "
+    "paths are not applied and code snowpea cannot read ahead is not asked about; "
+    "snowpea's own controls and the mode rules still apply")
+
+
+def switch_state(settings: Any, home: Any) -> dict[str, Any]:
+    """``{enabled, disabledBy, disabledAt}``: who/when only while off and recorded."""
+    on = enabled(settings)
+    state: dict[str, Any] = {"enabled": on, "disabledBy": None, "disabledAt": None}
+    if on or not home:
+        return state
+    try:
+        record = json.loads(Path(str(home)).joinpath(*SWITCH_RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return state
+    if isinstance(record, dict) and record.get("enabled") is False:
+        by, at = record.get("by"), record.get("at")
+        state["disabledBy"] = by if isinstance(by, str) else None
+        state["disabledAt"] = at if isinstance(at, str) else None
+    return state
+
+
+def note_switch(home: Any, before: bool, after: bool, *, by: str | None,
+                method: str = "settings.set") -> None:
+    """Record a change of the switch: the who/when file and one audit line
+    (``$SNOWPEA_HOME/logs/security.jsonl``, kind ``security-switch``).  Nothing
+    when ``before == after``; never raises."""
+    if before == after or not home:
+        return
+    import datetime
+
+    from snowpea_core.security.tamper import audit
+    from snowpea_core.util.atomic import write_atomic
+
+    stamp = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    try:
+        record = Path(str(home)).joinpath(*SWITCH_RECORD)
+        record.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(record, json.dumps({"enabled": after, "by": by, "at": stamp}) + "\n")
+    except Exception:  # noqa: BLE001 - the change itself stands
+        log.warning("could not record the security switch", exc_info=True)
+    audit(home, {"kind": "security-switch", "enabled": after, "by": by, "at": stamp,
+                 "method": method})
+    log.warning("security checks switched %s by %s", "on" if after else "off", by or "?")
 
 
 #: Where the one-time ``security.unknownCode`` migration of 0.2.90 is recorded
@@ -176,6 +239,9 @@ def migrate_unknown_code(settings: Any, paths: Any) -> bool:
 
 
 def lists_for(settings: Any, workdir: Any) -> Lists:
+    """The lists in force: none while ``security.enabled`` is false (1.58.0)."""
+    if not enabled(settings):
+        return Lists()
     try:
         return effective(settings, workdir)
     except Exception:  # noqa: BLE001 - unreadable lists fail closed to the defaults
@@ -305,11 +371,16 @@ async def announce(
 
 
 __all__ = [
+    "DISABLED_CODE",
     "announce",
     "context",
+    "effective_unknown_code",
+    "enabled",
     "judge",
     "judge_for_core",
     "lists_for",
     "live_projects",
+    "note_switch",
     "refresh_projects",
+    "switch_state",
 ]

@@ -82,6 +82,7 @@ from snowpea_core.server.protocol import (
     ProviderLoginWebParams,
     ProviderLoginWebResult,
     ProviderRemoveParams,
+    SecuritySwitchState,
     SettingsAcceptDiskChangeParams,
     SettingsAcceptDiskChangeResult,
     SettingsChangedNotification,
@@ -350,10 +351,21 @@ class Core:
         hub = getattr(self, "hub", None)
         if hub is None:  # pragma: no cover - a core without a hub is a test double
             return
+        switch: SecuritySwitchState | None = None
+        if any(k == "security" or k.startswith("security.") for k in keys):
+            # 1.58.0: every surface shows the master switch and who turned it off.
+            from snowpea_core.security import enforce
+
+            switch = SecuritySwitchState.model_validate(
+                enforce.switch_state(self.settings, getattr(self.paths, "home", None)))
         params = SettingsChangedNotification(scope="global", keys=list(keys),
-                                             waitingKeys=sorted(self.settings_waiting))
+                                             waitingKeys=sorted(self.settings_waiting),
+                                             security=switch)
         try:
-            await hub.notify("settings.changed", params.model_dump(mode="json"))
+            payload = params.model_dump(mode="json")
+            if payload.get("security") is None:
+                payload.pop("security", None)  # only sent with a security change
+            await hub.notify("settings.changed", payload)
         except Exception:  # noqa: BLE001 - a dead socket must not break the reload
             log.debug("could not broadcast settings.changed", exc_info=True)
 
@@ -439,7 +451,17 @@ async def accept_disk_change_handler(
     require_person(conn, "apply settings that were edited on disk", local=True)
     # The file may have moved again since the notice: judge what it says now.
     await core.reload_settings()
+    from snowpea_core.security import enforce
+
+    was = enforce.enabled(core.settings)
     applied, discarded = await core.accept_disk_settings(bool(params.accept))
+    now = enforce.enabled(core.settings)
+    if was != now:
+        # 1.58.0: a hand edit of security.enabled the person accepted here.
+        enforce.note_switch(getattr(core.paths, "home", None), was, now,
+                            by=str(getattr(conn, "client_kind", None) or "person"),
+                            method="settings.acceptDiskChange")
+        await core.notify_settings_changed(["security"])
     return SettingsAcceptDiskChangeResult(applied=applied, discarded=discarded)
 
 

@@ -146,6 +146,7 @@ def guard_patch(
         kind, patch, project=project,
         actor=gate.ACTOR_PERSON if gate.acts_for_person(conn, actor) else None,
         authority=authority,
+        marked=actor == gate.ACTOR_PERSON,
     )
     if refused:
         gate.ledger_settings(core, conn, refused, refused=True, method="settings.set")
@@ -205,6 +206,18 @@ def _ledger_changes(core: Any, conn: Any, patch: dict[str, Any]) -> None:
             )
     except Exception:  # noqa: BLE001 - the change itself was allowed and saved
         log.warning("could not ledger a Jarvis settings change", exc_info=True)
+
+
+def _note_security_switch(core: Any, conn: Any, before: Any, after: Any) -> None:
+    """``security.enabled`` changed (1.58.0): who and when, and one audit line."""
+    from snowpea_core.security import enforce
+    from snowpea_core.server.person_gate import connection_kind
+
+    was, now = enforce.enabled(before), enforce.enabled(after)
+    if was == now:
+        return
+    by = str(getattr(conn, "client_kind", None) or connection_kind(conn))
+    enforce.note_switch(getattr(core.paths, "home", None), was, now, by=by)
 
 
 def _person_wrote_project(conn: Any, core: Any, workdir: str, before: str) -> None:
@@ -370,6 +383,7 @@ async def settings_set_handler(
             raise RpcError(errors.INVALID_PARAMS, problem)
     updated_settings.save(core.paths)
     _ledger_changes(core, conn, params.patch)
+    _note_security_switch(core, conn, core.settings, updated_settings)
     if relevant:
         from snowpea_core.server.settings_gate import ledger_settings
 

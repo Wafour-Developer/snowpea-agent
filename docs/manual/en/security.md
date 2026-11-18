@@ -196,7 +196,21 @@ What it gives up: with `"auto"` (in auto mode) or `"allow"`, a script or command
 
 Settings written by snowpea 0.2.88 and 0.2.89 hold `"ask"` (the old default). The first start of 0.2.90 changes a stored `"ask"` to `"auto"` once, says so on the Security screen and records it in `$SNOWPEA_HOME/security/unknown-code-migrated.json`; after that it never changes it again, so if you set `"ask"` back it stays.
 
-Only you, on a local connection, can change it; a project cannot.
+You change it on a local connection or on the Snowpea browser's Settings page; a project cannot.
+
+### `security.enabled`: turning the checks off
+
+"Security checks" on the Security screen, or in `$SNOWPEA_HOME/settings.json` (a hand edit waits for your confirmation, see above):
+
+```json
+{ "security": { "enabled": false } }
+```
+
+Off, snowpea applies neither the blocked commands nor the protected paths (presets, your own entries and a project's additions), and code it cannot read ahead runs as under `unknownCode: "allow"`. Your lists and your `unknownCode` stay stored as they are: turning it back on restores all of it. Still in force while off: anything that acts on snowpea's own files or command, the mode rules (plan mode does not write; accept and auto as usual), Jarvis's delegation rules and the questions only you may answer.
+
+While it is off, the Security screen says "security checks are off" with who turned them off (desktop, TUI, browser, …) and when (`security.get` `enabled`, `disabledBy`, `disabledAt`, problem code `security-disabled`). Every change is one line in `$SNOWPEA_HOME/logs/security.jsonl` (`"kind": "security-switch"`), the who/when record is `$SNOWPEA_HOME/security/switch.json` (a control file no tool changes), and every connected app, TUI and browser is told at once.
+
+Who may change it: you on a local connection, and the Snowpea browser's Settings page (protocol 1.58.0). The browser may change exactly `security.enabled`, `security.unknownCode`, `security.blockedCommands` and `security.protectedPaths`, and only from its Settings page; a remote web login, a connector, Jarvis and the agent's own tools cannot change any of them, and a project cannot turn the checks off.
 
 ### Remembering a script you allowed
 

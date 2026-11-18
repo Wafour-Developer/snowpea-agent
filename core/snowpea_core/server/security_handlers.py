@@ -1,7 +1,9 @@
 """``security.presets.list|get|check`` (1.54.0, capability ``securityLists``).
 
 The lists themselves are written with ``settings.set {scope: "global", patch:
-{security: …}}`` (a local person only, ``settings_gate.PERSON_LOCAL_ONLY``);
+{security: …}}`` (a local person, ``settings_gate.PERSON_LOCAL_ONLY``; since
+1.58.0 also a browser's Settings page for ``enabled``, ``unknownCode`` and the
+two lists, ``settings_gate.BROWSER_PERSON_SECURITY_KEYS``);
 these methods read the catalog and the lists and judge a command or a path
 without running anything.  The logic is :mod:`snowpea_core.security`.
 """
@@ -91,7 +93,12 @@ async def get_handler(
     stored = global_lists(core.settings)
     project = project_additions(params.workdir) if params.workdir else None
     merged = stored.merged(project) if project is not None else stored
-    ctx = enforce.context(settings=core.settings, home=getattr(core.paths, "home", None),
+    home = getattr(core.paths, "home", None)
+    switch = enforce.switch_state(core.settings, home)
+    if not switch["enabled"]:
+        # 1.58.0: nothing of the lists is in force while the switch is off.
+        merged = Lists()
+    ctx = enforce.context(settings=core.settings, home=home,
                           workdir=params.workdir,
                           projects=enforce.live_projects(core), locale=params.locale)
     resolved = [
@@ -137,12 +144,23 @@ async def get_handler(
             f"({', '.join(waiting)}) are not applied and wait for you "
             "(settings.acceptDiskChange)")
     items = list(stored.problem_items) + (list(project.problem_items) if project else [])
+    if not switch["enabled"]:
+        # 1.58.0: said first, with a stable code a surface can show it by.
+        problems.insert(0, enforce.DISABLED_NOTE)
+        items.insert(0, {"list": None, "entry": None, "reason": enforce.DISABLED_NOTE,
+                         "code": enforce.DISABLED_CODE})
+    kind = connection_kind(conn)
+    from snowpea_core.server.settings_gate import legacy_browser
+
     return SecurityGetResult.model_validate({
         **_wire(stored),
         "unknownCode": enforce.unknown_code(core.settings),
         "project": _wire(project) if project is not None and not project.empty else None,
         "effective": effective,
-        "writable": connection_kind(conn) == "person",
+        **switch,
+        # 1.58.0: a browser's Settings page writes the switch and the lists
+        # (actor 'person'; settings_gate.BROWSER_PERSON_SECURITY_KEYS).
+        "writable": kind == "person" or (kind == "browser" and not legacy_browser(conn)),
         "problems": problems,
         "problemItems": items,
     })
@@ -166,10 +184,11 @@ async def check_handler(
             raise RpcError(errors.INVALID_PARAMS, "; ".join(problems[:5]),
                            _problem_details(problems))
         lists = from_raw(raw, where="draft", defaults=False)
+        if params.workdir:
+            lists = lists.merged(project_additions(params.workdir))
     else:
-        lists = global_lists(core.settings)
-    if params.workdir:
-        lists = lists.merged(project_additions(params.workdir))
+        # What is in force: nothing of the lists while security.enabled is false.
+        lists = enforce.lists_for(core.settings, params.workdir)
     await enforce.refresh_projects(core)
     ctx = enforce.context(settings=core.settings, home=getattr(core.paths, "home", None),
                           workdir=params.workdir,
@@ -198,13 +217,15 @@ def settings_problems(patch: dict[str, Any], *, project_current: Any = None,
     value = patch["security"]
     if value is None and not project:
         return  # back to the defaults, a local person's choice
-    if project and isinstance(value, dict) and "unknownCode" in value:
-        # Review 6, M-1: it takes a question away, so it is never a project's.
-        raise RpcError(
-            errors.INVALID_PARAMS,
-            "security.unknownCode is a global setting; a project cannot change it",
-            {"reason": "global_only", "key": "security.unknownCode"},
-        )
+    for key in ("unknownCode", "enabled"):
+        if project and isinstance(value, dict) and key in value:
+            # Review 6, M-1: it takes a question away, so it is never a project's
+            # (the master switch, 1.58.0, likewise).
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                f"security.{key} is a global setting; a project cannot change it",
+                {"reason": "global_only", "key": f"security.{key}"},
+            )
     problems = problems_in(value) if value is not None else []
     if problems:
         raise RpcError(errors.INVALID_PARAMS, "; ".join(problems[:5]), _problem_details(problems))

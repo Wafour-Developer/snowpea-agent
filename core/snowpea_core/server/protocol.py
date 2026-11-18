@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
 
-PROTOCOL_VERSION = "1.57.0"
+PROTOCOL_VERSION = "1.58.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -7548,6 +7548,33 @@ class ProviderLoginProgressNotification(Payload):
     )
 
 
+class SecuritySwitchState(Payload):
+    """The security master switch (1.58.0, capability ``securityMasterSwitch``)."""
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "security.enabled: false while the security checks are off — the blocked-command "
+            "and protected-path lists (presets, custom, project additions) are not applied "
+            "and code snowpea cannot read ahead runs as under unknownCode 'allow'. The stored "
+            "lists and unknownCode are kept, so switching it on restores them. snowpea's own "
+            "controls and the mode rules apply either way."
+        ),
+    )
+    disabledBy: str | None = Field(
+        default=None,
+        description=(
+            "While off: the client kind of the connection that turned it off ('desktop', "
+            "'tui', 'ide', 'browser', ...), as recorded in "
+            "$SNOWPEA_HOME/security/switch.json; null while on or when not recorded "
+            "(a hand edit of settings.json)."
+        ),
+    )
+    disabledAt: str | None = Field(
+        default=None, description="While off: when it was turned off (ISO 8601 UTC), or null."
+    )
+
+
 class SettingsChangedNotification(Payload):
     """The daemon reloaded settings from disk (CORE-settings-reload).
 
@@ -7574,6 +7601,15 @@ class SettingsChangedNotification(Payload):
             "not applied until a local person accepts it (settings.acceptDiskChange). Sent "
             "with keys possibly empty; an empty list after a non-empty one means nothing "
             "waits any more."
+        ),
+    )
+    security: SecuritySwitchState | None = Field(
+        default=None,
+        description=(
+            "1.58.0 (securityMasterSwitch): the security master switch as it is now, sent "
+            "whenever keys holds 'security' (a change of security.enabled included), so "
+            "every surface can show that security checks are off and who turned them off. "
+            "Absent otherwise."
         ),
     )
 
@@ -10454,6 +10490,13 @@ class SecurityProblem(Payload):
         default=None, description="The entry as written (a pattern, path or preset id), if any."
     )
     reason: str = Field(description="Why it is unusable, one short line.")
+    code: str | None = Field(
+        default=None,
+        description=(
+            "1.58.0: a stable id for a problem that is not an unusable entry; "
+            "'security-disabled' while security.enabled is false (list and entry null)."
+        ),
+    )
 
 
 class SecurityGetResult(SecurityLists):
@@ -10481,15 +10524,40 @@ class SecurityGetResult(SecurityLists):
             "'ask' to 'auto' once (marker $SNOWPEA_HOME/security/unknown-code-migrated.json; "
             "problems carries one line saying so until the value changes or the daemon "
             "restarts), never again after. Written with settings.set {scope: "
-            "'global', patch: {security: {unknownCode}}} by a local person only; a project "
-            "scope refuses it (invalid_params, details.reason 'global_only')."
+            "'global', patch: {security: {unknownCode}}} by a local person (and, 1.58.0, a "
+            "browser's Settings page with actor 'person'); a project "
+            "scope refuses it (invalid_params, details.reason 'global_only'). Reported as "
+            "stored: while enabled is false the check applies 'allow' whatever this says."
         ),
     )
-    effective: SecurityEffective = Field(default_factory=SecurityEffective)
+    effective: SecurityEffective = Field(
+        default_factory=SecurityEffective,
+        description="What is in force; empty lists while enabled is false (1.58.0).",
+    )
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "1.58.0 (securityMasterSwitch): security.enabled, the master switch "
+            "(SecuritySwitchState.enabled). While false, problems starts with a line and "
+            "problemItems with an item of code 'security-disabled'. Written with "
+            "settings.set {scope: 'global', patch: {security: {enabled}}}; a project scope "
+            "refuses it (invalid_params, details.reason 'global_only')."
+        ),
+    )
+    disabledBy: str | None = Field(
+        default=None, description="1.58.0: SecuritySwitchState.disabledBy."
+    )
+    disabledAt: str | None = Field(
+        default=None, description="1.58.0: SecuritySwitchState.disabledAt."
+    )
     writable: bool = Field(
         description=(
-            "True only for a local person's connection: the only one settings.set accepts "
-            "security.* from. A remote web login, a browser or a connector reads only."
+            "True for a local person's connection, and (1.58.0) for a browser connection "
+            "of version 0.3.0 or later: its Settings page may change security.enabled, "
+            "security.unknownCode, security.blockedCommands and security.protectedPaths with "
+            "settings.set {scope: 'global', patch: {security: {...}}, actor: 'person'} (no "
+            "other security key, never without the marker). A remote web login or a "
+            "connector reads only."
         )
     )
     problems: list[str] = Field(
@@ -12241,6 +12309,11 @@ CAPABILITIES: list[str] = [
     # 1.57.0 (m21, fewer needless asks): security.unknownCode 'auto' (the new
     # default: unasked in a session in auto mode, asked in plan/accept).
     "unknownCodeAuto",
+    # 1.58.0: settings security.enabled (the master switch), SecurityGetResult
+    # enabled/disabledBy/disabledAt, SecurityProblem.code 'security-disabled',
+    # SettingsChangedNotification.security; a browser's Settings page (actor
+    # 'person') writes security.enabled/unknownCode/blockedCommands/protectedPaths.
+    "securityMasterSwitch",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
