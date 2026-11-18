@@ -196,7 +196,7 @@ _FETCHERS = frozenset({"curl", "wget", "wget2", "fetch", "http", "https", "xh", 
 #: that has one asks under ``auto`` and ``allow``): HTTP clients and the
 #: programs that open a channel to another host.
 FETCHERS = _FETCHERS | frozenset({"nc", "ncat", "netcat", "socat", "openssl", "ssh", "scp",
-                                  "sftp", "rsync", "ftp", "tftp", "lftp"})
+                                  "sftp", "rsync", "ftp", "tftp", "lftp", "telnet"})
 #: ``FETCHERS`` as one regular-expression alternative (longest names first).
 _FETCH_NAMES = "|".join(re.escape(name) for name in sorted(FETCHERS, key=len, reverse=True))
 _RUNNERS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "python", "perl",

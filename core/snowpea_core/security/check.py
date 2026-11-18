@@ -1106,12 +1106,30 @@ def unresolved(why: str, *, stateful: bool = False) -> bool:
 #: anything piped into a shell (``curl … | sh``: a downloaded script run at
 #: once); the reader itself failing (``internal``); control characters that
 #: may make the text read differently from what runs (``control-chars``); code
-#: piped into an interpreter (``base64 -d <<< … | python3``).
-_PROGRAM_PLACE_REASONS: tuple[str, ...] = ("git-program", "git-hook", "git-control", "path-write",
-                                           "deferred-run", "shell-stdin", "internal",
-                                           "control-chars", "code:stdin", "interpreter-stdin")
+#: piped into an interpreter (``base64 -d <<< … | python3``); a quoted
+#: substitution, ``${…}`` or here-document the reader would not read because
+#: it may misread where it ends (security review 4: ``case``/``esac`` or a line
+#: continuation in it, a bare ``'`` in a quoted ``${…}``, ``$'``/``$"`` in a
+#: here-document's word), and a ``case`` it could not pair with an ``esac``.
+_PROGRAM_PLACE_REASONS: tuple[str, ...] = (
+    "git-program", "git-hook", "git-control", "path-write", "deferred-run", "shell-stdin",
+    "internal", "control-chars", "code:stdin", "interpreter-stdin",
+    "parse:case", "parse:case-in-quoted-substitution", "parse:continuation-in-quoted-substitution",
+    "parse:quoted-brace", "parse:heredoc-dollar-quote")
 #: Programs that can bring code from the network (see :data:`_FETCH_SENSITIVE`).
 _FETCH_PROGRAMS: frozenset[str] = catalog.FETCHERS | _c.HTTP_CLIENTS
+#: ``busybox wget …``: the applets of a multi-call binary that fetch.
+_FETCH_APPLETS: frozenset[str] = frozenset({"wget", "curl", "nc", "telnet"})
+
+
+def _fetches(cmd: sh.Command) -> bool:
+    """``cmd`` can bring code from the network (``curl``, ``busybox wget``, ``gh api``)."""
+    if cmd.program in _FETCH_PROGRAMS:
+        return True
+    rest = cmd.rest
+    if cmd.program == "busybox":
+        return bool(rest) and rest[0] in _FETCH_APPLETS
+    return cmd.program == "gh" and rest[:1] == ["api"]
 
 
 def allowed_through(why: str, *, stateful: bool = False) -> bool:
@@ -1321,7 +1339,7 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         relax.discard("dynamic-program")
         wide.discard("dynamic-program")
     if (relax | wide) & _FETCH_SENSITIVE and any(
-            cmd.program in _FETCH_PROGRAMS for cmd in [*view.commands, *view.literal_commands]):
+            _fetches(cmd) for cmd in [*view.commands, *view.literal_commands]):
         # ``sh -c "$(curl …)"``, ``curl … | python3``, ``bash < <(curl …)``: code
         # that may be the download, run.  Neither ``auto`` nor ``allow`` lets it by.
         relax -= _FETCH_SENSITIVE
@@ -1337,10 +1355,13 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         if hit is not None or control is not None or control_asks:
             relax = set()
             wide = set()
-    if wide - relax:
+    if wide - relax or any(why.startswith("parse:") for why in view.opaque):
         # Parts nobody could read (a parse failure, an ``eval`` of what is not
         # known, a reader failure): the raw text, judged at its worst, must hold
         # no blocked command, no protected path and nothing of snowpea's own.
+        # A line the reader could not parse at all is blocked on a blocked
+        # command in its raw text in every mode (security review 4: a line it
+        # now declines to read is never judged more weakly than before).
         blocked, asks_anyway = _lexical_worst(view, compiled, lists, ctx)
         if blocked is not None:
             return blocked
