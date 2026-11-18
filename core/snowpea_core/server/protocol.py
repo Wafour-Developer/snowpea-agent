@@ -2346,6 +2346,21 @@ class UncheckedWhy(Payload):
     text: str = Field(description="Why, in plain words, in the session's language.")
 
 
+class ApprovalBlocked(Payload):
+    """What a blocked call that is put to the person hit (1.61.0)."""
+
+    by: str = Field(
+        description="What blocked it: 'commands:<preset>', 'paths:<preset>', 'custom' (your "
+        "own pattern or path) or 'security' (snowpea's own controls or the security lists).")
+    kind: str | None = Field(
+        default=None,
+        description="'command' (a blocked command), 'path' (a protected path), 'control' "
+        "(snowpea's own control files) or 'settings' (the security lists themselves).")
+    why: str = Field(description="Why, in plain words, in the session's language.")
+    match: str | None = Field(
+        default=None, description="What matched: the command text or the path.")
+
+
 class ApprovalRemember(Payload):
     """What a remembered answer to a shell approval would allow (1.34.0, ``shellRemember``)."""
 
@@ -2460,7 +2475,10 @@ class ApprovalRequest(Payload):
         description=(
             "Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), "
             "'secret' (a credential or key file), 'outside_project' (a write outside the "
-            "session's project). Null for an ordinary ask."
+            "session's project). 1.61.0, with blocked: 'blocked_command' (a command on the "
+            "block list, the person's own patterns included), 'blocked_path' (a protected "
+            "path) or 'blocked_control' (snowpea's own control files or the security lists "
+            "themselves). Null for an ordinary ask."
         ),
     )
     paths: list[str] | None = Field(
@@ -2532,7 +2550,10 @@ class ApprovalRequest(Payload):
             "proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, "
             "note}, from the Jarvis session). Answered with approval.respond {decision, scope: "
             "'once'}: 'allow' only from a person's connection (else jarvis_person_only); "
-            "'deny' from anyone who sees it."
+            "'deny' from anyone who sees it. 1.61.0: also a blocked call put to the person "
+            "(blocked); a local browser 0.4.0+ may allow a security ask (blocked or reason "
+            "set) of its own session with actor 'person' and personConfirm 'window' "
+            "(capability browserPersonApprovals)."
         ),
     )
     argsEscaped: bool | None = Field(
@@ -2579,6 +2600,20 @@ class ApprovalRequest(Payload):
             "simple command of the line, in which script file and line when the cause is "
             "inside a script, the reason id and a sentence for the person in the session's "
             "language. Null on an ordinary ask. Additive and informational."
+        ),
+    )
+    blocked: ApprovalBlocked | None = Field(
+        default=None,
+        description=(
+            "1.61.0: the call is blocked (on the block list, a protected path, snowpea's own "
+            "controls or the security lists) and core puts it to the person instead of "
+            "refusing it outright. Such a request is personOnly and neverDelegable, routed to "
+            "the person, never cached or remembered: an allow applies to this call only "
+            "(scope 'once'). reason is then 'on your block list', 'touches a protected "
+            "folder' or \"touches snowpea's own controls\" and note carries the sentence. Not "
+            "asked (refused with security_blocked as before) in a run with nobody present "
+            "(a scheduled job, a Jarvis task) and for a read of the daemon's token or address "
+            "or of saved logins (credentials, MCP logins, external CLI logins). Null otherwise."
         ),
     )
 
@@ -2693,7 +2728,17 @@ class ApprovalRespondParams(Payload):
         description=(
             "A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set "
             "'person' (a click) to allow with a scope wider than 'once' (security review 3); "
-            "ignored for other kinds."
+            "ignored for other kinds. 1.61.0: with personConfirm 'window', part of what lets a "
+            "browser 0.4.0+ allow a personOnly security ask (see personConfirm)."
+        ),
+    )
+    personConfirm: Literal["window"] | None = Field(
+        default=None,
+        description=(
+            "1.61.0 (browserPersonApprovals): as ApprovalAnswer.personConfirm — 'window' when "
+            "the person confirmed in the browser's own native window. With actor 'person', a "
+            "local browser 0.4.0+ may allow a personOnly security ask of its own session "
+            "(once); else refused with jarvis_person_only, details.reason browser_*."
         ),
     )
     reason: str = Field(
@@ -2734,6 +2779,22 @@ class ApprovalAnswer(Payload):
             "A browser host (clientKind 'browser', clientVersion 0.3.0 or later) sets "
             "'person' when the answer came from a click; without it an allow wider than "
             "'once' counts as 'once' (security review 3). Ignored for other kinds."
+        ),
+    )
+    personConfirm: Literal["window"] | None = Field(
+        default=None,
+        description=(
+            "1.61.0 (browserPersonApprovals): a browser host 0.4.0 or later sets 'window' when "
+            "the person confirmed this answer in the browser's own native window (not a page "
+            "click). With actor 'person' it is what lets a local browser allow a personOnly "
+            "security ask (blocked, or reason set) of a session it owns, hosts or asked (a "
+            "subagent's by its parents); the allow applies once (a script grant keeps its "
+            "scope). Without it, from a browser before 0.4.0, from a remote browser, for "
+            "another session or for any other personOnly request (delegation_set, a mode "
+            "raise, a schedule, tmux.adopt, an external CLI's, a Jarvis-routed one) the allow "
+            "is refused with jarvis_person_only and details.reason browser_unconfirmed, "
+            "browser_legacy, browser_remote, browser_not_owner or browser_not_allowed "
+            "(RequestRefusal.reason). Ignored for other kinds."
         ),
     )
     reason: str = Field(
@@ -7369,7 +7430,14 @@ class RequestRefusal(Payload):
     reason: str = Field(
         description=(
             "As the RPC error's details.reason: 'person_only', or 'mode_raise' for a "
-            "question of kind 'mode'."
+            "question of kind 'mode'. 1.61.0 (browserPersonApprovals), a browser's allow of a "
+            "person-only approval: 'browser_unconfirmed' (not actor 'person' with "
+            "personConfirm 'window'), 'browser_legacy' (clientVersion before 0.4.0), "
+            "'browser_remote' (a remote web login or a peer that is not this machine), "
+            "'browser_not_owner' (not a session it owns, hosts or opened, nor its asker; a "
+            "subagent's counts by its parents) or 'browser_not_allowed' (not a security ask: "
+            "delegation_set, a mode raise, a schedule, tmux.adopt, an external CLI's or a "
+            "Jarvis-routed request)."
         )
     )
     message: str = Field(description="Human-readable detail.")
@@ -12556,6 +12624,13 @@ CAPABILITIES: list[str] = [
     # 1.60.0: settings providers.<vendor>.hiddenModels, ProviderInfo.hiddenModels /
     # hiddenInUse, provider.model.remove / provider.model.unhide.
     "hiddenModels",
+    # 1.61.0 (owner decision 2026-11-18): a blocked call asks the person once
+    # (ApprovalRequest.blocked, reasonCode blocked_*) instead of being refused, but
+    # for a read of the daemon's token or saved logins; a local browser 0.4.0+
+    # answers person-only security asks of its own session with actor 'person' +
+    # personConfirm 'window' (ApprovalAnswer / approval.respond); RequestRefusal.reason
+    # browser_*.
+    "browserPersonApprovals",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

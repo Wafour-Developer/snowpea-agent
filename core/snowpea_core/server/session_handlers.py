@@ -1271,7 +1271,8 @@ async def approval_list_handler(
     requests = [
         r for r in requests
         if settings_gate.list_visible(_conn, core.sessions.get(r.sessionId),
-                                      person_only=bool(r.personOnly), route=r.route)
+                                      person_only=bool(r.personOnly), route=r.route,
+                                      request=r, lookup=core.sessions.get)
     ]
     return ApprovalListResult(requests=requests)
 
@@ -1289,6 +1290,7 @@ async def approval_respond_handler(
         actor=params.actor,
         reauth=params.reauth,
         grant_expires_at=params.grantExpiresAt,
+        person_confirm=params.personConfirm,
     )
     scope = applied.scope if applied is not None and applied.allowed else None
     return ApprovalRespondResult(ok=True, scope=scope)  # type: ignore[arg-type]

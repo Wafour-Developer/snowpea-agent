@@ -1861,7 +1861,8 @@ class ExternalManager:
             workdir=record.project or cwd, tool=ask.tool, args=args, tags=(),
             projects=projects,
         )
-        if verdict.blocked:
+        if verdict.blocked and not getattr(verdict, "person_may_allow", False):
+            # (0.2.94: any other block is put to the person by the approval queue.)
             await enforce.announce(
                 hub=getattr(queue, "hub", None), paths=getattr(queue, "paths", None),
                 session_id=f"ext:{record.cli}:{record.id}", tool=ask.tool, args=ask.args,
@@ -1886,11 +1887,14 @@ class ExternalManager:
         ask.args = dict(ask.args or {})
         ask.note = clean_text(ask.note) if ask.note else ask.note
         ask.diff = clean_text(ask.diff) if ask.diff else ask.diff
-        # The security lists before the session's own cache (1.54.0): a blocked
-        # call is denied with the reason, so the CLI's model reads why.
+        # The security lists before the session's own cache (1.54.0): a read of
+        # snowpea's secrets is denied with the reason, so the CLI's model reads
+        # why; any other block is the person's to allow, once (0.2.94).
         security = await self._security(record, ask)
-        if security.blocked:
+        if security.blocked and not getattr(security, "person_may_allow", False):
             return ApprovalAnswer(allow=False, reason=security.refusal, by="security")
+        if security.blocked:
+            ask.person_only = True
         command = command_of(ask.args or {})
         cache_key = _call_key(ask.tool, ask.args or {}, command)
         if (

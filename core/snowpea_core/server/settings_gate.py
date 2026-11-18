@@ -1147,12 +1147,123 @@ def _host_of(session: Any, host: Any = None) -> str | None:
     return str(value) if value else None
 
 
+#: Browsers from this ``clientVersion`` on confirm a person-only answer in their own
+#: native window and say so (``personConfirm: "window"``, 1.61.0).  Browsers
+#: 0.3.0 send ``actor: "person"`` on an ordinary page click, so the marker alone
+#: never counts for a person-only approval.
+BROWSER_PERSON_CONFIRM_MIN: tuple[int, int, int] = (0, 4, 0)
+#: The one value of ``personConfirm``.
+PERSON_CONFIRM_WINDOW = "window"
+
+#: ``details.reason`` (and ``approval.pending {refused}.reason``) when a browser's
+#: answer to a person-only approval does not count (1.61.0, ``browserPersonApprovals``).
+BROWSER_NOT_ALLOWED = "browser_not_allowed"  # not a request a browser answers (below)
+BROWSER_REMOTE = "browser_remote"            # a remote web login or a remote peer
+BROWSER_LEGACY = "browser_legacy"            # clientVersion before 0.4.0
+BROWSER_UNCONFIRMED = "browser_unconfirmed"  # no actor "person" + personConfirm "window"
+BROWSER_NOT_OWNER = "browser_not_owner"      # not its session (nor an ancestor's)
+#: Person-only approvals no browser answers whatever it sends: Jarvis's authority
+#: (``delegation_set``) and taking over a terminal (``tmux.adopt``); with them
+#: every external CLI's request, every Jarvis-routed one, and every person-only
+#: request that is not a security ask (a mode raise, a schedule) — see
+#: :func:`_browser_takes`.
+BROWSER_NEVER_TOOLS: tuple[str, ...] = ("delegation_set", "tmux.adopt")
+
+
+def _field(request: Any, name: str) -> Any:
+    return request.get(name) if isinstance(request, dict) else getattr(request, name, None)
+
+
+def _browser_takes(request: Any) -> bool:
+    """A person-only approval a browser may answer at all (1.61.0): a security ask
+    about a shell line, code or a path — a blocked call put to the person
+    (``blocked``) or one the check could not see (``reason``) — never Jarvis's
+    authority, a terminal, an external CLI's or a Jarvis-routed request."""
+    return request is not None and _field(request, "tool") not in BROWSER_NEVER_TOOLS and bool(
+        _field(request, "blocked") or _field(request, "reason")) and not (
+        _field(request, "external") or _field(request, "externalTerminal")
+        or _field(request, "route") == "jarvis")
+
+
+def _loopback(peer: Any) -> bool:
+    import ipaddress
+
+    text = str(peer or "").strip()
+    if text in ("", "local", "localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(text.split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def browser_remote(conn: Any) -> bool:
+    """The browser reaches this core from elsewhere: through the remote listener
+    (``remote_login``) or from a peer address that is not this machine's."""
+    return bool(getattr(conn, "remote_login", False)) or not _loopback(
+        getattr(conn, "peer", None))
+
+
+def browser_confirms(conn: Any) -> bool:
+    """The browser's version confirms person-only answers in a native window."""
+    version = _version(getattr(conn, "client_version", None))
+    return version is not None and version >= BROWSER_PERSON_CONFIRM_MIN
+
+
+def browser_owns(conn: Any, session: Any, *, owner: Any = None, lookup: Any = None) -> bool:
+    """``conn`` (a browser) owns, hosts or opened ``session``, or is the surface the
+    person is prompting from; a subagent's session counts by its parent chain.
+    A request owned by another browser (``owner``) is never its."""
+    client_id = getattr(conn, "client_id", None)
+    owners = [str(o) for o in (owner if isinstance(owner, tuple) else (owner,)) if o]
+    if any(o != client_id for o in owners):
+        return False
+    current, seen = session, 0
+    while current is not None and seen < 16:
+        ids = {getattr(current, name, None) for name in
+               ("host_tools_from", "owned_by", "origin_client_id")}
+        if (client_id and client_id in ids) or any(
+                conn is getattr(current, name, None) for name in ("origin_conn", "asker_conn")):
+            return True
+        parent = getattr(current, "parent_session_id", None)
+        current = lookup(parent) if parent and callable(lookup) else None
+        seen += 1
+    return False
+
+
+def browser_person_refusal(conn: Any, session: Any, request: Any, actor: str | None,
+                           person_confirm: str | None = None, *, owner: Any = None,
+                           lookup: Any = None, asker: bool = False) -> str | None:
+    """Why a browser's allow of the person-only approval ``request`` is not its
+    person's (a ``details.reason`` above), or ``None`` when it is (1.61.0).
+
+    All must hold: a security ask a browser may answer (:func:`_browser_takes`);
+    a local browser (:func:`browser_remote`); ``clientVersion`` 0.4.0 or later;
+    ``actor: "person"`` with ``personConfirm: "window"`` (the browser's own
+    native confirmation); its own session, a parent's, or the asker
+    (:func:`browser_owns`; ``asker``: the core asked this very connection).
+    """
+    if not _browser_takes(request):
+        return BROWSER_NOT_ALLOWED
+    if browser_remote(conn):
+        return BROWSER_REMOTE
+    if not browser_confirms(conn):
+        return BROWSER_LEGACY
+    if actor != ACTOR_PERSON or person_confirm != PERSON_CONFIRM_WINDOW:
+        return BROWSER_UNCONFIRMED
+    if not (asker or browser_owns(conn, session, owner=owner, lookup=lookup)):
+        return BROWSER_NOT_OWNER
+    return None
+
+
 def list_visible(conn: Any, session: Any, *, person_only: bool = False, host: Any = None,
-                 route: str | None = None) -> bool:
+                 route: str | None = None, request: Any = None, lookup: Any = None) -> bool:
     """A browser or connector sees requests of the sessions it hosts and of
-    unhosted ones (IDE, CLI, scheduler); never another browser client's, never a
-    person-only one, and a browser never a Jarvis-routed one.  A legacy browser
-    (< 0.3.0) sees what it saw before, but Jarvis's routing."""
+    unhosted ones (IDE, CLI, scheduler); never another browser client's, and a
+    browser never a Jarvis-routed one.  A person-only one only a local browser
+    0.4.0+ that owns the session sees (1.61.0, given the ``request``), and only
+    one it may answer.  A legacy browser (< 0.3.0) sees what it saw before, but
+    Jarvis's routing."""
     kind = _kind(conn)
     if kind == "closed":
         return False
@@ -1165,27 +1276,33 @@ def list_visible(conn: Any, session: Any, *, person_only: bool = False, host: An
     if not FILTER_ANSWER_LISTS:
         return True
     if person_only:
-        return False
+        return kind == "browser" and _browser_takes(request) and not browser_remote(
+            conn) and browser_confirms(conn) and browser_owns(conn, session, owner=host,
+                                                              lookup=lookup)
     owner = _host_of(session, host)
     return owner is None or owner == getattr(conn, "client_id", None)
 
 
 def may_answer(conn: Any, session: Any, *, origin_conn: Any = None, owner: Any = None,
                person_only: bool = False, actor: str | None = None,
-               route: str | None = None) -> bool:
+               route: str | None = None, request: Any = None, lookup: Any = None,
+               person_confirm: str | None = None) -> bool:
     """Browser (0.3.0+) and connector answers: its own hosted session's requests
     (or one delivered to it) with or without the marker; an unhosted session's
     only with ``actor: "person"`` (a connector never); another browser client's
-    never; a person-only one never; a Jarvis-routed one not until it is the
-    person's.  A legacy browser answers as before."""
+    never; a person-only one only by :func:`browser_person_refusal` (1.61.0;
+    never a connector); a Jarvis-routed one not until it is the person's.  A
+    legacy browser answers as before (a person-only one never)."""
     kind = _kind(conn)
     if kind == "closed":
         return False
     if kind not in _WATCHERS:
         return True
+    if person_only and kind == "browser" and route != "jarvis":
+        return browser_person_refusal(conn, session, request, actor, person_confirm,
+                                      owner=owner, lookup=lookup) is None
     # Security review 4, M5: a person-only or Jarvis-routed request is never a
-    # browser's, legacy or not (the marker guards against accidents, not a
-    # hostile host — the browser host is trusted code).
+    # connector's, nor a Jarvis-routed one a browser's.
     if person_only or route == "jarvis":
         return False
     if kind == "browser" and legacy_browser(conn):
@@ -1202,13 +1319,22 @@ def may_answer(conn: Any, session: Any, *, origin_conn: Any = None, owner: Any =
 
 def answer_refusal(conn: Any, session: Any, request_id: str, what: str, *,
                    origin_conn: Any = None, owner: Any = None, person_only: bool = False,
-                   actor: str | None = None, route: str | None = None) -> None:
+                   actor: str | None = None, route: str | None = None,
+                   request: Any = None, lookup: Any = None,
+                   person_confirm: str | None = None) -> None:
     """Raise when ``conn`` may not answer: ``jarvis_person_only`` for a person-only
     request or an unhosted session's request without the marker, ``not_found`` for
-    another browser's session or a Jarvis-routed request (nothing is revealed)."""
+    another browser's session or a Jarvis-routed request (nothing is revealed).
+    A browser refused a person-only approval gets ``details.reason`` from
+    :func:`browser_person_refusal` (1.61.0)."""
     if may_answer(conn, session, origin_conn=origin_conn, owner=owner,
-                  person_only=person_only, actor=actor, route=route):
+                  person_only=person_only, actor=actor, route=route, request=request,
+                  lookup=lookup, person_confirm=person_confirm):
         return
+    if person_only and request is not None and _kind(conn) == "browser" and route != "jarvis":
+        why = browser_person_refusal(conn, session, request, actor, person_confirm,
+                                     owner=owner, lookup=lookup) or BROWSER_NOT_ALLOWED
+        refuse(conn, f"answer {what} {request_id}", reason=why)
     hosted_elsewhere = route == "jarvis" or (
         (next((o for o in (owner if isinstance(owner, tuple) else (owner,)) if o), None)
          or _host_of(session)) not in (None, getattr(conn, "client_id", None))
@@ -1243,7 +1369,9 @@ def request_event_for(conn: Any, method: str, params: dict[str, Any], sessions: 
         session = lookup(str(request.get("sessionId"))) if callable(lookup) else None
         host = params.get("hostToolsFrom")
         if not list_visible(conn, session, person_only=bool(request.get("personOnly")),
-                            host=host, route=None):
+                            host=host, route=None,
+                            request=request if prefix == "approval" else None,
+                            lookup=lookup):
             return None
         if params.get("route") == "jarvis":
             body: dict[str, Any] = {"requestId": params.get("requestId"), "by": "rerouted",
@@ -1266,7 +1394,8 @@ def request_event_for(conn: Any, method: str, params: dict[str, Any], sessions: 
     session = lookup(str(request.get("sessionId"))) if callable(lookup) else None
     if not list_visible(conn, session, person_only=bool(request.get("personOnly")),
                         host=params.get("hostToolsFrom") or request.get("hostToolsFrom"),
-                        route=request.get("route")):
+                        route=request.get("route"),
+                        request=request if prefix == "approval" else None, lookup=lookup):
         return None
     return method, public
 

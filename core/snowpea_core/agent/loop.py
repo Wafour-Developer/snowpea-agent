@@ -3345,7 +3345,9 @@ async def _security_verdict(
     await enforce.refresh_projects(core)
     verdict = enforce.judge_for_core(core, session, name, dict(args or {}), (tag,),
                                      host_tool=host_tool)
-    if verdict.blocked:
+    if verdict.blocked and not getattr(verdict, "person_may_allow", False):
+        # (0.2.94: a block the person may allow is put to them by the approval
+        # queue, which announces it if nobody is there to ask.)
         await enforce.announce(
             hub=core.hub, paths=getattr(core, "paths", None), session_id=session.id, tool=name,
             args=args, verdict=verdict, surface="agent", core=core,
@@ -3449,7 +3451,9 @@ async def _run_one_call(
     on_host = runs_on_host(session, tool) and tool.permission != "exec"
     security = await _security_verdict(core, session, tool.name, call.arguments, tag,
                                        host_tool=on_host)
-    if security.blocked:
+    if security.blocked and not getattr(security, "person_may_allow", False):
+        # Reading one of snowpea's secrets (the daemon's token, saved logins): the
+        # one block no person may allow (owner decision 2026-11-18).
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
         await _fail_call(
             core, session, call,
@@ -3476,7 +3480,9 @@ async def _run_one_call(
     # in every mode (the approval queue makes it person-only) — except what only
     # snowpea cannot tell ahead, in auto mode under security.unknownCode "auto"
     # (m21): that is an ordinary auto-mode call, judged by what was seen.
-    unchecked = _asks_unseen(security, session)
+    unchecked = _asks_unseen(security, session) or security.blocked
+    # A block the person may allow (0.2.94) is asked in every mode the mode
+    # matrix does not refuse: the approval queue makes it person-only, once.
     if unchecked and verdict != "deny":
         verdict = "ask"
     if getattr(session, "read_only", False) and (

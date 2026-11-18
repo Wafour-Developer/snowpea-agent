@@ -389,9 +389,44 @@ async def announce(
             log.debug("could not broadcast security.blocked", exc_info=True)
 
 
+def note_person_answer(
+    *,
+    paths: Any,
+    session_id: str,
+    tool: str,
+    args: Mapping[str, Any] | None,
+    verdict: Verdict,
+    decision: str,
+    by: str,
+    request_id: str,
+) -> None:
+    """A line in ``logs/security.jsonl`` for the person's answer to a blocked call
+    put to them (0.2.94): an allow of an edit of snowpea's own security settings,
+    trust store or switch record is recorded with what it was.  Never raises."""
+    if paths is None:
+        return
+    try:
+        paths.ensure()
+        record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  "event": "person_allowed" if decision == "allow" else "person_denied",
+                  "sessionId": session_id, "requestId": request_id, "tool": tool,
+                  "summary": _summary(tool, args), "by": verdict.by or "",
+                  "why": verdict.why or "", "match": verdict.match, "kind": verdict.kind,
+                  "answeredBy": by}
+        from snowpea_core.util.atomic import append_text
+
+        append_text(Path(paths.logs_dir) / "security.jsonl", json.dumps(record) + "\n")
+    except (OSError, AttributeError):  # pragma: no cover - the audit log never breaks a turn
+        log.warning("could not write the security audit line", exc_info=True)
+    if decision == "allow":
+        log.warning("a person allowed a blocked call once: %s in %s (%s)", tool, session_id,
+                    verdict.by)
+
+
 __all__ = [
     "DISABLED_CODE",
     "announce",
+    "note_person_answer",
     "context",
     "effective_unknown_code",
     "enabled",

@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.60.0` (semver)
+- **Protocol version:** `1.61.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.60.0"
+    "protocolVersion": "1.61.0"
   }
 }
 ```
@@ -45,6 +45,7 @@ Server capabilities advertised in the `system.hello` result:
 - `batchedFileTools`
 - `browserActor`
 - `browserMemoryList`
+- `browserPersonApprovals`
 - `checkpoints`
 - `commands`
 - `commandsBesideTurn`
@@ -535,7 +536,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; blocked?: { by: string; kind?: string \| null; match?: string \| null; why: string; } \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -549,6 +550,7 @@ Ask the client to approve a tool call.
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments it wants to use. |
 | `argsEscaped` | `boolean \| null` | no | True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). |
+| `blocked` | `{ by: string; kind?: string \| null; match?: string \| null; why: string; } \| null` | no | 1.61.0: the call is blocked (on the block list, a protected path, snowpea's own controls or the security lists) and core puts it to the person instead of refusing it outright. Such a request is personOnly and neverDelegable, routed to the person, never cached or remembered: an allow applies to this call only (scope 'once'). reason is then 'on your block list', 'touches a protected folder' or "touches snowpea's own controls" and note carries the sentence. Not asked (refused with security_blocked as before) in a run with nobody present (a scheduled job, a Jarvis task) and for a read of the daemon's token or address or of saved logins (credentials, MCP logins, external CLI logins). Null otherwise. |
 | `diff` | `string \| null` | no | For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. |
 | `external` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null` | no | Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. |
 | `externalTerminal` | `{ pane: string; text: string; } \| null` | no | Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). |
@@ -557,9 +559,9 @@ Ask the client to approve a tool call.
 | `neverDelegable` | `boolean \| null` | no | True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. |
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `paths` | `string[] \| null` | no | With reasonCode: the resolved absolute paths concerned (1.30.0). |
-| `personOnly` | `boolean \| null` | no | True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. |
+| `personOnly` | `boolean \| null` | no | True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. 1.61.0: also a blocked call put to the person (blocked); a local browser 0.4.0+ may allow a security ask (blocked or reason set) of its own session with actor 'person' and personConfirm 'window' (capability browserPersonApprovals). |
 | `reason` | `string \| null` | no | Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. 1.55.0 (security review 6) adds two values: 'acts on snowpea's own controls' (the line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, skills, commands or agents: asked in every mode, whatever the lists and settings say) and 'cannot tell what this code changes' (only code the check cannot resolve is in the way; security.unknownCode: 'allow' switches this one off). note carries the sentence for the person. |
-| `reasonCode` | `string \| null` | no | Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. |
+| `reasonCode` | `string \| null` | no | Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). 1.61.0, with blocked: 'blocked_command' (a command on the block list, the person's own patterns included), 'blocked_path' (a protected path) or 'blocked_control' (snowpea's own control files or the security lists themselves). Null for an ordinary ask. |
 | `remember` | `{ display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null` | no | For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && \|\| \| & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
 | `risk` | `string` | no | Risk hint for the UI. |
@@ -577,6 +579,7 @@ Ask the client to approve a tool call.
 |---|---|---|---|
 | `actor` | `"person" \| null` | no | A browser host (clientKind 'browser', clientVersion 0.3.0 or later) sets 'person' when the answer came from a click; without it an allow wider than 'once' counts as 'once' (security review 3). Ignored for other kinds. |
 | `decision` | `"allow" \| "deny"` | yes | The human's decision. |
+| `personConfirm` | `"window" \| null` | no | 1.61.0 (browserPersonApprovals): a browser host 0.4.0 or later sets 'window' when the person confirmed this answer in the browser's own native window (not a page click). With actor 'person' it is what lets a local browser allow a personOnly security ask (blocked, or reason set) of a session it owns, hosts or asked (a subagent's by its parents); the allow applies once (a script grant keeps its scope). Without it, from a browser before 0.4.0, from a remote browser, for another session or for any other personOnly request (delegation_set, a mode raise, a schedule, tmux.adopt, an external CLI's, a Jarvis-routed one) the allow is refused with jarvis_person_only and details.reason browser_unconfirmed, browser_legacy, browser_remote, browser_not_owner or browser_not_allowed (RequestRefusal.reason). Ignored for other kinds. |
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
 | `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | How long the decision applies. |
 
@@ -590,9 +593,10 @@ Answer a pending approval and unblock the turn.
 
 | field | type | required | description |
 |---|---|---|---|
-| `actor` | `"person" \| null` | no | A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set 'person' (a click) to allow with a scope wider than 'once' (security review 3); ignored for other kinds. |
+| `actor` | `"person" \| null` | no | A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set 'person' (a click) to allow with a scope wider than 'once' (security review 3); ignored for other kinds. 1.61.0: with personConfirm 'window', part of what lets a browser 0.4.0+ allow a personOnly security ask (see personConfirm). |
 | `decision` | `"allow" \| "deny"` | yes | allow runs the tool, deny ends the turn. |
 | `grantExpiresAt` | `string \| null` | no | 1.56.0, with reauth: when the grant ends (UTC ISO). It may only shorten the proposal; a remote grant ends within 24 h whatever is given (default: 24 h, or the proposal's expiry when sooner). |
+| `personConfirm` | `"window" \| null` | no | 1.61.0 (browserPersonApprovals): as ApprovalAnswer.personConfirm — 'window' when the person confirmed in the browser's own native window. With actor 'person', a local browser 0.4.0+ may allow a personOnly security ask of its own session (once); else refused with jarvis_person_only, details.reason browser_*. |
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
 | `reauth` | `string \| null` | no | 1.56.0: the remote sign-in password again, to allow Jarvis's delegation_set proposal from a remote web login while settings jarvis.delegation.remoteGrant is on (session or project scope, no guarded classes, at most 24 h). Checked like a sign-in and counted with its failures; never stored, logged or echoed. Ignored on every other answer. |
 | `requestId` | `string` | yes | Request being answered. |
@@ -5338,7 +5342,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
 | `refused` | `{ code: string; message: string; reason: string; } \| null` | no | 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the request is still open. |
-| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; blocked?: { by: string; kind?: string \| null; match?: string \| null; why: string; } \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 

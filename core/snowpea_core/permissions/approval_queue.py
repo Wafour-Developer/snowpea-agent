@@ -64,6 +64,7 @@ from snowpea_core.security.check import UNCHECKED_REASON
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
+    ApprovalBlocked,
     ApprovalRemember,
     ApprovalRequest,
     ExternalRef,
@@ -776,6 +777,22 @@ class ApprovalQueue:
         self._append_log(record, decision)
         return decision
 
+    def _nobody_present(self, session: Any, external: ExternalRef | None) -> bool:
+        """No person can be asked about a block (0.2.94): the session, or a session
+        it descends from, is an unattended run (a scheduled job, a Jarvis task or
+        Jarvis's own session, a named agent).  An external CLI's bridged prompt
+        has its person at the CLI."""
+        if external is not None:
+            return False
+        if getattr(session, "unattended", False) is True:
+            return True
+        lookup = self._lookup()
+        for ancestor in self._lineage(session.id)[1:]:
+            live = lookup(ancestor) if lookup is not None else None
+            if getattr(live, "unattended", False) is True:
+                return True
+        return False
+
     def _classify(
         self, session: Any, tool: str, args: dict[str, Any], tags: tuple[str, ...] | None,
         external: ExternalRef | None,
@@ -832,12 +849,23 @@ class ApprovalQueue:
         host (:func:`~snowpea_core.tools.host_tools.runs_on_host`), so the
         security check judges it as the agent loop did.
         """
-        # The security lists first (1.54.0): a blocked call is refused here,
-        # never shown, cached, routed or answerable; a call they cannot check is
-        # the person's alone.
+        # The security lists first (1.54.0); a call they cannot check is the
+        # person's alone.  A blocked call (0.2.94, owner decision 2026-11-18) is
+        # the person's alone too: asked once on a person-only card, never cached,
+        # remembered, routed to Jarvis or answered by a rule.  Refused outright
+        # only when it reads one of snowpea's secrets (Verdict.secret_read) or
+        # nobody is there to ask (:meth:`_nobody_present`).
         security = self._security(session, tool, args, tags, host_tool)
+        blocked_ask = False
         if security.blocked:
-            return await self._refuse_blocked(session, tool, args, security, external)
+            if not getattr(security, "person_may_allow", False) or self._nobody_present(
+                    session, external):
+                return await self._refuse_blocked(session, tool, args, security, external)
+            blocked_ask = True
+            person_only = True
+            note = (f"{security.block_reason}: {security.why}. snowpea refuses this unless you "
+                    "allow it; an allow covers this call only and is never remembered. "
+                    f"{note}").strip()
         # m21: what only snowpea cannot tell ahead is an ordinary call in a session
         # in auto mode under security.unknownCode "auto" (Verdict.asks_in).
         asks_in = getattr(security, "asks_in", None)
@@ -922,10 +950,10 @@ class ApprovalQueue:
             site=site,
             guard=guard,
             diff=diff,
-            reasonCode=reason_code,
+            reasonCode=security.block_code if blocked_ask else reason_code,
             paths=list(paths) if paths else None,
-            folder=folder,
-            remember=offer if offer is not None else remember_for(
+            folder=None if blocked_ask else folder,
+            remember=None if blocked_ask else offer if offer is not None else remember_for(
                 tool, args, cacheable=cacheable, guard=guard, reason_code=reason_code
             ),
             personOnly=True if person_only else None,
@@ -933,10 +961,14 @@ class ApprovalQueue:
             externalTerminal=external_terminal,
             argsEscaped=True if escaped else None,
             neverDelegable=True if never else None,
-            reason=(security.reason or UNCHECKED_REASON) if unchecked else None,
+            reason=security.block_reason if blocked_ask
+            else (security.reason or UNCHECKED_REASON) if unchecked else None,
             # m21: what could not be checked, part by part (the verdict's own words).
             uncheckedWhy=list(getattr(security, "unchecked_why", ()) or ()) or None
             if unchecked else None,
+            blocked=ApprovalBlocked(by=security.by or "security", kind=security.kind,
+                                    why=security.why or "", match=security.match)
+            if blocked_ask else None,
         )
         if self.router is not None:
             try:
@@ -944,7 +976,7 @@ class ApprovalQueue:
             except Exception:  # noqa: BLE001 - a broken router leaves it to the person
                 log.warning("approval router failed for %s", request.requestId, exc_info=True)
                 route = "person"
-            if unchecked and route is not None:
+            if (unchecked or blocked_ask) and route is not None:
                 route = "person"  # never Jarvis, never auto
             if route is not None:
                 request = request.model_copy(update={"route": route})
@@ -999,6 +1031,15 @@ class ApprovalQueue:
                 decision = Decision("deny", "once", "security", errors.SECURITY_BLOCKED,
                                     reason="the script changed after you were asked: "
                                     + ", ".join(changed[:3]))
+        if blocked_ask:
+            # The person's answer to a block, with what it was: the security log
+            # (logs/security.jsonl) next to the approval log's line.
+            from snowpea_core.security import enforce
+
+            enforce.note_person_answer(
+                paths=self.paths, session_id=session.id, tool=tool, args=args,
+                verdict=security, decision=decision.decision, by=decision.by,
+                request_id=request.requestId)
         await self._resolve(
             request,
             decision,
@@ -1076,11 +1117,12 @@ class ApprovalQueue:
             return Decision("deny", "once", "interrupted", errors.APPROVAL_DENIED)
         return Decision("deny", "once", "timeout", errors.APPROVAL_TIMEOUT)
 
-    async def _to_shared_queue(self, entry: _Pending, why: str) -> None:
+    async def _to_shared_queue(self, entry: _Pending, why: str,
+                               reason: str = "person_only") -> None:
         """The origin's allow did not count: tell it why and open the request to
         the other surfaces (``approval.pending``), where a person can answer it."""
         entry.unattended = True
-        await self._refused_to_origin(entry, why)
+        await self._refused_to_origin(entry, why, reason)
         if self.hub is not None:
             await self.hub.notify(
                 "approval.pending",
@@ -1162,8 +1204,13 @@ class ApprovalQueue:
             if allowed and request.personOnly:
                 # The origin is asked like anyone else: a person's connection only.
                 try:
-                    decision.person = _person_answer(request, entry.origin_conn, "origin",
-                                                     self.settings, "allow")
+                    actor = answer.get("actor")
+                    confirm = answer.get("personConfirm")
+                    decision.person = _person_answer(
+                        request, entry.origin_conn, "origin", self.settings, "allow",
+                        actor=actor if isinstance(actor, str) else None,
+                        person_confirm=confirm if isinstance(confirm, str) else None,
+                        asker=True)
                     if not (_script_remember(request) and decision.line_ok):
                         decision.scope = "once"
                 except RpcError as exc:
@@ -1174,7 +1221,7 @@ class ApprovalQueue:
                     # the card back (it may still decline).  Else it times out.
                     log.warning("approval %s: origin allow refused (%s)", request.requestId,
                                 exc.message)
-                    await self._to_shared_queue(entry, exc.message)
+                    await self._to_shared_queue(entry, exc.message, _refusal_reason(exc))
                     return
         except TimeoutError:
             decision = Decision("deny", "once", "timeout", errors.APPROVAL_TIMEOUT)
@@ -1224,14 +1271,16 @@ class ApprovalQueue:
             moved += 1
         return moved
 
-    async def _refused_to_origin(self, entry: _Pending, message: str) -> None:
-        """Re-announce a still-open request to the origin whose reply was refused (1.55.0)."""
+    async def _refused_to_origin(self, entry: _Pending, message: str,
+                                 reason: str = "person_only") -> None:
+        """Re-announce a still-open request to the origin whose reply was refused (1.55.0;
+        1.61.0: a browser's refused allow says why, ``browser_*``)."""
         params = {
             "request": entry.request.model_dump(mode="json"),
             "hostToolsFrom": entry.host,
             "refused": {
                 "code": errors.JARVIS_PERSON_ONLY,
-                "reason": "person_only",
+                "reason": reason,
                 "message": message,
             },
         }
@@ -1253,6 +1302,7 @@ class ApprovalQueue:
         actor: str | None = None,
         reauth: str | None = None,
         grant_expires_at: str | None = None,
+        person_confirm: str | None = None,
     ) -> Decision | None:
         """Resolve a pending request (``approval.respond``).
 
@@ -1276,7 +1326,9 @@ class ApprovalQueue:
             answer_refusal(conn, session, request_id, "approval",
                            origin_conn=entry.origin_conn, owner=(entry.owner, entry.host),
                            person_only=bool(entry.request.personOnly), actor=actor,
-                           route=entry.request.route)
+                           route=entry.request.route, request=entry.request,
+                           lookup=lookup if callable(lookup) else None,
+                           person_confirm=person_confirm)
         if not entry.unattended and entry.origin_conn is not None and conn is not None:
             if conn is not entry.origin_conn:
                 raise RpcError(
@@ -1298,7 +1350,12 @@ class ApprovalQueue:
         if remote is not None:
             person, grant_expires = remote
         else:
-            person = _person_answer(entry.request, conn, by, self.settings, decision)
+            person = _person_answer(
+                entry.request, conn, by, self.settings, decision, actor=actor,
+                person_confirm=person_confirm,
+                session=self._lookup()(entry.request.sessionId) if self._lookup() else None,
+                owner=(entry.owner, entry.host), lookup=self._lookup(),
+                asker=conn is not None and conn is entry.origin_conn)
             grant_expires = None
         if entry.future.done():
             return None
@@ -1464,6 +1521,9 @@ class ApprovalQueue:
             "code": decision.code,
             "unattended": unattended,
         }
+        if request.blocked is not None:
+            # 0.2.94: a blocked call put to the person: what blocked it.
+            record["blocked"] = request.blocked.model_dump(mode="json")
         try:
             self.paths.ensure()
             from snowpea_core.util.atomic import append_text
@@ -1529,8 +1589,16 @@ async def _remote_grant_answer(
     return replace(caller, reauthenticated=True), stamp
 
 
+def _refusal_reason(exc: RpcError) -> str:
+    """``details.reason`` of a refused answer (``person_only`` when it has none)."""
+    data = exc.data if isinstance(exc.data, dict) else {}
+    return str(data.get("reason") or "person_only")
+
+
 def _person_answer(
-    request: ApprovalRequest, conn: Any, by: str, settings: Any, decision: str
+    request: ApprovalRequest, conn: Any, by: str, settings: Any, decision: str, *,
+    actor: str | None = None, person_confirm: str | None = None, session: Any = None,
+    owner: Any = None, lookup: Any = None, asker: bool = False,
 ) -> Any:
     """The person answering a ``personOnly`` request; refuses anyone else.
 
@@ -1538,13 +1606,31 @@ def _person_answer(
     (:func:`~snowpea_core.jarvis.delegation.require_person`), or the bound
     person of a messenger chat (the gateway answers as ``gateway:<platform>:<user>``
     only after checking the approver) while ``jarvis.messenger.allowGrants``
-    is on.  Jarvis, the engine and in-process callers are refused.
+    is on, or (1.61.0) a local browser 0.4.0+ answering with ``actor: "person"``
+    and ``personConfirm: "window"`` for its own session
+    (:func:`~snowpea_core.server.settings_gate.browser_person_refusal`;
+    ``asker``: the core asked this very connection).  Jarvis, the engine and
+    in-process callers are refused.
     """
     if not request.personOnly or decision != "allow":
         # Declining changes nothing, so anyone who sees it may decline.
         return None
     from snowpea_core.jarvis.delegation import Caller, person_refusal
+    from snowpea_core.server.person_gate import connection_kind
 
+    if conn is not None and (connection_kind(conn) == "browser" or getattr(
+            conn, "client_kind", None) == "browser"):
+        # (A browser through the remote listener is a remote web login by kind:
+        # it is refused here as browser_remote.)
+        from snowpea_core.server.settings_gate import browser_person_refusal
+
+        why = browser_person_refusal(conn, session, request, actor, person_confirm,
+                                     owner=owner, lookup=lookup, asker=asker)
+        if why is not None:
+            raise RpcError(errors.JARVIS_PERSON_ONLY,
+                           f"only a person may answer this: a browser's answer does not count "
+                           f"({why})", {"reason": why, "kind": "browser"})
+        return Caller.from_connection(conn)
     if conn is not None:
         caller = Caller.from_connection(conn)
     elif str(by).startswith("gateway:"):

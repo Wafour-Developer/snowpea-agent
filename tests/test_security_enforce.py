@@ -107,18 +107,45 @@ async def _call(env: Any, name: str, args: dict[str, Any], *, session: Any = Non
 
 
 @pytest.mark.parametrize("mode", ["auto", "accept", "plan"])
-async def test_a_blocked_command_never_runs_in_any_mode(setup: Any, mode: str) -> None:
+async def test_a_blocked_command_asks_the_person_in_every_mode(setup: Any, mode: str) -> None:
+    # 0.2.94 (owner decision 2026-11-18): a block is put to the person, never run
+    # unasked — no mode, "always" rule (AlwaysAllow) or auto skips the question.
     setup.session.mode = mode
     # Default lists (essential) on a fresh install: nothing in settings.json.
-    outcome, content = await _call(setup, "run_cmd", {"command": "sudo rm -rf /"})
-    assert outcome is None  # the turn continues; the model reads the refusal
-    assert setup.ran == [] and setup.asked == []
-    assert content.startswith("blocked by the security list: commands:essential")
+    outcome, _content = await _call(setup, "run_cmd", {"command": "sudo rm -rf /"})
+    assert outcome is None
+    assert [a["tool"] for a in setup.asked] == ["run_cmd"]
+    assert setup.asked[0]["cacheable"] is False
+    # The (mocked) queue allowed it once: only then it ran.
+    assert setup.ran == [("run_cmd", {"command": "sudo rm -rf /"})]
+    assert setup.hub.of("security.blocked") == []  # asked, not refused
+
+
+async def test_a_secret_read_never_runs_in_any_mode(setup: Any) -> None:
+    for mode in ("auto", "accept", "plan"):
+        setup.session.mode = mode
+        token = setup.core.paths.home / "token"
+        outcome, content = await _call(setup, "run_cmd", {"command": f"cat {token}"})
+        assert outcome is None  # the turn continues; the model reads the refusal
+        assert setup.ran == [] and setup.asked == []
+        assert content.startswith("blocked by the security list: security")
     blocked = setup.hub.of("security.blocked")
     assert blocked and blocked[0]["sessionId"] == "s-sec" and blocked[0]["by"] == \
-        "commands:essential" and blocked[0]["surface"] == "agent"
+        "security" and blocked[0]["surface"] == "agent"
     audit = (setup.core.paths.logs_dir / "security.jsonl").read_text().splitlines()
-    assert json.loads(audit[-1])["by"] == "commands:essential"
+    assert json.loads(audit[-1])["by"] == "security"
+
+
+async def test_plan_mode_still_refuses_a_blocked_write(setup: Any) -> None:
+    keep = setup.tmp / "keep"
+    setup.core.settings.security.protectedPaths.custom = [  # type: ignore[assignment]
+        {"path": str(keep), "level": "write"}  # type: ignore[list-item]
+    ]
+    setup.core.settings = Settings.model_validate(setup.core.settings.model_dump(mode="json"))
+    setup.session.mode = "plan"
+    outcome, _content = await _call(setup, "put_file", {"path": str(keep / "a"),
+                                                       "content": "x"})
+    assert outcome == "denied" and setup.asked == [] and setup.ran == []
 
 
 async def test_a_protected_path_is_never_written(setup: Any) -> None:
@@ -127,10 +154,13 @@ async def test_a_protected_path_is_never_written(setup: Any) -> None:
         {"path": str(keep), "level": "write"}  # type: ignore[list-item]
     ]
     setup.core.settings = Settings.model_validate(setup.core.settings.model_dump(mode="json"))
-    _, content = await _call(setup, "put_file", {"path": str(keep / "a.txt"), "content": "x"})
-    assert setup.ran == [] and content.startswith("blocked by the security list: custom")
+    # 0.2.94: asked (person-only, once), and it runs only on the person's allow.
+    await _call(setup, "put_file", {"path": str(keep / "a.txt"), "content": "x"})
+    assert [a["tool"] for a in setup.asked] == ["put_file"]
+    assert setup.asked[0]["cacheable"] is False
+    setup.asked.clear()
     await _call(setup, "put_file", {"path": str(setup.tmp / "free.txt"), "content": "x"})
-    assert [name for name, _ in setup.ran] == ["put_file"]
+    assert setup.asked == [] and [name for name, _ in setup.ran] == ["put_file", "put_file"]
 
 
 async def test_allowlist_and_auto_cannot_override_a_block_and_unchecked_asks(setup: Any) -> None:
@@ -158,13 +188,20 @@ async def test_allowlist_and_auto_cannot_override_a_block_and_unchecked_asks(set
     assert [a["tool"] for a in setup.asked] == ["run_cmd"]
 
 
-async def test_a_scheduled_worker_and_the_jarvis_session_are_blocked_too(setup: Any) -> None:
+async def test_a_scheduled_worker_and_the_jarvis_session_are_blocked_too(
+    setup: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Nobody is there to ask (0.2.94): the real queue refuses as before.
+    queue = setup.core.approvals
+    monkeypatch.setattr(queue, "request", ApprovalQueue.request.__get__(queue))
     worker = Session(id="s-worker", workdir=setup.session.workdir, mode="auto")
     worker.origin_surface = "jarvis-task"
+    worker.unattended = True
     _, content = await _call(setup, "run_cmd", {"command": "rm -rf ~"}, session=worker)
     assert content.startswith("blocked by the security list")
     scheduled = Session(id="s-job", workdir=setup.session.workdir, mode="auto")
     scheduled.origin_surface = "scheduler"
+    scheduled.unattended = True
     _, content = await _call(setup, "run_cmd", {"command": "mkfs.ext4 /dev/sdb1"},
                              session=scheduled)
     assert content.startswith("blocked by the security list")
@@ -180,9 +217,10 @@ async def test_editing_the_lists_through_a_tool_is_blocked_even_with_empty_lists
     setup.core.settings.save(setup.core.paths)
     target = setup.core.paths.home / "settings.json"
     # "{}" would bring the defaults back in place of the person's empty lists.
-    _, content = await _call(setup, "put_file", {"path": str(target), "content": "{}"})
-    assert content.startswith("blocked by the security list: security")
-    assert setup.ran == []
+    # 0.2.94: blocked, so put to the person (once); runs only on their allow.
+    await _call(setup, "put_file", {"path": str(target), "content": "{}"})
+    assert [a["tool"] for a in setup.asked] == ["put_file"]
+    assert setup.asked[0]["cacheable"] is False
 
 
 # -- (b) the approval queue -----------------------------------------------------------
@@ -198,8 +236,10 @@ async def test_the_queue_refuses_a_blocked_call_before_cache_and_routing(tmp_pat
     queue, hub = _queue(tmp_path)
     routed: list[Any] = []
     queue.router = lambda request, *_a: routed.append(request) or "jarvis"
+    # 0.2.94: refused when nobody is there to ask (an unattended run); with a
+    # person there it is asked (tests/test_m24_person_override.py).
     session = SimpleNamespace(id="s-1", workdir=str(tmp_path), origin_conn=None,
-                              host_tools_from=None, owned_by=None)
+                              host_tools_from=None, owned_by=None, unattended=True)
     # "for this session" was answered on the same first word earlier.
     queue._cache.add(queue.cache_key("s-1", "shell", {"command": "rm x"}))
     decision = await queue.request(session, "shell", {"command": "rm -rf ~"},
@@ -278,10 +318,11 @@ async def test_a_bridged_request_is_denied_with_the_reason(tmp_path: Path) -> No
     record = SimpleNamespace(cli="claude", id="abc", real_cwd=str(tmp_path),
                              info=SimpleNamespace(cwd=str(tmp_path), title=None),
                              project=str(tmp_path), approval_cache={"x"}, turn_cancel=None)
-    ask = ApprovalAsk(tool="Bash", args={"command": "bash -c 'rm -rf /'"}, risk="high")
+    # 0.2.94: a blocked command asks its person; a login read is still denied.
+    ask = ApprovalAsk(tool="Bash", args={"command": "cat ~/.codex/auth.json"}, risk="high")
     answer = await manager._ask_approval(record, ask)  # type: ignore[arg-type]
     assert not answer.allow and answer.by == "security"
-    assert answer.reason.startswith("blocked by the security list: commands:essential")
+    assert answer.reason.startswith("blocked by the security list: security")
     assert queue.list() == []
     assert hub.of("security.blocked")[0]["sessionId"] == "ext:claude:abc"
     assert hub.of("security.blocked")[0]["surface"] == "external"

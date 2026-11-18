@@ -13,9 +13,13 @@ and :mod:`snowpea_core.tools.config_guard`), and the ``fs.*`` methods through
 Levels:
 
 ``all``
-    A secret: a call that reads, lists, copies, writes, deletes or moves it is refused.
+    A secret: a call that reads, lists or copies it is refused, always
+    (:func:`unallowable_read`); one that writes, deletes or moves it is
+    blocked, which (0.2.94, owner decision 2026-11-18) the person may still
+    allow once on a person-only card.
 ``write``
-    Never written, deleted, moved or re-moded; reading it is an ordinary read.
+    Blocked when written, deleted, moved or re-moded (a person may allow it
+    once); reading it is an ordinary read.
 ``ask``
     snowpea's own executable content (user hooks, plugins, extensions, user
     skills, commands and agent definitions): a shell line or code that writes
@@ -390,6 +394,25 @@ EXTERNAL_SECRETS: tuple[tuple[str, str], ...] = (
 )
 
 
+def unallowable_read(entry: ControlEntry | None) -> bool:
+    """The ONE thing a person cannot allow (owner decision 2026-11-18): a tool
+    READING ``entry`` — a level ``all`` entry of :data:`CONTROL` (the daemon's
+    token and address, saved logins, MCP logins) or of :data:`EXTERNAL_SECRETS`.
+
+    An agent that read one could take the person's authority.  Every other
+    block — a write, delete or move of these same files included — is put to
+    the person as a person-only ask, once (``approval_queue``)."""
+    return entry is not None and entry.level == "all"
+
+
+def unallowable_reads() -> tuple[str, ...]:
+    """The names :func:`unallowable_read` covers: under ``$SNOWPEA_HOME``, then
+    (``~/``) under the user's home.  Tests hold this list."""
+    own = tuple(name for entry in CONTROL if unallowable_read(entry)
+                for name in (entry.names or (entry.rel,)))
+    return own + tuple("~/" + rel for rel, _what in EXTERNAL_SECRETS)
+
+
 @functools.lru_cache(maxsize=1)
 def install_roots() -> tuple[Path, ...]:
     """snowpea's own install (security review 8, M8-6): the ``snowpea_core``
@@ -712,4 +735,6 @@ __all__ = [
     "settings_target",
     "judge_parts",
     "secret_files",
+    "unallowable_read",
+    "unallowable_reads",
 ]
