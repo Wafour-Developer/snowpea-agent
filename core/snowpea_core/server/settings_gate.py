@@ -1174,13 +1174,30 @@ def _field(request: Any, name: str) -> Any:
     return request.get(name) if isinstance(request, dict) else getattr(request, name, None)
 
 
+#: The tools whose security ask a browser may answer (security review L1: an
+#: allow-list): a shell line, code, a file read, write, edit or patch, and the
+#: host's own page tools (``repl.*``).  Everything else — a schedule, a mode
+#: raise, a delegation, a terminal, an external CLI, Jarvis — is not a browser's.
+BROWSER_TAKES_TOOLS: frozenset[str] = frozenset({
+    "shell", "bash", "exec", "exec_command", "execute_code",
+    "read_file", "write_file", "edit_file", "create_file", "edit", "multiedit", "write",
+    "patch", "apply_patch", "str_replace", "str_replace_editor",
+})
+
+
 def _browser_takes(request: Any) -> bool:
     """A person-only approval a browser may answer at all (1.61.0): a security ask
-    about a shell line, code or a path — a blocked call put to the person
-    (``blocked``) or one the check could not see (``reason``) — never Jarvis's
-    authority, a terminal, an external CLI's or a Jarvis-routed request."""
-    return request is not None and _field(request, "tool") not in BROWSER_NEVER_TOOLS and bool(
-        _field(request, "blocked") or _field(request, "reason")) and not (
+    (a blocked call put to the person, ``blocked``, or one the check could not
+    see, ``reason``) about one of :data:`BROWSER_TAKES_TOOLS` or a host page
+    tool (``repl.*``) — never Jarvis's authority, a terminal, an external CLI's
+    or a Jarvis-routed request."""
+    if request is None:
+        return False
+    tool = str(_field(request, "tool") or "").lower()
+    if tool in BROWSER_NEVER_TOOLS or not (tool in BROWSER_TAKES_TOOLS
+                                           or tool.startswith("repl.")):
+        return False
+    return bool(_field(request, "blocked") or _field(request, "reason")) and not (
         _field(request, "external") or _field(request, "externalTerminal")
         or _field(request, "route") == "jarvis")
 

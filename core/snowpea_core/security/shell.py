@@ -98,6 +98,8 @@ STATEFUL_REASONS: frozenset[str] = frozenset({"dynamic-program", "eval", "brace-
 _STDIN_FILE = re.compile(r"/dev/stdin|/dev/fd/\d+|/proc/self/fd/\d+")
 #: Ids of the shells a walk sees (:attr:`Effect.shell`).
 _SHELL_IDS = itertools.count(1)
+#: Ids of the simple commands a walk sees (:attr:`Effect.cmd`).
+_CMD_IDS = itertools.count(1)
 #: Write programs that change a file's mode, owner or times, never what it holds.
 _ATTRIBUTE_ONLY: frozenset[str] = frozenset({"chmod", "chown", "chgrp", "chattr", "setfacl",
                                              "touch"})
@@ -166,6 +168,12 @@ class Effect:
     shell: int = 0
     #: Where it was written (m21, for the person): ``{"part", "file"?, "line"?}``.
     origin: dict[str, Any] | None = None
+    #: What the path holds lives on under another name (``mv`` / hard ``ln`` /
+    #: ``rename`` sources, ``tar --remove-files``): for a secret, a read.
+    relocates: bool = False
+    #: Which simple command emitted it: a read is excused by a write of the
+    #: same word only from the same command (``rm x`` reads and writes ``x``).
+    cmd: int = 0
 
 
 @dataclass
@@ -1037,6 +1045,8 @@ class _Probe(_c._Judge):
         #: The program whose writes this module judges itself (super's are dropped).
         self._own: list[bool] = []
         self._context: list[str] = []
+        #: The id of each command being walked (:attr:`Effect.cmd`).
+        self._cmd_ids: list[int] = []
         #: Per command being walked: the classifier's opaque marks this module
         #: analysed itself for that command (security review 7, P1).
         self._claims: list[set[str]] = []
@@ -1171,7 +1181,8 @@ class _Probe(_c._Judge):
         return out
 
     def _effect(self, raw: str, cwd: Path | None, kind: str, *, destructive: bool = False,
-                recursive: bool = False, dynamic: bool = False, program: str = "") -> None:
+                recursive: bool = False, dynamic: bool = False, program: str = "",
+                relocates: bool = False) -> None:
         if isinstance(raw, _c.ProcessWord):
             return  # a pipe's name (``/dev/fd/63``); its body is read as commands
         dyn = dynamic or "$" in raw or "`" in raw
@@ -1183,7 +1194,9 @@ class _Probe(_c._Judge):
                 origin = None
         self.view.effects.append(Effect(raw, cwd, kind, destructive, recursive, dyn,
                                         program or (self._context[-1] if self._context else ""),
-                                        shell=self._shell_id, origin=origin))
+                                        shell=self._shell_id, origin=origin,
+                                        relocates=relocates,
+                                        cmd=self._cmd_ids[-1] if self._cmd_ids else 0))
 
     # -- the classifier's hooks -------------------------------------------
     def check_write_path(self, raw: str, cwd: Path | None, rule: str, dynamic: bool) -> None:
@@ -1405,6 +1418,7 @@ class _Probe(_c._Judge):
         self._claims.append(claims)
         self._own.append(own)
         self._context.append(program)
+        self._cmd_ids.append(next(_CMD_IDS))
         try:
             if self._hidden_command(program, family, rest, rest_dyn, cwd, depth, piped_in,
                                     heredoc):
@@ -1481,6 +1495,7 @@ class _Probe(_c._Judge):
             self._claims.pop()
             self._own.pop()
             self._context.pop()
+            self._cmd_ids.pop()
 
     def _names(self, program: str, rest: list[str], rest_dyn: list[bool],
                cwd: Path | None) -> None:
@@ -2554,7 +2569,7 @@ class _Probe(_c._Judge):
         if program in ("rename", "mmv"):
             # ``rename from to files…`` / ``rename 's/a/b/' files…``: every file is moved.
             for word, dyn in operands[1:]:
-                self._effect(word, cwd, "write", destructive=True, dynamic=dyn)
+                self._effect(word, cwd, "write", destructive=True, dynamic=dyn, relocates=True)
             return
         # mv, cp, ln, install, rsync: sources, then where they land.
         if target_dir is not None:
@@ -2575,11 +2590,12 @@ class _Probe(_c._Judge):
         )
         for word, dyn in sources:
             if moving:
-                self._effect(word, cwd, "write", destructive=True, dynamic=dyn)
+                self._effect(word, cwd, "write", destructive=True, dynamic=dyn, relocates=True)
             elif program == "ln" and not symbolic:
                 # A hard link is the same file under a new name: whatever is later
-                # written through it is written to the source (security review 5, M6).
-                self._effect(word, cwd, "write", dynamic=dyn)
+                # written through it is written to the source (security review 5, M6),
+                # and what it holds is read through it.
+                self._effect(word, cwd, "write", dynamic=dyn, relocates=True)
             elif program == "ln" or linking:
                 # A symbolic link (``ln -s``, ``cp -s``, ``cp -l``): what is later
                 # written through the new name lands on the source, and the link
@@ -2629,7 +2645,7 @@ class _Probe(_c._Judge):
             sources = operands
         for word, dyn in sources:
             self._effect(word, cwd, "write", destructive=True, recursive=True, dynamic=dyn,
-                         program=program)
+                         program=program, relocates=True)
 
     def _git_tree(self, rest: list[str], rest_dyn: list[bool], cwd: Path | None) -> None:
         """A git command that rewrites (or cleans) the working tree it runs in."""

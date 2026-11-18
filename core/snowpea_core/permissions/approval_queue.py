@@ -428,10 +428,29 @@ class Decision:
     #: click): only such an answer remembers an exact compound line or a script
     #: grant.  False for a remote web login, a connector, Jarvis, a messenger.
     line_ok: bool = False
+    #: Who answered, for the audit line of a blocked call put to the person
+    #: (:func:`_answer_audit`); ``None`` when nobody answered.
+    audit: dict[str, Any] | None = None
 
     @property
     def allowed(self) -> bool:
         return self.decision == "allow"
+
+
+def _answer_audit(conn: Any, by: str, person_confirm: str | None) -> dict[str, Any]:
+    """The answering connection, for ``logs/security.jsonl`` (security review L3):
+    its kind, its clientId, whether it confirmed in a window, and whether it is
+    a remote web login."""
+    from snowpea_core.server.person_gate import connection_kind
+
+    kind = connection_kind(conn)
+    if conn is None and str(by).startswith("gateway:"):
+        kind = "messenger"
+    client_id = getattr(conn, "client_id", None) if conn is not None else None
+    return {"connection": kind,
+            "clientId": client_id if isinstance(client_id, str) else None,
+            "personConfirmWindow": person_confirm == "window",
+            "remote": bool(getattr(conn, "remote_login", False)) or kind == "remote_login"}
 
 
 def waits_for_a_person(conn: Any) -> bool:
@@ -773,7 +792,11 @@ class ApprovalQueue:
         decision = Decision("deny", "once", "security", errors.SECURITY_BLOCKED,
                             reason=verdict.refusal)
         record = ApprovalRequest(requestId=f"ap-{uuid.uuid4().hex[:12]}", sessionId=session.id,
-                                 tool=tool, args={}, external=external)
+                                 tool=tool, args={}, external=external,
+                                 blocked=ApprovalBlocked(by=verdict.by or "security",
+                                                         kind=verdict.kind,
+                                                         why=verdict.why or "",
+                                                         match=verdict.match))
         self._append_log(record, decision)
         return decision
 
@@ -854,7 +877,9 @@ class ApprovalQueue:
         # the person's alone too: asked once on a person-only card, never cached,
         # remembered, routed to Jarvis or answered by a rule.  Refused outright
         # only when it reads one of snowpea's secrets (Verdict.secret_read) or
-        # nobody is there to ask (:meth:`_nobody_present`).
+        # nobody is there to ask (:meth:`_nobody_present`).  Plan mode is not a
+        # block: it refuses writes by write-tagged tools before they get here,
+        # while a blocked shell line in plan mode is asked like any other command.
         security = self._security(session, tool, args, tags, host_tool)
         blocked_ask = False
         if security.blocked:
@@ -1039,7 +1064,7 @@ class ApprovalQueue:
             enforce.note_person_answer(
                 paths=self.paths, session_id=session.id, tool=tool, args=args,
                 verdict=security, decision=decision.decision, by=decision.by,
-                request_id=request.requestId)
+                request_id=request.requestId, answer=decision.audit)
         await self._resolve(
             request,
             decision,
@@ -1200,6 +1225,10 @@ class ApprovalQueue:
                     entry.origin_conn,
                     answer.get("actor") if isinstance(answer.get("actor"), str) else None,
                 ),
+                audit=_answer_audit(
+                    entry.origin_conn, "origin",
+                    answer.get("personConfirm")
+                    if isinstance(answer.get("personConfirm"), str) else None),
             )
             if allowed and request.personOnly:
                 # The origin is asked like anyone else: a person's connection only.
@@ -1373,6 +1402,7 @@ class ApprovalQueue:
             local_person=_local_person(conn),
             grant_expires_at=grant_expires,
             line_ok=line_ok,
+            audit=_answer_audit(conn, by, person_confirm),
         )
         entry.future.set_result(answer)
         # The scope that will apply (``guard_scope`` runs the same rules again
@@ -1637,6 +1667,19 @@ def _person_answer(
         caller = Caller.messenger(str(by).split(":")[1] or "messenger", bound_person=True)
     else:
         caller = Caller(kind="jarvis" if str(by).startswith("jarvis") else "system")
+    if request.blocked is not None:
+        # Security review H3 / M1: a call a security check blocked is allowed only
+        # by a person at this machine — never from a chat or a remote web login
+        # (they may still decline it, and still answer ordinary asks).
+        if caller.kind == "messenger" or str(
+                getattr(conn, "surface_id", "") or "").startswith("gateway:"):
+            raise RpcError(errors.JARVIS_PERSON_ONLY,
+                           "only a person at this machine may allow a blocked call",
+                           {"reason": "messenger_blocked"})
+        if caller.remote or connection_kind(conn) == "remote_login":
+            raise RpcError(errors.JARVIS_PERSON_ONLY,
+                           "only a person at this machine may allow a blocked call",
+                           {"reason": "remote_blocked"})
     allow = (request.args or {}).get("allow") if isinstance(request.args, dict) else None
     refusal = person_refusal(caller, settings, guarded=bool(allow))
     if refusal is not None:

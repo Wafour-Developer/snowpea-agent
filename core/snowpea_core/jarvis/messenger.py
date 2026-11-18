@@ -385,6 +385,13 @@ class MessengerBridge:
             dict(request.get("args") or {}),
             str(request.get("sessionId", "")),
         )
+        if request.get("personOnly") and request.get("blocked"):
+            # A call a security check blocked is the local person's to allow
+            # (security review H3): a chat may only decline it.
+            return text + (
+                "\n\U0001f512 보안 검사에 걸린 호출입니다 — 이 컴퓨터의 앱에서 허용하세요 / "
+                "a security check blocked this call: allow it on the machine."
+            ), [Button(text="⛔ decline", data=approval_callback(request_id, "deny"))]
         return text, approval_buttons(request_id)
 
     def _grant_message(self, request: dict[str, Any], request_id: str) -> tuple[str, list[Button]]:
