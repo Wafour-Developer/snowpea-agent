@@ -864,6 +864,17 @@ class SessionsChangedNotification(Payload):
 
     reason: str = Field(description="create, prompt, turn, renamed, close, ...")
     sessionId: str = Field(description="Session that changed.")
+    kind: SessionKind | None = Field(
+        default=None,
+        description=(
+            "As SessionSummary.kind: what opened the session (chat, agent, a delegated "
+            "child, a routine run), so a client can tell a child from a new chat."
+        ),
+    )
+    parentSessionId: str | None = Field(
+        default=None,
+        description="As SessionSummary.parentSessionId: the delegating session; null for a root.",
+    )
     status: str | None = Field(default=None, description="Its status now, when known.")
     title: str | None = Field(default=None, description="Its title, when it has one.")
     hostToolsFrom: str | None = Field(
@@ -1201,7 +1212,11 @@ class SessionSummary(Payload):
         "idle", "running", "awaiting_approval", "awaiting_question", "error"
     ] = Field(default="idle", description="What the session is doing now (1.7.0).")
     lastActivityAt: str | None = Field(
-        default=None, description="UTC ISO time of the last prompt or turn end."
+        default=None,
+        description=(
+            "UTC ISO time of the last activity: while a turn runs, its latest stored event "
+            "(tracked in memory); otherwise the last prompt or turn end."
+        ),
     )
     turnStartedAt: str | None = Field(
         default=None, description="UTC ISO start of the running turn."

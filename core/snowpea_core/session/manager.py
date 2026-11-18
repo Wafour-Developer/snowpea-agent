@@ -98,7 +98,12 @@ class SessionManager:
         return True
 
     async def announce_sessions_changed(
-        self, reason: str, session_id: str, *, status: str | None = None
+        self,
+        reason: str,
+        session_id: str,
+        *,
+        status: str | None = None,
+        closed: Session | None = None,
     ) -> None:
         """Tell every authenticated client the session list just moved.
 
@@ -111,6 +116,12 @@ class SessionManager:
         try:
             session = self._sessions.get(session_id)
             payload: dict[str, Any] = {"reason": reason, "sessionId": session_id}
+            # kind / parentSessionId as session.list reports them, so a client
+            # can tell a delegated child or a routine run from a new chat.
+            origin = session if session is not None else closed
+            if origin is not None:
+                payload["kind"] = origin.kind
+                payload["parentSessionId"] = origin.parent_session_id
             extras = self.summary_extras
             if extras is not None:
                 # SessionSummary.role / .jarvis (1.53.0), from the Jarvis service.
@@ -595,7 +606,7 @@ class SessionManager:
                     "skipping close_session write for %s: session store is closed", session_id
                 )
         log.info("session %s closed", session_id)
-        await self.announce_sessions_changed("closed", session_id)
+        await self.announce_sessions_changed("closed", session_id, closed=session)
         return True
 
     async def finish_open_turns(self, reason: str = "interrupted") -> tuple[str, ...]:
@@ -924,6 +935,10 @@ class EventHub:
         seq = session.next_seq() if session is not None else 0
         body = event_builders.validate(kind, payload)
         ts = utc_now()
+        if session is not None and getattr(session, "turn_started_at", None) is not None:
+            # session.list lastActivityAt mid-turn: the latest event, in memory only
+            # (the persisted value moves at turn end).
+            session.last_activity_at = ts
         if session is not None and kind == "message.user" and _human_origin(body):
             session.last_user_at = ts  # session.list lastUserAt (1.50.0; human only, 1.53.0)
         turn_id = getattr(session, "current_turn", None) if session is not None else None
@@ -998,6 +1013,12 @@ class EventHub:
         public = params
         if request_event and "_request" in params:
             public = {k: v for k, v in params.items() if k != "_request"}
+        if method == "sessions.changed" and "kind" not in params and self.sessions is not None:
+            # The approval / question queues announce without the session in
+            # hand: add kind / parentSessionId here, as announce_sessions_changed does.
+            live = self.sessions.get(str(params.get("sessionId")))
+            if live is not None:
+                public = {**public, "kind": live.kind, "parentSessionId": live.parent_session_id}
         for conn in targets:
             if conn is exclude or any(other is conn for other in seen):
                 continue
