@@ -256,7 +256,12 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if stale_is_owned(stale):
         return ToolResult(ok=False, error=file_state.refusal(stale or ""))
     try:
-        await ctx.backend.write_file(path, content)
+        if getattr(ctx, "exact", False):
+            # m26: what the person approved, byte for byte — a text write
+            # turns "\n" into the platform's line ending (CRLF on Windows).
+            await ctx.backend.write_bytes(path, content.encode("utf-8"))
+        else:
+            await ctx.backend.write_file(path, content)
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     file_state.note_write(ctx.core, ctx.session, path, content)
@@ -287,7 +292,9 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
     stale = file_state.check_stale(ctx.core, ctx.session, path, exists=True)
     if stale_is_owned(stale):
         return ToolResult(ok=False, error=file_state.refusal(stale or ""))
-    after, occurrences, strategy, error = _replace_text(path, before, old, new, replace_all)
+    after, occurrences, strategy, error = _replace_text(
+        path, before, old, new, replace_all, exact=getattr(ctx, "exact", False)
+    )
     if after is None:
         return ToolResult(ok=False, error=error)
     try:
@@ -316,11 +323,25 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
 
 
 def _replace_text(
-    path: str, before: str, old: str, new: str, replace_all: bool
+    path: str, before: str, old: str, new: str, replace_all: bool, *, exact: bool = False
 ) -> tuple[str | None, int, str | None, str | None]:
-    """``(after, exact occurrences, fuzzy strategy, error)`` of one replacement."""
+    """``(after, exact occurrences, fuzzy strategy, error)`` of one replacement.
+
+    ``exact`` (m26, an edit a person approved on a card): ``old`` must appear
+    verbatim and ``new`` goes in verbatim — no fuzzy fallback, which could
+    replace text the card never showed, unescape ``\\r``/``\\t`` or reindent.
+    """
     occurrences = before.count(old)
     strategy: str | None = None
+    if occurrences == 0 and exact:
+        return (
+            None,
+            0,
+            None,
+            f"old_string not found exactly in {path}; an approved edit is applied only "
+            "exactly as shown, so nothing was changed — re-read the file and pass the "
+            "exact current text",
+        )
     if occurrences == 0:
         # The model's whitespace or indentation often drifts from the file;
         # the vendored fuzzy matcher recovers the intended span or explains why
@@ -403,6 +424,9 @@ async def preview_diff(backend: Any, tool: str, args: dict[str, Any]) -> str | N
                     old,
                     str(edit.get("new_string", "") or ""),
                     bool(edit.get("replace_all", False)),
+                    # Only an asked call is previewed, and it runs exact: the
+                    # card's diff is what will be applied, or none at all.
+                    exact=True,
                 )
                 if after is None:
                     return None
