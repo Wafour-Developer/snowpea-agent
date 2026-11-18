@@ -12,6 +12,7 @@ import { SECURITY_REQUIRES_SUMMARY } from "../state/security.js";
 import { WEB_REQUIRES_SUMMARY } from "../state/web-remote.js";
 import { TRUST_REQUIRES_SUMMARY } from "../state/trust.js";
 import { FEEDBACK_COMMAND } from "../state/feedback.js";
+import { PROVIDERS_COMMAND } from "../state/providers.js";
 
 const SURFACE_COMMANDS: CommandInfo[] = [
   {
@@ -81,6 +82,7 @@ const SURFACE_COMMANDS: CommandInfo[] = [
     source: "tui",
   },
   FEEDBACK_COMMAND,
+  PROVIDERS_COMMAND,
 ];
 
 /** What an older daemon gets in place of the two beta commands' summaries. */

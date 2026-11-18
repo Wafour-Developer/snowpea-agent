@@ -104,6 +104,9 @@ TABLE: dict[str, tuple[str, ...]] = {
                # Security review 8, M-1 (was yynyny): a provider sign-in is the
                # account the owner's traffic and billing go to.
                "provider.loginWeb"),
+    # 1.60.0 hidden models: provider.remove's class (a remote login too), but a
+    # browser only with the marker and 0.3.0+ (a legacy browser never sends them).
+    "yynnny": ("provider.model.remove", "provider.model.unhide"),
     # People (local and remote): Jarvis, project trust status.
     "yynnnn": (
         # Security review 6 (the browser team's source check): no browser calls

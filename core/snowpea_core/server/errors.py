@@ -197,7 +197,8 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
     "global_only": (
         INVALID_PARAMS,
         "a project scope tried to set a key only the global settings hold "
-        "(security.unknownCode); details.key",
+        "(security.unknownCode, security.enabled, providers.<vendor>.hiddenModels); "
+        "details.key",
     ),
     "untrusted_project": (
         EXTERNAL_UNAVAILABLE,

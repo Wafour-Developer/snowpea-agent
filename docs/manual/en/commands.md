@@ -238,6 +238,16 @@ snowpea provider models hon2
 snowpea provider remove hon2
 ```
 
+`provider remove <vendor>` disconnects any provider: its API key or login is removed from this machine, and the model slots and agents that used it fall back to the default model. It asks `[y/N]` first; `--yes` skips the question, and without a terminal nothing is removed unless `--yes` is given.
+
+`provider models` also takes a model off a vendor's lists (protocol 1.60.0). `hide` hides a discovered model everywhere, or takes a hand-added one off `providers.<vendor>.models`, and says which; `unhide` shows a hidden one again; `list <vendor> --hidden` prints the hidden ones and what still uses them. A hidden model that is in use keeps working. `snowpea provider models <vendor>` without a verb lists as before.
+
+```bash
+snowpea provider models hide openrouter openai/gpt-4o
+snowpea provider models list openrouter --hidden
+snowpea provider models unhide openrouter openai/gpt-4o
+```
+
 See [Several local servers](setup.md#several-local-servers) for the settings
 shape and the wizard flow.
 

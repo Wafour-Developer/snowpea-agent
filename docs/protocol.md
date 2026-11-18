@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.59.0` (semver)
+- **Protocol version:** `1.60.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.59.0"
+    "protocolVersion": "1.60.0"
   }
 }
 ```
@@ -58,6 +58,7 @@ Server capabilities advertised in the `system.hello` result:
 - `fork`
 - `fs`
 - `goals`
+- `hiddenModels`
 - `holdSec`
 - `hostToolManuals`
 - `hostToolParallel`
@@ -264,6 +265,8 @@ Server capabilities advertised in the `system.hello` result:
 | [`provider.configure`](#providerconfigure) | client → server | Store settings and credentials for a provider. From a remote web login (1.55.0) no base_url and no credential (api_key, token, an OAuth record; clearing one stays open): jarvis_person_only, details {reason: local_only, what: 'base_url'\|'credential'}. |
 | [`provider.list`](#providerlist) | client → server | List chat providers and whether they are configured. |
 | [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only. |
+| [`provider.model.remove`](#providermodelremove) | client → server | 1.60.0 (capability hiddenModels): take a model off a vendor's pickers. A hand-added id (providers.<vendor>.models or .oauth_models) is taken off that list ('unlisted'); any other id is added to providers.<vendor>.hiddenModels ('hidden'). Written through settings.set's path (settings.changed fires); nothing that uses the model is rewritten. A local person, a remote web login, or a browser 0.3.0+ with actor 'person'; never a connector, a legacy or unmarked browser, Jarvis or an in-process caller (jarvis_person_only). |
+| [`provider.model.unhide`](#providermodelunhide) | client → server | 1.60.0 (capability hiddenModels): take a model off providers.<vendor>.hiddenModels (ok when it was not hidden). Same callers as provider.model.remove. |
 | [`provider.models`](#providermodels) | client → server | Ask a vendor's endpoint which models it serves. |
 | [`provider.remove`](#providerremove) | client → server | Forget a configured provider, typically a named local server. |
 | [`provider.test`](#providertest) | client → server | Send one short completion to check a provider and model. |
@@ -3056,7 +3059,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; baseUrl?: string; configured?: boolean; custom?: boolean; default?: boolean; defaultBaseUrl?: string; defaultModel?: string; label?: string; models?: string[]; preset?: string; supportsEffort?: boolean; variant?: string; vendor: string; })[]` | no | Known chat providers. |
+| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; baseUrl?: string; configured?: boolean; custom?: boolean; default?: boolean; defaultBaseUrl?: string; defaultModel?: string; hiddenInUse?: ({ model: string; usedBy?: string[]; })[]; hiddenModels?: string[]; label?: string; models?: string[]; preset?: string; supportsEffort?: boolean; variant?: string; vendor: string; })[]` | no | Known chat providers. |
 
 ### `provider.loginWeb`
 
@@ -3082,6 +3085,46 @@ Start a browser-based login flow for a provider. Not from a remote web login (1.
 | `userCode` | `string \| null` | no | Short code the user types in, for device-code flows. |
 | `verificationUri` | `string \| null` | no | URL to open to approve the login. |
 | `verificationUriComplete` | `string \| null` | no | verificationUri with the code already embedded, when known. |
+
+### `provider.model.remove`
+
+*Direction:* client → server
+
+1.60.0 (capability hiddenModels): take a model off a vendor's pickers. A hand-added id (providers.<vendor>.models or .oauth_models) is taken off that list ('unlisted'); any other id is added to providers.<vendor>.hiddenModels ('hidden'). Written through settings.set's path (settings.changed fires); nothing that uses the model is rewritten. A local person, a remote web login, or a browser 0.3.0+ with actor 'person'; never a connector, a legacy or unmarked browser, Jarvis or an in-process caller (jarvis_person_only).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker: a browser connection needs actor 'person' and clientVersion 0.3.0 or later (a legacy browser is refused). |
+| `model` | `string` | yes | Exact model id as provider.models lists it. |
+| `vendor` | `string` | yes | Provider whose list the model belongs to. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `action` | `"unlisted" \| "hidden"` | yes | 'unlisted': the id was hand-added (providers.<vendor>.models or .oauth_models) and was taken off that list; 'hidden': it was added to providers.<vendor>.hiddenModels. |
+
+### `provider.model.unhide`
+
+*Direction:* client → server
+
+1.60.0 (capability hiddenModels): take a model off providers.<vendor>.hiddenModels (ok when it was not hidden). Same callers as provider.model.remove.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker: a browser connection needs actor 'person' and clientVersion 0.3.0 or later (a legacy browser is refused). |
+| `model` | `string` | yes | Exact model id as provider.models lists it. |
+| `vendor` | `string` | yes | Provider whose list the model belongs to. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `provider.models`
 
@@ -6226,7 +6269,7 @@ Some errors say why in `error.data.details.reason` (enumerated since 1.55.0); a 
 | reason | on code | meaning |
 |---|---|---|
 | `catch_all` | `invalid_params` | an allowlist pattern that would match every command |
-| `global_only` | `invalid_params` | a project scope tried to set a key only the global settings hold (security.unknownCode); details.key |
+| `global_only` | `invalid_params` | a project scope tried to set a key only the global settings hold (security.unknownCode, security.enabled, providers.<vendor>.hiddenModels); details.key |
 | `jarvis_on` | `jarvis_person_only` | the change is part of Jarvis's authority and Jarvis mode is on: the app or the TUI only |
 | `local_only` | `jarvis_person_only` | a person may do this only at a local connection (IDE, TUI, CLI, the local web page): it names a program to run, a messenger identity, a provider endpoint or an install source, changes where a saved MCP server's requests go or what they carry, uses a ${VAR}, stores a rule or a setting, or writes a skill, agent or command file that widens what runs; details.what says which |
 | `mode_raise` | `jarvis_person_only` | raising a session's mode (plan < accept < auto) needs a person; details.from/to. With details.max: a remote web login asked for, or to start work in, a mode above settings web.remote.maxMode (the value of details.max) |

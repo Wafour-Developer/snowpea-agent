@@ -1299,12 +1299,33 @@ async def provider_add_local(
 
 
 async def provider_remove(
-    name: str, home: Path | str | None = None, *, as_json: bool = False
+    name: str,
+    home: Path | str | None = None,
+    *,
+    as_json: bool = False,
+    assume_yes: bool = False,
 ) -> int:
-    """``snowpea provider remove <name>`` → ``provider.remove``."""
+    """``snowpea provider remove <name> [--yes]`` → ``provider.remove``.
+
+    Asks first (1.60.0): the key or login goes, and the model slots and agents
+    that used the provider fall back to the default.  Without a terminal and
+    without ``--yes`` nothing is removed.
+    """
     vendor = name.strip()
     if not vendor:
-        return _fail("usage: snowpea provider remove <name>", EXIT_USAGE)
+        return _fail("usage: snowpea provider remove <name> [--yes]", EXIT_USAGE)
+    if not assume_yes:
+        if not sys.stdin.isatty():
+            return _fail(
+                f"snowpea provider remove: not a terminal; run it again with --yes to "
+                f"disconnect {vendor}",
+                EXIT_USAGE,
+            )
+        print(REMOVE_PROVIDER_WARNING.format(vendor=vendor))
+        answer = input(f"Disconnect {vendor}? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("nothing was removed")
+            return EXIT_USAGE
     try:
         await _call(home, "provider.remove", {"vendor": vendor})
     except DaemonError as exc:
@@ -1315,6 +1336,84 @@ async def provider_remove(
         _print_json({"vendor": vendor, "removed": True})
         return EXIT_OK
     print(f"{vendor}: removed")
+    return EXIT_OK
+
+
+#: What ``snowpea provider remove`` says before it asks (1.60.0).
+REMOVE_PROVIDER_WARNING = (
+    "{vendor}: its API key or login is removed from this machine, and the model slots and "
+    "agents that used it fall back to the default model."
+)
+
+
+async def provider_model_visibility(
+    verb: str, vendor: str, model: str, home: Path | str | None = None, *,
+    as_json: bool = False,
+) -> int:
+    """``snowpea provider models hide|unhide <vendor> <model>`` (1.60.0).
+
+    ``hide`` → ``provider.model.remove``: a hand-added id is taken off
+    ``providers.<vendor>.models`` ("unlisted"), any other is hidden from every
+    picker.  ``unhide`` → ``provider.model.unhide``.  Nothing that uses the model
+    changes.
+    """
+    method = "provider.model.remove" if verb == "hide" else "provider.model.unhide"
+    try:
+        result = await _call(home, method, {"vendor": vendor.strip(), "model": model.strip()})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"{method} failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    action = str(result.get("action") or "") if verb == "hide" else "shown"
+    if as_json:
+        _print_json({"vendor": vendor, "model": model, "action": action})
+        return EXIT_OK
+    if action == "unlisted":
+        print(f"{vendor}: {model} taken off the hand-added list")
+    elif action == "hidden":
+        print(f"{vendor}: {model} hidden (`snowpea provider models unhide {vendor} {model}` "
+              "shows it again)")
+    else:
+        print(f"{vendor}: {model} shown again")
+    return EXIT_OK
+
+
+async def provider_hidden_models(
+    vendor: str | None = None, home: Path | str | None = None, *, as_json: bool = False
+) -> int:
+    """``snowpea provider models list [vendor] --hidden``: the hidden ids, and who uses them."""
+    try:
+        providers = await _lookup(home, "provider.list", "providers")
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"provider.list failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if vendor:
+        rows = [row for row in providers if row.get("vendor") == vendor]
+        if not rows:
+            return _fail(f"no provider {vendor!r}", EXIT_USAGE)
+    else:
+        rows = [row for row in providers if row.get("hiddenModels")]
+    if as_json:
+        _print_json([
+            {"vendor": row.get("vendor"), "hiddenModels": row.get("hiddenModels") or [],
+             "hiddenInUse": row.get("hiddenInUse") or []}
+            for row in rows
+        ])
+        return EXIT_OK
+    if not any(row.get("hiddenModels") for row in rows):
+        print(f"{vendor}: no hidden models" if vendor else "no hidden models")
+        return EXIT_OK
+    for row in rows:
+        name = str(row.get("vendor") or "")
+        uses = {
+            str(use.get("model")): [str(who) for who in use.get("usedBy") or []]
+            for use in row.get("hiddenInUse") or []
+            if isinstance(use, dict)
+        }
+        for model in row.get("hiddenModels") or []:
+            note = f"  (hidden but in use: {', '.join(uses[model])})" if uses.get(model) else ""
+            print(f"{name}: {model}{note}")
     return EXIT_OK
 
 
@@ -2949,10 +3048,21 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
     provider_models_parser = provider_sub.add_parser(
-        "models", help="ask a vendor which models it serves"
+        "models",
+        help="ask a vendor which models it serves; hide or unhide one",
+        description=(
+            "snowpea provider models [list] [vendor] [--hidden] | "
+            "hide <vendor> <model> | unhide <vendor> <model>"
+        ),
     )
     provider_models_parser.add_argument(
-        "vendor", nargs="?", default=None, help="vendor to query (default: the configured one)"
+        "models_args",
+        nargs="*",
+        metavar="[list|hide|unhide] [vendor] [model]",
+        help="vendor to query (default: the configured one), or hide/unhide <vendor> <model>",
+    )
+    provider_models_parser.add_argument(
+        "--hidden", action="store_true", help="list the hidden models instead"
     )
     provider_models_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
@@ -2998,6 +3108,9 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "remove", help="forget a provider and the model profiles that used it"
     )
     provider_remove_parser.add_argument("name", help="provider to remove")
+    provider_remove_parser.add_argument(
+        "-y", "--yes", dest="remove_yes", action="store_true", help="do not ask first"
+    )
     provider_remove_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
@@ -3836,9 +3949,23 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         if action == "list":
             return await provider_list(home, as_json=as_json)
         if action == "models":
-            return await provider_models(
-                getattr(args, "vendor", None) or None, home, as_json=as_json
-            )
+            words = [str(word) for word in (getattr(args, "models_args", None) or [])]
+            verb = words[0] if words and words[0] in ("list", "hide", "unhide") else "list"
+            rest = words[1:] if words and words[0] == verb else words
+            if verb in ("hide", "unhide"):
+                if len(rest) != 2:
+                    return _fail(f"usage: snowpea provider models {verb} <vendor> <model>",
+                                 EXIT_USAGE)
+                return await provider_model_visibility(
+                    verb, rest[0], rest[1], home, as_json=as_json
+                )
+            if len(rest) > 1:
+                return _fail("usage: snowpea provider models [list] [vendor] [--hidden]",
+                             EXIT_USAGE)
+            vendor_arg = rest[0] if rest else None
+            if getattr(args, "hidden", False):
+                return await provider_hidden_models(vendor_arg, home, as_json=as_json)
+            return await provider_models(vendor_arg, home, as_json=as_json)
         if action == "add-local":
             return await provider_add_local(
                 str(getattr(args, "name", "") or ""),
@@ -3853,7 +3980,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             )
         if action == "remove":
             return await provider_remove(
-                str(getattr(args, "name", "") or ""), home, as_json=as_json
+                str(getattr(args, "name", "") or ""), home, as_json=as_json,
+                assume_yes=bool(getattr(args, "remove_yes", False)),
             )
         if action == "login":
             vendor_name = str(getattr(args, "vendor", "") or "")
@@ -3866,7 +3994,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             )
         return _fail(
             "usage: snowpea provider list|models|login <vendor>"
-            " | add-local <name> --url <url> | remove <name>",
+            " | models hide|unhide <vendor> <model>"
+            " | add-local <name> --url <url> | remove <name> [--yes]",
             EXIT_USAGE,
         )
     if subcommand == "gateway":

@@ -42,8 +42,9 @@ describe("SlashRegistry", () => {
     expect(commands.map((c) => c.name)).toEqual([
       "help", "plan", "mode", "ralph", "new", "resume", "session", "sessions", "voice", "rec", "tts", "mouse",
       "jarvis", "security", "external", "web", "trust", "settings", "feedback",
+      "providers",
     ]);
-    expect(registry.list()).toHaveLength(19);
+    expect(registry.list()).toHaveLength(20);
   });
 
   it("has no built-in table before load", () => {
@@ -55,10 +56,10 @@ describe("SlashRegistry", () => {
   it("completes from the fetched table", async () => {
     const registry = await load(mockClient(), "sess-1");
     expect(registry.complete("/m").map((c) => c.name)).toEqual(["mode", "mouse"]);
-    expect(registry.complete("p").map((c) => c.name)).toEqual(["plan"]);
+    expect(registry.complete("p").map((c) => c.name)).toEqual(["plan", "providers"]);
     expect(registry.complete("/res").map((c) => c.name)).toEqual(["resume"]);
     expect(registry.complete("/ses").map((c) => c.name)).toEqual(["session", "sessions"]);
-    expect(registry.complete("/").map((c) => c.name)).toHaveLength(19);
+    expect(registry.complete("/").map((c) => c.name)).toHaveLength(20);
     expect(registry.complete("/zz")).toEqual([]);
   });
 

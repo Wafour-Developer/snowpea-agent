@@ -690,7 +690,15 @@ BROWSER_PERSON_METHODS: frozenset[str] = frozenset({
     # Security review 7, Low 8: removing a team guide is the same class as
     # writing one (it was open to every browser call and to a remote login).
     "team.guide.delete",
+    # 1.60.0 (capability hiddenModels): Settings › 모델's remove / show again.
+    "provider.model.remove", "provider.model.unhide",
 })
+#: Of :data:`BROWSER_PERSON_METHODS`, the ones a legacy browser (< 0.3.0) may
+#: not call even though its calls otherwise count as its person's: they came
+#: after the marker, so only a browser that sends it calls them (1.60.0).
+BROWSER_MARKED_ONLY_METHODS: frozenset[str] = frozenset(
+    {"provider.model.remove", "provider.model.unhide"}
+)
 #: Never from a browser connection, any version, marker or not (2026-11-16: no
 #: browser page or host calls them).  ``permission.allowlist.add``: a typed rule
 #: pre-approves before routing.  ``gateway.bind`` (1.55.0): binding a messenger
@@ -822,6 +830,8 @@ REMOTE_LOGIN_METHODS: frozenset[str] = frozenset({
     # the account the owner's traffic and billing go to); provider.configure
     # with a credential is refused by its handler.
     "provider.configure", "provider.remove", "provider.visionReset",
+    # 1.60.0: hiding a model is provider.remove's class (a person's pickers).
+    "provider.model.remove", "provider.model.unhide",
     "mcp.add", "mcp.update", "mcp.remove", "mcp.reload", "mcp.authorize", "mcp.deauthorize",
     "mcp.test", "skill.create", "skill.learn", "skill.reload", "skill.remove", "skill.write",
     "skill.install", "memory.update", "audio.install", "lsp.install",
@@ -1065,6 +1075,9 @@ def browser_method_refusal(method: str, params: dict[str, Any], conn: Any, core:
             refuse(conn, f"call {method} outside its Settings page", reason="not_bundled_plugin",
                    extra={"why": why})
         refuse(conn, f"call {method} outside its Settings page")
+    if method in BROWSER_MARKED_ONLY_METHODS and (actor != ACTOR_PERSON or legacy_browser(conn)):
+        ledger_settings(core, conn, [method], refused=True, method=method)
+        refuse(conn, f"call {method} without actor 'person' from a browser 0.3.0 or later")
     authority = jarvis_authority(core)
     if not authority:
         return

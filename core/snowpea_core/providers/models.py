@@ -40,7 +40,7 @@ import os
 import re
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -484,6 +484,31 @@ def override_models(config: dict[str, Any] | None, *, oauth: bool) -> list[str]:
     return []
 
 
+#: ``providers.<vendor>.hiddenModels`` (1.60.0): ids the person removed from
+#: this vendor's pickers.  Global settings only.
+HIDDEN_FIELD = "hiddenModels"
+
+
+def hidden_models(config: dict[str, Any] | None) -> list[str]:
+    """``providers.<vendor>.hiddenModels``, stripped and de-duplicated (``[]`` when absent).
+
+    Ids match exactly, as the vendor lists them.  A slash is part of the id
+    (OpenRouter's ``openai/gpt-4o`` is its own model, not the ``openai``
+    vendor's ``gpt-4o``), so nothing is split off or prefixed; hiding is per
+    vendor because the list lives in that vendor's own block.
+    """
+    raw = config.get(HIDDEN_FIELD) if isinstance(config, dict) else None
+    if not isinstance(raw, list):
+        return []
+    return _dedupe([item for item in raw if isinstance(item, str)])
+
+
+def without_hidden(ids: Sequence[str], config: dict[str, Any] | None) -> list[str]:
+    """``ids`` minus the vendor's hidden models, order kept."""
+    hidden = set(hidden_models(config))
+    return [name for name in ids if name not in hidden] if hidden else list(ids)
+
+
 def rejected_for_oauth(vendor: str, auth_method: str | None, model: str) -> bool:
     """True when ``model`` belongs to the vendor's API-key endpoint, not this backend.
 
@@ -522,16 +547,16 @@ def offline_models(
     :func:`resolve_models` is the real answer, but ``provider.list`` is a
     synchronous surface that must not make eleven HTTP calls to render a table.
     It gets the same three lower rungs, so a list discovered live once is still
-    the one it shows.
+    the one it shows.  Hidden models (``hiddenModels``) are left out.
     """
     pinned = override_models(config, oauth=(auth_method or "") in OAUTH_METHODS)
     if pinned:
-        return pinned
+        return without_hidden(pinned, config)
     if home is not None:
         remembered = read_cache_file(cache_path(home, vendor, auth_method))
         if remembered:
-            return remembered
-    return curated_models(vendor, auth_method)
+            return without_hidden(remembered, config)
+    return without_hidden(curated_models(vendor, auth_method), config)
 
 
 def curated_models(vendor: str, auth_method: str | None) -> list[str]:
@@ -1058,6 +1083,45 @@ async def resolve_models(
     transport: Any = None,
     on_credentials: Callable[[dict[str, Any]], None] | None = None,
 ) -> ModelListing:
+    """:func:`_resolve_all` minus ``credentials``' ``hiddenModels`` (1.60.0).
+
+    Hiding filters what a picker offers, after the rung is chosen: the cache
+    keeps the vendor's whole answer, so unhiding needs no new round trip, and
+    a hidden id that is in use still runs (nothing on the request path asks).
+    """
+    listing = await _resolve_all(
+        vendor,
+        preset=preset,
+        auth_method=auth_method,
+        api_key=api_key,
+        base_url=base_url,
+        credentials=credentials,
+        home=home,
+        refresh=refresh,
+        timeout=timeout,
+        transport=transport,
+        on_credentials=on_credentials,
+    )
+    config = credentials if isinstance(credentials, dict) else None
+    if not hidden_models(config):
+        return listing
+    return replace(listing, models=without_hidden(listing.models, config))
+
+
+async def _resolve_all(
+    vendor: str,
+    *,
+    preset: VendorPreset | None = None,
+    auth_method: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    credentials: dict[str, Any] | None = None,
+    home: Path | str | None = None,
+    refresh: bool = False,
+    timeout: float = LIST_TIMEOUT,
+    transport: Any = None,
+    on_credentials: Callable[[dict[str, Any]], None] | None = None,
+) -> ModelListing:
     """Every model ``vendor`` can serve this account, and where the list came from.
 
     One chain, the same for all eleven vendors and for every authentication
@@ -1162,6 +1226,7 @@ __all__ = [
     "ANTHROPIC_VERSION",
     "CACHE_TTL_SEC",
     "CODEX_MODELS_URL",
+    "HIDDEN_FIELD",
     "LIST_TIMEOUT",
     "MODELS_DEV_IDS",
     "MODELS_DEV_TTL_SEC",
@@ -1181,6 +1246,7 @@ __all__ = [
     "codex_slugs",
     "curated_models",
     "has_live_listing",
+    "hidden_models",
     "is_placeholder",
     "list_models",
     "models_dev_cached",
@@ -1193,5 +1259,6 @@ __all__ = [
     "read_cache_file",
     "rejected_for_oauth",
     "resolve_models",
+    "without_hidden",
     "write_cache_file",
 ]

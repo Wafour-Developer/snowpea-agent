@@ -47,6 +47,7 @@ from snowpea_core.server.protocol import (
     CommandListResult,
     CommandRunParams,
     Empty,
+    HiddenModelUse,
     MemoryConfirmParams,
     MemoryConfirmResult,
     MemoryDeleteParams,
@@ -1338,7 +1339,52 @@ async def question_respond_handler(
 async def provider_list_handler(
     _conn: RpcConnection, _params: Empty, core: Core
 ) -> ProviderListResult:
-    return ProviderListResult(providers=core.providers.list())
+    infos = core.providers.list()
+    for info in infos:
+        if info.hiddenModels:
+            info.hiddenInUse = _hidden_in_use(core, info.vendor, info.hiddenModels)
+    return ProviderListResult(providers=infos)
+
+
+def _hidden_in_use(core: Core, vendor: str, hidden: list[str]) -> list[HiddenModelUse]:
+    """``ProviderInfo.hiddenInUse`` (1.60.0): who still uses a hidden model of ``vendor``.
+
+    ``default`` — ``models.default``, or the vendor's own default model;
+    ``category:<slot>`` — ``models.categories``; ``agent:<name>`` —
+    ``agents.models``; ``session:<id>`` — a session whose turn is running on it.
+    Nothing here changes anything: a hidden model keeps working where it is used.
+    """
+    from snowpea_core.config.model_routing import resolve_reference
+
+    wanted = set(hidden)
+    used: dict[str, list[str]] = {}
+
+    def note(model: str | None, who: str) -> None:
+        if model in wanted and who not in used.setdefault(model, []):
+            used[model].append(who)
+
+    def routed(reference: Any) -> str | None:
+        try:
+            route = resolve_reference(core.settings, reference)
+        except Exception:  # noqa: BLE001 - a bad reference is not this call's problem
+            return None
+        return route.model if route.provider == vendor else None
+
+    settings = core.settings
+    note(routed(settings.models.default), "default")
+    try:
+        note(core.providers.model_for(vendor), "default")
+    except Exception:  # noqa: BLE001
+        log.debug("could not read %s's default model", vendor, exc_info=True)
+    for slot, reference in sorted((settings.models.categories or {}).items()):
+        note(routed(reference), f"category:{slot}")
+    for agent, reference in sorted((settings.agents.models or {}).items()):
+        note(routed(reference), f"agent:{agent}")
+    sessions = getattr(core, "sessions", None)
+    for session in sessions.all() if sessions is not None else ():
+        if getattr(session, "turn_live", False) and getattr(session, "provider", None) == vendor:
+            note(getattr(session, "model", None), f"session:{session.id}")
+    return [HiddenModelUse(model=model, usedBy=who) for model, who in used.items() if who]
 
 
 async def provider_vision_reset_handler(
