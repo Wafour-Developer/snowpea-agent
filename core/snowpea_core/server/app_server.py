@@ -919,6 +919,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.trust_handlers import register_trust_handlers
 
     register_trust_handlers(dispatcher)
+    from snowpea_core.server.feedback_handlers import register_feedback_handlers
+
+    register_feedback_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)

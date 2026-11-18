@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.58.0";
+export const PROTOCOL_VERSION = "1.59.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -20,6 +20,9 @@ export type ErrorCode =
   | "exists"
   | "external_unavailable"
   | "external_view_only"
+  | "feedback_busy"
+  | "feedback_rejected"
+  | "feedback_unreachable"
   | "fork_after_compaction"
   | "fork_child_session"
   | "fork_no_finished_turn"
@@ -67,6 +70,9 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "exists",
   "external_unavailable",
   "external_view_only",
+  "feedback_busy",
+  "feedback_rejected",
+  "feedback_unreachable",
   "fork_after_compaction",
   "fork_child_session",
   "fork_no_finished_turn",
@@ -1862,6 +1868,77 @@ export interface ExternalUnwatchParams {
 export interface ExternalUnwatchResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `feedback.preview` params. 개선하기 (1.59.0, capability improvementFeedback): the report feedback.send would upload for this conversation, masked and fitted, with counts and the endpoint. Nothing leaves the machine. People only (a remote web login too); never a connector, a browser host, Jarvis or an agent. */
+export interface FeedbackPreviewParams {
+  /** What went wrong or what to improve (optional). */
+  comment?: string | null;
+  /** Messages the person points at (at most 1000). */
+  flagged?: ({
+    /** The id of a message in report.session.messages (m_<seq>); an unknown id is invalid_params (details.field 'flagged'). */
+    messageId: string;
+    /** Why this message is a problem (masked like the rest). */
+    note?: string | null;
+  })[] | null;
+  /** The conversation to send. */
+  sessionId: string;
+}
+
+/** `feedback.preview` result. */
+export interface FeedbackPreviewResult {
+  /** The URL the report would go to. */
+  endpoint: string;
+  /** The exact JSON object feedback.send would POST (schema 1 of snowpea-browser's docs/feedback-api.md, client.app 'snowpea-core'), after masking and fitting, without attachments. Render report.session.messages: {id, seq?, role: user|assistant|tool|system|event, ts?, text?, reasoning?, tool?: {name, callId?, args?, result?, status?, durationMs?}, meta?}; tool rows are best hidden by default. client.surface is the caller's own kind here; send takes it from its params. */
+  report: Record<string, unknown>;
+  stats: {
+    /** Tool results, args or long texts cut to fit the server's size limits. */
+    droppedResults: number;
+    /** Messages in the report. */
+    messages: number;
+    /** The report's JSON size before gzip. */
+    rawBytes: number;
+    /** Strings something was masked in, plus tool results withheld whole (sensitive). */
+    redactions: number;
+    /** Of them, tool calls (a client hides them by default). */
+    toolMessages: number;
+  };
+}
+
+/** `feedback.send` params. 개선하기 (1.59.0, capability improvementFeedback): upload the conversation to the Snowpea team, gzip, once (no automatic retry). Call it only after the person confirmed the preview. Errors: feedback_rejected (4xx), feedback_busy (429/503, details.retryAfterSec), feedback_unreachable (network, 5xx); details {status, retryAfterSec?, serverError?, serverMessage?}. People only, like feedback.preview. */
+export interface FeedbackSendParams {
+  /** Screenshots: at most 10, at most 5 MB decoded in total (invalid_params otherwise). */
+  attachments?: ({
+    /** Standard base64, no data: prefix. */
+    bytesBase64: string;
+    /** Images only; the bytes must start with the format's signature. */
+    mime: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+    /** A file name (no path). */
+    name: string;
+  })[] | null;
+  /** What went wrong or what to improve (optional). */
+  comment?: string | null;
+  /** Messages the person points at (at most 1000). */
+  flagged?: ({
+    /** The id of a message in report.session.messages (m_<seq>); an unknown id is invalid_params (details.field 'flagged'). */
+    messageId: string;
+    /** Why this message is a problem (masked like the rest). */
+    note?: string | null;
+  })[] | null;
+  /** The conversation to send. */
+  sessionId: string;
+  /** The app the person sends from (report client.surface). */
+  surface: "desktop" | "tui" | "web" | "ide" | "cli" | "messenger" | "other";
+  /** That app's own version (report client.surfaceVersion). */
+  surfaceVersion?: string | null;
+}
+
+/** `feedback.send` result. */
+export interface FeedbackSendResult {
+  /** The report's id on the feedback server (24 hex). */
+  id: string;
+  /** When the server received it (ISO). */
+  receivedAt: string;
 }
 
 /** `file.complete` params. Complete file and directory paths under a session workdir. */
@@ -11332,6 +11409,8 @@ export interface MethodMap {
   "external.setMode": { params: ExternalSetModeParams; result: ExternalSetModeResult };
   "external.terminalSnapshot": { params: ExternalTerminalSnapshotParams; result: ExternalTerminalSnapshotResult };
   "external.unwatch": { params: ExternalUnwatchParams; result: ExternalUnwatchResult };
+  "feedback.preview": { params: FeedbackPreviewParams; result: FeedbackPreviewResult };
+  "feedback.send": { params: FeedbackSendParams; result: FeedbackSendResult };
   "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
   "fs.glob": { params: FsGlobParams; result: FsGlobResult };
   "fs.hash": { params: FsHashParams; result: FsHashResult };
@@ -11557,6 +11636,8 @@ export type ClientMethod =
   | "external.setMode"
   | "external.terminalSnapshot"
   | "external.unwatch"
+  | "feedback.preview"
+  | "feedback.send"
   | "file.complete"
   | "fs.glob"
   | "fs.hash"

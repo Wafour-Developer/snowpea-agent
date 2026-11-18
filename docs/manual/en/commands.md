@@ -45,6 +45,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/rec` | start or stop recording, same as `Ctrl+Space` |
 | `/tts on\|off` | speak each reply as it finishes |
 | `/update` | take the offered upgrade, same as `U` |
+| `/feedback`, `/개선하기` | send this conversation to the Snowpea team to improve the agent: shows what would be sent (masked) first and sends only when you pick Send. See [Sending feedback](tui.md#sending-feedback-개선하기). Needs a core with protocol 1.59.0 |
 
 ### Work
 

@@ -384,6 +384,18 @@ When a newer release exists the status line says so, and `U` on an empty input �
 snowpea v0.1.2 → v0.1.3 (U to update)
 ```
 
+## Sending feedback (개선하기)
+
+`/feedback` (or `/개선하기`; text after it becomes the first draft of your comment) sends the current conversation to the Snowpea team, who read it to make the agent better. Nothing leaves your machine until you pick **Send**:
+
+1. The core builds the report from the session's saved events and shows a preview: how many messages (tool calls are counted but not listed), how many places were masked, the first line of each message, and the address it goes to (`https://browser.snowpea.ai/api/feedback`).
+2. Type an optional comment, press `Enter`, and read the line above the buttons: *Pressing Send passes this conversation to the Snowpea team, who use it to make the agent better.*
+3. **Send** uploads it once and shows the report id; **Cancel** or `Esc` sends nothing. If the server is busy you are told when to try again; nothing is retried on its own.
+
+What is masked before anything leaves (the same rules as the snowpea browser's 「개선 요청하기」): API keys and tokens (`sk-…`, AWS, GitHub, Google, Slack, Stripe, JWTs, bearer tokens), passwords and other `key=value` secrets, private keys, cookies and auth headers, credential parameters in URLs, card numbers, the daemon's own token and every key in your settings wherever it appears. A tool result marked sensitive is left out whole, very long texts are cut at 200 KB, big `data:` URLs become a marker and local file paths of attachments become file names. A random install id (`$SNOWPEA_HOME/feedback-install-id`) is sent so the server can rate-limit; it says nothing about you.
+
+Only a person can send: the TUI, the desktop app, the web page (a remote login too) and the IDE. A connector, Jarvis, a messenger and the agent itself cannot, and there is no tool for it. The command is hidden when the daemon is older than protocol 1.59.0.
+
 ## Attachments
 
 Paste or drop a file path into the input and it becomes a chip instead of text:

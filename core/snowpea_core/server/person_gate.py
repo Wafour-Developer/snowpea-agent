@@ -268,6 +268,11 @@ PERSON_METHODS: dict[str, bool] = {
     "project.trust.status": False,
     # Security review 7, P2: applying security settings that were edited on disk.
     "settings.acceptDiskChange": True,
+    # 개선하기 (1.59.0): a person sends a conversation to the Snowpea team — a
+    # remote web login is a person here too; never a browser host (it has its
+    # own sender), a connector, Jarvis or any other in-process caller.
+    "feedback.preview": False,
+    "feedback.send": False,
 }
 
 

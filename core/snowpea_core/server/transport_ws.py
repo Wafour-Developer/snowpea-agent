@@ -124,6 +124,16 @@ _CLOSING: set[asyncio.Task[Any]] = set()
 REMOTE_CLIENT_KIND = "web"
 
 
+def _advertised_capabilities() -> list[str]:
+    """``CAPABILITIES``, less 개선하기 until its server takes core's reports."""
+    from snowpea_core.feedback.sender import advertised
+
+    caps = list(CAPABILITIES)
+    if not advertised():
+        caps = [c for c in caps if c != "improvementFeedback"]
+    return caps
+
+
 async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) -> HelloResult:
     """``system.hello``: authenticate the socket and agree on the protocol."""
     if protocol_major(params.protocolVersion) != protocol_major(PROTOCOL_VERSION):
@@ -178,7 +188,7 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
     return HelloResult(
         protocolVersion=PROTOCOL_VERSION,
         serverVersion=SERVER_VERSION,
-        capabilities=list(CAPABILITIES),
+        capabilities=_advertised_capabilities(),
         modelCategories=list(MODEL_CATEGORIES),
         machine=machine_of(core),
         settingsDegraded=degraded,

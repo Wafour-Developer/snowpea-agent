@@ -33,7 +33,7 @@ import { defaultResolveEndpoint } from "./rpc/sdk.js";
 import type { ExternalSessionRow } from "./rpc/sdk.js";
 import { agentOfExternal, agentOfSession, type AgentIdentity } from "./state/agent-tag.js";
 import { SessionPicker, SESSION_PICKER_CHROME_ROWS } from "./components/SessionPicker.js";
-import { SlashRegistry, setSurfaceSupport, ttsSubCommands, voiceSubCommands } from "./slash/registry.js";
+import { SlashRegistry, setSurfaceHidden, setSurfaceSupport, ttsSubCommands, voiceSubCommands } from "./slash/registry.js";
 import { externalSubCommands, jarvisSubCommands } from "./slash/jarvis.js";
 import { useJarvisScreens } from "./hooks/useJarvisScreens.js";
 import { ScreenOverlays, screenOverlayRows } from "./components/ScreenOverlays.js";
@@ -50,6 +50,9 @@ import { webRemoteSupported } from "./state/web-remote.js";
 import { TrustScreen } from "./components/TrustScreen.js";
 import { useTrustScreen, type TrustScreenHook } from "./hooks/useTrustScreen.js";
 import { trustSupported } from "./state/trust.js";
+import { FeedbackScreen } from "./components/FeedbackScreen.js";
+import { useFeedback, type FeedbackHook } from "./hooks/useFeedback.js";
+import { feedbackSupported } from "./state/feedback.js";
 import { commandResultText, commandsBesideTurnSupported, ranBesideTurn } from "./state/command-result.js";
 import { trustSubCommands } from "./slash/trust.js";
 import { webSubCommands } from "./slash/web.js";
@@ -784,6 +787,8 @@ export function App({
   const webRef = useRef<WebScreenHook | null>(null);
   /** The project-trust hook, for the same reason. */
   const trustRef = useRef<TrustScreenHook | null>(null);
+  /** The `/feedback` hook (1.59.0), for the same reason. */
+  const feedbackRef = useRef<FeedbackHook | null>(null);
   /** Ids of the high-importance Jarvis notices already written to the transcript. */
   const highEscalationsRef = useRef<Set<string>>(new Set());
   /** The settings-edited-on-disk hook, for the same reason. */
@@ -928,6 +933,8 @@ export function App({
       ...(webRemoteSupported(client.serverCapabilities?.()) ? [] : ["web"]),
       ...(trustSupported(client.serverCapabilities?.()) ? [] : ["trust"]),
     ]);
+    // 1.59.0: `/feedback` is not offered at all by a daemon without the capability.
+    setSurfaceHidden(feedbackSupported(client.serverCapabilities?.()) ? [] : ["feedback"]);
 
     client.setListeners({
       // The Jarvis and external-session notifications go to their hook.
@@ -1563,6 +1570,8 @@ export function App({
   webRef.current = web;
   const trust = useTrustScreen({ client, workdir, note, warn, showToast });
   trustRef.current = trust;
+  const feedback = useFeedback({ client, sessionId, note, showToast });
+  feedbackRef.current = feedback;
   const disk = useDiskSettings({ client, warn, note, onReloaded: () => setInfoTick((tick) => tick + 1) });
   diskRef.current = disk;
   /** The one banner row: an update nudge wins, else the settings that wait on disk. */
@@ -2537,6 +2546,10 @@ export function App({
         history?.add(text, workdir);
         return;
       }
+      if (feedbackRef.current?.handleCommand(text)) {
+        history?.add(text, workdir);
+        return;
+      }
       if (diskRef.current?.handleCommand(text)) {
         history?.add(text, workdir);
         return;
@@ -3098,6 +3111,7 @@ export function App({
       security.ui !== null ||
       web.ui !== null ||
       trust.ui !== null ||
+      feedback.ui !== null ||
       disk.open
     ) {
       return;
@@ -3558,7 +3572,7 @@ export function App({
             setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || disk.open}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || feedback.ui !== null || disk.open}
         />
       )}
     </>
@@ -3673,6 +3687,17 @@ export function App({
     />
   ) : null;
 
+  const feedbackNode = feedback.ui ? (
+    <FeedbackScreen
+      preview={feedback.ui.preview}
+      initialComment={feedback.ui.comment}
+      width={contentWidth}
+      onSend={feedback.send}
+      onClose={feedback.close}
+      isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
+    />
+  ) : null;
+
   const diskNode = disk.open ? (
     <DiskSettingsScreen
       waiting={disk.waiting}
@@ -3723,7 +3748,7 @@ export function App({
         banner={topBanner}
         bannerColor={bannerText(update) === null ? "yellow" : undefined}
         scrollIndicator={scrollIndicator(viewport)}
-        overlay={helpNode ?? diskNode ?? trustNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
+        overlay={helpNode ?? diskNode ?? feedbackNode ?? trustNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
           <LaunchBanner
             width={terminal.columns - 2}
             terminalRows={terminal.rows}
@@ -3854,7 +3879,7 @@ export function App({
           oldest rows go, clipped at the top, and the newest stay. Whatever is
           clipped is still live, so it reaches the scrollback whole later. */}
       <Box flexDirection="column" flexShrink={1} overflowY="hidden" justifyContent="flex-end">
-      {showHelp || securityNode || webNode || trustNode || diskNode ? null : externalNode ? externalNode : openAgent ? (
+      {showHelp || securityNode || webNode || trustNode || feedbackNode || diskNode ? null : externalNode ? externalNode : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}
@@ -3898,6 +3923,8 @@ export function App({
       {webNode}
 
       {trustNode}
+
+      {feedbackNode}
 
       {bottomNode}
 

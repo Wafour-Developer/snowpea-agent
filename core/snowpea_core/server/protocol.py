@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
 
-PROTOCOL_VERSION = "1.58.0"
+PROTOCOL_VERSION = "1.59.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -10641,6 +10641,96 @@ class SecurityBlockedNotification(Payload):
 
 
 # --------------------------------------------------------------------------
+# 개선하기 — improvement feedback (1.59.0, capability improvementFeedback)
+# --------------------------------------------------------------------------
+
+FeedbackSurface = Literal["desktop", "tui", "web", "ide", "cli", "messenger", "other"]
+FeedbackImageMime = Literal["image/png", "image/jpeg", "image/webp", "image/gif"]
+
+
+class FeedbackFlag(Payload):
+    messageId: str = Field(
+        min_length=1,
+        max_length=200,
+        description="The id of a message in report.session.messages (m_<seq>); an unknown id is "
+        "invalid_params (details.field 'flagged').",
+    )
+    note: str | None = Field(
+        default=None,
+        max_length=4000,
+        description="Why this message is a problem (masked like the rest).",
+    )
+
+
+class FeedbackPreviewParams(Payload):
+    sessionId: str = Field(min_length=1, description="The conversation to send.")
+    comment: str | None = Field(
+        default=None, max_length=20000, description="What went wrong or what to improve (optional)."
+    )
+    flagged: list[FeedbackFlag] | None = Field(
+        default=None, max_length=1000, description="Messages the person points at (at most 1000)."
+    )
+
+
+class FeedbackAttachment(Payload):
+    name: str = Field(min_length=1, max_length=200, description="A file name (no path).")
+    mime: FeedbackImageMime = Field(
+        description="Images only; the bytes must start with the format's signature."
+    )
+    bytesBase64: str = Field(min_length=1, description="Standard base64, no data: prefix.")
+
+
+class FeedbackSendParams(FeedbackPreviewParams):
+    surface: FeedbackSurface = Field(
+        description="The app the person sends from (report client.surface)."
+    )
+    surfaceVersion: str | None = Field(
+        default=None,
+        max_length=64,
+        description="That app's own version (report client.surfaceVersion).",
+    )
+    attachments: list[FeedbackAttachment] | None = Field(
+        default=None,
+        max_length=10,
+        description=(
+            "Screenshots: at most 10, at most 5 MB decoded in total (invalid_params otherwise)."
+        ),
+    )
+
+
+class FeedbackStats(Payload):
+    messages: int = Field(description="Messages in the report.")
+    toolMessages: int = Field(description="Of them, tool calls (a client hides them by default).")
+    rawBytes: int = Field(description="The report's JSON size before gzip.")
+    redactions: int = Field(
+        description="Strings something was masked in, plus tool results withheld whole (sensitive)."
+    )
+    droppedResults: int = Field(
+        description="Tool results, args or long texts cut to fit the server's size limits."
+    )
+
+
+class FeedbackPreviewResult(Payload):
+    report: dict[str, Any] = Field(
+        description=(
+            "The exact JSON object feedback.send would POST (schema 1 of snowpea-browser's "
+            "docs/feedback-api.md, client.app 'snowpea-core'), after masking and fitting, without "
+            "attachments. Render report.session.messages: {id, seq?, role: user|assistant|tool|"
+            "system|event, ts?, text?, reasoning?, tool?: {name, callId?, args?, result?, status?, "
+            "durationMs?}, meta?}; tool rows are best hidden by default. client.surface is the "
+            "caller's own kind here; send takes it from its params."
+        )
+    )
+    stats: FeedbackStats
+    endpoint: str = Field(description="The URL the report would go to.")
+
+
+class FeedbackSendResult(Payload):
+    id: str = Field(description="The report's id on the feedback server (24 hex).")
+    receivedAt: str = Field(description="When the server received it (ISO).")
+
+
+# --------------------------------------------------------------------------
 # registries
 # --------------------------------------------------------------------------
 
@@ -11889,6 +11979,30 @@ METHODS: dict[str, RpcMethod] = {
             "Project trust (1.55.0): take scopes back (all when omitted). A local person only.",
         ),
         _m(
+            "feedback.preview",
+            FeedbackPreviewParams,
+            FeedbackPreviewResult,
+            (
+                "개선하기 (1.59.0, capability improvementFeedback): the report feedback.send would "
+                "upload for this conversation, masked and fitted, with counts and the endpoint. "
+                "Nothing leaves the machine. People only (a remote web login too); never a "
+                "connector, a browser host, Jarvis or an agent."
+            ),
+        ),
+        _m(
+            "feedback.send",
+            FeedbackSendParams,
+            FeedbackSendResult,
+            (
+                "개선하기 (1.59.0, capability improvementFeedback): upload the conversation to the "
+                "Snowpea team, gzip, once (no automatic retry). Call it only after the person "
+                "confirmed the preview. Errors: feedback_rejected (4xx), feedback_busy (429/503, "
+                "details.retryAfterSec), feedback_unreachable (network, 5xx); details {status, "
+                "retryAfterSec?, serverError?, serverMessage?}. People only, like "
+                "feedback.preview."
+            ),
+        ),
+        _m(
             "web.remote.status",
             Empty,
             WebRemoteStatus,
@@ -12315,6 +12429,9 @@ CAPABILITIES: list[str] = [
     # SettingsChangedNotification.security; a browser's Settings page (actor
     # 'person') writes security.enabled/unknownCode/blockedCommands/protectedPaths.
     "securityMasterSwitch",
+    # 1.59.0 (개선하기): feedback.preview / feedback.send, error codes
+    # feedback_rejected / feedback_busy / feedback_unreachable.
+    "improvementFeedback",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -12551,6 +12668,9 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "project.trust.status",
         "project.trust.set",
         "project.trust.revoke",
+        # 1.59.0 (capability improvementFeedback)
+        "feedback.preview",
+        "feedback.send",
     }
 )
 

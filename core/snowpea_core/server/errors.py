@@ -107,6 +107,15 @@ CONTEXT_WINDOW_TOO_SMALL = "context_window_too_small"
 #: ``details {changed: [path], added: [path], missing: [path]}``.  Read the
 #: status again and show it.
 TRUST_CHANGED = "trust_changed"
+#: 1.59.0 (``feedback.send``, capability ``improvementFeedback``): the feedback
+#: server refused the report with a 4xx other than 429 (never retried
+#: automatically); it is busy or rate-limited (429/503, ``details.retryAfterSec``
+#: when it said); it could not be reached (network error, timeout, a redirect, a
+#: 5xx or an answer without an id).  ``details {status, retryAfterSec?,
+#: serverError?, serverMessage?}``; ``status`` is 0 when nothing answered.
+FEEDBACK_REJECTED = "feedback_rejected"
+FEEDBACK_BUSY = "feedback_busy"
+FEEDBACK_UNREACHABLE = "feedback_unreachable"
 
 #: ``error.data.details.reason`` values a client may switch on (1.55.0
 #: enumerates them): reason -> (the code it rides on, what it means).
@@ -257,6 +266,9 @@ ERROR_CODES: tuple[str, ...] = (
     HOOK_FAILED,
     CONTEXT_WINDOW_TOO_SMALL,
     TRUST_CHANGED,
+    FEEDBACK_REJECTED,
+    FEEDBACK_BUSY,
+    FEEDBACK_UNREACHABLE,
 )
 
 # JSON-RPC 2.0 reserved codes.
