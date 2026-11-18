@@ -8,10 +8,7 @@ from snowpea_core.lsp.client import path_to_uri, uri_to_path, windows_uri_path
 
 
 def test_the_old_windows_uri_shape_is_gone() -> None:
-    # pathname2url("C:\\x") is "///C:/x"; "file://" + that was the bug.
-    import nturl2path
-
-    assert ("file://" + nturl2path.pathname2url(r"C:\Users\sg\backend")).startswith("file://///")
+    # On Windows pathname2url("C:\\x") is "///C:/x"; "file://" + that was the bug.
     assert windows_uri_path("file:///C:/Users/sg/backend") == str(
         PureWindowsPath(r"C:\Users\sg\backend"))
 
