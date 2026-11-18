@@ -183,6 +183,18 @@ From a finished turn you can **fork** the conversation: a new conversation start
 
 **Pin** keeps a conversation at the top of its workspace; **archive** hides it from the sidebar without deleting it (the sidebar's view options show archived ones again).
 
+## Trusting a folder from the browser
+
+A folder's own MCP servers, hooks and commands stay off until the folder is trusted (see [Project trust](security.md#project-trust-pins-what-hooks-run)). The snowpea browser 0.4.0 or later can trust it itself: the conversation shows "Trust this folder from the browser to turn on its MCP servers, hooks and commands" with a button, the browser shows what the folder brings, and you confirm in the browser's own window (not a click on the page). What is trusted is exactly what you were shown; if a file changed in between, nothing is trusted and the list comes again.
+
+- Only for the folder of a conversation this browser opened or hosts — not another browser's or the IDE's.
+- Only on this computer: not through a remote sign-in, not from another machine.
+- Only the default scopes: hooks, MCP servers, commands, agents, prompts and settings. Letting the folder set the default mode, or start external CLIs, stays in the snowpea app or the terminal.
+- Taking trust back from the browser follows the same rule.
+- Each grant is recorded with the browser that made it, in the trust record and in `logs/security.jsonl`.
+
+An older browser says instead that the folder's own servers, hooks and commands are off until it is trusted in the snowpea app or terminal; servers you add globally in Settings › MCP work everywhere.
+
 ## What the browser cannot do
 
 The page has no access to your operating system, so these stay in the IDE and the terminal UI:

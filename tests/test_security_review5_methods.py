@@ -107,6 +107,13 @@ TABLE: dict[str, tuple[str, ...]] = {
     # 1.60.0 hidden models: provider.remove's class (a remote login too), but a
     # browser only with the marker and 0.3.0+ (a legacy browser never sends them).
     "yynnny": ("provider.model.remove", "provider.model.unhide"),
+    # 1.62.0 (browserProjectTrust, was yynnnn): people read a project's trust; a
+    # browser too, its handler judging (local, its own session's folder).
+    "yynyyy_trust": ("project.trust.status",),
+    # 1.62.0 (was ynnnnn): a local person; a browser reaches the handler, which
+    # judges it (settings_gate.browser_trust_refusal: 0.4.0+, personConfirm
+    # 'window', local, its own session's folder, default scopes).
+    "ynnyyy_trust": ("project.trust.set", "project.trust.revoke"),
     # People (local and remote): Jarvis, project trust status.
     "yynnnn": (
         # Security review 6 (the browser team's source check): no browser calls
@@ -122,7 +129,6 @@ TABLE: dict[str, tuple[str, ...]] = {
         "jarvis.session.set",
         # jarvis.briefing.set: a remote login only turns it off (review 8, H8-2).
         "jarvis.briefing.set", "mcp.preset.check",
-        "project.trust.status",
         # 1.59.0 개선하기: a person sends a conversation (never a browser or connector).
         "feedback.preview", "feedback.send",
     ),
@@ -145,7 +151,6 @@ TABLE: dict[str, tuple[str, ...]] = {
         "web.remote.clearPassword", "web.remote.rotateToken",
         "extension.enable", "extension.disable", "extension.configure", "extension.reload",
         "extension.list", "system.update", "system.restart",
-        "project.trust.set", "project.trust.revoke",
         # Security review 7, P2: security settings edited on disk wait for a local person.
         "settings.acceptDiskChange",
         "system.echoRequest",  # registered only under SNOWPEA_TEST=1
@@ -182,7 +187,7 @@ def _expected() -> dict[str, str]:
     for code, methods in TABLE.items():
         for method in methods:
             assert method not in out, f"{method} is listed twice"
-            out[method] = code
+            out[method] = code.split("_", 1)[0]
     return out
 
 

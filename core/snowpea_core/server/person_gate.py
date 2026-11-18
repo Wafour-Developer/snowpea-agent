@@ -282,13 +282,19 @@ PERSON_METHODS: dict[str, bool] = {
 BROWSER_READABLE: frozenset[str] = frozenset(
     {"security.presets.list", "security.get", "security.check"}
 )
+#: Of :data:`PERSON_METHODS`, what a browser connection may call and its handler
+#: judges (1.62.0, ``browserProjectTrust``: ``settings_gate.browser_trust_refusal``).
+BROWSER_JUDGED: frozenset[str] = frozenset(
+    {"project.trust.status", "project.trust.set", "project.trust.revoke"}
+)
 
 
 def method_refusal(method: str, conn: Any) -> None:
     """Raise ``jarvis_person_only`` when ``method`` is a person's and ``conn`` is not."""
     local = PERSON_METHODS.get(method)
     if local is not None:
-        if method in BROWSER_READABLE and connection_kind(conn) == "browser":
+        if (method in BROWSER_READABLE or method in BROWSER_JUDGED) and connection_kind(
+                conn) == "browser":
             return
         require_person(conn, f"call {method}", local=local)
 
