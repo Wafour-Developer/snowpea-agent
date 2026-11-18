@@ -55,6 +55,14 @@ log = logging.getLogger("snowpea.security")
 UNCHECKED_REASON = "cannot be checked against your block list"
 #: ``by`` of an attempt to change the security lists through a tool.
 BY_SETTINGS = "security"
+#: ``reason`` of the person-only ask a block becomes (0.2.94, :attr:`Verdict.block_reason`).
+BLOCK_LIST_REASON = "on your block list"
+BLOCK_PATH_REASON = "touches a protected folder"
+BLOCK_CONTROL_REASON = "touches snowpea's own controls"
+#: ``reasonCode`` of that ask (stable ids for surfaces, :attr:`Verdict.block_code`).
+BLOCK_LIST_CODE = "blocked_command"
+BLOCK_PATH_CODE = "blocked_path"
+BLOCK_CONTROL_CODE = "blocked_control"
 
 _MESSAGES: dict[str, dict[str, str]] = {
     "preset_command": {
@@ -292,6 +300,38 @@ class Verdict:
     #: For an opaque verdict (m21, ``ApprovalRequest.uncheckedWhy``): what could
     #: not be checked, part by part — ``{"part", "file"?, "line"?, "reason", "text"}``.
     unchecked_why: tuple[dict[str, Any], ...] = field(default=(), compare=False, hash=False)
+    #: The block is a READ of one of snowpea's secrets or an external CLI's login
+    #: (:func:`control_plane.unallowable_read`): the one block no person may allow.
+    secret_read: bool = False
+
+    @property
+    def person_may_allow(self) -> bool:
+        """A block the person may still allow once (0.2.94, owner decision
+        2026-11-18): every block but :attr:`secret_read`.  The approval queue
+        puts it to the person as a person-only ask: never remembered, never
+        Jarvis's, never an unattended run's."""
+        return self.blocked and not self.secret_read
+
+    @property
+    def block_reason(self) -> str:
+        """``ApprovalRequest.reason`` of the person-only ask a block becomes."""
+        if self.kind in ("control", "settings"):
+            return BLOCK_CONTROL_REASON
+        if self.kind == "path":
+            return BLOCK_PATH_REASON
+        return BLOCK_LIST_REASON
+
+    @property
+    def block_code(self) -> str:
+        """``ApprovalRequest.reasonCode`` of that ask: ``blocked_command`` (a
+        blocked command, the person's pattern included), ``blocked_path`` (a
+        protected path) or ``blocked_control`` (snowpea's own controls, the
+        security lists themselves)."""
+        if self.kind in ("control", "settings"):
+            return BLOCK_CONTROL_CODE
+        if self.kind == "path":
+            return BLOCK_PATH_CODE
+        return BLOCK_LIST_CODE
 
     def asks_in(self, mode: str | None) -> bool:
         """The verdict puts the call to the person in a session in ``mode``."""
@@ -838,11 +878,16 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
     (``(unseen reason, why)``).  Always on: no list, preset or setting removes it."""
     asks: list[tuple[str, str]] = []
     homes = control_plane.homes(ctx.home, ctx.user_home)
+    effects = list(effects)
+    # The reader models a program that writes a file as reading it too (``rm x``):
+    # such a word is a write the person may allow, not a secret read (0.2.94).
+    written_raw = {effect.raw for effect in effects if effect.kind == "write"}
     for effect in effects:
         shape = _shape(effect.raw, effect.cwd, ctx)
         if shape is None:
             continue
-        external = _external_secret(shape, effect.kind == "write", ctx)
+        external = _external_secret(shape, effect.kind == "write"
+                                    or effect.raw in written_raw, ctx)
         if external is not None:
             return external, asks
         if effect.kind == "write":
@@ -879,7 +924,9 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
                     key = "control_stray"
                 return Verdict(True, BY_SETTINGS,
                                message(key, ctx.locale, path=shown, what=entry.what),
-                               match=shown, kind="control", level=entry.level), asks
+                               match=shown, kind="control", level=entry.level,
+                               secret_read=not write and effect.raw not in written_raw
+                               and control_plane.unallowable_read(entry)), asks
             asks.append((f"control-plane:{entry.rel or 'home'}",
                          message("control_ask", ctx.locale, what=entry.what)))
             break
@@ -896,7 +943,8 @@ def _external_secret(shape: _Shape, write: bool, ctx: Context) -> Verdict | None
             return Verdict(True, BY_SETTINGS,
                            message("control_write" if write else "control_read", ctx.locale,
                                    path=shown, what=entry.what),
-                           match=shown, kind="control", level="all")
+                           match=shown, kind="control", level="all",
+                           secret_read=not write and control_plane.unallowable_read(entry))
     return None
 
 
@@ -956,7 +1004,8 @@ def _mention_verdict(view: sh.ShellView, ctx: Context) -> tuple[Verdict | None,
                     return Verdict(True, BY_SETTINGS,
                                    message("control_read", ctx.locale, path=secret[2],
                                            what=secret[1].what),
-                                   match=secret[2], kind="control", level="all"), asks
+                                   match=secret[2], kind="control", level="all",
+                                   secret_read=control_plane.unallowable_read(secret[1])), asks
                 if literal not in impure:
                     continue
                 hit = _control_hit(shape, sh.Effect(raw, cwd, "write"), home)
@@ -1262,6 +1311,47 @@ def _lexical_worst(view: sh.ShellView, compiled: _Compiled, lists: Lists,
 
 def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
                 extra_effects: Iterable[sh.Effect] = (), *, tool: bool = False) -> Verdict:
+    """The verdict on a read line or code; a block a person may allow is
+    replaced by the secret read the same call also makes (0.2.94), so allowing
+    the first block never lets a secret be read along with it."""
+    extra = list(extra_effects)
+    verdict = _judge_view_first(view, lists, ctx, extra, tool=tool)
+    if verdict.person_may_allow:
+        hard = _secret_read_in(view, [*view.effects, *extra], ctx)
+        if hard is not None:
+            return hard
+    return verdict
+
+
+def _secret_read_in(view: sh.ShellView, effects: list[sh.Effect],
+                    ctx: Context) -> Verdict | None:
+    """A secret-read block anywhere in the call (:attr:`Verdict.secret_read`):
+    a read the reader saw, a string literal of code naming one, or a literal
+    word of the line's raw text that names one (judged as read)."""
+    written_raw = {effect.raw for effect in effects if effect.kind == "write"}
+    reads = [effect for effect in effects
+             if effect.kind == "read" and effect.raw not in written_raw]
+    # A word the reader judged as what a program writes or deletes stays a write
+    # (the person may allow that); any other word naming a secret counts as read.
+    judged = {effect.raw for effect in effects}
+    cwd = next((cmd.cwd for cmd in view.commands if cmd.cwd), ctx.workdir)
+    for text in view.texts:
+        words, _split = _lex_words(text)
+        for word in words:
+            raw = word.split("=", 1)[1] if "=" in word else word
+            if raw and raw not in judged and "://" not in raw and not raw.startswith("-"):
+                reads.append(sh.Effect(raw, cwd, "read"))
+    verdict, _asks = _control_verdict(reads, ctx)
+    if verdict is not None and verdict.secret_read:
+        return verdict
+    verdict, _named = _mention_verdict(view, ctx)
+    if verdict is not None and verdict.secret_read:
+        return verdict
+    return None
+
+
+def _judge_view_first(view: sh.ShellView, lists: Lists, ctx: Context,
+                      extra_effects: Iterable[sh.Effect] = (), *, tool: bool = False) -> Verdict:
     compiled = _compile(lists)
     if compiled.presets or compiled.custom:
         verdict = _command_verdict(view, compiled, ctx)

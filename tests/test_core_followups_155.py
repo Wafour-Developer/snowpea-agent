@@ -386,13 +386,17 @@ async def test_an_unmarked_allow_of_a_person_only_approval_comes_back(tmp_path: 
     assert method == "approval.pending"
     ApprovalPendingNotification(**params)
     assert params["refused"]["code"] == "jarvis_person_only"
-    assert params["refused"]["reason"] == "person_only"
+    # 1.61.0: a person-only request that is not a security ask (a plain
+    # person_only write here) is never a browser's, whatever it sends.
+    assert params["refused"]["reason"] == "browser_not_allowed"
     request_id = params["request"]["requestId"]
     assert not task.done() and queue.get(request_id) is not None
-    # A browser is never the person for a person-only approval, marker or not; the
-    # request moved to the shared queue so the person's own surface answers it.
-    with pytest.raises(errors.RpcError):
-        await queue.respond(request_id, "allow", conn=origin, actor="person", by="b")
+    # The request moved to the shared queue so the person's own surface answers it;
+    # the browser's marked, even window-confirmed, allow still does not count.
+    with pytest.raises(errors.RpcError) as caught:
+        await queue.respond(request_id, "allow", conn=origin, actor="person", by="b",
+                            person_confirm="window")
+    assert caught.value.data["reason"] == "browser_not_allowed"
     person = _Origin("ide", {}, client_id="ide-1")
     applied = await queue.respond(request_id, "allow", conn=person, by="ide")
     assert applied is not None and applied.allowed

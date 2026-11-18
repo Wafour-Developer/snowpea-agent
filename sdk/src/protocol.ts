@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.60.0";
+export const PROTOCOL_VERSION = "1.61.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -360,6 +360,17 @@ export interface ApprovalListResult {
     args?: Record<string, unknown>;
     /** True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). */
     argsEscaped?: boolean | null;
+    /** 1.61.0: the call is blocked (on the block list, a protected path, snowpea's own controls or the security lists) and core puts it to the person instead of refusing it outright. Such a request is personOnly and neverDelegable, routed to the person, never cached or remembered: an allow applies to this call only (scope 'once'). reason is then 'on your block list', 'touches a protected folder' or "touches snowpea's own controls" and note carries the sentence. Not asked (refused with security_blocked as before) in a run with nobody present (a scheduled job, a Jarvis task) and for a read of the daemon's token or address or of saved logins (credentials, MCP logins, external CLI logins). Null otherwise. */
+    blocked?: {
+      /** What blocked it: 'commands:<preset>', 'paths:<preset>', 'custom' (your own pattern or path) or 'security' (snowpea's own controls or the security lists). */
+      by: string;
+      /** 'command' (a blocked command), 'path' (a protected path), 'control' (snowpea's own control files) or 'settings' (the security lists themselves). */
+      kind?: string | null;
+      /** What matched: the command text or the path. */
+      match?: string | null;
+      /** Why, in plain words, in the session's language. */
+      why: string;
+    } | null;
     /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
     diff?: string | null;
     /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
@@ -386,11 +397,11 @@ export interface ApprovalListResult {
     note?: string;
     /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
     paths?: string[] | null;
-    /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
+    /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. 1.61.0: also a blocked call put to the person (blocked); a local browser 0.4.0+ may allow a security ask (blocked or reason set) of its own session with actor 'person' and personConfirm 'window' (capability browserPersonApprovals). */
     personOnly?: boolean | null;
     /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. 1.55.0 (security review 6) adds two values: 'acts on snowpea's own controls' (the line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, skills, commands or agents: asked in every mode, whatever the lists and settings say) and 'cannot tell what this code changes' (only code the check cannot resolve is in the way; security.unknownCode: 'allow' switches this one off). note carries the sentence for the person. */
     reason?: string | null;
-    /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
+    /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). 1.61.0, with blocked: 'blocked_command' (a command on the block list, the person's own patterns included), 'blocked_path' (a protected path) or 'blocked_control' (snowpea's own control files or the security lists themselves). Null for an ordinary ask. */
     reasonCode?: string | null;
     /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
     remember?: {
@@ -459,6 +470,17 @@ export interface ApprovalRequestParams {
   args?: Record<string, unknown>;
   /** True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). */
   argsEscaped?: boolean | null;
+  /** 1.61.0: the call is blocked (on the block list, a protected path, snowpea's own controls or the security lists) and core puts it to the person instead of refusing it outright. Such a request is personOnly and neverDelegable, routed to the person, never cached or remembered: an allow applies to this call only (scope 'once'). reason is then 'on your block list', 'touches a protected folder' or "touches snowpea's own controls" and note carries the sentence. Not asked (refused with security_blocked as before) in a run with nobody present (a scheduled job, a Jarvis task) and for a read of the daemon's token or address or of saved logins (credentials, MCP logins, external CLI logins). Null otherwise. */
+  blocked?: {
+    /** What blocked it: 'commands:<preset>', 'paths:<preset>', 'custom' (your own pattern or path) or 'security' (snowpea's own controls or the security lists). */
+    by: string;
+    /** 'command' (a blocked command), 'path' (a protected path), 'control' (snowpea's own control files) or 'settings' (the security lists themselves). */
+    kind?: string | null;
+    /** What matched: the command text or the path. */
+    match?: string | null;
+    /** Why, in plain words, in the session's language. */
+    why: string;
+  } | null;
   /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
   diff?: string | null;
   /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
@@ -485,11 +507,11 @@ export interface ApprovalRequestParams {
   note?: string;
   /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
   paths?: string[] | null;
-  /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
+  /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. 1.61.0: also a blocked call put to the person (blocked); a local browser 0.4.0+ may allow a security ask (blocked or reason set) of its own session with actor 'person' and personConfirm 'window' (capability browserPersonApprovals). */
   personOnly?: boolean | null;
   /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. 1.55.0 (security review 6) adds two values: 'acts on snowpea's own controls' (the line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, skills, commands or agents: asked in every mode, whatever the lists and settings say) and 'cannot tell what this code changes' (only code the check cannot resolve is in the way; security.unknownCode: 'allow' switches this one off). note carries the sentence for the person. */
   reason?: string | null;
-  /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
+  /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). 1.61.0, with blocked: 'blocked_command' (a command on the block list, the person's own patterns included), 'blocked_path' (a protected path) or 'blocked_control' (snowpea's own control files or the security lists themselves). Null for an ordinary ask. */
   reasonCode?: string | null;
   /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
   remember?: {
@@ -557,6 +579,8 @@ export interface ApprovalRequestResult {
   actor?: "person" | null;
   /** The human's decision. */
   decision: "allow" | "deny";
+  /** 1.61.0 (browserPersonApprovals): a browser host 0.4.0 or later sets 'window' when the person confirmed this answer in the browser's own native window (not a page click). With actor 'person' it is what lets a local browser allow a personOnly security ask (blocked, or reason set) of a session it owns, hosts or asked (a subagent's by its parents); the allow applies once (a script grant keeps its scope). Without it, from a browser before 0.4.0, from a remote browser, for another session or for any other personOnly request (delegation_set, a mode raise, a schedule, tmux.adopt, an external CLI's, a Jarvis-routed one) the allow is refused with jarvis_person_only and details.reason browser_unconfirmed, browser_legacy, browser_remote, browser_not_owner or browser_not_allowed (RequestRefusal.reason). Ignored for other kinds. */
+  personConfirm?: "window" | null;
   /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
   reason?: string;
   /** How long the decision applies. */
@@ -565,12 +589,14 @@ export interface ApprovalRequestResult {
 
 /** `approval.respond` params. Answer a pending approval and unblock the turn. */
 export interface ApprovalRespondParams {
-  /** A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set 'person' (a click) to allow with a scope wider than 'once' (security review 3); ignored for other kinds. */
+  /** A browser host (clientKind 'browser', clientVersion 0.3.0 or later) must set 'person' (a click) to allow with a scope wider than 'once' (security review 3); ignored for other kinds. 1.61.0: with personConfirm 'window', part of what lets a browser 0.4.0+ allow a personOnly security ask (see personConfirm). */
   actor?: "person" | null;
   /** allow runs the tool, deny ends the turn. */
   decision: "allow" | "deny";
   /** 1.56.0, with reauth: when the grant ends (UTC ISO). It may only shorten the proposal; a remote grant ends within 24 h whatever is given (default: 24 h, or the proposal's expiry when sooner). */
   grantExpiresAt?: string | null;
+  /** 1.61.0 (browserPersonApprovals): as ApprovalAnswer.personConfirm — 'window' when the person confirmed in the browser's own native window. With actor 'person', a local browser 0.4.0+ may allow a personOnly security ask of its own session (once); else refused with jarvis_person_only, details.reason browser_*. */
+  personConfirm?: "window" | null;
   /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
   reason?: string;
   /** 1.56.0: the remote sign-in password again, to allow Jarvis's delegation_set proposal from a remote web login while settings jarvis.delegation.remoteGrant is on (session or project scope, no guarded classes, at most 24 h). Checked like a sign-in and counted with its failures; never stored, logged or echoed. Ignored on every other answer. */
@@ -9571,7 +9597,7 @@ export interface ApprovalPendingPayload {
     code: string;
     /** Human-readable detail. */
     message: string;
-    /** As the RPC error's details.reason: 'person_only', or 'mode_raise' for a question of kind 'mode'. */
+    /** As the RPC error's details.reason: 'person_only', or 'mode_raise' for a question of kind 'mode'. 1.61.0 (browserPersonApprovals), a browser's allow of a person-only approval: 'browser_unconfirmed' (not actor 'person' with personConfirm 'window'), 'browser_legacy' (clientVersion before 0.4.0), 'browser_remote' (a remote web login or a peer that is not this machine), 'browser_not_owner' (not a session it owns, hosts or opened, nor its asker; a subagent's counts by its parents) or 'browser_not_allowed' (not a security ask: delegation_set, a mode raise, a schedule, tmux.adopt, an external CLI's or a Jarvis-routed request). */
     reason: string;
   } | null;
   /** The request now in the shared queue. */
@@ -9580,6 +9606,17 @@ export interface ApprovalPendingPayload {
     args?: Record<string, unknown>;
     /** True when the call's arguments held characters a surface would strip or that change how text reads (C0/C1 controls, escape sequences, NUL, bidi and invisible format characters) (1.53.0). args then shows them written out (a backslash escape such as x9d or u202e); what runs is the raw text. Such a request is never remembered or cached, and the delegation engine reports it in every guarded class (rule exec:opaque:control-chars). */
     argsEscaped?: boolean | null;
+    /** 1.61.0: the call is blocked (on the block list, a protected path, snowpea's own controls or the security lists) and core puts it to the person instead of refusing it outright. Such a request is personOnly and neverDelegable, routed to the person, never cached or remembered: an allow applies to this call only (scope 'once'). reason is then 'on your block list', 'touches a protected folder' or "touches snowpea's own controls" and note carries the sentence. Not asked (refused with security_blocked as before) in a run with nobody present (a scheduled job, a Jarvis task) and for a read of the daemon's token or address or of saved logins (credentials, MCP logins, external CLI logins). Null otherwise. */
+    blocked?: {
+      /** What blocked it: 'commands:<preset>', 'paths:<preset>', 'custom' (your own pattern or path) or 'security' (snowpea's own controls or the security lists). */
+      by: string;
+      /** 'command' (a blocked command), 'path' (a protected path), 'control' (snowpea's own control files) or 'settings' (the security lists themselves). */
+      kind?: string | null;
+      /** What matched: the command text or the path. */
+      match?: string | null;
+      /** Why, in plain words, in the session's language. */
+      why: string;
+    } | null;
     /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
     diff?: string | null;
     /** Set when the call comes from an external CLI session snowpea hosts (1.53.0); sessionId is then 'ext:<cli>:<id>' and the answer goes back to that CLI. Such a request is never sent as approval.request to a connection: it waits in the shared queue and is announced as approval.pending (with route) to every authenticated surface, listed by approval.list and answered with approval.respond. */
@@ -9606,11 +9643,11 @@ export interface ApprovalPendingPayload {
     note?: string;
     /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
     paths?: string[] | null;
-    /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. */
+    /** True on a request only a person may answer (1.53.0): Jarvis's delegation_set proposal (tool 'delegation_set', args {scope, target, level, allow, expiresAt, note}, from the Jarvis session). Answered with approval.respond {decision, scope: 'once'}: 'allow' only from a person's connection (else jarvis_person_only); 'deny' from anyone who sees it. 1.61.0: also a blocked call put to the person (blocked); a local browser 0.4.0+ may allow a security ask (blocked or reason set) of its own session with actor 'person' and personConfirm 'window' (capability browserPersonApprovals). */
     personOnly?: boolean | null;
     /** Why core put this request to the person whatever the mode (1.54.0): 'cannot be checked against your block list' when the security lists are set and part of the call cannot be seen (a program only the shell knows, eval of a variable, a pipe into a shell, a path only the shell knows). Such a request is personOnly, routed to the person, never cached or remembered. Null otherwise. 1.55.0 (security review 6) adds two values: 'acts on snowpea's own controls' (the line runs snowpea's own CLI or code, or changes snowpea's own hooks, plugins, skills, commands or agents: asked in every mode, whatever the lists and settings say) and 'cannot tell what this code changes' (only code the check cannot resolve is in the way; security.unknownCode: 'allow' switches this one off). note carries the sentence for the person. */
     reason?: string | null;
-    /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
+    /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). 1.61.0, with blocked: 'blocked_command' (a command on the block list, the person's own patterns included), 'blocked_path' (a protected path) or 'blocked_control' (snowpea's own control files or the security lists themselves). Null for an ordinary ask. */
     reasonCode?: string | null;
     /** For a shell command (1.34.0, capability 'shellRemember'): the rule a 'project' or 'always' answer would store. Null when only 'once' (or 'session') can be given: a compound or complex line (; && || | & backticks $ redirects, heredocs, an env-var prefix, unquoted subshells or globs), a program named by a path or with non-ASCII letters, an argument that runs a command (--upload-pack, -c, --exec, rg --pre, …), sudo/su/doas, rm/dd/chmod/kill and the like, shells, interpreters and editors, network tools, npx-style package runners, git push/reset/clean/rm/fetch/pull/clone and other history rewrites, onceOnly args, an agent-switch guard, any reasonCode, and every non-shell call. Core keeps a 'project'/'always' answer to a shell request with a null remember to 'once'. Stored shell rules only ever match one such plain command. */
     remember?: {
@@ -10239,7 +10276,7 @@ export interface QuestionPendingPayload {
     code: string;
     /** Human-readable detail. */
     message: string;
-    /** As the RPC error's details.reason: 'person_only', or 'mode_raise' for a question of kind 'mode'. */
+    /** As the RPC error's details.reason: 'person_only', or 'mode_raise' for a question of kind 'mode'. 1.61.0 (browserPersonApprovals), a browser's allow of a person-only approval: 'browser_unconfirmed' (not actor 'person' with personConfirm 'window'), 'browser_legacy' (clientVersion before 0.4.0), 'browser_remote' (a remote web login or a peer that is not this machine), 'browser_not_owner' (not a session it owns, hosts or opened, nor its asker; a subagent's counts by its parents) or 'browser_not_allowed' (not a security ask: delegation_set, a mode raise, a schedule, tmux.adopt, an external CLI's or a Jarvis-routed request). */
     reason: string;
   } | null;
   /** The question now in the shared queue. */
