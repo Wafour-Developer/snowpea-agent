@@ -1302,8 +1302,11 @@ def browser_trust_refusal(conn: Any, core: Any, workdir: Any, actor: str | None,
     0.4.0+; ``actor: "person"`` with ``personConfirm: "window"``; ``workdir`` is
     the real workdir of a live session this browser owns, hosts or opened.
     ``read`` (``project.trust.status``): only local and its own session's folder.
+    A :class:`~pathlib.Path` ``workdir`` is taken as already resolved (the
+    handler resolves it once and changes the store under that same root).
     """
     import os
+    from pathlib import Path
 
     allowed = set(browser_trust_scopes())
     if not read and scopes is not None and any(str(s) not in allowed for s in scopes):
@@ -1315,7 +1318,8 @@ def browser_trust_refusal(conn: Any, core: Any, workdir: Any, actor: str | None,
     if not read and (actor != ACTOR_PERSON or person_confirm != PERSON_CONFIRM_WINDOW):
         return BROWSER_UNCONFIRMED
     try:
-        wanted = os.path.realpath(os.path.expanduser(str(workdir)))
+        wanted = str(workdir) if isinstance(workdir, Path) else os.path.realpath(
+            os.path.expanduser(str(workdir)))
     except (TypeError, ValueError):
         return BROWSER_NOT_OWNER
     sessions = getattr(core, "sessions", None)

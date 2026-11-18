@@ -208,6 +208,93 @@ async def test_revoke_follows_the_same_rule(core: Core, project: Path) -> None:
     assert record["event"] == "project_trust_revoked" and record["clientId"] == "b-1"
 
 
+def _settings(project: Path, mode: str) -> Path:
+    path = project / trust.SETTINGS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"defaultMode": mode}), encoding="utf-8")
+    return path
+
+
+async def test_a_browser_grant_never_reactivates_mode_for_new_content(
+        core: Core, project: Path) -> None:
+    """Review H1: a browser grant keeps settings.json's pin while mode is trusted."""
+    browser = _conn()
+    _live(core, _session("s", project, host_tools_from="b-1"))
+    store = trust.store_for(core.paths.home)
+    _settings(project, "accept")
+    store.set(project, ["mode"], by="ide", digests=store.status(project)["digests"])
+    assert trust.mode_trusted(project)
+    _settings(project, "auto")
+    assert not trust.mode_trusted(project)
+    digests = await _digests(core, browser, project)
+    # Granting settings would need settings.json pinned anew: refused.
+    with pytest.raises(RpcError) as caught:
+        await _set(core, browser, project, digests, **CONFIRMED)
+    assert _reason(caught) == "browser_not_allowed"
+    assert caught.value.data["what"] == trust.SETTINGS_FILE
+    status = await _set(core, browser, project, digests, scopes=["hooks"], **CONFIRMED)
+    assert not trust.mode_trusted(project)
+    assert store.active(project, "hooks", ".snowpea/hooks.json")
+    assert set(status.scopes) == {"hooks", "mode"}
+
+
+async def test_a_browser_grant_keeps_settings_unpinned_when_mode_had_no_file(
+        core: Core, project: Path) -> None:
+    browser = _conn()
+    _live(core, _session("s", project, host_tools_from="b-1"))
+    store = trust.store_for(core.paths.home)
+    store.set(project, ["mode"], by="ide", digests=store.status(project)["digests"])
+    _settings(project, "auto")
+    digests = await _digests(core, browser, project)
+    await _set(core, browser, project, digests, scopes=["hooks", "mcp"], **CONFIRMED)
+    assert not trust.mode_trusted(project)
+    assert trust.SETTINGS_FILE not in (store.entry(project) or {})["files"]
+
+
+async def test_without_mode_a_browser_pins_settings_as_shown(core: Core, project: Path) -> None:
+    browser = _conn()
+    _live(core, _session("s", project, host_tools_from="b-1"))
+    _settings(project, "auto")
+    digests = await _digests(core, browser, project)
+    await _set(core, browser, project, digests, **CONFIRMED)
+    store = trust.store_for(core.paths.home)
+    assert store.active(project, "settings", trust.SETTINGS_FILE)
+    assert not trust.mode_trusted(project)
+    record = json.loads((core.paths.logs_dir / "security.jsonl").read_text(
+        encoding="utf-8").splitlines()[-1])
+    assert record["scopes"] == list(trust.DEFAULT_SCOPES)  # review L2: what was granted
+
+
+async def test_a_browser_revoke_that_drops_nothing_changes_nothing(
+        core: Core, project: Path) -> None:
+    """Review L1."""
+    browser = _conn()
+    _live(core, _session("s", project, host_tools_from="b-1"))
+    store = trust.store_for(core.paths.home)
+    store.set(project, ["externalCli"], by="ide")
+    before = dict(store.entry(project) or {})
+    for scopes in ([], ["hooks"], None):
+        extra = {} if scopes is None else {"scopes": scopes}
+        status = await project_trust_revoke_handler(
+            browser, ProjectTrustRevokeParams(workdir=str(project), **extra, **CONFIRMED), core)
+        assert status.by == "ide"
+    assert store.entry(project) == before
+    assert not (core.paths.logs_dir / "security.jsonl").exists()
+
+
+async def test_the_browser_path_resolves_the_folder_once(
+        core: Core, project: Path, tmp_path: Path) -> None:
+    """Review L3: a link to the session's folder is judged and stored as the folder."""
+    link = tmp_path / "link"
+    link.symlink_to(project, target_is_directory=True)
+    browser = _conn()
+    _live(core, _session("s", project, host_tools_from="b-1"))
+    digests = await _digests(core, browser, link)
+    status = await _set(core, browser, link, digests, **CONFIRMED)
+    assert status.workdir == str(project.resolve())
+    assert trust.store_for(core.paths.home).entry(project) is not None
+
+
 def _gates(method: str, conn: Any, params: dict[str, Any] | None = None) -> None:
     method_refusal(method, conn)
     settings_gate.browser_method_refusal(method, params or {}, conn, None)

@@ -239,8 +239,7 @@ async def _after_change(core: Any, root: Path) -> None:
 
 async def project_trust_status_handler(conn: RpcConnection, params: ProjectTrustParams,
                                        core: Core) -> ProjectTrustStatus:
-    _judge(conn, core, params.workdir, "read a project's trust", read=True)
-    root = _root(params.workdir)
+    _by, root = _judge(conn, core, params.workdir, "read a project's trust", read=True)
     return ProjectTrustStatus.model_validate(store_of(core).status(root))
 
 
@@ -251,25 +250,54 @@ def _browser(conn: Any) -> bool:
 
 
 def _judge(conn: Any, core: Any, workdir: str, what: str, *, actor: str | None = None,
-           person_confirm: str | None = None, scopes: Any = None, read: bool = False) -> str:
-    """Who may change (or, ``read``, see) a project's trust; returns ``by``.
+           person_confirm: str | None = None, scopes: Any = None,
+           read: bool = False) -> tuple[str, Path]:
+    """Who may change (or, ``read``, see) a project's trust: ``(by, root)``.
 
     A local person (a remote web login reads only); a browser connection by
     ``settings_gate.browser_trust_refusal`` (1.62.0, ``browserProjectTrust``),
-    refused with its ``details.reason``; nobody else.
+    refused with its ``details.reason``; nobody else.  ``root`` is resolved
+    once: what ownership is judged on is what the store changes (review L3).
     """
     from snowpea_core.server import settings_gate
     from snowpea_core.server.person_gate import require_person
 
     if _browser(conn):
-        why = settings_gate.browser_trust_refusal(conn, core, workdir, actor, person_confirm,
+        root = _root(workdir)
+        why = settings_gate.browser_trust_refusal(conn, core, root, actor, person_confirm,
                                                   scopes, read=read)
         if why is not None:
             settings_gate.refuse(conn, what, reason=why)
-        return f"browser:{getattr(conn, 'client_id', None) or '?'}"
+        return f"browser:{getattr(conn, 'client_id', None) or '?'}", root
     if not read:  # (the read's other callers are the dispatcher's: PERSON_METHODS)
         require_person(conn, what, local=True)
-    return str(getattr(conn, "client_kind", None) or "local")
+    return str(getattr(conn, "client_kind", None) or "local"), _root(workdir)
+
+
+def _kept_pins(conn: Any, core: Any, root: Path, wanted: list[str],
+               digests: dict[str, str]) -> set[str]:
+    """The pins a browser's grant must leave as they are (security review H1).
+
+    A scope a browser may not grant (``mode``) that the folder holds depends on
+    ``.snowpea/settings.json``'s pin: a browser grant keeps that pin (or its
+    absence), so it never re-activates ``mode`` for new content.  When the grant
+    would need the file pinned anew (``settings`` wanted and the file differs
+    from its pin) it is refused with ``browser_not_allowed``.
+    """
+    from snowpea_core.server import settings_gate
+    from snowpea_core.trust.projects import SETTINGS_FILE
+
+    entry = store_of(core).entry(root) or {}
+    if "mode" not in (entry.get("scopes") or []):
+        return set()
+    old = (entry.get("files") or {}).get(SETTINGS_FILE)
+    if "settings" in wanted and digests.get(SETTINGS_FILE) != old:
+        settings_gate.refuse(
+            conn, "trust a project", reason=settings_gate.BROWSER_NOT_ALLOWED,
+            extra={"what": SETTINGS_FILE},
+            hint=(f"{SETTINGS_FILE} changed since the folder's default mode was trusted; "
+                  "trust it again in the snowpea app or the terminal"))
+    return {SETTINGS_FILE}
 
 
 def _audit(core: Any, conn: Any, event: str, root: Path, scopes: Any, by: str,
@@ -298,17 +326,20 @@ def _audit(core: Any, conn: Any, event: str, root: Path, scopes: Any, by: str,
 
 async def project_trust_set_handler(conn: RpcConnection, params: ProjectTrustSetParams,
                                     core: Core) -> ProjectTrustStatus:
-    by = _judge(conn, core, params.workdir, "trust a project", actor=params.actor,
-                person_confirm=params.personConfirm, scopes=params.scopes)
+    by, root = _judge(conn, core, params.workdir, "trust a project", actor=params.actor,
+                      person_confirm=params.personConfirm, scopes=params.scopes)
     from snowpea_core.server.project_gate import require_project
 
-    require_project(core, params.workdir)  # review 7, H-2: snowpea's home is no project
-    root = _root(params.workdir)
-    from snowpea_core.trust.projects import TrustChanged
+    require_project(core, str(root))  # review 7, H-2: snowpea's home is no project
+    from snowpea_core.trust.projects import DEFAULT_SCOPES, TrustChanged
 
+    wanted = list(params.scopes) if params.scopes is not None else list(DEFAULT_SCOPES)
+    keep = _kept_pins(conn, core, root, wanted, dict(params.digests)) if _browser(
+        conn) else set()
     try:
         # Security review 6, M-5: what is pinned is what the person was shown.
-        store_of(core).set(root, params.scopes, by=by, digests=dict(params.digests))
+        store_of(core).set(root, params.scopes, by=by, digests=dict(params.digests),
+                           keep_pins=keep)
     except TrustChanged as exc:
         raise RpcError(
             errors.TRUST_CHANGED,
@@ -317,7 +348,7 @@ async def project_trust_set_handler(conn: RpcConnection, params: ProjectTrustSet
         ) from exc
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    _audit(core, conn, "project_trusted", root, params.scopes, by, params.personConfirm,
+    _audit(core, conn, "project_trusted", root, wanted, by, params.personConfirm,
            len(params.digests))
     await _after_change(core, root)
     status = store_of(core).status(root)
@@ -327,15 +358,20 @@ async def project_trust_set_handler(conn: RpcConnection, params: ProjectTrustSet
 
 async def project_trust_revoke_handler(conn: RpcConnection, params: ProjectTrustRevokeParams,
                                        core: Core) -> ProjectTrustStatus:
-    by = _judge(conn, core, params.workdir, "take back a project's trust", actor=params.actor,
-                person_confirm=params.personConfirm, scopes=params.scopes)
-    root = _root(params.workdir)
+    by, root = _judge(conn, core, params.workdir, "take back a project's trust",
+                      actor=params.actor, person_confirm=params.personConfirm,
+                      scopes=params.scopes)
     from snowpea_core.server.settings_gate import browser_trust_scopes
+    from snowpea_core.trust.projects import SCOPES
 
     # A browser's omitted scopes are the ones it may take back (1.62.0).
     scopes = params.scopes if params.scopes is not None or not _browser(conn) else list(
         browser_trust_scopes())
+    if _browser(conn) and not set(scopes or ()) & set(store_of(core).scopes(root)):
+        # Review L1: dropping nothing changes nothing (by/at stay as they were).
+        return ProjectTrustStatus.model_validate(store_of(core).status(root))
     store_of(core).revoke(root, scopes, by=by)
+    scopes = list(scopes) if scopes is not None else list(SCOPES)
     _audit(core, conn, "project_trust_revoked", root, scopes, by, params.personConfirm, None)
     await _after_change(core, root)
     status = store_of(core).status(root)

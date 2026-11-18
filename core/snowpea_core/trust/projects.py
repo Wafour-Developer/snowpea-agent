@@ -979,10 +979,15 @@ class TrustStore:
             return entry
 
     def set(self, root: str | os.PathLike[str], scopes: Iterable[str] | None = None, *,
-            by: str, digests: dict[str, str] | None = None) -> dict[str, Any]:
+            by: str, digests: dict[str, str] | None = None,
+            keep_pins: Iterable[str] = ()) -> dict[str, Any]:
         """Trust ``root`` for ``scopes`` (default :data:`DEFAULT_SCOPES` plus what it
         already has), pinning every control file — and what it runs — as ``digests``
         says they are.
+
+        ``keep_pins`` (1.62.0, security review H1): files whose pin — or absence
+        of one — stays as it was, so a scope this grant does not cover (``mode``
+        on ``.snowpea/settings.json``) is never re-activated for new content.
 
         ``digests`` is ``status()["digests"]`` as the person saw it (security
         review 6, M-5).  What is pinned is what was SHOWN: when the disk differs
@@ -1004,12 +1009,21 @@ class TrustStore:
             if changed or added or missing:
                 raise TrustChanged(changed, added, missing)
 
+        kept = list(keep_pins)
+
         def change(entry: dict[str, Any]) -> None:
+            old = dict(entry.get("files") or {})
             entry["scopes"] = list(dict.fromkeys([*(entry.get("scopes") or []), *wanted]))
             if set(wanted) & FILE_SCOPES:
                 # Trusting content pins it as it is now; trusting the project for
                 # external CLIs alone leaves snowpea's own pins as they were.
-                entry["files"] = files
+                pins = dict(files)
+                for rel in kept:
+                    if rel in old:
+                        pins[rel] = old[rel]
+                    else:
+                        pins.pop(rel, None)
+                entry["files"] = pins
                 entry["runs"] = runs
             entry.setdefault("files", {})
             entry["by"] = by

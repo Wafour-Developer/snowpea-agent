@@ -10383,7 +10383,10 @@ class ProjectTrustSetParams(Payload):
             "scopes only of hooks, mcp, commands, agents, prompts, settings (never mode or "
             "externalCli). Else jarvis_person_only with details.reason browser_unconfirmed, "
             "browser_legacy, browser_remote, browser_not_owner or browser_not_allowed. "
-            "digests as for any caller (trust_changed when stale)."
+            "digests as for any caller (trust_changed when stale). While the folder's mode "
+            "scope is trusted, a browser grant keeps .snowpea/settings.json's pin as it was; "
+            "a grant of settings that would need it pinned anew is refused with "
+            "browser_not_allowed, details.what '.snowpea/settings.json'."
         ),
     )
 
