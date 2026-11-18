@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any
 
@@ -126,14 +127,16 @@ async def test_more_connect_failures_than_retries_still_complete(
 async def test_the_connect_budget_runs_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # 1.5 s, not 0.3 s: on a loaded CI runner each try costs tens of
+    # milliseconds, and 0.3 s once fitted only 4 tries (flaky on v0.2.90's CI).
     provider = _Scripted([], forever=True)
     daemon, recorder = await _run(
-        tmp_path, monkeypatch, provider, provider_connect_wait_sec=0.3
+        tmp_path, monkeypatch, provider, provider_connect_wait_sec=1.5
     )
     try:
         assert _reason(recorder) == "error"
         assert provider.calls > 4, "more tries than provider_retries"
-        assert "unreachable for 0 s" in _errors(recorder)
+        assert re.search(r"unreachable for [0-2] s", _errors(recorder))
     finally:
         await daemon.stop()
 
