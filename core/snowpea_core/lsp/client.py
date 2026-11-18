@@ -38,11 +38,12 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
+import re
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 from urllib.parse import unquote, urlparse
-from urllib.request import pathname2url
 
 from snowpea_core.exec import winproc
 from snowpea_core.lsp.language import language_id
@@ -76,14 +77,38 @@ _STATIC_REPLIES: dict[str, Any] = {
 
 
 def path_to_uri(path: Path | str) -> str:
-    """``/a/b.py`` -> ``file:///a/b.py``."""
-    return "file://" + pathname2url(str(Path(path).resolve()))
+    """``/a/b.py`` -> ``file:///a/b.py``; ``C:\\a\\b.py`` -> ``file:///C:/a/b.py``.
+
+    ``Path.as_uri`` gets the drive letter and UNC shares right on Windows, where
+    ``"file://" + pathname2url(...)`` gave ``file://///C:/...`` (pyright refused it).
+    """
+    return Path(path).resolve().as_uri()
+
+
+_DRIVE_PATH = re.compile(r"^/[A-Za-z]:")
+
+
+def windows_uri_path(uri: str) -> str | None:
+    """The Windows path a ``file:`` URI names (``file://host/share/x`` is UNC)."""
+    if not uri.startswith("file:"):
+        return None
+    parsed = urlparse(uri)
+    path = unquote(parsed.path)
+    host = parsed.netloc
+    if host and host.lower() != "localhost":
+        return str(PureWindowsPath("\\\\" + host + path.replace("/", "\\")))
+    if _DRIVE_PATH.match(path):
+        path = path[1:]
+    return str(PureWindowsPath(path))
 
 
 def uri_to_path(uri: str) -> Path | None:
     """``file:///a/b.py`` -> ``Path("/a/b.py")``; ``None`` for any other scheme."""
     if not uri.startswith("file://"):
         return None
+    if os.name == "nt":
+        found = windows_uri_path(uri)
+        return Path(found) if found else None
     parsed = urlparse(uri)
     return Path(unquote(parsed.path))
 
