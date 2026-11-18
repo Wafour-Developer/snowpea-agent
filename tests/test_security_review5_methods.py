@@ -117,6 +117,8 @@ TABLE: dict[str, tuple[str, ...]] = {
         # jarvis.briefing.set: a remote login only turns it off (review 8, H8-2).
         "jarvis.briefing.set", "mcp.preset.check",
         "security.get", "security.check", "security.presets.list", "project.trust.status",
+        # 1.59.0 개선하기: a person sends a conversation (never a browser or connector).
+        "feedback.preview", "feedback.send",
     ),
     # A local person only.
     "ynnnnn": (

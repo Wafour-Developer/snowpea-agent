@@ -878,6 +878,8 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "audio.record.start", "audio.record.stop", "gateway.list", "gateway.unbind",
     "gateway.sync", "permission.allowlist.list",
     "security.get", "security.check", "security.presets.list", "project.trust.status",
+    # 개선하기 (1.59.0): a remote web login is a person (person_gate.PERSON_METHODS).
+    "feedback.preview", "feedback.send",
     # external CLIs (the external manager's own trust and ownership rules apply)
     "external.clis", "external.list", "external.get", "external.read", "external.open",
     "external.send", "external.setMode", "external.interrupt", "external.create",

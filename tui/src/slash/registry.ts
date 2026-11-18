@@ -11,6 +11,7 @@ import { rankCommandMatches } from "../state/slash-completion.js";
 import { SECURITY_REQUIRES_SUMMARY } from "../state/security.js";
 import { WEB_REQUIRES_SUMMARY } from "../state/web-remote.js";
 import { TRUST_REQUIRES_SUMMARY } from "../state/trust.js";
+import { FEEDBACK_COMMAND } from "../state/feedback.js";
 
 const SURFACE_COMMANDS: CommandInfo[] = [
   {
@@ -79,12 +80,14 @@ const SURFACE_COMMANDS: CommandInfo[] = [
     summary: "Settings edited in settings.json while snowpea ran: /settings disk applies or discards them.",
     source: "tui",
   },
+  FEEDBACK_COMMAND,
 ];
 
 /** What an older daemon gets in place of the two beta commands' summaries. */
 export const REQUIRES_CORE_SUMMARY = "requires core 1.53 — this daemon is older (/update)";
 
 let unsupportedSurface = new Set<string>();
+let hiddenSurface = new Set<string>();
 
 /**
  * Tell the palette which of the 1.53.0 commands this daemon cannot run. They
@@ -93,6 +96,11 @@ let unsupportedSurface = new Set<string>();
  */
 export function setSurfaceSupport(unsupported: Iterable<string>): void {
   unsupportedSurface = new Set(unsupported);
+}
+
+/** Surface commands this daemon cannot run that are left out of the palette (`/feedback`, 1.59.0). */
+export function setSurfaceHidden(hidden: Iterable<string>): void {
+  hiddenSurface = new Set(hidden);
 }
 
 /** The words `/tts` takes, offered as completions after the command. */
@@ -137,7 +145,7 @@ function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
   const names = new Set(commands.map((command) => command.name));
   return [
     ...commands,
-    ...SURFACE_COMMANDS.filter((command) => !names.has(command.name)).map((command) =>
+    ...SURFACE_COMMANDS.filter((command) => !names.has(command.name) && !hiddenSurface.has(command.name)).map((command) =>
       unsupportedSurface.has(command.name)
         ? {
             ...command,

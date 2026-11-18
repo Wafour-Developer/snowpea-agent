@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.57.0` (semver)
+- **Protocol version:** `1.59.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.57.0"
+    "protocolVersion": "1.59.0"
   }
 }
 ```
@@ -65,6 +65,7 @@ Server capabilities advertised in the `system.hello` result:
 - `hostToolsSessionEvents`
 - `hostTurnContext`
 - `hostTurnContextCompaction`
+- `improvementFeedback`
 - `jarvis`
 - `jarvisBriefing`
 - `jarvisDelegation`
@@ -181,6 +182,8 @@ Server capabilities advertised in the `system.hello` result:
 | [`external.setMode`](#externalsetmode) | client → server | External sessions (1.53.0, WP6): switch a session to default, readonly or unrestricted; unrestricted only from a human connection. |
 | [`external.terminalSnapshot`](#externalterminalsnapshot) | client → server | External sessions (1.56.0, capability externalTmux): the visible text of the person's tmux pane a session runs in, for a prompt snowpea does not recognise. People only (a remote web login too); external_unavailable when the session does not run in a tmux pane snowpea can read. |
 | [`external.unwatch`](#externalunwatch) | client → server | External sessions (1.53.0): stop sending this connection external.event for the session; the process keeps running (an idle one is stopped after jarvis.external.idleSec). Unknown or never-opened refs: ok. |
+| [`feedback.preview`](#feedbackpreview) | client → server | 개선하기 (1.59.0, capability improvementFeedback): the report feedback.send would upload for this conversation, masked and fitted, with counts and the endpoint. Nothing leaves the machine. People only (a remote web login too); never a connector, a browser host, Jarvis or an agent. |
+| [`feedback.send`](#feedbacksend) | client → server | 개선하기 (1.59.0, capability improvementFeedback): upload the conversation to the Snowpea team, gzip, once (no automatic retry). Call it only after the person confirmed the preview. Errors: feedback_rejected (4xx), feedback_busy (429/503, details.retryAfterSec), feedback_unreachable (network, 5xx); details {status, retryAfterSec?, serverError?, serverMessage?}. People only, like feedback.preview. |
 | [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
 | [`fs.glob`](#fsglob) | client → server | Files and directories matching a relative glob ('*', '?', '[..]', and a '**' segment for any depth), capped by maxEntries (1.40.0). Symbolic links are matched, never followed; '**' does not enter .git or node_modules. |
 | [`fs.hash`](#fshash) | client → server | SHA-256 of a file, read in a stream (1.40.0). |
@@ -1245,6 +1248,52 @@ External sessions (1.53.0): stop sending this connection external.event for the 
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `feedback.preview`
+
+*Direction:* client → server
+
+개선하기 (1.59.0, capability improvementFeedback): the report feedback.send would upload for this conversation, masked and fitted, with counts and the endpoint. Nothing leaves the machine. People only (a remote web login too); never a connector, a browser host, Jarvis or an agent.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `comment` | `string \| null` | no | What went wrong or what to improve (optional). |
+| `flagged` | `({ messageId: string; note?: string \| null; })[] \| null` | no | Messages the person points at (at most 1000). |
+| `sessionId` | `string` | yes | The conversation to send. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `endpoint` | `string` | yes | The URL the report would go to. |
+| `report` | `Record<string, unknown>` | yes | The exact JSON object feedback.send would POST (schema 1 of snowpea-browser's docs/feedback-api.md, client.app 'snowpea-core'), after masking and fitting, without attachments. Render report.session.messages: {id, seq?, role: user\|assistant\|tool\|system\|event, ts?, text?, reasoning?, tool?: {name, callId?, args?, result?, status?, durationMs?}, meta?}; tool rows are best hidden by default. client.surface is the caller's own kind here; send takes it from its params. |
+| `stats` | `{ droppedResults: number; messages: number; rawBytes: number; redactions: number; toolMessages: number; }` | yes |  |
+
+### `feedback.send`
+
+*Direction:* client → server
+
+개선하기 (1.59.0, capability improvementFeedback): upload the conversation to the Snowpea team, gzip, once (no automatic retry). Call it only after the person confirmed the preview. Errors: feedback_rejected (4xx), feedback_busy (429/503, details.retryAfterSec), feedback_unreachable (network, 5xx); details {status, retryAfterSec?, serverError?, serverMessage?}. People only, like feedback.preview.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `attachments` | `({ bytesBase64: string; mime: "image/png" \| "image/jpeg" \| "image/webp" \| "image/gif"; name: string; })[] \| null` | no | Screenshots: at most 10, at most 5 MB decoded in total (invalid_params otherwise). |
+| `comment` | `string \| null` | no | What went wrong or what to improve (optional). |
+| `flagged` | `({ messageId: string; note?: string \| null; })[] \| null` | no | Messages the person points at (at most 1000). |
+| `sessionId` | `string` | yes | The conversation to send. |
+| `surface` | `"desktop" \| "tui" \| "web" \| "ide" \| "cli" \| "messenger" \| "other"` | yes | The app the person sends from (report client.surface). |
+| `surfaceVersion` | `string \| null` | no | That app's own version (report client.surfaceVersion). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes | The report's id on the feedback server (24 hex). |
+| `receivedAt` | `string` | yes | When the server received it (ISO). |
 
 ### `file.complete`
 
@@ -6101,6 +6150,9 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `exists` |  |
 | `external_unavailable` | The external CLI is missing, disabled or an unsupported version (1.53.0). |
 | `external_view_only` | external.send to a session snowpea can only view: its process runs in the person's terminal (host terminal), or tmux before input is confirmed (1.53.0). |
+| `feedback_busy` |  |
+| `feedback_rejected` |  |
+| `feedback_unreachable` |  |
 | `fork_after_compaction` |  |
 | `fork_child_session` |  |
 | `fork_no_finished_turn` |  |
