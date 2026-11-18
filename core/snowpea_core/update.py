@@ -925,6 +925,8 @@ def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
             stdin=subprocess.DEVNULL,
             start_new_session=True,
             cwd=str(paths.home),
+            # No console window flashing up on Windows (0, ignored, elsewhere).
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     finally:
         handle.close()
