@@ -10259,7 +10259,7 @@ export interface SettingsChangedPayload {
   security?: {
     /** While off: when it was turned off (ISO 8601 UTC), or null. */
     disabledAt?: string | null;
-    /** While off: the client kind of the connection that turned it off ('desktop', 'tui', 'ide', 'browser', ...), as recorded in $SNOWPEA_HOME/security/switch.json; null while on or when not recorded (a hand edit of settings.json). */
+    /** While off: the client kind of the connection that turned it off ('desktop', 'tui', 'ide', 'browser', ...), as recorded in $SNOWPEA_HOME/security/switch.json. A hand edit of settings.json reads 'settings.json' (found at the daemon's start) or 'settings.json (accepted by <kind>)' (settings.acceptDiskChange). Null while on or when not recorded. */
     disabledBy?: string | null;
     /** security.enabled: false while the security checks are off — the blocked-command and protected-path lists (presets, custom, project additions) are not applied and code snowpea cannot read ahead runs as under unknownCode 'allow'. The stored lists and unknownCode are kept, so switching it on restores them. snowpea's own controls and the mode rules apply either way. */
     enabled?: boolean;

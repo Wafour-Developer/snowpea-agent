@@ -7566,8 +7566,9 @@ class SecuritySwitchState(Payload):
         description=(
             "While off: the client kind of the connection that turned it off ('desktop', "
             "'tui', 'ide', 'browser', ...), as recorded in "
-            "$SNOWPEA_HOME/security/switch.json; null while on or when not recorded "
-            "(a hand edit of settings.json)."
+            "$SNOWPEA_HOME/security/switch.json. A hand edit of settings.json reads "
+            "'settings.json' (found at the daemon's start) or 'settings.json (accepted by "
+            "<kind>)' (settings.acceptDiskChange). Null while on or when not recorded."
         ),
     )
     disabledAt: str | None = Field(

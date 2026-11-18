@@ -339,6 +339,14 @@ class Context:
     #: ``code`` is the host's (the page's JavaScript) and is not read as local
     #: code unless the tool is tagged ``exec``; its paths are judged as usual.
     host_tool: bool = False
+    #: ``security.enabled: false`` (1.58.0): the lists are empty for matching,
+    #: but what the reader could not see is judged as under ``unknownCode:
+    #: "allow"`` with lists — never by the narrower "no lists at all" rule, which
+    #: would drop ``script-written`` and the names-snowpea backstop.
+    checks_off: bool = False
+    #: A dry run (``security.check`` from the Security screen): judges only,
+    #: records nothing (no "the agent wrote this file" note).
+    dry_run: bool = False
 
     def __post_init__(self) -> None:
         if self.env_venv is None:
@@ -1112,7 +1120,7 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
     for why in view.control:
         asks.append((why, message("control_code" if why == "snowpea-code" else "control_cli",
                                   ctx.locale)))
-    if not lists.commands_empty:
+    if not lists.commands_empty or ctx.checks_off:
         unseen.extend(view.opaque)
     elif not lists.empty:
         unseen.extend(why for why in view.opaque if why.startswith("code:") or _always(why))
@@ -1147,7 +1155,8 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         unseen = [why for why in unseen if why not in relax]
     unseen.extend(_program_places(effects, ctx))
     scripts = tuple(dict.fromkeys(view.scripts))
-    _note_writes(effects, ctx)
+    if not ctx.dry_run:
+        _note_writes(effects, ctx)
     if asks:
         reasons = tuple(dict.fromkeys([why for why, _ in asks] + unseen))
         return Verdict(opaque=True, reason=CONTROL_REASON, why=asks[0][1], unseen=reasons,

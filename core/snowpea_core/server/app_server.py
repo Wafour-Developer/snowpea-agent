@@ -459,7 +459,8 @@ async def accept_disk_change_handler(
     if was != now:
         # 1.58.0: a hand edit of security.enabled the person accepted here.
         enforce.note_switch(getattr(core.paths, "home", None), was, now,
-                            by=str(getattr(conn, "client_kind", None) or "person"),
+                            by="settings.json (accepted by "
+                               f"{getattr(conn, 'client_kind', None) or 'person'})",
                             method="settings.acceptDiskChange")
         await core.notify_settings_changed(["security"])
     return SettingsAcceptDiskChangeResult(applied=applied, discarded=discarded)
@@ -1002,9 +1003,12 @@ class Daemon:
         # Once per home (0.2.90): a stored "ask" — the old default, written out —
         # becomes "auto".  Saved before the file's stamp is taken below, so it is
         # the daemon's own write and nothing waits for a person.
-        from snowpea_core.security.enforce import migrate_unknown_code
+        from snowpea_core.security.enforce import migrate_unknown_code, reconcile_switch
 
         unknown_code_migrated = migrate_unknown_code(settings, paths)
+        # 1.58.0: settings.json edited while no daemon ran — the who/when record
+        # and the audit log follow what the file says.
+        reconcile_switch(settings, paths.home)
         if self._preissued_token:
             write_token(paths, self._preissued_token)
         token = ensure_token(paths)

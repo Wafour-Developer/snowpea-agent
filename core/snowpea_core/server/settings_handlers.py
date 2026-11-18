@@ -146,7 +146,10 @@ def guard_patch(
         kind, patch, project=project,
         actor=gate.ACTOR_PERSON if gate.acts_for_person(conn, actor) else None,
         authority=authority,
-        marked=actor == gate.ACTOR_PERSON,
+        # The security keys need the marker from a browser that can send it: a
+        # legacy browser's marker (it predates the marker) does not count.
+        marked=actor == gate.ACTOR_PERSON
+        and not (kind == "browser" and gate.legacy_browser(conn)),
     )
     if refused:
         gate.ledger_settings(core, conn, refused, refused=True, method="settings.set")

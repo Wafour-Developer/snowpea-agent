@@ -91,7 +91,9 @@ def context(
     projects: Iterable[str] = (),
     locale: str | None = None,
     host_tool: bool = False,
+    dry_run: bool = False,
 ) -> Context:
+    """``dry_run``: a judgement only (``security.check``), nothing is recorded."""
     work = None
     if workdir:
         with contextlib.suppress(OSError, RuntimeError, ValueError):
@@ -104,6 +106,8 @@ def context(
         locale=locale,
         unknown_code=effective_unknown_code(settings),
         host_tool=bool(host_tool),
+        checks_off=not enabled(settings),
+        dry_run=bool(dry_run),
     )
 
 
@@ -154,6 +158,21 @@ def switch_state(settings: Any, home: Any) -> dict[str, Any]:
         state["disabledBy"] = by if isinstance(by, str) else None
         state["disabledAt"] = at if isinstance(at, str) else None
     return state
+
+
+def reconcile_switch(settings: Any, home: Any) -> None:
+    """At the daemon's start: when ``settings.json`` says otherwise than the record
+    (an edit while no daemon ran), record it, by ``settings.json``; never raises.
+    No record counts as on (what every home had before 1.58.0)."""
+    if not home:
+        return
+    try:
+        record = json.loads(Path(str(home)).joinpath(*SWITCH_RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        record = {}
+    recorded = not (isinstance(record, dict) and record.get("enabled") is False)
+    now = enabled(settings)
+    note_switch(home, recorded, now, by="settings.json", method="startup")
 
 
 def note_switch(home: Any, before: bool, after: bool, *, by: str | None,
@@ -381,6 +400,7 @@ __all__ = [
     "lists_for",
     "live_projects",
     "note_switch",
+    "reconcile_switch",
     "refresh_projects",
     "switch_state",
 ]

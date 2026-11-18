@@ -192,7 +192,8 @@ async def check_handler(
     await enforce.refresh_projects(core)
     ctx = enforce.context(settings=core.settings, home=getattr(core.paths, "home", None),
                           workdir=params.workdir,
-                          projects=enforce.live_projects(core), locale=params.locale)
+                          projects=enforce.live_projects(core), locale=params.locale,
+                          dry_run=True)  # the "try it" box records nothing
     cwd = ctx.workdir
     if params.command and params.command.strip():
         verdict = check_command(params.command, lists, ctx, cwd=cwd)
