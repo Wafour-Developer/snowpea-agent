@@ -25,7 +25,8 @@ A blocked call does not run on its own, but it is never out of your reach (0.2.9
 
 - **snowpea IDE and snowpea web**: Settings → Security.
 - **Terminal UI**: the security screen (`/security`).
-- A browser host and the remote web page can read the lists but not change them. Only you, on a local connection (IDE, TUI, CLI, the local web page), can change them.
+- **The Snowpea browser's Settings page** (version 0.3.0 or later, on this computer): since protocol 1.58.0 it can change the master switch (`security.enabled`), `unknownCode` and both lists, and only from that page. It also shows what each project adds, read-only.
+- You change them on a local connection (IDE, TUI, CLI, the local web page) or on that browser page. A remote web login (the page opened through `snowpea remote`) and the remote connector can read the lists but not change them.
 
 Behind the screens these are two settings in `$SNOWPEA_HOME/settings.json`:
 
