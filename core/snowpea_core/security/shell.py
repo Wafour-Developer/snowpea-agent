@@ -1952,7 +1952,10 @@ class _Probe(_c._Judge):
             operands = list(zip(rest[index + 1:index + 2], rest_dyn[index + 1:index + 2],
                                 strict=False)) or operands
         if operands and operands[0][0] != "-":
-            if operands[0][1]:
+            if isinstance(operands[0][0], _c.ProcessWord) or operands[0][0] in _STDIN_FILES:
+                # ``python3 <(curl …)`` / ``python3 /dev/stdin``: code from a pipe.
+                self._opaque("interpreter-stdin")
+            elif operands[0][1]:
                 self._opaque("script-dynamic")
             else:
                 self._script(operands[0][0], cwd, depth, language)

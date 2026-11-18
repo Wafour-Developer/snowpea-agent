@@ -314,7 +314,7 @@ def test_allowed_through_keeps_the_backstops() -> None:
     for why in ("script-written", "code:internal", "env-code:dynamic", "snowpea-cli",
                 "snowpea-code", "control-plane:trust", "git-program", "git-hook",
                 "git-control", "path-write", "deferred-run", "shell-stdin", "internal",
-                "control-chars",
+                "control-chars", "code:stdin", "interpreter-stdin",
                 "env-code:HOME", "env-code:PATH", "env-code:PWD", "env-code:SNOWPEA_HOME",
                 "env-code:XDG_CONFIG_HOME"):
         assert not allowed_through(why), why

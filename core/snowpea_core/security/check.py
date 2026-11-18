@@ -1105,10 +1105,13 @@ def unresolved(why: str, *, stateful: bool = False) -> bool:
 #: crontab, at, batch or launchctl to run later, outside the session (M7-5);
 #: anything piped into a shell (``curl … | sh``: a downloaded script run at
 #: once); the reader itself failing (``internal``); control characters that
-#: may make the text read differently from what runs (``control-chars``).
+#: may make the text read differently from what runs (``control-chars``); code
+#: piped into an interpreter (``base64 -d <<< … | python3``).
 _PROGRAM_PLACE_REASONS: tuple[str, ...] = ("git-program", "git-hook", "git-control", "path-write",
                                            "deferred-run", "shell-stdin", "internal",
-                                           "control-chars")
+                                           "control-chars", "code:stdin", "interpreter-stdin")
+#: Programs that can bring code from the network (see :data:`_FETCH_SENSITIVE`).
+_FETCH_PROGRAMS: frozenset[str] = catalog.FETCHERS | _c.HTTP_CLIENTS
 
 
 def allowed_through(why: str, *, stateful: bool = False) -> bool:
@@ -1318,7 +1321,7 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         relax.discard("dynamic-program")
         wide.discard("dynamic-program")
     if (relax | wide) & _FETCH_SENSITIVE and any(
-            cmd.program in catalog.FETCHERS for cmd in [*view.commands, *view.literal_commands]):
+            cmd.program in _FETCH_PROGRAMS for cmd in [*view.commands, *view.literal_commands]):
         # ``sh -c "$(curl …)"``, ``curl … | python3``, ``bash < <(curl …)``: code
         # that may be the download, run.  Neither ``auto`` nor ``allow`` lets it by.
         relax -= _FETCH_SENSITIVE

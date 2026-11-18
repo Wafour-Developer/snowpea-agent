@@ -647,6 +647,12 @@ def quote_end(text: str, start: int) -> int:
                 return -1
             j = end + 1
             continue
+        if char == "$" and text[j + 1 : j + 2] == "{":
+            end = brace_end(text, j + 1, in_double=True)
+            if end < 0:
+                return -1
+            j = end + 1
+            continue
         if char == "`":
             end = _backtick_end(text, j + 1)
             if end >= n:
@@ -658,9 +664,71 @@ def quote_end(text: str, start: int) -> int:
 
 
 _CASE_WORD = re.compile(r"(case|esac)(?=[\s;&|()]|$)")
-#: ``<<EOF`` / ``<<-'EOF'`` / ``<< "EOF"``: a here-document's delimiter.
+#: ``<<EOF`` / ``<<-'EOF'`` / ``<< E"O"F``: a here-document's delimiter, one
+#: word that may be quoted in parts.
 _HEREDOC_START = re.compile(
-    r"<<(?P<strip>-)?[ \t]*(?P<word>'[^'\n]+'|\"[^\"\n]+\"|[^\s;&|()<>'\"]+)")
+    r"<<(?P<strip>-)?[ \t]*(?P<word>(?:'[^'\n]*'|\"(?:[^\"\\\n]|\\.)*\"|\\.|[^\s;&|()<>'\"\\])+)")
+#: Words after which the next word is a command (``then case …``).
+_LEADS: frozenset[str] = frozenset({"then", "do", "{", "!", "else", "elif", "if", "while",
+                                    "until", "time"})
+
+
+def heredoc_delimiter(word: str) -> str:
+    """The delimiter a here-document's word spells: its quotes and backslashes
+    removed, as the shell removes them (``E"O"F`` and ``'E'OF`` are ``EOF``)."""
+    out: list[str] = []
+    index = 0
+    while index < len(word):
+        char = word[index]
+        if char == "\\" and index + 1 < len(word):
+            out.append(word[index + 1])
+            index += 2
+        elif char in "'\"":
+            end = word.find(char, index + 1)
+            end = len(word) if end < 0 else end
+            out.append(word[index + 1 : end].replace("\\", "") if char == '"' else
+                       word[index + 1 : end])
+            index = end + 1
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out)
+
+
+def _command_position(text: str, start: int, at: int, *, esac: bool = False,
+                      in_case: bool = False, pattern_close: int = -1) -> bool:
+    """The word at ``at`` is where a command starts: after a newline, ``;``,
+    ``;;``, ``&``, ``|`` or ``(`` (or ``start``), after the case pattern's ``)``
+    at ``pattern_close``, or after a word that leads one (``then``, ``do``,
+    ``{``, ``!``, ``else``…).
+
+    A ``case`` missed lets a pattern's ``)`` close the text early, and so does
+    an ``esac`` counted that is not one; so for a ``case`` any ``)``, ``}``,
+    ``fi``, ``done`` or ``esac`` before it counts too, while an ``esac``
+    (``esac``) counts only where it surely is one: its leading word must stand
+    where a command starts itself (``echo then esac`` is three words), and
+    inside a ``case`` (``in_case``) a word after ``|`` or ``(`` is a pattern
+    (``a|esac)``, ``(esac)``)."""
+    k = at - 1
+    while k >= start and text[k] in " \t":
+        k -= 1
+    if k < start or k == pattern_close:
+        return True
+    char = text[k]
+    if char in "|(" and text[k - 1 : k + 1] != "||":
+        return not (esac and in_case)
+    if char in "\n;&|":
+        return True
+    if char == ")":
+        return not esac
+    end = k + 1
+    while k >= start and text[k] not in " \t\n;&|()":
+        k -= 1
+    word = text[k + 1 : end]
+    if word in ("}", "fi", "done", "esac"):
+        return not esac
+    return word in _LEADS and (not esac or _command_position(
+        text, start, k + 1, esac=True, in_case=in_case, pattern_close=pattern_close))
 
 
 def closing_paren(text: str, start: int) -> int:
@@ -670,6 +738,8 @@ def closing_paren(text: str, start: int) -> int:
     for a here-document inside (its body is not read here, so nothing is)."""
     depth = 0
     cases = 0
+    #: Where the last ``a)`` of a case pattern ended (a command starts after it).
+    pattern_close = -1
     j = start
     n = len(text)
     heredocs: list[tuple[str, bool]] = []
@@ -718,13 +788,15 @@ def closing_paren(text: str, start: int) -> int:
             found = _HEREDOC_START.match(text, j)
             if found is None:
                 return -1
-            word = found.group("word")
-            heredocs.append((word.strip("'\"").replace("\\", ""), bool(found.group("strip"))))
+            heredocs.append((heredoc_delimiter(found.group("word")), bool(found.group("strip"))))
             j = found.end()
             continue
         if word_start:
             found = _CASE_WORD.match(text, j)
-            if found is not None:
+            # Only a ``case``/``esac`` where a command starts (``echo esac`` is a word).
+            if found is not None and _command_position(
+                    text, start, j, esac=found.group(1) == "esac", in_case=cases > 0,
+                    pattern_close=pattern_close):
                 cases = cases + 1 if found.group(1) == "case" else max(cases - 1, 0)
                 j = found.end()
                 continue
@@ -733,10 +805,46 @@ def closing_paren(text: str, start: int) -> int:
         elif char == ")":
             if depth == 0:
                 if cases:
+                    pattern_close = j
                     j += 1  # ``a)``: a case pattern ends
                     continue
                 return j
             depth -= 1
+        j += 1
+    return -1
+
+
+def brace_end(text: str, start: int, *, in_double: bool = False) -> int:
+    """The index of the ``}`` closing the ``{`` at ``start`` (a ``${…}``): quotes,
+    substitutions and nested braces skipped; -1 when none.  ``in_double``: the
+    expansion sits inside double quotes, where a ``'`` is a plain character and
+    a ``"`` opens a nested quote (``"${X:-"'"}"``)."""
+    depth = 0
+    j = start
+    n = len(text)
+    while j < n:
+        char = text[j]
+        if char == "\\":
+            j += 2
+            continue
+        if char == '"' or (not in_double and (char == "'" or text.startswith("$'", j))):
+            # ``${X:-"}"}``: a quoted brace closes nothing.
+            j = quote_end(text, j)
+            if j < 0:
+                return -1
+            continue
+        if text.startswith("$(", j) or char == "`":
+            inner = closing_paren(text, j + 2) if char == "$" else _backtick_end(text, j + 1)
+            if inner < 0 or inner >= n:
+                return -1
+            j = inner + 1
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return j
         j += 1
     return -1
 
@@ -829,6 +937,8 @@ class _Scanner:
         self.process: str | None = None
         #: Where the last kept substitution body ends (:meth:`_record`).
         self.body_end = -1
+        #: ``case`` minus ``esac`` where a command starts.
+        self.cases = 0
 
     # -- words -----------------------------------------------------------
     def _add(self, chunk: str, protected: bool) -> None:
@@ -865,6 +975,11 @@ class _Scanner:
         elif text in ("{", "}") and not self.dynamic and not self.quoted:
             pass  # a brace group: its commands are judged like any others
         else:
+            if text in ("case", "esac") and not self.quoted and not self.dynamic and all(
+                    word in RESERVED_WORDS for word in self.cmd.words):
+                # Where a command starts: one ``case`` more than ``esac`` means a
+                # ``)`` of the text was read as the wrong one (closing_paren).
+                self.cases += 1 if text == "case" else -1
             for word in expanded:
                 self.cmd.words.append(word)
                 self.cmd.dynamic.append(self.dynamic)
@@ -913,8 +1028,12 @@ class _Scanner:
                     break
             owner.stdin_text = "\n".join(body)
             if not quoted:
+                # The body's substitutions run where the command that reads it
+                # runs (``cd ~/.ssh; cat <<EOF; cd /tmp`` reads it in ~/.ssh).
+                owner_index = next((index for index, cmd in enumerate(self.line.commands)
+                                    if cmd is owner), max(len(self.line.commands) - 1, 0))
                 self._record(embedded_bodies(owner.stdin_text, heredoc=True), begin, self.i,
-                             index=max(len(self.line.commands) - 1, 0))
+                             index=owner_index)
         self.pending_heredocs = []
 
     def _record(self, found: list[tuple[str, str]], at: int, end: int,
@@ -1024,6 +1143,8 @@ class _Scanner:
                 self._add(char, False)
                 self.i += 1
         self._end_command(None)
+        if self.cases > 0:
+            raise _Opaque("case")  # a ``case`` with no ``esac``: its ``)`` misread
         return self.line
 
     def _double_quoted(self) -> None:
@@ -1054,6 +1175,19 @@ class _Scanner:
                 self.dynamic = True
                 self._record([("$", text[self.i + 2 : end])], self.i, end)
                 self._add(text[self.i : end + 1], True)
+                self.i = end + 1
+                continue
+            if pair == "${":
+                # ``"${X:-"'"}"``: quotes inside nest; the whole of it is one part.
+                end = brace_end(text, self.i + 1, in_double=True)
+                if end < 0:
+                    raise _Opaque("unbalanced-brace")
+                body = text[self.i : end + 1]
+                if any(mark in body for mark in ("$(", "`", "<(", ">(")):
+                    self.line.substitution = True
+                    self._record(embedded_bodies(body[2:-1]), self.i, end)
+                self.dynamic = True
+                self._add(body, True)
                 self.i = end + 1
                 continue
             if char == "`":
@@ -1095,35 +1229,7 @@ class _Scanner:
         if nxt == "{":
             # ``${…}``, nested ones included: a command substitution or a
             # backtick anywhere inside (``${X:-$(git push)}``) runs a command.
-            depth = 0
-            end = -1
-            j = self.i + 1
-            while j < len(text):
-                char = text[j]
-                if char == "\\":
-                    j += 2
-                    continue
-                if char in "'\"" or text.startswith("$'", j):
-                    # ``${X:-"}"}``: a quoted brace closes nothing.
-                    j = quote_end(text, j)
-                    if j < 0:
-                        raise _Opaque("unbalanced-quote")
-                    continue
-                if text.startswith("$(", j) or char == "`":
-                    inner = (closing_paren(text, j + 2) if char == "$"
-                             else _backtick_end(text, j + 1))
-                    if inner < 0 or inner >= len(text):
-                        raise _Opaque("unbalanced-paren")
-                    j = inner + 1
-                    continue
-                if char == "{":
-                    depth += 1
-                elif char == "}":
-                    depth -= 1
-                    if depth == 0:
-                        end = j
-                        break
-                j += 1
+            end = brace_end(text, self.i + 1)
             if end < 0:
                 raise _Opaque("unbalanced-brace")
             body = text[self.i : end + 1]

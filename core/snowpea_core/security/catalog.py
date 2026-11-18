@@ -189,10 +189,16 @@ def _kill_all(cmd: Any, _line: Any, _ctx: Any) -> bool:
     return cmd.program == "kill" and "-1" in _kill_targets(cmd.rest)
 
 
-_FETCHERS = frozenset({"curl", "wget", "fetch", "http", "https", "xh", "aria2c", "lwp-request",
-                       "httpie", "iwr", "irm", "invoke-webrequest", "invoke-restmethod"})
-#: Programs that fetch from the network (check.py: downloaded code under ``allow``).
-FETCHERS = _FETCHERS
+_FETCHERS = frozenset({"curl", "wget", "wget2", "fetch", "http", "https", "xh", "xhs",
+                       "curlie", "aria2c", "lwp-request", "httpie", "iwr", "irm",
+                       "invoke-webrequest", "invoke-restmethod"})
+#: Programs that can bring code from the network (check.py: code run in a line
+#: that has one asks under ``auto`` and ``allow``): HTTP clients and the
+#: programs that open a channel to another host.
+FETCHERS = _FETCHERS | frozenset({"nc", "ncat", "netcat", "socat", "openssl", "ssh", "scp",
+                                  "sftp", "rsync", "ftp", "tftp", "lftp"})
+#: ``FETCHERS`` as one regular-expression alternative (longest names first).
+_FETCH_NAMES = "|".join(re.escape(name) for name in sorted(FETCHERS, key=len, reverse=True))
 _RUNNERS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "python", "perl",
                       "ruby", "node", "php", "iex", "invoke-expression", "pwsh", "powershell"})
 
@@ -201,11 +207,11 @@ _RUNNERS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "python
 #: ``bash -x <(curl …)``, ``python3 < <(curl …)``, ``sh -c "$(wget …)"``.
 _RUN_FETCHED = re.compile(
     r"(^|[\s;|&(])(sh|bash|zsh|dash|ksh|python3?|perl|ruby|node)((\s+-[A-Za-z-]+)*)\s*"
-    r"(<\s*)?[\"']?(\$\(|<\(|>\(|`)\s*(curl|wget)\b")
+    rf"(<\s*)?[\"']?(\$\(|<\(|>\(|`)\s*({_FETCH_NAMES})(?![\w-])")
 #: A fetch written into a runner: ``curl … > >(bash)``, ``curl … | tee >(true; sh)``.
 _FETCH_INTO_RUNNER = re.compile(
-    r"\b(curl|wget)\b[^\n;&]*>\(\s*([^)]*[;&|]\s*)?(sh|bash|zsh|dash|ksh|python3?|perl|"
-    r"ruby|node)\b")
+    rf"(?<![\w-])({_FETCH_NAMES})(?![\w-])[^\n;&]*>\(\s*([^)]*[;&|]\s*)?"
+    r"(sh|bash|zsh|dash|ksh|python3?|perl|ruby|node)\b")
 
 
 def _remote_script(view: Any, _ctx: Any) -> bool:
