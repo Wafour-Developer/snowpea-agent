@@ -189,19 +189,34 @@ def _kill_all(cmd: Any, _line: Any, _ctx: Any) -> bool:
     return cmd.program == "kill" and "-1" in _kill_targets(cmd.rest)
 
 
-_FETCHERS = frozenset({"curl", "wget", "fetch", "http", "https", "xh", "aria2c", "lwp-request",
-                       "httpie", "iwr", "irm", "invoke-webrequest", "invoke-restmethod"})
+_FETCHERS = frozenset({"curl", "wget", "wget2", "fetch", "http", "https", "xh", "xhs",
+                       "curlie", "aria2c", "lwp-request", "httpie", "iwr", "irm",
+                       "invoke-webrequest", "invoke-restmethod"})
+#: Programs that can bring code from the network (check.py: code run in a line
+#: that has one asks under ``auto`` and ``allow``): HTTP clients and the
+#: programs that open a channel to another host.
+FETCHERS = _FETCHERS | frozenset({"nc", "ncat", "netcat", "socat", "openssl", "ssh", "scp",
+                                  "sftp", "rsync", "ftp", "tftp", "lftp"})
+#: ``FETCHERS`` as one regular-expression alternative (longest names first).
+_FETCH_NAMES = "|".join(re.escape(name) for name in sorted(FETCHERS, key=len, reverse=True))
 _RUNNERS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "python", "perl",
                       "ruby", "node", "php", "iex", "invoke-expression", "pwsh", "powershell"})
 
 
+#: A runner handed a fetch's output through a substitution: ``bash <(curl …)``,
+#: ``bash -x <(curl …)``, ``python3 < <(curl …)``, ``sh -c "$(wget …)"``.
+_RUN_FETCHED = re.compile(
+    r"(^|[\s;|&(])(sh|bash|zsh|dash|ksh|python3?|perl|ruby|node)((\s+-[A-Za-z-]+)*)\s*"
+    rf"(<\s*)?[\"']?(\$\(|<\(|>\(|`)\s*({_FETCH_NAMES})(?![\w-])")
+#: A fetch written into a runner: ``curl … > >(bash)``, ``curl … | tee >(true; sh)``.
+_FETCH_INTO_RUNNER = re.compile(
+    rf"(?<![\w-])({_FETCH_NAMES})(?![\w-])[^\n;&]*>\(\s*([^)]*[;&|]\s*)?"
+    r"(sh|bash|zsh|dash|ksh|python3?|perl|ruby|node)\b")
+
+
 def _remote_script(view: Any, _ctx: Any) -> bool:
     """A download run as code: ``curl … | sh``, ``bash <(curl …)``, ``sh -c "$(wget …)"``."""
-    if any(
-        re.search(r"(^|[\s;|&(])(sh|bash|zsh|dash|python3?|perl|ruby|node)\s+(-[a-z]*c\s+)?"
-                  r"[\"']?(\$\(|<\(|`)\s*(curl|wget)\b", text)
-        for text in view.texts
-    ):
+    if any(_RUN_FETCHED.search(text) or _FETCH_INTO_RUNNER.search(text) for text in view.texts):
         return True
     by_line: dict[int, list[Any]] = {}
     for cmd in view.commands:
@@ -213,10 +228,9 @@ def _remote_script(view: Any, _ctx: Any) -> bool:
         runner = cmd.program in _RUNNERS or pl.program_family(cmd.program) in _RUNNERS
         if not runner:
             continue
-        if cmd.piped_in and any(
-            other.program in _FETCHERS and other.index < cmd.index
-            for other in by_line.get(cmd.line, [])
-        ):
+        # Fed by a pipe while a fetch is anywhere in the view: a ``>(…)`` body or
+        # a substitution is a line of its own, so the fetch need not be on its line.
+        if cmd.piped_in:
             return True
         # ``bash <(curl …)`` / ``sh -c "$(curl …)"``: the fetch sits in a
         # substitution on the runner's own line, or in its ``-c`` body.
