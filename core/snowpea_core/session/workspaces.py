@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+import weakref
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -44,7 +45,10 @@ ADOPTED_KEY = "adopted"
 #: Columns added to ``sessions`` for the sidebar.
 SESSION_FLAGS: tuple[tuple[str, str], ...] = (("pinned", "INTEGER"), ("archived", "INTEGER"))
 
-_READY: dict[int, bool] = {}
+#: ``id(store)`` -> a weak reference to that store.  ``id`` alone is reused once a
+#: store is gone, so a new store at the same address was taken as ready and its
+#: tables were never made ("no such table: workspaces").
+_READY: dict[int, weakref.ref[Any]] = {}
 
 
 def canonical(path: str | os.PathLike[str]) -> str:
@@ -108,10 +112,11 @@ def _mark_adopted(store: Store) -> None:
 async def ensure(store: Store) -> None:
     """Create the tables and the session flags once per store; fill them on first open."""
     key = id(store)
-    if _READY.get(key):
+    ref = _READY.get(key)
+    if ref is not None and ref() is store:
         return
     await asyncio.to_thread(_ensure_sync, store)
-    _READY[key] = True
+    _READY[key] = weakref.ref(store)
 
 
 def _row(row: Any) -> dict[str, Any]:
