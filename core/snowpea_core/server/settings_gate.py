@@ -1229,6 +1229,29 @@ def browser_confirms(conn: Any) -> bool:
     return version is not None and version >= BROWSER_PERSON_CONFIRM_MIN
 
 
+#: Surfaces that make a session FOR a browser when they give it ``hostToolsFrom``
+#: (m27 fix, M-1): Jarvis's browser sessions, a browser's scheduled jobs.
+BROWSER_FOR_SURFACES: frozenset[str] = frozenset({"jarvis", "scheduler"})
+
+
+def browser_made(session: Any) -> bool:
+    """``session`` was made by or for a browser (m27 fix, M-1): opened by one
+    (``originSurface: "browser"``), or made by Jarvis or the scheduler with
+    ``hostToolsFrom``.  A TUI, IDE, CLI or desktop session that uses a browser's
+    tools is not: ``hostToolsFrom`` alone never makes it one."""
+    surface = getattr(session, "origin_surface", None)
+    return surface == "browser" or (
+        surface in BROWSER_FOR_SURFACES and bool(getattr(session, "host_tools_from", None)))
+
+
+def _person_origin(session: Any) -> bool:
+    """A person's connection (local or a remote web login) is ``session``'s live origin."""
+    from snowpea_core.server.person_gate import connection_kind
+
+    origin = getattr(session, "origin_conn", None)
+    return origin is not None and connection_kind(origin) in ("person", "remote_login")
+
+
 def browser_owns(conn: Any, session: Any, *, owner: Any = None, lookup: Any = None) -> bool:
     """``conn`` (a browser) owns, hosts or opened ``session``, or is the surface the
     person is prompting from; a subagent's session counts by its parent chain.
@@ -1241,12 +1264,16 @@ def browser_owns(conn: Any, session: Any, *, owner: Any = None, lookup: Any = No
     while current is not None and seen < 16:
         # Being its origin counts only on a browser-made session (m27, M1): a
         # TUI, IDE, CLI or desktop session a browser resumed or attached to is
-        # never the browser's own.
-        browser_made = getattr(current, "origin_surface", None) == "browser" or bool(
-            getattr(current, "host_tools_from", None))
-        origin = ("origin_client_id",) if browser_made else ()
-        ids = {getattr(current, name, None) for name in ("host_tools_from", "owned_by", *origin)}
-        conns = ("origin_conn", "asker_conn") if browser_made else ("asker_conn",)
+        # never the browser's own.  Hosting one counts only while no person's
+        # connection is its live origin (m27 fix, M-1).
+        made = browser_made(current)
+        names = ["owned_by"]
+        if made:
+            names += ["host_tools_from", "origin_client_id"]
+        elif not _person_origin(current):
+            names.append("host_tools_from")
+        ids = {getattr(current, name, None) for name in names} - {None, BROWSER_ALIAS}
+        conns = ("origin_conn", "asker_conn") if made else ("asker_conn",)
         if (client_id and client_id in ids) or any(
                 conn is getattr(current, name, None) for name in conns):
             return True

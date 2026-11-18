@@ -442,6 +442,18 @@ class Session:
 
 
 
+def shown_host(host: str | None, caller: Any) -> str | None:
+    """``hostToolsFrom`` as ``caller`` may see it (m27 fix, M-2): a concrete
+    clientId only to that client (its clientId or surface id), as
+    :func:`origin_of` shows the origin's; to anyone else ``"browser"`` ("a
+    browser's tools").  In-process listeners (no ``client_kind``) see it all."""
+    if not host or host == "browser" or not hasattr(caller, "client_kind"):
+        return host
+    if host in (getattr(caller, "client_id", None), getattr(caller, "surface_id", None)):
+        return host
+    return "browser"
+
+
 def origin_of(session: Session, caller: Any = None) -> SessionOrigin | None:
     """Who answers ``session``'s approvals, and whether that client is still there.
 

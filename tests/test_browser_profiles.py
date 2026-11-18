@@ -140,7 +140,10 @@ async def test_sessions_carry_their_profile_and_list_filters_on_it(
 
         rows = {r["sessionId"]: r for r in (await profile_a.ok("session.list", {}))["sessions"]}
         assert rows[a_session]["hostToolsFrom"] == A
-        assert rows[b_session]["hostToolsFrom"] == B
+        # m27 fix, M-2: another browser's clientId is not handed out.
+        assert rows[b_session]["hostToolsFrom"] == "browser"
+        own = {r["sessionId"]: r for r in (await profile_b.ok("session.list", {}))["sessions"]}
+        assert own[b_session]["hostToolsFrom"] == B
         assert rows[ide_session]["hostToolsFrom"] is None
 
         only_a = await profile_a.ok("session.list", {"hostToolsFrom": A})
@@ -156,7 +159,12 @@ async def test_sessions_carry_their_profile_and_list_filters_on_it(
             n["params"] for n in profile_b.notifications
             if n["method"] == "sessions.changed" and n["params"]["sessionId"] == a_session
         ]
-        assert renamed and renamed[-1]["hostToolsFrom"] == A
+        assert renamed and renamed[-1]["hostToolsFrom"] == "browser"
+        mine = [
+            n["params"] for n in profile_a.notifications
+            if n["method"] == "sessions.changed" and n["params"]["sessionId"] == a_session
+        ]
+        assert mine and mine[-1]["hostToolsFrom"] == A
 
         await profile_a.ok("session.notice", {"sessionId": a_session, "text": "hi"})
         await profile_a.ok("session.prompt", {"sessionId": a_session, "text": "hello"})

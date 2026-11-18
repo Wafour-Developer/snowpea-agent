@@ -99,7 +99,7 @@ from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.session import events, mode_guard
 from snowpea_core.session.history import message_from_json, message_text
 from snowpea_core.session.mode_guard import ModeCaller
-from snowpea_core.session.session import origin_of
+from snowpea_core.session.session import origin_of, shown_host
 from snowpea_core.session.store import Store
 from snowpea_core.session.workspace import ensure_workspace
 from snowpea_core.skills.loader import SkillLoader
@@ -408,13 +408,23 @@ async def session_resume_handler(
     from snowpea_core.server.person_gate import connection_kind
 
     watcher = connection_kind(conn) == "connector"
+    # m27 fix, M-1 / L-1: a browser becomes the origin only where it could by
+    # session.attach (browser_attach_check); elsewhere it only watches.
+    browser = connection_kind(conn) == "browser"
     session = core.sessions.get(params.sessionId)
     if session is None:
         session = await core.sessions.restore(
-            params.sessionId, origin_conn=None if watcher else conn
+            params.sessionId, origin_conn=None if watcher or browser else conn
         )
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
+    if browser:
+        from snowpea_core.server.host_handlers import browser_attach_check
+
+        try:
+            watcher = not browser_attach_check(conn, session, core)
+        except RpcError:
+            watcher = True
     await _load_project_skills(core, session.workdir, session.id)
     ensure_workspace(core.paths.home, session)
     from snowpea_core.tools.host_tools import runs_owned_job
@@ -471,7 +481,8 @@ async def session_list_handler(
             continue  # a jarvis-task worker is the person's only (security review M6)
         live = core.sessions.get(row.sessionId)
         origin = origin_of(live, conn) if live is not None else None
-        out.append(row.model_copy(update={"origin": origin}))
+        out.append(row.model_copy(update={
+            "origin": origin, "hostToolsFrom": shown_host(row.hostToolsFrom, conn)}))
     complete = core.sessions_loaded and (not params.includeClosed or core.store is not None)
     from snowpea_core.server.workspace_handlers import decorate
 
