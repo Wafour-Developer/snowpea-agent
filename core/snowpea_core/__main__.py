@@ -16,7 +16,7 @@ from snowpea_core import __version__
 
 
 def build_parser() -> argparse.ArgumentParser:
-    from snowpea_core.server.protocol import PROTOCOL_VERSION
+    from snowpea_core.server.protocol_version import PROTOCOL_VERSION
 
     parser = argparse.ArgumentParser(
         prog="snowpea-core", description="Run the snowpea core daemon."
@@ -108,6 +108,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         # tools/config_guard, and any command the agent shells out to — reads
         # $SNOWPEA_HOME, so ``--home`` has to reach the environment too.
         os.environ["SNOWPEA_HOME"] = str(args.home)
+    from snowpea_core import win_detach
+
+    if win_detach.should_detach():
+        # Windows + uv trampoline + browser: the daemon must outlive uv's job.
+        code = win_detach.run_detached(raw, args.home)
+        if code is not None:
+            return code
     import asyncio
 
     from snowpea_core.server.app_server import HOME_LOCKED_EXIT, HomeLocked, run_daemon

@@ -21,7 +21,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
 
-PROTOCOL_VERSION = "1.60.0"
+# Bumped in protocol_version.py: ``snowpea-core --version`` reads it from there.
+from snowpea_core.server.protocol_version import PROTOCOL_VERSION
+
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
