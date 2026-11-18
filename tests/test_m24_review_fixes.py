@@ -18,13 +18,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_m24_person_override import Conn, _pending, _queue, _session
 
 from snowpea_core.security import written
 from snowpea_core.security.check import Context, check_command
 from snowpea_core.security.lists import Lists
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
-from tests.test_m24_person_override import Conn, _pending, _queue, _session
 
 USER = "/home/u"
 HOME = f"{USER}/.snowpea"
