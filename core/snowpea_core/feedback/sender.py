@@ -25,11 +25,10 @@ log = logging.getLogger("snowpea.feedback")
 FEEDBACK_URL = "https://browser.snowpea.ai/api/feedback"
 ENV_URL = "SNOWPEA_FEEDBACK_URL"
 INSTALL_ID_FILE = "feedback-install-id"
-#: The 개선하기 server accepts ``client.app: "snowpea-core"`` once its change is
-#: deployed; until then ``system.hello`` does not advertise
-#: ``improvementFeedback`` (clients hide the entry) unless ``SNOWPEA_FEEDBACK_URL``
-#: points somewhere else (staging, a test server).
-SERVER_LIVE = False
+#: Whether the 개선하기 server takes ``client.app: "snowpea-core"`` (live on qai
+#: since 2026-11-18).  False hides ``improvementFeedback`` from ``system.hello``
+#: (clients hide the entry) unless ``SNOWPEA_FEEDBACK_URL`` points elsewhere.
+SERVER_LIVE = True
 
 
 def advertised(env: dict[str, str] | None = None) -> bool:
