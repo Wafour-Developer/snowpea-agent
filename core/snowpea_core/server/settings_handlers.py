@@ -11,7 +11,7 @@ a corrupt file), then persisted and echoed back with secrets masked.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ValidationError
 
@@ -25,6 +25,9 @@ from snowpea_core.server.audio_handlers import audio_config, speech_caller
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     Empty,
+    Ok,
+    ProviderModelParams,
+    ProviderModelRemoveResult,
     SettingsGetParams,
     SettingsResult,
     SettingsSetParams,
@@ -54,6 +57,8 @@ HANDLED_METHODS: tuple[str, ...] = (
     "settings.get",
     "settings.set",
     "setup.catalog",
+    "provider.model.remove",
+    "provider.model.unhide",
 )
 
 _mask_secrets = mask_secrets
@@ -332,6 +337,7 @@ async def settings_set_handler(
 
     if params.scope == "project":
         workdir = _require_workdir(params)
+        hidden_models_problems(params.patch, project=True)
         current = ProjectSettings.load(workdir)
         # The security lists: valid entries only, and a project may only add.
         settings_problems(params.patch, project_current=current.security, project=True)
@@ -355,6 +361,7 @@ async def settings_set_handler(
         return SettingsResult(settings=_mask_secrets(updated.model_dump(mode="json")))
 
     settings_problems(params.patch)
+    hidden_models_problems(params.patch)
     if "*" in getattr(core.settings, "degraded_sections", list)():
         # Security review 9, F3: the person's unreadable file is not replaced by
         # the defaults plus this patch; it is fixed, then reloaded.
@@ -399,6 +406,153 @@ async def settings_set_handler(
     await core.adopt_settings(updated_settings, changed)
     await _sync_gateways(core)
     return SettingsResult(settings=_mask_secrets(updated_settings.model_dump(mode="json")))
+
+
+#: ``providers.<vendor>.hiddenModels`` limits (1.60.0): one id, and one list.
+MODEL_ID_MAX = 256
+HIDDEN_MODELS_MAX = 2000
+
+
+def _model_id_ok(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and len(value) <= MODEL_ID_MAX
+        and value.isprintable()
+    )
+
+
+def hidden_models_problems(patch: dict[str, Any], *, project: bool = False) -> None:
+    """``settings.set``'s check of ``providers.<vendor>.hiddenModels`` (1.60.0).
+
+    A list of model ids (or ``null`` to clear it), global scope only: a project
+    cannot hide a model from the person's pickers (``details.reason:
+    "global_only"``).
+    """
+    providers = patch.get("providers")
+    if not isinstance(providers, dict):
+        return
+    from snowpea_core.providers.models import HIDDEN_FIELD
+
+    for vendor, block in providers.items():
+        if not isinstance(block, dict) or HIDDEN_FIELD not in block:
+            continue
+        key = f"providers.{vendor}.{HIDDEN_FIELD}"
+        if project:
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                f"{key} is a global setting; a project cannot change it",
+                {"reason": "global_only", "key": key},
+            )
+        value = block[HIDDEN_FIELD]
+        if value is None:
+            continue
+        if (
+            not isinstance(value, list)
+            or len(value) > HIDDEN_MODELS_MAX
+            or not all(_model_id_ok(item) for item in value)
+        ):
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                f"{key} must be a list of model ids (at most {HIDDEN_MODELS_MAX}, each a "
+                f"non-empty string of at most {MODEL_ID_MAX} characters)",
+                {"key": key},
+            )
+
+
+def _model_target(conn: Any, params: ProviderModelParams, core: Any, method: str
+                  ) -> tuple[str, str]:
+    """``(vendor, model)`` of a ``provider.model.*`` call, or the refusal (1.60.0).
+
+    A local person, a remote web login (provider.remove's rule) and a browser
+    0.3.0+ with ``actor: "person"``; never a connector, a legacy or unmarked
+    browser, Jarvis or any other in-process caller.  While Jarvis mode is on
+    its own provider is a local person's (``guard_call``).
+    """
+    from snowpea_core.server import settings_gate as gate
+    from snowpea_core.server.person_gate import connection_kind
+
+    kind = connection_kind(conn)
+    if kind in ("none", "closed"):
+        gate.refuse(conn, f"call {method}")
+    if kind == "browser" and (params.actor != gate.ACTOR_PERSON or gate.legacy_browser(conn)):
+        gate.ledger_settings(core, conn, [method], refused=True, method=method)
+        gate.refuse(conn, f"call {method} outside its Settings page")
+    vendor = (params.vendor or "").strip()
+    model = (params.model or "").strip()
+    if not vendor or vendor == "default":
+        raise RpcError(errors.INVALID_PARAMS, f"{method} needs a vendor")
+    if not _model_id_ok(model):
+        raise RpcError(errors.INVALID_PARAMS, f"{method} needs a model id")
+    gate.guard_call(conn, params.actor, core, method=method, key=("providers", vendor))
+    if vendor not in core.providers.known_vendors():
+        raise RpcError(errors.NOT_FOUND, f"no provider {vendor!r}")
+    return vendor, model
+
+
+def _vendor_block(core: Any, vendor: str) -> dict[str, Any]:
+    """``settings.providers.<vendor>`` as ``settings.set`` will merge onto it."""
+    raw = core.settings.providers.get(vendor)
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _unlist_patch(config: dict[str, Any], model: str) -> dict[str, Any]:
+    """The ``providers.<vendor>`` patch that takes a hand-added ``model`` off its list."""
+    patch: dict[str, Any] = {}
+    for field in ("models", "oauth_models"):
+        raw = config.get(field)
+        if isinstance(raw, list):
+            kept = [item for item in raw if not (isinstance(item, str) and item.strip() == model)]
+            if len(kept) != len(raw):
+                patch[field] = kept or None
+        elif isinstance(raw, dict) and model in raw:
+            patch[field] = {model: None} if len(raw) > 1 else None
+    return patch
+
+
+async def _write_provider_block(conn: Any, core: Any, actor: Literal["person"] | None, vendor: str,
+                                block: dict[str, Any]) -> None:
+    """Through ``settings.set`` itself: the same gate, checks, save and ``settings.changed``."""
+    await settings_set_handler(
+        conn, SettingsSetParams(actor=actor, patch={"providers": {vendor: block}}), core
+    )
+
+
+async def provider_model_remove_handler(
+    conn: RpcConnection, params: ProviderModelParams, core: Core
+) -> ProviderModelRemoveResult:
+    """``provider.model.remove`` — unlist a hand-added id, else hide it (1.60.0)."""
+    from snowpea_core.providers.models import HIDDEN_FIELD, hidden_models
+
+    vendor, model = _model_target(conn, params, core, "provider.model.remove")
+    config = _vendor_block(core, vendor)
+    unlist = _unlist_patch(config, model)
+    if unlist:
+        await _write_provider_block(conn, core, params.actor, vendor, unlist)
+        return ProviderModelRemoveResult(action="unlisted")
+    hidden = hidden_models(config)
+    if model not in hidden:
+        if len(hidden) >= HIDDEN_MODELS_MAX:
+            raise RpcError(errors.INVALID_PARAMS,
+                           f"providers.{vendor}.{HIDDEN_FIELD} is full ({HIDDEN_MODELS_MAX})")
+        await _write_provider_block(
+            conn, core, params.actor, vendor, {HIDDEN_FIELD: [*hidden, model]}
+        )
+    return ProviderModelRemoveResult(action="hidden")
+
+
+async def provider_model_unhide_handler(
+    conn: RpcConnection, params: ProviderModelParams, core: Core
+) -> Ok:
+    """``provider.model.unhide`` — take a model off ``hiddenModels`` (1.60.0)."""
+    from snowpea_core.providers.models import HIDDEN_FIELD, hidden_models
+
+    vendor, model = _model_target(conn, params, core, "provider.model.unhide")
+    hidden = hidden_models(_vendor_block(core, vendor))
+    if model in hidden:
+        kept = [name for name in hidden if name != model]
+        await _write_provider_block(conn, core, params.actor, vendor, {HIDDEN_FIELD: kept or None})
+    return Ok(ok=True)
 
 
 def _unknown_profile_vendors(patch: dict[str, Any], settings: Settings) -> str | None:
@@ -497,6 +651,8 @@ def register_settings_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("settings.get", settings_get_handler)
     dispatcher.register("settings.set", settings_set_handler)
     dispatcher.register("setup.catalog", setup_catalog_handler)
+    dispatcher.register("provider.model.remove", provider_model_remove_handler)
+    dispatcher.register("provider.model.unhide", provider_model_unhide_handler)
     return dispatcher
 
 

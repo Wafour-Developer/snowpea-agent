@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import DETAIL_REASONS, ERROR_CODES, PERSON_ONLY_KINDS
 
-PROTOCOL_VERSION = "1.59.0"
+PROTOCOL_VERSION = "1.60.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -3021,6 +3021,20 @@ class AllowlistRemoveParams(Payload):
 # --------------------------------------------------------------------------
 
 
+class HiddenModelUse(Payload):
+    """A hidden model that something still uses (1.60.0, capability hiddenModels)."""
+
+    model: str = Field(description="The hidden model id.")
+    usedBy: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Who uses it: 'default' (models.default, or the vendor's own default model), "
+            "'category:<slot>' (models.categories), 'agent:<name>' (agents.models) and "
+            "'session:<sessionId>' (a session whose turn is running on it)."
+        ),
+    )
+
+
 class ProviderInfo(Payload):
     """One chat provider."""
 
@@ -3082,6 +3096,23 @@ class ProviderInfo(Payload):
         description=(
             "True when this vendor accepts a reasoning-effort setting. False for a local-style "
             "server unless its block sets effort_param: true."
+        ),
+    )
+    hiddenModels: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1.60.0 (capability hiddenModels): settings providers.<vendor>.hiddenModels, the "
+            "model ids the person removed from this vendor's pickers (exact ids as the vendor "
+            "lists them; 'openai/gpt-4o' on OpenRouter is its own id). They are left out of "
+            "models here, of provider.models and of every picker; provider.model.unhide "
+            "brings one back."
+        ),
+    )
+    hiddenInUse: list[HiddenModelUse] = Field(
+        default_factory=list,
+        description=(
+            "1.60.0: hidden models something still uses. Hiding never rewrites a setting or "
+            "stops a run: these keep working, and a surface shows a warning."
         ),
     )
 
@@ -3482,6 +3513,30 @@ class ProviderRemoveParams(Payload):
         description=(
             "Provider to forget: its credentials, its model profiles and the agent "
             "assignments that used them."
+        )
+    )
+
+
+class ProviderModelParams(Payload):
+    """``provider.model.remove`` / ``provider.model.unhide`` (1.60.0, capability hiddenModels)."""
+
+    actor: Literal["person"] | None = Field(
+        default=None,
+        description=(
+            "Browser marker: a browser connection needs actor 'person' and clientVersion "
+            "0.3.0 or later (a legacy browser is refused)."
+        ),
+    )
+    vendor: str = Field(description="Provider whose list the model belongs to.")
+    model: str = Field(description="Exact model id as provider.models lists it.")
+
+
+class ProviderModelRemoveResult(Payload):
+    action: Literal["unlisted", "hidden"] = Field(
+        description=(
+            "'unlisted': the id was hand-added (providers.<vendor>.models or .oauth_models) "
+            "and was taken off that list; 'hidden': it was added to "
+            "providers.<vendor>.hiddenModels."
         )
     )
 
@@ -11193,6 +11248,26 @@ METHODS: dict[str, RpcMethod] = {
             "Forget a configured provider, typically a named local server.",
         ),
         _m(
+            "provider.model.remove",
+            ProviderModelParams,
+            ProviderModelRemoveResult,
+            ("1.60.0 (capability hiddenModels): take a model off a vendor's pickers. A "
+             "hand-added id (providers.<vendor>.models or .oauth_models) is taken off that "
+             "list ('unlisted'); any other id is added to providers.<vendor>.hiddenModels "
+             "('hidden'). Written through settings.set's path (settings.changed fires); "
+             "nothing that uses the model is rewritten. A local person, a remote web login, "
+             "or a browser 0.3.0+ with actor 'person'; never a connector, a legacy or unmarked "
+             "browser, Jarvis or an in-process caller (jarvis_person_only)."),
+        ),
+        _m(
+            "provider.model.unhide",
+            ProviderModelParams,
+            Ok,
+            ("1.60.0 (capability hiddenModels): take a model off "
+             "providers.<vendor>.hiddenModels (ok when it was not hidden). Same callers as "
+             "provider.model.remove."),
+        ),
+        _m(
             "provider.loginWeb",
             ProviderLoginWebParams,
             ProviderLoginWebResult,
@@ -12447,6 +12522,9 @@ CAPABILITIES: list[str] = [
     # 1.59.0 (개선하기): feedback.preview / feedback.send, error codes
     # feedback_rejected / feedback_busy / feedback_unreachable.
     "improvementFeedback",
+    # 1.60.0: settings providers.<vendor>.hiddenModels, ProviderInfo.hiddenModels /
+    # hiddenInUse, provider.model.remove / provider.model.unhide.
+    "hiddenModels",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -12534,6 +12612,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "jarvis.handback",
         "provider.configure",
         "provider.remove",
+        "provider.model.remove",
+        "provider.model.unhide",
         "provider.loginWeb",
         "checkpoint.list",
         "checkpoint.diff",

@@ -51,6 +51,18 @@ snowpea setup --blank    # asks nothing, writes the defaults
 
 `models`는 모든 계정에 적용되고, `oauth_models`는 해당 제공자를 OAuth로 로그인했을 때만 적용됩니다. 덕분에 한 블록 안에서 Codex 카탈로그만 고정하고 API 키로 볼 목록은 건드리지 않을 수 있습니다. 둘 다 다음 조회부터 바로 반영되며 재시작이 필요 없습니다. `SNOWPEA_MODELS_DEV=0`으로 두면 curated 단계에서도 네트워크를 쓰지 않습니다.
 
+### 목록에서 모델 빼기
+
+목록은 대부분 벤더가 알려주는 것이라, 모델을 빼는 것은 숨기는 것입니다. `providers.<벤더>.hiddenModels`(전역 설정에만 둘 수 있고 프로젝트 설정에는 둘 수 없음)에 그 벤더 목록에서 뺀 id가 들어가고, 위의 어느 단계가 답하든 모든 목록에서 빠집니다. id는 벤더가 보여주는 그대로 정확히 일치해야 합니다. 슬래시도 id의 일부라서 OpenRouter의 `openai/gpt-4o`는 `openai` 벤더의 `gpt-4o`와 다른 모델입니다. `providers.<벤더>.models`(또는 `.oauth_models`)에 직접 추가한 모델은 숨기는 대신 그 목록에서 지웁니다.
+
+```bash
+snowpea provider models hide anthropic claude-old-1     # 숨김, 직접 추가한 모델이면 목록에서 지움
+snowpea provider models list anthropic --hidden         # 숨긴 모델과 아직 쓰는 곳
+snowpea provider models unhide anthropic claude-old-1
+```
+
+TUI의 `/providers`와 앱의 설정 › 모델도 같은 일을 합니다(`provider.model.remove` / `provider.model.unhide`, 프로토콜 1.60.0). 숨겨도 설정을 고쳐 쓰거나 실행을 멈추지 않습니다. 숨긴 모델이 아직 기본 모델이거나 `models.categories` 슬롯, 에이전트의 모델, 실행 중인 세션의 모델이라면 계속 동작하고, `provider.list`가 `hiddenInUse`로 표시해 화면에서 경고할 수 있게 합니다.
+
 ## 벤더 기본 모델은 어디서 오는가
 
 `snowpea setup`의 벤더 목록은 각 벤더가 실제로 세션을 시작할 모델을 `default: glm-5.3 (from models.dev)` 형태로 보여 줍니다. 이 id는 화면을 그릴 때 결정되며 빌드에 박혀 있지 않습니다. 몇 달 전에 설치한 릴리스라도 벤더가 지금 제공하는 모델을 안내한다는 뜻입니다. 우선순위는 세 단계입니다. 먼저 이 컴퓨터에 자격 증명이 있는 벤더는 **계정의 실제 목록**을 씁니다. 그다음이 공개 [models.dev](https://models.dev) 카탈로그가 그 벤더에 대해 싣고 있는 가장 최신 대화형 모델인데, 같은 세대라면 저가형 대신 대표 모델을 고르고 preview·deprecated id는 건너뜁니다. 마지막이 이 릴리스에 내장된 문자열입니다. 각 행은 어느 단계가 답했는지도 함께 표시하므로, 대체값이 계정의 실제 답처럼 보이는 일은 없습니다. 실시간 조회는 2초로 제한되고 모든 벤더를 동시에 조회하므로 응답이 없는 벤더는 기다리지 않고 건너뜁니다. `SNOWPEA_MODELS_DEV=0`은 여기서도 중간 단계를 네트워크 없이 동작하게 합니다. 같은 값이 `setup.catalog`의 `defaultModel`, `defaultModelSource` 필드로 IDE에도 전달됩니다.

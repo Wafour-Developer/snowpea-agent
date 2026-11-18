@@ -51,6 +51,18 @@ To pin a list yourself — an account with early access to a model nothing adver
 
 `models` applies to any account; `oauth_models` applies only when that provider is signed in with OAuth, so one block can pin the Codex catalog without also pinning what an API key would see. Both are read on the next listing — no restart. Set `SNOWPEA_MODELS_DEV=0` to keep the curated rung off the network entirely.
 
+### Removing a model from a list
+
+Because most lists come from the vendor, removing a model means hiding it: `providers.<vendor>.hiddenModels` (global settings only, never a project's) holds the ids taken off that vendor's lists, and every list above — whichever rung answered — leaves them out. Ids match exactly, as the vendor lists them; a slash is part of the id, so OpenRouter's `openai/gpt-4o` is not the `openai` vendor's `gpt-4o`. A model you added by hand to `providers.<vendor>.models` (or `.oauth_models`) is simply taken off that list instead of being hidden.
+
+```bash
+snowpea provider models hide anthropic claude-old-1     # hidden, or unlisted when hand-added
+snowpea provider models list anthropic --hidden         # the hidden ones, and who still uses them
+snowpea provider models unhide anthropic claude-old-1
+```
+
+The TUI's `/providers` and the apps' Settings › Models do the same (`provider.model.remove` / `provider.model.unhide`, protocol 1.60.0). Hiding never rewrites a setting or stops a run: a hidden model that is still the default, a `models.categories` slot, an agent's model or a running session's model keeps working, and `provider.list` flags it in `hiddenInUse` so a surface can warn you.
+
 ## Where a vendor's default model comes from
 
 Each vendor row in `snowpea setup` shows the model that vendor would start a session with, as `default: glm-5.3 (from models.dev)`. That id is resolved when the screen is drawn, not frozen into the build, so a release you installed months ago still offers what the vendor ships today. Three rungs, highest first: the **account's own listing**, when this machine holds a credential for that vendor; the newest chat-capable model the public [models.dev](https://models.dev) catalog lists for it, preferring a family's flagship over a cheaper sibling of the same generation and skipping preview and deprecated ids; and last the string built into this release. The row always says which rung answered, so a fallback never passes for your account's own answer. Live discovery is capped at two seconds and runs for every vendor at once, so a vendor that hangs is skipped rather than waited on, and `SNOWPEA_MODELS_DEV=0` keeps the middle rung off the network as it does everywhere else. The same three fields reach the IDE as `defaultModel` and `defaultModelSource` on `setup.catalog`.

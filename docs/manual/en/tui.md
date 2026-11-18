@@ -145,6 +145,10 @@ It starts on the mode you are in, `Enter` takes the highlighted one and `Esc` le
 
 The rows are your model profiles first — `models.profiles`, with `models.default` and `agents.models` saying which is the default and which agent uses which — then whatever the vendor's endpoint reports, then the model in use if nothing else named it. `Enter` runs `/model <ref>` for the row you are on. The status line's `Model:` segment names the model in use, and adds where it came from when the daemon says.
 
+## Providers and their models
+
+`/providers` (or `/providers <vendor>`) lists the providers you have connected, with how many models each has hidden. `Enter` on one shows its models: `Enter` on a model removes it from that provider's lists — hidden everywhere, or taken off the hand-added `providers.<vendor>.models` list, and the transcript says which — and `Enter` on a `(hidden)` row shows it again. A hidden model that is still in use (the default model, a `models.categories` slot, an agent, a running session) is shown with a yellow ⚠ line; it keeps working. **Disconnect** asks first and says what goes: the API key or login is removed from this machine, and the model slots and agents that used the provider fall back to the default model. `Esc` goes back one step. A daemon older than protocol 1.60.0 (no `hiddenModels`) gets only Disconnect.
+
 ## Choosing
 
 Every list the TUI puts in front of you — approvals, the agent's questions, `/model`, the MCP catalog, the tool checklist, the little menus inside `/skill create` and `/mcp add` — is the same widget with the same keys. Learn it once (M15b §2):

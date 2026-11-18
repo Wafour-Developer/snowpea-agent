@@ -53,6 +53,8 @@ import { trustSupported } from "./state/trust.js";
 import { FeedbackScreen } from "./components/FeedbackScreen.js";
 import { useFeedback, type FeedbackHook } from "./hooks/useFeedback.js";
 import { feedbackSupported } from "./state/feedback.js";
+import { ProvidersScreen } from "./components/ProvidersScreen.js";
+import { useProviders, type ProvidersHook } from "./hooks/useProviders.js";
 import { commandResultText, commandsBesideTurnSupported, ranBesideTurn } from "./state/command-result.js";
 import { trustSubCommands } from "./slash/trust.js";
 import { webSubCommands } from "./slash/web.js";
@@ -789,6 +791,8 @@ export function App({
   const trustRef = useRef<TrustScreenHook | null>(null);
   /** The `/feedback` hook (1.59.0), for the same reason. */
   const feedbackRef = useRef<FeedbackHook | null>(null);
+  /** The `/providers` hook (1.60.0), for the same reason. */
+  const providersRef = useRef<ProvidersHook | null>(null);
   /** Ids of the high-importance Jarvis notices already written to the transcript. */
   const highEscalationsRef = useRef<Set<string>>(new Set());
   /** The settings-edited-on-disk hook, for the same reason. */
@@ -1572,6 +1576,8 @@ export function App({
   trustRef.current = trust;
   const feedback = useFeedback({ client, sessionId, note, showToast });
   feedbackRef.current = feedback;
+  const providers = useProviders({ client, note, showToast });
+  providersRef.current = providers;
   const disk = useDiskSettings({ client, warn, note, onReloaded: () => setInfoTick((tick) => tick + 1) });
   diskRef.current = disk;
   /** The one banner row: an update nudge wins, else the settings that wait on disk. */
@@ -2550,6 +2556,10 @@ export function App({
         history?.add(text, workdir);
         return;
       }
+      if (providersRef.current?.handleCommand(text)) {
+        history?.add(text, workdir);
+        return;
+      }
       if (diskRef.current?.handleCommand(text)) {
         history?.add(text, workdir);
         return;
@@ -3107,6 +3117,7 @@ export function App({
       state.pendingApproval ||
       update.phase === "confirm" ||
       modelPicker ||
+      providers.ui !== null ||
       screens.ui !== null ||
       security.ui !== null ||
       web.ui !== null ||
@@ -3394,6 +3405,22 @@ export function App({
         />
       ) : null}
 
+      {providers.ui ? (
+        <ProvidersScreen
+          ui={providers.ui}
+          supported={providers.supported}
+          width={contentWidth}
+          isActive={state.pendingApproval === null && state.pendingQuestion === null}
+          onOpenProvider={providers.showProvider}
+          onRemove={(vendor, model) => void providers.removeModel(vendor, model)}
+          onUnhide={(vendor, model) => void providers.unhideModel(vendor, model)}
+          onAskDisconnect={providers.askDisconnect}
+          onDisconnect={(vendor) => void providers.disconnect(vendor)}
+          onBack={providers.back}
+          onClose={providers.close}
+        />
+      ) : null}
+
       {modelPicker ? (
         <ModelPicker
           options={modelPicker}
@@ -3572,7 +3599,7 @@ export function App({
             setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || feedback.ui !== null || disk.open}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || feedback.ui !== null || providers.ui !== null || disk.open}
         />
       )}
     </>

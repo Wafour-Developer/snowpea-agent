@@ -238,6 +238,16 @@ snowpea provider models hon2
 snowpea provider remove hon2
 ```
 
+`provider remove <벤더>`는 어떤 제공자든 연결을 끊습니다. 이 컴퓨터에서 API 키나 로그인이 지워지고, 그 제공자를 쓰던 모델 슬롯과 에이전트는 기본 모델로 돌아갑니다. 먼저 `[y/N]`으로 묻고, `--yes`를 주면 묻지 않습니다. 터미널이 아니면 `--yes` 없이는 아무것도 지우지 않습니다.
+
+`provider models`로 벤더 목록에서 모델을 뺄 수도 있습니다(프로토콜 1.60.0). `hide`는 벤더가 알려준 모델을 모든 목록에서 숨기거나, 직접 추가한 모델이면 `providers.<벤더>.models`에서 지우고 어느 쪽인지 알려줍니다. `unhide`는 숨긴 모델을 다시 보이게 하고, `list <벤더> --hidden`은 숨긴 모델과 아직 쓰는 곳을 보여줍니다. 숨긴 모델을 쓰는 곳은 계속 동작합니다. 동사 없이 `snowpea provider models <벤더>`라고 하면 예전처럼 목록을 보여줍니다.
+
+```bash
+snowpea provider models hide openrouter openai/gpt-4o
+snowpea provider models list openrouter --hidden
+snowpea provider models unhide openrouter openai/gpt-4o
+```
+
 설정 파일 모양과 마법사 흐름은 [로컬 서버 여러 대](setup.md#로컬-서버-여러-대)를 보세요.
 
 ### 스킬과 플러그인

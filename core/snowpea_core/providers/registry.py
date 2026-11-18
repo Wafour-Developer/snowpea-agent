@@ -1013,6 +1013,7 @@ class ProviderRegistry:
                     defaultBaseUrl=preset.base_url or "",
                     variant=variant,
                     supportsEffort=preset.supports_effort,
+                    hiddenModels=model_discovery.hidden_models(config),
                 )
             )
         return infos
