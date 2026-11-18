@@ -79,6 +79,11 @@ class ToolContext:
     #: Sink for ``tool.progress``; ``None`` when nothing is listening, which
     #: is the signal to skip the streaming path entirely.
     progress: ProgressEmitter | None = None
+    #: m26: the call ran on an approval card a person answered, so a file edit
+    #: applies exactly what the card showed — no fuzzy match, no unescaping,
+    #: no reindent — and ``write_file`` writes ``content`` byte for byte.  Set
+    #: by the loop from the approval decision, never from the call's arguments.
+    exact: bool = False
 
 
 @dataclass

@@ -3579,9 +3579,13 @@ async def _run_one_call(
     # a cancelled task (daemon shutdown, a parallel sibling's interrupt), an
     # exception in a hook or in the cleanup — the call ends with a tool.result.
     settled = [False]
+    # m26: a call allowed on a card the person saw (any "ask", person-only or
+    # not) edits exactly what the card showed.  A session-cache or script-grant
+    # answer showed no card for this call and, like auto mode, keeps fuzzy.
+    exact = verdict == "ask" and decision.by not in ("cache", "script-grant")
     try:
         return await _run_started_call(
-            core, session, backend, tool, call, tag, turn_id, settled
+            core, session, backend, tool, call, tag, turn_id, settled, exact=exact
         )
     except asyncio.CancelledError:
         if not settled[0]:
@@ -3616,6 +3620,8 @@ async def _run_started_call(
     tag: str,
     turn_id: str,
     settled: list[bool],
+    *,
+    exact: bool = False,
 ) -> str | None:
     """Run a call whose ``tool.call`` went out; ``settled[0]`` once its result did."""
     hub = core.hub
@@ -3631,6 +3637,7 @@ async def _run_started_call(
         backend=backend,
         call_id=call.id,
         progress=ProgressEmitter(core, session.id, call.id, call.name),
+        exact=exact,
     )
     # A call this session has already paid for does not run again: the guard
     # answers with the stub (or the refusal) the model should read instead
