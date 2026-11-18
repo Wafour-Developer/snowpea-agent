@@ -399,10 +399,13 @@ def note_person_answer(
     decision: str,
     by: str,
     request_id: str,
+    answer: Mapping[str, Any] | None = None,
 ) -> None:
     """A line in ``logs/security.jsonl`` for the person's answer to a blocked call
     put to them (0.2.94): an allow of an edit of snowpea's own security settings,
-    trust store or switch record is recorded with what it was.  Never raises."""
+    trust store or switch record is recorded with what it was.  ``answer``: the
+    answering connection (``connection`` kind, ``clientId``,
+    ``personConfirmWindow``, ``remote``; security review L3).  Never raises."""
     if paths is None:
         return
     try:
@@ -412,7 +415,11 @@ def note_person_answer(
                   "sessionId": session_id, "requestId": request_id, "tool": tool,
                   "summary": _summary(tool, args), "by": verdict.by or "",
                   "why": verdict.why or "", "match": verdict.match, "kind": verdict.kind,
-                  "answeredBy": by}
+                  "answeredBy": by,
+                  "connection": (answer or {}).get("connection"),
+                  "clientId": (answer or {}).get("clientId"),
+                  "personConfirmWindow": bool((answer or {}).get("personConfirmWindow")),
+                  "remote": bool((answer or {}).get("remote"))}
         from snowpea_core.util.atomic import append_text
 
         append_text(Path(paths.logs_dir) / "security.jsonl", json.dumps(record) + "\n")

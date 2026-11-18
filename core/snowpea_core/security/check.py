@@ -880,14 +880,20 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
     homes = control_plane.homes(ctx.home, ctx.user_home)
     effects = list(effects)
     # The reader models a program that writes a file as reading it too (``rm x``):
-    # such a word is a write the person may allow, not a secret read (0.2.94).
-    written_raw = {effect.raw for effect in effects if effect.kind == "write"}
+    # such a word is a write the person may allow, not a secret read (0.2.94) —
+    # but only when the SAME command writes it (``cat x; touch x`` still reads
+    # ``x``), and never when the write moves or links it elsewhere (``mv x y``).
+    written = _written(effects)
     for effect in effects:
         shape = _shape(effect.raw, effect.cwd, ctx)
         if shape is None:
             continue
+        if effect.relocates:
+            moved = _relocated_secret(shape, homes, ctx)
+            if moved is not None:
+                return moved, asks
         external = _external_secret(shape, effect.kind == "write"
-                                    or effect.raw in written_raw, ctx)
+                                    or (effect.raw, effect.cmd) in written, ctx)
         if external is not None:
             return external, asks
         if effect.kind == "write":
@@ -925,12 +931,79 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
                 return Verdict(True, BY_SETTINGS,
                                message(key, ctx.locale, path=shown, what=entry.what),
                                match=shown, kind="control", level=entry.level,
-                               secret_read=not write and effect.raw not in written_raw
+                               secret_read=not write and (effect.raw, effect.cmd) not in written
                                and control_plane.unallowable_read(entry)), asks
             asks.append((f"control-plane:{entry.rel or 'home'}",
                          message("control_ask", ctx.locale, what=entry.what)))
             break
     return None, asks
+
+
+def _written(effects: Iterable[sh.Effect]) -> set[tuple[str, int]]:
+    """``(word, command)`` pairs a command writes in place: a read of the same
+    word by that same command is part of the write (security review H2)."""
+    return {(effect.raw, effect.cmd) for effect in effects
+            if effect.kind == "write" and not effect.relocates}
+
+
+def _relocated_secret(shape: _Shape, homes: Iterable[Path], ctx: Context) -> Verdict | None:
+    """A secret (level ``all``, or an external CLI login) whose content an act
+    moves, hard-links or archives elsewhere (security review H1): ``mv token
+    /tmp/t``, ``ln token t``, ``mv $SNOWPEA_HOME x``.  That is a read, never
+    allowable; a pure delete (``rm``, ``unlink``, ``shred``) does not relocate."""
+    fold = _FOLD_CASE
+    found: tuple[str, str] | None = None
+    for home in homes:
+        key = _fold(home) if fold else home
+        for path in shape.concrete:
+            folded = _fold(path) if fold else path
+            if _under(key, folded):
+                # The home itself, or a folder holding it: every secret goes along.
+                entry = next(e for e in control_plane.CONTROL
+                             if control_plane.unallowable_read(e))
+                found = ("$SNOWPEA_HOME", entry.what)
+            elif _under(folded, key):
+                parts = path.parts[len(home.parts):]
+                hit = control_plane.judge_parts(parts, "read", recursive=True, fold=fold,
+                                                home=home)
+                if hit is not None and control_plane.unallowable_read(hit[1]):
+                    found = (control_plane.shown(home, parts), hit[1].what)
+            if found:
+                break
+        if found is None and shape.pattern is not None:
+            pattern = [_fold_text(p) for p in shape.pattern] if fold else shape.pattern
+            home_parts = _glob_parts(str(key))
+            for entry in control_plane.CONTROL:
+                if not control_plane.unallowable_read(entry):
+                    continue
+                for name in entry.names or (entry.rel,):
+                    target = home_parts + [_fold_text(p) if fold else p
+                                           for p in name.split("/")]
+                    if _relations(pattern, shape.open_end, target):
+                        found = (control_plane.shown(home, tuple(name.split("/"))), entry.what)
+                        break
+                if found:
+                    break
+        if found:
+            break
+    if found is None:
+        base = Path(os.path.normpath(str(ctx.user_home))) if ctx.user_home else Path.home()
+        for path in shape.concrete:
+            entry = control_plane.external_secret(path, ctx.user_home)
+            if entry is not None:
+                found = ("~/" + entry.rel, entry.what)
+                break
+            for rel, what in control_plane.EXTERNAL_SECRETS:
+                if _under(base / rel, path):
+                    found = ("~/" + rel, what)
+                    break
+            if found:
+                break
+    if found is None:
+        return None
+    shown, what = found
+    return Verdict(True, BY_SETTINGS, message("control_read", ctx.locale, path=shown, what=what),
+                   match=shown, kind="control", level="all", secret_read=True)
 
 
 def _external_secret(shape: _Shape, write: bool, ctx: Context) -> Verdict | None:
@@ -1346,9 +1419,9 @@ def _secret_read_in(view: sh.ShellView, effects: list[sh.Effect],
     """A secret-read block anywhere in the call (:attr:`Verdict.secret_read`):
     a read the reader saw, a string literal of code naming one, or a literal
     word of the line's raw text that names one (judged as read)."""
-    written_raw = {effect.raw for effect in effects if effect.kind == "write"}
-    reads = [effect for effect in effects
-             if effect.kind == "read" and effect.raw not in written_raw]
+    written = _written(effects)
+    reads = [effect for effect in effects if effect.relocates
+             or (effect.kind == "read" and (effect.raw, effect.cmd) not in written)]
     # A word the reader judged as what a program writes or deletes stays a write
     # (the person may allow that); any other word naming a secret counts as read.
     judged = {effect.raw for effect in effects}

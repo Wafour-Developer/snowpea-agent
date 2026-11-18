@@ -378,7 +378,11 @@ PATH_TABLE: list[tuple[Lists, str, bool]] = [
 def test_protected_path_table(lists: Lists, command: str, blocked: bool) -> None:
     verdict = check_command(command, lists, _ctx())
     assert verdict.blocked is blocked, (command, verdict)
-    if blocked:
+    if blocked and verdict.secret_read:
+        # Security review H1: moving the folder that holds $SNOWPEA_HOME carries
+        # its secrets away: a secret read, refused before any list is consulted.
+        assert command == "mv /home/u /home/old", command
+    elif blocked:
         assert verdict.by is not None and (verdict.by == "custom" or verdict.by.startswith(
             "paths:")), verdict.by
 
