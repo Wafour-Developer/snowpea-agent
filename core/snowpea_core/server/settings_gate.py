@@ -438,6 +438,7 @@ BROWSER_OWN_SESSION_METHODS: dict[str, bool] = {
     "checkpoint.restore": False,
     "session.deleteSaved": True,
     "session.close": True,
+    "session.delete": True,
 }
 
 
@@ -876,6 +877,7 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "session.list", "session.resume", "session.events", "session.trajectory", "session.rename",
     "session.setMode", "session.setModel", "session.setEffort", "session.setAgent",
     "session.setActive", "session.pin", "session.archive", "session.deleteSaved",
+    "session.delete",
     "session.fork", "session.lineage", "session.compact", "session.continue",
     "session.notice", "session.artifacts", "session.attachments",
     "goal.set", "goal.get", "goal.pause", "goal.resume", "goal.clear",
@@ -948,6 +950,7 @@ BROWSER_OPEN_METHODS: frozenset[str] = frozenset({
     "session.list", "session.resume", "session.events", "session.trajectory", "session.rename",
     "session.setMode", "session.setModel", "session.setEffort", "session.setAgent",
     "session.setActive", "session.pin", "session.archive", "session.deleteSaved",
+    "session.delete",
     "session.fork", "session.lineage", "session.compact", "session.continue",
     "session.notice", "session.artifacts", "session.attachments", "session.attach",
     "session.setBrowserProvider", "session.toolContent",

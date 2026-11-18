@@ -5610,6 +5610,20 @@ export interface SessionCreateResult {
   workspaceDir?: string | null;
 }
 
+/** `session.delete` params. Close a session if it is live, then delete its saved entry (session.close + session.deleteSaved). */
+export interface SessionDeleteParams {
+  /** Target session. */
+  sessionId: string;
+}
+
+/** `session.delete` result. */
+export interface SessionDeleteResult {
+  /** Saved sessions removed (0 for an unknown id). */
+  deleted?: number;
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
 /** `session.deleteSaved` params. Delete saved sessions. */
 export interface SessionDeleteSavedParams {
   /** Delete saved sessions from every directory. */
@@ -11512,6 +11526,7 @@ export interface MethodMap {
   "session.compact": { params: SessionCompactParams; result: SessionCompactResult };
   "session.continue": { params: SessionContinueParams; result: SessionContinueResult };
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
+  "session.delete": { params: SessionDeleteParams; result: SessionDeleteResult };
   "session.deleteSaved": { params: SessionDeleteSavedParams; result: SessionDeleteSavedResult };
   "session.events": { params: SessionEventsParams; result: SessionEventsResult };
   "session.fork": { params: SessionForkParams; result: SessionForkResult };
@@ -11737,6 +11752,7 @@ export type ClientMethod =
   | "session.compact"
   | "session.continue"
   | "session.create"
+  | "session.delete"
   | "session.deleteSaved"
   | "session.events"
   | "session.fork"

@@ -74,6 +74,7 @@ from snowpea_core.server.protocol import (
     SessionCompactResult,
     SessionCreateParams,
     SessionCreateResult,
+    SessionDeleteOutcome,
     SessionDeleteParams,
     SessionDeleteResult,
     SessionEvent,
@@ -136,6 +137,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "session.resume",
     "session.list",
     "session.close",
+    "session.delete",
     "session.prompt",
     "session.interrupt",
     "session.compact",
@@ -721,6 +723,23 @@ async def session_delete_saved_handler(
         else:
             await core.sessions.announce_sessions_changed("deleted", "")
     return SessionDeleteResult(deleted=deleted)
+
+
+async def session_delete_handler(
+    conn: RpcConnection, params: SessionIdParams, core: Core
+) -> SessionDeleteOutcome:
+    """``session.delete`` — close the session if it is live, then ``session.deleteSaved`` it."""
+    from snowpea_core.server.rpc import current_actor
+    from snowpea_core.server.settings_gate import browser_session_refusal
+
+    await browser_session_refusal(conn, core, params.sessionId, method="session.delete",
+                                  actor=current_actor())
+    if core.sessions.get(params.sessionId) is not None:
+        await session_close_handler(conn, params, core)
+    result = await session_delete_saved_handler(
+        conn, SessionDeleteParams(sessionId=params.sessionId), core
+    )
+    return SessionDeleteOutcome(deleted=result.deleted)
 
 
 def _purge_session_files(core: Core, session_id: str, *, workspace: bool = True) -> None:
@@ -1607,6 +1626,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("session.list", session_list_handler)
     dispatcher.register("session.deleteSaved", session_delete_saved_handler)
     dispatcher.register("session.close", session_close_handler)
+    dispatcher.register("session.delete", session_delete_handler)
     dispatcher.register("session.prompt", session_prompt_handler)
     dispatcher.register("session.interrupt", session_interrupt_handler)
     dispatcher.register("session.compact", session_compact_handler)

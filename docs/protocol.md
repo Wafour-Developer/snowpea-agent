@@ -282,6 +282,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
 | [`session.continue`](#sessioncontinue) | client → server | Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once; a call inside the 10 s window keeps its note as a notice (queued: true). |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
+| [`session.delete`](#sessiondelete) | client → server | Close a session if it is live, then delete its saved entry (session.close + session.deleteSaved). |
 | [`session.deleteSaved`](#sessiondeletesaved) | client → server | Delete saved sessions. |
 | [`session.events`](#sessionevents) | client → server | A session's saved events, read only (1.27.0): unlike session.resume it does not subscribe, attach, restore or take the session's approvals. |
 | [`session.fork`](#sessionfork) | client → server | Branch a session into a new one at the end of a finished turn; the source is not touched (1.46.0, capability 'fork'). Refusals carry error.data.code fork_after_compaction, fork_turn_not_found, fork_no_finished_turn, fork_child_session or fork_running (1.50.0). |
@@ -3495,6 +3496,25 @@ Open a session rooted at a working directory.
 | `role` | `"jarvis" \| null` | no | As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. |
 | `sessionId` | `string` | yes | Id of the new session. |
 | `workspaceDir` | `string \| null` | no | Session workspace with tmp/ and artifacts/ (1.7.0). |
+
+### `session.delete`
+
+*Direction:* client → server
+
+Close a session if it is live, then delete its saved entry (session.close + session.deleteSaved).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Target session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `deleted` | `number` | no | Saved sessions removed (0 for an unknown id). |
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `session.deleteSaved`
 

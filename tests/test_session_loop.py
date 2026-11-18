@@ -582,6 +582,46 @@ async def test_deleting_an_unknown_session_reports_zero(
     await client.stop()
 
 
+async def test_session_delete_closes_a_live_session_and_deletes_it(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+    assert daemon.core.sessions.get(session_id) is not None
+    result = await client.ok("session.delete", {"sessionId": session_id})
+    assert result == {"ok": True, "deleted": 1}
+    assert daemon.core.sessions.get(session_id) is None
+    listed = await client.ok("session.list", {"includeClosed": True, "workdir": str(workdir)})
+    assert all(row["sessionId"] != session_id for row in listed["sessions"])
+    await client.stop()
+
+
+async def test_session_delete_removes_a_saved_only_session(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+    assert (await client.ok("session.close", {"sessionId": session_id}))["ok"] is True
+    result = await client.ok("session.delete", {"sessionId": session_id})
+    assert result == {"ok": True, "deleted": 1}
+    listed = await client.ok("session.list", {"includeClosed": True, "workdir": str(workdir)})
+    assert all(row["sessionId"] != session_id for row in listed["sessions"])
+    await client.stop()
+
+
+async def test_session_delete_of_an_unknown_id_answers_like_delete_saved(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    client = await connect(http, daemon)
+    result = await client.ok("session.delete", {"sessionId": "s-does-not-exist"})
+    assert result == {"ok": True, "deleted": 0}
+    await client.stop()
+
+
 # ---------------------------------------------------------------------------
 # (f) slash commands
 # ---------------------------------------------------------------------------

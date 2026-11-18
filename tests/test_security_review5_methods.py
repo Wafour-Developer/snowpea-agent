@@ -48,7 +48,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         "session.create", "session.prompt", "session.steer", "session.interrupt",
         "session.close", "session.rename", "session.setMode", "session.setModel",
         "session.setEffort", "session.setAgent", "session.setActive", "session.pin",
-        "session.archive", "session.deleteSaved", "session.fork", "session.lineage",
+        "session.archive", "session.deleteSaved", "session.delete", "session.fork", "session.lineage",
         "session.compact", "session.continue", "session.notice", "session.artifacts",
         "session.attachments",
         "goal.set", "goal.get", "goal.pause", "goal.resume", "goal.clear",
