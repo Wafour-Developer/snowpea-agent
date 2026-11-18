@@ -12690,6 +12690,11 @@ CAPABILITIES: list[str] = [
     # .revoke), default scopes only; the project_untrusted notice's details
     # (scopes, browserScopes, canTrustHere, browserText, legacyBrowserText).
     "browserProjectTrust",
+    # 1.63.0 (behaviour since 0.2.96): an edit allowed through an approval card
+    # is applied as an exact match only (no fuzzy fallback, unescape or
+    # reindent), its preview diff is exact, and an approved write_file is
+    # written byte-verbatim; a client may show patch/edit diffs for approval.
+    "exactApprovedEdits",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
