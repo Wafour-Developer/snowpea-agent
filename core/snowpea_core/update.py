@@ -1095,6 +1095,7 @@ def start_windows_update(
         encoding="utf-8",
     )
     from snowpea_core.util.atomic import open_append
+    from snowpea_core.util.frozen_env import frozen_child_env
 
     with open_append(paths.update_log, binary=True) as handle:
         handle.write(
@@ -1121,6 +1122,8 @@ def start_windows_update(
         stderr=subprocess.DEVNULL,
         cwd=str(paths.home),
         creationflags=flags,
+        # The helper starts this executable again: not as a PyInstaller worker.
+        env=frozen_child_env(),
     )
 
 

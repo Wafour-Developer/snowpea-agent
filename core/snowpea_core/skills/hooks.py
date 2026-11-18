@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.util.atomic import read_owned
+from snowpea_core.util.frozen_env import frozen_child_env
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -272,7 +273,9 @@ def windows_python(
 
 
 def _env(home: Path | str, tool_name: str, root: Path | None) -> dict[str, str]:
-    env = dict(os.environ)
+    # ``${SNOWPEA_PYTHON}`` is this binary again on a frozen core: without the
+    # bootloader's own variables, or the child crashed (exit -11, 0.2.91).
+    env = frozen_child_env()
     env["SNOWPEA_HOME"] = str(home)
     env["SNOWPEA_TOOL_NAME"] = tool_name
     env["SNOWPEA_PYTHON"] = python_command()
