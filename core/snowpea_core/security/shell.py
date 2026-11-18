@@ -1010,6 +1010,8 @@ class _Probe(_c._Judge):
         self._text: str | None = None
         self._scopes: list[_Scope] = []
         self._pending: list[tuple[str, bool]] | None = None
+        #: The next line is a ``>(…)`` body: its first command reads stdin.
+        self._fed = False
         self._resolving: list[int] = []
         #: The probe of the agent's own line (set by :func:`view`): only there is a
         #: run of snowpea's CLI vetted as read-only (m21) and ``PATH`` followed.
@@ -1159,6 +1161,8 @@ class _Probe(_c._Judge):
 
     def _effect(self, raw: str, cwd: Path | None, kind: str, *, destructive: bool = False,
                 recursive: bool = False, dynamic: bool = False, program: str = "") -> None:
+        if isinstance(raw, _c.ProcessWord):
+            return  # a pipe's name (``/dev/fd/63``); its body is read as commands
         dyn = dynamic or "$" in raw or "`" in raw
         origin = None
         if dyn:
@@ -1216,6 +1220,7 @@ class _Probe(_c._Judge):
     # -- the walk ------------------------------------------------------------
     def line(self, command: str, cwd: Path | None, depth: int) -> None:
         pending, self._pending = self._pending, None
+        fed, self._fed = self._fed, False
         if depth > MAX_DEPTH:
             self._opaque("nesting")
             return
@@ -1228,6 +1233,8 @@ class _Probe(_c._Judge):
         except Exception:  # noqa: BLE001 - a parser bug is a line nobody can see
             self._opaque("parse:error")
             return
+        if fed and parsed.commands:
+            parsed.commands[0].piped_in = True
         self._line += 1
         line_id = self._line
         scope: _Scope | None = None
@@ -1266,8 +1273,10 @@ class _Probe(_c._Judge):
                   line_id: int) -> None:
         if parsed.substitution:
             # ``"$(…)"`` and backticks inside double quotes are not split by the
-            # parser: read every substitution's body as a line of its own.
-            for body in substitution_bodies(command):
+            # parser: read every substitution's body as a line of its own.  A
+            # ``>(…)`` body reads what the outer command writes into it: stdin.
+            for opener, body in substitution_bodies(command):
+                self._fed = opener == ">"
                 self.line(body, cwd, depth + 1)
         for position, cmd in enumerate(parsed.commands):
             self.fed_by_lister = self.lister_ok and cmd.piped_in
@@ -3089,13 +3098,15 @@ def temporary_dirs() -> set[Path]:
     return {Path(os.path.realpath(tempfile.gettempdir())), Path("/tmp"), Path("/var/tmp")}
 
 
-def substitution_bodies(text: str) -> list[str]:
-    """The bodies of ``$(…)``, ``<(…)``, ``>(…)`` and backtick substitutions in ``text``.
+def substitution_bodies(text: str) -> list[tuple[str, str]]:
+    """``(opener, body)`` of the ``$(…)``, ``<(…)``, ``>(…)`` and backtick
+    substitutions in ``text`` (``opener``: ``$``, ``<``, ``>`` or a backtick).
 
-    Single-quoted text is skipped (nothing in it is substituted); an
+    Single-quoted text is skipped (nothing in it is substituted); inside double
+    quotes only ``$(…)`` and backticks substitute (``"<(x)"`` is text).  An
     unbalanced substitution yields what follows it.
     """
-    bodies: list[str] = []
+    bodies: list[tuple[str, str]] = []
     index = 0
     quoted = False
     while index < len(text):
@@ -3114,33 +3125,23 @@ def substitution_bodies(text: str) -> list[str]:
             index += 1
             continue
         opens = text[index + 1 : index + 2] == "(" and text[index + 2 : index + 3] != "("
-        if char in "$<>" and opens:
-            depth = 0
+        if opens and (char == "$" or (char in "<>" and not quoted)):
             start = index + 2
-            j = start
-            while j < len(text):
-                if text[j] == "\\":
-                    j += 2
-                    continue
-                if text[j] == "(":
-                    depth += 1
-                elif text[j] == ")":
-                    if depth == 0:
-                        break
-                    depth -= 1
-                j += 1
-            bodies.append(text[start:j])
+            j = _c.closing_paren(text, start)
+            if j < 0:
+                j = len(text)
+            bodies.append((char, text[start:j]))
             index = j + 1
             continue
         if char == "`":
             end = index + 1
             while end < len(text) and text[end] != "`":
                 end += 2 if text[end] == "\\" else 1
-            bodies.append(text[index + 1 : end].replace("\\`", "`"))
+            bodies.append(("`", text[index + 1 : end].replace("\\`", "`")))
             index = end + 1
             continue
         index += 1
-    return [body for body in bodies if body.strip()]
+    return [(opener, body) for opener, body in bodies if body.strip()]
 
 
 def _option_value(

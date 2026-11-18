@@ -226,7 +226,7 @@ describe("security.get 1.55.0", () => {
     const text = (value: string) => statusLines(normalizeConfig({ unknownCode: value } as never), null).join("\n");
     expect(text("ask")).toContain("ask: always asked");
     expect(text("auto")).toContain("not asked in a session in auto mode; plan and accept mode still ask");
-    expect(text("allow")).toContain("never asked, in any mode");
+    expect(text("allow")).toContain("not asked in any mode. Only blocked commands, protected folders, snowpea's own files");
     expect(text("allow")).toContain(OWN_FILES_LINE);
   });
 
