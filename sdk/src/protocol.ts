@@ -3021,7 +3021,7 @@ export interface JarvisSessionSetResult {
     jobId?: string | null;
     /** What opened the session: a human (chat), a scheduled job, a spawned subagent, or a persistent named agent (CORE-session-kind). */
     kind?: "chat" | "scheduled" | "subagent" | "agent";
-    /** UTC ISO time of the last prompt or turn end. */
+    /** UTC ISO time of the last activity: while a turn runs, its latest stored event (tracked in memory); otherwise the last prompt or turn end. */
     lastActivityAt?: string | null;
     /** Latest prompt a person typed (a message.user whose origin is human, or one from before 1.53.0 without an origin); goal rounds, hand-backs, scheduled and delegation prompts never replace it (1.53.0). Falls back to the newest typed /command for a session that only ever ran commands. */
     lastPrompt?: string | null;
@@ -5891,7 +5891,7 @@ export interface SessionListResult {
     jobId?: string | null;
     /** What opened the session: a human (chat), a scheduled job, a spawned subagent, or a persistent named agent (CORE-session-kind). */
     kind?: "chat" | "scheduled" | "subagent" | "agent";
-    /** UTC ISO time of the last prompt or turn end. */
+    /** UTC ISO time of the last activity: while a turn runs, its latest stored event (tracked in memory); otherwise the last prompt or turn end. */
     lastActivityAt?: string | null;
     /** Latest prompt a person typed (a message.user whose origin is human, or one from before 1.53.0 without an origin); goal rounds, hand-backs, scheduled and delegation prompts never replace it (1.53.0). Falls back to the newest typed /command for a session that only ever ran commands. */
     lastPrompt?: string | null;
@@ -10229,6 +10229,10 @@ export interface SessionsChangedPayload {
   jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
   /** As SessionSummary.jarvisOn (1.56.0, capability jarvisSessionSwitch). */
   jarvisOn?: boolean | null;
+  /** As SessionSummary.kind: what opened the session (chat, agent, a delegated child, a routine run), so a client can tell a child from a new chat. */
+  kind?: "chat" | "scheduled" | "subagent" | "agent" | null;
+  /** As SessionSummary.parentSessionId: the delegating session; null for a root. */
+  parentSessionId?: string | null;
   /** create, prompt, turn, renamed, close, ... */
   reason: string;
   /** As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. */

@@ -5504,6 +5504,8 @@ Set the sidebar order (1.47.0).
 | `jarvis` | `{ exposed: boolean; grantId?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; pausedUntil?: string \| null; takenOver?: boolean; } \| null` | no | As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. |
 | `jarvisLocked` | `"project_hidden" \| "jarvis_session" \| "browser_hidden" \| null` | no | As SessionSummary.jarvisLocked (1.56.0, capability jarvisSessionSwitch). |
 | `jarvisOn` | `boolean \| null` | no | As SessionSummary.jarvisOn (1.56.0, capability jarvisSessionSwitch). |
+| `kind` | `"chat" \| "scheduled" \| "subagent" \| "agent" \| null` | no | As SessionSummary.kind: what opened the session (chat, agent, a delegated child, a routine run), so a client can tell a child from a new chat. |
+| `parentSessionId` | `string \| null` | no | As SessionSummary.parentSessionId: the delegating session; null for a root. |
 | `reason` | `string` | yes | create, prompt, turn, renamed, close, ... |
 | `role` | `"jarvis" \| null` | no | As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. |
 | `sessionId` | `string` | yes | Session that changed. |
