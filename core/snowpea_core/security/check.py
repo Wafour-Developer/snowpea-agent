@@ -33,7 +33,6 @@ import logging
 import os
 import posixpath
 import re
-import shlex
 import stat
 import sys
 import tempfile
@@ -1090,94 +1089,6 @@ def unresolved(why: str, *, stateful: bool = False) -> bool:
                for head in UNRESOLVED_REASONS)
 
 
-#: Reasons ``security.unknownCode: "allow"`` never lets through, beyond
-#: :data:`_NEVER_RELAXED`, snowpea's own controls and the stateful-shell rule:
-#: git told to run a program, hooks or configuration the agent wrote, a write
-#: where git or PATH finds programs (security review 8, H8-3); code handed to
-#: crontab, at, batch or launchctl to run later, outside the session (M7-5);
-#: anything piped into a shell (``curl … | sh``: a downloaded script run at
-#: once); the reader itself failing (``internal``).
-_PROGRAM_PLACE_REASONS: tuple[str, ...] = ("git-program", "git-hook", "git-control", "path-write",
-                                           "deferred-run", "shell-stdin", "internal")
-
-
-def allowed_through(why: str, *, stateful: bool = False) -> bool:
-    """``security.unknownCode: "allow"`` (owner decision 2026-11-18): only known
-    dangerous patterns ask, so every reason is let through but the backstops —
-    :data:`_NEVER_RELAXED`, snowpea's own controls, :data:`_PROGRAM_PLACE_REASONS`,
-    a variable the reader resolves paths or programs with (what it judged would
-    not be what runs), and the stateful-shell rule.  What could not be read at
-    all is then judged lexically (:func:`_lexical_worst`)."""
-    from snowpea_core.security import envvars
-
-    if why in _NEVER_RELAXED or why.startswith(("control-plane", "snowpea-")):
-        return False
-    if any(why == head or why.startswith(head + ":") for head in _PROGRAM_PLACE_REASONS):
-        return False
-    if why.startswith("env-code:"):
-        name = why.split(":", 1)[1]
-        if envvars.is_resolve(name) or name.upper() == "PATH":
-            return False
-    return not (stateful and why in _STATEFUL_REASONS)
-
-
-#: Words that end a command in a lenient split of a line.
-_LEX_BREAK = re.compile(r"^[;&|()<>`]+$")
-#: Most pseudo-commands one lexical check builds before it gives up (and asks).
-_LEX_LIMIT = 4000
-
-
-def _lex_words(text: str) -> list[str]:
-    """``text`` split as the shell would split it where it can (shlex, punctuation
-    apart), and on blanks and shell punctuation where it cannot."""
-    try:
-        lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>`")
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        return list(lexer)
-    except ValueError:
-        return [part.strip("'\"") for part in re.split(r"([;&|()<>`]+)|\s+", text) if part]
-
-
-def _lexical_worst(view: sh.ShellView, compiled: _Compiled, lists: Lists,
-                   ctx: Context) -> tuple[Verdict | None, bool]:
-    """For a line ``allow`` lets through although parts of it could not be read
-    (a parse failure above all): every run of words in its raw text that a
-    blocked command matches blocks (``(verdict, …)``), and every literal path-like
-    word, judged as deleted with all below it, must reach nothing protected,
-    nothing of snowpea's own and no place git or PATH finds programs in
-    (``(None, True)``: it asks)."""
-    cwd = next((cmd.cwd for cmd in view.commands if cmd.cwd), ctx.workdir)
-    commands: list[sh.Command] = []
-    worst: list[sh.Effect] = []
-    for text in view.texts:
-        segment: list[str] = []
-        for word in [*_lex_words(text), ";"]:
-            if _LEX_BREAK.match(word):
-                for start in range(len(segment)):
-                    commands.append(sh.Command(words=segment[start:],
-                                               dynamic=[False] * (len(segment) - start),
-                                               cwd=cwd))
-                segment = []
-                continue
-            segment.append(word)
-            raw = word.split("=", 1)[1] if "=" in word else word
-            if "://" not in raw and (raw == "~" or raw.startswith("~/") or "/" in raw):
-                worst.append(sh.Effect(raw, cwd, "write", destructive=True, recursive=True,
-                                       program="dynamic"))
-        if len(commands) > _LEX_LIMIT:
-            return None, True
-    if compiled.presets or compiled.custom:
-        verdict = _command_verdict(sh.ShellView(commands=commands, texts=list(view.texts)),
-                                   compiled, ctx)
-        if verdict is not None:
-            return verdict, True
-    hit, _ = _path_verdict(worst, path_entries(lists, ctx), ctx)
-    control, control_asks = _control_verdict(worst, ctx)
-    return None, (hit is not None or control is not None or bool(control_asks)
-                  or bool(_program_places(worst, ctx)))
-
-
 def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
                 extra_effects: Iterable[sh.Effect] = (), *, tool: bool = False) -> Verdict:
     compiled = _compile(lists)
@@ -1230,10 +1141,7 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
     names_snowpea = any(_SNOWPEA_WORD.search(text) for text in view.texts)
     relax = set() if names_snowpea else {
         why for why in unseen if unresolved(why, stateful=stateful)}
-    # ``allow`` (2026-11-18): every reason but the backstops (allowed_through).
-    wide = set() if names_snowpea or ctx.unknown_code != "allow" else {
-        why for why in unseen if allowed_through(why, stateful=stateful)}
-    if (relax | wide) & _PROGRAM_UNKNOWN:
+    if relax & _PROGRAM_UNKNOWN:
         # ``$X -rf /``: the program is not known, what it is given is.  Every
         # literal word and path of the line, judged as the worst any program could
         # do to it (delete it with all below), must reach nothing protected and
@@ -1243,20 +1151,8 @@ def _judge_view(view: sh.ShellView, lists: Lists, ctx: Context,
         control, control_asks = _control_verdict(worst, ctx)
         if hit is not None or control is not None or control_asks:
             relax = set()
-            wide = set()
-    if wide - relax:
-        # Parts nobody could read (a parse failure, an ``eval`` of what is not
-        # known, a reader failure): the raw text, judged at its worst, must hold
-        # no blocked command, no protected path and nothing of snowpea's own.
-        blocked, asks_anyway = _lexical_worst(view, compiled, lists, ctx)
-        if blocked is not None:
-            return blocked
-        if asks_anyway:
-            wide &= relax  # only what could be read is let through
     if ctx.unknown_code == "allow":
-        # ``wide`` holds what ``allow`` lets through: never a backstop
-        # (``shell-stdin``, ``internal``) even where ``unresolved`` would.
-        unseen = [why for why in unseen if why not in wide]
+        unseen = [why for why in unseen if why not in relax]
     unseen.extend(_program_places(effects, ctx))
     scripts = tuple(dict.fromkeys(view.scripts))
     if not ctx.dry_run:
