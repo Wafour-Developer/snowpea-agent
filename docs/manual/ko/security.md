@@ -196,7 +196,21 @@ snowpea 는 한 줄이 실행하는 코드를 실행하지 않고 읽습니다. 
 
 snowpea 0.2.88·0.2.89 가 쓴 설정에는 `"ask"`(예전 기본값)가 저장되어 있습니다. 0.2.90 을 처음 시작할 때 저장된 `"ask"` 를 한 번만 `"auto"` 로 바꾸고, 보안 화면에 알리고, `$SNOWPEA_HOME/security/unknown-code-migrated.json` 에 기록합니다. 그 뒤로는 다시 바꾸지 않으므로 `"ask"` 로 되돌리면 그대로 유지됩니다.
 
-로컬 연결의 사용자 본인만 바꿀 수 있고, 프로젝트는 바꿀 수 없습니다.
+로컬 연결이나 Snowpea 브라우저의 설정 화면에서 사용자 본인이 바꿀 수 있고, 프로젝트는 바꿀 수 없습니다.
+
+### `security.enabled`: 보안 검사 끄기
+
+보안 화면의 "보안 검사", 또는 `$SNOWPEA_HOME/settings.json`(파일에서 직접 고치면 위에서 말한 대로 확인을 기다립니다):
+
+```json
+{ "security": { "enabled": false } }
+```
+
+끄면 차단 명령과 보호 경로(프리셋, 직접 넣은 항목, 프로젝트가 더한 항목)를 적용하지 않고, 실행 전에 읽을 수 없는 코드는 `unknownCode: "allow"` 처럼 실행됩니다. 목록과 `unknownCode` 값은 저장된 그대로 남으므로 다시 켜면 모두 돌아옵니다. 꺼져 있어도 그대로인 것: snowpea 자체 파일이나 명령에 닿는 모든 것, 모드 규칙(계획 모드는 쓰지 않음, 수락·자동은 평소대로), Jarvis 위임 규칙, 사용자 본인만 답할 수 있는 질문.
+
+꺼져 있는 동안 보안 화면에 "보안 검사가 꺼져 있음"과 누가(데스크톱, TUI, 브라우저 …) 언제 껐는지가 나옵니다(`security.get` 의 `enabled`, `disabledBy`, `disabledAt`, 문제 코드 `security-disabled`). 켜고 끌 때마다 `$SNOWPEA_HOME/logs/security.jsonl` 에 한 줄(`"kind": "security-switch"`)이 남고, 누가·언제는 `$SNOWPEA_HOME/security/switch.json`(어떤 도구도 바꿀 수 없는 제어 파일)에 기록되며, 연결된 모든 앱·TUI·브라우저에 바로 알립니다.
+
+바꿀 수 있는 사람: 로컬 연결의 사용자 본인과 Snowpea 브라우저의 설정 화면(프로토콜 1.58.0). 브라우저는 `security.enabled`, `security.unknownCode`, `security.blockedCommands`, `security.protectedPaths` 만, 설정 화면에서만 바꿀 수 있습니다. 원격 웹 로그인, 커넥터, Jarvis, 에이전트 자신의 도구는 어느 것도 바꿀 수 없고, 프로젝트는 보안 검사를 끌 수 없습니다.
 
 ### 허락한 스크립트 기억하기
 

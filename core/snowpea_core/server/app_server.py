@@ -82,6 +82,7 @@ from snowpea_core.server.protocol import (
     ProviderLoginWebParams,
     ProviderLoginWebResult,
     ProviderRemoveParams,
+    SecuritySwitchState,
     SettingsAcceptDiskChangeParams,
     SettingsAcceptDiskChangeResult,
     SettingsChangedNotification,
@@ -350,10 +351,21 @@ class Core:
         hub = getattr(self, "hub", None)
         if hub is None:  # pragma: no cover - a core without a hub is a test double
             return
+        switch: SecuritySwitchState | None = None
+        if any(k == "security" or k.startswith("security.") for k in keys):
+            # 1.58.0: every surface shows the master switch and who turned it off.
+            from snowpea_core.security import enforce
+
+            switch = SecuritySwitchState.model_validate(
+                enforce.switch_state(self.settings, getattr(self.paths, "home", None)))
         params = SettingsChangedNotification(scope="global", keys=list(keys),
-                                             waitingKeys=sorted(self.settings_waiting))
+                                             waitingKeys=sorted(self.settings_waiting),
+                                             security=switch)
         try:
-            await hub.notify("settings.changed", params.model_dump(mode="json"))
+            payload = params.model_dump(mode="json")
+            if payload.get("security") is None:
+                payload.pop("security", None)  # only sent with a security change
+            await hub.notify("settings.changed", payload)
         except Exception:  # noqa: BLE001 - a dead socket must not break the reload
             log.debug("could not broadcast settings.changed", exc_info=True)
 
@@ -439,7 +451,18 @@ async def accept_disk_change_handler(
     require_person(conn, "apply settings that were edited on disk", local=True)
     # The file may have moved again since the notice: judge what it says now.
     await core.reload_settings()
+    from snowpea_core.security import enforce
+
+    was = enforce.enabled(core.settings)
     applied, discarded = await core.accept_disk_settings(bool(params.accept))
+    now = enforce.enabled(core.settings)
+    if was != now:
+        # 1.58.0: a hand edit of security.enabled the person accepted here.
+        enforce.note_switch(getattr(core.paths, "home", None), was, now,
+                            by="settings.json (accepted by "
+                               f"{getattr(conn, 'client_kind', None) or 'person'})",
+                            method="settings.acceptDiskChange")
+        await core.notify_settings_changed(["security"])
     return SettingsAcceptDiskChangeResult(applied=applied, discarded=discarded)
 
 
@@ -980,9 +1003,12 @@ class Daemon:
         # Once per home (0.2.90): a stored "ask" — the old default, written out —
         # becomes "auto".  Saved before the file's stamp is taken below, so it is
         # the daemon's own write and nothing waits for a person.
-        from snowpea_core.security.enforce import migrate_unknown_code
+        from snowpea_core.security.enforce import migrate_unknown_code, reconcile_switch
 
         unknown_code_migrated = migrate_unknown_code(settings, paths)
+        # 1.58.0: settings.json edited while no daemon ran — the who/when record
+        # and the audit log follow what the file says.
+        reconcile_switch(settings, paths.home)
         if self._preissued_token:
             write_token(paths, self._preissued_token)
         token = ensure_token(paths)

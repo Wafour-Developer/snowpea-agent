@@ -1187,9 +1187,19 @@ class SecuritySettings(_Model):
     """The security lists: blocked commands and protected paths (1.54.0).
 
     Only a local person changes them (``settings_gate.PERSON_LOCAL_ONLY``); a
-    project's ``.snowpea/settings.json`` may only add to them.
+    project's ``.snowpea/settings.json`` may only add to them.  The browser's
+    Settings page (``actor: "person"``) may change ``enabled``,
+    ``unknownCode`` and the two lists too (1.58.0,
+    ``settings_gate.BROWSER_PERSON_SECURITY_KEYS``).
     """
 
+    #: The master switch (1.58.0, owner decision 2026-11-18): ``false`` stops
+    #: applying the blocked-command and protected-path lists (presets, custom
+    #: and a project's additions) and lets unresolved code through as under
+    #: ``unknownCode: "allow"``.  The stored lists and ``unknownCode`` are kept
+    #: as they are, so ``true`` restores them.  snowpea's own controls and the
+    #: mode rules apply either way.  Anything but ``false`` reads as ``true``.
+    enabled: bool = True
     blockedCommands: SecurityBlockedCommands = Field(default_factory=SecurityBlockedCommands)
     protectedPaths: SecurityProtectedPaths = Field(default_factory=SecurityProtectedPaths)
     #: Commands and scripts snowpea cannot tell the effect of before they run (a
@@ -1206,6 +1216,12 @@ class SecuritySettings(_Model):
     @classmethod
     def _unknown_code(cls, value: Any) -> Any:
         return value if value in ("auto", "allow") else "ask"
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def _enabled(cls, value: Any) -> Any:
+        # Fails closed: only an explicit ``false`` switches the checks off.
+        return value is not False
 
 
 class Settings(_Model):

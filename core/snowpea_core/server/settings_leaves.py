@@ -237,7 +237,7 @@ PLAIN: dict[str, str] = {
     "scheduler": "catchUpSec enabled tickSec",
     "search": "provider",
     "security": (
-        "blockedCommands.custom blockedCommands.presets protectedPaths.custom.[].level "
+        "blockedCommands.custom blockedCommands.presets enabled protectedPaths.custom.[].level "
         "protectedPaths.custom.[].path protectedPaths.presets unknownCode"
     ),
     "skills": "disabled importCodex indexInPrompt indexMaxEntries protectRecentViews",

@@ -87,6 +87,19 @@ BROWSER_PERSON_KEYS: tuple[Pattern, ...] = (
     ("search",),
     ("skills",),
 )
+#: Of :data:`PERSON_LOCAL_ONLY`'s ``security``, what the snowpea browser's
+#: Settings page may change too (1.58.0, owner decision 2026-11-18: the browser
+#: turns the checks off as well as on): only with an explicit ``actor:
+#: "person"`` (a legacy browser without the marker does not count), only in
+#: the global scope.  Any other ``security`` key, and ``security`` as a whole
+#: (``{"security": null}``), stays a local person's.  Remote web logins,
+#: connectors and in-process callers (Jarvis) never write any of them.
+BROWSER_PERSON_SECURITY_KEYS: tuple[Pattern, ...] = (
+    ("security", "enabled"),
+    ("security", "unknownCode"),
+    ("security", "blockedCommands"),
+    ("security", "protectedPaths"),
+)
 #: What a browser connection may write without the marker: nothing (its own
 #: runtime writes go through ``site.*`` and the other host methods).
 BROWSER_HOST_KEYS: tuple[Pattern, ...] = ()
@@ -564,12 +577,18 @@ def judge_patch(
     project: bool,
     actor: str | None = None,
     authority: Iterable[Pattern] = (),
+    marked: bool | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
     """``(refused, refused while Jarvis is on, Jarvis-relevant)`` dotted keys of ``patch``.
 
     For a local person everything is allowed (only the Jarvis-relevant list is
-    filled, for the ledger callers may keep).
+    filled, for the ledger callers may keep).  ``marked``: the call itself
+    carried ``actor: "person"`` (not only a legacy browser's standing in for
+    it); default: ``actor == "person"``.  Only a marked browser call writes
+    :data:`BROWSER_PERSON_SECURITY_KEYS`.
     """
+    if marked is None:
+        marked = actor == ACTOR_PERSON
     authority = tuple(authority)
     refused: list[str] = []
     jarvis_on: list[str] = []
@@ -585,6 +604,10 @@ def judge_patch(
             relevant.append(dotted)
         if kind == "person":
             continue
+        if kind == "browser" and marked and not project and any(
+            matches(path, pattern) for pattern in BROWSER_PERSON_SECURITY_KEYS
+        ):
+            continue  # 1.58.0: the browser's Settings page, global scope
         local_only = (
             (*PERSON_LOCAL_ONLY, *PROJECT_PERSON_LOCAL_ONLY) if project else PERSON_LOCAL_ONLY
         )
@@ -645,8 +668,11 @@ def guard_call(
 BROWSER_NEVER_PREFIXES: tuple[str, ...] = ("jarvis.", "mcp.preset.", "security.")
 #: Of those, the calls that only take authority away from Jarvis (anyone may:
 #: the delegation engine's own rule) and the preset catalogue, which only reads.
+#: 1.58.0: the security reads too — the browser's Settings page shows the
+#: master switch and the lists it may now change (``BROWSER_PERSON_SECURITY_KEYS``).
 BROWSER_NEVER_EXEMPT: frozenset[str] = frozenset(
-    {"jarvis.takeover", "jarvis.delegation.revoke", "mcp.preset.list"}
+    {"jarvis.takeover", "jarvis.delegation.revoke", "mcp.preset.list",
+     "security.get", "security.check", "security.presets.list"}
 )
 #: Config-writing methods a browser connection may call only for its person
 #: (``actor: "person"``, or a legacy browser) — exactly what the browser sends
