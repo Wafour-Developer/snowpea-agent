@@ -555,8 +555,8 @@ export function unknownCodeMeaning(value: UnknownCode): string {
     );
   }
   return say(
-    "allow: never asked, in any mode. Blocked commands, protected folders it can see and its own control files still apply.",
-    "어떤 모드에서도 묻지 않음: 차단 목록, 보이는 보호 폴더, snowpea 자체 제어 파일은 그대로 막습니다.",
+    "allow: not asked in any mode. Only blocked commands, protected folders, snowpea's own files and a few always-asked patterns (a downloaded script run at once) are asked.",
+    "어떤 모드에서도 묻지 않음: 차단 명령, 보호 폴더, snowpea 자체 파일, 그리고 항상 묻는 몇 가지 경우(내려받은 스크립트를 바로 실행)만 묻습니다.",
   );
 }
 
@@ -577,7 +577,7 @@ export const UNKNOWN_CODE_LEAD = (): string =>
 /** Before letting unreadable code through, say what that gives up. */
 export const UNKNOWN_CODE_ALLOW_CONFIRM: readonly string[] = [
   "Let code snowpea can't tell about run without asking?",
-  "A write whose target is computed while it runs, or a script it cannot follow, will no longer ask you. Blocked commands and protected folders still apply.",
+  "Code snowpea cannot read (a target computed while it runs, a script it cannot follow, a line it cannot parse) will no longer ask you. Only blocked commands, protected folders, snowpea's own files and a few always-asked patterns (a downloaded script run at once) are asked.",
   "Allow it? (y/n)",
 ];
 

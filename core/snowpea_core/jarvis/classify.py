@@ -596,6 +596,49 @@ class _Line:
     functions: list[str] = field(default_factory=list)
 
 
+class ProcessWord(str):
+    """A word that is exactly one process substitution (``<(…)``/``>(…)``).
+
+    The shell gives the command a pipe's name (``/dev/fd/63``) in its place: not
+    a file anyone's, so no read or write of it is judged.  The commands inside
+    are read as commands of the line (``shell.substitution_bodies``).  The type
+    marks the word: no text spelled in a line can be mistaken for one."""
+
+
+def closing_paren(text: str, start: int) -> int:
+    """The index of the ``)`` closing a ``(`` that opened just before ``start``
+    (quotes and backslashes respected, nested parentheses counted); -1 when none."""
+    depth = 0
+    j = start
+    while j < len(text):
+        char = text[j]
+        if char == "\\":
+            j += 2
+            continue
+        if char == "'":
+            end = text.find("'", j + 1)
+            if end < 0:
+                return -1
+            j = end + 1
+            continue
+        if char == '"':
+            j += 1
+            while j < len(text) and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            if j >= len(text):
+                return -1
+            j += 1
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                return j
+            depth -= 1
+        j += 1
+    return -1
+
+
 class _Scanner:
     """A small POSIX-shell lexer: words, operators, redirections, here-docs.
 
@@ -622,6 +665,8 @@ class _Scanner:
         #: The word being read had a quote or a backslash in it.
         self.quoted = False
         self.piped_in = False
+        #: The text of a process substitution the word being read holds.
+        self.process: str | None = None
 
     # -- words -----------------------------------------------------------
     def _add(self, chunk: str, protected: bool) -> None:
@@ -633,6 +678,8 @@ class _Scanner:
         if not self.in_word:
             return
         text = "".join(self.word)
+        if self.process is not None and text == self.process:
+            text = ProcessWord(text)
         mask = self.mask
         expanded = [text]
         if any(c == "{" and not m for c, m in zip(text, mask, strict=False)):
@@ -665,6 +712,7 @@ class _Scanner:
         self.in_word = False
         self.dynamic = False
         self.quoted = False
+        self.process = None
 
     def _end_command(self, operator: str | None) -> None:
         self._end_word()
@@ -897,9 +945,16 @@ class _Scanner:
     def _angle(self, char: str, nxt: str) -> None:
         text = self.text
         if nxt == "(":
-            self.line.substitution = True  # process substitution
-            self._end_command("(")
-            self.i += 2
+            # A process substitution: one word, a pipe's name only the shell
+            # knows.  Its body is read as commands of the line by the caller.
+            end = closing_paren(text, self.i + 2)
+            if end < 0:
+                raise _Opaque("unbalanced-paren")
+            self.line.substitution = True
+            self.dynamic = True
+            self.process = text[self.i : end + 1] if not self.in_word else None
+            self._add(text[self.i : end + 1], True)
+            self.i = end + 1
             return
         if char == "<":
             if text.startswith("<<<", self.i):
@@ -1252,6 +1307,51 @@ HTTP_CLIENTS: frozenset[str] = frozenset(
     {"curl", "wget", "wget2", "http", "https", "xh", "xhs", "curlie", "httpie", "aria2c",
      "fetch", "lwp-request"}
 )
+#: Short options of an HTTP client: ``(take a value, take none)``.  A word of
+#: several (``-sSLo f``, ``-qO-``) is read as those options one by one.
+_HTTP_SHORT: dict[str, tuple[str, str]] = {
+    "curl": ("AbcCdDeEFHKmoPQrTtuUwXxYyz", "0123456#:aBfgGIiJjkLlMNnOpqRsSvVZ"),
+    "wget": ("aBDeiIloOPQtTUwXARn", "46bcdEFHhkKLmNpqrSvVx"),
+}
+_HTTP_SHORT["curlie"] = _HTTP_SHORT["curl"]
+_HTTP_SHORT["wget2"] = _HTTP_SHORT["wget"]
+
+
+def _split_short_flags(program: str, rest: list[str],
+                       rest_dyn: list[bool]) -> tuple[list[str], list[bool]]:
+    """``rest`` with each word of combined short options (``-so``, ``-fsSLo``,
+    ``-qOfile``) split into one word per option, the value apart.  A word with a
+    letter the table does not know is kept as it is."""
+    valued, plain = _HTTP_SHORT.get(program, ("", ""))
+    if not valued:
+        return rest, rest_dyn
+    words: list[str] = []
+    dyns: list[bool] = []
+    for index, (word, dyn) in enumerate(zip(rest, rest_dyn, strict=False)):
+        if word == "--":
+            words.extend(rest[index:])
+            dyns.extend(rest_dyn[index:])
+            break
+        if not word.startswith("-") or word.startswith("--") or len(word) < 3:
+            words.append(word)
+            dyns.append(dyn)
+            continue
+        split: list[tuple[str, bool]] = []
+        for position, letter in enumerate(word[1:], start=1):
+            if letter in valued:
+                split.append(("-" + letter, False))
+                if word[position + 1:]:
+                    split.append((word[position + 1:], dyn))
+                break
+            if letter not in plain:
+                split = [(word, dyn)]
+                break
+            split.append(("-" + letter, False))
+        words.extend(w for w, _ in split)
+        dyns.extend(d for _, d in split)
+    return words, dyns
+
+
 #: Programs that send a name or a host out (DNS lookups, pings): a send.
 DNS_SENDERS: frozenset[str] = frozenset(
     {"dig", "nslookup", "host", "ping", "ping6", "traceroute", "traceroute6", "tracepath",
@@ -4322,6 +4422,7 @@ class _Judge:
         # Any request, a GET too, sends its URL (path, query, headers) out: a send,
         # exactly as a web-fetch tool is.
         hits.guard(SECRET, "exec:http-request")
+        rest, rest_dyn = _split_short_flags(program, rest, rest_dyn)
         send = False
         index = 0
         while index < len(rest):
@@ -4420,6 +4521,21 @@ class _Judge:
                         index += 2
                         continue
             index += 1
+        if program in ("curl", "curlie") and any(
+                w in ("-O", "--remote-name", "--remote-name-all") for w in rest):
+            # ``curl -O URL`` writes the URL's last part into the current folder
+            # (or ``--output-dir``); ``-J`` lets the server choose the name.
+            server_named = any(w in ("-J", "--remote-header-name") for w in rest)
+            folder = next((rest[i + 1] for i, w in enumerate(rest[:-1])
+                           if w == "--output-dir"), "")
+            for word, dyn in zip(rest, rest_dyn, strict=False):
+                if "://" not in word:
+                    continue
+                name = word.split("://", 1)[1].split("?", 1)[0].split("#", 1)[0]
+                name = name.rsplit("/", 1)[-1] if "/" in name else ""
+                path = f"{folder.rstrip('/')}/{name}" if folder and name else name
+                self.check_write_path(path or word, cwd, "exec",
+                                      dyn or server_named or not name)
         if send:
             hits.guard(SECRET, "exec:http-send")
 
