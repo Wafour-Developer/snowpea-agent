@@ -10576,7 +10576,12 @@ SecurityLevel = Literal["write", "all"]
 
 class SecurityPresetsListParams(Payload):
     locale: str | None = Field(
-        default=None, description="'en' or 'ko' (others fall back to English); default 'en'."
+        default=None,
+        description=(
+            "'en', 'ko', 'ja', 'es' or 'zh-CN' (ja/es/zh-CN since 1.64.0); a regional tag "
+            "falls back to its language ('es-ES' -> 'es', 'zh-TW' -> 'zh'), anything else "
+            "to English; default 'en'."
+        ),
     )
 
 
@@ -10678,6 +10683,14 @@ class SecurityGetParams(Payload):
         default=None, description="A project: adds its additions and resolves its presets."
     )
     locale: str | None = Field(default=None, description="For problems; default 'en'.")
+    allProjects: bool = Field(
+        default=False,
+        description=(
+            "1.64.0 (securityAllProjects): also list what every registered project adds "
+            "(result projects, at most 200; truncated true past that). Read-only, the same "
+            "gate as security.get."
+        ),
+    )
 
 
 class SecurityProblem(Payload):
@@ -10696,6 +10709,18 @@ class SecurityProblem(Payload):
             "1.58.0: a stable id for a problem that is not an unusable entry; "
             "'security-disabled' while security.enabled is false (list and entry null)."
         ),
+    )
+
+
+class SecurityProjectAdditions(Payload):
+    """What one registered project's .snowpea/settings.json adds (1.64.0)."""
+
+    workdir: str = Field(description="The project's root.")
+    name: str | None = Field(default=None, description="Its sidebar title, when it has one.")
+    blockedCommands: SecurityCommandList = Field(default_factory=SecurityCommandList)
+    protectedPaths: SecurityPathList = Field(default_factory=SecurityPathList)
+    problems: list[str] | None = Field(
+        default=None, description="Entries of that file skipped as unusable; absent when none."
     )
 
 
@@ -10790,6 +10815,18 @@ class SecurityGetResult(SecurityLists):
             "security.check refuse a bad security value with invalid_params whose "
             "details carry both problems (text) and problemItems (this shape)."
         ),
+    )
+    projects: list[SecurityProjectAdditions] | None = Field(
+        default=None,
+        description=(
+            "1.64.0 (securityAllProjects): with allProjects true, what each registered "
+            "project (the sidebar's workspaces, then live sessions' projects) adds, in the "
+            "sidebar's order, at most 200; null without allProjects."
+        ),
+    )
+    truncated: bool = Field(
+        default=False,
+        description="1.64.0: true when allProjects listed only the first 200 projects.",
     )
 
 
@@ -12695,6 +12732,10 @@ CAPABILITIES: list[str] = [
     # reindent), its preview diff is exact, and an approved write_file is
     # written byte-verbatim; a client may show patch/edit diffs for approval.
     "exactApprovedEdits",
+    # 1.64.0: security.get allProjects -> SecurityGetResult.projects/truncated
+    # (each registered project's additions, read-only); security.presets.list
+    # and the check's texts also in ja, es and zh-CN.
+    "securityAllProjects",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

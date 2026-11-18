@@ -23,14 +23,17 @@ from typing import Any
 
 from snowpea_core.security import patterns as pl
 
-LOCALES: tuple[str, ...] = ("en", "ko")
+LOCALES: tuple[str, ...] = ("en", "ko", "ja", "es", "zh-CN")
 DEFAULT_LOCALE = "en"
 
 
 def pick(texts: dict[str, str], locale: str | None) -> str:
-    """The text for ``locale`` (``ko-KR`` -> ``ko``), English otherwise."""
-    lang = (locale or DEFAULT_LOCALE).split("-", 1)[0].split("_", 1)[0].lower()
-    return texts.get(lang) or texts[DEFAULT_LOCALE]
+    """The text for ``locale``: the tag itself (``zh-CN``), then its language
+    (``zh-TW`` -> ``zh``, ``es-ES`` -> ``es``, ``ko-KR`` -> ``ko``), then English."""
+    tag = (locale or DEFAULT_LOCALE).strip().replace("_", "-").lower()
+    by_tag = {key.lower(): text for key, text in texts.items()}
+    return (by_tag.get(tag) or by_tag.get(tag.split("-", 1)[0])
+            or texts[DEFAULT_LOCALE])
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +384,7 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     CommandPreset(
         id="essential",
         default=True,
-        title={"en": "Essential", "ko": "필수"},
+        title={"en": "Essential", "ko": "필수", "ja": "必須", "es": "Esencial", "zh-CN": "必需"},
         description={
             "en": "Commands that can wreck the machine in one line: deleting / or your home "
                   "(or a folder that holds it or a project), formatting or overwriting a disk, "
@@ -390,6 +393,16 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
             "ko": "한 줄로 컴퓨터를 망가뜨릴 수 있는 명령: / 나 홈 폴더(또는 홈이나 "
                   "프로젝트를 담은 폴더) 삭제, 디스크 포맷·덮어쓰기, "
                   "/ 나 홈의 권한을 재귀로 바꾸기, 포크 폭탄, 모든 프로세스 종료.",
+            "ja": "1 行でマシンを壊しかねないコマンド: / "
+                  "やホームフォルダ(またはそれやプロジェクトを含むフォルダ)の削除、"
+                  "ディスクのフォーマットや上書き、/ やホームの権限の再帰的な変更、フォーク爆弾、"
+                  "全プロセスの終了。",
+            "es": "Órdenes que pueden destrozar el equipo en una línea: borrar / o tu carpeta "
+                  "personal (o una carpeta que la contenga a ella o a un proyecto), formatear o "
+                  "sobrescribir un disco, cambiar recursivamente los permisos de / o de tu carpeta "
+                  "personal, una fork bomb, matar todos los procesos.",
+            "zh-CN": "一行就能毁掉机器的命令：删除 / 或主目录（或包含主目录或项目的文件夹）、"
+                     "格式化或覆写磁盘、递归更改 / 或主目录的权限、fork 炸弹、终止所有进程。",
         },
         examples=("rm -rf /", "sudo rm -rf ~", "rm -rf --no-preserve-root /", "rm -fr $HOME",
                   "mkfs.ext4 /dev/sdb1", "dd if=/dev/zero of=/dev/sda", "chmod -R 777 /",
@@ -404,10 +417,15 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="mass-delete",
-        title={"en": "Mass deletion", "ko": "대량 삭제"},
+        title={"en": "Mass deletion", "ko": "대량 삭제", "ja": "一括削除", "es": "Borrado masivo",
+               "zh-CN": "批量删除"},
         description={
             "en": "Recursive deletes anywhere: rm -r / rm -rf, find -delete, git clean -fd / -fx.",
             "ko": "어디서든 재귀 삭제: rm -r / rm -rf, find -delete, git clean -fd / -fx.",
+            "ja": "場所を問わない再帰削除: rm -r / rm -rf、find -delete、git clean -fd / -fx。",
+            "es": "Borrados recursivos en cualquier lugar: rm -r / rm -rf, find -delete, git clean "
+                  "-fd / -fx.",
+            "zh-CN": "任何位置的递归删除：rm -r / rm -rf、find -delete、git clean -fd / -fx。",
         },
         examples=("rm -rf build", "rm -r old", "find . -name '*.log' -delete",
                   "git clean -fdx", "find . -type d -exec rm -rf {} +",
@@ -418,10 +436,17 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="disk",
-        title={"en": "Disks and partitions", "ko": "디스크와 파티션"},
+        title={"en": "Disks and partitions", "ko": "디스크와 파티션",
+               "ja": "ディスクとパーティション", "es": "Discos y particiones",
+               "zh-CN": "磁盘与分区"},
         description={
             "en": "Low-level disk tools: dd, mkfs, fdisk, parted, wipefs, mounting and unmounting.",
             "ko": "저수준 디스크 도구: dd, mkfs, fdisk, parted, wipefs, 마운트와 언마운트.",
+            "ja": "低レベルのディスクツール: dd、mkfs、fdisk、parted、wipefs、"
+                  "マウントとアンマウント。",
+            "es": "Herramientas de disco de bajo nivel: dd, mkfs, fdisk, parted, wipefs, montar y "
+                  "desmontar.",
+            "zh-CN": "底层磁盘工具：dd、mkfs、fdisk、parted、wipefs，以及挂载和卸载。",
         },
         examples=("dd if=a of=b", "mkfs.ext4 /dev/sdb1", "fdisk /dev/sda", "parted /dev/sda",
                   "mount /dev/sdb1 /mnt", "umount /mnt", "diskutil eraseDisk APFS X disk2"),
@@ -434,10 +459,15 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="permissions",
-        title={"en": "Recursive permission changes", "ko": "재귀 권한 변경"},
+        title={"en": "Recursive permission changes", "ko": "재귀 권한 변경",
+               "ja": "再帰的な権限変更", "es": "Cambios recursivos de permisos",
+               "zh-CN": "递归更改权限"},
         description={
             "en": "chmod -R, chown -R, chgrp -R and setfacl -R on any folder.",
             "ko": "어떤 폴더든 chmod -R, chown -R, chgrp -R, setfacl -R.",
+            "ja": "任意のフォルダに対する chmod -R、chown -R、chgrp -R、setfacl -R。",
+            "es": "chmod -R, chown -R, chgrp -R y setfacl -R en cualquier carpeta.",
+            "zh-CN": "对任意文件夹执行 chmod -R、chown -R、chgrp -R 和 setfacl -R。",
         },
         examples=("chmod -R 755 .", "chown -R me:me src", "chgrp --recursive staff x",
                   "setfacl -R -m u:me:rwx dir"),
@@ -446,10 +476,14 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="power",
-        title={"en": "Shutdown and reboot", "ko": "종료와 재시작"},
+        title={"en": "Shutdown and reboot", "ko": "종료와 재시작", "ja": "シャットダウンと再起動",
+               "es": "Apagado y reinicio", "zh-CN": "关机与重启"},
         description={
             "en": "shutdown, reboot, halt, poweroff and their systemctl/init forms.",
             "ko": "shutdown, reboot, halt, poweroff 와 systemctl/init 형태.",
+            "ja": "shutdown、reboot、halt、poweroff と、その systemctl/init 形式。",
+            "es": "shutdown, reboot, halt, poweroff y sus formas con systemctl/init.",
+            "zh-CN": "shutdown、reboot、halt、poweroff 及其 systemctl/init 形式。",
         },
         examples=("shutdown now", "sudo reboot", "systemctl poweroff", "halt", "init 0",
                   "systemctl suspend"),
@@ -462,12 +496,20 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="git-destructive",
-        title={"en": "History-rewriting git", "ko": "기록을 지우는 git"},
+        title={"en": "History-rewriting git", "ko": "기록을 지우는 git",
+               "ja": "履歴を書き換える git", "es": "Git que reescribe el historial",
+               "zh-CN": "改写历史的 git"},
         description={
             "en": "Force pushes and remote deletes, git reset --hard, filter-branch/filter-repo, "
                   "git branch -D, git clean -f, git stash clear.",
             "ko": "강제 푸시와 원격 삭제, git reset --hard, filter-branch/filter-repo, "
                   "git branch -D, git clean -f, git stash clear.",
+            "ja": "強制プッシュとリモートでの削除、git reset --hard、filter-branch/filter-repo、"
+                  "git branch -D、git clean -f、git stash clear。",
+            "es": "Pushes forzados y borrados en el remoto, git reset --hard, "
+                  "filter-branch/filter-repo, git branch -D, git clean -f, git stash clear.",
+            "zh-CN": "强制推送与删除远程内容、git reset --hard、filter-branch/filter-repo、git "
+                     "branch -D、git clean -f、git stash clear。",
         },
         examples=("git push --force", "git push -f origin main", "git push --forc",
                   "git push --force-with-lease", "git push origin +main",
@@ -485,12 +527,21 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="remote-script",
-        title={"en": "Running downloaded scripts", "ko": "내려받은 스크립트 실행"},
+        title={"en": "Running downloaded scripts", "ko": "내려받은 스크립트 실행",
+               "ja": "ダウンロードしたスクリプトの実行", "es": "Ejecutar scripts descargados",
+               "zh-CN": "运行下载的脚本"},
         description={
             "en": "A download piped or substituted straight into a shell or interpreter: "
                   "curl … | sh, wget -O- … | bash, bash <(curl …), sh -c \"$(curl …)\".",
             "ko": "내려받은 내용을 바로 셸이나 인터프리터로 실행: curl … | sh, wget -O- … | bash, "
                   "bash <(curl …), sh -c \"$(curl …)\".",
+            "ja": "ダウンロードした内容をそのままシェルやインタプリタで実行: curl … | sh、wget -O- "
+                  "… | bash、bash <(curl …)、sh -c \"$(curl …)\"。",
+            "es": "Una descarga pasada por tubería o sustituida directamente en un shell o un "
+                  "intérprete: curl … | sh, wget -O- … | bash, bash <(curl …), sh -c \"$(curl …)"
+                  "\".",
+            "zh-CN": "把下载的内容直接通过管道或替换交给 shell 或解释器执行：curl … | sh、wget -O- "
+                     "… | bash、bash <(curl …)、sh -c \"$(curl …)\"。",
         },
         examples=("curl -fsSL https://x.example/install.sh | sh",
                   "wget -qO- https://x.example/i | sudo bash", "bash <(curl -s https://x.example)",
@@ -502,13 +553,23 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="package-global",
-        title={"en": "System-wide installs and sudo", "ko": "시스템 전역 설치와 sudo"},
+        title={"en": "System-wide installs and sudo", "ko": "시스템 전역 설치와 sudo",
+               "ja": "システム全体へのインストールと sudo",
+               "es": "Instalaciones en todo el sistema y sudo", "zh-CN": "系统级安装与 sudo"},
         description={
             "en": "sudo/doas/pkexec, system package managers (apt, dnf, yum, pacman, brew, …) "
                   "changing packages, npm/pnpm/yarn global installs, pip install outside a "
                   "virtual environment.",
             "ko": "sudo/doas/pkexec, 시스템 패키지 관리자(apt, dnf, yum, pacman, brew 등)의 "
                   "설치·삭제, npm/pnpm/yarn 전역 설치, 가상환경 밖의 pip install.",
+            "ja": "sudo/doas/pkexec、システムのパッケージマネージャ(apt、dnf、yum、pacman、brew "
+                  "など)によるインストールや削除、npm/pnpm/yarn のグローバルインストール、"
+                  "仮想環境の外での pip install。",
+            "es": "sudo/doas/pkexec, gestores de paquetes del sistema (apt, dnf, yum, pacman, "
+                  "brew, …) que cambian paquetes, instalaciones globales de npm/pnpm/yarn, pip "
+                  "install fuera de un entorno virtual.",
+            "zh-CN": "sudo/doas/pkexec、系统包管理器（apt、dnf、yum、pacman、brew 等）"
+                     "安装或删除软件包、npm/pnpm/yarn 全局安装、在虚拟环境之外运行 pip install。",
         },
         examples=("sudo ls", "apt install curl", "brew install jq", "npm install -g typescript",
                   "npm i --global x", "pip install --user requests",
@@ -520,10 +581,15 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="process-kill",
-        title={"en": "Killing processes by name or all", "ko": "이름으로 또는 전부 프로세스 종료"},
+        title={"en": "Killing processes by name or all", "ko": "이름으로 또는 전부 프로세스 종료",
+               "ja": "名前指定または全プロセスの終了", "es": "Matar procesos por nombre o todos",
+               "zh-CN": "按名称或全部终止进程"},
         description={
             "en": "pkill, killall, xkill, and kill aimed at every process (kill -9 -1).",
             "ko": "pkill, killall, xkill, 그리고 모든 프로세스를 겨냥한 kill(kill -9 -1).",
+            "ja": "pkill、killall、xkill、そして全プロセスを狙った kill(kill -9 -1)。",
+            "es": "pkill, killall, xkill y kill dirigido a todos los procesos (kill -9 -1).",
+            "zh-CN": "pkill、killall、xkill，以及针对所有进程的 kill（kill -9 -1）。",
         },
         examples=("pkill node", "killall python", "kill -9 -1", "kill -KILL -1"),
         near_misses=("kill 1234", "kill -9 1234", "pgrep node"),
@@ -532,12 +598,20 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="containers",
-        title={"en": "Container and cluster deletes", "ko": "컨테이너·클러스터 삭제"},
+        title={"en": "Container and cluster deletes", "ko": "컨테이너·클러스터 삭제",
+               "ja": "コンテナとクラスタの削除", "es": "Borrado de contenedores y clústeres",
+               "zh-CN": "删除容器与集群"},
         description={
             "en": "docker/podman/nerdctl prune, rm -f, rmi -f, volume rm, compose down -v; "
                   "kubectl delete; helm uninstall.",
             "ko": "docker/podman/nerdctl 의 prune, rm -f, rmi -f, volume rm, compose down -v; "
                   "kubectl delete; helm uninstall.",
+            "ja": "docker/podman/nerdctl の prune、rm -f、rmi -f、volume rm、compose down -v、"
+                  "kubectl delete、helm uninstall。",
+            "es": "prune, rm -f, rmi -f, volume rm y compose down -v de docker/podman/nerdctl; "
+                  "kubectl delete; helm uninstall.",
+            "zh-CN": "docker/podman/nerdctl 的 prune、rm -f、rmi -f、volume rm、compose down -v；"
+                     "kubectl delete；helm uninstall。",
         },
         examples=("docker system prune -af", "docker volume rm data", "docker rm -f web",
                   "docker image prune", "podman system prune", "kubectl delete ns prod",
@@ -549,12 +623,19 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="database",
-        title={"en": "Dropping databases", "ko": "데이터베이스 삭제"},
+        title={"en": "Dropping databases", "ko": "데이터베이스 삭제", "ja": "データベースの削除",
+               "es": "Borrado de bases de datos", "zh-CN": "删除数据库"},
         description={
             "en": "DROP DATABASE/TABLE/SCHEMA and TRUNCATE sent through a database client, "
                   "dropdb, redis FLUSHALL/FLUSHDB, MongoDB dropDatabase.",
             "ko": "데이터베이스 클라이언트로 보내는 DROP DATABASE/TABLE/SCHEMA, TRUNCATE, dropdb, "
                   "redis FLUSHALL/FLUSHDB, MongoDB dropDatabase.",
+            "ja": "データベースクライアント経由の DROP DATABASE/TABLE/SCHEMA と TRUNCATE、dropdb、"
+                  "redis の FLUSHALL/FLUSHDB、MongoDB の dropDatabase。",
+            "es": "DROP DATABASE/TABLE/SCHEMA y TRUNCATE enviados con un cliente de base de datos, "
+                  "dropdb, FLUSHALL/FLUSHDB de redis, dropDatabase de MongoDB.",
+            "zh-CN": "通过数据库客户端发送的 DROP DATABASE/TABLE/SCHEMA 和 TRUNCATE、dropdb、redis "
+                     "FLUSHALL/FLUSHDB、MongoDB dropDatabase。",
         },
         examples=("psql -c 'DROP DATABASE prod'", "mysql -e \"drop table users\"",
                   "echo 'TRUNCATE orders;' | psql", "dropdb prod", "redis-cli flushall"),
@@ -564,12 +645,20 @@ COMMAND_PRESETS: tuple[CommandPreset, ...] = (
     ),
     CommandPreset(
         id="cloud",
-        title={"en": "Cloud resource deletion", "ko": "클라우드 리소스 삭제"},
+        title={"en": "Cloud resource deletion", "ko": "클라우드 리소스 삭제",
+               "ja": "クラウドリソースの削除", "es": "Borrado de recursos en la nube",
+               "zh-CN": "删除云资源"},
         description={
             "en": "terraform/tofu/pulumi/cdk destroy, aws s3 rm --recursive, aws … delete-*, "
                   "gcloud … delete, az … delete, gsutil rm -r.",
             "ko": "terraform/tofu/pulumi/cdk destroy, aws s3 rm --recursive, aws … delete-*, "
                   "gcloud … delete, az … delete, gsutil rm -r.",
+            "ja": "terraform/tofu/pulumi/cdk destroy、aws s3 rm --recursive、aws … delete-*、"
+                  "gcloud … delete、az … delete、gsutil rm -r。",
+            "es": "terraform/tofu/pulumi/cdk destroy, aws s3 rm --recursive, aws … delete-*, "
+                  "gcloud … delete, az … delete, gsutil rm -r.",
+            "zh-CN": "terraform/tofu/pulumi/cdk destroy、aws s3 rm --recursive、aws … delete-*、"
+                     "gcloud … delete、az … delete、gsutil rm -r。",
         },
         examples=("terraform destroy", "terraform apply -destroy",
                   "aws s3 rm s3://b --recursive", "aws ec2 delete-volume --volume-id v",
@@ -643,7 +732,7 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
         id="essential",
         default=True,
         level="write",
-        title={"en": "Essential", "ko": "필수"},
+        title={"en": "Essential", "ko": "필수", "ja": "必須", "es": "Esencial", "zh-CN": "必需"},
         description={
             "en": "The system folders (/etc, /boot, /usr, /bin, /sbin, /lib*, /var/lib, "
                   "/System) are never changed by a call snowpea reads; / and your home folder "
@@ -658,6 +747,26 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
                   "실행되는 것도 그런 호출로 바꾸지 않습니다: "
                   "~/.ssh, 셸 시작 파일(~/.bashrc, ~/.zshrc, ~/.profile …), ~/.config/autostart, "
                   "~/.config/systemd/user, LaunchAgents/LaunchDaemons 폴더.",
+            "ja": "システムフォルダ(/etc、/boot、/usr、/bin、/sbin、/lib*、/var/lib、/System)は "
+                  "snowpea が読み取れる呼び出しでは変更されず、/ "
+                  "とホームフォルダ自体(およびホームより上のすべてのフォルダ)"
+                  "はそうした呼び出しで削除・移動・再帰的に変更されません。"
+                  "ログイン時やシェル起動時に実行されるものも変更されません: ~/.ssh、"
+                  "シェルの起動ファイル(~/.bashrc、~/.zshrc、~/.profile …)、~/.config/autostart、"
+                  "~/.config/systemd/user、LaunchAgents/LaunchDaemons フォルダ。",
+            "es": "Las carpetas del sistema (/etc, /boot, /usr, /bin, /sbin, /lib*, /var/lib, "
+                  "/System) nunca se cambian con una llamada que snowpea lee; / y tu carpeta "
+                  "personal en sí (y toda carpeta por encima de ella) nunca se borran, mueven ni "
+                  "cambian recursivamente con una. Tampoco se cambia lo que se ejecuta al iniciar "
+                  "sesión o abrir un shell: ~/.ssh, los archivos de inicio del shell (~/.bashrc, "
+                  "~/.zshrc, ~/.profile …), ~/.config/autostart, ~/.config/systemd/user y las "
+                  "carpetas LaunchAgents/LaunchDaemons.",
+            "zh-CN": "snowpea 能读懂的调用不会更改系统文件夹（/etc、/boot、/usr、/bin、/sbin、"
+                     "/lib*、/var/lib、/System），也不会删除、移动或递归更改 / "
+                     "和主目录本身（以及主目录之上的所有文件夹）。登录或打开 shell "
+                     "时运行的内容同样不会被更改：~/.ssh、shell 启动文件（~/.bashrc、~/.zshrc、"
+                     "~/.profile …）、~/.config/autostart、~/.config/systemd/user 以及 "
+                     "LaunchAgents/LaunchDaemons 文件夹。",
         },
         examples=("/", "/etc", "/usr", "/boot", "~", "~/.bashrc", "~/.ssh"),
         near_misses=("~/projects/app/file.txt", "/tmp/x"),
@@ -665,7 +774,8 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
     PathPreset(
         id="credentials",
         level="all",
-        title={"en": "Credentials", "ko": "자격 증명"},
+        title={"en": "Credentials", "ko": "자격 증명", "ja": "認証情報", "es": "Credenciales",
+               "zh-CN": "凭据"},
         description={
             "en": "Keys and logins: ~/.ssh, ~/.gnupg, ~/.aws, ~/.kube, ~/.docker, ~/.config/gh, "
                   "~/.config/gcloud, ~/.azure, ~/.netrc, ~/.git-credentials, ~/.npmrc, ~/.pypirc, "
@@ -673,6 +783,16 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
             "ko": "키와 로그인 정보: ~/.ssh, ~/.gnupg, ~/.aws, ~/.kube, ~/.docker, ~/.config/gh, "
                   "~/.config/gcloud, ~/.azure, ~/.netrc, ~/.git-credentials, ~/.npmrc, ~/.pypirc, "
                   "비밀번호 저장소와 키링. 읽기·목록·변경 모두 막습니다.",
+            "ja": "鍵とログイン情報: ~/.ssh、~/.gnupg、~/.aws、~/.kube、~/.docker、~/.config/gh、"
+                  "~/.config/gcloud、~/.azure、~/.netrc、~/.git-credentials、~/.npmrc、~/.pypirc、"
+                  "パスワードストアとキーリング。読み取り・一覧・変更のいずれもできません。",
+            "es": "Claves e inicios de sesión: ~/.ssh, ~/.gnupg, ~/.aws, ~/.kube, ~/.docker, "
+                  "~/.config/gh, ~/.config/gcloud, ~/.azure, ~/.netrc, ~/.git-credentials, "
+                  "~/.npmrc, ~/.pypirc, almacenes de contraseñas y llaveros. Sin ningún acceso: no "
+                  "se leen, listan ni cambian.",
+            "zh-CN": "密钥与登录信息：~/.ssh、~/.gnupg、~/.aws、~/.kube、~/.docker、~/.config/gh、"
+                     "~/.config/gcloud、~/.azure、~/.netrc、~/.git-credentials、~/.npmrc、"
+                     "~/.pypirc、密码库和钥匙串。完全禁止访问：不能读取、列出或更改。",
         },
         examples=("~/.ssh", "~/.aws", "~/.gnupg", "~/.kube"),
         near_misses=("~/projects", "~/.bashrc"),
@@ -680,31 +800,46 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
     PathPreset(
         id="snowpea-home",
         level="write",
-        title={"en": "snowpea's own folder", "ko": "snowpea 자체 폴더"},
+        title={"en": "snowpea's own folder", "ko": "snowpea 자체 폴더",
+               "ja": "snowpea 自身のフォルダ", "es": "La carpeta de snowpea",
+               "zh-CN": "snowpea 自己的文件夹"},
         description={
             "en": "$SNOWPEA_HOME (settings, credentials, logs, sessions) is never changed by a "
                   "tool; snowpea's plan files stay writable.",
             "ko": "$SNOWPEA_HOME(설정, 자격 증명, 로그, 세션)을 도구가 바꾸지 못합니다. snowpea 의 "
                   "계획 파일은 계속 쓸 수 있습니다.",
+            "ja": "$SNOWPEA_HOME(設定、認証情報、ログ、セッション)はツールから変更されません。"
+                  "snowpea の計画ファイルは書き込めるままです。",
+            "es": "Ninguna herramienta cambia $SNOWPEA_HOME (ajustes, credenciales, registros, "
+                  "sesiones); los archivos de plan de snowpea siguen pudiendo escribirse.",
+            "zh-CN": "工具不能更改 $SNOWPEA_HOME（设置、凭据、日志、会话）；snowpea "
+                     "的计划文件仍可写入。",
         },
         examples=("$SNOWPEA_HOME", "$SNOWPEA_HOME/settings.json"),
     ),
     PathPreset(
         id="other-projects",
         level="write",
-        title={"en": "Other projects", "ko": "다른 프로젝트"},
+        title={"en": "Other projects", "ko": "다른 프로젝트", "ja": "他のプロジェクト",
+               "es": "Otros proyectos", "zh-CN": "其他项目"},
         description={
             "en": "Every project snowpea knows, except the one the session works in, is never "
                   "changed.",
             "ko": "snowpea 가 아는 모든 프로젝트를, 세션이 작업 중인 프로젝트만 빼고, 바꾸지 "
                   "않습니다.",
+            "ja": "snowpea が知っているプロジェクトは、セッションが作業中のものを除き、"
+                  "どれも変更されません。",
+            "es": "Ningún proyecto que snowpea conoce se cambia, salvo aquel en el que trabaja la "
+                  "sesión.",
+            "zh-CN": "snowpea 知道的所有项目，除会话正在使用的项目外，都不会被更改。",
         },
         examples=("<every other registered project>",),
     ),
     PathPreset(
         id="mounts",
         level="write",
-        title={"en": "Mounted disks", "ko": "마운트된 디스크"},
+        title={"en": "Mounted disks", "ko": "마운트된 디스크", "ja": "マウントされたディスク",
+               "es": "Discos montados", "zh-CN": "已挂载的磁盘"},
         description={
             "en": "Mounted data and network disks (/mnt/…, /media/…, /Volumes/…) are never "
                   "changed outside the session's project. A disk that holds your home or "
@@ -712,6 +847,14 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
             "ko": "마운트된 데이터·네트워크 디스크(/mnt/…, /media/…, /Volumes/…)는 세션의 "
                   "프로젝트 밖에서 바꾸지 않습니다. 홈이나 snowpea 폴더가 있는 디스크는 "
                   "제외합니다.",
+            "ja": "マウントされたデータ・ネットワークディスク(/mnt/…、/media/…、/Volumes/…)は、"
+                  "セッションのプロジェクトの外では変更されません。ホームや snowpea "
+                  "のフォルダがあるディスクは対象外です。",
+            "es": "Los discos de datos y de red montados (/mnt/…, /media/…, /Volumes/…) nunca se "
+                  "cambian fuera del proyecto de la sesión. Se deja fuera el disco que contiene tu "
+                  "carpeta personal o la de snowpea.",
+            "zh-CN": "已挂载的数据盘和网络盘（/mnt/…、/media/…、/Volumes/…）"
+                     "在会话项目之外不会被更改。存放主目录或 snowpea 文件夹的磁盘除外。",
         },
         examples=("/mnt/data", "/media/usb", "/Volumes/Backup"),
     ),

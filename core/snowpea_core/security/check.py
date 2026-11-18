@@ -68,80 +68,151 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "preset_command": {
         "en": "blocked command ({title}): {command}",
         "ko": "차단된 명령({title}): {command}",
+        "ja": "ブロックされたコマンド({title}): {command}",
+        "es": "orden bloqueada ({title}): {command}",
+        "zh-CN": "已拦截的命令（{title}）：{command}",
     },
     "custom_command": {
         "en": "matches your blocked pattern “{pattern}”: {command}",
         "ko": "차단 패턴 “{pattern}”에 해당합니다: {command}",
+        "ja": "ブロックするパターン「{pattern}」に一致します: {command}",
+        "es": "coincide con tu patrón bloqueado “{pattern}”: {command}",
+        "zh-CN": "匹配你的拦截模式“{pattern}”：{command}",
     },
     "preset_path_write": {
         "en": "{path} is protected from changes ({title})",
         "ko": "{path} 은(는) 변경이 금지된 경로입니다({title})",
+        "ja": "{path} は変更が禁止されたパスです({title})",
+        "es": "{path} está protegido contra cambios ({title})",
+        "zh-CN": "{path} 受保护，禁止更改（{title}）",
     },
     "preset_path_all": {
         "en": "{path} is protected from any access ({title})",
         "ko": "{path} 은(는) 접근이 금지된 경로입니다({title})",
+        "ja": "{path} はアクセスが禁止されたパスです({title})",
+        "es": "{path} está protegido contra cualquier acceso ({title})",
+        "zh-CN": "{path} 受保护，禁止任何访问（{title}）",
     },
     "custom_path_write": {
         "en": "{path} is in your protected folders (no changes)",
         "ko": "{path} 은(는) 보호 폴더입니다(변경 금지)",
+        "ja": "{path} は保護フォルダです(変更禁止)",
+        "es": "{path} está en tus carpetas protegidas (sin cambios)",
+        "zh-CN": "{path} 在你的受保护文件夹中（禁止更改）",
     },
     "custom_path_all": {
         "en": "{path} is in your protected folders (no access)",
         "ko": "{path} 은(는) 보호 폴더입니다(접근 금지)",
+        "ja": "{path} は保護フォルダです(アクセス禁止)",
+        "es": "{path} está en tus carpetas protegidas (sin acceso)",
+        "zh-CN": "{path} 在你的受保护文件夹中（禁止访问）",
     },
     "ancestor": {
         "en": "{target} holds {path}, which is protected ({title})",
         "ko": "{target} 안에 보호된 경로 {path} 이(가) 있습니다({title})",
+        "ja": "{target} の中に保護されたパス {path} があります({title})",
+        "es": "{target} contiene {path}, que está protegido ({title})",
+        "zh-CN": "{target} 中包含受保护的 {path}（{title}）",
     },
     "settings": {
         "en": "the security lists can only be changed by you in Settings, never by a tool",
         "ko": "보안 목록은 설정 화면에서 직접만 바꿀 수 있고, 도구로는 바꿀 수 없습니다",
+        "ja": "セキュリティリストは設定画面でご自身だけが変更でき、ツールからは変更できません",
+        "es": "solo tú puedes cambiar las listas de seguridad, en Ajustes; nunca una herramienta",
+        "zh-CN": "安全列表只能由你在设置中更改，工具无法更改",
     },
     "unchecked": {
         "en": "snowpea cannot tell what this will touch before it runs, so it asks you",
         "ko": "snowpea가 실행 전에 무엇을 건드릴지 알 수 없어 확인합니다",
+        "ja": "実行前に何に触れるか snowpea には分からないため、確認します",
+        "es": "snowpea no puede saber qué tocará esto antes de ejecutarlo, así que te pregunta",
+        "zh-CN": "snowpea 无法在运行前判断它会涉及什么，所以先询问你",
     },
-    "custom_title": {"en": "your list", "ko": "내 목록"},
+    "custom_title": {
+        "en": "your list",
+        "ko": "내 목록",
+        "ja": "自分のリスト",
+        "es": "tu lista",
+        "zh-CN": "你的列表",
+    },
     "control_write": {
         "en": "{path} is one of snowpea's own control files ({what}); no tool changes it",
         "ko": "{path} 은(는) snowpea 자체 제어 파일입니다({what}). 도구로는 바꿀 수 없습니다",
+        "ja": "{path} は snowpea 自身の制御ファイルです({what})。ツールからは変更できません",
+        "es": "{path} es uno de los archivos de control de snowpea ({what}); ninguna herramienta "
+              "lo cambia",
+        "zh-CN": "{path} 是 snowpea 自己的控制文件（{what}）；任何工具都不能更改它",
     },
     "control_stray": {
-        "en": "{path} is inside snowpea's data folder ($SNOWPEA_HOME). Register the folder "
-              "as a project (open it in snowpea), or move it out of the data folder",
+        "en": "{path} is inside snowpea's data folder ($SNOWPEA_HOME). Register the folder as a "
+              "project (open it in snowpea), or move it out of the data folder",
         "ko": "{path} 은(는) snowpea 데이터 폴더($SNOWPEA_HOME) 안에 있습니다. 이 폴더를 "
               "프로젝트로 등록하거나(snowpea 에서 열기) 데이터 폴더 밖으로 옮기세요",
+        "ja": "{path} は snowpea のデータフォルダ($SNOWPEA_HOME)の中にあります。"
+              "このフォルダをプロジェクトとして登録する(snowpea で開く)か、"
+              "データフォルダの外に移動してください",
+        "es": "{path} está dentro de la carpeta de datos de snowpea ($SNOWPEA_HOME). Registra la "
+              "carpeta como proyecto (ábrela en snowpea) o muévela fuera de la carpeta de datos",
+        "zh-CN": "{path} 位于 snowpea 的数据文件夹（$SNOWPEA_HOME）内。请将该文件夹注册为项目（在 "
+                 "snowpea 中打开），或将其移出数据文件夹",
     },
     "control_read": {
         "en": "{path} holds snowpea's own secrets ({what}); no tool reads it",
         "ko": "{path} 에는 snowpea 자체 비밀 정보가 있습니다({what}). 도구로는 읽을 수 없습니다",
+        "ja": "{path} には snowpea 自身の秘密情報があります({what})。ツールからは読めません",
+        "es": "{path} guarda secretos propios de snowpea ({what}); ninguna herramienta lo lee",
+        "zh-CN": "{path} 存有 snowpea 自己的机密信息（{what}）；任何工具都不能读取",
     },
     "control_ask": {
         "en": "this changes snowpea's own files ({what}): only you can allow it",
         "ko": "snowpea 자체 파일({what})을 바꿉니다. 직접 허용해야 합니다",
+        "ja": "snowpea 自身のファイル({what})を変更します。許可できるのはご自身だけです",
+        "es": "esto cambia archivos propios de snowpea ({what}): solo tú puedes permitirlo",
+        "zh-CN": "这会更改 snowpea 自己的文件（{what}）：只有你能允许",
     },
     "control_cli": {
         "en": "this runs snowpea's own CLI, which acts as you: only you can allow it",
         "ko": "snowpea 자체 CLI 를 실행합니다(사용자 본인으로 동작). 직접 허용해야 합니다",
+        "ja": "snowpea 自身の CLI を実行します(あなたとして動作します)。"
+              "許可できるのはご自身だけです",
+        "es": "esto ejecuta la CLI de snowpea, que actúa en tu nombre: solo tú puedes permitirlo",
+        "zh-CN": "这会运行 snowpea 自己的 CLI（以你的身份执行）：只有你能允许",
     },
     "control_code": {
         "en": "this code uses snowpea's own modules, which act as you: only you can allow it",
         "ko": "snowpea 자체 모듈을 쓰는 코드입니다(사용자 본인으로 동작). 직접 허용해야 합니다",
+        "ja": "snowpea 自身のモジュールを使うコードです(あなたとして動作します)。"
+              "許可できるのはご自身だけです",
+        "es": "este código usa módulos propios de snowpea, que actúan en tu nombre: solo tú puedes "
+              "permitirlo",
+        "zh-CN": "这段代码使用 snowpea 自己的模块（以你的身份执行）：只有你能允许",
     },
     "control_mention": {
-        "en": "this code names one of snowpea's own control files ({what}): only you can "
-              "allow it",
+        "en": "this code names one of snowpea's own control files ({what}): only you can allow it",
         "ko": "snowpea 자체 제어 파일({what})을 가리키는 코드입니다. 직접 허용해야 합니다",
+        "ja": "snowpea 自身の制御ファイル({what})を指すコードです。許可できるのはご自身だけです",
+        "es": "este código nombra un archivo de control de snowpea ({what}): solo tú puedes "
+              "permitirlo",
+        "zh-CN": "这段代码提到了 snowpea 的控制文件（{what}）：只有你能允许",
     },
     "control_operand": {
-        "en": "this hands one of snowpea's own control files ({what}) to a program that may "
-              "change it: only you can allow it",
-        "ko": "snowpea 자체 제어 파일({what})을 바꿀 수 있는 프로그램에 넘깁니다. "
-              "직접 허용해야 합니다",
+        "en": "this hands one of snowpea's own control files ({what}) to a program that may change "
+              "it: only you can allow it",
+        "ko": "snowpea 자체 제어 파일({what})을 바꿀 수 있는 프로그램에 넘깁니다. 직접 허용해야 "
+              "합니다",
+        "ja": "snowpea 自身の制御ファイル({what})を、それを変更しうるプログラムに渡します。"
+              "許可できるのはご自身だけです",
+        "es": "esto pasa un archivo de control de snowpea ({what}) a un programa que puede "
+              "cambiarlo: solo tú puedes permitirlo",
+        "zh-CN": "这会把 snowpea 的控制文件（{what}）交给可能更改它的程序：只有你能允许",
     },
     "unknown_code": {
         "en": "can't tell what this code changes (a target or a call it computes while it runs)",
         "ko": "이 코드가 무엇을 바꾸는지 알 수 없습니다(실행 중에 계산되는 대상이나 호출)",
+        "ja": "このコードが何を変更するか分かりません(実行中に計算される対象や呼び出し)",
+        "es": "no se puede saber qué cambia este código (un destino o una llamada que calcula al "
+              "ejecutarse)",
+        "zh-CN": "无法判断这段代码会更改什么（运行时才计算出的目标或调用）",
     },
 }
 
@@ -170,42 +241,132 @@ def message(key: str, locale: str | None, **values: Any) -> str:
 #: ``uncheckedWhy`` texts (m21): one sentence per reason family, ``{x}`` the
 #: name, path or program concerned.  The first family whose prefix matches wins.
 _WHY_TEXTS: tuple[tuple[str, dict[str, str]], ...] = (
-    ("unknown-path", {"en": "writes to `{x}` — the path is not known before it runs",
-                      "ko": "`{x}`에 씀 — 실행 전에는 경로를 알 수 없음"}),
-    ("unknown-read", {"en": "reads `{x}` — the path is not known before it runs",
-                      "ko": "`{x}`를 읽음 — 실행 전에는 경로를 알 수 없음"}),
-    ("dynamic-program", {"en": "the program is named by a variable (`{x}`)",
-                         "ko": "프로그램 이름이 변수(`{x}`)로 정해짐"}),
-    ("brace-program", {"en": "the program is spelled by a brace expansion (`{x}`)",
-                       "ko": "프로그램 이름이 중괄호 확장(`{x}`)으로 정해짐"}),
-    ("substitution", {"en": "the program comes out of a command substitution",
-                      "ko": "프로그램 이름이 명령 치환의 결과로 정해짐"}),
-    ("snowpea-cli", {"en": "a command that controls snowpea ({x})",
-                     "ko": "snowpea를 제어하는 명령({x})"}),
-    ("snowpea-code", {"en": "code that uses snowpea's own modules ({x})",
-                      "ko": "snowpea 자체 모듈을 쓰는 코드({x})"}),
-    ("control-plane", {"en": "touches snowpea's own files ({x})",
-                       "ko": "snowpea 자체 파일을 건드림({x})"}),
-    ("env-code:", {"en": "sets `{x}`, which a program it runs may read as code or settings",
-                   "ko": "`{x}` 값을 정함 — 실행되는 프로그램이 코드나 설정으로 읽을 수 있음"}),
-    ("env-path:", {"en": "sets `{x}`, where programs it runs look for code",
-                   "ko": "`{x}` 값을 정함 — 실행되는 프로그램이 코드를 찾는 위치"}),
-    ("script-written", {"en": "runs a script this same line writes first",
-                        "ko": "같은 줄에서 먼저 쓴 스크립트를 실행함"}),
-    ("script-", {"en": "runs `{x}`, which snowpea cannot read",
-                 "ko": "snowpea가 읽을 수 없는 `{x}`를 실행함"}),
-    ("code:", {"en": "code that computes a target or a call while it runs",
-               "ko": "실행 중에 대상이나 호출을 계산하는 코드"}),
-    ("eval", {"en": "runs text built while it runs (eval)",
-              "ko": "실행 중에 만든 문자열을 실행함(eval)"}),
-    ("source", {"en": "reads in a file it cannot see (source)",
-                "ko": "볼 수 없는 파일을 불러옴(source)"}),
-    ("shell-", {"en": "hands a shell commands snowpea cannot read ahead",
-                "ko": "snowpea가 미리 읽을 수 없는 명령을 셸에 넘김"}),
-    ("hard-linked", {"en": "writes a file that has another name too (`{x}`)",
-                     "ko": "다른 이름도 가진 파일에 씀(`{x}`)"}),
-    ("", {"en": "what this touches is not known before it runs",
-          "ko": "실행 전에는 무엇을 건드릴지 알 수 없음"}),
+    ("unknown-path", {
+        "en": "writes to `{x}` — the path is not known before it runs",
+        "ko": "`{x}`에 씀 — 실행 전에는 경로를 알 수 없음",
+        "ja": "`{x}` に書き込む — 実行前にはパスが分からない",
+        "es": "escribe en `{x}`: la ruta no se conoce antes de ejecutarse",
+        "zh-CN": "写入 `{x}` —— 运行前无法得知路径",
+    }),
+    ("unknown-read", {
+        "en": "reads `{x}` — the path is not known before it runs",
+        "ko": "`{x}`를 읽음 — 실행 전에는 경로를 알 수 없음",
+        "ja": "`{x}` を読む — 実行前にはパスが分からない",
+        "es": "lee `{x}`: la ruta no se conoce antes de ejecutarse",
+        "zh-CN": "读取 `{x}` —— 运行前无法得知路径",
+    }),
+    ("dynamic-program", {
+        "en": "the program is named by a variable (`{x}`)",
+        "ko": "프로그램 이름이 변수(`{x}`)로 정해짐",
+        "ja": "プログラム名が変数(`{x}`)で決まる",
+        "es": "el programa se nombra con una variable (`{x}`)",
+        "zh-CN": "程序名由变量（`{x}`）决定",
+    }),
+    ("brace-program", {
+        "en": "the program is spelled by a brace expansion (`{x}`)",
+        "ko": "프로그램 이름이 중괄호 확장(`{x}`)으로 정해짐",
+        "ja": "プログラム名が波括弧展開(`{x}`)で決まる",
+        "es": "el programa se escribe con una expansión de llaves (`{x}`)",
+        "zh-CN": "程序名由花括号展开（`{x}`）决定",
+    }),
+    ("substitution", {
+        "en": "the program comes out of a command substitution",
+        "ko": "프로그램 이름이 명령 치환의 결과로 정해짐",
+        "ja": "プログラム名がコマンド置換の結果で決まる",
+        "es": "el programa sale de una sustitución de órdenes",
+        "zh-CN": "程序名来自命令替换的结果",
+    }),
+    ("snowpea-cli", {
+        "en": "a command that controls snowpea ({x})",
+        "ko": "snowpea를 제어하는 명령({x})",
+        "ja": "snowpea を制御するコマンド({x})",
+        "es": "una orden que controla snowpea ({x})",
+        "zh-CN": "控制 snowpea 的命令（{x}）",
+    }),
+    ("snowpea-code", {
+        "en": "code that uses snowpea's own modules ({x})",
+        "ko": "snowpea 자체 모듈을 쓰는 코드({x})",
+        "ja": "snowpea 自身のモジュールを使うコード({x})",
+        "es": "código que usa módulos propios de snowpea ({x})",
+        "zh-CN": "使用 snowpea 自身模块的代码（{x}）",
+    }),
+    ("control-plane", {
+        "en": "touches snowpea's own files ({x})",
+        "ko": "snowpea 자체 파일을 건드림({x})",
+        "ja": "snowpea 自身のファイルに触れる({x})",
+        "es": "toca archivos propios de snowpea ({x})",
+        "zh-CN": "涉及 snowpea 自己的文件（{x}）",
+    }),
+    ("env-code:", {
+        "en": "sets `{x}`, which a program it runs may read as code or settings",
+        "ko": "`{x}` 값을 정함 — 실행되는 프로그램이 코드나 설정으로 읽을 수 있음",
+        "ja": "`{x}` を設定する — 実行されるプログラムがコードや設定として読むかもしれない",
+        "es": "define `{x}`, que un programa que ejecuta puede leer como código o ajustes",
+        "zh-CN": "设置 `{x}` —— 它运行的程序可能将其当作代码或设置读取",
+    }),
+    ("env-path:", {
+        "en": "sets `{x}`, where programs it runs look for code",
+        "ko": "`{x}` 값을 정함 — 실행되는 프로그램이 코드를 찾는 위치",
+        "ja": "`{x}` を設定する — 実行されるプログラムがコードを探す場所",
+        "es": "define `{x}`, donde los programas que ejecuta buscan código",
+        "zh-CN": "设置 `{x}` —— 它运行的程序在此查找代码",
+    }),
+    ("script-written", {
+        "en": "runs a script this same line writes first",
+        "ko": "같은 줄에서 먼저 쓴 스크립트를 실행함",
+        "ja": "同じ行で先に書いたスクリプトを実行する",
+        "es": "ejecuta un script que la misma línea escribe antes",
+        "zh-CN": "运行同一行中先写入的脚本",
+    }),
+    ("script-", {
+        "en": "runs `{x}`, which snowpea cannot read",
+        "ko": "snowpea가 읽을 수 없는 `{x}`를 실행함",
+        "ja": "snowpea が読めない `{x}` を実行する",
+        "es": "ejecuta `{x}`, que snowpea no puede leer",
+        "zh-CN": "运行 snowpea 无法读取的 `{x}`",
+    }),
+    ("code:", {
+        "en": "code that computes a target or a call while it runs",
+        "ko": "실행 중에 대상이나 호출을 계산하는 코드",
+        "ja": "実行中に対象や呼び出しを計算するコード",
+        "es": "código que calcula un destino o una llamada al ejecutarse",
+        "zh-CN": "运行时计算目标或调用的代码",
+    }),
+    ("eval", {
+        "en": "runs text built while it runs (eval)",
+        "ko": "실행 중에 만든 문자열을 실행함(eval)",
+        "ja": "実行中に組み立てた文字列を実行する(eval)",
+        "es": "ejecuta texto construido al ejecutarse (eval)",
+        "zh-CN": "运行在执行时拼出的文本（eval）",
+    }),
+    ("source", {
+        "en": "reads in a file it cannot see (source)",
+        "ko": "볼 수 없는 파일을 불러옴(source)",
+        "ja": "見えないファイルを読み込む(source)",
+        "es": "carga un archivo que no puede ver (source)",
+        "zh-CN": "载入无法查看的文件（source）",
+    }),
+    ("shell-", {
+        "en": "hands a shell commands snowpea cannot read ahead",
+        "ko": "snowpea가 미리 읽을 수 없는 명령을 셸에 넘김",
+        "ja": "snowpea が事前に読めないコマンドをシェルに渡す",
+        "es": "pasa a un shell órdenes que snowpea no puede leer de antemano",
+        "zh-CN": "把 snowpea 无法预先读取的命令交给 shell",
+    }),
+    ("hard-linked", {
+        "en": "writes a file that has another name too (`{x}`)",
+        "ko": "다른 이름도 가진 파일에 씀(`{x}`)",
+        "ja": "別名も持つファイルに書き込む(`{x}`)",
+        "es": "escribe un archivo que también tiene otro nombre (`{x}`)",
+        "zh-CN": "写入一个还有其他名称的文件（`{x}`）",
+    }),
+    ("", {
+        "en": "what this touches is not known before it runs",
+        "ko": "실행 전에는 무엇을 건드릴지 알 수 없음",
+        "ja": "実行前には何に触れるか分からない",
+        "es": "no se sabe qué toca esto antes de ejecutarse",
+        "zh-CN": "运行前无法得知会涉及什么",
+    }),
 )
 
 

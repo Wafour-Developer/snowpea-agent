@@ -10,6 +10,7 @@ without running anything.  The logic is :mod:`snowpea_core.security`.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +39,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 
 HANDLED_METHODS: tuple[str, ...] = ("security.presets.list", "security.get", "security.check")
+#: Most projects ``security.get {allProjects}`` lists (1.64.0); ``truncated`` past it.
+MAX_PROJECTS = 200
 
 
 def _wire(lists: Lists) -> dict[str, Any]:
@@ -63,7 +66,7 @@ async def presets_list_handler(
             if text not in shown:
                 shown.append(text)
         entry["paths"] = shown
-    listed["locale"] = catalog.pick({"en": "en", "ko": "ko"}, params.locale)
+    listed["locale"] = catalog.pick({lang: lang for lang in catalog.LOCALES}, params.locale)
     return SecurityPresetsListResult.model_validate(listed)
 
 
@@ -152,7 +155,12 @@ async def get_handler(
     kind = connection_kind(conn)
     from snowpea_core.server.settings_gate import legacy_browser
 
+    every: dict[str, Any] = {}
+    if params.allProjects:
+        listed, truncated = await _all_projects(core)
+        every = {"projects": listed, "truncated": truncated}
     return SecurityGetResult.model_validate({
+        **every,
         **_wire(stored),
         "unknownCode": enforce.unknown_code(core.settings),
         "project": _wire(project) if project is not None and not project.empty else None,
@@ -164,6 +172,36 @@ async def get_handler(
         "problems": problems,
         "problemItems": items,
     })
+
+
+async def _all_projects(core: Core) -> tuple[list[dict[str, Any]], bool]:
+    """Each registered project's additions (1.64.0), at most :data:`MAX_PROJECTS`."""
+    names: dict[str, str | None] = {}
+    store = getattr(core, "store", None)
+    if store is not None:
+        try:
+            from snowpea_core.session import workspaces
+
+            for row in await workspaces.list_all(store):
+                if row.get("path"):
+                    names.setdefault(str(row["path"]), row.get("title") or None)
+        except Exception:  # noqa: BLE001 - live projects still show
+            pass
+    for root in enforce.live_projects(core):
+        names.setdefault(str(root), None)
+    roots = list(names.items())
+
+    def read() -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for workdir, name in roots[:MAX_PROJECTS]:
+            added = project_additions(workdir)
+            item: dict[str, Any] = {"workdir": workdir, "name": name, **_wire(added)}
+            if added.problems:
+                item["problems"] = list(added.problems)
+            out.append(item)
+        return out
+
+    return await asyncio.to_thread(read), len(roots) > MAX_PROJECTS
 
 
 def _problem_details(problems: list[str]) -> dict[str, Any]:
