@@ -9,7 +9,7 @@
  * moved meanwhile core refuses with `trust_changed` and nothing is trusted.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { TuiClient } from "../rpc/client.js";
 import { parseTrustCommand } from "../slash/trust.js";
@@ -19,7 +19,9 @@ import {
   TAMPER_LINE,
   TRUST_REQUIRES_LINE,
   changedFiles,
+  changedLines,
   concerns,
+  initialSelection,
   normalizeChanged,
   normalizeTrust,
   setParams,
@@ -35,6 +37,15 @@ import { sanitizeText } from "../util/sanitize.js";
 
 export interface TrustUi {
   status: TrustView;
+}
+
+/** The startup question for an untrusted folder; `note` is why the last answer did not take. */
+export interface TrustGate {
+  status: TrustView;
+  busy: boolean;
+  note: string | null;
+  /** Core refused trust from this client: the person may only go on without it. */
+  refused: boolean;
 }
 
 export interface TrustDeps {
@@ -73,6 +84,23 @@ export function useTrustScreen(deps: TrustDeps) {
   const [tampered, setTampered] = useState(false);
   const openRef = useRef(false);
   openRef.current = ui !== null;
+  const [gate, setGate] = useState<TrustGate | null>(null);
+
+  // At startup: an untrusted folder is asked about once, before anything else.
+  useEffect(() => {
+    if (!supported) return;
+    let live = true;
+    void client
+      .call("project.trust.status", { workdir })
+      .then((raw) => {
+        const status = normalizeTrust(raw);
+        if (live && status.workdir !== "" && !status.trusted) setGate({ status, busy: false, note: null, refused: false });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [client, supported, workdir]);
 
   const read = useCallback(async (): Promise<TrustView> => normalizeTrust(await client.call("project.trust.status", { workdir })), [client, workdir]);
 
@@ -167,8 +195,32 @@ export function useTrustScreen(deps: TrustDeps) {
     [showToast, warn, workdir],
   );
 
+  /** "Yes, trust this folder": the default scopes, with exactly the digests that were shown. */
+  const acceptGate = useCallback(async () => {
+    if (!gate || gate.busy) return;
+    const shown = gate.status;
+    setGate({ ...gate, busy: true, note: null });
+    try {
+      await client.call("project.trust.set", setParams(shown, initialSelection(shown)));
+      setGate(null);
+    } catch (error) {
+      const code = rpcCode(error);
+      if (code === "jarvis_person_only") {
+        setGate({ status: shown, busy: false, note: trustRefusalLine(error), refused: true });
+      } else if (code === "trust_changed") {
+        const reloaded = await read().catch(() => null);
+        setGate({ status: reloaded ?? shown, busy: false, note: changedLines(changedFiles(error))[0] ?? null, refused: false });
+      } else {
+        setGate({ status: shown, busy: false, note: errorText(error), refused: false });
+      }
+    }
+  }, [client, gate, read]);
+
   return {
     supported,
+    gate,
+    acceptGate,
+    dismissGate: useCallback(() => setGate(null), []),
     ui,
     close: useCallback(() => setUi(null), []),
     handleCommand,

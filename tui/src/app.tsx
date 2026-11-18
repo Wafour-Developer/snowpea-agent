@@ -48,6 +48,7 @@ import { WebScreen } from "./components/WebScreen.js";
 import { useWebScreen, type WebScreenHook } from "./hooks/useWebScreen.js";
 import { webRemoteSupported } from "./state/web-remote.js";
 import { TrustScreen } from "./components/TrustScreen.js";
+import { TrustPrompt } from "./components/TrustPrompt.js";
 import { useTrustScreen, type TrustScreenHook } from "./hooks/useTrustScreen.js";
 import { trustSupported } from "./state/trust.js";
 import { FeedbackScreen } from "./components/FeedbackScreen.js";
@@ -3122,6 +3123,7 @@ export function App({
       security.ui !== null ||
       web.ui !== null ||
       trust.ui !== null ||
+      trust.gate !== null ||
       feedback.ui !== null ||
       disk.open
     ) {
@@ -3599,7 +3601,7 @@ export function App({
             setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || feedback.ui !== null || providers.ui !== null || disk.open}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null || externalViewOnly !== null && externalOpen !== null || screens.ui !== null || security.ui !== null || web.ui !== null || trust.ui !== null || trust.gate !== null || feedback.ui !== null || providers.ui !== null || disk.open}
         />
       )}
     </>
@@ -3699,6 +3701,17 @@ export function App({
     />
   ) : null;
 
+  const trustGateNode = trust.gate ? (
+    <TrustPrompt
+      gate={trust.gate}
+      width={contentWidth}
+      height={fullscreen ? layout.transcriptRows : Math.max(10, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (topBanner ? 3 : 0))}
+      onYes={() => void trust.acceptGate()}
+      onNo={exit}
+      onContinue={trust.dismissGate}
+    />
+  ) : null;
+
   const trustNode = trust.ui ? (
     <TrustScreen
       status={trust.ui.status}
@@ -3775,7 +3788,7 @@ export function App({
         banner={topBanner}
         bannerColor={bannerText(update) === null ? "yellow" : undefined}
         scrollIndicator={scrollIndicator(viewport)}
-        overlay={helpNode ?? diskNode ?? feedbackNode ?? trustNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
+        overlay={trustGateNode ?? helpNode ?? diskNode ?? feedbackNode ?? trustNode ?? webNode ?? securityNode ?? externalNode ?? (state.timeline.length === 0 && !openAgent ? (
           <LaunchBanner
             width={terminal.columns - 2}
             terminalRows={terminal.rows}
@@ -3906,7 +3919,7 @@ export function App({
           oldest rows go, clipped at the top, and the newest stay. Whatever is
           clipped is still live, so it reaches the scrollback whole later. */}
       <Box flexDirection="column" flexShrink={1} overflowY="hidden" justifyContent="flex-end">
-      {showHelp || securityNode || webNode || trustNode || feedbackNode || diskNode ? null : externalNode ? externalNode : openAgent ? (
+      {trustGateNode || showHelp || securityNode || webNode || trustNode || feedbackNode || diskNode ? null : externalNode ? externalNode : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}
@@ -3948,6 +3961,8 @@ export function App({
       {securityNode}
 
       {webNode}
+
+      {trustGateNode}
 
       {trustNode}
 
