@@ -160,11 +160,16 @@ def declarations(core: Core, workdir: Path | str | None) -> list[Declared]:
     for name, (entry, owner) in list(PLUGIN_MCP.items()):
         if name not in plugins:
             take(name, entry, "plugin", owner)
-    for scope, base in (("global", core.paths.home), ("project", workdir)):
-        if base is None:
-            continue
-        for name, entry in mcp_config.read_servers(Path(base) / mcp_client.CONFIG_NAME).items():
-            take(name, entry, scope)  # type: ignore[arg-type]
+    home = core.paths.home
+    for name, entry in mcp_config.read_servers(Path(home) / mcp_client.CONFIG_NAME).items():
+        take(name, entry, "global")
+    # m27 fix, M-4: a project's servers come only from the bytes its ``mcp``
+    # trust verified, as ``mcp_client.discover`` reads them (and ``mcp.reload``
+    # starts them).
+    project = mcp_client.discover(home, workdir) if workdir is not None else {}
+    for config in project.values():
+        if config.source == "project":
+            found.append(Declared(config=config, scope="project", entry=config.to_entry()))
     return found
 
 

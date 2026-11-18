@@ -120,3 +120,108 @@ def test_the_lists_switched_off_do_not_judge(core: Core, project: Path) -> None:
     assert mcp_client.project_command_refusal(config, core.paths.home) is not None
     core.settings.security.enabled = False
     assert mcp_client.project_command_refusal(config, core.paths.home) is None
+
+
+# -- m27 fix, M-3: env and cwd are part of what is judged ----------------------------------
+
+#: A server entry whose own line is harmless; what it sets in env is not.  DATA only.
+ENV_SWAPS = [
+    {"PATH": "/tmp/m27-not-a-dir:/usr/bin"},
+    {"NODE_OPTIONS": "--require /tmp/m27-not-a-file.js"},
+    {"LD_PRELOAD": "/tmp/m27-not-a-file.so"},
+]
+
+
+@pytest.mark.parametrize("env", ENV_SWAPS)
+async def test_an_env_a_program_reads_as_code_is_judged(core: Core, project: Path,
+                                                        started: list[str],
+                                                        env: dict[str, str]) -> None:
+    _mcp_json(project, {"s": {"command": "node", "args": ["server.js"], "env": env}})
+    config = mcp_client.discover(core.paths.home, project)["s"]
+    refusal = mcp_client.project_command_refusal(config, core.paths.home)
+    assert refusal is not None and "not started" in refusal
+    assert next(iter(env)) in refusal
+    assert await mcp_client.register_config(core, config) == []
+    assert started == []
+    # The same entry without the env starts (unknownCode "auto", the default).
+    _mcp_json(project, {"s": {"command": "node", "args": ["server.js"]}})
+    plain = mcp_client.discover(core.paths.home, project)["s"]
+    assert mcp_client.project_command_refusal(plain, core.paths.home) is None
+
+
+def test_an_ordinary_env_is_fine(core: Core, project: Path) -> None:
+    _mcp_json(project, {"s": {"command": "uvx", "args": ["mcp-server-fetch"],
+                              "env": {"API_KEY": "abc", "NODE_ENV": "production"}}})
+    config = mcp_client.discover(core.paths.home, project)["s"]
+    assert mcp_client.project_command_refusal(config, core.paths.home) is None
+
+
+@pytest.mark.parametrize("where", ["home", "parent", "absolute-elsewhere"])
+async def test_a_cwd_outside_the_project_is_refused(core: Core, project: Path, tmp_path: Path,
+                                                    started: list[str], where: str) -> None:
+    cwd = {"home": str(core.paths.home), "parent": "..",
+           "absolute-elsewhere": str(tmp_path)}[where]
+    _mcp_json(project, {"s": {"command": "uvx", "args": ["mcp-server-fetch"], "cwd": cwd}})
+    config = mcp_client.discover(core.paths.home, project)["s"]
+    refusal = mcp_client.project_command_refusal(config, core.paths.home)
+    assert refusal is not None and "outside the project folder" in refusal
+    assert await mcp_client.register_config(core, config) == []
+    assert started == []
+
+
+async def test_a_cwd_inside_the_project_starts_there(core: Core, project: Path,
+                                                     started: list[str]) -> None:
+    (project / "srv").mkdir()
+    _mcp_json(project, {"s": {"command": "uvx", "args": ["mcp-server-fetch"], "cwd": "srv"}})
+    config = mcp_client.discover(core.paths.home, project)["s"]
+    assert mcp_client.project_command_refusal(config, core.paths.home) is None
+    assert mcp_client.project_cwd(config) == str(project / "srv")
+    await mcp_client.MANAGER.register(config).start()
+    assert started == ["s"]
+
+
+def test_the_control_folder_as_cwd_is_refused_even_inside(core: Core, tmp_path: Path) -> None:
+    """A project whose folder holds snowpea's home: the check itself refuses."""
+    root = core.paths.home.parent
+    _mcp_json(root, {"s": {"command": "node", "args": ["server.js"],
+                           "cwd": core.paths.home.name}})
+    config = mcp_client.discover(core.paths.home, root)["s"]
+    refusal = mcp_client.project_command_refusal(config, core.paths.home)
+    assert refusal is not None and "not started" in refusal
+
+
+def test_unknown_code_ask_refuses_an_opaque_line(core: Core, project: Path) -> None:
+    _mcp_json(project, {"s": {"command": "node", "args": ["server.js"]}})
+    config = mcp_client.discover(core.paths.home, project)["s"]
+    assert mcp_client.project_command_refusal(config, core.paths.home) is None
+    core.settings.security.unknownCode = "ask"
+    refusal = mcp_client.project_command_refusal(config, core.paths.home)
+    assert refusal is not None and "needs a person's answer" in refusal
+
+
+# -- m27 fix, M-4: mcp.reload reads a project's servers only as trusted ----------------------
+
+
+@pytest.mark.real_project_trust
+async def test_reload_starts_no_server_of_an_untrusted_or_changed_project(
+        core: Core, project: Path, started: list[str]) -> None:
+    from snowpea_core.server.protocol import McpReloadParams
+    from snowpea_core.trust import projects as trust
+
+    trust.set_default_home(core.paths.home)
+    _mcp_json(project, {"p": {"command": "uvx", "args": ["mcp-server-fetch"]}})
+    reload = McpReloadParams(workdir=str(project))
+    result = await mcp_handlers.mcp_reload_handler(None, reload, core)
+    assert "p" not in result.servers and started == []
+    listed = await mcp_handlers.mcp_list_handler(None, McpListParams(workdir=str(project)), core)
+    assert "p" not in {s.name for s in listed.servers}
+    trust.store_for(core.paths.home).set(project, ["mcp"], by="ide")
+    await mcp_handlers.mcp_reload_handler(None, reload, core)
+    assert started == ["p"]
+    await mcp_client.MANAGER.close_all()
+    started.clear()
+    # Changed since it was trusted: none of it starts.
+    _mcp_json(project, {"p": {"command": "uvx", "args": ["mcp-server-fetch"]},
+                        "q": {"command": "uvx", "args": ["mcp-server-time"]}})
+    result = await mcp_handlers.mcp_reload_handler(None, reload, core)
+    assert started == [] and not {"p", "q"} & set(result.servers)

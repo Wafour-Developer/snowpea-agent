@@ -1037,6 +1037,13 @@ class EventHub:
                 if translated is None:
                     continue
                 out_method, out_params = translated
+            if method == "sessions.changed" and out_params.get("hostToolsFrom"):
+                # m27 fix, M-2: another client's clientId is not handed out.
+                from snowpea_core.session.session import shown_host
+
+                shown = shown_host(out_params["hostToolsFrom"], conn)
+                if shown != out_params["hostToolsFrom"]:
+                    out_params = {**out_params, "hostToolsFrom": shown}
             seen.append(conn)
             try:
                 await conn.notify(out_method, out_params)

@@ -425,13 +425,29 @@ def project_command_refusal(config: McpServerConfig, home: Path | str | None) ->
     from types import SimpleNamespace
 
     try:
-        from snowpea_core.security import enforce
+        from snowpea_core.security import check, enforce
 
         resolved = resolve_config(config, home, MANAGER.allow_vars())
-        line = shlex.join([resolved.command or "", *resolved.args])
+        # The line as it runs (m27 fix, M-3): its env as an inline prefix (a
+        # PATH swap, NODE_OPTIONS, LD_PRELOAD are judged), in its cwd, which
+        # must be inside the project.
+        cwd = project_cwd(config)
+        root = Path(config.project).resolve() if config.project else None
+        if cwd is not None and root is not None and not Path(cwd).resolve().is_relative_to(root):
+            return (f"{config.name}: not started — its cwd {config.cwd!r} is outside the "
+                    "project folder. Add it as a global server if you trust it")
+        for key in resolved.env:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                return f"{config.name}: not started — {key!r} is not an environment name"
+        prefix = [f"{key}={shlex.quote(value)}" for key, value in resolved.env.items()]
+        line = " ".join([*prefix, shlex.join([resolved.command or "", *resolved.args])])
+        args: dict[str, Any] = {"command": line}
+        if cwd is not None:
+            args["cwd"] = cwd
         verdict = enforce.judge_for_core(
             MANAGER.core, SimpleNamespace(workdir=config.project or config.cwd), "shell",
-            {"command": line}, ("exec",))
+            args, ("exec",))
+        unknown = enforce.effective_unknown_code(getattr(MANAGER.core, "settings", None))
     except McpError as exc:  # a ${VAR} it may not expand: it would not start either
         return str(exc)
     except Exception:  # noqa: BLE001 - a check that cannot run refuses
@@ -439,13 +455,34 @@ def project_command_refusal(config: McpServerConfig, home: Path | str | None) ->
                     exc_info=True)
         return (f"{config.name}: not started — the security lists could not check the "
                 "project's server command")
-    if not verdict.blocked:
+    hint = "Add it as a global server if you trust it, or change the security lists"
+    if verdict.blocked:
+        log.warning("project MCP server %s blocked by the security lists: %s", config.name,
+                    verdict.by)
+        return (f"{config.name}: not started — the project's server command is blocked by "
+                f"the security list: {verdict.by} — {verdict.why}. {hint}")
+    if not verdict.opaque:
         return None
-    log.warning("project MCP server %s blocked by the security lists: %s", config.name,
-                verdict.by)
-    return (f"{config.name}: not started — the project's server command is blocked by the "
-            f"security list: {verdict.by} — {verdict.why}. Add it as a global server if you "
-            "trust it, or change the security lists")
+    # No turn and no card to ask on: what a turn would always put to the person
+    # (snowpea's own controls, an env value a program reads as code or a code
+    # path) does not start, nor anything opaque under ``unknownCode: "ask"``.
+    risky = verdict.reason == check.CONTROL_REASON or any(
+        part.startswith(("env-code:", "env-path:", "control-plane")) for part in verdict.unseen)
+    if not risky and unknown != "ask":
+        return None
+    log.warning("project MCP server %s not started: %s", config.name, verdict.why)
+    unseen = f" ({', '.join(verdict.unseen)})" if verdict.unseen else ""
+    return (f"{config.name}: not started — the project's server command needs a person's "
+            f"answer: {verdict.why}{unseen}. {hint}")
+
+
+def project_cwd(config: McpServerConfig) -> str | None:
+    """Where a project's stdio server runs: its ``cwd`` taken from the project
+    folder, else the project folder; ``config.cwd`` for any other server."""
+    if config.source != "project" or not config.project:
+        return config.cwd
+    root = Path(config.project)
+    return str(root / config.cwd) if config.cwd else str(root)
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +595,7 @@ class McpServer:
                 command=winproc.python_program(config.command or ""),
                 args=list(config.args),
                 env=dict(config.env) or None,
-                cwd=config.cwd,
+                cwd=project_cwd(config),
             )
             # ``errlog`` defaults to whatever ``sys.stderr`` was at import
             # time; binding it per call keeps a server's stderr going to the

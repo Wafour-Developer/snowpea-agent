@@ -486,13 +486,74 @@ async def test_a_browser_cannot_attach_to_an_ide_session(
         await ide.stop()
         await asyncio.sleep(0.1)
         _not_owner(await browser.call("session.attach", {"sessionId": session_id}))
-        # A resume may make it the live origin (to deliver events), not its owner.
+        # m27 fix, M-1 / L-1: a resume only subscribes it; it never becomes the origin.
         await browser.ok("session.resume", {"sessionId": session_id})
-        conn = session.origin_conn
-        assert getattr(conn, "client_id", None) == "browser-A"
-        assert not browser_owns(conn, session)
+        assert getattr(session.origin_conn, "client_id", None) != "browser-A"
+        live = next(c for c in daemon.core.hub.clients()
+                    if getattr(c, "client_id", None) == "browser-A")
+        assert not browser_owns(live, session)
     finally:
         await browser.stop()
+
+
+async def test_an_ide_session_on_a_browsers_tools_is_never_the_browsers(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
+) -> None:
+    """m27 fix, M-1: hostToolsFrom does not make an IDE session browser-made.
+    Its own host browser may watch it (attach subscribes, changes nothing);
+    another browser is refused; neither owns it while the IDE is connected."""
+    from snowpea_core.server.settings_gate import browser_owns
+
+    host = await open_client(http, daemon, client_id="browser-A")
+    other = await open_client(http, daemon, client_id="browser-B")
+    ide = await open_client(http, daemon, kind="ide")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl")]})
+        session_id = await new_session(ide, tmp_path / "w", hostToolsFrom="browser-A")
+        session = daemon.core.sessions.get(session_id)
+        origin = session.origin_conn
+        for alias in ("browser", None):
+            params = {"sessionId": session_id}
+            if alias:
+                params["hostToolsFrom"] = "browser-A"
+            attached = await host.ok("session.attach", params)
+            assert attached["sessionId"] == session_id
+            assert session.origin_conn is origin
+            assert session.origin_client_id != "browser-A"
+        _not_owner(await other.call("session.attach", {"sessionId": session_id}))
+        await other.ok("session.resume", {"sessionId": session_id})
+        assert session.origin_conn is origin
+        live = {getattr(c, "client_id", None): c for c in daemon.core.hub.clients()}
+        assert not browser_owns(live["browser-A"], session)
+        assert not browser_owns(live["browser-B"], session)
+        # The IDE and the host see the real host; another browser sees "browser".
+        rows = {c: next(r for r in (await c.ok("session.list", {}))["sessions"]
+                        if r["sessionId"] == session_id)["hostToolsFrom"]
+                for c in (host, other)}
+        assert rows[host] == "browser-A" and rows[other] == "browser"
+    finally:
+        await ide.stop()
+        await other.stop()
+        await host.stop()
+
+
+async def test_a_browser_may_not_call_itself_the_alias(
+    http: aiohttp.ClientSession, daemon: Daemon  # noqa: F811
+) -> None:
+    """m27 fix, M-2: clientId "browser" (the alias) or a blank one is refused."""
+    for bad in ("browser", " browser ", "", "   "):
+        ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
+        client = RpcClient(ws)
+        client.start()
+        try:
+            frame = await client.call("system.hello", {
+                "token": daemon.token, "clientVersion": "browser-test",
+                "protocolVersion": PROTOCOL_VERSION, "clientKind": "browser",
+                "clientId": bad})
+            assert frame["error"]["code"] == -32602, bad
+            assert frame["error"]["data"]["details"]["field"] == "clientId"
+        finally:
+            await client.stop()
 
 
 async def test_a_browser_cannot_attach_to_another_live_browsers_session(

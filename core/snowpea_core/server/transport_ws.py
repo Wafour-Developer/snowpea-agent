@@ -149,6 +149,16 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
             raise RpcError(errors.UNAUTHORIZED, "invalid token")
     elif not token_matches(core.token, params.token):
         raise RpcError(errors.UNAUTHORIZED, "invalid token")
+    if params.clientId is not None:
+        # m27 fix, M-2: "browser" is the alias for "whichever browser is
+        # connected" in hostToolsFrom; a client named that matched every
+        # session hosted by the alias.  An empty id names nobody.
+        from snowpea_core.server.settings_gate import BROWSER_ALIAS
+
+        if not params.clientId.strip() or params.clientId.strip() == BROWSER_ALIAS:
+            raise RpcError(errors.INVALID_PARAMS,
+                           f"clientId {params.clientId!r} is reserved or empty",
+                           {"field": "clientId"})
     if getattr(conn, "remote_login", False):
         # Security review 5, M3: on the remote listener the connection is a
         # remote web login whatever hello declares — never a (legacy) browser
