@@ -1,6 +1,6 @@
 {
   "name": "snowpea-agent-monorepo",
-  "version": "0.2.93",
+  "version": "0.2.94",
   "private": true,
   "description": "Workspace root for the snowpea TypeScript SDK and Ink TUI.",
   "license": "MIT",

@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react63 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.60.0";
+var PROTOCOL_VERSION = "1.61.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -44357,7 +44357,7 @@ function FeedbackScreen({
 var import_react41 = __toESM(require_react(), 1);
 
 // src/version.ts
-var TUI_VERSION = "0.2.93";
+var TUI_VERSION = "0.2.94";
 
 // src/hooks/useFeedback.ts
 function useFeedback(deps) {
