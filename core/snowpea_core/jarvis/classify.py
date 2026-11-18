@@ -510,6 +510,9 @@ class _Cmd:
     #: That text is expanded by the shell (an unquoted delimiter with ``$``/backticks,
     #: or a here-string with an expansion): what the command reads is not known.
     stdin_dynamic: bool = False
+    #: Reads a pipe whose writer is not a command of this line (a command of a
+    #: ``>(…)`` body, a substitution in a piped command): stdin from who knows.
+    fed: bool = False
 
 
 #: Most words one brace expansion may produce before the line is opaque.
@@ -594,6 +597,206 @@ class _Line:
     function: bool = False
     #: The names so defined.
     functions: list[str] = field(default_factory=list)
+    #: ``(opener, body, command index)`` of every substitution the scanner met, in
+    #: the order met (``$``, a backtick, ``<`` or ``>``): each body is a line of its
+    #: own that runs, with the folder and stdin of the command at that index.
+    #: Recorded where the scanner reads them, so quoting can never make a second
+    #: reading disagree with it.
+    bodies: list[tuple[str, str, int]] = field(default_factory=list)
+
+
+class ProcessWord(str):
+    """A word that is exactly one process substitution (``<(…)``/``>(…)``).
+
+    The shell gives the command a pipe's name (``/dev/fd/63``) in its place: not
+    a file anyone's, so no read or write of it is judged.  The commands inside
+    are read as commands of the line (:attr:`_Line.bodies`).  The type
+    marks the word: no text spelled in a line can be mistaken for one."""
+
+
+def quote_end(text: str, start: int) -> int:
+    """The index just past the quoted run that opens at ``start`` (``'…'``,
+    ``$'…'`` with its backslash escapes, or ``"…"`` with the substitutions inside
+    it, whose own quotes nest); -1 when it is not closed.  The one place every
+    reader of this module skips a quote."""
+    n = len(text)
+    if text.startswith("$'", start):
+        j = start + 2
+        while j < n:
+            if text[j] == "\\":
+                j += 2
+                continue
+            if text[j] == "'":
+                return j + 1
+            j += 1
+        return -1
+    if text[start : start + 1] == "'":
+        end = text.find("'", start + 1)
+        return -1 if end < 0 else end + 1
+    j = start + 1
+    while j < n:
+        char = text[j]
+        if char == "\\":
+            j += 2
+            continue
+        if char == '"':
+            return j + 1
+        if char == "$" and text[j + 1 : j + 2] == "(":
+            end = closing_paren(text, j + 2)
+            if end < 0:
+                return -1
+            j = end + 1
+            continue
+        if char == "`":
+            end = _backtick_end(text, j + 1)
+            if end >= n:
+                return -1
+            j = end + 1
+            continue
+        j += 1
+    return -1
+
+
+_CASE_WORD = re.compile(r"(case|esac)(?=[\s;&|()]|$)")
+#: ``<<EOF`` / ``<<-'EOF'`` / ``<< "EOF"``: a here-document's delimiter.
+_HEREDOC_START = re.compile(
+    r"<<(?P<strip>-)?[ \t]*(?P<word>'[^'\n]+'|\"[^\"\n]+\"|[^\s;&|()<>'\"]+)")
+
+
+def closing_paren(text: str, start: int) -> int:
+    """The index of the ``)`` closing a ``(`` that opened just before ``start``
+    (quotes, ``$'…'``, backticks, comments and backslashes respected, nested
+    parentheses counted, a ``case`` pattern's ``)`` skipped); -1 when none, and
+    for a here-document inside (its body is not read here, so nothing is)."""
+    depth = 0
+    cases = 0
+    j = start
+    n = len(text)
+    heredocs: list[tuple[str, bool]] = []
+    while j < n:
+        char = text[j]
+        if char == "\n" and heredocs:
+            # The here-documents opened on this line: their bodies are text.
+            j += 1
+            for delimiter, strip in heredocs:
+                while True:
+                    end = text.find("\n", j)
+                    line = text[j:] if end < 0 else text[j:end]
+                    if (line.lstrip("\t") if strip else line) == delimiter:
+                        j = n if end < 0 else end
+                        break
+                    if end < 0:
+                        return -1  # never closed
+                    j = end + 1
+            heredocs = []
+            continue
+        if char == "\\":
+            j += 2
+            continue
+        if char in "'\"" or text.startswith("$'", j):
+            end = quote_end(text, j)
+            if end < 0:
+                return -1
+            j = end
+            continue
+        if char == "`":
+            end = _backtick_end(text, j + 1)
+            if end >= n:
+                return -1
+            j = end + 1
+            continue
+        word_start = j == start or text[j - 1] in " \t\n;&|()"
+        if char == "#" and word_start:
+            # A comment: its quotes and parentheses are text (``# don't``).
+            end = text.find("\n", j)
+            if end < 0:
+                return -1
+            j = end
+            continue
+        if text.startswith("<<", j) and not text.startswith("<<<", j):
+            # A here-document: its delimiter, then its body after this line.
+            found = _HEREDOC_START.match(text, j)
+            if found is None:
+                return -1
+            word = found.group("word")
+            heredocs.append((word.strip("'\"").replace("\\", ""), bool(found.group("strip"))))
+            j = found.end()
+            continue
+        if word_start:
+            found = _CASE_WORD.match(text, j)
+            if found is not None:
+                cases = cases + 1 if found.group(1) == "case" else max(cases - 1, 0)
+                j = found.end()
+                continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                if cases:
+                    j += 1  # ``a)``: a case pattern ends
+                    continue
+                return j
+            depth -= 1
+        j += 1
+    return -1
+
+
+def is_arithmetic(text: str, start: int) -> bool:
+    """``$((…))`` at ``start`` is arithmetic; ``$((cmd); …)`` is a command
+    substitution whose body starts with a subshell."""
+    if not text.startswith("$((", start):
+        return False
+    inner = closing_paren(text, start + 3)
+    return inner >= 0 and text[inner + 1 : inner + 2] == ")"
+
+
+def _backtick_end(text: str, start: int) -> int:
+    """The index of the backtick closing one opened just before ``start`` (or the end)."""
+    j = start
+    while j < len(text) and text[j] != "`":
+        j += 2 if text[j] == "\\" else 1
+    return min(j, len(text))
+
+
+def embedded_bodies(text: str, *, heredoc: bool = False) -> list[tuple[str, str]]:
+    """``(opener, body)`` of every substitution in a piece of text the scanner
+    hands over whole (a ``${…}`` expansion, an unquoted here-document's body).
+    ``heredoc``: quotes are text there, and ``<(`` is not a substitution.  A
+    ``<(``/``>(`` inside double quotes is text to the shell; it is reported all
+    the same (reading it as commands only ever asks more)."""
+    bodies: list[tuple[str, str]] = []
+    index = 0
+    quoted = False
+    while index < len(text):
+        char = text[index]
+        nxt = text[index + 1 : index + 2]
+        if char == "\\":
+            index += 2
+            continue
+        if not heredoc and not quoted and (char == "'" or text.startswith("$'", index)):
+            end = quote_end(text, index)
+            if end < 0:
+                break
+            index = end
+            continue
+        if char == '"' and not heredoc:
+            quoted = not quoted
+            index += 1
+            continue
+        if nxt == "(" and ((char == "$" and not is_arithmetic(text, index))
+                           or (char in "<>" and not heredoc)):
+            end = closing_paren(text, index + 2)
+            end = len(text) if end < 0 else end
+            bodies.append((char, text[index + 2 : end]))
+            index = end + 1
+            continue
+        if char == "`":
+            end = _backtick_end(text, index + 1)
+            bodies.append(("`", text[index + 1 : end].replace("\\`", "`")))
+            index = end + 1
+            continue
+        index += 1
+    return [(opener, body) for opener, body in bodies if body.strip()]
 
 
 class _Scanner:
@@ -622,6 +825,10 @@ class _Scanner:
         #: The word being read had a quote or a backslash in it.
         self.quoted = False
         self.piped_in = False
+        #: The text of a process substitution the word being read holds.
+        self.process: str | None = None
+        #: Where the last kept substitution body ends (:meth:`_record`).
+        self.body_end = -1
 
     # -- words -----------------------------------------------------------
     def _add(self, chunk: str, protected: bool) -> None:
@@ -633,6 +840,8 @@ class _Scanner:
         if not self.in_word:
             return
         text = "".join(self.word)
+        if self.process is not None and text == self.process:
+            text = ProcessWord(text)
         mask = self.mask
         expanded = [text]
         if any(c == "{" and not m for c, m in zip(text, mask, strict=False)):
@@ -665,6 +874,7 @@ class _Scanner:
         self.in_word = False
         self.dynamic = False
         self.quoted = False
+        self.process = None
 
     def _end_command(self, operator: str | None) -> None:
         self._end_word()
@@ -685,6 +895,7 @@ class _Scanner:
         text = self.text
         for delimiter, strip_tabs, quoted, owner in self.pending_heredocs:
             body: list[str] = []
+            begin = self.i
             while self.i <= len(text):
                 end = text.find("\n", self.i)
                 end = len(text) if end < 0 else end
@@ -701,7 +912,24 @@ class _Scanner:
                 if end >= len(text):
                     break
             owner.stdin_text = "\n".join(body)
+            if not quoted:
+                self._record(embedded_bodies(owner.stdin_text, heredoc=True), begin, self.i,
+                             index=max(len(self.line.commands) - 1, 0))
         self.pending_heredocs = []
+
+    def _record(self, found: list[tuple[str, str]], at: int, end: int,
+                index: int | None = None) -> None:
+        """Keep the substitution bodies met at ``at`` (spanning to ``end``) with the
+        command they belong to (``index``: by default the one being read).  One
+        that starts inside a body already kept is that body's: it is read when
+        that body is (a nest of ``$(`` is read once per level, not once per
+        enclosing body)."""
+        if at < self.body_end:
+            return
+        self.body_end = end
+        where = len(self.line.commands) if index is None else index
+        self.line.bodies.extend((opener, body, where) for opener, body in found
+                                if body.strip())
 
     # -- the scan ----------------------------------------------------------
     def scan(self) -> _Line:
@@ -746,6 +974,9 @@ class _Scanner:
                 self.line.substitution = True
                 self.backtick = not self.backtick
                 if self.backtick:
+                    end = _backtick_end(text, self.i + 1)
+                    self._record([("`", text[self.i + 1 : end].replace("\\`", "`"))],
+                                 self.i, end)
                     # An opening backtick is ``$(``: the word it is part of (or
                     # starts) is one only the shell knows — ``X=`cmd` `` used to
                     # read as ``X=`` and `` `echo rm` -rf / `` as the program
@@ -812,8 +1043,34 @@ class _Scanner:
                     self._add(text[self.i + 1], True)
                 self.i += 2
                 continue
-            if char == "`" or (char == "$" and text[self.i + 1 : self.i + 2] == "("):
+            pair = text[self.i : self.i + 2]
+            if pair == "$(" and not is_arithmetic(text, self.i):
+                # ``"$(…)"``: its own quotes nest; the whole of it is one part
+                # of the word, and its body a line that runs.
+                end = closing_paren(text, self.i + 2)
+                if end < 0:
+                    raise _Opaque("unbalanced-paren")
                 self.line.substitution = True
+                self.dynamic = True
+                self._record([("$", text[self.i + 2 : end])], self.i, end)
+                self._add(text[self.i : end + 1], True)
+                self.i = end + 1
+                continue
+            if char == "`":
+                end = _backtick_end(text, self.i + 1)
+                self.line.substitution = True
+                self.dynamic = True
+                self._record([("`", text[self.i + 1 : end].replace("\\`", "`"))], self.i, end)
+                self._add(text[self.i : end + 1], True)
+                self.i = end + 1
+                continue
+            if pair in ("<(", ">("):
+                # Text to the shell; read as commands all the same (the safe side).
+                end = closing_paren(text, self.i + 2)
+                end = end if end >= 0 else len(text)
+                self._record([(char, text[self.i + 2 : end])], self.i, end)
+            if pair == "$(":
+                self.line.substitution = True  # ``$((…))``: arithmetic
                 self.dynamic = True
             elif char == "$" and re.match(r"[A-Za-z0-9_{@*#?$!-]", text[self.i + 1 : self.i + 2]):
                 self.dynamic = True
@@ -827,6 +1084,10 @@ class _Scanner:
             # so the commands inside are judged too.
             self.line.substitution = True
             self.dynamic = True
+            if not is_arithmetic(text, self.i):
+                end = closing_paren(text, self.i + 2)
+                end = end if end >= 0 else len(text)
+                self._record([("$", text[self.i + 2 : end])], self.i, end)
             self._add("$", True)
             self.i += 1
             self._end_word()
@@ -842,6 +1103,19 @@ class _Scanner:
                 if char == "\\":
                     j += 2
                     continue
+                if char in "'\"" or text.startswith("$'", j):
+                    # ``${X:-"}"}``: a quoted brace closes nothing.
+                    j = quote_end(text, j)
+                    if j < 0:
+                        raise _Opaque("unbalanced-quote")
+                    continue
+                if text.startswith("$(", j) or char == "`":
+                    inner = (closing_paren(text, j + 2) if char == "$"
+                             else _backtick_end(text, j + 1))
+                    if inner < 0 or inner >= len(text):
+                        raise _Opaque("unbalanced-paren")
+                    j = inner + 1
+                    continue
                 if char == "{":
                     depth += 1
                 elif char == "}":
@@ -855,13 +1129,15 @@ class _Scanner:
             body = text[self.i : end + 1]
             if "$(" in body or "`" in body or "<(" in body or ">(" in body:
                 self.line.substitution = True
+                self._record(embedded_bodies(body[2:-1]), self.i, end)
             self._add(body, True)
             self.dynamic = True
             self.i = end + 1
             return
         if nxt == "'":
-            # ``$'…'``: ANSI-C quoting, which can spell anything with escapes.
-            end = text.find("'", self.i + 2)
+            # ``$'…'``: ANSI-C quoting, which can spell anything with escapes
+            # (``$'\''`` is one quote, not the end of it).
+            end = quote_end(text, self.i) - 1
             if end < 0:
                 raise _Opaque("unbalanced-quote")
             body = text[self.i + 2 : end]
@@ -897,9 +1173,17 @@ class _Scanner:
     def _angle(self, char: str, nxt: str) -> None:
         text = self.text
         if nxt == "(":
-            self.line.substitution = True  # process substitution
-            self._end_command("(")
-            self.i += 2
+            # A process substitution: one word, a pipe's name only the shell
+            # knows.  Its body is read as commands of the line by the caller.
+            end = closing_paren(text, self.i + 2)
+            if end < 0:
+                raise _Opaque("unbalanced-paren")
+            self.line.substitution = True
+            self.dynamic = True
+            self._record([(char, text[self.i + 2 : end])], self.i, end)
+            self.process = text[self.i : end + 1] if not self.in_word else None
+            self._add(text[self.i : end + 1], True)
+            self.i = end + 1
             return
         if char == "<":
             if text.startswith("<<<", self.i):
@@ -1252,6 +1536,58 @@ HTTP_CLIENTS: frozenset[str] = frozenset(
     {"curl", "wget", "wget2", "http", "https", "xh", "xhs", "curlie", "httpie", "aria2c",
      "fetch", "lwp-request"}
 )
+#: Short options of an HTTP client: ``(take a value, take none)``.  A word of
+#: several (``-sSLo f``, ``-qO-``) is read as those options one by one.
+_HTTP_SHORT: dict[str, tuple[str, str]] = {
+    "curl": ("AbcCdDeEFHKmoPQrTtuUwXxYyz", "0123456#:aBfgGIiJjkLlMNnOpqRsSvVZ"),
+    "wget": ("aBDeiIloOPQtTUwXARn", "46bcdEFHhkKLmNpqrSvVx"),
+}
+_HTTP_SHORT["curlie"] = _HTTP_SHORT["curl"]
+#: curl's long options that take no value (what follows one is a URL).
+_CURL_LONG_FLAGS: frozenset[str] = frozenset({
+    "--remote-name", "--remote-name-all", "--remote-header-name", "--silent", "--show-error",
+    "--location", "--location-trusted", "--fail", "--fail-with-body", "--insecure",
+    "--compressed", "--verbose", "--include", "--head", "--progress-bar",
+    "--no-progress-meter", "--globoff", "--create-dirs", "--http1.1", "--http2",
+    "--retry-all-errors", "--ssl-reqd", "--get", "--no-buffer", "--disable"})
+_HTTP_SHORT["wget2"] = _HTTP_SHORT["wget"]
+
+
+def _split_short_flags(program: str, rest: list[str],
+                       rest_dyn: list[bool]) -> tuple[list[str], list[bool]]:
+    """``rest`` with each word of combined short options (``-so``, ``-fsSLo``,
+    ``-qOfile``) split into one word per option, the value apart.  A word with a
+    letter the table does not know is kept as it is."""
+    valued, plain = _HTTP_SHORT.get(program, ("", ""))
+    if not valued:
+        return rest, rest_dyn
+    words: list[str] = []
+    dyns: list[bool] = []
+    for index, (word, dyn) in enumerate(zip(rest, rest_dyn, strict=False)):
+        if word == "--":
+            words.extend(rest[index:])
+            dyns.extend(rest_dyn[index:])
+            break
+        if not word.startswith("-") or word.startswith("--") or len(word) < 3:
+            words.append(word)
+            dyns.append(dyn)
+            continue
+        split: list[tuple[str, bool]] = []
+        for position, letter in enumerate(word[1:], start=1):
+            if letter in valued:
+                split.append(("-" + letter, False))
+                if word[position + 1:]:
+                    split.append((word[position + 1:], dyn))
+                break
+            if letter not in plain:
+                split = [(word, dyn)]
+                break
+            split.append(("-" + letter, False))
+        words.extend(w for w, _ in split)
+        dyns.extend(d for _, d in split)
+    return words, dyns
+
+
 #: Programs that send a name or a host out (DNS lookups, pings): a send.
 DNS_SENDERS: frozenset[str] = frozenset(
     {"dig", "nslookup", "host", "ping", "ping6", "traceroute", "traceroute6", "tracepath",
@@ -2772,7 +3108,7 @@ class _Judge:
             return cwd
         self.stdin_redirect = any(op in ("<", "<&", "<>") for op, _, _ in cmd.redirects)
         try:
-            return self.words(words, dynamic, cwd, depth, piped_in=cmd.piped_in,
+            return self.words(words, dynamic, cwd, depth, piped_in=cmd.piped_in or cmd.fed,
                               heredoc=cmd.heredoc, stdin_args=False)
         finally:
             self.stdin_redirect = False
@@ -4322,6 +4658,7 @@ class _Judge:
         # Any request, a GET too, sends its URL (path, query, headers) out: a send,
         # exactly as a web-fetch tool is.
         hits.guard(SECRET, "exec:http-request")
+        rest, rest_dyn = _split_short_flags(program, rest, rest_dyn)
         send = False
         index = 0
         while index < len(rest):
@@ -4420,6 +4757,32 @@ class _Judge:
                         index += 2
                         continue
             index += 1
+        if program in ("curl", "curlie") and any(
+                w in ("-O", "--remote-name", "--remote-name-all") for w in rest):
+            # ``curl -O URL`` writes the URL's last part into the current folder
+            # (or ``--output-dir``); ``-J`` lets the server choose the name.
+            server_named = any(w in ("-J", "--remote-header-name") for w in rest)
+            folder = next((rest[i + 1] for i, w in enumerate(rest[:-1])
+                           if w == "--output-dir"), "")
+            for word in rest:
+                if word.startswith("--output-dir="):
+                    folder = word.split("=", 1)[1]
+                    self.check_write_path(folder, cwd, "exec", False)
+            valued = _HTTP_SHORT["curl"][0]
+            for position, (word, dyn) in enumerate(zip(rest, rest_dyn, strict=False)):
+                prev = rest[position - 1] if position else ""
+                if word.startswith("-") or (prev.startswith("--") and "=" not in prev
+                                            and prev not in _CURL_LONG_FLAGS) or (
+                        len(prev) == 2 and prev[0] == "-" and prev[1] in valued):
+                    continue  # an option, or an option's value
+                if "://" not in word and "." not in word and "/" not in word:
+                    continue
+                address = word.split("://", 1)[1] if "://" in word else word
+                name = address.split("?", 1)[0].split("#", 1)[0]
+                name = name.rsplit("/", 1)[-1] if "/" in name else ""
+                path = f"{folder.rstrip('/')}/{name}" if folder and name else name
+                self.check_write_path(path or word, cwd, "exec",
+                                      dyn or server_named or not name)
         if send:
             hits.guard(SECRET, "exec:http-send")
 

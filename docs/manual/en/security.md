@@ -190,7 +190,7 @@ Common harmless things that ask, so you know why you see the card: a script the 
 
 - `"ask"`: asked in every mode.
 - `"auto"` (the default since 0.2.90): not asked in a session in auto mode; asked in plan and accept.
-- `"allow"`: not asked in any mode.
+- `"allow"`: not asked in any mode, a line snowpea cannot parse included. Only blocked commands, protected folders, snowpea's own files and the always-asked patterns below (a downloaded script run at once, for one) are asked. For a line it could not read, the raw text is checked at its worst: a blocked command anywhere in it is refused, and a path in it that, deleted with everything below, would reach a protected folder or snowpea's own files makes it ask.
 
 What it gives up: with `"auto"` (in auto mode) or `"allow"`, a script or command whose target is computed while it runs can write to a protected folder without a question. What snowpea can read is still judged: blocked commands and protected paths it sees are refused. These always ask, whatever the setting: anything that acts on snowpea's own files or command (or names snowpea next to something unreadable); a program only the shell knows given a protected path (`$X -rf ~`); a change to `HOME`, `PWD`, `PATH` or a similar variable; git told to run a program, a write where git or `PATH` finds programs; a script the same line writes and then runs.
 

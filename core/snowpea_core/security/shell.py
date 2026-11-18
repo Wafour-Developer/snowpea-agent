@@ -91,7 +91,10 @@ _VALUED_BY: dict[str, frozenset[str]] = {
 #: variable can be ``export HOME=…`` or ``cd``; ``eval`` and ``source`` run
 #: text in this very shell (m21, :attr:`ShellView.stateful_shells`).
 STATEFUL_REASONS: frozenset[str] = frozenset({"dynamic-program", "eval", "brace-program",
-                                              "source", "script-dynamic", "printf-v"})
+                                              "source", "script-dynamic", "printf-v",
+                                              "function"})
+#: Script operands that name the shell's stdin (or another pipe it was given).
+_STDIN_FILES: frozenset[str] = frozenset({"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"})
 #: Ids of the shells a walk sees (:attr:`Effect.shell`).
 _SHELL_IDS = itertools.count(1)
 #: Write programs that change a file's mode, owner or times, never what it holds.
@@ -99,6 +102,10 @@ _ATTRIBUTE_ONLY: frozenset[str] = frozenset({"chmod", "chown", "chgrp", "chattr"
                                              "touch"})
 #: Most nested bodies (``sh -c "bash -c '…'"``) followed before the line is opaque.
 MAX_DEPTH = 6
+#: Most lines (the line, each body, each script) one view walks; past it the
+#: rest is opaque (``nesting``): a nest of substitutions cannot make the walk
+#: run for ever.
+MAX_LINES = 512
 #: String literals of inline code searched for command lines.
 MAX_LITERALS = 64
 _LITERAL = re.compile(r"\"((?:[^\"\\\n]|\\.){2,400})\"|'((?:[^'\\\n]|\\.){2,400})'")
@@ -998,7 +1005,8 @@ class _Probe(_c._Judge):
         super().__init__(request)
         #: Candidate command lines walked so far by this probe and every script
         #: probe under it (m21): past :data:`MAX_WALKS` nothing more is substituted.
-        self._budget = budget if budget is not None else [0]
+        #: ``[1]``: lines walked so far (:data:`MAX_LINES`), shared the same way.
+        self._budget = budget if budget is not None else [0, 0]
         self.view = view
         self.literals = literals
         #: Reader precision (m21): the arguments of the script this probe reads,
@@ -1010,6 +1018,8 @@ class _Probe(_c._Judge):
         self._text: str | None = None
         self._scopes: list[_Scope] = []
         self._pending: list[tuple[str, bool]] | None = None
+        #: The next line is a ``>(…)`` body: its first command reads stdin.
+        self._fed = False
         self._resolving: list[int] = []
         #: The probe of the agent's own line (set by :func:`view`): only there is a
         #: run of snowpea's CLI vetted as read-only (m21) and ``PATH`` followed.
@@ -1159,6 +1169,8 @@ class _Probe(_c._Judge):
 
     def _effect(self, raw: str, cwd: Path | None, kind: str, *, destructive: bool = False,
                 recursive: bool = False, dynamic: bool = False, program: str = "") -> None:
+        if isinstance(raw, _c.ProcessWord):
+            return  # a pipe's name (``/dev/fd/63``); its body is read as commands
         dyn = dynamic or "$" in raw or "`" in raw
         origin = None
         if dyn:
@@ -1216,10 +1228,14 @@ class _Probe(_c._Judge):
     # -- the walk ------------------------------------------------------------
     def line(self, command: str, cwd: Path | None, depth: int) -> None:
         pending, self._pending = self._pending, None
-        if depth > MAX_DEPTH:
+        fed, self._fed = self._fed, False
+        # Kept before the depth check: a text too deep to walk is still judged
+        # by its words (check._lexical_worst, and the snowpea-name rule).
+        self.view.texts.append(command)
+        self._budget[1] += 1
+        if depth > MAX_DEPTH or self._budget[1] > MAX_LINES:
             self._opaque("nesting")
             return
-        self.view.texts.append(command)
         try:
             parsed = _c.parse_line(command)
         except _c._Opaque as exc:
@@ -1228,6 +1244,11 @@ class _Probe(_c._Judge):
         except Exception:  # noqa: BLE001 - a parser bug is a line nobody can see
             self._opaque("parse:error")
             return
+        if fed:
+            # A ``>(…)`` body, or a substitution in a piped command: every
+            # command of it may read that pipe (``>(true; bash)``).
+            for cmd in parsed.commands:
+                cmd.fed = True
         self._line += 1
         line_id = self._line
         scope: _Scope | None = None
@@ -1264,12 +1285,19 @@ class _Probe(_c._Judge):
 
     def _commands(self, parsed: Any, command: str, cwd: Path | None, depth: int,
                   line_id: int) -> None:
-        if parsed.substitution:
-            # ``"$(…)"`` and backticks inside double quotes are not split by the
-            # parser: read every substitution's body as a line of its own.
-            for body in substitution_bodies(command):
-                self.line(body, cwd, depth + 1)
+        # Every substitution's body, exactly as the parser met it (``"$(…)"``,
+        # backticks, ``<(…)``/``>(…)``, here-documents, ``${X:-$(…)}``), is a line
+        # of its own, read where the command it belongs to runs (its folder, its
+        # stdin).  A ``>(…)`` body reads what the outer command writes: stdin.
+        def bodies(position: int, here: Path | None, last: bool = False) -> None:
+            cmd = parsed.commands[position] if position < len(parsed.commands) else None
+            for opener, body, index in parsed.bodies:
+                if index == position or (last and index >= len(parsed.commands)):
+                    self._fed = opener == ">" or bool(cmd and (cmd.piped_in or cmd.fed))
+                    self.line(body, here, depth + 1)
+
         for position, cmd in enumerate(parsed.commands):
+            bodies(position, cwd)
             self.fed_by_lister = self.lister_ok and cmd.piped_in
             self.lister_ok = False
             saved = (self._line, self._index, self._cmd, self._feeder)
@@ -1280,6 +1308,7 @@ class _Probe(_c._Judge):
             finally:
                 self._line, self._index, self._cmd, self._feeder = saved
                 self._line = max(self._line, line_id)
+        bodies(len(parsed.commands), cwd, last=True)
 
     def simple(self, cmd: _c._Cmd, cwd: Path | None, depth: int) -> Path | None:
         words = list(cmd.words)
@@ -1710,7 +1739,11 @@ class _Probe(_c._Judge):
             return False
         if program in ("source", "."):
             if rest and self.literals:
-                if rest_dyn[0]:
+                if isinstance(rest[0], _c.ProcessWord) or rest[0] in _STDIN_FILES:
+                    # ``source <(curl …)``: code from a pipe, run in this shell.
+                    self._opaque("shell-stdin")
+                    self.view.stateful_shells.add(self._shell_id)
+                elif rest_dyn[0]:
                     self._opaque("script-dynamic")
                 else:
                     self._script(rest[0], cwd, depth, "shell", same_shell=True)
@@ -1799,7 +1832,10 @@ class _Probe(_c._Judge):
         script = rest[len(options)] if len(rest) > len(options) else None
         if script is not None and not any(w in ("-s", "--stdin") for w in options):
             # Runs a script file: read it (security review 5, H4).
-            if rest_dyn[len(options)]:
+            if isinstance(script, _c.ProcessWord) or script in _STDIN_FILES:
+                # ``bash <(curl …)`` / ``bash /dev/stdin``: code from a pipe.
+                self._opaque("shell-stdin")
+            elif rest_dyn[len(options)]:
                 self._opaque("script-dynamic")
             elif self.literals:
                 at = len(options) + 1
@@ -3088,59 +3124,6 @@ def temporary_dirs() -> set[Path]:
 
     return {Path(os.path.realpath(tempfile.gettempdir())), Path("/tmp"), Path("/var/tmp")}
 
-
-def substitution_bodies(text: str) -> list[str]:
-    """The bodies of ``$(…)``, ``<(…)``, ``>(…)`` and backtick substitutions in ``text``.
-
-    Single-quoted text is skipped (nothing in it is substituted); an
-    unbalanced substitution yields what follows it.
-    """
-    bodies: list[str] = []
-    index = 0
-    quoted = False
-    while index < len(text):
-        char = text[index]
-        if char == "\\" and not quoted:
-            index += 2
-            continue
-        if char == "'" and not quoted:
-            end = text.find("'", index + 1)
-            if end < 0:
-                break
-            index = end + 1
-            continue
-        if char == '"':
-            quoted = not quoted
-            index += 1
-            continue
-        opens = text[index + 1 : index + 2] == "(" and text[index + 2 : index + 3] != "("
-        if char in "$<>" and opens:
-            depth = 0
-            start = index + 2
-            j = start
-            while j < len(text):
-                if text[j] == "\\":
-                    j += 2
-                    continue
-                if text[j] == "(":
-                    depth += 1
-                elif text[j] == ")":
-                    if depth == 0:
-                        break
-                    depth -= 1
-                j += 1
-            bodies.append(text[start:j])
-            index = j + 1
-            continue
-        if char == "`":
-            end = index + 1
-            while end < len(text) and text[end] != "`":
-                end += 2 if text[end] == "\\" else 1
-            bodies.append(text[index + 1 : end].replace("\\`", "`"))
-            index = end + 1
-            continue
-        index += 1
-    return [body for body in bodies if body.strip()]
 
 
 def _option_value(

@@ -304,7 +304,11 @@ HOSTILE = [
     ("cat ~/.claude/.credentials.json", "bbb"),
     ("cat ~/.snowpea/.codex/auth.json", "bbb"),
     # P1: nothing the classifier could not judge is dropped unread.
-    ("git $SUB", "oao"),
+    # m24 (owner decision 2026-11-18): under unknownCode "allow" only known-dangerous
+    # patterns ask; an unread git alias is code nobody read, let through after the
+    # lexical worst-case check (third column "a").  A function override changes the
+    # shell's state and still asks (m24 security review, C2).
+    ("git $SUB", "oaa"),
     ("cd() { :; }; cd /tmp; rm -rf x", "ooo"),
     ("f() { rm -rf /; }; f", "bbb"),
     ("function g { rm -rf /; }", "bbb"),
@@ -559,7 +563,7 @@ def test_a_git_alias_is_read_from_the_configuration_and_walked(project: Path) ->
     assert sh.git_alias("status2", project, Path(USER)) == ""
     (project / ".git" / "config").write_text("[include]\n\tpath = other\n", encoding="utf-8")
     assert sh.git_alias("lg", project, Path(USER)) is None
-    assert _states("git lg", project) == "oao"
+    assert _states("git lg", project) == "oaa"  # m24: allow lets an unread alias run
 
 
 def test_a_deno_task_is_read_like_an_npm_script(project: Path) -> None:
