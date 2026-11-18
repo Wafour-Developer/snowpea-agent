@@ -603,6 +603,10 @@ class _Line:
     #: Recorded where the scanner reads them, so quoting can never make a second
     #: reading disagree with it.
     bodies: list[tuple[str, str, int]] = field(default_factory=list)
+    #: Why the end of a quoted substitution or a here-document's one may be
+    #: misread (:func:`unsure_body`): the line is opaque for each, though what
+    #: was read of it is still judged (security review 4).
+    unsure: list[str] = field(default_factory=list)
 
 
 class ProcessWord(str):
@@ -673,22 +677,60 @@ _LEADS: frozenset[str] = frozenset({"then", "do", "{", "!", "else", "elif", "if"
                                     "until", "time"})
 
 
-def heredoc_delimiter(word: str) -> str:
+#: ``case``/``esac`` anywhere in a text (security review 4: where a quoted
+#: substitution holds one, its ``)`` may be misread whatever the rules).
+_CASE_ANYWHERE = re.compile(r"(?<![\w-])(?:case|esac)(?![\w-])")
+
+
+def unsure_body(inner: str) -> str | None:
+    """Why the end :func:`closing_paren` found for a substitution inside double
+    quotes (or a here-document) cannot be trusted, or ``None``: a ``case``/``esac``
+    in it, a line continuation (``ca\\⏎se``), a here-document word with ``$'``/
+    ``$"`` (security review 4).  The quoted text after a misread ``)`` hides
+    commands, so such a line is opaque rather than modelled more closely."""
+    if _CASE_ANYWHERE.search(inner):
+        return "case-in-quoted-substitution"
+    if "\\\n" in inner:
+        return "continuation-in-quoted-substitution"
+    if any(heredoc_delimiter(found.group("word")) is None
+           for found in _HEREDOC_START.finditer(inner)):
+        return "heredoc-dollar-quote"
+    return None
+
+
+def heredoc_delimiter(word: str) -> str | None:
     """The delimiter a here-document's word spells: its quotes and backslashes
-    removed, as the shell removes them (``E"O"F`` and ``'E'OF`` are ``EOF``)."""
+    removed, as the shell removes them (``E"O"F`` and ``'E'OF`` are ``EOF``;
+    inside ``"…"`` only ``\\"``, ``\\\\``, ``\\``` and ``\\$`` lose the backslash,
+    so ``"E\\F"`` is ``E\\F``).  ``None`` for a word with ``$'`` or ``$"`` in it,
+    which the reader does not spell.  The scanner and :func:`closing_paren`
+    both use it, so they agree on where a body ends."""
+    if "$'" in word or '$"' in word:
+        return None
     out: list[str] = []
     index = 0
     while index < len(word):
         char = word[index]
         if char == "\\" and index + 1 < len(word):
-            out.append(word[index + 1])
+            if word[index + 1] != "\n":
+                out.append(word[index + 1])
             index += 2
-        elif char in "'\"":
-            end = word.find(char, index + 1)
+        elif char == "'":
+            end = word.find("'", index + 1)
             end = len(word) if end < 0 else end
-            out.append(word[index + 1 : end].replace("\\", "") if char == '"' else
-                       word[index + 1 : end])
+            out.append(word[index + 1 : end])
             index = end + 1
+        elif char == '"':
+            index += 1
+            while index < len(word) and word[index] != '"':
+                if word[index] == "\\" and index + 1 < len(word) and word[index + 1] in '"\\`$\n':
+                    if word[index + 1] != "\n":
+                        out.append(word[index + 1])
+                    index += 2
+                    continue
+                out.append(word[index])
+                index += 1
+            index += 1
         else:
             out.append(char)
             index += 1
@@ -786,9 +828,10 @@ def closing_paren(text: str, start: int) -> int:
         if text.startswith("<<", j) and not text.startswith("<<<", j):
             # A here-document: its delimiter, then its body after this line.
             found = _HEREDOC_START.match(text, j)
-            if found is None:
+            delimiter = None if found is None else heredoc_delimiter(found.group("word"))
+            if found is None or delimiter is None:
                 return -1
-            heredocs.append((heredoc_delimiter(found.group("word")), bool(found.group("strip"))))
+            heredocs.append((delimiter, bool(found.group("strip"))))
             j = found.end()
             continue
         if word_start:
@@ -817,8 +860,10 @@ def closing_paren(text: str, start: int) -> int:
 def brace_end(text: str, start: int, *, in_double: bool = False) -> int:
     """The index of the ``}`` closing the ``{`` at ``start`` (a ``${…}``): quotes,
     substitutions and nested braces skipped; -1 when none.  ``in_double``: the
-    expansion sits inside double quotes, where a ``'`` is a plain character and
-    a ``"`` opens a nested quote (``"${X:-"'"}"``)."""
+    expansion sits inside double quotes, where a ``"`` opens a nested quote
+    (``"${X:-"'"}"``) and a bare ``'`` is not read at all (-1): bash quotes with
+    it there for pattern operators (``"${X#'"'}"``), dash does not (security
+    review 4); nor is a ``$(…)`` whose end :func:`unsure_body` doubts."""
     depth = 0
     j = start
     n = len(text)
@@ -827,6 +872,8 @@ def brace_end(text: str, start: int, *, in_double: bool = False) -> int:
         if char == "\\":
             j += 2
             continue
+        if in_double and char == "'":
+            return -1
         if char == '"' or (not in_double and (char == "'" or text.startswith("$'", j))):
             # ``${X:-"}"}``: a quoted brace closes nothing.
             j = quote_end(text, j)
@@ -836,6 +883,8 @@ def brace_end(text: str, start: int, *, in_double: bool = False) -> int:
         if text.startswith("$(", j) or char == "`":
             inner = closing_paren(text, j + 2) if char == "$" else _backtick_end(text, j + 1)
             if inner < 0 or inner >= n:
+                return -1
+            if in_double and char == "$" and unsure_body(text[j + 2 : inner]):
                 return -1
             j = inner + 1
             continue
@@ -929,6 +978,8 @@ class _Scanner:
         #: Inside an unquoted backtick substitution.
         self.backtick = False
         self.pending_redirect: str | None = None
+        #: Where the word after the pending redirection starts in the text.
+        self.redirect_at = 0
         self.pending_heredocs: list[tuple[str, bool, bool, _Cmd]] = []
         #: The word being read had a quote or a backslash in it.
         self.quoted = False
@@ -964,7 +1015,13 @@ class _Scanner:
                 raise _Opaque("brace-redirect")
             target = expanded[0] if expanded else ""
             if operator in ("<<", "<<-"):
-                self.pending_heredocs.append((text, operator == "<<-", self.quoted, self.cmd))
+                # Spelled from the raw word by the one function closing_paren
+                # uses too (security review 4, F2).
+                delimiter = heredoc_delimiter(self.text[self.redirect_at : self.i].strip(" \t"))
+                if delimiter is None:
+                    raise _Opaque("heredoc-dollar-quote")
+                self.pending_heredocs.append((delimiter, operator == "<<-", self.quoted,
+                                              self.cmd))
                 self.cmd.heredoc = True
             elif operator == "<<<":
                 self.cmd.heredoc = True
@@ -1032,8 +1089,10 @@ class _Scanner:
                 # runs (``cd ~/.ssh; cat <<EOF; cd /tmp`` reads it in ~/.ssh).
                 owner_index = next((index for index, cmd in enumerate(self.line.commands)
                                     if cmd is owner), max(len(self.line.commands) - 1, 0))
-                self._record(embedded_bodies(owner.stdin_text, heredoc=True), begin, self.i,
-                             index=owner_index)
+                found = embedded_bodies(owner.stdin_text, heredoc=True)
+                self.line.unsure.extend(filter(None, (unsure_body(inner) for opener, inner
+                                                      in found if opener == "$")))
+                self._record(found, begin, self.i, index=owner_index)
         self.pending_heredocs = []
 
     def _record(self, found: list[tuple[str, str]], at: int, end: int,
@@ -1143,8 +1202,9 @@ class _Scanner:
                 self._add(char, False)
                 self.i += 1
         self._end_command(None)
-        if self.cases > 0:
-            raise _Opaque("case")  # a ``case`` with no ``esac``: its ``)`` misread
+        if self.cases != 0:
+            # A ``case`` with no ``esac`` (or one more ``esac``): a ``)`` misread.
+            raise _Opaque("case")
         return self.line
 
     def _double_quoted(self) -> None:
@@ -1169,8 +1229,16 @@ class _Scanner:
                 # ``"$(…)"``: its own quotes nest; the whole of it is one part
                 # of the word, and its body a line that runs.
                 end = closing_paren(text, self.i + 2)
+                # Security review 4: where the end found may be the wrong ``)``
+                # the text after it hides commands as quoted text — opaque (the
+                # body found is still read: what it shows still counts).
+                unsure = unsure_body(text[self.i + 2 : end if end >= 0 else len(text)])
+                if unsure and end < 0:
+                    raise _Opaque(unsure)
                 if end < 0:
                     raise _Opaque("unbalanced-paren")
+                if unsure:
+                    self.line.unsure.append(unsure)
                 self.line.substitution = True
                 self.dynamic = True
                 self._record([("$", text[self.i + 2 : end])], self.i, end)
@@ -1181,7 +1249,9 @@ class _Scanner:
                 # ``"${X:-"'"}"``: quotes inside nest; the whole of it is one part.
                 end = brace_end(text, self.i + 1, in_double=True)
                 if end < 0:
-                    raise _Opaque("unbalanced-brace")
+                    # Unclosed, a bare ``'`` inside, or a ``$(…)`` whose end is
+                    # unsure (security review 4).
+                    raise _Opaque("quoted-brace")
                 body = text[self.i : end + 1]
                 if any(mark in body for mark in ("$(", "`", "<(", ">(")):
                     self.line.substitution = True
@@ -1270,6 +1340,7 @@ class _Scanner:
             raise _Opaque("syntax")
         self.pending_redirect = operator
         self.i += len(operator)
+        self.redirect_at = self.i
         # ``>&2`` / ``2>&1``: a duplicated descriptor, not a file.
         match = re.match(r"\s*(\d+|-)(?=$|[\s;&|)])", self.text[self.i :])
         if operator.endswith("&") and match:
@@ -3182,6 +3253,8 @@ class _Judge:
         except _Opaque as exc:
             self.hits.guard_all(f"exec:opaque:{exc}")
             return
+        for why in parsed.unsure:
+            self.hits.guard_all(f"exec:opaque:{why}")
         if parsed.substitution:
             self.hits.guard_all("exec:opaque:substitution")
         if parsed.function:

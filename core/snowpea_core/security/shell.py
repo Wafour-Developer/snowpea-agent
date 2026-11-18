@@ -93,8 +93,9 @@ _VALUED_BY: dict[str, frozenset[str]] = {
 STATEFUL_REASONS: frozenset[str] = frozenset({"dynamic-program", "eval", "brace-program",
                                               "source", "script-dynamic", "printf-v",
                                               "function"})
-#: Script operands that name the shell's stdin (or another pipe it was given).
-_STDIN_FILES: frozenset[str] = frozenset({"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"})
+#: Script operands that name the shell's stdin or another descriptor it was
+#: given (``python3 /dev/fd/3 3< <(curl …)``, security review 4).
+_STDIN_FILE = re.compile(r"/dev/stdin|/dev/fd/\d+|/proc/self/fd/\d+")
 #: Ids of the shells a walk sees (:attr:`Effect.shell`).
 _SHELL_IDS = itertools.count(1)
 #: Write programs that change a file's mode, owner or times, never what it holds.
@@ -809,6 +810,8 @@ def _scope_for(text: str, *, positional: list[tuple[str, bool]] | None,
         parsed = _c.parse_line(text)
     except Exception:  # noqa: BLE001 - an unreadable text binds nothing
         return None
+    if parsed.unsure:
+        return None
     scope = _Scope(ordered=not re.search(r"(?:^|[\s;&|(])trap\s", text))
     if positional is not None and not _NO_POSITIONAL.search(text):
         scope.positional = [word if not dyn and _plain(word, whole=True) else None
@@ -1244,6 +1247,9 @@ class _Probe(_c._Judge):
         except Exception:  # noqa: BLE001 - a parser bug is a line nobody can see
             self._opaque("parse:error")
             return
+        for why in parsed.unsure:
+            # Read as found, but where it ends may be misread (security review 4).
+            self._opaque(f"parse:{why}")
         if fed:
             # A ``>(…)`` body, or a substitution in a piped command: every
             # command of it may read that pipe (``>(true; bash)``).
@@ -1739,7 +1745,7 @@ class _Probe(_c._Judge):
             return False
         if program in ("source", "."):
             if rest and self.literals:
-                if isinstance(rest[0], _c.ProcessWord) or rest[0] in _STDIN_FILES:
+                if isinstance(rest[0], _c.ProcessWord) or _STDIN_FILE.fullmatch(rest[0]):
                     # ``source <(curl …)``: code from a pipe, run in this shell.
                     self._opaque("shell-stdin")
                     self.view.stateful_shells.add(self._shell_id)
@@ -1832,7 +1838,7 @@ class _Probe(_c._Judge):
         script = rest[len(options)] if len(rest) > len(options) else None
         if script is not None and not any(w in ("-s", "--stdin") for w in options):
             # Runs a script file: read it (security review 5, H4).
-            if isinstance(script, _c.ProcessWord) or script in _STDIN_FILES:
+            if isinstance(script, _c.ProcessWord) or _STDIN_FILE.fullmatch(script):
                 # ``bash <(curl …)`` / ``bash /dev/stdin``: code from a pipe.
                 self._opaque("shell-stdin")
             elif rest_dyn[len(options)]:
@@ -1952,7 +1958,7 @@ class _Probe(_c._Judge):
             operands = list(zip(rest[index + 1:index + 2], rest_dyn[index + 1:index + 2],
                                 strict=False)) or operands
         if operands and operands[0][0] != "-":
-            if isinstance(operands[0][0], _c.ProcessWord) or operands[0][0] in _STDIN_FILES:
+            if isinstance(operands[0][0], _c.ProcessWord) or _STDIN_FILE.fullmatch(operands[0][0]):
                 # ``python3 <(curl …)`` / ``python3 /dev/stdin``: code from a pipe.
                 self._opaque("interpreter-stdin")
             elif operands[0][1]:
