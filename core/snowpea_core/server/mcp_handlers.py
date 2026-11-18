@@ -112,6 +112,9 @@ class Declared:
     plugin: str | None = None
     #: Another scope declares the same name and wins (1.33.0).
     shadowed: bool = False
+    #: A project entry its folder's ``mcp`` trust does not cover as it is on
+    #: disk (m27 fix, M-4): listed and editable, never started.
+    untrusted: bool = False
 
     @property
     def name(self) -> str:
@@ -163,13 +166,21 @@ def declarations(core: Core, workdir: Path | str | None) -> list[Declared]:
     home = core.paths.home
     for name, entry in mcp_config.read_servers(Path(home) / mcp_client.CONFIG_NAME).items():
         take(name, entry, "global")
-    # m27 fix, M-4: a project's servers come only from the bytes its ``mcp``
-    # trust verified, as ``mcp_client.discover`` reads them (and ``mcp.reload``
-    # starts them).
-    project = mcp_client.discover(home, workdir) if workdir is not None else {}
-    for config in project.values():
-        if config.source == "project":
-            found.append(Declared(config=config, scope="project", entry=config.to_entry()))
+    # m27 fix, M-4: a project's entries are read from the file on disk, so the
+    # person can see, fix and remove them; only those its ``mcp`` trust verified
+    # (the bytes ``mcp_client.discover`` starts from) may start.  Precedence is
+    # unchanged, so editing finds the same file it always did.
+    if workdir is not None:
+        base = Path(workdir).expanduser()
+        trusted = {name: config for name, config in mcp_client.discover(home, base).items()
+                   if config.source == "project"}
+        for name, entry in mcp_config.read_servers(base / mcp_client.CONFIG_NAME).items():
+            config = McpServerConfig.parse(str(name), entry, "project")
+            if config is None:
+                continue
+            config.project = str(base)
+            found.append(Declared(config=config, scope="project", entry=dict(entry),
+                                  untrusted=trusted.get(config.name) != config))
     return found
 
 
@@ -197,6 +208,12 @@ def auth_of(
     return McpAuthInfo(clientId=client_id)
 
 
+#: ``McpServerInfo.error`` of a project entry that is not started because its
+#: folder is not trusted for it as the file is now (m27 fix, M-4; state ``stopped``).
+UNTRUSTED_TEXT = ("this folder isn't trusted for its MCP servers (or .mcp.json changed since "
+                  "it was trusted); trust it to start this server")
+
+
 def info_of(core: Core, row: Declared) -> McpServerInfo:
     """One ``mcp.list`` row; env and header values never appear here (AC-51)."""
     server = MANAGER.get(row.name)
@@ -204,7 +221,10 @@ def info_of(core: Core, row: Declared) -> McpServerInfo:
     error: str | None = None
     tools: list[McpToolInfo] = []
     current = server if server is not None and server.config == row.config else None
-    if server is not None and server.config == row.config:
+    if row.untrusted:
+        current = None
+        error = UNTRUSTED_TEXT
+    elif server is not None and server.config == row.config:
         state = server.state
         error = server.error
         if state == "ready":
@@ -448,10 +468,11 @@ async def set_permission(core: Core, name: str, permission: str) -> None:
 
 
 async def apply(core: Core, row: Declared) -> McpServerInfo:
-    """Make the running daemon match ``row``: stop the old, register the new."""
+    """Make the running daemon match ``row``: stop the old, register the new
+    (never an untrusted project entry, m27 fix, M-4)."""
     await MANAGER.remove(row.name)
     mcp_client.drop_tools(core, row.name)
-    if not row.config.disabled:
+    if not row.config.disabled and not row.untrusted:
         await mcp_client.register_config(core, row.config)
     info = info_of(core, row)
     await notify_changed(
@@ -615,7 +636,10 @@ async def mcp_add_handler(
     if params.permission is not None:
         await set_permission(core, name, params.permission)
     await reconcile(core, name, workdir, before)
-    info = info_of(core, Declared(config=config, scope=params.scope, entry=entry))
+    saved_row = declared(core, workdir).get(name)
+    untrusted = bool(saved_row and saved_row.scope == "project" and saved_row.untrusted)
+    info = info_of(core, Declared(config=config, scope=params.scope, entry=entry,
+                                  untrusted=untrusted and params.scope == "project"))
     return McpAddResult(
         ok=True,
         path=str(path),

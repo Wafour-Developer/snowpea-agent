@@ -211,17 +211,57 @@ async def test_reload_starts_no_server_of_an_untrusted_or_changed_project(
     trust.set_default_home(core.paths.home)
     _mcp_json(project, {"p": {"command": "uvx", "args": ["mcp-server-fetch"]}})
     reload = McpReloadParams(workdir=str(project))
-    result = await mcp_handlers.mcp_reload_handler(None, reload, core)
-    assert "p" not in result.servers and started == []
-    listed = await mcp_handlers.mcp_list_handler(None, McpListParams(workdir=str(project)), core)
-    assert "p" not in {s.name for s in listed.servers}
+    await mcp_handlers.mcp_reload_handler(None, reload, core)
+    assert started == []
+    _listed_untrusted(await _rows(core, project), "p")
     trust.store_for(core.paths.home).set(project, ["mcp"], by="ide")
     await mcp_handlers.mcp_reload_handler(None, reload, core)
     assert started == ["p"]
-    await mcp_client.MANAGER.close_all()
-    started.clear()
-    # Changed since it was trusted: none of it starts.
+    assert (await _rows(core, project))["p"].state == "ready"
+    # Changed since it was trusted: none of it starts, and what ran stops.
     _mcp_json(project, {"p": {"command": "uvx", "args": ["mcp-server-fetch"]},
                         "q": {"command": "uvx", "args": ["mcp-server-time"]}})
-    result = await mcp_handlers.mcp_reload_handler(None, reload, core)
-    assert started == [] and not {"p", "q"} & set(result.servers)
+    await mcp_handlers.mcp_reload_handler(None, reload, core)
+    assert started == ["p"] and mcp_client.MANAGER.get("p") is None
+    rows = await _rows(core, project)
+    _listed_untrusted(rows, "p")
+    _listed_untrusted(rows, "q")
+
+
+async def _rows(core: Core, project: Path) -> dict[str, Any]:
+    listed = await mcp_handlers.mcp_list_handler(None, McpListParams(workdir=str(project)), core)
+    return {s.name: s for s in listed.servers}
+
+
+def _listed_untrusted(rows: dict[str, Any], name: str) -> None:
+    row = rows[name]
+    assert row.scope == "project" and row.state == "stopped"
+    assert row.error == mcp_handlers.UNTRUSTED_TEXT
+
+
+@pytest.mark.real_project_trust
+async def test_an_untrusted_project_entry_is_listed_edited_and_removed_never_started(
+        core: Core, project: Path, started: list[str]) -> None:
+    """The browser's Settings › MCP saves project servers, then says the folder
+    must be trusted: the person can still see, fix and delete what was saved."""
+    from snowpea_core.server.protocol import McpEntryFields, McpRemoveParams, McpUpdateParams
+    from snowpea_core.trust import projects as trust
+
+    trust.set_default_home(core.paths.home)
+    _mcp_json(project, {"p": {"command": "uvx", "args": ["mcp-server-fetch"]}})
+    _listed_untrusted(await _rows(core, project), "p")
+    await mcp_handlers.mcp_update_handler(None, McpUpdateParams(
+        name="p", scope="project", workdir=str(project),
+        patch=McpEntryFields(args=["mcp-server-time"])), core)
+    saved = json.loads((project / ".mcp.json").read_text(encoding="utf-8"))
+    assert saved["mcpServers"]["p"]["args"] == ["mcp-server-time"]
+    rows = await _rows(core, project)
+    _listed_untrusted(rows, "p")
+    assert rows["p"].args == ["mcp-server-time"]
+    assert started == [] and mcp_client.MANAGER.get("p") is None
+    await mcp_handlers.mcp_remove_handler(
+        None, McpRemoveParams(name="p", scope="project", workdir=str(project)), core)
+    saved = json.loads((project / ".mcp.json").read_text(encoding="utf-8"))
+    assert "p" not in saved["mcpServers"]
+    assert "p" not in await _rows(core, project)
+    assert started == []
