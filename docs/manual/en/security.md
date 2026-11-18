@@ -263,6 +263,8 @@ What you trust is what you were shown: if a file changes between the list and yo
 
 At startup the TUI asks "Do you trust this folder?" for a folder that is not trusted yet (see [the TUI](tui.md)): Yes trusts it as shown and starts at once, No exits.
 
+The snowpea browser 0.4.0 or later can trust a folder too, after you confirm in its own window (see [Trusting a folder from the browser](web.md#trusting-a-folder-from-the-browser)): only on this computer, only the folder of a conversation that browser opened or hosts, and only the default scopes (hooks, MCP servers, commands, agents, prompts, settings). Letting the folder set the default mode or start external CLIs stays in the snowpea app or the terminal; a remote sign-in, the connector, Jarvis and messengers still cannot trust a project. Each grant is recorded with the browser that made it, in the trust record and in `logs/security.jsonl`.
+
 If the record of trusted projects is lost or damaged — also when it and its marker both disappear while snowpea is not running — no project is trusted until you trust it again; snowpea says so with a session's first message and on the Security screen.
 
 ## Future work

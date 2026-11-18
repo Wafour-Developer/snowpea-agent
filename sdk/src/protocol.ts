@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.61.0";
+export const PROTOCOL_VERSION = "1.62.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -4672,7 +4672,11 @@ export interface PermissionAllowlistRemoveResult {
 
 /** `project.trust.revoke` params. Project trust (1.55.0): take scopes back (all when omitted). A local person only. */
 export interface ProjectTrustRevokeParams {
-  /** Scopes to take back; omitted: all of them. */
+  /** 1.62.0 (browserProjectTrust): as ProjectTrustSetParams.actor. */
+  actor?: "person" | null;
+  /** 1.62.0 (browserProjectTrust): as ProjectTrustSetParams.personConfirm — a browser revokes under the same rule as it trusts. */
+  personConfirm?: "window" | null;
+  /** Scopes to take back; omitted: all of them (from a browser, 1.62.0: hooks, mcp, commands, agents, prompts and settings — mode and externalCli stay a local person's). */
   scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[] | null;
   /** A folder of the project. */
   workdir: string;
@@ -4682,7 +4686,7 @@ export interface ProjectTrustRevokeParams {
 export interface ProjectTrustRevokeResult {
   /** When (UTC ISO). */
   at?: string | null;
-  /** Who trusted it (ide, tui, cli, migration). */
+  /** Who trusted it (ide, tui, cli, migration; 1.62.0: 'browser:<clientId>' for a browser's confirmed grant). */
   by?: string | null;
   /** Files of a trusted scope that are new or changed since the trust. */
   changed?: string[];
@@ -4757,8 +4761,12 @@ export interface ProjectTrustRevokeResult {
 
 /** `project.trust.set` params. Project trust (1.55.0): trust the project for scopes, pinning every control file as it is now. A local person only. */
 export interface ProjectTrustSetParams {
+  /** 1.62.0 (browserProjectTrust): a browser host sets 'person'; with personConfirm 'window' it is part of what lets a browser trust a folder (see personConfirm). Ignored for other kinds. */
+  actor?: "person" | null;
   /** Required (1.55.0, security review 6): project.trust.status's digests object, sent back exactly as it was returned — {path relative to the project: 'sha256:<hex>'} for every control file, every project file one of them runs and the project settings file. What is pinned is what the person was shown: when the project differs now (a digest differs, a file is on disk that is not in digests, a file in digests is gone) nothing is trusted and the call fails with trust_changed, details {changed: [path], added: [path], missing: [path]}. Read the status again, show it, and send the new digests. {} for a project that brings nothing. */
   digests: Record<string, string>;
+  /** 1.62.0 (browserProjectTrust): 'window' when the person confirmed in the browser's own native window. A browser connection may call project.trust.set only when all hold: actor 'person' and personConfirm 'window'; clientVersion 0.4.0 or later; a local connection (not a remote login, a loopback peer); workdir is the workdir of a live session the browser owns, hosts or opened; scopes only of hooks, mcp, commands, agents, prompts, settings (never mode or externalCli). Else jarvis_person_only with details.reason browser_unconfirmed, browser_legacy, browser_remote, browser_not_owner or browser_not_allowed. digests as for any caller (trust_changed when stale). While the folder's mode scope is trusted, a browser grant keeps .snowpea/settings.json's pin as it was; a grant of settings that would need it pinned anew is refused with browser_not_allowed, details.what '.snowpea/settings.json'. */
+  personConfirm?: "window" | null;
   /** Scopes to grant (added to what it has). Omitted: hooks, mcp, commands, agents, prompts, settings — not mode (defaultMode: auto from the project file) and not externalCli, which the person names explicitly. Every control file is pinned as digests says it is. */
   scopes?: ("hooks" | "mcp" | "commands" | "agents" | "prompts" | "settings" | "mode" | "externalCli")[] | null;
   /** A folder of the project (its real path is the key). */
@@ -4769,7 +4777,7 @@ export interface ProjectTrustSetParams {
 export interface ProjectTrustSetResult {
   /** When (UTC ISO). */
   at?: string | null;
-  /** Who trusted it (ide, tui, cli, migration). */
+  /** Who trusted it (ide, tui, cli, migration; 1.62.0: 'browser:<clientId>' for a browser's confirmed grant). */
   by?: string | null;
   /** Files of a trusted scope that are new or changed since the trust. */
   changed?: string[];
@@ -4852,7 +4860,7 @@ export interface ProjectTrustStatusParams {
 export interface ProjectTrustStatusResult {
   /** When (UTC ISO). */
   at?: string | null;
-  /** Who trusted it (ide, tui, cli, migration). */
+  /** Who trusted it (ide, tui, cli, migration; 1.62.0: 'browser:<clientId>' for a browser's confirmed grant). */
   by?: string | null;
   /** Files of a trusted scope that are new or changed since the trust. */
   changed?: string[];
@@ -10706,7 +10714,7 @@ export interface DiffEventPayload {
 export interface ErrorEventPayload {
   /** One of the protocol error codes. */
   code: string;
-  /** Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (the hook's command line), event (PreToolUse, PostToolUse or Stop), reason (one line), exitCode? (absent when it could not start or timed out), timedOut? (true when it timed out)}. context_window_too_small: {windowTokens, neededTokens}. */
+  /** Machine-readable facts for the code (1.55.0); absent when the code has none. hook_failed: {plugin, hook (the hook's command line), event (PreToolUse, PostToolUse or Stop), reason (one line), exitCode? (absent when it could not start or timed out), timedOut? (true when it timed out)}. context_window_too_small: {windowTokens, neededTokens}. project_untrusted (1.62.0, browserProjectTrust): {workdir, scopes (the inactive files' scopes), changed (paths new or changed since the trust), browserScopes (of scopes, those a browser may grant), canTrustHere (browserScopes is not empty: a local browser 0.4.0+ that owns the session may trust the folder itself with project.trust.set), browserText (the line for such a browser), legacyBrowserText (the line for a browser that cannot)}; message stays the TUI/IDE line. */
   details?: Record<string, unknown> | null;
   kind?: "error";
   /** Human-readable detail. */

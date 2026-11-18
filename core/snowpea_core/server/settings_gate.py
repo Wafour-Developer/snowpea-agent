@@ -953,7 +953,8 @@ REMOTE_GRANT_METHOD = "jarvis.delegation.set"
 #: What a browser connection may call beyond :data:`BROWSER_PERSON_METHODS`
 #: (marker), :data:`BROWSER_HOST_METHODS`, :data:`ANSWER_METHODS` and the
 #: :data:`BROWSER_NEVER_EXEMPT` calls: its own sessions and runtime.  Never
-#: extensions, updates, restarts, project trust or anything person-only.
+#: extensions, updates, restarts or anything person-only (project trust: only
+#: by :data:`BROWSER_TRUST_METHODS`, 1.62.0).
 BROWSER_OPEN_METHODS: frozenset[str] = frozenset({
     "system.hello", "system.info", "system.health", "system.shutdown", "system.checkUpdate",
     "session.create", "session.prompt", "session.steer", "session.interrupt", "session.close",
@@ -995,6 +996,7 @@ def browser_allowed(method: str) -> bool:
         or method in BROWSER_HOST_METHODS
         or method in ANSWER_METHODS
         or method in BROWSER_NEVER_EXEMPT
+        or method in BROWSER_TRUST_METHODS
     )
 
 
@@ -1271,6 +1273,65 @@ def browser_person_refusal(conn: Any, session: Any, request: Any, actor: str | N
     if not (asker or browser_owns(conn, session, owner=owner, lookup=lookup)):
         return BROWSER_NOT_OWNER
     return None
+
+
+#: What a browser connection may call for project trust (1.62.0,
+#: ``browserProjectTrust``): the dispatcher lets them through, the handler judges
+#: the call by :func:`browser_trust_refusal` (the status read: local and its own
+#: session's folder only).
+BROWSER_TRUST_METHODS: frozenset[str] = frozenset(
+    {"project.trust.status", "project.trust.set", "project.trust.revoke"})
+
+
+def browser_trust_scopes() -> tuple[str, ...]:
+    """The scopes a browser may grant or take back: the default ones, never
+    ``mode`` (how sessions run) or ``externalCli`` (starting external CLIs)."""
+    from snowpea_core.trust.projects import DEFAULT_SCOPES
+
+    return DEFAULT_SCOPES
+
+
+def browser_trust_refusal(conn: Any, core: Any, workdir: Any, actor: str | None,
+                          person_confirm: str | None, scopes: Any, *,
+                          read: bool = False) -> str | None:
+    """Why a browser's ``project.trust.set`` / ``.revoke`` is not its person's (a
+    ``details.reason`` of :func:`browser_person_refusal`), or ``None`` (1.62.0).
+
+    All must hold: only :func:`browser_trust_scopes` (``scopes`` ``None`` is the
+    caller's default, which for a browser is those); a local browser; version
+    0.4.0+; ``actor: "person"`` with ``personConfirm: "window"``; ``workdir`` is
+    the real workdir of a live session this browser owns, hosts or opened.
+    ``read`` (``project.trust.status``): only local and its own session's folder.
+    A :class:`~pathlib.Path` ``workdir`` is taken as already resolved (the
+    handler resolves it once and changes the store under that same root).
+    """
+    import os
+    from pathlib import Path
+
+    allowed = set(browser_trust_scopes())
+    if not read and scopes is not None and any(str(s) not in allowed for s in scopes):
+        return BROWSER_NOT_ALLOWED
+    if browser_remote(conn):
+        return BROWSER_REMOTE
+    if not read and not browser_confirms(conn):
+        return BROWSER_LEGACY
+    if not read and (actor != ACTOR_PERSON or person_confirm != PERSON_CONFIRM_WINDOW):
+        return BROWSER_UNCONFIRMED
+    try:
+        wanted = str(workdir) if isinstance(workdir, Path) else os.path.realpath(
+            os.path.expanduser(str(workdir)))
+    except (TypeError, ValueError):
+        return BROWSER_NOT_OWNER
+    sessions = getattr(core, "sessions", None)
+    live = list(sessions.all()) if sessions is not None and hasattr(sessions, "all") else []
+    lookup = getattr(sessions, "get", None)
+    for session in live:
+        where = getattr(session, "workdir", None)
+        if where is None or os.path.realpath(str(where)) != wanted:
+            continue
+        if browser_owns(conn, session, lookup=lookup):
+            return None
+    return BROWSER_NOT_OWNER
 
 
 def list_visible(conn: Any, session: Any, *, person_only: bool = False, host: Any = None,
