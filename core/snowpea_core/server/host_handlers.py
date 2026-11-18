@@ -408,6 +408,44 @@ def _decided_by(by: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _browser_attach_refusal(conn: RpcConnection, session: Session, core: Core) -> None:
+    """A browser attaches only to its own session, or takes over a browser
+    session whose browser has gone (m27, M1).
+
+    Attaching makes the caller the session's origin, which ``browser_owns``
+    counts for person approvals and project trust.  So a browser may attach to:
+    a session it created or hosts (its ``clientId``: a reload, a reconnect); or
+    a browser-made one (``originSurface: "browser"``, or created for a browser:
+    ``hostToolsFrom``, as Jarvis's browser sessions) whose creating or hosting
+    browser has no open connection and whose live origin is no other browser
+    (a browser restart under a new ``clientId``).  Never a TUI, IDE, CLI or
+    desktop session, nor another browser's live one: ``jarvis_person_only``
+    with ``details.reason`` ``browser_not_owner``.
+    """
+    from snowpea_core.server.person_gate import connection_kind
+    from snowpea_core.server.settings_gate import BROWSER_ALIAS, BROWSER_NOT_OWNER, refuse
+
+    if connection_kind(conn) != "browser":
+        return
+    mine = getattr(conn, "client_id", None)
+    host = getattr(session, "host_tools_from", None)
+    creator = getattr(session, "created_by_client", None)
+    what = "attach to a session another surface owns"
+    if getattr(session, "origin_surface", None) != "browser" and not host:
+        refuse(conn, what, reason=BROWSER_NOT_OWNER, extra={"sessionId": session.id})
+    if mine and mine in (creator, host, getattr(session, "origin_client_id", None)):
+        return
+    owners = {o for o in (creator, host) if o and o not in (mine, BROWSER_ALIAS)}
+    for other in core.hub.clients():
+        if other is conn or connection_kind(other) != "browser":
+            continue
+        if owners & {getattr(other, "client_id", None), getattr(other, "surface_id", None)}:
+            refuse(conn, what, reason=BROWSER_NOT_OWNER, extra={"sessionId": session.id})
+    origin = getattr(session, "origin_conn", None)
+    if origin is not None and origin is not conn and connection_kind(origin) == "browser":
+        refuse(conn, what, reason=BROWSER_NOT_OWNER, extra={"sessionId": session.id})
+
+
 async def session_attach_handler(
     conn: RpcConnection, params: SessionAttachParams, core: Core
 ) -> SessionAttachResult:
@@ -427,6 +465,7 @@ async def session_attach_handler(
     from snowpea_core.server.settings_gate import host_choice_refusal
 
     host_choice_refusal(conn, target)  # security review 6, L-2
+    _browser_attach_refusal(conn, session, core)
     # Only the live origin *connection* moves. ``origin_surface`` is what
     # opened the session ("browser", "tui", ...) and is never rewritten here,
     # in memory or in the store: a browser root must stay a browser root.

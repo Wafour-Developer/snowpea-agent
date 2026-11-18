@@ -365,6 +365,7 @@ async def session_create_handler(
     if params.hostToolsFrom and core.store is not None:
         await core.store.update_host_tools_from(session.id, params.hostToolsFrom)
     session.origin_client_id = getattr(conn, "client_id", None)
+    session.created_by_client = session.origin_client_id
     if session.origin_client_id and core.store is not None:
         # Kept with the session (security review 7, Low 6): whose it is, for
         # a browser's "own session" rule, also after a restart.

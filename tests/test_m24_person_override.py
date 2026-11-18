@@ -359,6 +359,24 @@ async def test_a_browser_through_the_remote_listener_is_refused(tmp_path: Path) 
     assert not (await task).allowed
 
 
+async def test_a_browser_that_only_attached_to_an_ide_session_cannot_allow(
+        tmp_path: Path) -> None:
+    """m27, M1: being an IDE session's origin (an attach, a resume) is not owning it."""
+    queue, _hub = _queue(tmp_path)
+    browser = Conn("browser", "b-1")
+    session = _session(tmp_path, origin_surface="ide", origin_conn=browser,
+                       origin_client_id="b-1")
+    task = asyncio.ensure_future(queue.request(session, "shell", BLOCKED_LINE, unattended=True,
+                                               timeout_sec=30, tags=("exec",)))
+    pending = await _pending(queue)
+    with pytest.raises(RpcError) as caught:
+        await queue.respond(pending.requestId, "allow", by="b", conn=browser,
+                            actor="person", person_confirm="window")
+    assert caught.value.code in (errors.JARVIS_PERSON_ONLY, errors.NOT_FOUND)
+    await queue.respond(pending.requestId, "deny", by="ide", conn=Conn("ide", "ide-1"))
+    assert not (await task).allowed
+
+
 async def test_a_browser_answers_only_its_own_sessions(tmp_path: Path) -> None:
     parent = _session(tmp_path, id="s-top", host_tools_from="b-1")
     child = _session(tmp_path, id="s-sub", kind="subagent", parent_session_id="s-top")

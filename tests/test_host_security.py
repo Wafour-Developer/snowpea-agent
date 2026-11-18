@@ -84,6 +84,12 @@ async def test_attach_never_replaces_a_browser_origin_surface(
         session = daemon.core.sessions.get(session_id)
         assert session.origin_surface == "browser"
         await other.ok("tool.register", {"tools": [spec("repl")]})
+        # m27, M1: not while browser-A is connected; once it has gone, B takes over.
+        refused = await other.call(
+            "session.attach", {"sessionId": session_id, "hostToolsFrom": "browser-B"})
+        assert refused["error"]["data"]["details"]["reason"] == "browser_not_owner"
+        await owner.stop()
+        await asyncio.sleep(0.1)
         await other.ok("session.attach", {"sessionId": session_id, "hostToolsFrom": "browser-B"})
         assert session.origin_surface == "browser"
         await tui.ok("session.attach", {"sessionId": session_id})
@@ -450,3 +456,82 @@ async def test_system_info_lists_the_connected_clients(
     finally:
         await ide.stop()
         await browser.stop()
+
+
+# ---------------------------------------------------------------------------
+# m27, M1: session.attach does not hand a browser another surface's session
+# ---------------------------------------------------------------------------
+
+
+def _not_owner(frame: dict) -> None:
+    error = frame["error"]
+    assert error["data"]["code"] == "jarvis_person_only"
+    assert error["data"]["details"]["reason"] == "browser_not_owner"
+
+
+async def test_a_browser_cannot_attach_to_an_ide_session(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
+) -> None:
+    from snowpea_core.server.settings_gate import browser_owns
+
+    ide = await open_surface(http, daemon, kind="ide")
+    browser = await open_client(http, daemon, client_id="browser-A")
+    try:
+        session_id = await new_session(ide, tmp_path / "w")
+        session = daemon.core.sessions.get(session_id)
+        origin = session.origin_conn
+        _not_owner(await browser.call("session.attach", {"sessionId": session_id}))
+        assert session.origin_conn is origin and session.origin_client_id != "browser-A"
+        # Even after the IDE has gone: a TUI/IDE session is never a browser's.
+        await ide.stop()
+        await asyncio.sleep(0.1)
+        _not_owner(await browser.call("session.attach", {"sessionId": session_id}))
+        # A resume may make it the live origin (to deliver events), not its owner.
+        await browser.ok("session.resume", {"sessionId": session_id})
+        conn = session.origin_conn
+        assert getattr(conn, "client_id", None) == "browser-A"
+        assert not browser_owns(conn, session)
+    finally:
+        await browser.stop()
+
+
+async def test_a_browser_cannot_attach_to_another_live_browsers_session(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
+) -> None:
+    owner = await open_client(http, daemon, client_id="browser-A")
+    other = await open_client(http, daemon, client_id="browser-B")
+    try:
+        session_id = await new_session(owner, tmp_path / "w")
+        session = daemon.core.sessions.get(session_id)
+        _not_owner(await other.call("session.attach", {"sessionId": session_id}))
+        assert session.origin_client_id == "browser-A"
+        assert session.created_by_client == "browser-A"
+    finally:
+        await other.stop()
+        await owner.stop()
+
+
+async def test_a_browser_reconnecting_under_its_clientid_attaches_again(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
+) -> None:
+    """A reload: the same clientId on a new connection, also while another
+    browser is connected, and also after an IDE attached in between."""
+    first = await open_client(http, daemon, client_id="browser-A")
+    bystander = await open_client(http, daemon, client_id="browser-B")
+    ide = await open_surface(http, daemon, kind="ide")
+    try:
+        session_id = await new_session(first, tmp_path / "w")
+        await ide.ok("session.attach", {"sessionId": session_id})
+        await first.stop()
+        await asyncio.sleep(0.1)
+        again = await open_client(http, daemon, client_id="browser-A")
+        try:
+            attached = await again.ok("session.attach", {"sessionId": session_id})
+            assert attached["sessionId"] == session_id
+            session = daemon.core.sessions.get(session_id)
+            assert session.origin_conn.client_id == "browser-A"
+        finally:
+            await again.stop()
+    finally:
+        await ide.stop()
+        await bystander.stop()

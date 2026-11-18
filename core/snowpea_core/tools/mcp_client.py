@@ -265,6 +265,10 @@ class McpServerConfig:
     #: The entry's ``savedBy`` (:data:`SAVED_BY_KEY`): who saved it when that
     #: was not a local person (``"remote_login"``); ``None`` for the user's own.
     saved_by: str | None = None
+    #: The project folder whose ``.mcp.json`` this entry came from (``source``
+    #: ``project``): its stdio command is judged by the security lists first.
+    #: Not part of the entry: two configs of the same entry compare equal.
+    project: str | None = field(default=None, compare=False)
 
     @property
     def transport(self) -> str:
@@ -381,7 +385,11 @@ def discover(home: Path | str | None, workdir: Path | str | None) -> dict[str, M
             data = _project_servers_trusted(home, base)
             if data is None:
                 continue
-        found.update(_read_config(Path(base).expanduser() / CONFIG_NAME, source, data))
+        read = _read_config(Path(base).expanduser() / CONFIG_NAME, source, data)
+        if source == "project":
+            for config in read.values():
+                config.project = str(Path(base).expanduser())
+        found.update(read)
     return found
 
 
@@ -400,6 +408,44 @@ def _project_servers_trusted(home: Path | str | None, workdir: Path | str) -> by
     log.info("project MCP servers of %s not started: the project is not trusted for them "
              "(or .mcp.json, or a file it runs, changed since)", workdir)
     return None
+
+
+def project_command_refusal(config: McpServerConfig, home: Path | str | None) -> str | None:
+    """Why a project's stdio server is not started, or ``None`` (m27, M3).
+
+    A trusted project's ``.mcp.json`` command is judged by the security lists
+    like a hook's command line (``skills/hooks.security_refusal``): a blocked
+    one never starts.  A server start has no turn to ask in, so the block is
+    final here; the person can add the server globally, or change the lists.
+    A global or settings server is the person's own entry and is not judged.
+    """
+    if config.source != "project" or config.transport != "stdio":
+        return None
+    import shlex
+    from types import SimpleNamespace
+
+    try:
+        from snowpea_core.security import enforce
+
+        resolved = resolve_config(config, home, MANAGER.allow_vars())
+        line = shlex.join([resolved.command or "", *resolved.args])
+        verdict = enforce.judge_for_core(
+            MANAGER.core, SimpleNamespace(workdir=config.project or config.cwd), "shell",
+            {"command": line}, ("exec",))
+    except McpError as exc:  # a ${VAR} it may not expand: it would not start either
+        return str(exc)
+    except Exception:  # noqa: BLE001 - a check that cannot run refuses
+        log.warning("could not check MCP server %s against the security lists", config.name,
+                    exc_info=True)
+        return (f"{config.name}: not started — the security lists could not check the "
+                "project's server command")
+    if not verdict.blocked:
+        return None
+    log.warning("project MCP server %s blocked by the security lists: %s", config.name,
+                verdict.by)
+    return (f"{config.name}: not started — the project's server command is blocked by the "
+            f"security list: {verdict.by} — {verdict.why}. Add it as a global server if you "
+            "trust it, or change the security lists")
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +513,10 @@ class McpServer:
                 return
             if self.config.disabled:
                 raise McpError(f"{self.config.name}: the server is disabled")
+            refusal = project_command_refusal(self.config, self.home_dir)
+            if refusal is not None:
+                self._set_state("error", refusal)
+                raise McpError(refusal)
             self._stop = asyncio.Event()
             self._ready = asyncio.get_running_loop().create_future()
             # Nobody awaits the future once `start` has given up on it, so its

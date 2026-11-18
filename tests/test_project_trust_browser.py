@@ -146,6 +146,8 @@ async def test_a_browser_trust_that_does_not_count(
 @pytest.mark.parametrize("owner", [
     {"host_tools_from": "b-2"},          # another browser's session
     {"origin_client_id": "ide-1"},       # the IDE's session
+    # m27, M1: an IDE session this browser attached to (or claims the id of).
+    {"origin_client_id": "b-1", "origin_surface": "ide"},
 ])
 async def test_another_surfaces_session_is_not_the_browsers(
         core: Core, project: Path, owner: dict[str, Any]) -> None:
@@ -158,6 +160,21 @@ async def test_another_surfaces_session_is_not_the_browsers(
     with pytest.raises(RpcError) as caught:
         await _set(core, browser, project, digests, **CONFIRMED)
     assert _reason(caught) == "browser_not_owner"
+
+
+async def test_being_the_origin_of_an_ide_session_is_not_owning_it(
+        core: Core, project: Path) -> None:
+    """m27, M1: a browser that resumed or attached to an IDE session is its origin
+    connection, but the session is still not the browser's for trust."""
+    browser = _conn()
+    _live(core, _session("s", project, origin_surface="ide", origin_conn=browser,
+                         origin_client_id="b-1"))
+    with pytest.raises(RpcError) as caught:
+        await _digests(core, browser, project)
+    assert _reason(caught) == "browser_not_owner"
+    # The same origin on a browser-made session is its own.
+    _live(core, _session("s", project, origin_surface="browser", origin_conn=browser))
+    assert await _digests(core, browser, project)
 
 
 async def test_a_folder_with_no_session_of_the_browser_is_not_its(
@@ -185,7 +202,7 @@ async def test_stale_digests_are_trust_changed(core: Core, project: Path) -> Non
 
 async def test_revoke_follows_the_same_rule(core: Core, project: Path) -> None:
     browser = _conn()
-    _live(core, _session("s", project, origin_client_id="b-1"))
+    _live(core, _session("s", project, origin_client_id="b-1", origin_surface="browser"))
     store = trust.store_for(core.paths.home)
     store.set(project, [*trust.DEFAULT_SCOPES, "mode", "externalCli"], by="ide",
               digests=store.status(project)["digests"])
