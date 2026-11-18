@@ -22,6 +22,7 @@ from snowpea_core.exec.backend import (
 from snowpea_core.exec.backend import (
     truncate_output as _truncate,
 )
+from snowpea_core.util.frozen_env import frozen_child_env
 
 #: Bytes asked of a pipe at a time.
 READ_SIZE = 8192
@@ -91,9 +92,10 @@ _DAEMON_SECRET_WORDS: tuple[str, ...] = ("TOKEN", "PASSWORD", "SECRET", "CAPABIL
 
 def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """The environment a tool's child process gets: the daemon's, without
-    snowpea's own login variables, plus ``extra`` (the call's own)."""
+    snowpea's own login variables or a frozen core's PyInstaller state
+    (:func:`frozen_child_env`), plus ``extra`` (the call's own)."""
     merged = {
-        name: value for name, value in os.environ.items()
+        name: value for name, value in frozen_child_env().items()
         if not (name.upper().startswith("SNOWPEA_")
                 and any(word in name.upper() for word in _DAEMON_SECRET_WORDS))
     }

@@ -1,19 +1,23 @@
-"""``python -m snowpea_core`` — run the core daemon."""
+"""``python -m snowpea_core`` — run the core daemon.
+
+Kept light at import: the frozen entry imports this module for every
+``--run-hook`` child too, so the daemon (``server.app_server``) and the
+protocol are imported only on the paths that need them.
+"""
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
 import sys
 from collections.abc import Sequence
 
 from snowpea_core import __version__
-from snowpea_core.server.app_server import run_daemon
-from snowpea_core.server.protocol import PROTOCOL_VERSION
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from snowpea_core.server.protocol import PROTOCOL_VERSION
+
     parser = argparse.ArgumentParser(
         prog="snowpea-core", description="Run the snowpea core daemon."
     )
@@ -90,6 +94,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     raw = list(argv) if argv is not None else sys.argv[1:]
     extend_macos_path()
     if raw[:1] == ["--run-hook"]:
+        # Before anything imports the daemon: a hook child stays small.
         return run_hook_file(raw[1:])
     if raw[:2] == ["remote", "up"]:
         # ``snowpea-core remote up …``: the bundled core has no ``snowpea`` console script,
@@ -103,7 +108,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # tools/config_guard, and any command the agent shells out to — reads
         # $SNOWPEA_HOME, so ``--home`` has to reach the environment too.
         os.environ["SNOWPEA_HOME"] = str(args.home)
-    from snowpea_core.server.app_server import HOME_LOCKED_EXIT, HomeLocked
+    import asyncio
+
+    from snowpea_core.server.app_server import HOME_LOCKED_EXIT, HomeLocked, run_daemon
 
     try:
         asyncio.run(run_daemon(port=args.port, home=args.home, token=args.token, host=args.host))
