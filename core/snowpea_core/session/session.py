@@ -347,6 +347,9 @@ class Session:
     #: ``system.hello`` clientId of the connection that created the session, so
     #: a restarted client re-binds as its origin (1.6.0).
     origin_client_id: str | None = None
+    #: The clientId of the connection that created the session (m27, M1);
+    #: ``session.attach`` never changes it.  Stored as ``origin_client_id``.
+    created_by_client: str | None = None
     #: Tokens the current prompt occupies, provider-reported when
     #: :attr:`context_estimated` is False (CORE-context).
     context_used: int = 0

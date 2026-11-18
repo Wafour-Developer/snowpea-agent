@@ -394,6 +394,7 @@ class SessionManager:
         session.forked_from = row.get("forked_from")
         session.forked_at_turn_id = row.get("forked_at_turn_id")
         session.origin_client_id = row.get("origin_client_id")
+        session.created_by_client = session.origin_client_id
         from snowpea_core.agent.goals import Goal
 
         # Shown, not armed: a resumed goal waits for a person (M16 P1.6).

@@ -478,9 +478,13 @@ async def test_session_attach_makes_the_caller_the_origin(
     try:
         session_id = await new_session(owner, tmp_path / "w")
         await browser.ok("tool.register", {"tools": [spec("host_echo")]})
+        # m27, M1: another browser's session, once that browser has gone.
+        await owner.stop()
+        await asyncio.sleep(0.1)
         attached = await browser.ok("session.attach", {"sessionId": session_id})
         assert attached["sessionId"] == session_id
         assert attached["hostTools"] == ["host_echo"]
+        assert daemon.core.sessions.get(session_id).origin_conn is not None
     finally:
         await browser.stop()
         await owner.stop()

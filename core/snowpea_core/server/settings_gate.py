@@ -1239,10 +1239,16 @@ def browser_owns(conn: Any, session: Any, *, owner: Any = None, lookup: Any = No
         return False
     current, seen = session, 0
     while current is not None and seen < 16:
-        ids = {getattr(current, name, None) for name in
-               ("host_tools_from", "owned_by", "origin_client_id")}
+        # Being its origin counts only on a browser-made session (m27, M1): a
+        # TUI, IDE, CLI or desktop session a browser resumed or attached to is
+        # never the browser's own.
+        browser_made = getattr(current, "origin_surface", None) == "browser" or bool(
+            getattr(current, "host_tools_from", None))
+        origin = ("origin_client_id",) if browser_made else ()
+        ids = {getattr(current, name, None) for name in ("host_tools_from", "owned_by", *origin)}
+        conns = ("origin_conn", "asker_conn") if browser_made else ("asker_conn",)
         if (client_id and client_id in ids) or any(
-                conn is getattr(current, name, None) for name in ("origin_conn", "asker_conn")):
+                conn is getattr(current, name, None) for name in conns):
             return True
         parent = getattr(current, "parent_session_id", None)
         current = lookup(parent) if parent and callable(lookup) else None
