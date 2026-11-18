@@ -28,6 +28,12 @@ The last-session block appears when the daemon still has a session open for this
 
 The banner is printed once. It scrolls away like any other output and never comes back.
 
+## Trusting the folder at startup
+
+The first time you open snowpea in a folder it has not seen, it asks before anything else, full screen: **Do you trust this folder?** It shows the path and one line: snowpea may run tools and read and write files there, and the folder's settings, hooks and skills become active. Choose `1. Yes, trust this folder` or `2. No, exit` with the arrows or `1`/`2`, confirm with Enter; Esc means No.
+
+Yes trusts the folder (the default scopes, exactly the files you were shown) and the session starts at once, with no `/trust` message. No leaves snowpea without trusting anything. A trusted folder is never asked about again. If this client may not grant trust (a remote or connector login), the reason is shown and Enter goes on without trust: the folder's own hooks, MCP servers and commands stay off, and the old "(/trust)" notice appears with the first turn. `/trust` is still there to review or take trust back later.
+
 ## Saved sessions
 
 The offer on the launch screen is only the newest one. Everything this machine has ever run is still on disk, and `/sessions` opens the picker over it:

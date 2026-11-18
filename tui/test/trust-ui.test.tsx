@@ -64,6 +64,8 @@ interface Opts {
   /** Make `project.trust.set` fail. */
   setFail?: (params: any) => { code: string; message: string; details?: Record<string, unknown> } | null;
   revokeFail?: { code: string; message: string; details?: Record<string, unknown> };
+  /** Let the startup question be asked (the first status read answers as it is); otherwise that read answers trusted. */
+  prompt?: boolean;
 }
 
 function fakeClient(opts: Opts = {}) {
@@ -71,6 +73,7 @@ function fakeClient(opts: Opts = {}) {
   let listeners: any = {};
   const calls: Array<{ method: string; params: any }> = [];
   let current = (opts.status ?? status)();
+  let startup = !opts.prompt;
   const client: any = {
     calls,
     getStatus: () => "connected",
@@ -88,6 +91,11 @@ function fakeClient(opts: Opts = {}) {
     respondApproval: async () => undefined,
     respondQuestion: async () => undefined,
     call: async (method: string, params: any = {}) => {
+      if (startup && method === "project.trust.status") {
+        // The startup read of a folder that is not asked about: answered trusted, not counted.
+        startup = false;
+        return { ...current, trusted: true };
+      }
       calls.push({ method, params });
       const fail = (f: { code: string; message: string; details?: Record<string, unknown> }) =>
         Object.assign(new Error(f.message), { data: { code: f.code, details: f.details } });
@@ -146,7 +154,7 @@ async function mount(client: any, columns = 60, rows = 40) {
     instance.unmount();
     stdin.end();
   };
-  return { stdin, stdout, view, done, rows };
+  return { stdin, stdout, view, done, rows, instance };
 }
 
 async function submit(app: { stdin: any }, text: string) {
@@ -436,6 +444,92 @@ describe("closing", () => {
     expect(app.view()).toContain("Project trust");
     await press(app, ESC, 150);
     expect(app.view()).not.toContain("Project trust");
+    app.done();
+  });
+});
+
+describe("the startup question for an untrusted folder", () => {
+  it("is asked first, with the folder, what trusting means and the two options", async () => {
+    const client = fakeClient({ prompt: true });
+    const app = await mount(client);
+    const view = app.view();
+    expect(view).toContain("Do you trust this folder?");
+    expect(view).toContain("/work/p");
+    expect(view).toContain("run tools and read and write files here");
+    expect(view).toContain("1. Yes, trust this folder");
+    expect(view).toContain("2. No, exit");
+    expect(sets(client)).toHaveLength(0);
+    app.done();
+  });
+
+  it("Yes (Enter on the first option) trusts with the shown digests and starts, with no /trust message", async () => {
+    const client = fakeClient({ prompt: true });
+    const app = await mount(client);
+    await press(app, "\r", 250);
+    expect(sets(client)).toHaveLength(1);
+    expect(sets(client)[0].params.workdir).toBe("/work/p");
+    expect(sets(client)[0].params.digests["scripts/guard.js"]).toBe("sha256:ddd");
+    const view = app.view();
+    expect(view).not.toContain("Do you trust this folder?");
+    expect(view).not.toContain("/trust");
+    app.done();
+  });
+
+  it("1 then Enter is Yes too", async () => {
+    const client = fakeClient({ prompt: true });
+    const app = await mount(client);
+    await press(app, DOWN);
+    await press(app, "1");
+    await press(app, "\r", 250);
+    expect(sets(client)).toHaveLength(1);
+    app.done();
+  });
+
+  it("No (2, Enter) exits without trusting", async () => {
+    const client = fakeClient({ prompt: true });
+    const app = await mount(client);
+    await press(app, "2");
+    const exited = app.instance.waitUntilExit();
+    await press(app, "\r", 100);
+    await exited;
+    expect(sets(client)).toHaveLength(0);
+    app.done();
+  });
+
+  it("Esc is No", async () => {
+    const client = fakeClient({ prompt: true });
+    const app = await mount(client);
+    const exited = app.instance.waitUntilExit();
+    await press(app, ESC, 100);
+    await exited;
+    expect(sets(client)).toHaveLength(0);
+    app.done();
+  });
+
+  it("an already trusted folder gets no question", async () => {
+    const client = fakeClient({ prompt: true, status: () => status({ trusted: true, scopes: ["hooks"] }) });
+    const app = await mount(client);
+    expect(app.view()).not.toContain("Do you trust this folder?");
+    expect(sets(client)).toHaveLength(0);
+    app.done();
+  });
+
+  it("an older daemon is not asked", async () => {
+    const client = fakeClient({ prompt: true, caps: [] });
+    const app = await mount(client);
+    expect(app.view()).not.toContain("Do you trust this folder?");
+    expect(methods(client)).not.toContain("project.trust.status");
+    app.done();
+  });
+
+  it("when core refuses trust from this client the reason is shown and Enter goes on without it", async () => {
+    const client = fakeClient({ prompt: true, setFail: () => ({ code: "jarvis_person_only", message: "only a person on this machine can trust a folder" }) });
+    const app = await mount(client);
+    await press(app, "\r", 250);
+    expect(app.view()).toContain("Do you trust this folder?");
+    expect(app.view()).toContain("Enter to continue without trusting it");
+    await press(app, "\r", 150);
+    expect(app.view()).not.toContain("Do you trust this folder?");
     app.done();
   });
 });

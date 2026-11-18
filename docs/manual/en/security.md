@@ -261,6 +261,8 @@ In a project inside another project (a package folder with its own `.snowpea`), 
 
 What you trust is what you were shown: if a file changes between the list and your click, nothing is trusted and snowpea shows the list again. `snowpea project trust` prints the list, asks, and trusts exactly that (`--yes` skips the question).
 
+At startup the TUI asks "Do you trust this folder?" for a folder that is not trusted yet (see [the TUI](tui.md)): Yes trusts it as shown and starts at once, No exits.
+
 If the record of trusted projects is lost or damaged — also when it and its marker both disappear while snowpea is not running — no project is trusted until you trust it again; snowpea says so with a session's first message and on the Security screen.
 
 ## Future work

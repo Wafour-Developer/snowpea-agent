@@ -47,6 +47,7 @@ function fakeClient(opts: Opts = {}) {
     accessUrl: "http://192.168.1.5:8787/web/?t=SECRETTOKEN",
     ...(maxMode === null ? {} : { maxMode }),
   });
+  let startupRead = true;
   const client: any = {
     calls,
     getStatus: () => "connected",
@@ -64,6 +65,11 @@ function fakeClient(opts: Opts = {}) {
     respondApproval: async () => undefined,
     respondQuestion: async () => undefined,
     call: async (method: string, params: any = {}) => {
+      if (startupRead && method === "project.trust.status") {
+        // The startup read (is the folder asked about?): answered trusted, not counted.
+        startupRead = false;
+        return { workdir: "/work/p", trusted: true, scopes: [], files: [], digests: {} };
+      }
       calls.push({ method, params });
       switch (method) {
         case "web.remote.status":
