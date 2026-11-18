@@ -1395,6 +1395,11 @@ class SessionDeleteResult(Payload):
     deleted: int = 0
 
 
+class SessionDeleteOutcome(Payload):
+    ok: bool = Field(default=True, description="True when the call succeeded.")
+    deleted: int = Field(default=0, description="Saved sessions removed (0 for an unknown id).")
+
+
 class SessionIdParams(Payload):
     sessionId: str = Field(description="Target session.")
 
@@ -10914,6 +10919,13 @@ METHODS: dict[str, RpcMethod] = {
         ),
         _m("session.close", SessionIdParams, Ok, "Close a session and release its resources."),
         _m(
+            "session.delete",
+            SessionIdParams,
+            SessionDeleteOutcome,
+            "Close a session if it is live, then delete its saved entry "
+            "(session.close + session.deleteSaved).",
+        ),
+        _m(
             "session.prompt",
             SessionPromptParams,
             TurnResult,
@@ -12481,6 +12493,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.list",
         "session.deleteSaved",
         "session.close",
+        "session.delete",
         "session.prompt",
         "file.complete",
         "session.interrupt",
