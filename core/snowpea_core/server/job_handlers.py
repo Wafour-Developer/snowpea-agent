@@ -191,7 +191,9 @@ async def job_schedule_handler(
             params.spec,
             params.task,
             via="rpc",
-            mode=(template.mode if template and template.mode else params.mode),
+            # An explicit mode wins; none: the routine default for this maker (1.68.0).
+            mode=(template.mode if template and template.mode else params.mode)
+            or access.default_job_mode(core, snapshot(conn, params.actor)),
             channel=params.channel,
             agent=(template.agent if template and template.agent else params.agent),
             workdir=params.workdir,

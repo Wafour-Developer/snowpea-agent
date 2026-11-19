@@ -3552,8 +3552,8 @@ export interface JobScheduleParams {
   })[] | null;
   /** Opaque data for the host, at most 4 KB of JSON (1.23.0). Only a connection whose system.hello said clientKind 'browser' with a clientId may set it; the job is then owned by that clientId: only it may update, cancel, delete or run it now, see its meta, and no agent tool can change or cancel it. */
   meta?: Record<string, unknown> | null;
-  /** Permission mode for the unattended run. */
-  mode?: "plan" | "accept" | "auto";
+  /** Permission mode for the unattended run. Omitted (1.68.0, jobApprovals; owner decision 2026-11-19): 'auto' while settings security.enabled is false and a person makes the routine directly (a local IDE/TUI connection, or a browser with actor 'person'); else 'accept', as before. A raise still needs a person (mode_guard). */
+  mode?: "plan" | "accept" | "auto" | null;
   /** 1.68.0: a browser's own confirmation window confirmed the grants. */
   personConfirm?: "window" | null;
   /** Session setup for each run, incl. host tools (1.7.0). */

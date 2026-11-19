@@ -4158,7 +4158,16 @@ class JobScheduleParams(Payload):
         max_length=200,
         description="A short name for the job, shown instead of its task (1.33.0).",
     )
-    mode: Mode = Field(default="accept", description="Permission mode for the unattended run.")
+    mode: Mode | None = Field(
+        default=None,
+        description=(
+            "Permission mode for the unattended run. Omitted (1.68.0, jobApprovals; owner "
+            "decision 2026-11-19): 'auto' while settings security.enabled is false and a "
+            "person makes the routine directly (a local IDE/TUI connection, or a browser with "
+            "actor 'person'); else 'accept', as before. A raise still needs a person "
+            "(mode_guard)."
+        ),
+    )
     channel: str | None = Field(
         default=None,
         description=(

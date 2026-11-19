@@ -250,3 +250,86 @@ async def test_grant_matching_is_the_allowlist_s() -> None:
         from_input("shell", None, None, now=None)
     with pytest.raises(ValueError):
         from_input("repl.send", None, None, now=None)
+
+
+# ---------------------------------------------------------------------------
+# the routine's default mode (owner decision 2026-11-19)
+# ---------------------------------------------------------------------------
+
+
+async def _browser(http: aiohttp.ClientSession, daemon: Any) -> RpcClient:
+    ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
+    browser = RpcClient(ws, timeout=TIMEOUT)
+    browser.start()
+    await browser.ok("system.hello", {
+        "token": daemon.token, "clientVersion": "0.4.0",
+        "protocolVersion": PROTOCOL_VERSION, "clientKind": "browser"})
+    return browser
+
+
+async def _mode_of(client: RpcClient, params: dict[str, Any]) -> str:
+    made = await client.ok("job.schedule", {"spec": "0 9 * * *", "task": "list the files",
+                                            **params})
+    return str((await _row(client, made["jobId"]))["mode"])
+
+
+async def test_a_persons_routine_defaults_to_auto_while_the_checks_are_off(
+    tmp_path: Path, provider_env: None
+) -> None:
+    daemon = await make_daemon(tmp_path / "home")
+    async with aiohttp.ClientSession() as http:
+        person = await connect(http, daemon, timeout=TIMEOUT)
+        browser = await _browser(http, daemon)
+        try:
+            where = {"workdir": str(tmp_path)}
+            assert await _mode_of(person, where) == "auto"
+            # An explicit mode always wins.
+            assert await _mode_of(person, {**where, "mode": "accept"}) == "accept"
+            assert await _mode_of(person, {**where, "mode": "plan"}) == "plan"
+            # A browser's click is its person's; without the marker it is not.
+            assert await _mode_of(browser, {**where, "actor": "person"}) == "auto"
+            assert await _mode_of(browser, where) == "accept"
+
+            # /schedule typed in the TUI is the person's form too.
+            session = await person.ok("session.create", {"workdir": str(tmp_path),
+                                                         "mode": "accept"})
+            turn = await person.ok("session.prompt", {"sessionId": session["sessionId"],
+                                                      "text": '/schedule "in 60s" "echo hi"'})
+            await person.wait_turn(turn["turnId"])
+            listing = await person.ok("job.list", {})
+            [typed] = [job for job in listing["jobs"] if job["task"] == "echo hi"]
+            assert typed["mode"] == "auto"
+        finally:
+            await browser.stop()
+            await person.stop()
+    await daemon.stop()
+
+
+async def test_with_the_checks_on_a_routine_keeps_accept(
+    tmp_path: Path, provider_env: None
+) -> None:
+    daemon = await make_daemon(tmp_path / "home")
+    assert daemon.core is not None
+    # Switched on by the person (a stored true nobody chose is migrated off, 1.66.0).
+    daemon.core.settings.security.enabled = True
+    async with aiohttp.ClientSession() as http:
+        person = await connect(http, daemon, timeout=TIMEOUT)
+        try:
+            assert await _mode_of(person, {"workdir": str(tmp_path)}) == "accept"
+        finally:
+            await person.stop()
+    await daemon.stop()
+
+
+async def test_the_models_routine_stays_accept() -> None:
+    """``schedule_create`` (the model) never takes the person's default."""
+    from types import SimpleNamespace
+
+    from snowpea_core.scheduler.access import default_job_mode
+
+    off = SimpleNamespace(settings=SimpleNamespace(security=SimpleNamespace(enabled=False)))
+    for who in (SimpleNamespace(kind="none"), SimpleNamespace(kind="connector"),
+                SimpleNamespace(kind="remote_login"), SimpleNamespace(kind="agent"),
+                SimpleNamespace(kind="browser", actor=None)):
+        assert default_job_mode(off, who) == "accept"
+    assert default_job_mode(off, SimpleNamespace(kind="person")) == "auto"

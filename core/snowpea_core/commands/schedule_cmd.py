@@ -67,8 +67,8 @@ def parse_args(args: str) -> dict[str, Any]:
         index += 1
     if len(positional) < 2:
         raise ValueError("a schedule needs both a spec and a task")
-    mode = options.get("mode", "accept")
-    if mode not in MODES:
+    mode = options.get("mode")
+    if mode is not None and mode not in MODES:
         raise ValueError(f"unknown mode {mode!r}; pick one of {', '.join(MODES)}")
     return {
         "spec": positional[0],
@@ -121,7 +121,8 @@ async def cmd_schedule(ctx: CommandContext, args: str) -> None:
             parsed["spec"],
             parsed["task"],
             via="tool",
-            mode=parsed["mode"],
+            # No --mode: a person's routine runs in auto while the checks are off (1.68.0).
+            mode=parsed["mode"] or access.default_job_mode(ctx.core, _who(ctx)),
             channel=parsed["channel"],
             origin_session_id=ctx.session.id,
             agent=parsed["agent"],
