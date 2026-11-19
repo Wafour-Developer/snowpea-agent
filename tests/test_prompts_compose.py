@@ -441,6 +441,19 @@ def test_a_remote_backend_suppresses_host_facts() -> None:
     assert "Platform:" not in lines
 
 
+def test_the_environment_names_the_core_and_protocol_version() -> None:
+    """Browser feedback: the model had no way to learn which core it runs on."""
+    from snowpea_core import __version__
+    from snowpea_core.server.protocol_version import PROTOCOL_VERSION
+
+    env = environment.collect("/w", now=FIXED_CLOCK, read_git=False, context_files=[])
+    block = environment.build_environment_block(env)
+    assert f"- Engine: snowpea core {__version__} (protocol {PROTOCOL_VERSION})" in block
+    # Constant for the daemon's life: two collections render the same line.
+    again = environment.collect("/w", now=FIXED_CLOCK, read_git=False, context_files=[])
+    assert environment.environment_lines(again) == environment.environment_lines(env)
+
+
 def test_context_files_are_read_and_capped(tmp_path: Path) -> None:
     """The first type that matches wins, and it is capped (CORE-context-files)."""
     (tmp_path / "AGENTS.md").write_text("rules", encoding="utf-8")
