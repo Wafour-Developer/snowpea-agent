@@ -62,6 +62,16 @@ SNOWPEA_PROVIDER=fake:tests/fixtures/providers/fake/basic.json uv run pytest -q
 
 Docker와 SSH 백엔드 테스트는 인프라가 없으면 실패가 아니라 skip 합니다. 이걸 실패로 바꾸지 마세요.
 
+## 릴리스 검사: 하위 호환(mandatory tier)
+
+엔진만 올려도 이미 배포된 클라이언트가 깨지면 안 됩니다. 그래서 매 릴리스의 mandatory tier 에는 다음이 들어갑니다.
+
+```bash
+python scripts/compat_check.py --core . --clients 3
+```
+
+최근 N 개 데스크톱 릴리스 태그(`snowpea-ide`)와 그때 함께 나간 코어 태그를 `compat-ide-<tag>` / `compat-core-<tag>` 워크트리로 받아, 임시 `--home` 과 빈 포트의 NEW 코어에 붙입니다. 데스크톱은 그 태그의 `e2e/real-*.spec.ts`(`xvfb-run` 필요, 3개 태그에 약 1시간), SDK/TUI 는 그 태그의 SDK 계약 테스트와 `scripts/compat_smoke.mjs`(hello, session.create, 턴, 승인, 질문, session.list, close)입니다. `--skip-desktop` 은 SDK/TUI 행만 1분 안에 돌립니다. 결과 표는 PASS / FAIL / PIN 이고 FAIL 이 있으면 종료 코드가 0 이 아닙니다. PIN 은 옛 spec 에 박힌 프로토콜 버전 정규식으로, 깨짐이 아닙니다. 브라우저 팀의 `chromium/scripts/release.sh compat <tag>` 도 같은 검사이니 프로토콜을 건드린 릴리스 전에 함께 돌립니다.
+
 ## 브랜치와 커밋
 
 `main`에서 브랜치를 따서 작업하고 PR을 엽니다. `main`은 보호되어 있습니다. 커밋 메시지는 기존 로그와 같이 Conventional Commits를 따르고 스코프에 마일스톤을 씁니다.
