@@ -28167,10 +28167,10 @@ var require_react_jsx_runtime_development = __commonJS({
           }
         }
         var jsx51 = jsxWithValidationDynamic;
-        var jsxs42 = jsxWithValidationStatic;
+        var jsxs43 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
         exports.jsx = jsx51;
-        exports.jsxs = jsxs42;
+        exports.jsxs = jsxs43;
       })();
     }
   }
@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react64 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.66.0";
+var PROTOCOL_VERSION = "1.68.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -38194,7 +38194,9 @@ function externalReducer(view, action) {
         controlled: p.controlled ?? view.session.controlled,
         mode: p.mode ?? view.session.mode,
         title: p.title ?? view.session.title,
-        tmux: p.tmux ?? null
+        tmux: p.tmux ?? null,
+        // `model` rides on external.state from `externalModelSwitch` on; an older core omits it.
+        model: "model" in p ? p.model ?? null : view.session.model
       };
       let state2 = view.state;
       let error = view.error;
@@ -38325,6 +38327,29 @@ function describeExternalError(error, cli, kind = "send") {
     default:
       return message;
   }
+}
+function hasModelSwitch(capabilities) {
+  return (capabilities ?? []).includes("externalModelSwitch");
+}
+function parseModelCommand(line) {
+  const match = /^\/model(?:\s+(.*))?$/.exec(line.trim());
+  if (!match) return null;
+  const arg = (match[1] ?? "").trim();
+  if (!arg) return { kind: "pick" };
+  return { kind: "set", model: arg === "default" ? null : arg };
+}
+function externalModelLabel(model) {
+  return model ? model : say("CLI default", "\uAE30\uBCF8\uAC12 (CLI default)");
+}
+function modelSetLine(model, appliesNextTurn) {
+  const label = externalModelLabel(model);
+  return appliesNextTurn ? say(`model: ${label} \u2014 applies from the next turn`, `\uBAA8\uB378: ${label} \u2014 \uB2E4\uC74C \uD134\uBD80\uD130 \uC801\uC6A9`) : say(`model: ${label}`, `\uBAA8\uB378: ${label}`);
+}
+function modelSwitchTooOld() {
+  return say(
+    "Switching an external session's model needs a newer core \u2014 run /update (the model is chosen at /external new).",
+    "\uC678\uBD80 \uC138\uC158\uC758 \uBAA8\uB378 \uBCC0\uACBD\uC740 \uB354 \uC0C8\uB85C\uC6B4 \uCF54\uC5B4\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4 \u2014 /update \uB97C \uC2E4\uD589\uD558\uC138\uC694 (\uBAA8\uB378\uC740 /external new \uC5D0\uC11C \uACE0\uB97C \uC218 \uC788\uC2B5\uB2C8\uB2E4)."
+  );
 }
 
 // src/state/security.ts
@@ -40618,6 +40643,7 @@ function useJarvisScreens(deps) {
   diskNoticeRef.current = diskNotice;
   const support = supportOf(client.serverCapabilities?.());
   const switchSupport = hasSessionSwitch(client.serverCapabilities?.());
+  const modelSwitch = hasModelSwitch(client.serverCapabilities?.());
   const [switches, setSwitches] = (0, import_react24.useState)({});
   const [hiddenCount, setHiddenCount] = (0, import_react24.useState)(null);
   const [jarvis, jarvisDispatch] = (0, import_react24.useReducer)(jarvisReducer, initialJarvis);
@@ -41459,6 +41485,54 @@ function useJarvisScreens(deps) {
       showToast(nativeMode && label && result.session.mode !== "unrestricted" ? `mode: ${label}` : "mode: UNRESTRICTED");
     }).catch((error) => showToast(describeExternalError(error, ref.cli)));
   }, [client, showToast, ui]);
+  const setExternalModel = (0, import_react24.useCallback)(
+    (model) => {
+      const view = externalRef.current;
+      setUi((current2) => current2?.kind === "model" ? null : current2);
+      if (!view) return;
+      if (!modelSwitch) {
+        showToast(modelSwitchTooOld());
+        return;
+      }
+      const busy = view.state.turnActive;
+      void client.call("external.setModel", { ref: view.ref, model }).then((result) => {
+        const chosen = result && "model" in result ? result.model ?? null : model;
+        const latest = externalRef.current;
+        if (latest && sameRef(latest.ref, view.ref)) {
+          viewDispatch({ type: "session", session: { ...latest.session, model: chosen } });
+        }
+        showToast(modelSetLine(chosen, result?.appliesNextTurn ?? busy));
+      }).catch((error) => {
+        const text8 = describeExternalError(error, view.ref.cli);
+        viewDispatch({ type: "note", text: say(`model not changed: ${text8}`, `\uBAA8\uB378\uC744 \uBC14\uAFB8\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${text8}`) });
+        showToast(text8);
+      });
+    },
+    [client, modelSwitch, showToast]
+  );
+  const handleModel = (0, import_react24.useCallback)(
+    (line) => {
+      const view = externalRef.current;
+      if (!view) return false;
+      const command2 = parseModelCommand(line);
+      if (!command2) return false;
+      if (!modelSwitch) {
+        viewDispatch({ type: "note", text: modelSwitchTooOld() });
+        return true;
+      }
+      if (command2.kind === "set") {
+        setExternalModel(command2.model);
+        return true;
+      }
+      const ref = view.ref;
+      void loadClis().catch(() => []).then((infos) => {
+        const info = infos.find((entry) => entry.id === ref.cli);
+        setUi({ kind: "model", ref, models: info?.models ?? [], note: modelsNote(info) });
+      });
+      return true;
+    },
+    [loadClis, modelSwitch, setExternalModel]
+  );
   const handleExternal = (0, import_react24.useCallback)(
     (line) => {
       const command2 = parseExternalCommand(line);
@@ -41505,8 +41579,8 @@ function useJarvisScreens(deps) {
     [adoptExternal, changeMode, confirmCliPath, gate, leaveExternal, loadOlder, note, openByRef, openNewForm, openPicker, showToast, stopExternal]
   );
   const handleCommand = (0, import_react24.useCallback)(
-    (line) => handleJarvis(line) || handleExternal(line),
-    [handleExternal, handleJarvis]
+    (line) => handleJarvis(line) || handleExternal(line) || handleModel(line),
+    [handleExternal, handleJarvis, handleModel]
   );
   const started = (0, import_react24.useRef)(false);
   (0, import_react24.useEffect)(() => {
@@ -41591,6 +41665,9 @@ function useJarvisScreens(deps) {
     /** The open session's mode as its CLI names it (1.56.0), else the bucket. */
     externalModeLabel: external ? sessionModeLabel(external.session, clis) : null,
     confirmUnrestricted,
+    setExternalModel,
+    /** The open session's model for the header; null on a core that cannot switch it and recorded none. */
+    externalModelLabel: external && (modelSwitch || external.session.model) ? externalModelLabel(external.session.model) : null,
     marker,
     panel
   };
@@ -42164,7 +42241,9 @@ function ModelStep({
   onSubmit,
   onBack,
   isActive,
-  width
+  width,
+  current: current2,
+  enterHint = "Enter create (empty = the CLI's default) \xB7 Esc back"
 }) {
   const [typing, setTyping] = (0, import_react28.useState)(false);
   if (models.length > 0 && !typing) {
@@ -42172,8 +42251,11 @@ function ModelStep({
       ConfirmMenu,
       {
         options: [
-          { label: "The CLI's default model", value: null },
-          ...models.map((model) => ({ label: fit(model, Math.max(10, width - 12)), value: model })),
+          { label: `The CLI's default model${current2 === null ? " \u2713" : ""}`, value: null },
+          ...models.map((model) => ({
+            label: fit(`${model}${model === current2 ? " \u2713" : ""}`, Math.max(10, width - 12)),
+            value: model
+          })),
           { label: "Type a name\u2026", value: TYPE_A_NAME }
         ],
         escapeValue: GO_BACK,
@@ -42194,7 +42276,8 @@ function ModelStep({
       onBack: models.length > 0 ? () => setTyping(false) : onBack,
       isActive,
       width,
-      note
+      note,
+      enterHint
     }
   );
 }
@@ -42203,7 +42286,8 @@ function ModelText({
   onBack,
   isActive,
   width,
-  note
+  note,
+  enterHint
 }) {
   const [text8, setText] = (0, import_react28.useState)("");
   use_input_default(
@@ -42223,7 +42307,7 @@ function ModelText({
       /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { inverse: true, children: " " })
     ] }),
     note ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: note }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "Enter create (empty = the CLI's default) \xB7 Esc back" })
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: enterHint })
   ] });
 }
 function ExternalNewForm({
@@ -42654,6 +42738,7 @@ function QuestionPrompt({
 
 // src/components/ScreenOverlays.tsx
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var EXTERNAL_MODEL_ROWS = 13;
 function screenOverlayRows(screens, width) {
   const ui = screens.ui;
   if (!ui) return 0;
@@ -42662,6 +42747,8 @@ function screenOverlayRows(screens, width) {
       return EXTERNAL_PICKER_TOTAL_ROWS;
     case "new":
       return EXTERNAL_NEW_ROWS;
+    case "model":
+      return EXTERNAL_MODEL_ROWS;
     case "sessions":
       return Math.min(screens.jarvis.rows.length, 10) + 4;
     case "unrestricted":
@@ -42723,6 +42810,24 @@ function ScreenOverlays({
         onCreate: screens.createExternal
       }
     );
+  }
+  if (ui.kind === "model") {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "blue", paddingX: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { bold: true, color: "blue", wrap: "truncate-end", children: fit(say(`${cliLabel(ui.ref.cli)} model`, `${cliLabel(ui.ref.cli)} \uBAA8\uB378`), width - 4) }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+        ModelStep,
+        {
+          models: ui.models,
+          note: ui.note,
+          width,
+          isActive: true,
+          current: screens.external?.session.model ?? null,
+          enterHint: say("Enter set (empty = the CLI's default) \xB7 Esc back", "Enter \uC801\uC6A9 (\uBE44\uC6B0\uBA74 CLI \uAE30\uBCF8\uAC12) \xB7 Esc \uB4A4\uB85C"),
+          onBack: () => screens.setUi(null),
+          onSubmit: screens.setExternalModel
+        }
+      )
+    ] });
   }
   if (ui.kind === "sessions") {
     const shown = screens.jarvis.rows.slice(0, 20);
@@ -44708,7 +44813,7 @@ function FeedbackScreen({
 var import_react42 = __toESM(require_react(), 1);
 
 // src/version.ts
-var TUI_VERSION = "0.2.100";
+var TUI_VERSION = "0.2.101";
 
 // src/hooks/useFeedback.ts
 function useFeedback(deps) {
@@ -48213,11 +48318,18 @@ function ToolCall({
 // src/components/ApprovalQueue.tsx
 var import_react53 = __toESM(require_react(), 1);
 var import_jsx_runtime32 = __toESM(require_jsx_runtime(), 1);
+function scopesFor(request) {
+  return request?.job ? ["once", "task", "project", "always"] : APPROVAL_SCOPES;
+}
+function scopeLabel(scope) {
+  return scope === "task" ? "always in this routine" : scope;
+}
 function queueBadge(request) {
+  const routine = request.job ? `[routine: ${request.job.title ?? request.job.id}] ` : "";
   const cli = request.external ? `${agentOfExternal(request.external.cli).tag} ` : "";
   const route = request.route === "jarvis" && !alwaysAsksYou(request) ? "[Jarvis deciding] " : "";
   const person = alwaysAsksYou(request) ? `[${ALWAYS_ASKS}] ` : "";
-  return `${cli}${route}${person}`;
+  return `${routine}${cli}${route}${person}`;
 }
 function summarise(request) {
   const command2 = (request.args ?? {})["command"];
@@ -48237,16 +48349,18 @@ function ApprovalQueue({
     setSelected((index) => requests.length === 0 ? 0 : Math.min(index, requests.length - 1));
   }, [requests.length]);
   const current2 = requests[Math.min(selected, Math.max(requests.length - 1, 0))];
+  const scopes = scopesFor(current2);
+  const scope = scopes[scopeIndex % scopes.length];
   const answer = (decision) => {
-    if (current2) onRespond?.(current2.requestId, decision, APPROVAL_SCOPES[scopeIndex]);
+    if (current2) onRespond?.(current2.requestId, decision, scope);
   };
   useChoiceKeys({
     count: requests.length,
     index: Math.min(selected, Math.max(requests.length - 1, 0)),
     onIndex: setSelected,
-    onLeft: () => setScopeIndex((i) => (i + APPROVAL_SCOPES.length - 1) % APPROVAL_SCOPES.length),
-    onRight: () => setScopeIndex((i) => (i + 1) % APPROVAL_SCOPES.length),
-    onTab: () => setScopeIndex((i) => (i + 1) % APPROVAL_SCOPES.length),
+    onLeft: () => setScopeIndex((i) => (i + scopes.length - 1) % scopes.length),
+    onRight: () => setScopeIndex((i) => (i + 1) % scopes.length),
+    onTab: () => setScopeIndex((i) => (i + 1) % scopes.length),
     onCancel: () => onBlur?.(),
     // Enter is the safe half of the pair: it allows nothing on its own, and
     // `a`/`d` stay the two answers this backlog has always taken.
@@ -48285,19 +48399,19 @@ function ApprovalQueue({
         isActive ? /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(import_jsx_runtime32.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(Box_default, { marginTop: 1, children: [
             /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { children: "scope: " }),
-            APPROVAL_SCOPES.map((scope, index) => /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
+            scopes.map((option, index) => /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
               Text,
               {
-                inverse: index === scopeIndex,
-                color: index === scopeIndex ? "yellow" : void 0,
-                dimColor: index !== scopeIndex,
-                children: ` ${scope} `
+                inverse: index === scopeIndex % scopes.length,
+                color: index === scopeIndex % scopes.length ? "yellow" : void 0,
+                dimColor: index !== scopeIndex % scopes.length,
+                children: ` ${scopeLabel(option)} `
               },
-              scope
+              option
             ))
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { dimColor: true, children: "\u2191\u2193 move \xB7 1-9 pick \xB7 \u2190\u2192 scope \xB7 a allow \xB7 d deny \xB7 Esc or Ctrl+R leave" })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { dimColor: true, children: "Ctrl+R to answer them here." })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { dimColor: true, children: requests.some((request) => request.job) ? "A scheduled routine is waiting for you. Ctrl+R to answer it here." : "Ctrl+R to answer them here." })
       ]
     }
   );
@@ -49541,7 +49655,7 @@ function App2({
     });
   }, [client]);
   const refreshApprovals = (0, import_react64.useCallback)(() => {
-    void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
+    void client.listApprovals().then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
   }, [client, sessionId]);
   (0, import_react64.useEffect)(() => {
@@ -51729,7 +51843,8 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       status: [
         externalOpen.state.turnActive ? "running" : externalOpen.session.status,
         hostLabel(externalOpen.session),
-        screens.externalModeLabel ?? modeLabel2(externalOpen.session.mode)
+        screens.externalModeLabel ?? modeLabel2(externalOpen.session.mode),
+        ...screens.externalModelLabel ? [screens.externalModelLabel] : []
       ].join(" \xB7 "),
       warning: externalWarning,
       viewOnly: externalViewOnly,
