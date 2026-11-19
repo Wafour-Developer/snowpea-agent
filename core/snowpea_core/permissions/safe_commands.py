@@ -953,6 +953,44 @@ def _segment_ok(words: list[str], paths: _Paths) -> bool:
     return False
 
 
+def _split_unquoted(text: str) -> list[str] | None:
+    """``text`` split on ``;``, ``|``, ``||`` and ``&&`` outside quotes.
+
+    ``grep -E "a|b" f`` is one command, not ``grep -E "a`` and ``b" f``.
+    ``None`` when a quote is left open (the caller treats it as unjudgeable).
+    """
+    parts: list[str] = []
+    start = 0
+    quote = ""
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if quote:
+            if char == "\\" and quote == '"':
+                i += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char == "\\":
+            i += 2
+            continue
+        elif char in "'\"":
+            quote = char
+        elif text.startswith(("&&", "||"), i):
+            parts.append(text[start:i])
+            i += 2
+            start = i
+            continue
+        elif char in ";|":
+            parts.append(text[start:i])
+            start = i + 1
+        i += 1
+    if quote:
+        return None
+    parts.append(text[start:])
+    return parts
+
+
 def is_mutating(
     command: str, *, workdir: object = None, home: object = None, settings: object = None
 ) -> bool:
@@ -972,16 +1010,26 @@ def is_mutating(
     if "&" in SEPARATORS.sub(" ", REDIRECT.sub(" ", text)):
         return True
     paths = _Paths(workdir, home, settings)
-    for match in REDIRECT.finditer(text):
+    redirects = list(REDIRECT.finditer(text))
+    for match in redirects:
         if not paths.harmless_target(match.group(1) or ""):
             return True
-    for segment in (part.strip() for part in SEPARATORS.split(REDIRECT.sub(" ", text))):
+    segments = _split_unquoted(REDIRECT.sub(" ", text))
+    if segments is None:
+        return True
+    for segment in (part.strip() for part in segments):
         if not segment:
             return True
         try:
             words = shlex.split(segment)
         except ValueError:
             return True
+        if words and words[0] == "cd" and len(words) <= 2 and not redirects:
+            # ``cd dir && tail log``: changing the shell's folder writes
+            # nothing.  Only on a line with no redirection at all, since a
+            # relative redirect target is judged against the project folder,
+            # not the one ``cd`` moved to.
+            continue
         if not _segment_ok(words, paths):
             return True
     return False
