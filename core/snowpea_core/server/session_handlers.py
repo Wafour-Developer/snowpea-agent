@@ -365,7 +365,6 @@ async def session_create_handler(
     if params.hostToolsFrom and core.store is not None:
         await core.store.update_host_tools_from(session.id, params.hostToolsFrom)
     session.origin_client_id = getattr(conn, "client_id", None)
-    session.created_by_client = session.origin_client_id
     if session.origin_client_id and core.store is not None:
         # Kept with the session (security review 7, Low 6): whose it is, for
         # a browser's "own session" rule, also after a restart.
@@ -408,23 +407,13 @@ async def session_resume_handler(
     from snowpea_core.server.person_gate import connection_kind
 
     watcher = connection_kind(conn) == "connector"
-    # m27 fix, M-1 / L-1: a browser becomes the origin only where it could by
-    # session.attach (browser_attach_check); elsewhere it only watches.
-    browser = connection_kind(conn) == "browser"
     session = core.sessions.get(params.sessionId)
     if session is None:
         session = await core.sessions.restore(
-            params.sessionId, origin_conn=None if watcher or browser else conn
+            params.sessionId, origin_conn=None if watcher else conn
         )
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
-    if browser:
-        from snowpea_core.server.host_handlers import browser_attach_check
-
-        try:
-            watcher = not browser_attach_check(conn, session, core)
-        except RpcError:
-            watcher = True
     await _load_project_skills(core, session.workdir, session.id)
     ensure_workspace(core.paths.home, session)
     from snowpea_core.tools.host_tools import runs_owned_job

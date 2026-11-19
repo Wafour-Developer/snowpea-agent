@@ -408,54 +408,6 @@ def _decided_by(by: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def browser_attach_check(conn: Any, session: Any, core: Any) -> bool:
-    """Whether a browser's ``session.attach`` (or resume) may make it the
-    session's origin (m27, M1; m27 fix, M-1): ``True`` it may, ``False`` it may
-    only subscribe; refused with ``jarvis_person_only`` (``browser_not_owner``).
-
-    Being the origin counts in ``browser_owns`` for person approvals and project
-    trust, so a browser becomes it only on a browser-made session
-    (:func:`~snowpea_core.server.settings_gate.browser_made`): one it created or
-    hosts (its ``clientId``: a reload, a reconnect), or one whose creating or
-    hosting browser has no open connection and whose live origin is no other
-    browser (a restart under a new ``clientId``).  A session a TUI, IDE, CLI or
-    desktop made is never a browser's origin: its own host browser may only
-    subscribe, any other browser is refused.  Non-browser callers: ``True``.
-    """
-    from snowpea_core.server.person_gate import connection_kind
-    from snowpea_core.server.settings_gate import (
-        BROWSER_ALIAS,
-        BROWSER_NOT_OWNER,
-        browser_made,
-        refuse,
-    )
-
-    if connection_kind(conn) != "browser":
-        return True
-    mine = getattr(conn, "client_id", None)
-    names = {n for n in (mine, getattr(conn, "surface_id", None)) if n and n != BROWSER_ALIAS}
-    host = getattr(session, "host_tools_from", None)
-    creator = getattr(session, "created_by_client", None)
-    what = "attach to a session another surface owns"
-    extra = {"sessionId": getattr(session, "id", None)}
-    if not browser_made(session):
-        if host and host != BROWSER_ALIAS and host in names:
-            return False
-        refuse(conn, what, reason=BROWSER_NOT_OWNER, extra=extra)
-    if names & {creator, host, getattr(session, "origin_client_id", None)} - {None}:
-        return True
-    owners = {o for o in (creator, host) if o and o != BROWSER_ALIAS} - names
-    for other in core.hub.clients():
-        if other is conn or connection_kind(other) != "browser":
-            continue
-        if owners & {getattr(other, "client_id", None), getattr(other, "surface_id", None)}:
-            refuse(conn, what, reason=BROWSER_NOT_OWNER, extra=extra)
-    origin = getattr(session, "origin_conn", None)
-    if origin is not None and origin is not conn and connection_kind(origin) == "browser":
-        refuse(conn, what, reason=BROWSER_NOT_OWNER, extra=extra)
-    return True
-
-
 async def session_attach_handler(
     conn: RpcConnection, params: SessionAttachParams, core: Core
 ) -> SessionAttachResult:
@@ -463,9 +415,10 @@ async def session_attach_handler(
 
     With ``hostToolsFrom`` the session's host tools are re-pointed to that
     browser connection too (addendum 7): a session created by an earlier
-    browser launch gets its ``repl`` and ``browser_*`` back.  A browser on a
-    session it may only watch (:func:`browser_attach_check`) is subscribed and
-    changes nothing.
+    browser launch gets its ``repl`` and ``browser_*`` back.  Any browser may
+    attach to any session, a TUI, IDE, CLI or desktop one too (m31, the owner's
+    decision of 2026-11-19, as before 0.2.97): it continues the conversation
+    with its tools, and the session's approvals come to it.
     """
     session = _session(core, params.sessionId)
     target = params.hostToolsFrom
@@ -477,13 +430,6 @@ async def session_attach_handler(
     from snowpea_core.server.settings_gate import host_choice_refusal
 
     host_choice_refusal(conn, target)  # security review 6, L-2
-    if not browser_attach_check(conn, session, core):
-        core.hub.subscribe(conn, session.id)
-        return SessionAttachResult(
-            sessionId=session.id,
-            hostTools=HOST_TOOLS.names_for(session),
-            hostToolsFrom=session.host_tools_from,
-        )
     # Only the live origin *connection* moves. ``origin_surface`` is what
     # opened the session ("browser", "tui", ...) and is never rewritten here,
     # in memory or in the store: a browser root must stay a browser root.
