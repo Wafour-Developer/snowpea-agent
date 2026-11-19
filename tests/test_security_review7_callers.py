@@ -613,6 +613,10 @@ async def test_a_jobs_mode_is_judged_whichever_way_it_is_made(
                             person=object() if allowed else None)
 
         monkeypatch.setattr(core.approvals, "request", request)
+    if via == "rpc" and name == "browser+actor" and mode == "auto":
+        # Review of 1.68.0, L1: job.schedule's explicit raise from a browser is
+        # confirmed in its window (personConfirm), as a grant; a click is not.
+        allowed = False
     made, text = await _schedule(core, via, name, tmp_path, mode=mode)
     assert made is allowed, (via, name, mode, text)
 

@@ -1668,6 +1668,10 @@ def note_caller(session: Session, turn_id: str, who: Any) -> None:
     callers = getattr(session, "turn_callers", None)
     if who is None or callers is None or not turn_id:  # ("" is SPAWNER: note_spawner's)
         return
+    if getattr(who, "origin", None) != "schedule":
+        # Someone else's words joined a scheduler's turn: it no longer runs with
+        # the job's grants or mode (security review of 1.68.0, L3).
+        getattr(session, "scheduler_turns", set()).discard(turn_id)
     known = callers.get(turn_id)
     if known is not None and (
         getattr(known, "kind", "none") not in ("person", "none")
@@ -2048,6 +2052,8 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
         remaining = len(steered) - index - 1
         # The running turn now carries this caller's words too (review 7, H-1).
         note_caller(session, session.current_turn or "", queued.who)
+        if queued.origin != "schedule":
+            session.scheduler_turns.discard(session.current_turn or "")
         note_asker(core, session, queued.who)
         if session.user_turn is not None and not session.is_subagent:
             if queued.origin == "human":
@@ -3355,12 +3361,36 @@ async def _security_verdict(
     return verdict
 
 
-def _asks_unseen(security: Any, session: Session) -> bool:
+def _asks_unseen(security: Any, session: Session, mode: str | None = None) -> bool:
     """The verdict puts the call to the person in this session's mode (m21)."""
     asks_in = getattr(security, "asks_in", None)
     if callable(asks_in):
-        return bool(asks_in(getattr(session, "mode", None)))
+        return bool(asks_in(mode or getattr(session, "mode", None)))
     return bool(getattr(security, "opaque", False))
+
+
+def turn_mode(core: Any, session: Any) -> str:
+    """The mode the running turn's calls are judged in: ``session.mode``, except
+    in a scheduled run's session (or its subagent) for a turn the scheduler did
+    not start (security review of 1.68.0, L3).  The job's mode was a person's
+    for the job's own turns; another client's prompt there (a browser may
+    continue any session) gets no more than it could set on an ordinary
+    session: the project's default unless that caller may raise to the mode."""
+    from snowpea_core.scheduler.grants import run_session, scheduler_turn
+    from snowpea_core.session import mode_guard
+
+    mode = session.mode
+    sessions = getattr(core, "sessions", None)
+    lookup = getattr(sessions, "get", None)
+    run = run_session(session, lookup if callable(lookup) else None)
+    if run is None or scheduler_turn(run) or not mode_guard.raises("plan", mode):
+        return mode
+    default_mode = getattr(sessions, "default_mode", None)
+    default = default_mode(run.workdir) if callable(default_mode) else "accept"
+    caller = mode_guard.ModeCaller.from_conn(turn_caller(core, run))
+    if mode_guard.refusal(caller, run, default, mode) is None:
+        return mode
+    return default
 
 
 def skill_refuses(session: Session, name: str) -> bool:
@@ -3477,7 +3507,8 @@ async def _run_one_call(
     if refusal:
         await _deny_call(core, session, call, refusal)
         return None
-    verdict = policy.decide(session.mode, tag, tool, call.arguments, session)
+    mode = turn_mode(core, session)
+    verdict = policy.decide(mode, tag, tool, call.arguments, session)
     guarded = _guarded_call(core, session, tool, tag)
     if guarded and verdict != "deny":
         # The rest of a turn the agent was switched in (addendum 25): its
@@ -3488,7 +3519,7 @@ async def _run_one_call(
     # in every mode (the approval queue makes it person-only) — except what only
     # snowpea cannot tell ahead, in auto mode under security.unknownCode "auto"
     # (m21): that is an ordinary auto-mode call, judged by what was seen.
-    unchecked = _asks_unseen(security, session) or security.blocked
+    unchecked = _asks_unseen(security, session, mode) or security.blocked
     # A block the person may allow (0.2.94) is asked in every mode the mode
     # matrix does not refuse: the approval queue makes it person-only, once.
     if unchecked and verdict != "deny":

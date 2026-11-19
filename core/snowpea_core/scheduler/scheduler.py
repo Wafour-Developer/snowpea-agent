@@ -762,6 +762,8 @@ class Scheduler:
         turn_id = agent_loop.new_turn_id()
         if context is not None:
             session.turn_jobs[turn_id] = context
+        # Only this turn runs with the job's grants and mode (review of 1.68.0, L3).
+        session.scheduler_turns.add(turn_id)
         if remote_job:
             # What the run does (a job it schedules, an MCP server it adds) is
             # still a remote sign-in's (security review 7, M-2).
@@ -775,6 +777,7 @@ class Scheduler:
             )
         finally:
             session.turn_jobs.pop(turn_id, None)
+            session.scheduler_turns.discard(turn_id)
             core.hub.unsubscribe(collector)
             # A named agent's session outlives the run that borrowed it.
             if owned:
