@@ -953,6 +953,53 @@ def _segment_ok(words: list[str], paths: _Paths) -> bool:
     return False
 
 
+#: What may follow a ``cd`` on a line "Allow Everything" runs unasked: readers
+#: that run no code found in the folder they run in (each still passes its own
+#: spec, so ``find -exec`` and the like stay refused).
+CD_READERS: frozenset[str] = frozenset(
+    {"cat", "ls", "grep", "egrep", "fgrep", "rg", "tail", "head", "find", "du", "df",
+     "wc", "echo", "printf", "pwd", "stat", "file", "tree", "sort", "uniq", "cut", "true"}
+)
+
+
+def _split_unquoted(text: str) -> list[str] | None:
+    """``text`` split on ``;``, ``|``, ``||`` and ``&&`` outside quotes.
+
+    ``grep -E "a|b" f`` is one command, not ``grep -E "a`` and ``b" f``.
+    ``None`` when a quote is left open (the caller treats it as unjudgeable).
+    """
+    parts: list[str] = []
+    start = 0
+    quote = ""
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if quote:
+            if char == "\\" and quote == '"':
+                i += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char == "\\":
+            i += 2
+            continue
+        elif char in "'\"":
+            quote = char
+        elif text.startswith(("&&", "||"), i):
+            parts.append(text[start:i])
+            i += 2
+            start = i
+            continue
+        elif char in ";|":
+            parts.append(text[start:i])
+            start = i + 1
+        i += 1
+    if quote:
+        return None
+    parts.append(text[start:])
+    return parts
+
+
 def is_mutating(
     command: str, *, workdir: object = None, home: object = None, settings: object = None
 ) -> bool:
@@ -972,16 +1019,42 @@ def is_mutating(
     if "&" in SEPARATORS.sub(" ", REDIRECT.sub(" ", text)):
         return True
     paths = _Paths(workdir, home, settings)
-    for match in REDIRECT.finditer(text):
+    redirects = list(REDIRECT.finditer(text))
+    for match in redirects:
+        # The redirect pattern does not know about quotes: a ``>`` inside a
+        # quoted word could swallow its closing quote and make the splitter
+        # below see the line's real ``;`` as quoted (security review, m29).
+        if any(quote in match.group(0) for quote in "'\""):
+            return True
         if not paths.harmless_target(match.group(1) or ""):
             return True
-    for segment in (part.strip() for part in SEPARATORS.split(REDIRECT.sub(" ", text))):
+    segments = _split_unquoted(REDIRECT.sub(" ", text))
+    if segments is None:
+        return True
+    parsed: list[list[str]] = []
+    for segment in (part.strip() for part in segments):
         if not segment:
             return True
         try:
-            words = shlex.split(segment)
+            parsed.append(shlex.split(segment))
         except ValueError:
             return True
+    moves = any(words and words[0] == "cd" for words in parsed)
+    if moves and (
+        redirects
+        or any(
+            words and words[0] != "cd" and words[0] not in CD_READERS for words in parsed
+        )
+    ):
+        # After ``cd`` the project-folder checks (test runners, git, checkers
+        # that run code from their folder) would judge the wrong folder, and a
+        # relative redirect target would too: only plain readers may follow.
+        return True
+    for words in parsed:
+        if words and words[0] == "cd":
+            if len(words) > 2 or (len(words) == 2 and words[1].startswith("-")):
+                return True
+            continue
         if not _segment_ok(words, paths):
             return True
     return False
