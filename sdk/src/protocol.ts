@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.67.0";
+export const PROTOCOL_VERSION = "1.68.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -319,7 +319,7 @@ export interface ApprovalAskResult {
   /** allow or deny. */
   decision: "allow" | "deny";
   /** Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate); 'always' for a page action only for repl.tabs, repl.clipboard and (1.13.0) repl.read and repl.attach, others are kept to 'once'. For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. */
-  scope?: "once" | "session" | "project" | "always" | "site";
+  scope?: "once" | "session" | "project" | "always" | "site" | "task";
 }
 
 /** `approval.evaluate` params. Would a saved rule or the mode allow this action? A host-level, side-effect-free check (1.40.0): the allowlist entries of the caller's own profile (its clientId), then the mode matrix. Nothing is asked or stored. */
@@ -391,6 +391,13 @@ export interface ApprovalListResult {
     folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
     guard?: string | null;
+    /** 1.68.0 (jobApprovals): the request comes from a run of this scheduled job (a routine), with nobody watching: it is in the shared queue (approval.pending to every surface, the messenger's private chat when one is bound) and waits settings scheduler.approvalTimeoutSec (or the job's approvalTimeoutSec). The card may offer scope 'task': remembered for this job across its runs (JobInfo.grants). Null otherwise. */
+    job?: {
+      /** The job's id (job.list jobId). */
+      id: string;
+      /** Its short name, else the start of its task. */
+      title?: string | null;
+    } | null;
     /** True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. */
     neverDelegable?: boolean | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
@@ -439,7 +446,7 @@ export interface ApprovalListResult {
     /** Who the delegation engine routed it to while Jarvis mode is on (1.53.0): person (wait for a human, as before), jarvis (the Jarvis session decides; a person may still answer first) or auto (allowed by the engine, shown for the record). Null when Jarvis mode is off. */
     route?: "person" | "jarvis" | "auto" | null;
     /** Scope the UI should preselect. */
-    scopeHint?: "once" | "session" | "project" | "always" | "site";
+    scopeHint?: "once" | "session" | "project" | "always" | "site" | "task";
     /** Session whose turn is blocked. */
     sessionId: string;
     /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
@@ -501,6 +508,13 @@ export interface ApprovalRequestParams {
   folder?: string | null;
   /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
   guard?: string | null;
+  /** 1.68.0 (jobApprovals): the request comes from a run of this scheduled job (a routine), with nobody watching: it is in the shared queue (approval.pending to every surface, the messenger's private chat when one is bound) and waits settings scheduler.approvalTimeoutSec (or the job's approvalTimeoutSec). The card may offer scope 'task': remembered for this job across its runs (JobInfo.grants). Null otherwise. */
+  job?: {
+    /** The job's id (job.list jobId). */
+    id: string;
+    /** Its short name, else the start of its task. */
+    title?: string | null;
+  } | null;
   /** True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. */
   neverDelegable?: boolean | null;
   /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
@@ -549,7 +563,7 @@ export interface ApprovalRequestParams {
   /** Who the delegation engine routed it to while Jarvis mode is on (1.53.0): person (wait for a human, as before), jarvis (the Jarvis session decides; a person may still answer first) or auto (allowed by the engine, shown for the record). Null when Jarvis mode is off. */
   route?: "person" | "jarvis" | "auto" | null;
   /** Scope the UI should preselect. */
-  scopeHint?: "once" | "session" | "project" | "always" | "site";
+  scopeHint?: "once" | "session" | "project" | "always" | "site" | "task";
   /** Session whose turn is blocked. */
   sessionId: string;
   /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
@@ -584,7 +598,7 @@ export interface ApprovalRequestResult {
   /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
   reason?: string;
   /** How long the decision applies. */
-  scope?: "once" | "session" | "project" | "always" | "site";
+  scope?: "once" | "session" | "project" | "always" | "site" | "task";
 }
 
 /** `approval.respond` params. Answer a pending approval and unblock the turn. */
@@ -604,7 +618,7 @@ export interface ApprovalRespondParams {
   /** Request being answered. */
   requestId: string;
   /** How long the decision applies. From a remote web login (and a connector) an allow never stores a rule (1.55.0): 'project', 'always' and 'site' are applied as 'session'; the result's scope and approval.resolved say what applied. */
-  scope?: "once" | "session" | "project" | "always" | "site";
+  scope?: "once" | "session" | "project" | "always" | "site" | "task";
 }
 
 /** `approval.respond` result. */
@@ -612,7 +626,7 @@ export interface ApprovalRespondResult {
   /** True when the call succeeded. */
   ok?: boolean;
   /** The scope that applies to this answer (as ApprovalResolvedNotification.scope); null for a deny or when the request had already been answered. */
-  scope?: "once" | "session" | "project" | "always" | "site" | null;
+  scope?: "once" | "session" | "project" | "always" | "site" | "task" | null;
 }
 
 /** `audio.capabilities` params. Report what voice input and output can do on this machine. */
@@ -3352,6 +3366,8 @@ export type JobListParams = Record<string, unknown>;
 export interface JobListResult {
   /** Known jobs. */
   jobs?: ({
+    /** 1.68.0: its own approval wait; null: settings scheduler.approvalTimeoutSec. */
+    approvalTimeoutSec?: number | null;
     /** How long a held run waits for its host before it is missed. */
     catchUpWindowMinutes?: number;
     /** Channel that receives the output. */
@@ -3364,6 +3380,25 @@ export interface JobListResult {
     enabled?: boolean;
     /** The fingerprint tool.invoke job carries; only the owner sees it. */
     fingerprint?: string | null;
+    /** 1.68.0: what its runs may do without asking; job.update removeGrants. */
+    grants?: ({
+      /** 'approval': answered 'task' on a run's card; 'person': given with job.schedule / job.update. */
+      by: "approval" | "person";
+      /** UTC ISO time it was given. */
+      createdAt?: string | null;
+      /** The grant for people, e.g. 'git fetch …'. */
+      display: string;
+      /** Grant id, for job.update removeGrants. */
+      id: string;
+      /** 'rule': pattern matches one plain command; 'line': the exact line; 'tool': the tool itself (not a shell). */
+      kind: "rule" | "line" | "tool";
+      /** kind 'line': the line. */
+      line?: string | null;
+      /** kind 'rule': the regex. */
+      pattern?: string | null;
+      /** The tool it allows. */
+      tool: string;
+    })[];
     /** The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. */
     held?: {
       /** UTC ISO time the occurrence was due. */
@@ -3375,8 +3410,12 @@ export interface JobListResult {
     jobId: string;
     /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
     kind?: "cron" | "once" | "interval";
+    /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. */
+    lastError?: string | null;
     /** UTC ISO-8601 time of the last firing, null before the first. */
     lastRunAt?: string | null;
+    /** 1.68.0: the session the last run opened, to open it. */
+    lastSessionId?: string | null;
     /** How the last run ended. */
     lastStatus?: "ok" | "error" | "denied_by_timeout" | null;
     /** The job's meta; only the owner connection sees it. */
@@ -3403,6 +3442,19 @@ export interface JobListResult {
     timezone?: string | null;
     /** The job's short name, when it has one (1.33.0). */
     title?: string | null;
+    /** 1.68.0: a run of it waits for a person now (the oldest such request). */
+    waitingApproval?: {
+      /** Answer it with approval.respond. */
+      requestId: string;
+      /** The run's session. */
+      sessionId: string;
+      /** The command, or the tool's arguments, shortened. */
+      summary: string;
+      /** How long the request waits in all. */
+      timeoutSec: number;
+      /** What it wants to run. */
+      tool: string;
+    } | null;
   })[];
 }
 
@@ -3485,12 +3537,25 @@ export interface JobScheduleParams {
   actor?: "person" | null;
   /** Named agent that runs the task. */
   agent?: string | null;
+  /** 1.68.0: how long a run's approval waits; null: scheduler.approvalTimeoutSec. */
+  approvalTimeoutSec?: number | null;
   /** Gateway channel that receives the output. One rule for job.schedule, /schedule and the schedule_create tool (1.55.0): a job made by a remote web login — or in a turn one prompted — is createdBy 'remote_login', reports in the app or the log only, and is never above settings web.remote.maxMode. */
   channel?: string | null;
+  /** 1.68.0 (jobApprovals): what every run may do without asking. Only a person: a local IDE/TUI connection, or a local browser 0.4.0+ with actor 'person' and personConfirm 'window'; a remote web login, a connector and Jarvis are refused (jarvis_person_only). The security lists still apply to what a grant covers. */
+  grants?: ({
+    /** One exact command line. */
+    line?: string | null;
+    /** Allowlist regex for one plain command. */
+    pattern?: string | null;
+    /** The tool it allows ('shell' for commands). */
+    tool?: string;
+  })[] | null;
   /** Opaque data for the host, at most 4 KB of JSON (1.23.0). Only a connection whose system.hello said clientKind 'browser' with a clientId may set it; the job is then owned by that clientId: only it may update, cancel, delete or run it now, see its meta, and no agent tool can change or cancel it. */
   meta?: Record<string, unknown> | null;
-  /** Permission mode for the unattended run. */
-  mode?: "plan" | "accept" | "auto";
+  /** Permission mode for the unattended run. Omitted (1.68.0, jobApprovals; owner decision 2026-11-19): 'auto' while settings security.enabled is false and a person makes the routine directly (a local IDE/TUI connection, or a browser with actor 'person'); else 'accept', as before. A raise still needs a person (mode_guard). */
+  mode?: "plan" | "accept" | "auto" | null;
+  /** 1.68.0: a browser's own confirmation window confirmed the grants. */
+  personConfirm?: "window" | null;
   /** Session setup for each run, incl. host tools (1.7.0). */
   sessionTemplate?: {
     /** Named agent that runs the task. */
@@ -3528,10 +3593,27 @@ export interface JobScheduleResult {
 export interface JobUpdateParams {
   /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
   actor?: "person" | null;
+  /** 1.68.0: grants to add (as JobScheduleParams.grants; a person's only). */
+  addGrants?: ({
+    /** One exact command line. */
+    line?: string | null;
+    /** Allowlist regex for one plain command. */
+    pattern?: string | null;
+    /** The tool it allows ('shell' for commands). */
+    tool?: string;
+  })[] | null;
+  /** 1.68.0: how long a run's approval waits; 0 goes back to the setting. */
+  approvalTimeoutSec?: number | null;
   /** False pauses the job (no next firing); true resumes it from now on its schedule. */
   enabled?: boolean | null;
   /** Job to change. */
   jobId: string;
+  /** 1.68.0 (jobApprovals): the permission mode later runs start in. A raise (e.g. to 'auto') is a person's, as at job.schedule (jarvis_person_only, mode_raise); a remote web login never above web.remote.maxMode. */
+  mode?: "plan" | "accept" | "auto" | null;
+  /** 1.68.0: a browser's own confirmation window confirmed addGrants. */
+  personConfirm?: "window" | null;
+  /** 1.68.0: grant ids to remove (JobInfo.grants); anyone who may update it. */
+  removeGrants?: string[] | null;
   /** A new schedule spec, parsed like job.schedule's spec; the next run is recomputed. */
   schedule?: string | null;
   /** Template fields to change. */
@@ -3549,6 +3631,8 @@ export interface JobUpdateParams {
 
 /** `job.update` result. */
 export interface JobUpdateResult {
+  /** 1.68.0: its own approval wait; null: settings scheduler.approvalTimeoutSec. */
+  approvalTimeoutSec?: number | null;
   /** How long a held run waits for its host before it is missed. */
   catchUpWindowMinutes?: number;
   /** Channel that receives the output. */
@@ -3561,6 +3645,25 @@ export interface JobUpdateResult {
   enabled?: boolean;
   /** The fingerprint tool.invoke job carries; only the owner sees it. */
   fingerprint?: string | null;
+  /** 1.68.0: what its runs may do without asking; job.update removeGrants. */
+  grants?: ({
+    /** 'approval': answered 'task' on a run's card; 'person': given with job.schedule / job.update. */
+    by: "approval" | "person";
+    /** UTC ISO time it was given. */
+    createdAt?: string | null;
+    /** The grant for people, e.g. 'git fetch …'. */
+    display: string;
+    /** Grant id, for job.update removeGrants. */
+    id: string;
+    /** 'rule': pattern matches one plain command; 'line': the exact line; 'tool': the tool itself (not a shell). */
+    kind: "rule" | "line" | "tool";
+    /** kind 'line': the line. */
+    line?: string | null;
+    /** kind 'rule': the regex. */
+    pattern?: string | null;
+    /** The tool it allows. */
+    tool: string;
+  })[];
   /** The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. */
   held?: {
     /** UTC ISO time the occurrence was due. */
@@ -3572,8 +3675,12 @@ export interface JobUpdateResult {
   jobId: string;
   /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
   kind?: "cron" | "once" | "interval";
+  /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. */
+  lastError?: string | null;
   /** UTC ISO-8601 time of the last firing, null before the first. */
   lastRunAt?: string | null;
+  /** 1.68.0: the session the last run opened, to open it. */
+  lastSessionId?: string | null;
   /** How the last run ended. */
   lastStatus?: "ok" | "error" | "denied_by_timeout" | null;
   /** The job's meta; only the owner connection sees it. */
@@ -3600,6 +3707,19 @@ export interface JobUpdateResult {
   timezone?: string | null;
   /** The job's short name, when it has one (1.33.0). */
   title?: string | null;
+  /** 1.68.0: a run of it waits for a person now (the oldest such request). */
+  waitingApproval?: {
+    /** Answer it with approval.respond. */
+    requestId: string;
+    /** The run's session. */
+    sessionId: string;
+    /** The command, or the tool's arguments, shortened. */
+    summary: string;
+    /** How long the request waits in all. */
+    timeoutSec: number;
+    /** What it wants to run. */
+    tool: string;
+  } | null;
 }
 
 /** `llm.sample` params. One tool-less model call for a session's browser host (1.14.0): no tools, no history, nothing written to the transcript except a usage event. The session's host only ('unauthorized' otherwise); 'unavailable' when no model can answer; with schema, 'invalid_output' when the answer does not validate. */
@@ -9707,6 +9827,13 @@ export interface ApprovalPendingPayload {
     folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
     guard?: string | null;
+    /** 1.68.0 (jobApprovals): the request comes from a run of this scheduled job (a routine), with nobody watching: it is in the shared queue (approval.pending to every surface, the messenger's private chat when one is bound) and waits settings scheduler.approvalTimeoutSec (or the job's approvalTimeoutSec). The card may offer scope 'task': remembered for this job across its runs (JobInfo.grants). Null otherwise. */
+    job?: {
+      /** The job's id (job.list jobId). */
+      id: string;
+      /** Its short name, else the start of its task. */
+      title?: string | null;
+    } | null;
     /** True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. */
     neverDelegable?: boolean | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
@@ -9755,7 +9882,7 @@ export interface ApprovalPendingPayload {
     /** Who the delegation engine routed it to while Jarvis mode is on (1.53.0): person (wait for a human, as before), jarvis (the Jarvis session decides; a person may still answer first) or auto (allowed by the engine, shown for the record). Null when Jarvis mode is off. */
     route?: "person" | "jarvis" | "auto" | null;
     /** Scope the UI should preselect. */
-    scopeHint?: "once" | "session" | "project" | "always" | "site";
+    scopeHint?: "once" | "session" | "project" | "always" | "site" | "task";
     /** Session whose turn is blocked. */
     sessionId: string;
     /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
@@ -9791,7 +9918,7 @@ export interface ApprovalResolvedPayload {
   /** Request that was resolved. */
   requestId: string;
   /** The scope actually applied (1.54.0): once, session, project, always or site — after core's rules (a browser's unmarked widening reply, a person-only request, a shell line with no safe rule are kept to 'once'). Null for a deny and with outcome 'withdrawn'. */
-  scope?: "once" | "session" | "project" | "always" | "site" | null;
+  scope?: "once" | "session" | "project" | "always" | "site" | "task" | null;
 }
 
 /** `approval.route.changed` notification payload. */
@@ -10237,8 +10364,8 @@ export interface JarvisStatePayload {
 export interface JobEventPayload {
   /** Job the event belongs to. */
   jobId: string;
-  /** Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. */
-  kind: "started" | "finished" | "failed" | "denied" | "deleted" | "updated" | "waiting_for_host" | "missed" | "notify";
+  /** Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. 'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload {requestId, sessionId, tool, summary, title, timeoutSec}: show a notification that names the job; the request itself is in approval.pending. */
+  kind: "started" | "finished" | "failed" | "denied" | "deleted" | "updated" | "waiting_for_host" | "missed" | "notify" | "approval_needed";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
 }

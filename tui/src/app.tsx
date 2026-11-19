@@ -893,8 +893,11 @@ export function App({
   }, [client]);
 
   const refreshApprovals = useCallback(() => {
+    // 1.68.0 (jobApprovals): the whole shared queue, not this session's
+    // part of it: a scheduled run's request belongs to no session a person has
+    // open, and narrowing by session hid it from every TUI.
     void client
-      .listApprovals(sessionId)
+      .listApprovals()
       .then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] }))
       .catch(() => {
         /* approval.list is advisory; a failure must not block the session. */

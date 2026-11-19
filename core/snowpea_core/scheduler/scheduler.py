@@ -23,7 +23,13 @@ Three details are worth knowing:
     The session has no origin connection, so ``unattended=True`` flows into the
     agent loop and any approval goes to the shared queue.  An approval that
     times out ends the turn with ``error{code:"approval_timeout"}``, which is
-    what turns ``last_status`` into ``denied_by_timeout`` (AC-20).
+    what turns ``last_status`` into ``denied_by_timeout`` (AC-20).  Since
+    1.68.0 (``jobApprovals``) the request names its job (``ApprovalRequest.job``,
+    ``job.event approval_needed``), waits ``scheduler.approvalTimeoutSec`` (or
+    the job's own), and the run records what it waited for ("approval needed:
+    shell `git fetch`") as its ``error``.  A person's "always in this routine"
+    (scope ``task``) and ``job.update addGrants`` are the job's *grants*
+    (``scheduler/grants.py``), handed to each run's session.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
 
 from snowpea_core.config.settings import SchedulerSettings
+from snowpea_core.scheduler.grants import MAX_GRANTS
 from snowpea_core.scheduler.jobs import (
     CreatedVia,
     Job,
@@ -102,6 +109,12 @@ def run_context(job: Job, scheduled_ts: datetime, trigger: Trigger) -> dict[str,
     }
 
 
+#: ``approval.answered`` ``by`` of a request nobody answered.
+UNANSWERED_BY: frozenset[str] = frozenset({"timeout", "origin-timeout"})
+
+#: ``job.event`` kind of a run waiting for a person (1.68.0).
+APPROVAL_NEEDED = "approval_needed"
+
 FINISH_KINDS: dict[str, str] = {
     "ok": "finished",
     "denied_by_timeout": "denied",
@@ -122,6 +135,25 @@ def _run_error(status: str, text: str) -> str | None:
     return clipped or status
 
 
+def _job_title(job: Job) -> str:
+    """The job's name for a card and a notification: its title, else its task."""
+    if job.title:
+        return job.title
+    task = " ".join(job.task.split())
+    return task if len(task) <= 60 else task[:59] + "…"
+
+
+def _merged(kept: list[dict[str, Any]], added: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``kept`` plus ``added`` without repeats, at most ``MAX_GRANTS`` (newest kept)."""
+    from snowpea_core.scheduler.grants import same
+
+    out = list(kept)
+    for grant in added:
+        if not any(same(grant, old) for old in out):
+            out.append(grant)
+    return out[-MAX_GRANTS:]
+
+
 #: Consecutive failed runs after which a repeating job pauses itself.
 PAUSE_AFTER_FAILURES = 3
 
@@ -140,6 +172,10 @@ class _Collector:
         self.texts: list[str] = []
         self.error_codes: list[str] = []
         self.reason: str | None = None
+        #: requestId -> ``(tool, summary)`` of each approval the run asked (1.68.0).
+        self.asked: dict[str, tuple[str, str]] = {}
+        #: Approvals nobody answered: ``(tool, summary, waited seconds)``.
+        self.unanswered: list[tuple[str, str, int]] = []
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if method != "session.event":
@@ -154,6 +190,29 @@ class _Collector:
             self.error_codes.append(str(payload.get("code") or ""))
         elif kind == "turn.done":
             self.reason = str(payload.get("reason") or "")
+        elif kind == "approval.asked":
+            self.asked[str(payload.get("requestId") or "")] = (
+                str(payload.get("tool") or ""), str(payload.get("summary") or ""))
+        elif kind == "approval.answered" and payload.get("by") in UNANSWERED_BY:
+            tool, summary = self.asked.get(
+                str(payload.get("requestId") or ""), (str(payload.get("tool") or ""), ""))
+            waited = int(payload.get("waitedMs") or 0) // 1000
+            self.unanswered.append((tool, summary, waited))
+
+    def approval_reason(self) -> str | None:
+        """``approval needed: shell `git fetch` …`` for a run nobody answered (1.68.0)."""
+        if not self.unanswered:
+            return None
+        tool, summary, waited = self.unanswered[0]
+        what = f"{tool} `{summary}`" if summary else tool
+        minutes = max(1, round(waited / 60)) if waited else None
+        within = f" within {minutes} min" if minutes else ""
+        return (
+            f"approval needed: {what} — nobody answered{within}, so it was not run. "
+            "Open the run to see it; allow it \"always in this routine\" on the card of "
+            "the next run (Run now), add it to the routine's allowed commands, or set "
+            "the routine's mode to auto."
+        )
 
     @property
     def final_text(self) -> str:
@@ -184,6 +243,8 @@ class Scheduler:
         self._stopping = False
         #: Jobs currently executing, so a tick never stacks runs of one job.
         self._running: set[str] = set()
+        #: Job id -> why its finishing run waited in vain (1.68.0).
+        self._approval_reasons: dict[str, str] = {}
 
     # -- lifecycle -----------------------------------------------------
     @property
@@ -241,8 +302,14 @@ class Scheduler:
         target_data: dict[str, Any] | None = None,
         timezone: str | None = None,
         created_by: str | None = None,
+        grants: list[dict[str, Any]] | None = None,
+        approval_timeout_sec: int | None = None,
     ) -> Job:
-        """Parse ``spec``, store the job and return it. ``ValueError`` if unparseable."""
+        """Parse ``spec``, store the job and return it. ``ValueError`` if unparseable.
+
+        ``grants`` (1.68.0) are already-built grants (``scheduler/grants.py``):
+        whoever passes them judged that a person gave them.
+        """
         if not task.strip():
             raise ValueError("a scheduled job needs a task to run")
         parsed: Spec = parse_spec(spec)
@@ -265,6 +332,10 @@ class Scheduler:
         job.title = (title or "").strip() or None
         job.target, job.target_data = target, target_data
         job.timezone = parsed.tz
+        if grants:
+            job.grants = list(grants)[-MAX_GRANTS:]
+        if approval_timeout_sec:
+            job.approval_timeout_sec = int(approval_timeout_sec)
         if meta is not None:
             job.meta, job.owner_client_id = dict(meta), owner_client_id
         if host_tools_from:
@@ -429,8 +500,16 @@ class Scheduler:
         title: str | None = None,
         timezone: str | None = None,
         target_data: dict[str, Any] | None = None,
+        mode: Mode | None = None,
+        add_grants: list[dict[str, Any]] | None = None,
+        remove_grants: list[str] | None = None,
+        approval_timeout_sec: int | None = None,
     ) -> Job | None:
         """Patch a job; ``None`` for an unknown one, ``ValueError`` for a bad spec.
+
+        ``mode``, ``add_grants``, ``remove_grants`` and ``approval_timeout_sec``
+        (1.68.0): the caller judged who may (``job_handlers``); ``0`` for the
+        timeout goes back to the setting.
 
         ``task`` replaces the prompt later runs get and ``title`` the job's short
         name, ``""`` removing it (1.33.0).
@@ -466,6 +545,15 @@ class Scheduler:
             job.catch_up_window_min = max(0, int(catch_up_window_min))
         if host_wait_sec is not None:
             job.host_wait_sec = max(0, int(host_wait_sec))
+        if mode is not None:
+            job.mode = mode
+        if remove_grants:
+            gone = set(remove_grants)
+            job.grants = [g for g in job.grants if g.get("id") not in gone]
+        if add_grants:
+            job.grants = _merged(job.grants, add_grants)
+        if approval_timeout_sec is not None:
+            job.approval_timeout_sec = int(approval_timeout_sec) or None
         if enabled is False:
             job.enabled = False
             job.state = "cancelled"
@@ -479,8 +567,37 @@ class Scheduler:
             job.state = "scheduled"
         await self.store.update(job)
         await self.refresh_counter()
+        if add_grants is not None or remove_grants is not None:
+            self._share_grants(job)
         await self._emit(job.id, "updated", {"nextRunAt": iso(job.next_run)})
         return job
+
+    async def add_grant(self, job_id: str, grant: dict[str, Any]) -> Job | None:
+        """Keep a grant a person gave on a run's card ("always in this routine")."""
+        job = await self.store.get(job_id)
+        if job is None:
+            return None
+        job.grants = _merged(job.grants, [grant])
+        await self.store.update(job)
+        self._share_grants(job)
+        await self._emit(job.id, "updated", {"nextRunAt": iso(job.next_run)})
+        log.info("job %s: %s allowed for the routine (%s)", job.id, grant.get("display"),
+                 grant.get("by"))
+        return job
+
+    def _share_grants(self, job: Job) -> None:
+        """A live run of ``job`` follows its grants at once (its next call)."""
+        sessions = getattr(self.core, "sessions", None)
+        live = sessions.all() if sessions is not None and hasattr(sessions, "all") else ()
+        for session in live:
+            ref = getattr(session, "job_ref", None)
+            if isinstance(ref, dict) and ref.get("id") == job.id:
+                session.job_grants = list(job.grants)
+
+    def approval_timeout(self, job: Job) -> int:
+        """How long a run of ``job`` waits for a person's approval (1.68.0)."""
+        own = job.approval_timeout_sec
+        return max(1, int(own if own else getattr(self.settings, "approvalTimeoutSec", 900)))
 
     async def next_run_for_client(self, client_id: str) -> datetime | None:
         """When a host should be up: its earliest held or upcoming run (addendum 11)."""
@@ -526,8 +643,15 @@ class Scheduler:
         if status != "ok":
             # What a failed run says can quote a URL with a key in its query.
             text = errors.redact_url_queries(text)
+        waited = self._approval_reasons.pop(job.id, None)
+        if waited and status != "ok":
+            # 1.68.0: what the run waited for, before what the agent said of it.
+            waited = errors.redact_url_queries(waited)
+            text = f"{waited}\n\n{text}".strip() if text else waited
         await self.store.finish(
-            job.id, scheduled_ts, status, session_id, error=_run_error(status, text)
+            job.id, scheduled_ts, status, session_id,
+            error=_run_error(status, waited or text) if waited and status != "ok"
+            else _run_error(status, text),
         )
         await self.deliver(job, text or f"(job {job.id} produced no output)")
         await self._advance(job, scheduled_ts, status=status, advance=advance)
@@ -624,6 +748,12 @@ class Scheduler:
         # The contract calls these sessions unattended; the flag is what the
         # gateway and approval code read when they need to know (contract §2).
         session.unattended = True
+        if owned:
+            # 1.68.0 (jobApprovals): the approval queue names the job on the
+            # card, waits the job's time, and the policy reads its grants.
+            session.job_ref = {"id": job.id, "title": _job_title(job),
+                               "timeoutSec": self.approval_timeout(job)}
+            session.job_grants = list(job.grants)
         if job.host_tools_from:
             session.host_tools_from = job.host_tools_from
         collector = _Collector()
@@ -651,6 +781,9 @@ class Scheduler:
                 with contextlib.suppress(Exception):
                     await core.sessions.close(session.id)
             core.lifecycle.set_counter("sessions", len(core.sessions))
+        reason = collector.approval_reason()
+        if reason:
+            self._approval_reasons[job.id] = reason
         return collector.status(), collector.final_text, session.id
 
     async def _wait_for_host(self, job: Job) -> bool:
@@ -785,4 +918,5 @@ class Scheduler:
         self.store.close()
 
 
-__all__ = ["FINISH_KINDS", "LOG_CHANNEL", "NOTIFY", "Scheduler", "run_context"]
+__all__ = ["APPROVAL_NEEDED", "FINISH_KINDS", "LOG_CHANNEL", "NOTIFY", "Scheduler",
+           "run_context"]

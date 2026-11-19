@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.scheduler.nl_parse import Kind, Spec
-from snowpea_core.server.protocol import JobInfo, Mode
+from snowpea_core.server.protocol import JobGrant, JobInfo, Mode
 
 JobStatus = Literal["ok", "error", "denied_by_timeout"]
 JobState = Literal["scheduled", "running", "cancelled"]
@@ -153,6 +153,11 @@ class Job(BaseModel):
     target_data: dict[str, Any] | None = None
     #: IANA zone the job's cron clock times are read in; ``None`` = daemon-local.
     timezone: str | None = None
+    #: What its runs may do without asking (1.68.0, ``scheduler/grants.py``):
+    #: answered "task" on a run's card, or given with job.schedule / job.update.
+    grants: list[dict[str, Any]] = Field(default_factory=list)
+    #: How long a run's approval waits; ``None`` = scheduler.approvalTimeoutSec.
+    approval_timeout_sec: int | None = None
 
     @property
     def owned(self) -> bool:
@@ -241,6 +246,8 @@ class Job(BaseModel):
             meta=self.meta if owner else None,
             ownerClientId=self.owner_client_id if owner else None,
             fingerprint=self.fingerprint() if owner else None,
+            grants=[JobGrant.model_validate(_wire_grant(g)) for g in self.grants],
+            approvalTimeoutSec=self.approval_timeout_sec,
         )
 
     def row(self) -> tuple[Any, ...]:
@@ -280,6 +287,10 @@ class Job(BaseModel):
             data.update(target=self.target, targetData=self.target_data)
         if self.timezone:
             data["timezone"] = self.timezone
+        if self.grants:
+            data["grants"] = self.grants
+        if self.approval_timeout_sec:
+            data["approvalTimeoutSec"] = self.approval_timeout_sec
         if data == {"catchUpWindowMinutes": 60}:
             return None
         return json.dumps(data)
@@ -337,7 +348,20 @@ def _options_of(row: sqlite3.Row) -> dict[str, Any]:
             options["target_data"] = data["targetData"]
     if data.get("timezone"):
         options["timezone"] = str(data["timezone"])
+    if isinstance(data.get("grants"), list):
+        options["grants"] = [g for g in data["grants"] if isinstance(g, dict) and g.get("id")]
+    if isinstance(data.get("approvalTimeoutSec"), int) and data["approvalTimeoutSec"] > 0:
+        options["approval_timeout_sec"] = int(data["approvalTimeoutSec"])
     return options
+
+
+def _wire_grant(grant: dict[str, Any]) -> dict[str, Any]:
+    """A stored grant as ``JobGrant`` (its folder stays in the store)."""
+    keys = ("id", "tool", "kind", "pattern", "line", "display", "by", "createdAt")
+    out = {k: grant.get(k) for k in keys if grant.get(k) is not None}
+    out.setdefault("display", str(grant.get("line") or grant.get("pattern") or grant.get("tool")))
+    out.setdefault("by", "approval")
+    return out
 
 
 #: Aliases so the annotations below still mean the builtin ``list`` even

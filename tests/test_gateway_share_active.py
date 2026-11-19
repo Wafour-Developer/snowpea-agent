@@ -439,3 +439,34 @@ async def test_another_sessions_approval_is_not_shared(
         await ide.stop()
     finally:
         await daemon.stop()
+
+
+async def test_a_scheduled_runs_approval_goes_to_the_private_chat_named_by_its_routine(
+    share_env: None, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """1.68.0 (jobApprovals): a routine's run is never the active session, and
+    nobody is at a screen when it fires; its request still reaches the person."""
+    daemon = await make_daemon(tmp_path / "home")
+    try:
+        ide = await connect(http, daemon)
+        core = _core(daemon)
+        run_id = await _ide_session(ide, tmp_path)
+        adapter = await _bind(ide, tmp_path)
+        session = core.sessions.get(run_id)
+        assert session is not None and core.sessions.active_id != run_id
+        session.unattended = True
+        session.job_ref = {"id": "j-sync", "title": "morning sync", "timeoutSec": 30}
+
+        asking = asyncio.ensure_future(core.approvals.request(
+            session, "shell", {"command": "git fetch"}, unattended=True))
+        sent = await adapter.wait_for_send(TIMEOUT)
+        assert sent.text.startswith("[routine: morning sync]")
+        assert "git fetch" in sent.text and sent.buttons
+        assert sent.channel_id == OWNER
+        [request] = core.approvals.for_job("j-sync")
+        assert request.timeoutSec == 30
+        await core.approvals.respond(request.requestId, "deny", by="gateway:telegram:u1")
+        assert not (await asyncio.wait_for(asking, TIMEOUT)).allowed
+        await ide.stop()
+    finally:
+        await daemon.stop()

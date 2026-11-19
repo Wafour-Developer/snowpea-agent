@@ -38,6 +38,7 @@ from snowpea_core.server.protocol import (
     JobScheduleParams,
     JobScheduleResult,
     JobUpdateParams,
+    JobWaitingApproval,
     Ok,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
@@ -103,6 +104,52 @@ async def _guard(conn: RpcConnection, core: Core, job_id: str, action: str) -> N
     await access.guard_job(core, snapshot(conn), job_id, action)
 
 
+def _grant_refusal(conn: RpcConnection, actor: str | None, person_confirm: str | None,
+                   core: Core, method: str) -> None:
+    """Only a person pre-approves what a routine runs (1.68.0, ``jobApprovals``).
+
+    A grant runs unasked with nobody watching, so it is held like a typed
+    allowlist rule: a local IDE/TUI connection, or a local browser 0.4.0+ whose
+    own confirmation window confirmed it (``actor: "person"`` + ``personConfirm:
+    "window"``).  A remote web login, a connector and an in-process caller
+    (Jarvis, the model) are refused with ``jarvis_person_only``.
+    """
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.person_gate import connection_kind
+
+    what = "allow commands for a scheduled routine"
+    kind = connection_kind(conn)
+    if kind == "person":
+        return
+    if kind == "remote_login":
+        settings_gate.refuse_local_only(conn, core, what, method=method, detail="grants")
+    if kind == "browser":
+        if settings_gate.browser_remote(conn):
+            settings_gate.refuse(conn, what, reason=settings_gate.BROWSER_REMOTE)
+        if not settings_gate.browser_confirms(conn):
+            settings_gate.refuse(conn, what, reason=settings_gate.BROWSER_LEGACY)
+        if (actor != settings_gate.ACTOR_PERSON
+                or person_confirm != settings_gate.PERSON_CONFIRM_WINDOW):
+            settings_gate.refuse(conn, what, reason=settings_gate.BROWSER_UNCONFIRMED)
+        return
+    settings_gate.refuse(conn, what)
+
+
+def _built_grants(inputs: Any) -> list[dict[str, Any]]:
+    """``JobGrantInput`` items as stored grants; ``invalid_params`` names a bad one."""
+    from snowpea_core.config.paths import utc_now
+    from snowpea_core.scheduler.grants import BAD_GRANT, from_input
+
+    out: list[dict[str, Any]] = []
+    for index, item in enumerate(inputs or ()):
+        try:
+            out.append(from_input(item.tool, item.pattern, item.line, now=utc_now()))
+        except ValueError as exc:
+            raise RpcError(errors.INVALID_PARAMS, f"grant {index + 1}: {exc}",
+                           {"reason": BAD_GRANT, "index": index}) from exc
+    return out
+
+
 #: Re-exported: the rules live in ``scheduler/access.py`` (security review 7, M-2).
 REMOTE_LOGIN_ANY_JOB = access.REMOTE_LOGIN_ANY_JOB
 REMOTE_LOGIN_JOB_CHANNELS = access.REMOTE_LOGIN_JOB_CHANNELS
@@ -133,6 +180,10 @@ async def job_schedule_handler(
     if params.meta is not None:
         owner = _owner_id(conn)
         _check_meta(params.meta)
+    grants = None
+    if params.grants:
+        _grant_refusal(conn, params.actor, params.personConfirm, core, "job.schedule")
+        grants = _built_grants(params.grants)
     try:
         job = await access.schedule_job(
             core,
@@ -140,7 +191,9 @@ async def job_schedule_handler(
             params.spec,
             params.task,
             via="rpc",
-            mode=(template.mode if template and template.mode else params.mode),
+            # An explicit mode wins; none: the routine default for this maker (1.68.0).
+            mode=(template.mode if template and template.mode else params.mode)
+            or access.default_job_mode(core, snapshot(conn, params.actor)),
             channel=params.channel,
             agent=(template.agent if template and template.agent else params.agent),
             workdir=params.workdir,
@@ -150,6 +203,8 @@ async def job_schedule_handler(
             meta=params.meta,
             owner_client_id=owner,
             title=params.title,
+            grants=grants,
+            approval_timeout_sec=params.approvalTimeoutSec,
         )
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
@@ -194,8 +249,28 @@ async def job_list_handler(conn: RpcConnection, _params: Empty, core: Core) -> J
         held = await scheduler.store.held_run(job.id)
         if held is not None:
             info.held = JobHeldRun(status=held["status"], scheduledAt=held["scheduled_ts"])
+        await _with_last_run(core, scheduler, job, info)
         rows.append(info)
     return JobListResult(jobs=rows)
+
+
+async def _with_last_run(core: Core, scheduler: Any, job: Job, info: JobInfo) -> None:
+    """``lastError``, ``lastSessionId`` and ``waitingApproval`` (1.68.0)."""
+    from snowpea_core.session.events import call_summary
+
+    for row in await scheduler.store.runs(job.id, limit=3):
+        if row.get("status") in ("ok", "error", "denied_by_timeout"):
+            info.lastSessionId = row.get("session_id")
+            info.lastError = row.get("error") if row.get("status") != "ok" else None
+            break
+    approvals = getattr(core, "approvals", None)
+    waiting = approvals.for_job(job.id) if approvals is not None else []
+    if waiting:
+        request = waiting[0]
+        summary = request.tool if request.argsEscaped else call_summary(request.args)
+        info.waitingApproval = JobWaitingApproval(
+            requestId=request.requestId, sessionId=request.sessionId, tool=request.tool,
+            summary=summary, timeoutSec=request.timeoutSec)
 
 
 async def job_cancel_handler(conn: RpcConnection, params: JobIdParams, core: Core) -> Ok:
@@ -263,6 +338,20 @@ async def job_update_handler(
     """``job.update`` — a partial, validated patch of an existing job."""
     await _guard(conn, core, params.jobId, "update")
     template = params.sessionTemplate
+    add_grants = None
+    if params.addGrants:
+        _grant_refusal(conn, params.actor, params.personConfirm, core, "job.update")
+        add_grants = _built_grants(params.addGrants)
+    if params.mode is not None:
+        # The mode later runs start in: a raise is a person's, as at job.schedule.
+        from snowpea_core.server.person_gate import snapshot
+        from snowpea_core.session import mode_guard
+
+        current = await services(core).get(params.jobId)
+        if current is not None and current.mode != params.mode:
+            mode_guard.check(mode_guard.ModeCaller.from_conn(snapshot(conn, params.actor)),
+                             None, current.mode, params.mode,
+                             settings=getattr(core, "settings", None))
     try:
         job = await services(core).update(
             params.jobId,
@@ -272,12 +361,18 @@ async def job_update_handler(
             schedule=params.schedule,
             task=params.task,
             title=params.title,
+            mode=params.mode,
+            add_grants=add_grants,
+            remove_grants=params.removeGrants,
+            approval_timeout_sec=params.approvalTimeoutSec,
         )
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     if job is None:
         raise RpcError(errors.INVALID_PARAMS, f"no such job: {params.jobId}")
-    return job.info(owner=_is_owner(conn, job))
+    info = job.info(owner=_is_owner(conn, job))
+    await _with_last_run(core, services(core), job, info)
+    return info
 
 
 async def job_runs_handler(

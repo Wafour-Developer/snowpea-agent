@@ -55,6 +55,35 @@ def _is_owner(who: Any, job: Job) -> bool:
     )
 
 
+#: The mode a routine starts in when its maker names none and the checks are on,
+#: or the maker is not a person (the model's schedule_create, a connector, a
+#: remote web login, an in-process caller).
+DEFAULT_JOB_MODE = "accept"
+
+
+def default_job_mode(core: Any, who: Any) -> str:
+    """The mode a routine gets when its maker names none (owner decision 2026-11-19).
+
+    While the security checks are off (the 1.66.0 default), a routine a person
+    makes directly runs in ``auto``: a local person's own connection (the
+    desktop or TUI form, ``/schedule``), or a browser with ``actor: "person"``.
+    Otherwise :data:`DEFAULT_JOB_MODE`.  An explicit mode always wins, and a
+    raise still passes :mod:`~snowpea_core.session.mode_guard` in
+    :func:`schedule_job`.
+    """
+    from snowpea_core.security import enforce
+    from snowpea_core.server.settings_gate import ACTOR_PERSON
+
+    if enforce.enabled(getattr(core, "settings", None)):
+        return DEFAULT_JOB_MODE
+    kind = getattr(who, "kind", "none")
+    if kind == "person":
+        return "auto"
+    if kind == "browser" and getattr(who, "actor", None) == ACTOR_PERSON:
+        return "auto"
+    return DEFAULT_JOB_MODE
+
+
 async def schedule_job(
     core: Any,
     who: Any,
@@ -150,9 +179,11 @@ async def guard_job(core: Any, who: Any, job_id: str, action: str) -> Job | None
 
 
 __all__ = [
+    "DEFAULT_JOB_MODE",
     "REMOTE_LOGIN_ANY_JOB",
     "REMOTE_LOGIN_JOB_CHANNELS",
     "created_by",
+    "default_job_mode",
     "guard_job",
     "schedule_job",
 ]

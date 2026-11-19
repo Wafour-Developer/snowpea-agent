@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.67.0` (semver)
+- **Protocol version:** `1.68.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.67.0"
+    "protocolVersion": "1.68.0"
   }
 }
 ```
@@ -78,6 +78,7 @@ Server capabilities advertised in the `system.hello` result:
 - `jarvisDelegation`
 - `jarvisRemoteGrant`
 - `jarvisSessionSwitch`
+- `jobApprovals`
 - `jobRuns`
 - `lineage`
 - `llmSample`
@@ -502,7 +503,7 @@ Escalate one host action through the approval pipeline. The approver's approval.
 |---|---|---|---|
 | `by` | `string` | no | Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), 'readOnly' (a read-only delegation refuses changes and never asks; 1.14.0), or 'timeout' / 'interrupted' (denied without an answer). |
 | `decision` | `"allow" \| "deny"` | yes | allow or deny. |
-| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate); 'always' for a page action only for repl.tabs, repl.clipboard and (1.13.0) repl.read and repl.attach, others are kept to 'once'. For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| "task"` | no | Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate); 'always' for a page action only for repl.tabs, repl.clipboard and (1.13.0) repl.read and repl.attach, others are kept to 'once'. For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. |
 
 ### `approval.evaluate`
 
@@ -544,7 +545,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; blocked?: { by: string; kind?: string \| null; match?: string \| null; why: string; } \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; argsEscaped?: boolean \| null; blocked?: { by: string; kind?: string \| null; match?: string \| null; why: string; } \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; job?: { id: string; title?: string \| null; } \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site" \| "task"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -564,6 +565,7 @@ Ask the client to approve a tool call.
 | `externalTerminal` | `{ pane: string; text: string; } \| null` | no | Set when the prompt was read off the person's tmux pane (1.56.0, externalTmux): the CLI asked in its terminal, not on a wire. An answer is sent there as the CLI's own key, and only while the same prompt is still on screen; tool/args are the pending call the CLI's transcript names, or tool 'terminal.prompt' with args {question} (then personOnly). |
 | `folder` | `string \| null` | no | For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. |
 | `guard` | `string \| null` | no | Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. |
+| `job` | `{ id: string; title?: string \| null; } \| null` | no | 1.68.0 (jobApprovals): the request comes from a run of this scheduled job (a routine), with nobody watching: it is in the shared queue (approval.pending to every surface, the messenger's private chat when one is bound) and waits settings scheduler.approvalTimeoutSec (or the job's approvalTimeoutSec). The card may offer scope 'task': remembered for this job across its runs (JobInfo.grants). Null otherwise. |
 | `neverDelegable` | `boolean \| null` | no | True when only a person may decide this request (1.54.0): it is personOnly, or the delegation engine classifies it 'never' (snowpea's own settings and secrets, the snowpea CLI, delegation changes, …), or the security lists cannot check it. Clients label it "always asks you". Null otherwise; additive and informational: core enforces it whatever the client shows. |
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `paths` | `string[] \| null` | no | With reasonCode: the resolved absolute paths concerned (1.30.0). |
@@ -574,7 +576,7 @@ Ask the client to approve a tool call.
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
 | `risk` | `string` | no | Risk hint for the UI. |
 | `route` | `"person" \| "jarvis" \| "auto" \| null` | no | Who the delegation engine routed it to while Jarvis mode is on (1.53.0): person (wait for a human, as before), jarvis (the Jarvis session decides; a person may still answer first) or auto (allowed by the engine, shown for the record). Null when Jarvis mode is off. |
-| `scopeHint` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the UI should preselect. |
+| `scopeHint` | `"once" \| "session" \| "project" \| "always" \| "site" \| "task"` | no | Scope the UI should preselect. |
 | `sessionId` | `string` | yes | Session whose turn is blocked. |
 | `site` | `string \| null` | no | Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). |
 | `timeoutSec` | `number` | no | Seconds before the request is dropped as unanswered; 0 means no limit (1.35.0: a TUI or desktop session waits for its person). |
@@ -589,7 +591,7 @@ Ask the client to approve a tool call.
 | `decision` | `"allow" \| "deny"` | yes | The human's decision. |
 | `personConfirm` | `"window" \| null` | no | 1.61.0 (browserPersonApprovals): a browser host 0.4.0 or later sets 'window' when the person confirmed this answer in the browser's own native window (not a page click). With actor 'person' it is what lets a local browser allow a personOnly security ask (blocked, or reason set) of a session it owns, hosts or asked (a subagent's by its parents); the allow applies once (a script grant keeps its scope). Without it, from a browser before 0.4.0, from a remote browser, for another session or for any other personOnly request (delegation_set, a mode raise, a schedule, tmux.adopt, an external CLI's, a Jarvis-routed one) the allow is refused with jarvis_person_only and details.reason browser_unconfirmed, browser_legacy, browser_remote, browser_not_owner or browser_not_allowed (RequestRefusal.reason). Ignored for other kinds. |
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
-| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | How long the decision applies. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| "task"` | no | How long the decision applies. |
 
 ### `approval.respond`
 
@@ -608,14 +610,14 @@ Answer a pending approval and unblock the turn.
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
 | `reauth` | `string \| null` | no | 1.56.0: the remote sign-in password again, to allow Jarvis's delegation_set proposal from a remote web login while settings jarvis.delegation.remoteGrant is on (session or project scope, no guarded classes, at most 24 h). Checked like a sign-in and counted with its failures; never stored, logged or echoed. Ignored on every other answer. |
 | `requestId` | `string` | yes | Request being answered. |
-| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | How long the decision applies. From a remote web login (and a connector) an allow never stores a rule (1.55.0): 'project', 'always' and 'site' are applied as 'session'; the result's scope and approval.resolved say what applied. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| "task"` | no | How long the decision applies. From a remote web login (and a connector) an allow never stores a rule (1.55.0): 'project', 'always' and 'site' are applied as 'session'; the result's scope and approval.resolved say what applied. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
-| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| null` | no | The scope that applies to this answer (as ApprovalResolvedNotification.scope); null for a deny or when the request had already been answered. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| "task" \| null` | no | The scope that applies to this answer (as ApprovalResolvedNotification.scope); null for a deny or when the request had already been answered. |
 
 ### `audio.capabilities`
 
@@ -2140,7 +2142,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; createdBy?: "remote_login" \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; target?: string \| null; task: string; timezone?: string \| null; title?: string \| null; })[]` | no | Known jobs. |
+| `jobs` | `({ approvalTimeoutSec?: number \| null; catchUpWindowMinutes?: number; channel?: string \| null; createdBy?: "remote_login" \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; grants?: ({ by: "approval" \| "person"; createdAt?: string \| null; display: string; id: string; kind: "rule" \| "line" \| "tool"; line?: string \| null; pattern?: string \| null; tool: string; })[]; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastError?: string \| null; lastRunAt?: string \| null; lastSessionId?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; target?: string \| null; task: string; timezone?: string \| null; title?: string \| null; waitingApproval?: { requestId: string; sessionId: string; summary: string; timeoutSec: number; tool: string; } \| null; })[]` | no | Known jobs. |
 
 ### `job.nextRunForClient`
 
@@ -2230,9 +2232,12 @@ Schedule a prompt to run unattended.
 |---|---|---|---|
 | `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
 | `agent` | `string \| null` | no | Named agent that runs the task. |
+| `approvalTimeoutSec` | `number \| null` | no | 1.68.0: how long a run's approval waits; null: scheduler.approvalTimeoutSec. |
 | `channel` | `string \| null` | no | Gateway channel that receives the output. One rule for job.schedule, /schedule and the schedule_create tool (1.55.0): a job made by a remote web login — or in a turn one prompted — is createdBy 'remote_login', reports in the app or the log only, and is never above settings web.remote.maxMode. |
+| `grants` | `({ line?: string \| null; pattern?: string \| null; tool?: string; })[] \| null` | no | 1.68.0 (jobApprovals): what every run may do without asking. Only a person: a local IDE/TUI connection, or a local browser 0.4.0+ with actor 'person' and personConfirm 'window'; a remote web login, a connector and Jarvis are refused (jarvis_person_only). The security lists still apply to what a grant covers. |
 | `meta` | `Record<string, unknown> \| null` | no | Opaque data for the host, at most 4 KB of JSON (1.23.0). Only a connection whose system.hello said clientKind 'browser' with a clientId may set it; the job is then owned by that clientId: only it may update, cancel, delete or run it now, see its meta, and no agent tool can change or cancel it. |
-| `mode` | `"plan" \| "accept" \| "auto"` | no | Permission mode for the unattended run. |
+| `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Permission mode for the unattended run. Omitted (1.68.0, jobApprovals; owner decision 2026-11-19): 'auto' while settings security.enabled is false and a person makes the routine directly (a local IDE/TUI connection, or a browser with actor 'person'); else 'accept', as before. A raise still needs a person (mode_guard). |
+| `personConfirm` | `"window" \| null` | no | 1.68.0: a browser's own confirmation window confirmed the grants. |
 | `sessionTemplate` | `{ agent?: string \| null; catchUpWindowMinutes?: number; hostToolsFrom?: string \| null; hostWaitSec?: number; mode?: "plan" \| "accept" \| "auto" \| null; } \| null` | no | Session setup for each run, incl. host tools (1.7.0). |
 | `spec` | `string` | yes | Cron expression or natural-language schedule. |
 | `task` | `string` | yes | Prompt run on each firing. |
@@ -2258,8 +2263,13 @@ Change an existing job (addendum 12).
 | field | type | required | description |
 |---|---|---|---|
 | `actor` | `"person" \| null` | no | Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add\|update\|remove are refused (jarvis_person_only). Ignored for every other connection kind. |
+| `addGrants` | `({ line?: string \| null; pattern?: string \| null; tool?: string; })[] \| null` | no | 1.68.0: grants to add (as JobScheduleParams.grants; a person's only). |
+| `approvalTimeoutSec` | `number \| null` | no | 1.68.0: how long a run's approval waits; 0 goes back to the setting. |
 | `enabled` | `boolean \| null` | no | False pauses the job (no next firing); true resumes it from now on its schedule. |
 | `jobId` | `string` | yes | Job to change. |
+| `mode` | `"plan" \| "accept" \| "auto" \| null` | no | 1.68.0 (jobApprovals): the permission mode later runs start in. A raise (e.g. to 'auto') is a person's, as at job.schedule (jarvis_person_only, mode_raise); a remote web login never above web.remote.maxMode. |
+| `personConfirm` | `"window" \| null` | no | 1.68.0: a browser's own confirmation window confirmed addGrants. |
+| `removeGrants` | `string[] \| null` | no | 1.68.0: grant ids to remove (JobInfo.grants); anyone who may update it. |
 | `schedule` | `string \| null` | no | A new schedule spec, parsed like job.schedule's spec; the next run is recomputed. |
 | `sessionTemplate` | `{ catchUpWindowMinutes?: number \| null; hostWaitSec?: number \| null; } \| null` | no | Template fields to change. |
 | `task` | `string \| null` | no | A new prompt for every later run (1.33.0); it must not be blank. A job with meta gets a new fingerprint. |
@@ -2269,16 +2279,20 @@ Change an existing job (addendum 12).
 
 | field | type | required | description |
 |---|---|---|---|
+| `approvalTimeoutSec` | `number \| null` | no | 1.68.0: its own approval wait; null: settings scheduler.approvalTimeoutSec. |
 | `catchUpWindowMinutes` | `number` | no | How long a held run waits for its host before it is missed. |
 | `channel` | `string \| null` | no | Channel that receives the output. |
 | `createdBy` | `"remote_login" \| null` | no | 'remote_login' when a remote web login (web.remote) scheduled the job over job.schedule; null for every other job (1.55.0). Show it: the job keeps running after that login ends. web.remote.status counts them (remoteJobs). |
 | `createdVia` | `"rpc" \| "tool"` | no | 'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0). |
 | `enabled` | `boolean` | no | False once the job is cancelled or has run out. |
 | `fingerprint` | `string \| null` | no | The fingerprint tool.invoke job carries; only the owner sees it. |
+| `grants` | `({ by: "approval" \| "person"; createdAt?: string \| null; display: string; id: string; kind: "rule" \| "line" \| "tool"; line?: string \| null; pattern?: string \| null; tool: string; })[]` | no | 1.68.0: what its runs may do without asking; job.update removeGrants. |
 | `held` | `{ scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null` | no | The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. |
 | `jobId` | `string` | yes | Job id. |
 | `kind` | `"cron" \| "once" \| "interval"` | no | How the spec repeats: a cron rule, a one-shot, or a fixed interval. |
+| `lastError` | `string \| null` | no | 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. |
 | `lastRunAt` | `string \| null` | no | UTC ISO-8601 time of the last firing, null before the first. |
+| `lastSessionId` | `string \| null` | no | 1.68.0: the session the last run opened, to open it. |
 | `lastStatus` | `"ok" \| "error" \| "denied_by_timeout" \| null` | no | How the last run ended. |
 | `meta` | `Record<string, unknown> \| null` | no | The job's meta; only the owner connection sees it. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | Permission mode for the run. |
@@ -2292,6 +2306,7 @@ Change an existing job (addendum 12).
 | `task` | `string` | yes | Prompt run on each firing. |
 | `timezone` | `string \| null` | no | IANA zone its cron clock times are read in; null is the daemon's (1.53.0). |
 | `title` | `string \| null` | no | The job's short name, when it has one (1.33.0). |
+| `waitingApproval` | `{ requestId: string; sessionId: string; summary: string; timeoutSec: number; tool: string; } \| null` | no | 1.68.0: a run of it waits for a person now (the oldest such request). |
 
 ### `llm.sample`
 
@@ -5380,7 +5395,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
 | `refused` | `{ code: string; message: string; reason: string; } \| null` | no | 1.55.0: set only on the re-announcement to the asking connection after its reply was refused; the request is still open. |
-| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; blocked?: { by: string; kind?: string \| null; match?: string \| null; why: string; } \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; argsEscaped?: boolean \| null; blocked?: { by: string; kind?: string \| null; match?: string \| null; why: string; } \| null; diff?: string \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; externalTerminal?: { pane: string; text: string; } \| null; folder?: string \| null; guard?: string \| null; job?: { id: string; title?: string \| null; } \| null; neverDelegable?: boolean \| null; note?: string; paths?: string[] \| null; personOnly?: boolean \| null; reason?: string \| null; reasonCode?: string \| null; remember?: { display: string; exactLine?: boolean \| null; kind?: "script" \| null; note?: string \| null; pattern: string; scopes: ("project" \| "always")[]; script?: { path: string; sha256: string; } \| null; scripts?: ({ path: string; sha256: string; })[] \| null; } \| null; requestId: string; risk?: string; route?: "person" \| "jarvis" \| "auto" \| null; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site" \| "task"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; uncheckedWhy?: ({ file?: string \| null; line?: number \| null; part: string; reason: string; text: string; })[] \| null; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 
@@ -5390,7 +5405,7 @@ Set the sidebar order (1.47.0).
 | `decision` | `"allow" \| "deny" \| null` | no | The decision that was recorded; null only with outcome 'withdrawn' (1.53.0). |
 | `outcome` | `"withdrawn" \| null` | no | 'withdrawn' (1.53.0, security review 3): the request is no longer this connection's to show — sent only to a browser connection when a request it showed was routed to Jarvis. Nothing was decided; stop showing it. If it is routed back to the person the browser gets approval.pending again. |
 | `requestId` | `string` | yes | Request that was resolved. |
-| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| null` | no | The scope actually applied (1.54.0): once, session, project, always or site — after core's rules (a browser's unmarked widening reply, a person-only request, a shell line with no safe rule are kept to 'once'). Null for a deny and with outcome 'withdrawn'. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site" \| "task" \| null` | no | The scope actually applied (1.54.0): once, session, project, always or site — after core's rules (a browser's unmarked widening reply, a person-only request, a shell line with no safe rule are kept to 'once'). Null for a deny and with outcome 'withdrawn'. |
 
 ### `approval.route.changed`
 
@@ -5540,7 +5555,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `jobId` | `string` | yes | Job the event belongs to. |
-| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "updated" \| "waiting_for_host" \| "missed" \| "notify"` | yes | Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. |
+| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "updated" \| "waiting_for_host" \| "missed" \| "notify" \| "approval_needed"` | yes | Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. 'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload {requestId, sessionId, tool, summary, title, timeoutSec}: show a notification that names the job; the request itself is in approval.pending. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
 ### `lsp.changed`
