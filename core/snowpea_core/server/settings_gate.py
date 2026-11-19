@@ -691,6 +691,8 @@ BROWSER_PERSON_METHODS: frozenset[str] = frozenset({
     "skill.install",  # but the browser's own bundled plugin: see bundled_plugin_problem
     "memory.update", "permission.allowlist.remove", "team.guide.set", "audio.install",
     "lsp.install", "system.reloadSettings",
+    # 1.68.0 (lspToolchainInstall): the handler also wants personConfirm "window".
+    "lsp.toolchain.remove", "lsp.toolchain.cancel",
     # Security review 7, Low 8: removing a team guide is the same class as
     # writing one (it was open to every browser call and to a remote login).
     "team.guide.delete",

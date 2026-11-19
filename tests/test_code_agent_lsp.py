@@ -71,6 +71,15 @@ def _core(tmp_path: Path, lsp: LspSettings | None = None) -> Core:
     return core
 
 
+@pytest.fixture(autouse=True)
+def _own_toolchains(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never look at (or write) the real per-user toolchain directory."""
+    from snowpea_core.lsp import toolchains
+
+    monkeypatch.setenv("SNOWPEA_TOOLCHAINS_DIR", str(tmp_path / "toolchains"))
+    toolchains.forget_sdks()
+
+
 def _script(path: Path, body: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("#!/bin/sh\n" + body)
@@ -253,7 +262,9 @@ async def test_lsp_install_runs_with_auto_install_off_and_reports_each_id(
     async def fake_locate(server: servers.ServerInfo, home: Path, cwd: Any = None) -> Any:
         return None
 
-    async def fake_install(spec: servers.Install, home: Path, *, on_line: Any = None) -> Any:
+    async def fake_install(
+        spec: servers.Install, home: Path, *, on_line: Any = None, **_kw: Any
+    ) -> Any:
         calls.append(spec.package)
         await on_line("added 1 package")
         if spec.package == "pyright":
@@ -309,12 +320,14 @@ async def test_npm_install_resolves_npm_and_installs_typescript_too(
     spec = servers.builtin("typescript").install  # type: ignore[union-attr]
     path, error = await servers.install_server(spec, home)  # type: ignore[arg-type]
     assert error is None
-    assert path == str(home / "lsp" / "node_modules" / ".bin" / "typescript-language-server")
+    prefix = home / "lsp" / "npm" / "typescript-language-server"
+    assert path == str(prefix / "node_modules" / ".bin" / "typescript-language-server")
     assert log.read_text().split() == [
-        "install", "--prefix", str(home / "lsp"), "typescript-language-server", "typescript",
+        "install", "--prefix", str(prefix), "--no-audit", "--no-fund",
+        "--no-update-notifier", "typescript-language-server", "typescript",
     ]
     # Saved to a manifest of its own, so the next npm install does not prune it.
-    assert (home / "lsp" / "package.json").is_file()
+    assert (prefix / "package.json").is_file()
 
 
 @posix_only
@@ -341,8 +354,8 @@ async def test_two_npm_servers_installed_in_a_row_both_stay(
     for name, folder in zip(("pa", "pb"), tarballs, strict=True):
         path, error = await servers.install_server(servers.Install("npm", folder, name), home)
         assert error is None, error
-    bins = home / "lsp" / "node_modules" / ".bin"
-    assert (bins / "pa").exists() and (bins / "pb").exists()
+    for name in ("pa", "pb"):
+        assert servers.which(name, home) is not None
 
 
 async def test_the_edit_budget_does_not_cancel_a_start(
@@ -470,6 +483,7 @@ async def test_dotnet_install_falls_back_to_update(
     _script(
         tools / "dotnet",
         '[ "$1" = --version ] && echo 8.0.132 && exit 0\n'
+        '[ "$1" = --list-sdks ] && echo "8.0.132 [/usr/share/dotnet/sdk]" && exit 0\n'
         f'echo "$@" >> {log}\n'
         '[ "$2" = install ] && echo "already installed" && exit 1\n'
         'printf "#!/bin/sh\\n" > "$4/csharp-ls"; /bin/chmod +x "$4/csharp-ls"\n',

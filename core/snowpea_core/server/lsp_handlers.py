@@ -15,6 +15,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.lsp import servers as lsp_servers
+from snowpea_core.lsp import toolchains
 from snowpea_core.lsp.language import language_id
 from snowpea_core.lsp.manager import manager_for
 from snowpea_core.server import errors
@@ -29,6 +30,10 @@ from snowpea_core.server.protocol import (
     LspRestartResult,
     LspServerStatus,
     LspStatusResult,
+    LspToolchainCancelResult,
+    LspToolchainOffer,
+    LspToolchainParams,
+    LspToolchainRemoveResult,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher, RpcError
 
@@ -38,7 +43,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 log = logging.getLogger("snowpea.lsp.handlers")
 
 #: Methods this module implements.
-HANDLED_METHODS: tuple[str, ...] = ("lsp.status", "lsp.catalog", "lsp.install", "lsp.restart")
+HANDLED_METHODS: tuple[str, ...] = (
+    "lsp.status", "lsp.catalog", "lsp.install", "lsp.restart",
+    "lsp.toolchain.remove", "lsp.toolchain.cancel",
+)
 
 INSTALL_PROGRESS = "lsp.install.progress"
 
@@ -76,9 +84,20 @@ async def lsp_catalog_handler(
     found = await asyncio.gather(
         *(lsp_servers.locate(effective or server, home) for server, effective in rows)
     )
+    missing = await asyncio.gather(
+        *(
+            lsp_servers.missing_toolchain(server) if hit is None else _none()
+            for (server, _effective), hit in zip(rows, found, strict=True)
+        )
+    )
     entries = []
-    for (server, effective), hit in zip(rows, found, strict=True):
+    for (server, effective), hit, toolchain in zip(rows, found, missing, strict=True):
         path = hit[0] if hit else None
+        reasons: dict[str, Any] = {}
+        needs = None if path else lsp_servers.needs(server)
+        if toolchain is not None:
+            reasons = toolchains.reason_fields(toolchain)
+            needs = toolchains.TOOLCHAINS[toolchain].needs
         entries.append(
             LspCatalogEntry(
                 id=server.id,
@@ -90,10 +109,46 @@ async def lsp_catalog_handler(
                 available=path is not None,
                 path=path,
                 managed=lsp_servers.is_managed(path, home),
-                needs=None if path else lsp_servers.needs(server),
+                needs=needs,
+                **reasons,
             )
         )
     return LspCatalogResult(servers=entries)
+
+
+async def _none() -> None:
+    return None
+
+
+def _toolchain_gate(
+    conn: RpcConnection | None,
+    what: str,
+    actor: str | None,
+    person_confirm: str | None,
+    *,
+    confirm: bool = True,
+) -> None:
+    """Who may download, remove (``confirm``) or stop a toolchain (1.68.0).
+
+    A local person (IDE, TUI, CLI); a local browser 0.4.0+ with ``actor:
+    "person"`` and, for a download or removal, ``personConfirm: "window"``.
+    Never a remote web login, a connector, Jarvis or an in-process caller —
+    a model's tool cannot start a download without its person.
+    """
+    from snowpea_core.server import settings_gate
+    from snowpea_core.server.person_gate import connection_kind, require_person
+
+    if connection_kind(conn) == "browser":
+        if settings_gate.browser_remote(conn):
+            settings_gate.refuse(conn, what, reason=settings_gate.BROWSER_REMOTE)
+        if not settings_gate.browser_confirms(conn):
+            settings_gate.refuse(conn, what, reason=settings_gate.BROWSER_LEGACY)
+        if actor != settings_gate.ACTOR_PERSON or (
+            confirm and person_confirm != settings_gate.PERSON_CONFIRM_WINDOW
+        ):
+            settings_gate.refuse(conn, what, reason=settings_gate.BROWSER_UNCONFIRMED)
+        return
+    require_person(conn, what, local=True)
 
 
 async def lsp_install_handler(
@@ -107,6 +162,8 @@ async def lsp_install_handler(
     installed, ``lsp.changed`` follows and missing servers are tried again.
     """
     _refuse_gateway(conn, "lsp.install")
+    if params.withToolchain:
+        _toolchain_gate(conn, "install a toolchain", params.actor, params.personConfirm)
     manager = manager_for(core)
     home = core.paths.home
     if params.ids is None:
@@ -155,6 +212,23 @@ async def lsp_install_handler(
             )
             continue
         spec = server.install
+        toolchain = await lsp_servers.missing_toolchain(server)
+        info = toolchains.TOOLCHAINS.get(toolchain) if toolchain else None
+        if toolchain is not None and not (params.withToolchain and info and info.auto):
+            offer = (
+                LspToolchainOffer(**await toolchains.offer(toolchain))
+                if info and info.auto else None
+            )
+            results.append(
+                LspInstallItem(
+                    id=server_id,
+                    ok=False,
+                    error=f"needs {info.needs if info else toolchain}",
+                    needsToolchain=offer,
+                    **toolchains.reason_fields(toolchain),
+                )
+            )
+            continue
         await publish(
             {
                 "id": server_id,
@@ -162,21 +236,112 @@ async def lsp_install_handler(
                 "line": lsp_servers.install_hint(spec),
             }
         )
+        if toolchain is not None:
+            failed = await _install_toolchain(toolchain, server_id, publish)
+            if failed is not None:
+                await publish(
+                    {"id": server_id, "stage": "done", "ok": False, "error": failed.error}
+                )
+                results.append(failed)
+                continue
 
         async def on_line(line: str, server_id: str = server_id) -> None:
-            await publish({"id": server_id, "stage": "output", "line": line[:500]})
+            await publish(
+                {"id": server_id, "stage": "output", "line": line[:500], "phase": "server"}
+            )
 
         log.info("lsp.install %s (%s)", server_id, spec.package)
-        path, error = await lsp_servers.install_server(spec, home, on_line=on_line)
+        details: dict[str, Any] = {}
+        path, error = await lsp_servers.install_server(
+            spec, home, on_line=on_line, details=details
+        )
         ok = path is not None
         await publish({"id": server_id, "stage": "done", "ok": ok, "error": error})
         results.append(
-            LspInstallItem(id=server_id, ok=ok, path=path, error=error, installed=True)
+            LspInstallItem(
+                id=server_id,
+                ok=ok,
+                path=path,
+                error=error,
+                installed=True,
+                **({} if ok else details),
+            )
         )
     if any(item.ok for item in results):
         # Installed now, or by hand before the click: either way, look again.
         manager.invalidate()
     return LspInstallResult(results=results)
+
+
+async def _install_toolchain(
+    name: str, server_id: str, publish: Any
+) -> LspInstallItem | None:
+    """Install toolchain ``name`` for ``server_id``: ``None``, or the failed item."""
+
+    async def progress(phase: str, percent: int | None, line: str | None) -> None:
+        await publish(
+            {
+                "id": server_id,
+                "stage": "output",
+                "line": (line or "")[:500] or None,
+                "phase": "toolchain" if phase == "done" else phase,
+                "percent": percent,
+                "toolchain": name,
+            }
+        )
+
+    log.info("lsp.install %s: installing toolchain %s", server_id, name)
+    try:
+        await toolchains.install(name, progress)
+    except toolchains.ToolchainError as exc:
+        log.warning("toolchain %s not installed: %s", name, exc)
+        return LspInstallItem(
+            id=server_id,
+            ok=False,
+            error=str(exc),
+            installed=True,
+            reason=toolchains.REASON_TOOLCHAIN_FAILED,
+            toolchain=name,
+            toolchainError=exc.code,
+            hint=toolchains.TOOLCHAINS[name].hint,
+            url=toolchains.TOOLCHAINS[name].url,
+        )
+    return None
+
+
+def _known_toolchain(name: str) -> str:
+    name = (name or "").strip()
+    if name not in toolchains.TOOLCHAINS:
+        raise RpcError(errors.INVALID_PARAMS, f"no such toolchain: {name!r}")
+    return name
+
+
+async def lsp_toolchain_remove_handler(
+    conn: RpcConnection, params: LspToolchainParams, core: Core
+) -> LspToolchainRemoveResult:
+    """``lsp.toolchain.remove`` — delete core's own copy of a toolchain (1.68.0)."""
+    _refuse_gateway(conn, "lsp.toolchain.remove")
+    _toolchain_gate(conn, "remove a toolchain", params.actor, params.personConfirm)
+    name = _known_toolchain(params.name)
+    try:
+        removed = toolchains.remove(name)
+    except toolchains.ToolchainError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc), {"reason": exc.code}) from exc
+    except OSError as exc:
+        raise RpcError(errors.INTERNAL_ERROR, f"could not remove {name}: {exc}") from exc
+    if removed:
+        manager_for(core).invalidate()
+    return LspToolchainRemoveResult(name=name, removed=removed)
+
+
+async def lsp_toolchain_cancel_handler(
+    conn: RpcConnection, params: LspToolchainParams, _core: Core
+) -> LspToolchainCancelResult:
+    """``lsp.toolchain.cancel`` — stop a running toolchain install (1.68.0)."""
+    _refuse_gateway(conn, "lsp.toolchain.cancel")
+    _toolchain_gate(conn, "stop a toolchain install", params.actor, None, confirm=False)
+    name = _known_toolchain(params.name)
+    return LspToolchainCancelResult(name=name, cancelled=toolchains.cancel(name))
 
 
 async def lsp_restart_handler(
@@ -195,6 +360,8 @@ def register_lsp_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("lsp.catalog", lsp_catalog_handler)
     dispatcher.register("lsp.install", lsp_install_handler)
     dispatcher.register("lsp.restart", lsp_restart_handler)
+    dispatcher.register("lsp.toolchain.remove", lsp_toolchain_remove_handler)
+    dispatcher.register("lsp.toolchain.cancel", lsp_toolchain_cancel_handler)
     return dispatcher
 
 
@@ -204,5 +371,7 @@ __all__ = [
     "lsp_install_handler",
     "lsp_restart_handler",
     "lsp_status_handler",
+    "lsp_toolchain_cancel_handler",
+    "lsp_toolchain_remove_handler",
     "register_lsp_handlers",
 ]

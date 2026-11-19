@@ -104,7 +104,10 @@ TABLE: dict[str, tuple[str, ...]] = {
                "team.guide.delete",
                # Security review 8, M-1 (was yynyny): a provider sign-in is the
                # account the owner's traffic and billing go to.
-               "provider.loginWeb"),
+               "provider.loginWeb",
+               # 1.68.0 (lspToolchainInstall): the handler also refuses a legacy
+               # browser and wants personConfirm 'window' for a removal.
+               "lsp.toolchain.remove", "lsp.toolchain.cancel"),
     # 1.60.0 hidden models: provider.remove's class (a remote login too), but a
     # browser only with the marker and 0.3.0+ (a legacy browser never sends them).
     "yynnny": ("provider.model.remove", "provider.model.unhide"),

@@ -7874,7 +7874,39 @@ class LspCatalogEntry(Payload):
         description=(
             "While it is not available: what must be on PATH first, e.g. 'npm', 'go', "
             "'dotnet', or for a PATH-only server the toolchain or command that provides "
-            "it ('gem install ruby-lsp'). Null when lsp.install can do it as is."
+            "it ('gem install ruby-lsp'). Null when lsp.install can do it as is. "
+            "1.68.0: '.NET SDK' for a .NET server while no SDK is found (dotnet on PATH "
+            "with the runtime only counts as none)."
+        ),
+    )
+    reason: Literal["needs_toolchain"] | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (lspInstallReasons): 'needs_toolchain' while it is not available and "
+            "its installer's toolchain is missing (see toolchain, hint, url). Null otherwise."
+        ),
+    )
+    toolchain: str | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (lspInstallReasons), with reason needs_toolchain: 'dotnet-sdk', 'go', "
+            "'rustup', 'node' or 'python'."
+        ),
+    )
+    hint: str | None = Field(
+        default=None,
+        description="1.68.0 (lspInstallReasons): one English line on how to get the toolchain.",
+    )
+    url: str | None = Field(
+        default=None,
+        description="1.68.0 (lspInstallReasons): the toolchain's official download page.",
+    )
+    toolchainInstallable: bool | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (lspToolchainInstall), with reason needs_toolchain: true when "
+            "lsp.install {withToolchain: true} can install that toolchain itself "
+            "(dotnet-sdk today)."
         ),
     )
 
@@ -7900,6 +7932,40 @@ class LspInstallParams(Payload):
             "not available. Runs even with lsp.autoInstall false: the request is the consent."
         ),
     )
+    withToolchain: bool = Field(
+        default=False,
+        description=(
+            "1.68.0 (lspToolchainInstall): also install a missing toolchain the result "
+            "offered as needsToolchain (the .NET SDK, from Microsoft, sha512-verified, "
+            "into a per-user directory core owns), then the server. A person's only: a "
+            "local IDE/TUI/CLI, or a local browser 0.4.0+ with actor 'person' and "
+            "personConfirm 'window'; a remote web login, a connector, Jarvis or an "
+            "in-process caller is refused (jarvis_person_only)."
+        ),
+    )
+    personConfirm: Literal["window"] | None = Field(
+        default=None,
+        description=(
+            "1.68.0: a browser's 'window' — its person confirmed the toolchain download in "
+            "the browser's own window (size and source shown). Needed with withToolchain."
+        ),
+    )
+
+
+class LspToolchainOffer(Payload):
+    """A toolchain ``lsp.install`` can install when asked to (1.68.0, lspToolchainInstall)."""
+
+    name: str = Field(description="Toolchain name: 'dotnet-sdk'.")
+    sizeMb: int | None = Field(
+        default=None, description="Download size in MB (an estimate when unknown)."
+    )
+    source: str | None = Field(
+        default=None,
+        description="Where it comes from: the archive's https URL on Microsoft's host.",
+    )
+    version: str | None = Field(
+        default=None, description="The version that would be installed, when known."
+    )
 
 
 class LspInstallItem(Payload):
@@ -7910,6 +7976,48 @@ class LspInstallItem(Payload):
     installed: bool = Field(
         default=False,
         description="True when an installer ran (ok or not); false when it was already there.",
+    )
+    reason: Literal["needs_toolchain", "npm_failed", "toolchain_failed"] | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (lspInstallReasons), when not ok: 'needs_toolchain' (toolchain, hint, "
+            "url; also when dotnet exits 2147516571 sdk-not-found), 'npm_failed' (npmCode, "
+            "detail), 'toolchain_failed' (toolchainError: the withToolchain install failed). "
+            "Null for any other failure."
+        ),
+    )
+    toolchain: str | None = Field(
+        default=None, description="1.68.0: as LspCatalogEntry.toolchain."
+    )
+    hint: str | None = Field(default=None, description="1.68.0: as LspCatalogEntry.hint.")
+    url: str | None = Field(default=None, description="1.68.0: as LspCatalogEntry.url.")
+    toolchainInstallable: bool | None = Field(
+        default=None, description="1.68.0: as LspCatalogEntry.toolchainInstallable."
+    )
+    npmCode: str | None = Field(
+        default=None,
+        description="1.68.0, with npm_failed: npm's error code, e.g. 'ERESOLVE', 'EACCES', "
+        "'ENOTFOUND', 'E404'; null when npm printed none.",
+    )
+    detail: str | None = Field(
+        default=None,
+        description="1.68.0, with npm_failed: npm's last error lines (not the log-file "
+        "line), at most 800 characters.",
+    )
+    needsToolchain: LspToolchainOffer | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (lspToolchainInstall), with needs_toolchain: what lsp.install "
+            "{withToolchain: true} would download — show it in the confirm. Absent when "
+            "core cannot install that toolchain."
+        ),
+    )
+    toolchainError: str | None = Field(
+        default=None,
+        description=(
+            "1.68.0, with toolchain_failed: busy, cancelled, network, metadata, source, "
+            "checksum, disk_full, archive, io or unsupported."
+        ),
     )
 
 
@@ -7930,6 +8038,50 @@ class LspInstallProgressNotification(Payload):
     line: str | None = Field(default=None, description="The output line, or the command.")
     ok: bool | None = Field(default=None, description="For done: whether it worked.")
     error: str | None = Field(default=None, description="For done and not ok: why.")
+    phase: Literal["resolve", "download", "verify", "extract", "toolchain", "server"] | None = (
+        Field(
+            default=None,
+            description=(
+                "1.68.0 (lspToolchainInstall): resolve, download, verify, extract (a "
+                "toolchain install, stage 'output'), toolchain (its end), server (the "
+                "server's own installer). Absent from older cores."
+            ),
+        )
+    )
+    percent: int | None = Field(
+        default=None, description="1.68.0: 0-100 while a toolchain downloads, else null."
+    )
+    toolchain: str | None = Field(
+        default=None, description="1.68.0: the toolchain being installed, e.g. 'dotnet-sdk'."
+    )
+
+
+class LspToolchainParams(Payload):
+    """``lsp.toolchain.remove`` / ``lsp.toolchain.cancel`` (1.68.0, lspToolchainInstall)."""
+
+    name: str = Field(description="Toolchain name: 'dotnet-sdk'.")
+    actor: Literal["person"] | None = Field(
+        default=None, description="Browser marker: see ActorParams."
+    )
+    personConfirm: Literal["window"] | None = Field(
+        default=None,
+        description="A browser's 'window' (needed for remove, as for withToolchain).",
+    )
+
+
+class LspToolchainRemoveResult(Payload):
+    name: str = Field(description="Toolchain name.")
+    removed: bool = Field(
+        description="True when core's own copy was there and is gone (its downloads too)."
+    )
+
+
+class LspToolchainCancelResult(Payload):
+    name: str = Field(description="Toolchain name.")
+    cancelled: bool = Field(
+        description="True when an install was running and was stopped; the lsp.install "
+        "that ran it answers toolchain_failed / cancelled."
+    )
 
 
 class LspRestartParams(Payload):
@@ -11132,6 +11284,18 @@ METHODS: dict[str, RpcMethod] = {
             "Install language servers the user asked for, even with lsp.autoInstall off.",
         ),
         _m(
+            "lsp.toolchain.remove",
+            LspToolchainParams,
+            LspToolchainRemoveResult,
+            "Delete a toolchain core installed for language servers (1.68.0).",
+        ),
+        _m(
+            "lsp.toolchain.cancel",
+            LspToolchainParams,
+            LspToolchainCancelResult,
+            "Stop a running toolchain install (1.68.0).",
+        ),
+        _m(
             "lsp.restart",
             LspRestartParams,
             LspRestartResult,
@@ -12847,6 +13011,12 @@ CAPABILITIES: list[str] = [
     # 1.67.0: external.setModel (an external session's model from its next turn),
     # ExternalStateNotification.model, ExternalCliInfo.defaultModel.
     "externalModelSwitch",
+    # 1.68.0: machine-readable lsp reasons — LspCatalogEntry / LspInstallItem
+    # reason (needs_toolchain, npm_failed), toolchain, hint, url, npmCode, detail.
+    "lspInstallReasons",
+    # 1.68.0: lsp.install {withToolchain, personConfirm} installs the .NET SDK
+    # (needsToolchain offer, progress phase/percent), lsp.toolchain.remove/cancel.
+    "lspToolchainInstall",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -12986,6 +13156,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "lsp.catalog",
         "lsp.install",
         "lsp.restart",
+        "lsp.toolchain.remove",
+        "lsp.toolchain.cancel",
         "mcp.list",
         "mcp.add",
         "mcp.remove",

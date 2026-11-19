@@ -42,6 +42,8 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 프로토콜 1.67.0(capability `externalModelSwitch`)부터 외부 CLI 세션의 모델을 바꿀 수 있습니다. `external.setModel {ref, model}`(그 CLI의 `external.clis` `models` 중 하나, 또는 CLI 기본값이면 `null`)은 `{ref, model, appliesNextTurn?}`을 돌려주며 다음 턴부터 적용됩니다. 진행 중인 턴은 이전 모델로 끝납니다. 선택은 데몬을 다시 시작해도 유지되고, `ExternalSessionRow.model`과 `external.state` 이벤트(새 필드 `model`)에 나타나며, `ExternalCliInfo.defaultModel`은 CLI가 알려 줄 때(Codex) 기본 모델을 담습니다. Claude Code는 전체 모델 id도 받습니다. tmux 창에서 실행 중인 세션은 거절되며(`external_unavailable`, `details.reason` `tmux_transport`) 그 창에서 `/model`로 바꿉니다.
 
+프로토콜 1.68.0(capability `lspInstallReasons`)부터 `lsp.catalog` 행과 `lsp.install` 결과가 언어 서버를 설치할 수 없는 이유를 알려 줍니다. `reason` `needs_toolchain`은 `toolchain`(`dotnet-sdk`, `go`, `rustup`, `node`, `python`), `hint`, `url`과 함께, `npm_failed`는 `npmCode`(`ERESOLVE`, `EACCES`, `E404` 등)와 `detail`(npm의 마지막 오류 줄)과 함께 옵니다. .NET 서버에는 SDK가 필요하며 런타임만 있는 `dotnet`은 없는 것으로 봅니다. capability `lspToolchainInstall`이 있으면 .NET SDK의 `needs_toolchain` 결과에 `needsToolchain {name, sizeMb, source, version}`이 붙고, 사용자가 확인한 뒤 `lsp.install {ids, withToolchain: true}`가 Microsoft에서 SDK를 받아(https, 릴리스 메타데이터의 sha512로 검증) 사용자별 디렉터리에 설치한 다음 서버를 설치합니다. `lsp.install.progress`에 `phase`, `percent`, `toolchain`이 추가되고, `lsp.toolchain.cancel {name}`은 다운로드를 멈추며 `lsp.toolchain.remove {name}`은 SDK를 지웁니다. 로컬의 사용자만 할 수 있으며, 브라우저는 `actor: 'person'`과 `personConfirm: 'window'`를 보냅니다.
+
 ## 영역별 메서드
 
 | 영역 | 메서드 |
