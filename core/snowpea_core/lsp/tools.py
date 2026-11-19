@@ -327,7 +327,9 @@ def apply_workspace_edit(edit: dict[str, Any]) -> dict[Path, str]:
     result: dict[Path, str] = {}
     for path, edits in per_file.items():
         try:
-            text = path.read_text(encoding="utf-8")
+            # The bytes as written: a text read would turn every CRLF and lone
+            # CR into LF, and the write after it would change the whole file.
+            text = path.read_bytes().decode("utf-8")
         except (OSError, UnicodeDecodeError):
             log.warning("rename touched %s, which could not be read", path)
             continue
@@ -405,9 +407,12 @@ async def lsp_rename(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ),
         )
     written: list[str] = []
+    from snowpea_core.tools.fs import keep_crlf
+
     for target, content in sorted(updates.items()):
         try:
-            await ctx.backend.write_file(str(target), content)
+            # Bytes, never a text write: no OS newline translation (m28).
+            await ctx.backend.write_bytes(str(target), keep_crlf(target, content).encode("utf-8"))
         except OSError as exc:
             return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
         written.append(_display(ctx, target))
