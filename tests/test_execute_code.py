@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -132,3 +133,105 @@ def test_a_frozen_core_runs_code_with_a_python_not_itself(
     venv.mkdir(parents=True)
     (venv / "python").write_text("")
     assert module.interpreter(tmp_path) == str(venv / "python")
+
+
+class _WindowsLikeBackend:
+    """Mimics Windows: a script still open here cannot be run by the child,
+    and it must still exist while the child runs (deleted only after)."""
+
+    def __init__(self) -> None:
+        self.script: Path | None = None
+
+    async def run(self, command: str, **_: object) -> object:
+        from snowpea_core.exec.backend import ExecResult
+
+        script = Path(command.rsplit(" ", 1)[1].strip("'\""))
+        self.script = script
+        open_files = set()
+        for link in Path("/proc/self/fd").iterdir():
+            try:
+                open_files.add(os.readlink(link))
+            except OSError:
+                continue
+        assert str(script) not in open_files, "script still open when the child starts"
+        assert script.read_text(encoding="utf-8") == "print(1)"
+        return ExecResult(exit_code=0, stdout="1\n")
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").exists(), reason="needs /proc")
+async def test_script_is_closed_before_spawn_and_deleted_after_wait(
+    ctx: ToolContext,
+) -> None:
+    backend = _WindowsLikeBackend()
+    ctx.backend = backend  # type: ignore[assignment]
+    result = await execute_code(ctx, {"code": "print(1)"})
+    assert result.ok is True
+    assert backend.script is not None and not backend.script.exists()
+
+
+async def test_a_locked_script_is_retried_then_left_for_the_sweep(
+    ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WinError 32 on delete must not fail a call whose program ran."""
+    from snowpea_core.tools import execute_code as module
+
+    monkeypatch.setattr(module, "UNLINK_PAUSE", 0.0)
+    real_unlink = Path.unlink
+    attempts: list[Path] = []
+
+    def locked(self: Path, missing_ok: bool = False) -> None:
+        if self.name.startswith("execute-code-"):
+            attempts.append(self)
+            raise PermissionError(32, "The process cannot access the file", str(self))
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", locked)
+    result = await execute_code(ctx, {"code": "print('ran')"})
+    assert result.ok is True and result.output.startswith("ran\n")
+    assert len(attempts) == module.UNLINK_ATTEMPTS
+    left = attempts[0]
+    assert left.exists()
+
+    # A later call sweeps it once it is old enough.
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    old = time.time() - module.STALE_AFTER - 10
+    os.utime(left, (old, old))
+    result = await execute_code(ctx, {"code": "print('again')"})
+    assert result.ok is True
+    assert not left.exists()
+
+
+async def test_a_lock_that_clears_is_retried_until_deleted(
+    ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.tools import execute_code as module
+
+    monkeypatch.setattr(module, "UNLINK_PAUSE", 0.0)
+    real_unlink = Path.unlink
+    failures = {"left": 2}
+
+    def flaky(self: Path, missing_ok: bool = False) -> None:
+        if self.name.startswith("execute-code-") and failures["left"]:
+            failures["left"] -= 1
+            raise PermissionError(32, "The process cannot access the file", str(self))
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", flaky)
+    result = await execute_code(ctx, {"code": "print(1)"})
+    assert result.ok is True
+    assert list((ctx.session.workdir / ".snowpea" / "tmp").glob("execute-code-*.py")) == []
+
+
+def test_windows_quotes_paths_for_cmd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """cmd.exe does not strip POSIX single quotes."""
+    import sys
+
+    from snowpea_core.tools import execute_code as module
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert module._quote(r"C:\Users\a b\x.py") == r'"C:\Users\a b\x.py"'
+    assert module._quote(r"C:\x.py") == r"C:\x.py"
+    scripts = tmp_path / ".venv" / "Scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "python.exe").write_text("")
+    assert module.interpreter(tmp_path) == str(scripts / "python.exe")
