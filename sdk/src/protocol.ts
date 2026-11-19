@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.66.0";
+export const PROTOCOL_VERSION = "1.67.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1162,6 +1162,8 @@ export interface ExternalClisResult {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** 1.67.0 (externalModelSwitch): the entry of models the CLI uses when none is chosen, when it says (Codex); null when unknown. */
+    defaultModel?: string | null;
     /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
     defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
@@ -1239,6 +1241,8 @@ export interface ExternalClisConfirmPathResult {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** 1.67.0 (externalModelSwitch): the entry of models the CLI uses when none is chosen, when it says (Codex); null when unknown. */
+    defaultModel?: string | null;
     /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
     defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
@@ -1342,7 +1346,7 @@ export interface ExternalCreateResult {
     jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
-    /** Model it last used, when recorded. */
+    /** Model it last used, when recorded. Since 1.67.0 (externalModelSwitch) the model chosen with external.create {model} or external.setModel wins: what its next turn uses (null after setModel {model: null}: the CLI's default). */
     model?: string | null;
     /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
     nativeMode?: string | null;
@@ -1428,7 +1432,7 @@ export interface ExternalGetResult {
     jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
-    /** Model it last used, when recorded. */
+    /** Model it last used, when recorded. Since 1.67.0 (externalModelSwitch) the model chosen with external.create {model} or external.setModel wins: what its next turn uses (null after setModel {model: null}: the CLI's default). */
     model?: string | null;
     /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
     nativeMode?: string | null;
@@ -1538,7 +1542,7 @@ export interface ExternalListResult {
     jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
-    /** Model it last used, when recorded. */
+    /** Model it last used, when recorded. Since 1.67.0 (externalModelSwitch) the model chosen with external.create {model} or external.setModel wins: what its next turn uses (null after setModel {model: null}: the CLI's default). */
     model?: string | null;
     /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
     nativeMode?: string | null;
@@ -1651,7 +1655,7 @@ export interface ExternalOpenResult {
     jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
-    /** Model it last used, when recorded. */
+    /** Model it last used, when recorded. Since 1.67.0 (externalModelSwitch) the model chosen with external.create {model} or external.setModel wins: what its next turn uses (null after setModel {model: null}: the CLI's default). */
     model?: string | null;
     /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
     nativeMode?: string | null;
@@ -1798,7 +1802,7 @@ export interface ExternalSetModeResult {
     jarvisOn?: boolean | null;
     /** How snowpea runs it (host 'snowpea' or 'tmux'); null when it runs elsewhere. */
     mode?: "default" | "readonly" | "unrestricted" | null;
-    /** Model it last used, when recorded. */
+    /** Model it last used, when recorded. Since 1.67.0 (externalModelSwitch) the model chosen with external.create {model} or external.setModel wins: what its next turn uses (null after setModel {model: null}: the CLI's default). */
     model?: string | null;
     /** The CLI's own mode it runs in (1.56.0, an ExternalNativeMode id of its CLI); 'mode' is that mode's legacy bucket. Null when it runs elsewhere. */
     nativeMode?: string | null;
@@ -1848,6 +1852,34 @@ export interface ExternalSetModeResult {
     } | null;
     /** UTC ISO time of its last entry. */
     updatedAt?: string | null;
+  };
+}
+
+/** `external.setModel` params. External sessions (1.67.0, externalModelSwitch): the model a session uses from its next turn (null: the CLI's default); a running turn finishes on the old one (appliesNextTurn). Kept across daemon restarts; external.state carries the new model. A session in a tmux pane: external_unavailable (details.reason 'tmux_transport'; change it there with /model); one open in another terminal: external_view_only. */
+export interface ExternalSetModelParams {
+  /** A model id from external.clis models (Claude Code also takes a full model id besides its aliases); validated, never a flag. null: the CLI's default. A model the CLI does not list: invalid_params. */
+  model: string | null;
+  /** The external session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
+  };
+}
+
+/** `external.setModel` result. */
+export interface ExternalSetModelResult {
+  /** true when a turn is running: it finishes on the old model. */
+  appliesNextTurn?: boolean | null;
+  /** The model chosen; null for the CLI's default. */
+  model: string | null;
+  /** The session. */
+  ref: {
+    /** claude, codex, agy or cursor. */
+    cli: "claude" | "codex" | "agy" | "cursor";
+    /** The CLI's own session (thread, chat) id. */
+    id: string;
   };
 }
 
@@ -9840,6 +9872,8 @@ export interface ExternalClisChangedPayload {
     } | null;
     /** jarvis.external.clis.<id>.defaultMode: the mode a new or continued session gets unless one is chosen ('readonly' for cursor). Set only by the person; never 'unrestricted' (that mode comes only from an explicit mode in the person's request). */
     defaultMode?: "default" | "readonly" | "unrestricted";
+    /** 1.67.0 (externalModelSwitch): the entry of models the CLI uses when none is chosen, when it says (Codex); null when unknown. */
+    defaultModel?: string | null;
     /** The native mode id a new or continued session gets unless one is chosen (defaultMode's mode; never a personOnly one). */
     defaultNativeMode?: string;
     /** jarvis.external.clis.<id>.enabled. */
@@ -9923,6 +9957,8 @@ export interface ExternalStatePayload {
   host: "none" | "terminal" | "tmux" | "snowpea";
   /** As ExternalSessionRow.mode, now. */
   mode?: "default" | "readonly" | "unrestricted" | null;
+  /** As ExternalSessionRow.model, now (1.67.0, externalModelSwitch). */
+  model?: string | null;
   /** As ExternalSessionRow.nativeMode, now (1.56.0). */
   nativeMode?: string | null;
   /** Status before. */
@@ -11543,6 +11579,7 @@ export interface MethodMap {
   "external.read": { params: ExternalReadParams; result: ExternalReadResult };
   "external.send": { params: ExternalSendParams; result: ExternalSendResult };
   "external.setMode": { params: ExternalSetModeParams; result: ExternalSetModeResult };
+  "external.setModel": { params: ExternalSetModelParams; result: ExternalSetModelResult };
   "external.terminalSnapshot": { params: ExternalTerminalSnapshotParams; result: ExternalTerminalSnapshotResult };
   "external.unwatch": { params: ExternalUnwatchParams; result: ExternalUnwatchResult };
   "feedback.preview": { params: FeedbackPreviewParams; result: FeedbackPreviewResult };
@@ -11773,6 +11810,7 @@ export type ClientMethod =
   | "external.read"
   | "external.send"
   | "external.setMode"
+  | "external.setModel"
   | "external.terminalSnapshot"
   | "external.unwatch"
   | "feedback.preview"

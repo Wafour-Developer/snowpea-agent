@@ -217,6 +217,45 @@ async def test_native_modes_over_rpc(daemon: Daemon, http: aiohttp.ClientSession
             await client.stop()
 
 
+async def test_set_model_over_rpc(daemon: Daemon, http: aiohttp.ClientSession,
+                                  tmp_path: Path) -> None:
+    """1.67.0 (externalModelSwitch): external.setModel, the row's model and external.state."""
+    assert "externalModelSwitch" in CAPABILITIES and PROTOCOL_VERSION == "1.67.0"
+    assert daemon.core is not None and daemon.core.external is not None
+    registry = daemon.core.external.registry
+    for cli in registry.ids():
+        registry.unregister(cli)
+    registry.register(FakeClaudeAdapter())
+    project = tmp_path / "proj"
+    project.mkdir()
+    ide = await _client(http, daemon, "ide")
+    other = await _client(http, daemon, "tui")
+    try:
+        await ide.ok("workspace.add", {"path": str(project)})
+        row = {c["id"]: c for c in (await ide.ok("external.clis"))["clis"]}["claude"]
+        assert "defaultModel" in row and "models" in row
+        ref = (await ide.ok("external.create",
+                            {"cli": "claude", "project": str(project)}))["session"]["ref"]
+        result = await ide.ok("external.setModel", {"ref": ref, "model": "opus"})
+        assert result["ref"] == ref and result["model"] == "opus"
+        assert not result.get("appliesNextTurn")
+        states = await _wait(lambda: [p for p in other.of_method("external.state")
+                                      if p.get("model") == "opus"])
+        assert states[0]["ref"] == ref
+        got = (await ide.ok("external.get", {"ref": ref}))["session"]
+        assert got["model"] == "opus"
+        bad = await ide.call("external.setModel", {"ref": ref, "model": "--yolo"})
+        assert _code(bad) == "invalid_params"
+        missing = await ide.call("external.setModel", {"ref": ref})
+        assert _code(missing) == "invalid_params"  # model is required (null allowed)
+        back = await ide.ok("external.setModel", {"ref": ref, "model": None})
+        assert back["model"] is None
+        await ide.ok("external.close", {"ref": ref})
+    finally:
+        for client in (ide, other):
+            await client.stop()
+
+
 async def test_send_subscribes_the_sender(daemon: Daemon, http: aiohttp.ClientSession,
                                           tmp_path: Path) -> None:
     """external.list -> external.send on a host none session streams to the sender."""

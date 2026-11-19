@@ -40,6 +40,8 @@ Los clientes deberían enviar también `locale` (protocolo 1.65.0, capability `c
 
 Desde el protocolo 1.66.0 (capability `securityDefaultOff`) las comprobaciones de seguridad están desactivadas de forma predeterminada: `security.get` devuelve `enabled: false` y `byDefault: true` hasta que una persona las activa (`settings.set {scope: 'global', patch: {security: {enabled: true}}}`). Muestre ese estado de forma neutral y solo en los ajustes de seguridad. Mientras están desactivadas, tampoco se bloquea la lectura del token del daemon ni de los inicios de sesión guardados; siguen las reglas del modo. Para los clientes de 1.65.0 o anteriores, `problems` sigue empezando por una línea neutral (código `security-disabled`).
 
+Desde el protocolo 1.67.0 (capability `externalModelSwitch`) se puede cambiar el modelo de una sesión de un CLI externo: `external.setModel {ref, model}` (un id de los `models` de ese CLI en `external.clis`, o `null` para el predeterminado del CLI) responde `{ref, model, appliesNextTurn?}` y se aplica desde el siguiente turno; un turno en curso termina con el modelo anterior. La elección se conserva al reiniciar el daemon, `ExternalSessionRow.model` y el evento `external.state` (campo nuevo `model`) la muestran, y `ExternalCliInfo.defaultModel` indica el modelo predeterminado cuando el CLI lo dice (Codex). Claude Code también acepta ids de modelo completos. Una sesión en un panel de tmux se rechaza (`external_unavailable`, `details.reason` `tmux_transport`): cámbielo allí con `/model`.
+
 ## Métodos, por área
 
 | Área | Métodos |

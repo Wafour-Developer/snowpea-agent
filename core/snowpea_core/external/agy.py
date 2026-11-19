@@ -1180,6 +1180,9 @@ class AgyChannel(ExternalChannel):
         self.answered: set[str] = set()
         self.models: list[str] = []
         self.current_model: str | None = None
+        #: The conversation's model when snowpea attached, before any switch:
+        #: what ``external.setModel {model: null}`` goes back to (1.67.0).
+        self.initial_model: str | None = None
 
     # -- state ------------------------------------------------------------------
     @property
@@ -1205,8 +1208,15 @@ class AgyChannel(ExternalChannel):
     async def start(self) -> None:
         self._row()
         await self._spawn(resume=bool(self.spec.resume and self.session_id))
+        self.initial_model = self.current_model
         if self.spec.model:
             await self._set_model(self.spec.model)
+
+    async def _apply_model(self) -> None:
+        """Switch to the chosen model (``external.setModel``) before a turn, in place."""
+        target = self.spec.model or self.initial_model
+        if target and target != self.current_model:
+            await self._set_model(target)
 
     async def _spawn(self, *, resume: bool) -> None:
         if resume:
@@ -1505,6 +1515,8 @@ class AgyChannel(ExternalChannel):
         elif self.alive:
             # A session mode is the conversation's: switched in place.
             await self._apply_mode()
+        if self.alive:
+            await self._apply_model()
         conn = self.conn
         if conn is None or self.session_id is None or not self.alive:
             raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "agy is not running")

@@ -268,6 +268,15 @@ class ExternalChannel(ABC):
         self.mode = mode
         self.grant = grant
 
+    async def set_model(self, model: str | None) -> None:
+        """Use ``model`` (``None``: the CLI's default) from the next turn (1.67.0).
+
+        The default only records it in :attr:`spec`; a channel that starts a
+        process per turn passes ``spec.model`` to it, the others apply it when
+        their next turn starts.  ``model`` is already validated.
+        """
+        self.spec.model = model
+
     @abstractmethod
     async def close(self) -> None:
         """Stop the process (tree) and release what the channel holds."""
@@ -302,6 +311,9 @@ class ExternalAdapter(ABC):
     native_table: tuple[NativeMode, ...] = ()
     #: ``legacy mode -> native id``: what an old client's ``mode`` means.
     legacy_native: dict[str, str] = {}
+    #: The model the CLI uses when none is chosen, once :meth:`list_models`
+    #: learnt it (1.67.0, ``ExternalCliInfo.defaultModel``); ``None``: unknown.
+    default_model: str | None = None
     #: The daemon's supervisor, handed over by the manager; helper processes
     #: (:meth:`helper_supervisor`) and channels run under it.
     supervisor: ProcessSupervisor | None = None

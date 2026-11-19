@@ -774,3 +774,109 @@ async def test_a_reread_history_does_not_repeat_snowpea_prompts(env: Env) -> Non
     await env.manager._publish(record, await env.adapter.read(fresh))
     users = [e["payload"]["text"] for e in conn.events() if e["kind"] == "message.user"]
     assert users == ["first prompt", "second prompt"]
+
+
+# -- external.setModel (1.67.0) -------------------------------------------------------------
+
+
+def _model_of(argv: list[str]) -> str | None:
+    return argv[argv.index("--model") + 1] if "--model" in argv else None
+
+
+async def test_set_model_restarts_on_the_next_turn(env: Env) -> None:
+    conn = Conn()
+    ref = await env.create(conn)
+    await env.turn(conn, ref)
+    result = await env.manager.set_model("claude", ref["id"], "opus")
+    assert result == {"ref": ref, "model": "opus"}  # nothing ran: no appliesNextTurn
+    assert len(starts(env.log)) == 1  # applied when the next turn starts
+    assert env.hub.states()[-1]["model"] == "opus"
+    assert (await env.manager.get("claude", ref["id"]))["session"]["model"] == "opus"
+    await env.turn(conn, ref, "again")
+    second = starts(env.log)[-1]["argv"]
+    assert _model_of(second) == "opus" and second[second.index("--resume") + 1] == ref["id"]
+    # A full model id is fine for Claude Code; the same model again restarts nothing.
+    await env.manager.set_model("claude", ref["id"], "claude-opus-4-5-20251101")
+    await env.turn(conn, ref, "third")
+    assert _model_of(starts(env.log)[-1]["argv"]) == "claude-opus-4-5-20251101"
+    count = len(starts(env.log))
+    await env.turn(conn, ref, "fourth")
+    assert len(starts(env.log)) == count
+    # null: the CLI's default, no --model at all.
+    assert (await env.manager.set_model("claude", ref["id"], None))["model"] is None
+    await env.turn(conn, ref, "fifth")
+    assert _model_of(starts(env.log)[-1]["argv"]) is None
+    assert env.hub.states()[-1]["model"] is None
+
+
+async def test_set_model_refuses_bad_names(env: Env) -> None:
+    conn = Conn()
+    ref = await env.create(conn)
+    for bad in ("--dangerously-skip-permissions", "-m", "a b", "../x", ""):
+        with pytest.raises(ExternalError) as caught:
+            await env.manager.set_model("claude", ref["id"], bad)
+        assert caught.value.code == errors.INVALID_PARAMS
+    await env.turn(conn, ref)
+    assert _model_of(starts(env.log)[-1]["argv"]) is None
+
+
+async def test_set_model_during_a_turn_applies_next_turn(env: Env) -> None:
+    conn = Conn()
+    with env_vars(FAKE_CLI_SCENARIO="hang"):
+        ref = await env.create(conn)
+        turn = (await env.manager.send("claude", ref["id"], "go", conn=conn))["turnId"]
+        await until(lambda: "message.reasoning" in conn.kinds())
+        result = await env.manager.set_model("claude", ref["id"], "sonnet")
+        assert result == {"ref": ref, "model": "sonnet", "appliesNextTurn": True}
+        assert len(starts(env.log)) == 1  # the running turn is left alone
+        await env.manager.interrupt("claude", ref["id"])
+        await until(lambda: conn.turn_done(turn), timeout=15)
+    await env.turn(conn, ref, "again")
+    assert _model_of(starts(env.log)[0]["argv"]) is None
+    assert _model_of(starts(env.log)[-1]["argv"]) == "sonnet"
+
+
+async def test_set_model_survives_a_daemon_restart(env: Env) -> None:
+    conn = Conn()
+    ref = await env.create(conn, model="haiku")
+    await env.turn(conn, ref)  # a transcript the next daemon finds
+    await env.manager.set_model("claude", ref["id"], "sonnet")
+    await env.manager.close("claude", ref["id"], conn=conn)
+    saved = json.loads((env.home / "external" / "sessions" / "models.json").read_text())
+    assert saved == {f"claude:{ref['id']}": "sonnet"}
+    # A new daemon (manager) on the same home: the row and the next start use it.
+    again = ExternalManager(home=env.home, settings=lambda: env.settings, hub=env.hub,
+                            approvals=env.approvals,
+                            registry=AdapterRegistry([ClaudeAdapter(init_timeout=10.0)]),
+                            roots=env._roots, poll_interval=0.1, sweep_interval=3600)
+    await again.start()
+    try:
+        assert (await again.get("claude", ref["id"]))["session"]["model"] == "sonnet"
+        listed = await again.list_sessions(cwd=str(env.project))
+        assert [row["model"] for row in listed["sessions"]] == ["sonnet"]
+        turn = (await again.send("claude", ref["id"], "after restart", conn=conn))["turnId"]
+        await until(lambda: conn.turn_done(turn))
+        assert _model_of(starts(env.log)[-1]["argv"]) == "sonnet"
+        # null is remembered as a choice too (the CLI's default, not the recorded model).
+        await again.set_model("claude", ref["id"], None)
+        assert (await again.get("claude", ref["id"]))["session"]["model"] is None
+    finally:
+        await again.shutdown()
+
+
+async def test_set_model_refuses_tmux_and_other_terminals(env: Env) -> None:
+    conn = Conn()
+    ref = await env.create(conn)
+    record = env.manager._records[("claude", ref["id"])]
+    record.host = "tmux"
+    with pytest.raises(ExternalError) as caught:
+        await env.manager.set_model("claude", ref["id"], "opus")
+    assert caught.value.code == errors.EXTERNAL_UNAVAILABLE
+    assert caught.value.details == {"reason": "tmux_transport"}
+    assert "/model" in caught.value.message
+    record.host = "terminal"
+    with pytest.raises(ExternalError) as caught:
+        await env.manager.set_model("claude", ref["id"], "opus")
+    assert caught.value.code == errors.EXTERNAL_VIEW_ONLY
+    record.host = "snowpea"
+    assert not (env.home / "external" / "sessions" / "models.json").exists()

@@ -9561,6 +9561,13 @@ class ExternalCliInfo(Payload):
             "lists none); false while it has not answered yet, or the CLI is not usable."
         ),
     )
+    defaultModel: str | None = Field(
+        default=None,
+        description=(
+            "1.67.0 (externalModelSwitch): the entry of models the CLI uses when none is "
+            "chosen, when it says (Codex); null when unknown."
+        ),
+    )
     problems: list[str] = Field(
         default_factory=list,
         description="Why something does not work, e.g. 'not logged in', 'unsupported version 0.9'.",
@@ -9715,7 +9722,14 @@ class ExternalSessionRow(Payload):
         ),
     )
     preview: str = Field(default="", description="Last message, one line.")
-    model: str | None = Field(default=None, description="Model it last used, when recorded.")
+    model: str | None = Field(
+        default=None,
+        description=(
+            "Model it last used, when recorded. Since 1.67.0 (externalModelSwitch) the model "
+            "chosen with external.create {model} or external.setModel wins: what its next "
+            "turn uses (null after setModel {model: null}: the CLI's default)."
+        ),
+    )
     securityListsApply: bool | None = Field(
         default=None,
         description=(
@@ -9942,6 +9956,28 @@ class ExternalSetModeParams(Payload):
     )
 
 
+class ExternalSetModelParams(Payload):
+    """Choose the model a session uses from its next turn (1.67.0, externalModelSwitch)."""
+
+    ref: ExternalRef = Field(description="The external session.")
+    model: str | None = Field(
+        description=(
+            "A model id from external.clis models (Claude Code also takes a full model id "
+            "besides its aliases); validated, never a flag. null: the CLI's default. A model "
+            "the CLI does not list: invalid_params."
+        )
+    )
+
+
+class ExternalSetModelResult(Payload):
+    ref: ExternalRef = Field(description="The session.")
+    model: str | None = Field(description="The model chosen; null for the CLI's default.")
+    appliesNextTurn: bool | None = Field(
+        default=None,
+        description="true when a turn is running: it finishes on the old model.",
+    )
+
+
 class ExternalCreateResult(Payload):
     session: ExternalSessionRow = Field(description="The new session (already opened).")
 
@@ -10005,6 +10041,10 @@ class ExternalStateNotification(Payload):
     )
     controlled: bool = Field(default=True, description="As ExternalSessionRow.controlled, now.")
     title: str | None = Field(default=None, description="Title, when known.")
+    model: str | None = Field(
+        default=None,
+        description="As ExternalSessionRow.model, now (1.67.0, externalModelSwitch).",
+    )
     error: str | None = Field(default=None, description="With status 'error': why.")
 
 
@@ -12476,6 +12516,19 @@ METHODS: dict[str, RpcMethod] = {
             ),
         ),
         _m(
+            "external.setModel",
+            ExternalSetModelParams,
+            ExternalSetModelResult,
+            (
+                "External sessions (1.67.0, externalModelSwitch): the model a session uses "
+                "from its next turn (null: the CLI's default); a running turn finishes on the "
+                "old one (appliesNextTurn). Kept across daemon restarts; external.state "
+                "carries the new model. A session in a tmux pane: external_unavailable "
+                "(details.reason 'tmux_transport'; change it there with /model); one open in "
+                "another terminal: external_view_only."
+            ),
+        ),
+        _m(
             "external.interrupt",
             ExternalRefParams,
             Ok,
@@ -12791,6 +12844,9 @@ CAPABILITIES: list[str] = [
     # SecurityGetResult byDefault, and while off reads of tokens and logins
     # follow the mode rules instead of being blocked.
     "securityDefaultOff",
+    # 1.67.0: external.setModel (an external session's model from its next turn),
+    # ExternalStateNotification.model, ExternalCliInfo.defaultModel.
+    "externalModelSwitch",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -13008,6 +13064,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "external.get",
         "external.unwatch",
         "external.terminalSnapshot",
+        # 1.67.0 (capability externalModelSwitch)
+        "external.setModel",
         # M19 WP8 (capabilities mcpPresets, jarvisBriefing)
         "mcp.preset.list",
         "mcp.preset.apply",

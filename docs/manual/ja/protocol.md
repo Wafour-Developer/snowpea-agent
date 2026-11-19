@@ -42,6 +42,8 @@ HTTP のエンドポイントは、プローブ、インストーラー、デバ
 
 プロトコル 1.66.0 (capability `securityDefaultOff`) から、セキュリティチェックは既定でオフです。人がオンにするまで (`settings.set {scope: 'global', patch: {security: {enabled: true}}}`)、`security.get` は `enabled: false` と `byDefault: true` を返します。この状態はセキュリティ設定の画面でだけ、中立的に表示してください。チェックがオフの間は、デーモンのトークンや保存されたログインの読み取りもブロックされず、モードのルールに従います。1.65.0 以前のクライアントのために、`problems` は引き続き中立的な一行 (問題コード `security-disabled`) で始まります。
 
+プロトコル 1.67.0 (capability `externalModelSwitch`) から、外部 CLI セッションのモデルを変更できます。`external.setModel {ref, model}` (その CLI の `external.clis` `models` のいずれか、または CLI の既定なら `null`) は `{ref, model, appliesNextTurn?}` を返し、次のターンから適用されます。実行中のターンは元のモデルのまま終わります。選択はデーモンを再起動しても保たれ、`ExternalSessionRow.model` と `external.state` イベント (新しいフィールド `model`) に表れます。`ExternalCliInfo.defaultModel` は CLI が示す場合 (Codex) に既定のモデルを示します。Claude Code は完全なモデル id も受け付けます。tmux ペインで動いているセッションは拒否されます (`external_unavailable`、`details.reason` `tmux_transport`)。そのペインで `/model` を使って変更してください。
+
 ## Methods, by area
 
 | Area | Methods |

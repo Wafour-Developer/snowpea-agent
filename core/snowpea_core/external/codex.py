@@ -941,6 +941,8 @@ class CodexChannel(ExternalChannel):
         self.closed = False
         self.applied_mode: str | None = None
         self.applied_native: str | None = None
+        #: The model the thread runs with since start or the last turn/start (1.67.0).
+        self.applied_model: str | None = None
         #: The snowpea turn running now, and codex's id for it.
         self.turn_open = False
         self.codex_turn: str | None = None
@@ -1024,6 +1026,7 @@ class CodexChannel(ExternalChannel):
             await self.host_api.id_known(new_id)
         self.applied_mode = self.mode
         self.applied_native = self.native_mode
+        self.applied_model = self.spec.model
 
     # -- turns ------------------------------------------------------------
     async def send(self, text: str, turn_id: str) -> None:
@@ -1037,6 +1040,12 @@ class CodexChannel(ExternalChannel):
         if self.mode != self.applied_mode or self.native_mode != self.applied_native:
             policy, trusted = self._policy("turn")
             params.update(policy)
+        # A model switch (external.setModel) rides on turn/start; codex keeps it for
+        # the thread's later turns.  Back to the default sends the default's id, when
+        # model/list named one.
+        wanted = self.spec.model or self.adapter.default_model
+        if self.spec.model != self.applied_model and wanted:
+            params["model"] = proc.validate_model(wanted)
         self.turn_open = True
         self.codex_turn = None
         self.turn_error = None
@@ -1049,6 +1058,7 @@ class CodexChannel(ExternalChannel):
             raise
         self.applied_mode = self.mode
         self.applied_native = self.native_mode
+        self.applied_model = self.spec.model
         turn = result.get("turn") if isinstance(result, Mapping) else None
         started = turn.get("id") if isinstance(turn, Mapping) else None
         if isinstance(started, str):
@@ -1527,6 +1537,7 @@ class CodexAdapter(ExternalAdapter):
                     continue
                 if model.get("isDefault"):
                     out.insert(0, name)
+                    self.default_model = name
                 else:
                     out.append(name)
             cursor = result.get("nextCursor") if isinstance(result, Mapping) else None

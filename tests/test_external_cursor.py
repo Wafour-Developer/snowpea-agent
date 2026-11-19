@@ -475,6 +475,25 @@ async def test_create_and_send_readonly_by_default(env: Env) -> None:
     assert cur.TAG_ENV in start["env"]
 
 
+async def test_set_model_is_passed_to_each_message(env: Env) -> None:
+    conn = Conn()
+    ref = await env.create(conn)
+    await env.turn(conn, ref)
+    assert "--model" not in _options(env.turns()[-1])
+    result = await env.manager.set_model("cursor", ref["id"], "composer-fake")
+    assert result == {"ref": ref, "model": "composer-fake"}
+    assert [p["model"] for m, p in env.hub.notes if m == "external.state"][-1] == "composer-fake"
+    await env.turn(conn, ref, "again")
+    opts = _options(env.turns()[-1])
+    assert opts[opts.index("--model") + 1] == "composer-fake"
+    await env.manager.set_model("cursor", ref["id"], None)
+    await env.turn(conn, ref, "third")
+    assert "--model" not in _options(env.turns()[-1])
+    with pytest.raises(ExternalError) as caught:
+        await env.manager.set_model("cursor", ref["id"], "gpt-unknown")
+    assert caught.value.code == errors.INVALID_PARAMS
+
+
 async def test_readonly_refuses_edits(env: Env) -> None:
     env.scenario("approval")
     conn = Conn()
