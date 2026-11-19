@@ -207,7 +207,10 @@ def is_command_interaction(frame: dict[str, Any]) -> bool:
 
 
 def action_row(buttons: list[Button]) -> list[dict[str, Any]]:
-    """One action row; Discord allows five buttons per row."""
+    """Action rows of five; Discord allows five buttons per row and five rows.
+
+    A ``/sessions`` page (ten rows plus its page buttons) needs three.
+    """
     return [
         {
             "type": 1,
@@ -218,9 +221,10 @@ def action_row(buttons: list[Button]) -> list[dict[str, Any]]:
                     "label": button.text,
                     "custom_id": button.data,
                 }
-                for index, button in enumerate(buttons[:5])
+                for index, button in enumerate(buttons[start : start + 5], start=start)
             ],
         }
+        for start in range(0, min(len(buttons), 25), 5)
     ]
 
 

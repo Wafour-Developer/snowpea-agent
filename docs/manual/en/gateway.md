@@ -86,8 +86,8 @@ A terminal answers "which conversation am I in, what else is open, put me in ano
 
 | Command | What it does |
 |---|---|
-| `/sessions` | The ten most recent conversations, `★` on the one this chat is in. Each row is also a button; a bare number right after the list picks that row. |
-| `/resume <n \| id \| prefix>` | Point this chat at another session. A closed one is reopened. |
+| `/sessions [page] [text]` | Conversations, last used first, ten per page; the one this chat is in is pinned on top with `★`, and each row shows how long ago it was used. Rows are numbered across pages (page 2 is 11–20), with ◀/▶ page buttons; `/sessions 2` opens page 2. `/sessions <text>` searches the project folder, title, last prompt or id prefix. Each row is also a button; a bare number right after the list picks that row. |
+| `/resume <n \| id \| prefix \| text>` | Point this chat at another session: its number in `/sessions`, its id, or text that matches exactly one session. A closed one is reopened. |
 | `/new [path \| project \| n]` | Start a session: in a path you type, in a project from `/projects`, or — with no argument — in the binding's own workdir. |
 | `/projects` | Known projects: the IDE's `ide.projects` list merged with the workdirs of recent sessions, pinned first. Each row starts a session there. |
 | `/status` | Session id, workdir, mode, model, effort, whether a turn is running, what is queued, context used. |
