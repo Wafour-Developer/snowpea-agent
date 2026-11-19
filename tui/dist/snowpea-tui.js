@@ -34605,6 +34605,47 @@ function currentInputBackground() {
   return cachedInputBackground;
 }
 
+// src/input/hangulKeys.ts
+var DUBEOLSIK = {
+  \u3142: "q",
+  \u3148: "w",
+  \u3137: "e",
+  \u3131: "r",
+  \u3145: "t",
+  \u315B: "y",
+  \u3155: "u",
+  \u3151: "i",
+  \u3150: "o",
+  \u3154: "p",
+  \u3141: "a",
+  \u3134: "s",
+  \u3147: "d",
+  \u3139: "f",
+  \u314E: "g",
+  \u3157: "h",
+  \u3153: "j",
+  \u314F: "k",
+  \u3163: "l",
+  \u314B: "z",
+  \u314C: "x",
+  \u314A: "c",
+  \u314D: "v",
+  \u3160: "b",
+  \u315C: "n",
+  \u3161: "m",
+  // Shift gives a different jamo only on these keys.
+  \u3143: "Q",
+  \u3149: "W",
+  \u3138: "E",
+  \u3132: "R",
+  \u3146: "T",
+  \u3152: "O",
+  \u3156: "P"
+};
+function shortcutKey(input) {
+  return DUBEOLSIK[input] ?? input;
+}
+
 // src/input/mouse.ts
 var REPORT = /(?:\u001b)?(\[?<)?(\d+);(\d+);(\d+)([Mm])/g;
 function mouseReports(input) {
@@ -34681,7 +34722,7 @@ function useChoiceKeys(options) {
         onRight?.();
         return;
       }
-      const typed = input.toLowerCase();
+      const typed = shortcutKey(input).toLowerCase();
       const shortcut = shortcuts?.[typed];
       if (shortcut) {
         shortcut();
@@ -38555,7 +38596,10 @@ var PATTERN_HELP = [
   { kind: "example", text: "mkfs*                blocks mkfs.ext4 /dev/sdb1" },
   { kind: "example", text: "re:^ssh .*prod       blocks ssh deploy@prod.example" },
   { kind: "head", text: "Protected folders" },
-  { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." }
+  { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." },
+  { kind: "head", text: "Keys" },
+  { kind: "line", text: `\u2191\u2193 move through the rows. The first row is "Commands and scripts snowpea can't read before they run": on it, \u2190\u2192 (or Space) chooses ask / auto / allow, saved at once; u changes it from any row.` },
+  { kind: "line", text: "On a list row, \u2190\u2192 or Tab switches between Blocked commands and Protected folders; Space turns a preset on or off." }
 ];
 var UNKNOWN_CODE_LABEL = "Commands and scripts snowpea can't read before they run";
 var unknownCodeLabel = () => say(UNKNOWN_CODE_LABEL, "\uC2E4\uD589 \uC804\uC5D0 \uC54C \uC218 \uC5C6\uB294 \uBA85\uB839\xB7\uC2A4\uD06C\uB9BD\uD2B8");
@@ -38567,6 +38611,11 @@ function unknownCodeName(value) {
 function nextUnknownCode(value, withAuto = true) {
   if (!withAuto) return value === "ask" ? "allow" : "ask";
   return value === "ask" ? "auto" : value === "auto" ? "allow" : "ask";
+}
+function stepUnknownCode(value, step, withAuto = true) {
+  const choices = withAuto ? ["ask", "auto", "allow"] : ["ask", "allow"];
+  const at = Math.max(0, choices.indexOf(value));
+  return choices[Math.min(choices.length - 1, Math.max(0, at + step))];
 }
 var OWN_FILES_LINE = "snowpea's own files stay protected either way, and anything on your block lists stays blocked.";
 function unknownCodeSegments(value, withAuto = true) {
@@ -41838,11 +41887,12 @@ function DelegationConfirm({
   use_input_default(
     (input, key) => {
       if (mouseReports(input).length > 0) return;
-      if (key.escape || input.toLowerCase() === "n") {
+      const pressed = shortcutKey(input).toLowerCase();
+      if (key.escape || pressed === "n") {
         onAnswer(false);
         return;
       }
-      if (input.toLowerCase() === "y") onAnswer(true);
+      if (pressed === "y") onAnswer(true);
     },
     { isActive }
   );
@@ -42831,10 +42881,13 @@ function SecurityScreen({
   const [elsewhere, setElsewhere] = (0, import_react34.useState)(false);
   const [helpTop, setHelpTop] = (0, import_react34.useState)(0);
   const scroll = (0, import_react34.useRef)({});
+  const [onSwitch, setOnSwitch] = (0, import_react34.useState)(false);
+  const hasSwitch = Boolean(onSetUnknownCode);
+  const switchHere = hasSwitch && onSwitch;
   const dirty = !sameLists(draft, listsOf(base));
   const rows = tabRows(tab2, catalog, draft);
   const cursor = Math.min(cursors[tab2], Math.max(0, rows.length - 1));
-  const row = rows[cursor];
+  const row = switchHere ? void 0 : rows[cursor];
   const say2 = (text8, color) => setNotes([{ text: text8, color }]);
   const moveTo = (index) => setCursors((current2) => ({ ...current2, [tab2]: index }));
   const confirm2 = (lines, yes) => {
@@ -42918,9 +42971,10 @@ function SecurityScreen({
       say2(`Not saved: ${String(error?.message ?? error)}`, "red");
     });
   };
-  const switchUnknownCode = () => {
+  const switchUnknownCode = (target) => {
     if (!onSetUnknownCode || locked()) return;
-    const next = nextUnknownCode(base.unknownCode, !noAuto);
+    const next = target ?? nextUnknownCode(base.unknownCode, !noAuto);
+    if (next === base.unknownCode) return;
     const run = () => {
       setMode({ k: "saving" });
       setNotes([{ text: "Saving\u2026", dim: true }]);
@@ -42991,9 +43045,10 @@ function SecurityScreen({
     }
   };
   use_input_default(
-    (input, key2) => {
-      if (mouseReports(input).length > 0) return;
+    (typed, key2) => {
+      if (mouseReports(typed).length > 0) return;
       if (mode.k === "saving") return;
+      const input = mode.k === "input" ? typed : shortcutKey(typed);
       if (mode.k === "confirm") {
         if (input.toLowerCase() === "y") mode.yes();
         else if (input.toLowerCase() === "n" || key2.escape) setMode({ k: "browse" });
@@ -43032,21 +43087,39 @@ function SecurityScreen({
         else onClose();
         return;
       }
+      if (switchHere && (key2.leftArrow || key2.rightArrow)) {
+        return switchUnknownCode(stepUnknownCode(base.unknownCode, key2.leftArrow ? -1 : 1, !noAuto));
+      }
       if (key2.tab || key2.leftArrow || key2.rightArrow) {
         setTab(tab2 === "commands" ? "paths" : "commands");
         setNotes([]);
         return;
       }
       if (key2.upArrow || input === "k") {
-        if (rows.length > 0) moveTo((cursor + rows.length - 1) % rows.length);
+        if (switchHere) {
+          setOnSwitch(false);
+          if (rows.length > 0) moveTo(rows.length - 1);
+        } else if (hasSwitch && (cursor === 0 || rows.length === 0)) setOnSwitch(true);
+        else if (rows.length > 0) moveTo((cursor + rows.length - 1) % rows.length);
         return;
       }
       if (key2.downArrow || input === "j") {
-        if (rows.length > 0) moveTo((cursor + 1) % rows.length);
+        if (switchHere) {
+          setOnSwitch(false);
+          moveTo(0);
+        } else if (hasSwitch && cursor >= rows.length - 1) setOnSwitch(true);
+        else if (rows.length > 0) moveTo((cursor + 1) % rows.length);
         return;
       }
-      if (key2.pageUp) return moveTo(Math.max(0, cursor - 5));
-      if (key2.pageDown) return moveTo(Math.min(Math.max(0, rows.length - 1), cursor + 5));
+      if (key2.pageUp) {
+        if (!switchHere && hasSwitch && cursor === 0) return setOnSwitch(true);
+        return moveTo(Math.max(0, cursor - 5));
+      }
+      if (key2.pageDown) {
+        setOnSwitch(false);
+        return moveTo(Math.min(Math.max(0, rows.length - 1), switchHere ? 0 : cursor + 5));
+      }
+      if (switchHere && (input === " " || key2.return)) return switchUnknownCode();
       if (input === " ") return toggle();
       switch (input.toLowerCase()) {
         case "a":
@@ -43110,7 +43183,7 @@ function SecurityScreen({
   const bold = (text8, color) => ({ text: text8, bold: true, color });
   const titleLeft = "Security lists";
   const titleMid = dirty ? "  \u25CF unsaved changes" : "";
-  const counter3 = mode.k === "effective" ? "" : rows.length > 0 ? `${cursor + 1}/${rows.length}` : "";
+  const counter3 = mode.k === "effective" || switchHere ? "" : rows.length > 0 ? `${cursor + 1}/${rows.length}` : "";
   const gap = Math.max(1, inner - textWidth(titleLeft + titleMid) - textWidth(counter3));
   const head = [
     {
@@ -43124,7 +43197,12 @@ function SecurityScreen({
         one === tab2 ? { text: `[${TAB_TITLE[one]}]`, bold: true, color: "cyan" } : { text: ` ${TAB_TITLE[one]} `, dimColor: true }
       ])
     },
-    ...wrapSegments("unknown", unknownCodeSegments(base.unknownCode, !noAuto), inner, "  ")
+    ...wrapSegments(
+      "unknown",
+      [{ text: switchHere ? "\u203A " : "  ", color: "cyan", bold: true }, ...unknownCodeSegments(base.unknownCode, !noAuto)],
+      inner,
+      "    "
+    )
   ];
   const intro = [
     ...wrapSegments("intro", [{ text: INTRO[tab2], dimColor: true }], inner, ""),
@@ -43152,7 +43230,13 @@ function SecurityScreen({
     foot.push(...wrapSegments("prompt", [{ text: prompt, color: "cyan" }], inner, ""));
     foot.push(...wrapSegments("typed", [{ text: "\u203A ", color: "cyan", bold: true }, { text: mode.value }, { text: "\u258F", color: "cyan" }], inner, "  "));
   }
-  const hints = mode.k === "confirm" ? "y yes \xB7 n / Esc no" : mode.k === "input" ? "Enter " + (mode.action === "check" ? "check" : "accept") + " \xB7 Esc cancel" : mode.k === "help" ? "\u2191\u2193 scroll \xB7 Esc back" : mode.k === "effective" ? "\u2191\u2193 scroll \xB7 Tab other list \xB7 Esc back" : mode.k === "saving" ? "saving\u2026" : [
+  const hints = mode.k === "confirm" ? "y yes \xB7 n / Esc no" : mode.k === "input" ? "Enter " + (mode.action === "check" ? "check" : "accept") + " \xB7 Esc cancel" : mode.k === "help" ? "\u2191\u2193 scroll \xB7 Esc back" : mode.k === "effective" ? "\u2191\u2193 scroll \xB7 Tab other list \xB7 Esc back" : mode.k === "saving" ? "saving\u2026" : switchHere ? [
+    "\u2191\u2193 move",
+    readOnly ? null : "\u2190\u2192 / Space change",
+    "Tab other list",
+    "? help",
+    "Esc close"
+  ].filter(Boolean).join(" \xB7 ") : [
     "\u2191\u2193 move",
     readOnly ? null : "Space toggle",
     readOnly ? null : "a add \xB7 e edit \xB7 d delete",
@@ -43161,9 +43245,9 @@ function SecurityScreen({
     "v effective",
     "c check",
     "r reload",
-    "? syntax",
+    "? help",
     readOnly ? null : "s save",
-    "Tab other list",
+    "\u2190\u2192 / Tab other list",
     "Esc close"
   ].filter(Boolean).join(" \xB7 ");
   const hint = wrapSegments("hint", [{ text: hints, dimColor: true }], inner, "");
@@ -43204,7 +43288,7 @@ function SecurityScreen({
     scroll.current[key] = offset;
     body = [...heading, ...lines.slice(offset, offset + window2)];
   } else {
-    const built = bodyLines(rows, cursor, inner, entryProblems[tab2]);
+    const built = bodyLines(rows, switchHere ? -1 : cursor, inner, entryProblems[tab2]);
     start = built.start;
     end2 = built.end;
     const offset = scrollInto(scroll.current[key] ?? 0, start, end2, bodyHeight, built.lines.length);
@@ -43638,9 +43722,10 @@ function WebScreen({
     ]);
   };
   use_input_default(
-    (input, key) => {
-      if (mouseReports(input).length > 0) return;
+    (typed, key) => {
+      if (mouseReports(typed).length > 0) return;
       if (mode.k === "busy") return;
+      const input = mode.k === "password" || mode.k === "form" ? typed : shortcutKey(typed);
       if (mode.k === "confirm") {
         const pressed = input.toLowerCase();
         const chosen = mode.options.find((option) => option.key === pressed);
@@ -44044,9 +44129,10 @@ function TrustScreen({ status: initial, width, height, onTrust, onRevoke, onRelo
     });
   };
   use_input_default(
-    (input, key) => {
-      if (mouseReports(input).length > 0) return;
+    (typed, key) => {
+      if (mouseReports(typed).length > 0) return;
       if (mode.k === "busy") return;
+      const input = shortcutKey(typed);
       if (mode.k === "revoke") {
         const lower = input.toLowerCase();
         if (lower === "s") {
@@ -44449,7 +44535,7 @@ function FeedbackScreen({
 var import_react42 = __toESM(require_react(), 1);
 
 // src/version.ts
-var TUI_VERSION = "0.2.98";
+var TUI_VERSION = "0.2.99";
 
 // src/hooks/useFeedback.ts
 function useFeedback(deps) {
@@ -44825,8 +44911,8 @@ function DiskSettingsScreen({ waiting, width, height, onDecide, onClose, isActiv
       if (mouseReports(input).length > 0) return;
       if (phase.k === "busy") return;
       if (phase.k === "done" || waiting.length === 0) return onClose();
-      if (key.escape || input === "q") return onClose();
-      const pressed = input.toLowerCase();
+      if (key.escape || shortcutKey(input) === "q") return onClose();
+      const pressed = shortcutKey(input).toLowerCase();
       if (pressed !== "a" && pressed !== "k") return;
       setPhase({ k: "busy" });
       void onDecide(pressed === "a").then((result) => {
@@ -47705,7 +47791,7 @@ function Chat({
       if (key.ctrl || key.meta || input.length === 0) return;
       const typed = stripPasteMarkers(input.replace(/\r\n/g, "\n").replace(/\r/g, "\n"));
       if (typed.length > 1 && onPaste?.(typed)) return;
-      if ((typed === "R" || typed === "r") && onStartDaemon) {
+      if ((shortcutKey(typed) === "R" || shortcutKey(typed) === "r") && onStartDaemon) {
         onStartDaemon();
         return;
       }
@@ -50918,7 +51004,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       exit();
       return;
     }
-    if (daemonGone && (input === "R" || input === "r")) {
+    if (daemonGone && (shortcutKey(input) === "R" || shortcutKey(input) === "r")) {
       void handleStartDaemon();
       return;
     }
@@ -50950,7 +51036,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       return;
     }
     if (showHelp) {
-      if (key.escape || key.return || input === "q") {
+      if (key.escape || key.return || shortcutKey(input) === "q") {
         setShowHelp(false);
         setFocus(INPUT_FOCUS);
       }
@@ -50987,7 +51073,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       screens.escapeExternal();
       return;
     }
-    if (externalOpen && externalViewOnly !== null && input === "t" && !key.ctrl && !key.meta && screens.ui === null && state2.pendingApproval === null) {
+    if (externalOpen && externalViewOnly !== null && shortcutKey(input) === "t" && !key.ctrl && !key.meta && screens.ui === null && state2.pendingApproval === null) {
       screens.adoptExternal();
       return;
     }
