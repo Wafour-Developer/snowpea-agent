@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.65.0";
+export const PROTOCOL_VERSION = "1.66.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -5355,6 +5355,8 @@ export interface SecurityGetResult {
     custom?: string[];
     presets?: string[];
   };
+  /** 1.66.0: SecuritySwitchState.byDefault. */
+  byDefault?: boolean;
   /** 1.58.0: SecuritySwitchState.disabledAt. */
   disabledAt?: string | null;
   /** 1.58.0: SecuritySwitchState.disabledBy. */
@@ -5393,11 +5395,11 @@ export interface SecurityGetResult {
       presets?: string[];
     };
   };
-  /** 1.58.0 (securityMasterSwitch): security.enabled, the master switch (SecuritySwitchState.enabled). While false, problems starts with a line and problemItems with an item of code 'security-disabled'. Written with settings.set {scope: 'global', patch: {security: {enabled}}}; a project scope refuses it (invalid_params, details.reason 'global_only'). */
+  /** 1.58.0 (securityMasterSwitch): security.enabled, the master switch (SecuritySwitchState.enabled). While false, problems starts with a line and problemItems with an item of code 'security-disabled'. Written with settings.set {scope: 'global', patch: {security: {enabled}}}; a project scope refuses it (invalid_params, details.reason 'global_only'). 1.66.0: false by default (byDefault); the line is then a neutral note. */
   enabled?: boolean;
   /** 1.55.0: the same problems, structured, in the same order. settings.set and security.check refuse a bad security value with invalid_params whose details carry both problems (text) and problemItems (this shape). */
   problemItems?: ({
-    /** 1.58.0: a stable id for a problem that is not an unusable entry; 'security-disabled' while security.enabled is false (list and entry null). */
+    /** 1.58.0: a stable id for a problem that is not an unusable entry; 'security-disabled' while security.enabled is false (list and entry null). 1.66.0: off is the default; the item stays for older clients and its reason is a neutral note (the checks are off, how to turn them on), not an error. */
     code?: string | null;
     /** The entry as written (a pattern, path or preset id), if any. */
     entry?: string | null;
@@ -10466,11 +10468,13 @@ export interface SettingsChangedPayload {
   scope?: "global" | "project";
   /** 1.58.0 (securityMasterSwitch): the security master switch as it is now, sent whenever keys holds 'security' (a change of security.enabled included), so every surface can show that security checks are off and who turned them off. Absent otherwise. */
   security?: {
+    /** 1.66.0 (capability 'securityDefaultOff'): true while off only because nobody turned the checks off — no record of a switch to off (disabledBy and disabledAt are then null). The default state, not a problem: a surface shows it neutrally. False while on, and while off by someone's choice. */
+    byDefault?: boolean;
     /** While off: when it was turned off (ISO 8601 UTC), or null. */
     disabledAt?: string | null;
     /** While off: the client kind of the connection that turned it off ('desktop', 'tui', 'ide', 'browser', ...), as recorded in $SNOWPEA_HOME/security/switch.json. A hand edit of settings.json reads 'settings.json' (found at the daemon's start) or 'settings.json (accepted by <kind>)' (settings.acceptDiskChange). Null while on or when not recorded. */
     disabledBy?: string | null;
-    /** security.enabled: false while the security checks are off — the blocked-command and protected-path lists (presets, custom, project additions) are not applied and code snowpea cannot read ahead runs as under unknownCode 'allow'. The stored lists and unknownCode are kept, so switching it on restores them. snowpea's own controls and the mode rules apply either way. */
+    /** security.enabled: false while the security checks are off — the blocked-command and protected-path lists (presets, custom, project additions) are not applied and code snowpea cannot read ahead runs as under unknownCode 'allow'. The stored lists and unknownCode are kept, so switching it on restores them. snowpea's own controls and the mode rules apply either way. 1.66.0 (capability 'securityDefaultOff'): off by default — true only when settings.json says security.enabled: true; while off, reads of the daemon's token and address, saved logins and other CLIs' logins are not blocked either and follow the mode rules like any other read (a 'secret' read: asked in plan and accept, not in auto). The default of this field stays true: a core before 1.58.0 omits it and always checked. */
     enabled?: boolean;
   } | null;
   /** 1.55.0 (security reviews 7 and 8): the settings paths that can run programs or widen access ('security', 'jarvis', 'web.remote', 'allowlist', 'mcp.permissions', or a dotted program/endpoint/daemon leaf such as 'mcp.servers.foo.command' or 'providers.openai.base_url') when settings.json was edited on disk while the daemon runs and that path differs: the edit is not applied until a local person accepts it (settings.acceptDiskChange). Sent with keys possibly empty; an empty list after a non-empty one means nothing waits any more. */

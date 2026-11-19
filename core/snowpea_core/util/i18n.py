@@ -283,21 +283,28 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     # -- security.get problems -------------------------------------------------
     "get.disabled": {
-        "en": "security checks are off (security.enabled: false): blocked commands and "
-              "protected paths are not applied and code snowpea cannot read ahead is not asked "
-              "about; snowpea's own controls and the mode rules still apply",
-        "ko": "보안 검사가 꺼져 있습니다(security.enabled: false). 차단 명령과 보호 경로가 "
-              "적용되지 않고, snowpea가 미리 읽을 수 없는 코드도 묻지 않습니다. snowpea 자체의 "
-              "통제와 모드 규칙은 그대로 적용됩니다",
-        "ja": "セキュリティチェックはオフです (security.enabled: false)。ブロックするコマンドと"
-              "保護パスは適用されず、snowpea が事前に読めないコードも確認しません。snowpea "
-              "自身の制御とモードのルールは引き続き適用されます",
-        "es": "las comprobaciones de seguridad están desactivadas (security.enabled: false): "
-              "no se aplican los comandos bloqueados ni las rutas protegidas y no se pregunta "
-              "por el código que snowpea no puede leer de antemano; los controles propios de "
-              "snowpea y las reglas de los modos siguen aplicándose",
-        "zh-CN": "安全检查已关闭（security.enabled: false）：不应用被阻止的命令和受保护的路径，"
-                 "也不会询问 snowpea 无法预先读懂的代码；snowpea 自身的控制和模式规则仍然适用",
+        "en": "Security checks are off (the default), so these lists are not applied. Turn them "
+              "on (security.enabled: true) to apply them: blocked commands, protected paths, "
+              "questions about code snowpea cannot read ahead, and the block on reading tokens "
+              "and logins. snowpea's own controls and the mode rules apply either way.",
+        "ko": "보안 검사는 꺼져 있습니다(기본값). 그래서 이 목록은 적용되지 않습니다. 켜면"
+              "(security.enabled: true) 차단 명령, 보호 경로, snowpea가 미리 읽을 수 없는 코드에 "
+              "대한 확인, 토큰과 로그인 정보 읽기 차단이 적용됩니다. snowpea 자체의 통제와 모드 "
+              "규칙은 어느 쪽이든 적용됩니다.",
+        "ja": "セキュリティチェックはオフです (既定)。そのため、これらのリストは適用されません。"
+              "オンにすると (security.enabled: true)、ブロックするコマンド、保護パス、snowpea が"
+              "事前に読めないコードの確認、トークンとログイン情報の読み取りのブロックが適用されます。"
+              "snowpea 自身の制御とモードのルールはどちらの場合も適用されます。",
+        "es": "Las comprobaciones de seguridad están desactivadas (valor predeterminado), así que "
+              "estas listas no se aplican. Actívelas (security.enabled: true) para aplicarlas: "
+              "comandos bloqueados, rutas protegidas, preguntas sobre el código que snowpea no "
+              "puede leer de antemano y el bloqueo de la lectura de tokens e inicios de sesión. "
+              "Los controles propios de snowpea y las reglas de los modos se aplican en ambos "
+              "casos.",
+        "zh-CN": "安全检查已关闭（默认），因此这些列表不会生效。"
+                 "开启后（security.enabled: true）将应用：被阻止的命令、受保护的路径、"
+                 "对 snowpea 无法预先读懂的代码的询问，以及禁止读取令牌和登录信息。"
+                 "snowpea 自身的控制和模式规则在两种情况下都适用。",
     },
     "get.section_invalid": {
         "en": "the security section of settings.json is not valid: the default lists apply "

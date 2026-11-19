@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.65.0` (semver)
+- **Protocol version:** `1.66.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.65.0"
+    "protocolVersion": "1.66.0"
   }
 }
 ```
@@ -104,6 +104,7 @@ Server capabilities advertised in the `system.hello` result:
 - `providerStatusEvents`
 - `readOnlyDelegation`
 - `securityAllProjects`
+- `securityDefaultOff`
 - `securityLists`
 - `securityMasterSwitch`
 - `sessionAttachments`
@@ -3343,10 +3344,11 @@ Security lists (1.54.0): the stored global lists, a project's additions, the eff
 | field | type | required | description |
 |---|---|---|---|
 | `blockedCommands` | `{ custom?: string[]; presets?: string[]; }` | no |  |
+| `byDefault` | `boolean` | no | 1.66.0: SecuritySwitchState.byDefault. |
 | `disabledAt` | `string \| null` | no | 1.58.0: SecuritySwitchState.disabledAt. |
 | `disabledBy` | `string \| null` | no | 1.58.0: SecuritySwitchState.disabledBy. |
 | `effective` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; commands?: ({ by: string; pattern: string; })[]; paths?: ({ by: string; exempt?: string[]; level: "write" \| "all"; path: string; scope: "tree" \| "self"; })[]; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; }` | no | What is in force; empty lists while enabled is false (1.58.0). |
-| `enabled` | `boolean` | no | 1.58.0 (securityMasterSwitch): security.enabled, the master switch (SecuritySwitchState.enabled). While false, problems starts with a line and problemItems with an item of code 'security-disabled'. Written with settings.set {scope: 'global', patch: {security: {enabled}}}; a project scope refuses it (invalid_params, details.reason 'global_only'). |
+| `enabled` | `boolean` | no | 1.58.0 (securityMasterSwitch): security.enabled, the master switch (SecuritySwitchState.enabled). While false, problems starts with a line and problemItems with an item of code 'security-disabled'. Written with settings.set {scope: 'global', patch: {security: {enabled}}}; a project scope refuses it (invalid_params, details.reason 'global_only'). 1.66.0: false by default (byDefault); the line is then a neutral note. |
 | `problemItems` | `({ code?: string \| null; entry?: string \| null; list: "commands" \| "paths" \| null; reason: string; })[]` | no | 1.55.0: the same problems, structured, in the same order. settings.set and security.check refuse a bad security value with invalid_params whose details carry both problems (text) and problemItems (this shape). |
 | `problems` | `string[]` | no | Entries skipped as unusable (a hand-edited file): unknown preset, bad pattern. |
 | `project` | `{ blockedCommands?: { custom?: string[]; presets?: string[]; }; protectedPaths?: { custom?: ({ level?: "write" \| "all"; path: string; })[]; presets?: string[]; }; } \| null` | no | What the workdir's .snowpea/settings.json adds; null without. |
@@ -5651,7 +5653,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `keys` | `string[]` | no | Top-level settings sections that changed, e.g. ['providers']. |
 | `scope` | `"global" \| "project"` | no | Which document was reloaded; "global" for $SNOWPEA_HOME/settings.json. |
-| `security` | `{ disabledAt?: string \| null; disabledBy?: string \| null; enabled?: boolean; } \| null` | no | 1.58.0 (securityMasterSwitch): the security master switch as it is now, sent whenever keys holds 'security' (a change of security.enabled included), so every surface can show that security checks are off and who turned them off. Absent otherwise. |
+| `security` | `{ byDefault?: boolean; disabledAt?: string \| null; disabledBy?: string \| null; enabled?: boolean; } \| null` | no | 1.58.0 (securityMasterSwitch): the security master switch as it is now, sent whenever keys holds 'security' (a change of security.enabled included), so every surface can show that security checks are off and who turned them off. Absent otherwise. |
 | `waitingKeys` | `string[]` | no | 1.55.0 (security reviews 7 and 8): the settings paths that can run programs or widen access ('security', 'jarvis', 'web.remote', 'allowlist', 'mcp.permissions', or a dotted program/endpoint/daemon leaf such as 'mcp.servers.foo.command' or 'providers.openai.base_url') when settings.json was edited on disk while the daemon runs and that path differs: the edit is not applied until a local person accepts it (settings.acceptDiskChange). Sent with keys possibly empty; an empty list after a non-empty one means nothing waits any more. |
 
 ### `system.updateProgress`

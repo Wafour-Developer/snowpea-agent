@@ -38,6 +38,8 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 클라이언트는 `locale`도 함께 보내는 것이 좋습니다(프로토콜 1.65.0, capability `clientLocale`). 사용자의 언어를 `ko`, `ko-KR`, `ja`, `es-ES`, `zh-CN` 같은 BCP 47 태그로 보내면, 검증 문제와 거절 메시지(`settings.set`의 문제, `security.get`의 문제, 브라우저가 보여 주는 사람 전용 거절)가 그 언어로 돌아옵니다. 영어, 한국어, 일본어, 스페인어, 중국어 간체를 지원하며, 지역 태그는 언어로, 그 밖의 값은 영어로 대체됩니다. 메서드에 자체 `locale` 매개변수가 있으면 그 호출에서는 그것이 우선합니다. 태그는 정규화되고(`ko_kr` → `ko-KR`), 언어 태그가 아닌 값은 거부하지 않고 무시하므로 오래되었거나 특이한 클라이언트도 접속할 수 있습니다. 번역되는 것은 사람이 읽는 문장뿐이며 `details.reason`과 `problemItems[].reason`/`code`는 어느 언어에서나 같습니다. TUI는 `LC_ALL`, `LC_MESSAGES`, `LANG` 값을 보내고, SDK의 `connect({locale})`는 받은 값을 그대로 보내며, 이 필드를 거부하는 1.65.0 미만 데몬에는 이 필드 없이 다시 hello를 보냅니다.
 
+프로토콜 1.66.0(capability `securityDefaultOff`)부터 보안 검사의 기본값은 꺼짐입니다. 사용자가 켜기 전까지(`settings.set {scope: 'global', patch: {security: {enabled: true}}}`) `security.get` 은 `enabled: false`, `byDefault: true` 를 돌려줍니다. 이 상태는 보안 설정 화면에서만 담담하게 보여 주세요. 검사가 꺼져 있으면 데몬의 토큰과 저장된 로그인을 읽는 것도 막지 않고 모드 규칙을 따릅니다. 1.65.0 이하의 클라이언트를 위해 `problems` 는 여전히 담담한 한 줄(문제 코드 `security-disabled`)로 시작합니다.
+
 ## 영역별 메서드
 
 | 영역 | 메서드 |

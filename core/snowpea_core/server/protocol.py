@@ -7730,7 +7730,22 @@ class SecuritySwitchState(Payload):
             "and protected-path lists (presets, custom, project additions) are not applied "
             "and code snowpea cannot read ahead runs as under unknownCode 'allow'. The stored "
             "lists and unknownCode are kept, so switching it on restores them. snowpea's own "
-            "controls and the mode rules apply either way."
+            "controls and the mode rules apply either way. 1.66.0 (capability "
+            "'securityDefaultOff'): off by default — true only when settings.json says "
+            "security.enabled: true; while off, reads of the daemon's token and address, "
+            "saved logins and other CLIs' logins are not blocked either and follow the mode "
+            "rules like any other read (a 'secret' read: asked in plan and accept, not in "
+            "auto). The default of this field stays true: a core before 1.58.0 omits it and "
+            "always checked."
+        ),
+    )
+    byDefault: bool = Field(
+        default=False,
+        description=(
+            "1.66.0 (capability 'securityDefaultOff'): true while off only because nobody "
+            "turned the checks off — no record of a switch to off (disabledBy and "
+            "disabledAt are then null). The default state, not a problem: a surface shows "
+            "it neutrally. False while on, and while off by someone's choice."
         ),
     )
     disabledBy: str | None = Field(
@@ -10727,7 +10742,9 @@ class SecurityProblem(Payload):
         default=None,
         description=(
             "1.58.0: a stable id for a problem that is not an unusable entry; "
-            "'security-disabled' while security.enabled is false (list and entry null)."
+            "'security-disabled' while security.enabled is false (list and entry null). "
+            "1.66.0: off is the default; the item stays for older clients and its reason is "
+            "a neutral note (the checks are off, how to turn them on), not an error."
         ),
     )
 
@@ -10803,8 +10820,12 @@ class SecurityGetResult(SecurityLists):
             "(SecuritySwitchState.enabled). While false, problems starts with a line and "
             "problemItems with an item of code 'security-disabled'. Written with "
             "settings.set {scope: 'global', patch: {security: {enabled}}}; a project scope "
-            "refuses it (invalid_params, details.reason 'global_only')."
+            "refuses it (invalid_params, details.reason 'global_only'). 1.66.0: false by "
+            "default (byDefault); the line is then a neutral note."
         ),
+    )
+    byDefault: bool = Field(
+        default=False, description="1.66.0: SecuritySwitchState.byDefault."
     )
     disabledBy: str | None = Field(
         default=None, description="1.58.0: SecuritySwitchState.disabledBy."
@@ -12765,6 +12786,11 @@ CAPABILITIES: list[str] = [
     # (RPC error messages, details.problems, security.get problems) come back
     # in that language (en, ko, ja, es, zh-CN).
     "clientLocale",
+    # 1.66.0 (owner decision 2026-11-19): security.enabled is off by default
+    # (one-time migration of a stored true nobody chose), SecuritySwitchState /
+    # SecurityGetResult byDefault, and while off reads of tokens and logins
+    # follow the mode rules instead of being blocked.
+    "securityDefaultOff",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
