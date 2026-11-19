@@ -74,13 +74,6 @@ def unified_diff(
     return "".join(lines)
 
 
-async def _read_existing(ctx: ToolContext, path: str) -> str | None:
-    try:
-        return await ctx.backend.read_file(path)
-    except FileNotFoundError:
-        return None
-
-
 async def _read_exact(backend: Any, path: str) -> str | None:
     """The file as written: strict UTF-8, no newline translation, a BOM kept.
 
@@ -263,11 +256,48 @@ async def _read_one(
         note = "\n… [truncated; grep for what you need, or read it with offset and limit]"
         complete = False
     content += note
+    header = await _endings_header(ctx.backend, path)
     # The read-before-write guard is only as good as what it saw: a windowed or
     # truncated read is recorded as partial, so a later write is refused until
     # the whole file has been read (M15 §A3).
     file_state.note_read(ctx.core, ctx.session, path, content, complete=complete)
-    return ToolResult(ok=True, output=content, path=path)
+    return ToolResult(ok=True, output=header + content, path=path)
+
+
+#: Lone CRs a ``read_file`` header names before it says "…".
+_LONE_CR_SHOWN = 10
+
+
+async def _endings_header(backend: Any, path: str) -> str:
+    """``[line endings: …]`` for a file that is not plain LF, else ``""``.
+
+    ``read_file`` shows every ``\\r\\n`` and lone ``\\r`` as ``\\n``; the header
+    tells the model (and a reviewer) what the file really holds.  A lone CR is
+    named by the shown line it ends, since it is shown as a line break.
+    """
+    try:
+        raw = (await backend.read_bytes(path)).decode("utf-8")
+    except (AttributeError, NotImplementedError, OSError, UnicodeDecodeError):
+        return ""
+    style = _line_style(raw)
+    if style == "lf":
+        return ""
+    if style == "crlf":
+        return "[line endings: CRLF]\n"
+    crlf = raw.count("\r\n")
+    parts = [f"mixed ({crlf} CRLF, {raw.count(chr(10)) - crlf} LF)"]
+    lone = [match.start() for match in _LONE_CR.finditer(raw)]
+    if lone:
+        # Shown lines: every "\r\n", lone "\r" and "\n" ends one.
+        lines = [
+            len(re.findall(r"\r\n|\r|\n", raw[:start])) + 1 for start in lone[:_LONE_CR_SHOWN]
+        ]
+        more = " …" if len(lone) > _LONE_CR_SHOWN else ""
+        parts.append(
+            "lone CR (shown as a line break) ending line"
+            f"{'s' if len(lone) > 1 else ''} {', '.join(map(str, lines))}{more}"
+        )
+    return f"[line endings: {'; '.join(parts)}]\n"
 
 
 async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -275,27 +305,36 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if not path:
         return ToolResult(ok=False, error="path is required")
     content = str(args.get("content", ""))
-    existing = await _read_existing(ctx, path)
+    try:
+        raw = await ctx.backend.read_bytes(path)
+    except FileNotFoundError:
+        raw = None
+    # Only the diff reads the old text; a file that is not UTF-8 may still be
+    # replaced as a whole.
+    existing = None if raw is None else raw.decode("utf-8", "replace")
     before = existing or ""
     stale = file_state.check_stale(ctx.core, ctx.session, path, exists=existing is not None)
     if stale_is_owned(stale):
         return ToolResult(ok=False, error=file_state.refusal(stale or ""))
     try:
-        if getattr(ctx, "exact", False):
-            # m26: what the person approved, byte for byte — a text write
-            # turns "\n" into the platform's line ending (CRLF on Windows).
-            await ctx.backend.write_bytes(path, content.encode("utf-8"))
-        else:
-            await ctx.backend.write_file(path, content)
+        # m26/m28: the content as given, byte for byte, on every OS — a text
+        # write turns "\n" into the platform's line ending (CRLF on Windows).
+        await ctx.backend.write_bytes(path, content.encode("utf-8"))
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     file_state.note_write(ctx.core, ctx.session, path, content)
+    output = f"wrote {len(content)} characters to {path}"
+    if "\r\n" in before and "\r\n" not in content:
+        output = f"{output} (file was CRLF; written as given)"
     return await _with_diagnostics(
         ctx,
         ToolResult(
             ok=True,
-            output=stale_note(f"wrote {len(content)} characters to {path}", stale),
-            diff=unified_diff(path, before, content, created=existing is None) or None,
+            output=stale_note(output, stale),
+            diff=unified_diff(
+                path, before, content, created=existing is None, show_cr=True
+            )
+            or None,
             path=path,
         ),
     )
@@ -310,38 +349,34 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
     new = str(args.get("new", ""))
     if not old:
         return ToolResult(ok=False, error="old is required and must not be empty")
-    # m28: an approved edit changes the matched bytes and nothing else — no
-    # CRLF or lone-\r normalisation anywhere in the file, no CRLF on Windows.
+    # m28: an edit changes the matched bytes and nothing else — no CRLF or
+    # lone-\r normalisation anywhere in the file, no CRLF on Windows.  Every
+    # edit, approved or not, reads and writes bytes, so the result depends on
+    # the file only, never on the OS.
     exact = bool(getattr(ctx, "exact", False))
-    if exact:
-        try:
-            before = await _read_exact(ctx.backend, path)
-        except UnicodeDecodeError:
-            return ToolResult(
-                ok=False,
-                error=(
-                    f"{path} is not valid UTF-8; an approved edit is applied byte-exactly "
-                    "and cannot change this file"
-                ),
-            )
-    else:
-        before = await _read_existing(ctx, path)
+    try:
+        before = await _read_exact(ctx.backend, path)
+    except UnicodeDecodeError:
+        return ToolResult(
+            ok=False,
+            error=(
+                f"{path} is not valid UTF-8; an edit is applied byte-exactly "
+                "and cannot change this file"
+            ),
+        )
     if before is None:
         return ToolResult(ok=False, error=f"no such file: {path}")
     replace_all = bool(args.get("replaceAll", False))
     stale = file_state.check_stale(ctx.core, ctx.session, path, exists=True)
     if stale_is_owned(stale):
         return ToolResult(ok=False, error=file_state.refusal(stale or ""))
-    after, occurrences, strategy, error = _replace_text(
+    after, occurrences, strategy, note, error = _replace_text(
         path, before, old, new, replace_all, exact=exact
     )
     if after is None:
         return ToolResult(ok=False, error=error)
     try:
-        if exact:
-            await ctx.backend.write_bytes(path, after.encode("utf-8"))
-        else:
-            await ctx.backend.write_file(path, after)
+        await ctx.backend.write_bytes(path, after.encode("utf-8"))
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     file_state.note_write(ctx.core, ctx.session, path, after)
@@ -353,59 +388,202 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
         )
     else:
         output = f"replaced {replaced} occurrence(s) in {path}"
+    if note:
+        output = f"{output} {note}"
     output = stale_note(output, stale)
     return await _with_diagnostics(
         ctx,
         ToolResult(
             ok=True,
             output=output,
-            diff=unified_diff(path, before, after, show_cr=exact) or None,
+            diff=unified_diff(path, before, after, show_cr=True) or None,
             path=path,
         ),
     )
 
 
+def _line_style(text: str) -> str:
+    """``"lf"``, ``"crlf"`` (every line ends in CRLF, no lone CR) or ``"mixed"``."""
+    if "\r" not in text:
+        return "lf"
+    crlf = text.count("\r\n")
+    if crlf == text.count("\n") == text.count("\r"):
+        return "crlf"
+    return "mixed"
+
+
 def _replace_text(
     path: str, before: str, old: str, new: str, replace_all: bool, *, exact: bool = False
-) -> tuple[str | None, int, str | None, str | None]:
-    """``(after, exact occurrences, fuzzy strategy, error)`` of one replacement.
+) -> tuple[str | None, int, str | None, str | None, str | None]:
+    """``(after, exact occurrences, fuzzy strategy, note, error)`` of one replacement.
 
     ``exact`` (m26, an edit a person approved on a card): ``old`` must appear
     verbatim and ``new`` goes in verbatim — no fuzzy fallback, which could
     replace text the card never showed, unescape ``\\r``/``\\t`` or reindent.
+    The one exception is line endings (:func:`_exact_line_endings`): an edit
+    that matched only through the file's CRLF endings says so in ``note``.
+
+    Without ``exact`` the fuzzy fallback stays, but never changes an ending
+    the edit did not touch: a uniformly CRLF file is matched as LF and written
+    back as CRLF; a file with mixed endings or a lone CR gets only the exact
+    matching an approved edit gets.
     """
-    occurrences = before.count(old)
-    strategy: str | None = None
-    if occurrences == 0 and exact:
-        return (
-            None,
-            0,
-            None,
-            f"old_string not found exactly in {path}; an approved edit is applied only "
-            "exactly as shown, so nothing was changed — re-read the file and pass the "
-            "exact current text",
-        )
-    if occurrences == 0:
-        # The model's whitespace or indentation often drifts from the file;
-        # the vendored fuzzy matcher recovers the intended span or explains why
-        # it could not (contract §7, hermes tools/fuzzy_match.py).
-        fuzzy, strategy, error = _fuzzy_replace(before, old, new, replace_all)
-        if fuzzy is None:
-            return None, 0, strategy, error or f"old string not found in {path}"
-        after = fuzzy
-    else:
-        if occurrences > 1 and not replace_all:
+    style = _line_style(before)
+    if exact or style == "mixed":
+        adapted = _exact_line_endings(path, before, old, new, replace_all)
+        if adapted is not None:
+            return adapted
+        occurrences = before.count(old)
+        if occurrences == 0:
+            why = (
+                "an approved edit is applied only exactly as shown"
+                if exact
+                else f"{path} has mixed line endings or a lone CR, so an edit is applied "
+                "only exactly (no approximate matching)"
+            )
             return (
                 None,
-                occurrences,
+                0,
                 None,
-                f"old string appears {occurrences} times in {path}; pass replaceAll or "
+                None,
+                f"old_string not found exactly in {path}; {why}, so nothing was changed "
+                "— re-read the file and pass the exact current text",
+            )
+        return _replace_counted(path, before, old, new, replace_all, occurrences)
+    if style == "crlf":
+        # Uniform CRLF: the LF view round-trips, so the fuzzy matcher works
+        # on it and every line goes back with its CRLF.
+        view = before.replace("\r\n", "\n")
+        after, occurrences, strategy, _note, error = _replace_lf(
+            path, view, old.replace("\r\n", "\n"), new.replace("\r\n", "\n"), replace_all
+        )
+        if after is None:
+            return None, occurrences, strategy, None, error
+        return after.replace("\n", "\r\n"), occurrences, strategy, CRLF_NOTE, None
+    return _replace_lf(path, before, old, new, replace_all)
+
+
+def _replace_lf(
+    path: str, before: str, old: str, new: str, replace_all: bool
+) -> tuple[str | None, int, str | None, str | None, str | None]:
+    """An unapproved replacement in LF text: exact first, then fuzzy."""
+    occurrences = before.count(old)
+    if occurrences:
+        return _replace_counted(path, before, old, new, replace_all, occurrences)
+    # The model's whitespace or indentation often drifts from the file;
+    # the vendored fuzzy matcher recovers the intended span or explains why
+    # it could not (contract §7, hermes tools/fuzzy_match.py).
+    fuzzy, strategy, error = _fuzzy_replace(before, old, new, replace_all)
+    if fuzzy is None:
+        return None, 0, strategy, None, error or f"old string not found in {path}"
+    if fuzzy == before:
+        return None, 0, strategy, None, f"the edit left {path} unchanged"
+    return fuzzy, 0, strategy, None, None
+
+
+def _replace_counted(
+    path: str, before: str, old: str, new: str, replace_all: bool, occurrences: int
+) -> tuple[str | None, int, str | None, str | None, str | None]:
+    """Replace ``old``, found ``occurrences`` times; more than one needs ``replace_all``."""
+    if occurrences > 1 and not replace_all:
+        return (
+            None,
+            occurrences,
+            None,
+            None,
+            f"old string appears {occurrences} times in {path}; pass replaceAll or "
+            "extend the match",
+        )
+    after = before.replace(old, new) if replace_all else before.replace(old, new, 1)
+    if after == before:
+        return None, occurrences, None, None, f"the edit left {path} unchanged"
+    return after, occurrences, None, None, None
+
+
+#: What an exact edit says when it matched only through the file's CRLF endings.
+CRLF_NOTE = "(applied with the file's CRLF line endings)"
+MIXED_NOTE = "(applied with the file's mixed line endings, each line keeping its own)"
+#: A ``\n`` that does not already end a CRLF in ``new_string``.
+_BARE_LF = re.compile(r"(?<!\r)\n")
+
+
+def _exact_line_endings(
+    path: str, before: str, old: str, new: str, replace_all: bool
+) -> tuple[str | None, int, str | None, str | None, str | None] | None:
+    """An exact edit of an LF-only ``old_string`` in a file with CRLF endings.
+
+    ``read_file`` shows a CRLF file with plain ``\\n``, so that is what the
+    model sends.  ``None`` hands the call back to the byte-exact path: when
+    ``old`` has a ``\\r`` or no ``\\n``, when the file has no CRLF, or when
+    ``old`` matches as it is and the CRLF form does not.  Otherwise the CRLF
+    form (each ``\\n`` as ``\\r\\n``, in ``new`` too) is matched under the same
+    rules; when neither form matches, one span whose lines end in a mix of
+    ``\\n`` and ``\\r\\n`` is.  Only the matched span changes, and a lone
+    ``\\r`` is never matched or written: ``\\r`` is only added before ``\\n``.
+    """
+    if "\r" in old or "\n" not in old or "\r\n" not in before:
+        return None
+    plain = before.count(old)
+    crlf_old = old.replace("\n", "\r\n")
+    crlf = before.count(crlf_old)
+    if plain and crlf:
+        return (
+            None,
+            plain + crlf,
+            None,
+            None,
+            f"old_string matches {path} both with LF and with CRLF line endings; an "
+            "approved edit must be unambiguous, so nothing was changed — read the file "
+            "with CR shown (e.g. `cat -A`) and pass the exact bytes, \\r included",
+        )
+    if plain:
+        return None
+    if crlf:
+        if crlf > 1 and not replace_all:
+            return (
+                None,
+                crlf,
+                None,
+                None,
+                f"old string appears {crlf} times in {path}; pass replaceAll or "
                 "extend the match",
             )
-        after = before.replace(old, new) if replace_all else before.replace(old, new, 1)
+        crlf_new = _BARE_LF.sub("\r\n", new)
+        after = before.replace(crlf_old, crlf_new, -1 if replace_all else 1)
+        if after == before:
+            return None, crlf, None, CRLF_NOTE, f"the edit left {path} unchanged"
+        return after, crlf, None, CRLF_NOTE, None
+    # Neither form: the span may mix LF and CRLF lines.  "\r?\n" only ever
+    # takes a "\r" that ends a CRLF line, never a lone one.
+    pattern = re.compile(r"\r?\n".join(re.escape(part) for part in old.split("\n")))
+    spans = list(pattern.finditer(before))
+    if len(spans) != 1:
+        found = (
+            "not found exactly in"
+            if not spans
+            else f"matches {len(spans)} spans with mixed line endings in"
+        )
+        return (
+            None,
+            len(spans),
+            None,
+            None,
+            f"old_string {found} {path} (also tried with the file's CRLF and mixed "
+            "line endings); nothing was changed — read the file with CR shown (e.g. "
+            "`cat -A`) and pass the exact bytes, \\r included",
+        )
+    span = spans[0]
+    endings = re.findall(r"\r?\n", span.group(0))
+    dominant = "\r\n" if before.count("\r\n") * 2 >= before.count("\n") else "\n"
+    pieces = _BARE_LF.split(new)
+    out = [pieces[0]]
+    for index, piece in enumerate(pieces[1:]):
+        out.append(endings[index] if index < len(endings) else dominant)
+        out.append(piece)
+    after = before[: span.start()] + "".join(out) + before[span.end() :]
     if after == before:
-        return None, occurrences, strategy, f"the edit left {path} unchanged"
-    return after, occurrences, strategy, None
+        return None, 1, None, MIXED_NOTE, f"the edit left {path} unchanged"
+    return after, 1, None, MIXED_NOTE, None
 
 
 #: Largest dry-run diff put on an approval request (addendum 28, C11).
@@ -422,6 +600,7 @@ async def preview_diff(backend: Any, tool: str, args: dict[str, Any]) -> str | N
         return None
     contents: dict[str, str] = {}
     originals: dict[str, str] = {}
+    notes: list[str] = []
 
     async def current(path: str) -> str | None:
         if path not in contents:
@@ -460,7 +639,7 @@ async def preview_diff(backend: Any, tool: str, args: dict[str, Any]) -> str | N
                 before = await current(path)
                 if before is None:
                     return None
-                after, _count, _strategy, _error = _replace_text(
+                after, _count, _strategy, note, _error = _replace_text(
                     path,
                     before,
                     old,
@@ -472,6 +651,8 @@ async def preview_diff(backend: Any, tool: str, args: dict[str, Any]) -> str | N
                 )
                 if after is None:
                     return None
+                if note and note not in notes:
+                    notes.append(note)
                 contents[path] = after
     except Exception:  # noqa: BLE001 - a preview never blocks the prompt
         log.debug("could not preview %s", tool, exc_info=True)
@@ -489,7 +670,8 @@ async def preview_diff(backend: Any, tool: str, args: dict[str, Any]) -> str | N
     diff = "\n".join(part for part in parts if part)
     if not diff or len(diff.encode("utf-8")) > PREVIEW_DIFF_MAX:
         return None
-    return diff
+    # Before the first header, where a diff reader skips it as preamble.
+    return "".join(f"{note}\n" for note in notes) + diff
 
 
 def _fuzzy_replace(
