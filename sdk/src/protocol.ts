@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.64.0";
+export const PROTOCOL_VERSION = "1.65.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -8599,6 +8599,8 @@ export interface SystemHelloParams {
   instanceId?: string | null;
   /** Keep the daemon from its idle shutdown while this client is connected (1.6.0). */
   keepAlive?: boolean;
+  /** 1.65.0 (capability 'clientLocale'): the person's language as a BCP 47 tag, e.g. 'ko', 'ko-KR', 'ja', 'es-ES', 'zh-CN'. Clients should send it: validation problems and refusals (RPC error messages, details.problems, security.get problems) then come back in that language: 'en', 'ko', 'ja', 'es' or 'zh-CN', a regional tag falling back to its language, anything else to English. A method's own locale param still wins for that call. At most 35 characters of letters, digits, '-' and '_'; normalised ('ko_kr' -> 'ko-KR'). A value that is not a language tag is ignored, never refused. Machine codes (details.reason, problemItems[].reason/code) are never translated. */
+  locale?: string | null;
   /** Protocol semver the client speaks; major must match. */
   protocolVersion: string;
   /** Shared secret read from $SNOWPEA_HOME/token or daemon.json. */

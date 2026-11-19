@@ -9,7 +9,7 @@
  *   - binds the server→client `approval.request` handler.
  */
 
-import { detectLanguage, setUiLanguage } from "../layout/language.js";
+import { detectLanguage, localeFromEnv, setUiLanguage, uiLanguage } from "../layout/language.js";
 import { sanitizeDeep } from "../util/sanitize.js";
 import {
   connect as sdkConnect,
@@ -91,6 +91,12 @@ export interface TuiClientOptions {
   remote?: boolean;
   /** Injected in tests; defaults to the real `@snowpea/sdk` `connect`. */
   connectFn?: ConnectFn;
+  /**
+   * The person's language for `system.hello {locale}` (1.65.0); by default the
+   * TUI's language once `agent.replyLanguage` pinned it, else `LC_ALL` /
+   * `LC_MESSAGES` / `LANG` (see {@link localeFromEnv}).
+   */
+  locale?: string;
 }
 
 export interface CreateSessionOptions {
@@ -187,10 +193,14 @@ export class TuiClient {
 
   async connect(): Promise<void> {
     const connect = this.options.connectFn ?? sdkConnect;
+    // 1.65.0 (clientLocale): core's validation problems and refusals come back
+    // in the person's language.
+    const locale = this.options.locale ?? (this.languagePinned ? uiLanguage() : localeFromEnv());
     const client = await connect({
       port: this.options.port,
       token: this.options.token,
       clientVersion: this.options.clientVersion,
+      ...(locale ? { locale } : {}),
       ...(this.options.remote
         ? { resolveEndpoint: () => ({ port: this.options.port, token: this.options.token }) }
         : {}),

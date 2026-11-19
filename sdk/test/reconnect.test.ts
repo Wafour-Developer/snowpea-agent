@@ -314,4 +314,61 @@ describe("Client reconnect", () => {
 
     await client.close();
   });
+
+  it("sends the locale in system.hello, and leaves it out when none is given (1.65.0)", async () => {
+    const server = await startFakeServer("token-locale");
+    const withLocale = await connect({
+      port: server.port,
+      token: server.token,
+      clientVersion: "0.2.4",
+      reconnect: false,
+      locale: "ko-KR",
+    });
+    const without = await connect({
+      port: server.port,
+      token: server.token,
+      clientVersion: "0.2.4",
+      reconnect: false,
+    });
+    const hellos = server.requests.filter((r) => r.method === "system.hello");
+    assert.equal(hellos.length, 2);
+    assert.equal(hellos[0].params.locale, "ko-KR");
+    assert.ok(!("locale" in hellos[1].params));
+
+    await withLocale.close();
+    await without.close();
+    await server.close();
+  });
+
+  it("still connects to a daemon before 1.65.0 that refuses the locale field", async () => {
+    const hellos: any[] = [];
+    const server = await new Promise<WebSocketServer>((resolve) => {
+      const made: WebSocketServer = new WebSocketServer({ port: 0, path: "/ws" }, () => resolve(made));
+      made.on("connection", (ws) => {
+        ws.on("message", (raw) => {
+          const msg = JSON.parse(String(raw));
+          if (msg.method !== "system.hello") return;
+          hellos.push(msg.params);
+          if ("locale" in msg.params) {
+            // What an old core's extra="forbid" HelloParams answers.
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: {
+              code: -32602, message: "invalid params", data: { code: "invalid_params" } } }));
+          } else {
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+              protocolVersion: "1.64.0", serverVersion: "0.2.97", capabilities: [] } }));
+          }
+        });
+      });
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    const client = await connect({ port, token: "t", clientVersion: "0.2.4", reconnect: false,
+      locale: "ko" });
+    assert.equal(client.serverVersion, "0.2.97");
+    assert.equal(hellos.length, 2);
+    assert.equal(hellos[0].locale, "ko");
+    assert.ok(!("locale" in hellos[1]));
+    await client.close();
+    await new Promise<void>((res) => server.close(() => res()));
+  });
 });

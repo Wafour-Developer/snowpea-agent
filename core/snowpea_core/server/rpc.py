@@ -97,6 +97,9 @@ class RpcConnection:
         self.client_id: str | None = None
         self.instance_id: str | None = None
         self.keep_alive: bool = False
+        #: The person's language from ``system.hello {locale}`` (1.65.0), normalised
+        #: (``ko-KR``); ``None`` means English.  See :mod:`snowpea_core.util.i18n`.
+        self.locale: str | None = None
         #: Came in through the remote web listener's password login (M19):
         #: it may not hand guarded classes to Jarvis.
         self.remote_login: bool = False
@@ -321,19 +324,31 @@ class RpcDispatcher:
             raise RpcError(
                 errors.INVALID_PARAMS, "invalid params", _without_secrets(exc, raw_params)
             ) from None
-        self._refuse_owned_run(method, params)
-        from snowpea_core.server.person_gate import method_refusal
+        from snowpea_core.util import i18n
 
-        if conn.authenticated or method not in PUBLIC_METHODS:
-            # (The handshake itself comes from a connection that is nobody yet.)
-            method_refusal(method, conn)
-            settings_gate.browser_method_refusal(method, gated, conn, self.core)
-            settings_gate.kind_method_refusal(method, gated, conn, self.core)
-        token = CURRENT_ACTOR.set(actor)
+        # 1.65.0 (clientLocale): the language of this call's human texts — its own
+        # ``locale`` param where the method has one, else the connection's hello
+        # locale — set before the gates so their refusals are in it too.
+        explicit = (getattr(params, "locale", None)
+                    if "locale" in getattr(model, "model_fields", {}) else None)
+        locale_token = i18n.CURRENT_LOCALE.set(
+            (conn.surface_id, i18n.call_locale(conn, explicit)))
         try:
-            result = await handler(conn, params, self.core)
+            self._refuse_owned_run(method, params)
+            from snowpea_core.server.person_gate import method_refusal
+
+            if conn.authenticated or method not in PUBLIC_METHODS:
+                # (The handshake itself comes from a connection that is nobody yet.)
+                method_refusal(method, conn)
+                settings_gate.browser_method_refusal(method, gated, conn, self.core)
+                settings_gate.kind_method_refusal(method, gated, conn, self.core)
+            token = CURRENT_ACTOR.set(actor)
+            try:
+                result = await handler(conn, params, self.core)
+            finally:
+                CURRENT_ACTOR.reset(token)
         finally:
-            CURRENT_ACTOR.reset(token)
+            i18n.CURRENT_LOCALE.reset(locale_token)
         return _as_dict(result)
 
     def _refuse_owned_run(self, method: str, params: BaseModel) -> None:

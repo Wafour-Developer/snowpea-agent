@@ -363,5 +363,5 @@ async def test_the_untrusted_notice_lets_each_surface_choose(core: Core, project
 
 
 def test_protocol_and_capability() -> None:
-    assert PROTOCOL_VERSION == "1.64.0"
+    assert PROTOCOL_VERSION == "1.65.0"
     assert "browserProjectTrust" in CAPABILITIES

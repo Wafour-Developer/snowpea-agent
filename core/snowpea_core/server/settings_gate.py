@@ -284,9 +284,13 @@ def refuse(conn: Any, what: str, *, reason: str = "person_only",
     """``jarvis_person_only`` with ``details.reason`` (``person_only``, ``jarvis_on``,
     ``not_bundled_plugin``, …) and ``extra`` details; ``hint`` ends the message."""
     from snowpea_core.server.person_gate import connection_kind
+    from snowpea_core.util import i18n
 
     kind = connection_kind(conn)
-    if reason == "jarvis_on":
+    if reason.startswith("browser_") and reason in i18n.MESSAGES:
+        # 1.65.0 (clientLocale): what a browser shows its person, in its language.
+        message = i18n.text("refusal.browser", conn=conn, why=i18n.text(reason, conn=conn))
+    elif reason == "jarvis_on":
         message = (
             f"Jarvis mode is on: {what} defines what Jarvis may do; change it in the "
             "snowpea app or the TUI"

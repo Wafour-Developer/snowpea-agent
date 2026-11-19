@@ -46,6 +46,7 @@ from snowpea_core.setup.catalog import (
     vendor_catalog,
     vendor_default_models,
 )
+from snowpea_core.util import i18n
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -441,7 +442,7 @@ def hidden_models_problems(patch: dict[str, Any], *, project: bool = False) -> N
         if project:
             raise RpcError(
                 errors.INVALID_PARAMS,
-                f"{key} is a global setting; a project cannot change it",
+                i18n.text("settings.global_only", key=key),
                 {"reason": "global_only", "key": key},
             )
         value = block[HIDDEN_FIELD]
@@ -454,8 +455,8 @@ def hidden_models_problems(patch: dict[str, Any], *, project: bool = False) -> N
         ):
             raise RpcError(
                 errors.INVALID_PARAMS,
-                f"{key} must be a list of model ids (at most {HIDDEN_MODELS_MAX}, each a "
-                f"non-empty string of at most {MODEL_ID_MAX} characters)",
+                i18n.text("settings.hidden_models", key=key, max=HIDDEN_MODELS_MAX,
+                          chars=MODEL_ID_MAX),
                 {"key": key},
             )
 

@@ -19,6 +19,7 @@ from typing import Any
 
 from snowpea_core.security import catalog
 from snowpea_core.security import patterns as pl
+from snowpea_core.util import i18n
 
 log = logging.getLogger("snowpea.security")
 
@@ -115,25 +116,40 @@ class Lists:
         }
 
 
-def path_problem(raw: Any) -> str | None:
-    """Why ``raw`` cannot be a protected path entry, or ``None``."""
+def _path_problem(raw: Any) -> tuple[str, dict[str, Any]] | None:
+    """Why ``raw`` cannot be a protected path entry, as an :mod:`~snowpea_core.util.i18n`
+    message key and its values, or ``None``."""
     if not isinstance(raw, str) or not raw.strip():
-        return "a protected path must be a non-empty path"
+        return "path.empty", {}
     text = raw.strip()
     if len(text) > MAX_PATH_CHARS or "\x00" in text or "\n" in text:
-        return "a protected path must be one line of at most 4096 characters"
+        return "path.one_line", {"max": MAX_PATH_CHARS}
     absolute = text.startswith(("/", "~/")) or text == "~" or ntpath.isabs(text) and (
         len(text) > 2 and text[1] == ":"
     )
     if not absolute:
-        return (f"{text!r} is not an absolute path; write it from the root (/home/me/x) or "
-                "from your home (~/x)")
+        return "path.not_absolute", {"path": repr(text)}
     if text.startswith("~") and not (text == "~" or text.startswith("~/")):
-        return "write another user's home as an absolute path, not ~user"
+        return "path.other_home", {}
     if text.rstrip("/") == "" or (len(text) <= 3 and text[1:2] == ":"):
-        return ("protecting the whole disk would block every change anywhere; the essential "
-                "preset already protects / itself")
+        return "path.whole_disk", {}
     return None
+
+
+def _path_reason(raw: Any) -> tuple[str, str] | None:
+    """``(text in the call's locale, English reason)`` for ``raw``, or ``None``: the
+    reason is the stable ``problemItems[].reason`` (1.65.0: only the text is localised)."""
+    found = _path_problem(raw)
+    if found is None:
+        return None
+    key, values = found
+    return i18n.text(key, **values), i18n.text(key, locale="en", **values)
+
+
+def path_problem(raw: Any) -> str | None:
+    """Why ``raw`` cannot be a protected path entry (in the call's locale), or ``None``."""
+    found = _path_reason(raw)
+    return found[0] if found else None
 
 
 def _unique_items(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -155,8 +171,8 @@ def _clean_presets(raw: Any, known: Iterable[str], where: str,
         if isinstance(item, str) and item in known:
             out.append(item)
         else:
-            _note(problems, f"{where}: unknown preset {item!r}", _list_of(where), item,
-                  "unknown preset")
+            _note(problems, i18n.text("lists.unknown_preset", where=where, item=repr(item)),
+                  _list_of(where), item, "unknown preset")
     return list(dict.fromkeys(out))
 
 
@@ -164,8 +180,8 @@ def _not_a_list(raw: Any, where: str, problems: list[str] | None) -> None:
     """Security review 6, L-5: a ``custom`` that is not a list used to vanish
     without a word; ``security.get`` now says its entries are not in force."""
     if raw is not None and not isinstance(raw, list):
-        _note(problems, f"{where}: custom must be a list; {raw!r} was ignored (none of it is "
-              "in force)", _list_of(where), None, "custom is not a list")
+        _note(problems, i18n.text("lists.custom_not_list", where=where, value=repr(raw)),
+              _list_of(where), None, "custom is not a list")
 
 
 def _clean_patterns(raw: Any, where: str, problems: list[str] | None) -> list[str]:
@@ -176,8 +192,8 @@ def _clean_patterns(raw: Any, where: str, problems: list[str] | None) -> list[st
         if problem is None:
             out.append(item.strip())
         else:
-            _note(problems, f"{where}: pattern {item!r} skipped ({problem})", "commands", item,
-                  problem)
+            _note(problems, i18n.text("lists.pattern_skipped", where=where, item=repr(item),
+                                      problem=problem), "commands", item, problem)
     return list(dict.fromkeys(out))
 
 
@@ -188,13 +204,14 @@ def _clean_paths(raw: Any, where: str, problems: list[str] | None) -> list[tuple
         if isinstance(item, str):
             item = {"path": item, "level": "write"}
         if not isinstance(item, Mapping):
-            _note(problems, f"{where}: entry {item!r} skipped", "paths", item,
-                  "not a path entry")
+            _note(problems, i18n.text("lists.entry_skipped", where=where, item=repr(item)),
+                  "paths", item, "not a path entry")
             continue
         path, level = item.get("path"), item.get("level", "write")
-        problem = path_problem(path)
-        if problem is not None:
-            _note(problems, f"{where}: path {path!r} skipped ({problem})", "paths", path, problem)
+        found = _path_reason(path)
+        if found is not None:
+            _note(problems, i18n.text("lists.path_skipped", where=where, path=repr(path),
+                                      problem=found[0]), "paths", path, found[1])
             continue
         level = level if level in LEVELS else "all"
         text = str(path).strip()
@@ -224,10 +241,10 @@ def from_raw(raw: Any, *, where: str = "settings", defaults: bool = True) -> Lis
     # Security review 5, L2: a preset value that is not a list never means
     # "no protection" — the defaults, and a problem security.get shows.
     if not isinstance(command_presets, list):
-        problems.append(f"{where} blockedCommands: presets must be a list; read as the defaults")
+        problems.append(i18n.text("lists.presets_not_list", where=f"{where} blockedCommands"))
         command_presets = list(catalog.DEFAULT_COMMAND_PRESETS) if defaults else []
     if not isinstance(path_presets, list):
-        problems.append(f"{where} protectedPaths: presets must be a list; read as the defaults")
+        problems.append(i18n.text("lists.presets_not_list", where=f"{where} protectedPaths"))
         path_presets = list(catalog.DEFAULT_PATH_PRESETS) if defaults else []
     return Lists(
         command_presets=tuple(_clean_presets(command_presets, catalog.COMMAND_PRESET_IDS,
@@ -278,22 +295,20 @@ def problems_in(raw: Any) -> list[str]:
     if raw is None:
         return found
     if not isinstance(raw, Mapping):
-        found.note("security must be an object {blockedCommands, protectedPaths}", None, None,
-                   "not an object")
+        found.note(i18n.text("security.not_object"), None, None, "not an object")
         return found
     for key in raw:
         if key == "unknownCode":
             if raw[key] not in ("ask", "auto", "allow", None):
-                found.note("security.unknownCode must be 'ask', 'auto' or 'allow', not "
-                           f"{raw[key]!r}", None, "unknownCode",
-                           "must be 'ask', 'auto' or 'allow'")
+                found.note(i18n.text("security.unknown_code", value=repr(raw[key])), None,
+                           "unknownCode", "must be 'ask', 'auto' or 'allow'")
         elif key == "enabled":
             if not (raw[key] is None or isinstance(raw[key], bool)):
-                found.note(f"security.enabled must be true or false, not {raw[key]!r}", None,
+                found.note(i18n.text("security.enabled", value=repr(raw[key])), None,
                            "enabled", "must be true or false")
         elif key not in ("blockedCommands", "protectedPaths"):
-            found.note("security." + str(key) + " is not a setting (enabled, blockedCommands, "
-                       "protectedPaths, unknownCode)", None, key, "not a setting")
+            found.note(i18n.text("security.not_a_setting", key=str(key)), None, key,
+                       "not a setting")
     for name, ids in (("blockedCommands", catalog.COMMAND_PRESET_IDS),
                       ("protectedPaths", catalog.PATH_PRESET_IDS)):
         which = "commands" if name == "blockedCommands" else "paths"
@@ -301,54 +316,57 @@ def problems_in(raw: Any) -> list[str]:
         if section is None:
             continue
         if not isinstance(section, Mapping):
-            found.note(f"security.{name} must be an object {{presets, custom}}", which, None,
+            found.note(i18n.text("security.section_not_object", name=name), which, None,
                        "not an object")
             continue
         for key in section:
             if key not in ("presets", "custom"):
-                found.note(f"security.{name}.{key} is not a setting (presets, custom)", which,
+                found.note(i18n.text("security.section_key", name=name, key=key), which,
                            key, "not a setting")
         presets = section.get("presets")
         if presets is not None:
             if not isinstance(presets, list):
-                found.note(f"security.{name}.presets must be a list of preset ids", which, None,
+                found.note(i18n.text("security.presets_not_list", name=name), which, None,
                            "presets is not a list")
             else:
                 for item in presets:
                     if item not in ids:
-                        found.note(f"security.{name}.presets: unknown preset {item!r} "
-                                   f"(known: {', '.join(ids)})", which, item, "unknown preset")
+                        found.note(i18n.text("security.unknown_preset", name=name,
+                                             item=repr(item), known=", ".join(ids)),
+                                   which, item, "unknown preset")
         custom = section.get("custom")
         if custom is None:
             continue
         if not isinstance(custom, list):
-            found.note(f"security.{name}.custom must be a list", which, None,
+            found.note(i18n.text("security.custom_not_list", name=name), which, None,
                        "custom is not a list")
             continue
         if len(custom) > MAX_ENTRIES:
-            found.note(f"security.{name}.custom holds more than {MAX_ENTRIES} entries", which,
+            found.note(i18n.text("security.too_many", name=name, max=MAX_ENTRIES), which,
                        None, f"more than {MAX_ENTRIES} entries")
         for item in custom:
             if name == "blockedCommands":
                 problem = pl.validate(item) if isinstance(item, str) else "a pattern is text"
                 if problem is not None:
-                    found.note(f"blocked command {item!r}: {problem}", which, item, problem)
+                    found.note(i18n.text("security.bad_command", item=repr(item),
+                                         problem=problem), which, item, problem)
                 continue
             if isinstance(item, Mapping):
                 path = item.get("path")
                 extra = set(item) - {"path", "level"}
                 if extra:
-                    found.note(f"protected path entry has unknown keys: {sorted(extra)}", which,
+                    found.note(i18n.text("security.path_keys", keys=sorted(extra)), which,
                                path, f"unknown keys: {', '.join(sorted(map(str, extra)))}")
                 level = item.get("level", "write")
                 if level not in LEVELS:
-                    found.note(f"protected path level must be 'write' or 'all', not {level!r}",
+                    found.note(i18n.text("security.path_level", level=repr(level)),
                                which, path, "level must be 'write' or 'all'")
             else:
                 path = item if isinstance(item, str) else None
-            problem = path_problem(path)
-            if problem is not None:
-                found.note(f"protected path {path!r}: {problem}", which, path, problem)
+            reason = _path_reason(path)
+            if reason is not None:
+                found.note(i18n.text("security.bad_path", path=repr(path), problem=reason[0]),
+                           which, path, reason[1])
     return found
 
 
