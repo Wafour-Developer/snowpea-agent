@@ -6,6 +6,7 @@
  */
 
 import React from "react";
+import { Box, Text } from "ink";
 
 import type { JarvisScreens } from "../hooks/useJarvisScreens.js";
 import { approvalPromptRows } from "../layout/viewport.js";
@@ -13,7 +14,9 @@ import { fit } from "../layout/fit.js";
 import { ApprovalPrompt } from "./ApprovalPrompt.js";
 import { ConfirmMenu } from "./ConfirmMenu.js";
 import { DelegationConfirm, delegationConfirmRows } from "./DelegationConfirm.js";
-import { EXTERNAL_NEW_ROWS, ExternalNewForm } from "./ExternalNewForm.js";
+import { EXTERNAL_NEW_ROWS, ExternalNewForm, ModelStep } from "./ExternalNewForm.js";
+import { say } from "../state/errors.js";
+import { cliLabel } from "../state/external.js";
 import { EXTERNAL_PICKER_TOTAL_ROWS, ExternalPicker } from "./ExternalPicker.js";
 import { QuestionPrompt, questionPromptRows } from "./QuestionPrompt.js";
 import { UnrestrictedConfirm, unrestrictedConfirmRows } from "./UnrestrictedConfirm.js";
@@ -21,6 +24,9 @@ import { fitChips, personOnlyView, rowAgent, rowChips, rowStatus, sessionName } 
 import { tagCell, tagColumnWidth } from "../state/agent-tag.js";
 import { spread } from "../layout/fit.js";
 import type { ApprovalEntry } from "../state/store.js";
+
+/** Rows the `/model` picker of an open external session occupies at most. */
+const EXTERNAL_MODEL_ROWS = 13;
 
 /** Rows the open overlay needs, so the full-screen layout reserves them. */
 export function screenOverlayRows(screens: JarvisScreens, width: number): number {
@@ -31,6 +37,8 @@ export function screenOverlayRows(screens: JarvisScreens, width: number): number
       return EXTERNAL_PICKER_TOTAL_ROWS;
     case "new":
       return EXTERNAL_NEW_ROWS;
+    case "model":
+      return EXTERNAL_MODEL_ROWS;
     case "sessions":
       return Math.min(screens.jarvis.rows.length, 10) + 4;
     case "unrestricted":
@@ -97,6 +105,26 @@ export function ScreenOverlays({
         onCancel={() => screens.setUi(null)}
         onCreate={screens.createExternal}
       />
+    );
+  }
+
+  if (ui.kind === "model") {
+    return (
+      <Box flexDirection="column" width={width} borderStyle="round" borderColor="blue" paddingX={1}>
+        <Text bold color="blue" wrap="truncate-end">
+          {fit(say(`${cliLabel(ui.ref.cli)} model`, `${cliLabel(ui.ref.cli)} 모델`), width - 4)}
+        </Text>
+        <ModelStep
+          models={ui.models}
+          note={ui.note}
+          width={width}
+          isActive
+          current={screens.external?.session.model ?? null}
+          enterHint={say("Enter set (empty = the CLI's default) · Esc back", "Enter 적용 (비우면 CLI 기본값) · Esc 뒤로")}
+          onBack={() => screens.setUi(null)}
+          onSubmit={screens.setExternalModel}
+        />
+      </Box>
     );
   }
 

@@ -24,6 +24,7 @@ import type {
   ExternalTimelineEvent,
   SessionEvent,
 } from "../rpc/sdk.js";
+import { say } from "./errors.js";
 import { initialState, reducer, type State } from "./store.js";
 
 export const EXTERNAL_CLIS: readonly ExternalCli[] = ["claude", "codex", "agy", "cursor"];
@@ -519,6 +520,8 @@ export function externalReducer(view: ExternalView, action: ExternalAction): Ext
         mode: p.mode ?? view.session.mode,
         title: p.title ?? view.session.title,
         tmux: p.tmux ?? null,
+        // `model` rides on external.state from `externalModelSwitch` on; an older core omits it.
+        model: "model" in p ? ((p as { model?: string | null }).model ?? null) : view.session.model,
       };
       let state = view.state;
       let error = view.error;
@@ -695,4 +698,43 @@ export function describeExternalError(error: unknown, cli?: string, kind: Extern
 export function headerTitle(session: ExternalSessionRow, width: number): string {
   const title = (session.title ?? "").trim() || session.ref.id.slice(0, 8);
   return fit(`${cliLabel(session.ref.cli)} · ${title}`, width);
+}
+
+// --- the model of an open session (`externalModelSwitch`) ---------------------------
+
+/** True when the daemon can switch the model of a running external session. */
+export function hasModelSwitch(capabilities: readonly string[] | undefined): boolean {
+  return (capabilities ?? []).includes("externalModelSwitch");
+}
+
+export type ModelCommand = { kind: "pick" } | { kind: "set"; model: string | null };
+
+/** `/model` (picker), `/model default` (the CLI's default) or `/model <id>`; null for any other line. */
+export function parseModelCommand(line: string): ModelCommand | null {
+  const match = /^\/model(?:\s+(.*))?$/.exec(line.trim());
+  if (!match) return null;
+  const arg = (match[1] ?? "").trim();
+  if (!arg) return { kind: "pick" };
+  return { kind: "set", model: arg === "default" ? null : arg };
+}
+
+/** The model as the header shows it. */
+export function externalModelLabel(model: string | null | undefined): string {
+  return model ? model : say("CLI default", "기본값 (CLI default)");
+}
+
+/** The toast after `external.setModel` answered. */
+export function modelSetLine(model: string | null, appliesNextTurn: boolean): string {
+  const label = externalModelLabel(model);
+  return appliesNextTurn
+    ? say(`model: ${label} — applies from the next turn`, `모델: ${label} — 다음 턴부터 적용`)
+    : say(`model: ${label}`, `모델: ${label}`);
+}
+
+/** What `/model` says inside an external session when the daemon cannot switch models. */
+export function modelSwitchTooOld(): string {
+  return say(
+    "Switching an external session's model needs a newer core — run /update (the model is chosen at /external new).",
+    "외부 세션의 모델 변경은 더 새로운 코어가 필요합니다 — /update 를 실행하세요 (모델은 /external new 에서 고를 수 있습니다).",
+  );
 }
