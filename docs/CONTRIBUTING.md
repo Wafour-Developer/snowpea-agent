@@ -62,6 +62,23 @@ SNOWPEA_PROVIDER=fake:tests/fixtures/providers/fake/basic.json uv run pytest -q
 
 Docker and SSH backend tests skip rather than fail when the infrastructure is not available. Do not make them fail.
 
+## Release checks: backward compatibility (mandatory tier)
+
+An engine-only upgrade must never break clients that are already shipped. Part of the mandatory tier of every release is therefore:
+
+```bash
+python scripts/compat_check.py --core . --clients 3
+```
+
+It checks out the last N released desktop tags (`snowpea-ide`) and the core tag each shipped with as `compat-ide-<tag>` / `compat-core-<tag>` worktrees, and runs them against the NEW core on a throwaway `--home` and a free port:
+
+- **desktop**: that tag's own `e2e/real-*.spec.ts`, built with that tag's SDK and pointed at the new core (`SNOWPEA_E2E_CORE_BIN`). Needs `xvfb-run`; about an hour for three tags.
+- **sdk / tui**: that core tag's SDK contract tests (`uv` is shimmed to the new core's interpreter) and `scripts/compat_smoke.mjs` (old SDK build: hello, session.create, a turn, an approval, a question, session.list, close). No TUI test talks to a live daemon, so the TUI is covered through the SDK rows. `--skip-desktop` runs just these, in about a minute.
+
+The table lists each client, tag and PASS / FAIL / PIN; the exit status is non-zero on any FAIL. PIN is a protocol-version regex pinned in an old spec: not a break. A FAIL is a break of a shipped client: fix the core (or make the change additive), never the old spec.
+
+For the browser extension, the browser team's `chromium/scripts/release.sh compat <tag>` is the same check against the previously released browser build; run it too before a release that touches the protocol.
+
 ## Branching and commits
 
 Work on a branch off `main` and open a pull request; `main` is protected. Commit messages follow Conventional Commits with the milestone as the scope, matching the existing log:
