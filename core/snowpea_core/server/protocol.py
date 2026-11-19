@@ -12736,6 +12736,11 @@ CAPABILITIES: list[str] = [
     # (each registered project's additions, read-only); security.presets.list
     # and the check's texts also in ja, es and zh-CN.
     "securityAllProjects",
+    # (behaviour since m28, no wire change): an approved patch edits the file's
+    # bytes — read as strict UTF-8 without newline translation and written back
+    # verbatim, so every other CRLF / lone CR survives and a "\n" stays "\n" on
+    # Windows; a non-UTF-8 file is refused; the card diff shows a lone CR as ␍.
+    "byteExactEdits",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

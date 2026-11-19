@@ -47,6 +47,7 @@ Server capabilities advertised in the `system.hello` result:
 - `browserMemoryList`
 - `browserPersonApprovals`
 - `browserProjectTrust`
+- `byteExactEdits`
 - `checkpoints`
 - `commands`
 - `commandsBesideTurn`
