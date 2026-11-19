@@ -314,6 +314,26 @@ def _remembering_person(conn: Any, actor: str | None = None) -> bool:
     return False
 
 
+def _task_person(conn: Any, actor: str | None, person_confirm: str | None) -> bool:
+    """``conn`` may keep an "always in this routine" answer (scope ``task``): a
+    local person's connection, or a local browser 0.4.0+ whose own window
+    confirmed it (``actor: "person"`` + ``personConfirm: "window"``) — the rule
+    ``job.update addGrants`` follows (security review of 1.68.0, L2)."""
+    try:
+        from snowpea_core.server import settings_gate
+        from snowpea_core.server.person_gate import connection_kind
+
+        kind = connection_kind(conn)
+        if kind == "person":
+            return True
+        return (kind == "browser" and not settings_gate.browser_remote(conn)
+                and settings_gate.browser_confirms(conn)
+                and actor == settings_gate.ACTOR_PERSON
+                and person_confirm == settings_gate.PERSON_CONFIRM_WINDOW)
+    except Exception:  # noqa: BLE001 - unknown is nobody
+        return False
+
+
 def _local_person(conn: Any) -> bool:
     """``conn`` is a local person's own connection (not a remote web login, a
     browser host, a connector or no connection at all)."""
@@ -1445,6 +1465,12 @@ class ApprovalQueue:
         # A person-only answer applies once, except a person's own allow of a
         # script grant (m21 D), which keeps its scope (guard_scope narrows it).
         keeps = person is not None and line_ok and _script_remember(entry.request)
+        if scope == TASK_SCOPE and not _task_person(conn, actor, person_confirm):
+            # Security review of 1.68.0, L2: a lasting routine grant is held
+            # like job.update addGrants; another answer applies once.
+            log.info("approval %s: task scope kept to once (not confirmed by a person)",
+                     request_id)
+            scope = "once"
         answer = Decision(
             decision="allow" if decision == "allow" else "deny",
             scope="once" if person is not None and not keeps else clamp_scope(conn, scope),

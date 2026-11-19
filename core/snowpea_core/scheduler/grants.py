@@ -188,13 +188,39 @@ def of_session(session: Any, lookup: Any = None) -> list[dict]:
     while current is not None and seen < 16:
         grants = getattr(current, "job_grants", None)
         if isinstance(grants, list):
-            return grants
+            # Only a turn the scheduler started runs with them (review of 1.68.0, L3).
+            return grants if scheduler_turn(current) else []
         if getattr(current, "kind", None) != "subagent" or lookup is None:
             return []
         parent = getattr(current, "parent_session_id", None)
         current = lookup(parent) if parent else None
         seen += 1
     return []
+
+
+def run_session(session: Any, lookup: Any = None) -> Any:
+    """The ``scheduled`` session ``session`` belongs to (itself, or a subagent's
+    run up its parent chain), or ``None``."""
+    current, seen = session, 0
+    while current is not None and seen < 16:
+        kind = getattr(current, "kind", None)
+        if kind == "scheduled":
+            return current
+        if kind != "subagent" or lookup is None:
+            return None
+        parent = getattr(current, "parent_session_id", None)
+        current = lookup(parent) if parent else None
+        seen += 1
+    return None
+
+
+def scheduler_turn(session: Any) -> bool:
+    """``session`` is running a turn the scheduler started that nobody else's
+    words joined (security review of 1.68.0, L3): the job's grants and mode are
+    for those turns only.  A browser may continue a run's session (owner
+    decision); its turn runs as in an ordinary session."""
+    turn = getattr(session, "current_turn", None)
+    return bool(turn) and turn in (getattr(session, "scheduler_turns", None) or ())
 
 
 def job_ref_of(session: Any, lookup: Any = None) -> dict | None:
@@ -213,4 +239,4 @@ def job_ref_of(session: Any, lookup: Any = None) -> dict | None:
 
 
 __all__ = ["BAD_GRANT", "MAX_GRANTS", "covers", "from_input", "from_request",
-           "job_ref_of", "of_session", "same"]
+           "job_ref_of", "of_session", "run_session", "same", "scheduler_turn"]

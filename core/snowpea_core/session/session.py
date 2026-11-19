@@ -168,6 +168,10 @@ class Session:
     #: ``turn id -> job run`` (``tool.invoke`` ``job``, 1.23.0) for turns a
     #: scheduled run started; dropped when the run ends.
     turn_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Turn ids of a ``scheduled`` session the scheduler started and nobody
+    #: else's words joined (security review of 1.68.0, L3): only these run with
+    #: the job's grants and its mode (``scheduler.grants.scheduler_turn``).
+    scheduler_turns: set[str] = field(default_factory=set)
     #: The browser clientId whose owned job this run serves, set when the run's
     #: session is made and inherited by its children: such a session takes no
     #: outside input, and only that browser answers its approvals (1.23.0).

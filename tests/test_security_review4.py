@@ -135,9 +135,17 @@ async def test_job_schedule_and_update(core: Core, tmp_path: Path) -> None:
     with pytest.raises(RpcError):
         await job_schedule_handler(CONNECTOR, JobScheduleParams(
             spec="every day at 9:00", task="x", mode="auto", workdir=str(tmp_path)), core)
-    made = await job_schedule_handler(BROWSER, JobScheduleParams(
+    # Review of 1.68.0, L1: the click alone no longer raises a routine; a
+    # browser 0.4.0+ confirms it in its own window, as a grant.
+    with pytest.raises(RpcError) as caught:
+        await job_schedule_handler(BROWSER, JobScheduleParams(
+            spec="every day at 9:00", task="x", mode="auto", workdir=str(tmp_path),
+            actor="person"), core)
+    assert caught.value.code == errors.JARVIS_PERSON_ONLY
+    made = await job_schedule_handler(_conn("browser", version="0.4.0", client_id="b-1"),
+                                      JobScheduleParams(
         spec="every day at 9:00", task="x", mode="auto", workdir=str(tmp_path),
-        actor="person"), core)
+        actor="person", personConfirm="window"), core)
     # Enabling/disabling keeps the mode: no person needed.
     info = await job_update_handler(BROWSER, JobUpdateParams(jobId=made.jobId, enabled=False),
                                     core)

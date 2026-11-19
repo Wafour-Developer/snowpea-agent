@@ -105,19 +105,21 @@ async def _guard(conn: RpcConnection, core: Core, job_id: str, action: str) -> N
 
 
 def _grant_refusal(conn: RpcConnection, actor: str | None, person_confirm: str | None,
-                   core: Core, method: str) -> None:
+                   core: Core, method: str,
+                   what: str = "allow commands for a scheduled routine") -> None:
     """Only a person pre-approves what a routine runs (1.68.0, ``jobApprovals``).
 
     A grant runs unasked with nobody watching, so it is held like a typed
     allowlist rule: a local IDE/TUI connection, or a local browser 0.4.0+ whose
     own confirmation window confirmed it (``actor: "person"`` + ``personConfirm:
     "window"``).  A remote web login, a connector and an in-process caller
-    (Jarvis, the model) are refused with ``jarvis_person_only``.
+    (Jarvis, the model) are refused with ``jarvis_person_only``.  The same
+    rule holds a routine's mode raise and a change of what a routine that holds
+    grants or runs above ``accept`` does (security review of 1.68.0, M1/L1).
     """
     from snowpea_core.server import settings_gate
     from snowpea_core.server.person_gate import connection_kind
 
-    what = "allow commands for a scheduled routine"
     kind = connection_kind(conn)
     if kind == "person":
         return
@@ -168,7 +170,7 @@ async def job_schedule_handler(
     kind runs a shell line.
     """
     from snowpea_core.scheduler.jobs import iso
-    from snowpea_core.server.person_gate import snapshot
+    from snowpea_core.server.person_gate import connection_kind, snapshot
 
     template = params.sessionTemplate
     # Security review 7, H-2: no job runs inside snowpea's own home by request
@@ -184,6 +186,19 @@ async def job_schedule_handler(
     if params.grants:
         _grant_refusal(conn, params.actor, params.personConfirm, core, "job.schedule")
         grants = _built_grants(params.grants)
+    explicit = template.mode if template and template.mode else params.mode
+    if explicit and connection_kind(conn) == "browser":
+        # Security review of 1.68.0, L1: a browser naming a mode above the
+        # project's default confirms it like a grant (an unmarked one is
+        # refused as before, mode_raise, in schedule_job).  The maker's
+        # default (default_job_mode, below) is not judged here.
+        from snowpea_core.server.settings_gate import acts_for_person
+        from snowpea_core.session import mode_guard
+
+        default = core.sessions.default_mode(params.workdir or str(core.paths.home))
+        if mode_guard.raises(default, explicit) and acts_for_person(conn, params.actor):
+            _grant_refusal(conn, params.actor, params.personConfirm, core, "job.schedule",
+                           what=f"schedule a routine in {explicit} mode")
     try:
         job = await access.schedule_job(
             core,
@@ -192,8 +207,7 @@ async def job_schedule_handler(
             params.task,
             via="rpc",
             # An explicit mode wins; none: the routine default for this maker (1.68.0).
-            mode=(template.mode if template and template.mode else params.mode)
-            or access.default_job_mode(core, snapshot(conn, params.actor)),
+            mode=explicit or access.default_job_mode(core, snapshot(conn, params.actor)),
             channel=params.channel,
             agent=(template.agent if template and template.agent else params.agent),
             workdir=params.workdir,
@@ -342,16 +356,30 @@ async def job_update_handler(
     if params.addGrants:
         _grant_refusal(conn, params.actor, params.personConfirm, core, "job.update")
         add_grants = _built_grants(params.addGrants)
-    if params.mode is not None:
-        # The mode later runs start in: a raise is a person's, as at job.schedule.
-        from snowpea_core.server.person_gate import snapshot
-        from snowpea_core.session import mode_guard
+    from snowpea_core.session import mode_guard
 
-        current = await services(core).get(params.jobId)
-        if current is not None and current.mode != params.mode:
-            mode_guard.check(mode_guard.ModeCaller.from_conn(snapshot(conn, params.actor)),
-                             None, current.mode, params.mode,
-                             settings=getattr(core, "settings", None))
+    current = await services(core).get(params.jobId)
+    if params.mode is not None and current is not None and current.mode != params.mode:
+        # The mode later runs start in: a raise is a person's, as at job.schedule,
+        # and confirmed like a grant (security review of 1.68.0, L1).
+        from snowpea_core.server.person_gate import snapshot
+
+        mode_guard.check(mode_guard.ModeCaller.from_conn(snapshot(conn, params.actor)),
+                         None, current.mode, params.mode,
+                         settings=getattr(core, "settings", None))
+        if mode_guard.raises(current.mode, params.mode):
+            _grant_refusal(conn, params.actor, params.personConfirm, core, "job.update",
+                           what=f"raise a scheduled routine to {params.mode} mode")
+    if (current is not None and params.task is not None and params.task != current.task
+            and (current.grants or add_grants
+                 or mode_guard.raises("accept", params.mode or current.mode))):
+        # Security review of 1.68.0, M1: what a routine that runs unasked does
+        # (its grants, a mode above accept) changes only by a person; the
+        # grants are never dropped behind the person's back.  A time change
+        # (``schedule``) changes nothing the agent does and stays open.
+        _grant_refusal(conn, params.actor, params.personConfirm, core, "job.update",
+                       what="change the task of a routine that runs with allowed "
+                            "commands or above accept mode")
     try:
         job = await services(core).update(
             params.jobId,
