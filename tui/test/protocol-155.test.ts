@@ -21,6 +21,7 @@ import {
   problemItemText,
   saveProblems,
   statusLines,
+  stepUnknownCode,
   unknownCodePatch,
   unknownCodeSegments,
 } from "../src/state/security.js";
@@ -222,6 +223,15 @@ describe("security.get 1.55.0", () => {
     expect(nextUnknownCode("allow")).toBe("ask");
     expect(nextUnknownCode("ask", false)).toBe("allow");
     expect(nextUnknownCode("allow", false)).toBe("ask");
+    // ←→ on the selected row: one step as drawn, stopping at the ends.
+    expect(stepUnknownCode("ask", 1)).toBe("auto");
+    expect(stepUnknownCode("auto", 1)).toBe("allow");
+    expect(stepUnknownCode("allow", 1)).toBe("allow");
+    expect(stepUnknownCode("allow", -1)).toBe("auto");
+    expect(stepUnknownCode("ask", -1)).toBe("ask");
+    expect(stepUnknownCode("ask", 1, false)).toBe("allow");
+    expect(stepUnknownCode("allow", -1, false)).toBe("ask");
+    expect(stepUnknownCode("auto", 1, false)).toBe("allow");
     expect(unknownCodePatch("auto")).toEqual({ security: { unknownCode: "auto" } });
     const text = (value: string) => statusLines(normalizeConfig({ unknownCode: value } as never), null).join("\n");
     expect(text("ask")).toContain("ask: always asked");

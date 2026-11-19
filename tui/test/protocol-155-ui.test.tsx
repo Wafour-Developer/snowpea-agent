@@ -424,6 +424,131 @@ describe("/security: code snowpea can't tell about", () => {
     app.done();
   });
 
+  const UP = "\x1b[A";
+  const DOWN = "\x1b[B";
+  const RIGHT = "\x1b[C";
+  const LEFT = "\x1b[D";
+  const sets = (client: any) => client.calls.filter((c: any) => c.method === "settings.set");
+
+  it("↑ from the first list row selects the unknown-code row; ←→ change its value, not the tab", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    expect(app.view()).not.toContain("› Commands and scripts");
+    app.stdin.write(UP);
+    await sleep(120);
+    let view = app.view();
+    expect(view).toContain("› Commands and scripts snowpea can't read before they run: [ask] / auto / allow");
+    expect(view).toContain("←→ / Space change");
+    expect(view).toContain("[Blocked commands]");
+    app.stdin.write(RIGHT);
+    await sleep(300);
+    expect(sets(client)[0].params).toEqual({ scope: "global", patch: { security: { unknownCode: "auto" } } });
+    view = app.view();
+    expect(view).toContain("ask / [auto] / allow");
+    // The tab did not move.
+    expect(view).toContain("[Blocked commands]");
+    // → to allow asks first; n keeps auto.
+    app.stdin.write(RIGHT);
+    await sleep(120);
+    expect(app.view()).toContain("Let code snowpea can't tell about run without asking?");
+    app.stdin.write("n");
+    await sleep(120);
+    expect(sets(client)).toHaveLength(1);
+    app.stdin.write(RIGHT);
+    await sleep(120);
+    app.stdin.write("y");
+    await sleep(300);
+    expect(sets(client)[1].params.patch).toEqual({ security: { unknownCode: "allow" } });
+    expect(app.view()).toContain("ask / auto / [allow]");
+    // → at the end stays; ← steps back with no question.
+    app.stdin.write(RIGHT);
+    await sleep(120);
+    expect(sets(client)).toHaveLength(2);
+    app.stdin.write(LEFT);
+    await sleep(300);
+    expect(sets(client)[2].params.patch).toEqual({ security: { unknownCode: "auto" } });
+    app.stdin.write(LEFT);
+    await sleep(300);
+    expect(sets(client)[3].params.patch).toEqual({ security: { unknownCode: "ask" } });
+    app.stdin.write(LEFT);
+    await sleep(120);
+    expect(sets(client)).toHaveLength(4);
+    app.done();
+  });
+
+  it("Space on the unknown-code row goes round; Tab still switches lists; ↓ goes back to the list", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    app.stdin.write(UP);
+    await sleep(120);
+    app.stdin.write(" ");
+    await sleep(300);
+    expect(sets(client)[0].params.patch).toEqual({ security: { unknownCode: "auto" } });
+    // Space did not touch a preset.
+    expect(app.view()).not.toContain("unsaved changes");
+    app.stdin.write("\t");
+    await sleep(120);
+    expect(app.view()).toContain("[Protected folders]");
+    app.stdin.write("\t");
+    await sleep(120);
+    app.stdin.write(DOWN);
+    await sleep(120);
+    let view = app.view();
+    expect(view).not.toContain("› Commands and scripts");
+    expect(view).toContain("› [x] Essential safety");
+    // On a list row ←→ switch the lists as before.
+    app.stdin.write(RIGHT);
+    await sleep(120);
+    view = app.view();
+    expect(view).toContain("[Protected folders]");
+    expect(sets(client)).toHaveLength(1);
+    app.done();
+  });
+
+  it("↓ past the last list row wraps to the unknown-code row; u still works from a list row", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    app.stdin.write(DOWN); // one preset only: from it, ↓ wraps to the switch row
+    await sleep(120);
+    expect(app.view()).toContain("› Commands and scripts");
+    app.stdin.write(DOWN);
+    await sleep(120);
+    expect(app.view()).not.toContain("› Commands and scripts");
+    app.stdin.write("u");
+    await sleep(300);
+    expect(sets(client)[0].params.patch).toEqual({ security: { unknownCode: "auto" } });
+    app.done();
+  });
+
+  it("? help explains the keys of the unknown-code row", async () => {
+    const app = await open(fakeClient());
+    app.stdin.write("?");
+    await sleep(120);
+    // The keys come after the pattern syntax: scroll to the end.
+    for (let i = 0; i < 20; i += 1) {
+      app.stdin.write(DOWN);
+      await sleep(15);
+    }
+    await sleep(150);
+    const view = app.view();
+    expect(view).toContain("Keys");
+    expect(view).toContain("chooses ask / auto / allow");
+    app.done();
+  });
+
+  it("a read-only connection can select the row but ←→ change nothing", async () => {
+    const client = fakeClient({ security: { writable: false } });
+    const app = await open(client);
+    app.stdin.write(UP);
+    await sleep(120);
+    app.stdin.write(RIGHT);
+    await sleep(200);
+    expect(sets(client)).toHaveLength(0);
+    expect(app.view()).toContain("Read-only");
+    expect(app.view()).not.toContain("←→ / Space change");
+    app.done();
+  });
+
   it("a connection that may not change it is told so", async () => {
     const client = fakeClient({ security: { writable: false } });
     const app = await open(client);
