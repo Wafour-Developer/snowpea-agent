@@ -89,6 +89,10 @@ export interface SecurityConfig {
   unknownCode: UnknownCode;
   /** The project's own additions, shown read-only as a count. */
   projectAdds: number;
+  /** 1.58.0 `enabled`, the master switch; true from an older core. */
+  enabled: boolean;
+  /** 1.66.0 `byDefault`: off only because nothing was set; false from an older core. */
+  offByDefault: boolean;
 }
 
 /** `security.check`, normalised: blocked, opaque (cannot be seen, snowpea asks) or neither. */
@@ -114,6 +118,19 @@ export interface SecurityBlockedEvent {
 export function securitySupported(capabilities: readonly string[] | undefined): boolean {
   return (capabilities ?? []).includes("securityLists");
 }
+
+/** 1.58.0: `security.enabled` can be read and written; an older core has no switch to show. */
+export function masterSwitchSupported(capabilities: readonly string[] | undefined): boolean {
+  return (capabilities ?? []).includes("securityMasterSwitch");
+}
+
+/** 1.66.0: checks are off by default, and turning them off also lifts the token/login read block. */
+export function defaultOffSupported(capabilities: readonly string[] | undefined): boolean {
+  return (capabilities ?? []).includes("securityDefaultOff");
+}
+
+/** `problemItems[].code` while `security.enabled` is false (1.58.0). */
+export const DISABLED_CODE = "security-disabled";
 
 /** The one line an older daemon gets instead of the feature. */
 export const SECURITY_REQUIRES_LINE = "Security lists: requires a newer core — this daemon is older. Run /update.";
@@ -176,8 +193,13 @@ export function problemItemText(item: ProblemItem): string {
 }
 
 export function normalizeConfig(raw: SecurityGet | null | undefined): SecurityConfig {
-  const problemItems = normalizeProblemItems((raw as any)?.problemItems);
-  const sentences = texts((raw as any)?.problems);
+  const rawItems: unknown[] | null = Array.isArray((raw as any)?.problemItems) ? (raw as any).problemItems : null;
+  // 1.58.0: while the checks are off core puts an item of code 'security-disabled' first and its line
+  // first in `problems`. The switch row says it; it is not a problem of the lists.
+  const switchedOff = rawItems?.some((item: any) => item?.code === DISABLED_CODE) ?? false;
+  const problemItems = normalizeProblemItems(rawItems?.filter((item: any) => item?.code !== DISABLED_CODE));
+  const rawProblems = Array.isArray((raw as any)?.problems) ? (raw as any).problems : [];
+  const sentences = texts(switchedOff ? rawProblems.slice(1) : rawProblems);
   // A core that sends `problemItems` (even an empty list) says in `problems` more than skipped entries:
   // a sentence that none of the items' reasons is part of is a notice of its own.
   const structured = Array.isArray((raw as any)?.problemItems);
@@ -194,6 +216,8 @@ export function normalizeConfig(raw: SecurityGet | null | undefined): SecurityCo
     notices,
     unknownCode: readUnknownCode((raw as any)?.unknownCode),
     projectAdds: additions((raw as any)?.project),
+    enabled: (raw as any)?.enabled !== false,
+    offByDefault: (raw as any)?.enabled === false && (raw as any)?.byDefault === true,
     blockedCommands: {
       presets: texts(raw?.blockedCommands?.presets),
       custom: texts(raw?.blockedCommands?.custom),
@@ -506,7 +530,7 @@ export const PATTERN_HELP: ReadonlyArray<{ kind: "head" | "line" | "example"; te
   { kind: "head", text: "Protected folders" },
   { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." },
   { kind: "head", text: "Keys" },
-  { kind: "line", text: "↑↓ move through the rows. The first row is \"Commands and scripts snowpea can't read before they run\": on it, ←→ (or Space) chooses ask / auto / allow, saved at once; u changes it from any row." },
+  { kind: "line", text: "↑↓ move through the rows. The row above the lists is \"Commands and scripts snowpea can't read before they run\": on it, ←→ (or Space) chooses ask / auto / allow, saved at once; u changes it from any row." },
   { kind: "line", text: "On a list row, ←→ or Tab switches between Blocked commands and Protected folders; Space turns a preset on or off." },
 ];
 
@@ -599,6 +623,124 @@ export function unknownCodePatch(value: UnknownCode): Record<string, unknown> {
   return { security: { unknownCode: value } };
 }
 
+// --- the master switch (1.58.0 `security.enabled`) -------------------------------------
+
+/** "Security checks: on" / "off (default)" / "off": the switch row's label, in neutral words. */
+export function enabledLabel(config: Pick<SecurityConfig, "enabled" | "offByDefault">): string {
+  if (config.enabled) return say("Security checks: on", "보안 검사: 켜짐");
+  return config.offByDefault ? say("Security checks: off (default)", "보안 검사: 꺼짐 (기본값)") : say("Security checks: off", "보안 검사: 꺼짐");
+}
+
+/** The switch row: its label only, without colour either way. */
+export function enabledSegments(config: Pick<SecurityConfig, "enabled" | "offByDefault">): Segment[] {
+  const label = enabledLabel(config);
+  const at = label.indexOf(": ");
+  return [{ text: label.slice(0, at + 2) }, { text: label.slice(at + 2), bold: true }];
+}
+
+/** Shown under the switch while the checks are off: what the dimmed rows are. */
+export const OFF_NOTE = (): string =>
+  say(
+    "The lists and the choice above apply once security checks are on. Your choices are kept.",
+    "목록과 위의 선택은 보안 검사를 켜면 적용됩니다. 지금 고른 내용은 그대로 보관됩니다.",
+  );
+
+/** After a switch: what now holds. */
+export const ENABLED_NOW = (on: boolean): string =>
+  on
+    ? say("Security checks are on. Your lists apply to new commands at once.", "보안 검사를 켰습니다. 목록이 새 명령부터 바로 적용됩니다.")
+    : say("Security checks are off. Your lists are kept for when you turn them on.", "보안 검사를 껐습니다. 목록은 다시 켤 때를 위해 그대로 보관됩니다.");
+
+/**
+ * The one question before turning the checks off: what is no longer applied.
+ * `tokens`: a 1.66.0 core also stops blocking reads of tokens and logins.
+ */
+export function offConfirmLines(tokens: boolean): string[] {
+  const items = tokens
+    ? say(
+        "blocked commands, protected folders, asking about commands and scripts snowpea can't read, and the block on reading stored tokens and logins",
+        "차단 명령, 보호 폴더, 알 수 없는 명령·스크립트에 대해 묻기, 저장된 토큰·로그인 정보 읽기 차단",
+      )
+    : say(
+        "blocked commands, protected folders, and asking about commands and scripts snowpea can't read",
+        "차단 명령, 보호 폴더, 알 수 없는 명령·스크립트에 대해 묻기",
+      );
+  return [
+    say("Turn security checks off?", "보안 검사를 끌까요?"),
+    say(
+      `While they are off, these are not applied: ${items}. Your lists and choices are kept, and the mode rules (plan, accept, auto) work as usual.`,
+      `꺼져 있는 동안 다음은 적용되지 않습니다: ${items}. 목록과 선택은 그대로 보관되고, 모드 규칙(plan·accept·auto)은 평소대로 동작합니다.`,
+    ),
+    say("Turn them off? (y/n)", "끌까요? (y/n)"),
+  ];
+}
+
+/** The `settings.set` patch for the switch; global only, by a local person. */
+export function enabledPatch(on: boolean): Record<string, unknown> {
+  return { security: { enabled: on } };
+}
+
+/** `?` help for the switch, in detail; `tokens` as in {@link offConfirmLines}. */
+export function switchHelp(tokens: boolean): Array<{ kind: "head" | "line"; text: string }> {
+  return [
+    { kind: "head", text: say("Security checks", "보안 검사") },
+    {
+      kind: "line",
+      text: say(
+        "One switch for the extra checks below. They are off unless you turn them on; your lists and choices are kept either way, so switching back restores them.",
+        "아래의 추가 검사를 한꺼번에 켜고 끄는 스위치입니다. 직접 켜기 전에는 꺼져 있으며, 목록과 선택은 켜든 끄든 보관되어 다시 켜면 그대로 적용됩니다.",
+      ),
+    },
+    { kind: "line", text: say("When they are on:", "켜면:") },
+    {
+      kind: "line",
+      text: say(
+        "• Blocked commands: commands on the list are refused wherever snowpea sees them — not asked, not approvable.",
+        "• 차단 명령: 목록의 명령은 snowpea가 알아보는 곳 어디서나 거절됩니다. 묻지도, 승인할 수도 없습니다.",
+      ),
+    },
+    {
+      kind: "line",
+      text: say(
+        "• Protected folders: \"no changes\" stops writing, deleting and moving in a folder; \"no access\" stops reading it too.",
+        "• 보호 폴더: '변경 금지'는 폴더 안의 쓰기·삭제·이동을, '접근 금지'는 읽기까지 막습니다.",
+      ),
+    },
+    {
+      kind: "line",
+      text: say(
+        "• Commands and scripts snowpea can't read before they run are handled by the choice on the next row (ask, auto, allow).",
+        "• 실행 전에 알 수 없는 명령·스크립트는 다음 줄의 선택(항상 묻기, auto, 묻지 않음)대로 처리됩니다.",
+      ),
+    },
+    ...(tokens
+      ? [
+          {
+            kind: "line" as const,
+            text: say(
+              "• Stored tokens and logins (API keys, cloud and git credentials) cannot be read by a session.",
+              "• 저장된 토큰·로그인 정보(API 키, 클라우드·git 자격 증명)는 세션이 읽을 수 없습니다.",
+            ),
+          },
+        ]
+      : []),
+    {
+      kind: "line",
+      text: say(
+        "Either way, the mode rules apply: plan mode does not change files, accept mode asks before commands and writes, and snowpea's own controls stay in place.",
+        "켜든 끄든 모드 규칙은 그대로입니다. plan 모드는 파일을 바꾸지 않고, accept 모드는 명령과 쓰기 전에 묻고, snowpea 자체 제어도 유지됩니다.",
+      ),
+    },
+    {
+      kind: "line",
+      text: say(
+        "Keys: the first row is the switch; ↑↓ reach it, ←→, Space or Enter turn it on or off. Turning it off asks once and lists what stops applying.",
+        "키: 첫 줄이 스위치입니다. ↑↓로 이동하고 ←→, Space, Enter로 켜고 끕니다. 끌 때는 적용되지 않게 되는 항목을 한 번 보여 주고 묻습니다.",
+      ),
+    },
+  ];
+}
+
 /**
  * What these lists promise, in core's own honest terms (the manual's first
  * paragraph): what auto mode means, and what to use for a repository that is
@@ -611,13 +753,14 @@ export const SECURITY_CLAIM = (): string =>
   );
 
 /** The summary `/security status` prints. */
-export function statusLines(config: SecurityConfig, catalog: PresetCatalog | null, diskNotice: string | null = null): string[] {
+export function statusLines(config: SecurityConfig, catalog: PresetCatalog | null, diskNotice: string | null = null, withSwitch = false): string[] {
   const title = (id: string, entries: Preset[]) => entries.find((entry) => entry.id === id)?.title ?? id;
   const commandOn = config.blockedCommands.presets.map((id) => title(id, catalog?.commands ?? []));
   const pathOn = config.protectedPaths.presets.map((id) => title(id, catalog?.paths ?? []));
   const names = (items: string[]) => (items.length > 0 ? items.join(", ") : "none");
   return [
     "Security lists",
+    ...(withSwitch ? [enabledLabel(config), ...(config.enabled ? [] : [OFF_NOTE()])] : []),
     ...(diskNotice ? [`! ${diskNotice}`] : []),
     SECURITY_CLAIM(),
     `Blocked commands: ${config.blockedCommands.presets.length} presets on (${names(commandOn)}), ${config.blockedCommands.custom.length} of your own`,

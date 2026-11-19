@@ -19,6 +19,7 @@ readable text, truncated to ``settings.tools.max_output_chars``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,6 +28,7 @@ import httpx
 
 from snowpea_core.session import events
 from snowpea_core.tools import http_util, search_providers
+from snowpea_core.tools.pdf_text import looks_like_pdf, pdf_to_text
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.tools.search_providers.base import SearchHit, SearchProviderUnavailable
 
@@ -242,7 +244,7 @@ async def web_extract(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             text = await provider.extract(url)
         except SearchProviderUnavailable:
             text = None
-        if text:
+        if text and not looks_like_pdf(text):  # raw PDF bytes: fetched and converted below
             return ToolResult(
                 ok=True, output=http_util.truncate(text, max_output_chars(ctx)), path=url
             )
@@ -258,6 +260,10 @@ async def web_extract(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=False, error=f"fetch failed: HTTP {response.status_code}")
 
     content_type = response.headers.get("content-type", "")
+    if "pdf" in content_type.lower() or looks_like_pdf(response.content):
+        limit = max_output_chars(ctx)
+        text = await asyncio.to_thread(pdf_to_text, response.content, source=url, max_chars=limit)
+        return ToolResult(ok=True, output=text, path=url)
     body = response.text
     text = http_util.html_to_text(body) if "html" in content_type.lower() else body
     if not text.strip():
