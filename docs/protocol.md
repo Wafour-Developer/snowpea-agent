@@ -88,7 +88,9 @@ Server capabilities advertised in the `system.hello` result:
 - `lsp`
 - `lspChanged`
 - `lspInstall`
+- `lspInstallReasons`
 - `lspRestart`
+- `lspToolchainInstall`
 - `machineIdentity`
 - `mcp`
 - `mcpOAuth`
@@ -245,6 +247,8 @@ Server capabilities advertised in the `system.hello` result:
 | [`lsp.install`](#lspinstall) | client → server | Install language servers the user asked for, even with lsp.autoInstall off. |
 | [`lsp.restart`](#lsprestart) | client → server | Stop a language server (or all) so it starts afresh; missing ones are re-probed. |
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
+| [`lsp.toolchain.cancel`](#lsptoolchaincancel) | client → server | Stop a running toolchain install (1.68.0). |
+| [`lsp.toolchain.remove`](#lsptoolchainremove) | client → server | Delete a toolchain core installed for language servers (1.68.0). |
 | [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
 | [`mcp.authorize`](#mcpauthorize) | client → server | Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0). |
 | [`mcp.authorize.complete`](#mcpauthorizecomplete) | client → server | Finish an mcp.authorize flow with the code the host's own redirect caught. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only. |
@@ -2351,7 +2355,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `servers` | `({ available?: boolean; disabled: boolean; extensions?: string[]; id: string; installHint?: string \| null; installable: boolean; languageIds?: string[]; managed?: boolean; needs?: string \| null; path?: string \| null; })[]` | no | One row per registered server id. |
+| `servers` | `({ available?: boolean; disabled: boolean; extensions?: string[]; hint?: string \| null; id: string; installHint?: string \| null; installable: boolean; languageIds?: string[]; managed?: boolean; needs?: string \| null; path?: string \| null; reason?: "needs_toolchain" \| null; toolchain?: string \| null; toolchainInstallable?: boolean \| null; url?: string \| null; })[]` | no | One row per registered server id. |
 
 ### `lsp.install`
 
@@ -2365,12 +2369,14 @@ Install language servers the user asked for, even with lsp.autoInstall off.
 |---|---|---|---|
 | `actor` | `"person" \| null` | no | Browser marker (security review 3): see ActorParams. |
 | `ids` | `string[] \| null` | no | Server ids to install. Null: every installable server that is enabled and not available. Runs even with lsp.autoInstall false: the request is the consent. |
+| `personConfirm` | `"window" \| null` | no | 1.68.0: a browser's 'window' — its person confirmed the toolchain download in the browser's own window (size and source shown). Needed with withToolchain. |
+| `withToolchain` | `boolean` | no | 1.68.0 (lspToolchainInstall): also install a missing toolchain the result offered as needsToolchain (the .NET SDK, from Microsoft, sha512-verified, into a per-user directory core owns), then the server. A person's only: a local IDE/TUI/CLI, or a local browser 0.4.0+ with actor 'person' and personConfirm 'window'; a remote web login, a connector, Jarvis or an in-process caller is refused (jarvis_person_only). |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `results` | `({ error?: string \| null; id: string; installed?: boolean; ok: boolean; path?: string \| null; })[]` | no | One per id. |
+| `results` | `({ detail?: string \| null; error?: string \| null; hint?: string \| null; id: string; installed?: boolean; needsToolchain?: { name: string; sizeMb?: number \| null; source?: string \| null; version?: string \| null; } \| null; npmCode?: string \| null; ok: boolean; path?: string \| null; reason?: "needs_toolchain" \| "npm_failed" \| "toolchain_failed" \| null; toolchain?: string \| null; toolchainError?: string \| null; toolchainInstallable?: boolean \| null; url?: string \| null; })[]` | no | One per id. |
 
 ### `lsp.restart`
 
@@ -2405,6 +2411,48 @@ _No params (send `{}`)._
 | field | type | required | description |
 |---|---|---|---|
 | `servers` | `({ id: string; languageId?: string; pid?: number \| null; reason?: string \| null; root: string; state: "starting" \| "ready" \| "broken" \| "stopped"; })[]` | no | One row per (server, root) pair. |
+
+### `lsp.toolchain.cancel`
+
+*Direction:* client → server
+
+Stop a running toolchain install (1.68.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker: see ActorParams. |
+| `name` | `string` | yes | Toolchain name: 'dotnet-sdk'. |
+| `personConfirm` | `"window" \| null` | no | A browser's 'window' (needed for remove, as for withToolchain). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cancelled` | `boolean` | yes | True when an install was running and was stopped; the lsp.install that ran it answers toolchain_failed / cancelled. |
+| `name` | `string` | yes | Toolchain name. |
+
+### `lsp.toolchain.remove`
+
+*Direction:* client → server
+
+Delete a toolchain core installed for language servers (1.68.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `actor` | `"person" \| null` | no | Browser marker: see ActorParams. |
+| `name` | `string` | yes | Toolchain name: 'dotnet-sdk'. |
+| `personConfirm` | `"window" \| null` | no | A browser's 'window' (needed for remove, as for withToolchain). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Toolchain name. |
+| `removed` | `boolean` | yes | True when core's own copy was there and is gone (its downloads too). |
 
 ### `mcp.add`
 
@@ -5575,7 +5623,10 @@ Set the sidebar order (1.47.0).
 | `id` | `string` | yes | Server being installed. |
 | `line` | `string \| null` | no | The output line, or the command. |
 | `ok` | `boolean \| null` | no | For done: whether it worked. |
+| `percent` | `number \| null` | no | 1.68.0: 0-100 while a toolchain downloads, else null. |
+| `phase` | `"resolve" \| "download" \| "verify" \| "extract" \| "toolchain" \| "server" \| null` | no | 1.68.0 (lspToolchainInstall): resolve, download, verify, extract (a toolchain install, stage 'output'), toolchain (its end), server (the server's own installer). Absent from older cores. |
 | `stage` | `"start" \| "output" \| "done"` | yes | start (the installer runs), output (a line it printed), done. |
+| `toolchain` | `string \| null` | no | 1.68.0: the toolchain being installed, e.g. 'dotnet-sdk'. |
 
 ### `mcp.auth.done`
 

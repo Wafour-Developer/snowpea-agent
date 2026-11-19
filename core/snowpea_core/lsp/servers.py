@@ -45,6 +45,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shutil
 import sys
 import weakref
@@ -54,6 +55,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from snowpea_core.exec import winproc
+from snowpea_core.lsp import toolchains
 
 log = logging.getLogger("snowpea.lsp.servers")
 
@@ -201,12 +203,32 @@ def lsp_home(home: Path) -> Path:
     return Path(home) / "lsp"
 
 
+def npm_prefix(home: Path, package: str) -> Path:
+    """``$SNOWPEA_HOME/lsp/npm/<package>``: each npm server in a tree of its own.
+
+    One shared tree let one server's dependencies break another's install:
+    ``typescript@^7`` saved for typescript-language-server made
+    svelte-language-server's peer ``typescript@"^5.9.2 || ^6.0.2"`` an
+    ``ERESOLVE``, and on Windows npm rewriting files a running server holds
+    open fails with ``EBUSY``/``EPERM``.
+    """
+    managed = lsp_home(home)
+    trees = managed / "npm"
+    return trees / package.lstrip("@").replace("/", "__")
+
+
 def _managed_prefixes(home: Path) -> tuple[Path, ...]:
     """Directories an auto-installed binary can be found in, PATH order."""
     root = lsp_home(home)
+    npm = root / "npm"
+    try:
+        trees = sorted(item for item in npm.iterdir() if item.is_dir())
+    except OSError:
+        trees = []
     return (
         root / "bin",
         root / "node_modules" / ".bin",
+        *(tree / "node_modules" / ".bin" for tree in trees),
         root / "py" / "bin",
         root / "py" / "Scripts",
     )
@@ -242,11 +264,16 @@ def is_managed(path: str | None, home: Path) -> bool:
 
 
 async def _exec(
-    argv: list[str], *, env: dict[str, str] | None = None, on_line: OnLine | None = None
+    argv: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    on_line: OnLine | None = None,
+    result: dict[str, Any] | None = None,
 ) -> tuple[bool, str]:
     """Run ``argv`` to completion: ``(exit 0, output tail)``.  Never raises, never shells out.
 
-    Each output line goes to ``on_line`` as it is printed.
+    Each output line goes to ``on_line`` as it is printed.  ``result`` gets
+    ``returncode`` and the last ``lines`` (stdout and stderr together).
     """
     try:
         process = await asyncio.create_subprocess_exec(
@@ -275,7 +302,7 @@ async def _exec(
                 break
             line = raw.decode(errors="replace").rstrip()
             lines.append(line)
-            del lines[:-40]
+            del lines[:-200]
             if on_line is not None and line:
                 with contextlib.suppress(Exception):
                     result = on_line(line)
@@ -294,6 +321,9 @@ async def _exec(
         await asyncio.shield(_kill(process))
         raise
     winproc.release(process)
+    if result is not None:
+        result["returncode"] = process.returncode
+        result["lines"] = list(lines)
     tail = "\n".join(lines)[-400:]
     if process.returncode != 0:
         log.warning("%s failed (%s): %s", argv[0], process.returncode, tail)
@@ -363,9 +393,9 @@ async def _pip_install(spec: Install, root: Path, on_line: OnLine | None) -> str
     return None if ok else error
 
 
-async def _dotnet_sdk_major(dotnet: str) -> int | None:
+async def _dotnet_sdk_major(dotnet: str, env: dict[str, str] | None = None) -> int | None:
     """The major version of the SDK ``dotnet --version`` picks, or ``None``."""
-    ok, output = await _exec([dotnet, "--version"])
+    ok, output = await _exec([dotnet, "--version"], env=env)
     if not ok:
         return None
     head = output.strip().splitlines()[-1:] or [""]
@@ -382,18 +412,99 @@ def _pinned_version(spec: Install, sdk_major: int | None) -> str | None:
     return None
 
 
+def npm_argv(tool: str, *, windows: bool | None = None) -> list[str]:
+    """How to run npm: ``[tool]``, or on Windows ``[node.exe, npm-cli.js]``.
+
+    ``npm.cmd`` is a batch file, which Windows can only run through
+    ``cmd.exe`` — and cmd re-parses the command line (``%``, ``&``, ``^`` in
+    a path).  The standard Node.js layout keeps ``node.exe`` and
+    ``node_modules/npm/bin/npm-cli.js`` next to ``npm.cmd``; when both are
+    there, node runs npm directly with an argv and no shell at all.
+    """
+    windows = os.name == "nt" if windows is None else windows
+    path = Path(tool)
+    if windows and path.suffix.lower() in (".cmd", ".bat"):
+        cli = path.parent / "node_modules" / "npm" / "bin" / "npm-cli.js"
+        node = path.parent / "node.exe"
+        node_path = str(node) if node.is_file() else shutil.which("node")
+        if cli.is_file() and node_path:
+            return [node_path, str(cli)]
+    return [tool]
+
+
+#: npm lines that only point at its log, not at the cause.
+_NPM_NOISE = (
+    "a complete log of this run can be found in",
+    "for a full report see",
+    "log files were not written",
+)
+_NPM_CODE = re.compile(r"^code (\S+)$")
+NPM_DETAIL_MAX = 800
+
+
+def npm_failure(lines: Iterable[str]) -> dict[str, Any]:
+    """``{reason: npm_failed, npmCode, detail}`` from a failed npm's output.
+
+    ``detail`` is the last ``npm error`` / ``npm ERR!`` lines, without the
+    ones that only name the debug log, at most :data:`NPM_DETAIL_MAX` chars.
+    """
+    code: str | None = None
+    detail: list[str] = []
+    for raw in lines:
+        line = raw.strip()
+        for prefix in ("npm error", "npm ERR!"):
+            if line.startswith(prefix):
+                text = line[len(prefix):].strip()
+                break
+        else:
+            continue
+        lowered = text.lower()
+        if not text or any(noise in lowered for noise in _NPM_NOISE):
+            continue
+        if "_logs" in text and lowered.endswith((".log", ".txt")):
+            continue  # the log path on a line of its own
+        found = _NPM_CODE.match(text)
+        if found:
+            code = found.group(1)
+            continue
+        detail.append(text)
+    detail = detail[-12:]
+    while len(detail) > 1 and len("\n".join(detail)) > NPM_DETAIL_MAX:
+        detail.pop(0)
+    text = "\n".join(detail)[:NPM_DETAIL_MAX]
+    return {"reason": toolchains.REASON_NPM_FAILED, "npmCode": code, "detail": text or None}
+
+
+def _npm_error(tool: str, result: dict[str, Any], failure: dict[str, Any]) -> str:
+    head = f"{Path(tool).name} exited {result.get('returncode')}"
+    code = failure.get("npmCode")
+    detail = (failure.get("detail") or "").replace("\n", " | ")
+    if code:
+        head = f"{head}: {code}"
+    return f"{head}: {detail[:500]}" if detail else head
+
+
 async def install_server(
-    spec: Install, home: Path, *, on_line: OnLine | None = None
+    spec: Install,
+    home: Path,
+    *,
+    on_line: OnLine | None = None,
+    details: dict[str, Any] | None = None,
 ) -> tuple[str | None, str | None]:
     """Install ``spec`` and return ``(binary path, None)``, or ``(None, why not)``.
 
-    npm, pip, go and dotnet install under ``$SNOWPEA_HOME/lsp``; rustup adds a
-    component to the active toolchain.  Every tool is resolved on PATH first,
-    so Windows runs ``npm.cmd``.  One install at a time per event loop, for
-    ``lsp.install`` and auto-install alike.  Never raises.
+    npm, pip, go and dotnet install under ``$SNOWPEA_HOME/lsp`` (npm into a
+    tree per server); rustup adds a component to the active toolchain.  Every
+    tool is resolved on PATH first, so Windows finds ``npm.cmd``.  One install
+    at a time per event loop, for ``lsp.install`` and auto-install alike.
+    ``details`` gets the machine-readable reason of a failure (1.68.0):
+    ``needs_toolchain`` fields or ``npm_failed`` with ``npmCode``/``detail``.
+    Never raises.
     """
     async with _install_lock():
-        return await _install_server(spec, home, on_line=on_line)
+        return await _install_server(
+            spec, home, on_line=on_line, details=details if details is not None else {}
+        )
 
 
 _INSTALL_LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
@@ -410,30 +521,61 @@ def _install_lock() -> asyncio.Lock:
 
 
 async def _install_server(
-    spec: Install, home: Path, *, on_line: OnLine | None = None
+    spec: Install, home: Path, *, on_line: OnLine | None, details: dict[str, Any]
 ) -> tuple[str | None, str | None]:
     root = lsp_home(home)
     root.mkdir(parents=True, exist_ok=True)
     tool_name = INSTALLER_TOOLS.get(spec.kind)
     tool = shutil.which(tool_name) if tool_name else None
+    dotnet_env: dict[str, str] = {}
+    if spec.kind == "dotnet" and toolchains.dotnet_installed():
+        # Core's own SDK (lsp.install {withToolchain}) wins over a PATH dotnet,
+        # which may be the runtime only.
+        tool, dotnet_env = str(toolchains.dotnet_exe()), toolchains.dotnet_env()
     if tool_name and tool is None:
+        details.update(toolchains.reason_fields(toolchains.TOOLCHAIN_FOR_KIND[spec.kind]))
+        if spec.kind == "dotnet":
+            return None, "needs the .NET SDK (dotnet is not on PATH)"
         return None, f"needs {tool_name} on PATH"
+    if spec.kind == "dotnet" and not dotnet_env and not await toolchains.dotnet_sdks(tool):  # type: ignore[arg-type]
+        details.update(toolchains.reason_fields("dotnet-sdk"))
+        return None, "needs the .NET SDK: dotnet is there, but only the runtime, no SDK"
     error: str | None
+    result: dict[str, Any] = {}
     if spec.kind == "npm":
+        prefix = npm_prefix(home, spec.package)
+        prefix.mkdir(parents=True, exist_ok=True)
         # Saved into a package.json of its own: npm prunes an unsaved package
         # on the next install into the same prefix.
-        manifest = root / "package.json"
+        manifest = prefix / "package.json"
         if not manifest.exists():
             from snowpea_core.util.atomic import write_atomic
 
             write_atomic(manifest, '{"name": "snowpea-lsp", "private": true}\n', mode=0o644)
         ok, error = await _exec(
-            [tool, "install", "--prefix", str(root), spec.package, *spec.extra],  # type: ignore[list-item]
+            [
+                *npm_argv(tool),  # type: ignore[arg-type]
+                "install",
+                "--prefix",
+                str(prefix),
+                "--no-audit",
+                "--no-fund",
+                "--no-update-notifier",
+                spec.package,
+                *spec.extra,
+            ],
             on_line=on_line,
+            result=result,
         )
+        if not ok and result.get("lines") is not None:
+            failure = npm_failure(result["lines"])
+            details.update(failure)
+            error = _npm_error(tool, result, failure)  # type: ignore[arg-type]
         error = None if ok else error
     elif spec.kind == "pip":
         error = await _pip_install(spec, root, on_line)
+        if error and error.startswith("needs Python"):
+            details.update(toolchains.reason_fields("python"))
     elif spec.kind == "go":
         ok, error = await _exec(
             [tool, "install", spec.package],  # type: ignore[list-item]
@@ -443,18 +585,31 @@ async def _install_server(
         error = None if ok else error
     elif spec.kind == "dotnet":
         bin_dir = str(root / "bin")
-        version = _pinned_version(spec, await _dotnet_sdk_major(tool))  # type: ignore[arg-type]
+        version = _pinned_version(spec, await _dotnet_sdk_major(tool, dotnet_env))  # type: ignore[arg-type]
         pin = ["--version", version] if version else []
         ok, error = await _exec(
             [tool, "tool", "install", "--tool-path", bin_dir, spec.package, *pin],  # type: ignore[list-item]
+            env=dotnet_env,
             on_line=on_line,
+            result=result,
         )
-        if not ok:
+        missing = not ok and toolchains.sdk_missing(
+            result.get("returncode"), "\n".join(result.get("lines") or ())
+        )
+        if not ok and not missing:
             # Already there: ``install`` refuses, ``update`` brings it current.
             ok, error = await _exec(
                 [tool, "tool", "update", "--tool-path", bin_dir, spec.package, *pin],  # type: ignore[list-item]
+                env=dotnet_env,
                 on_line=on_line,
+                result=result,
             )
+            missing = not ok and toolchains.sdk_missing(
+                result.get("returncode"), "\n".join(result.get("lines") or ())
+            )
+        if missing:
+            details.update(toolchains.reason_fields("dotnet-sdk"))
+            error = f"needs the .NET SDK ({error})"
         error = None if ok else error
     elif spec.kind == "rustup":
         ok, error = await _exec(
@@ -551,12 +706,53 @@ def needs(server: ServerInfo) -> str | None:
     """What has to be on PATH before ``server`` can be had at all."""
     if server.install is None:
         return server.needs or (server.candidates[0][0] if server.candidates else None)
+    if server.install.kind == "dotnet" and toolchains.dotnet_installed():
+        return None
     tool = INSTALLER_TOOLS.get(server.install.kind)
     if tool and shutil.which(tool) is None:
-        return tool
+        return toolchains.TOOLCHAINS["dotnet-sdk"].needs if tool == "dotnet" else tool
     if server.install.kind == "pip" and _base_python() is None and shutil.which("uv") is None:
         return "python3"
     return None
+
+
+async def missing_toolchain(server: ServerInfo) -> str | None:
+    """The :data:`~snowpea_core.lsp.toolchains.TOOLCHAINS` name ``server``'s
+    installer still needs (``dotnet-sdk``, ``go``, ``rustup``, ``node``,
+    ``python``), or ``None``.
+
+    ``dotnet`` on PATH is not enough: ``dotnet tool install`` needs an SDK
+    (``dotnet --list-sdks`` non-empty), or core's own one.
+    """
+    spec = server.install
+    if spec is None:
+        return None
+    if spec.kind == "dotnet":
+        if toolchains.dotnet_installed():
+            return None
+        dotnet = shutil.which("dotnet")
+        if dotnet and await toolchains.dotnet_sdks(dotnet):
+            return None
+        return "dotnet-sdk"
+    if spec.kind == "pip":
+        return "python" if _base_python() is None and shutil.which("uv") is None else None
+    tool = INSTALLER_TOOLS.get(spec.kind)
+    if tool and shutil.which(tool) is None:
+        return toolchains.TOOLCHAIN_FOR_KIND[spec.kind]
+    return None
+
+
+def server_env(server: ServerInfo, binary: str, home: Path) -> dict[str, str]:
+    """Environment a server's process gets beyond ``os.environ`` and ``server.env``.
+
+    A .NET server core installed runs on core's own SDK when there is one
+    (``DOTNET_ROOT`` and friends, that process only).
+    """
+    if server.install is not None and server.install.kind == "dotnet" and is_managed(
+        binary, home
+    ):
+        return toolchains.dotnet_env()
+    return {}
 
 
 async def resolve_command(
@@ -651,7 +847,7 @@ async def start_server(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
-            env={**os.environ, **server.env},
+            env={**os.environ, **server_env(server, argv[0], home), **server.env},
             **winproc.spawn_kwargs(),
         )
     except (OSError, ValueError) as exc:
@@ -694,9 +890,17 @@ def find_tsserver(root: Path, home: Path | None = None) -> Path | None:
         if candidate.is_file():
             return candidate
     if home is not None:
-        managed = lsp_home(home) / "node_modules" / "typescript" / "lib" / "tsserver.js"
-        if managed.is_file():
-            return managed
+        tail = Path("node_modules") / "typescript" / "lib" / "tsserver.js"
+        managed = lsp_home(home)
+        npm = managed / "npm"
+        try:
+            trees = sorted(item for item in npm.iterdir() if item.is_dir())
+        except OSError:
+            trees = []
+        own = npm_prefix(home, "typescript-language-server")
+        for tree in (managed, own, *(tree for tree in trees if tree != own)):
+            if (tree / tail).is_file():
+                return tree / tail
     return None
 
 
@@ -1277,11 +1481,16 @@ __all__ = [
     "is_rustup_proxy",
     "locate",
     "lsp_home",
+    "missing_toolchain",
     "needs",
+    "npm_argv",
+    "npm_failure",
+    "npm_prefix",
     "precondition_holds",
     "python_path",
     "resolve_command",
     "rustup_which",
+    "server_env",
     "spawn",
     "start_server",
     "tsdk_options",

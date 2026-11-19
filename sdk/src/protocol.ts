@@ -3777,6 +3777,8 @@ export interface LspCatalogResult {
     disabled: boolean;
     /** Extensions or whole filenames this server claims. */
     extensions?: string[];
+    /** 1.68.0 (lspInstallReasons): one English line on how to get the toolchain. */
+    hint?: string | null;
     /** Server id, e.g. 'pyright' or 'gopls'. */
     id: string;
     /** A command that installs it manually, e.g. 'pip install ty'. */
@@ -3787,10 +3789,18 @@ export interface LspCatalogResult {
     languageIds?: string[];
     /** True when that binary is under $SNOWPEA_HOME/lsp. */
     managed?: boolean;
-    /** While it is not available: what must be on PATH first, e.g. 'npm', 'go', 'dotnet', or for a PATH-only server the toolchain or command that provides it ('gem install ruby-lsp'). Null when lsp.install can do it as is. */
+    /** While it is not available: what must be on PATH first, e.g. 'npm', 'go', 'dotnet', or for a PATH-only server the toolchain or command that provides it ('gem install ruby-lsp'). Null when lsp.install can do it as is. 1.68.0: '.NET SDK' for a .NET server while no SDK is found (dotnet on PATH with the runtime only counts as none). */
     needs?: string | null;
     /** The binary found, when available. */
     path?: string | null;
+    /** 1.68.0 (lspInstallReasons): 'needs_toolchain' while it is not available and its installer's toolchain is missing (see toolchain, hint, url). Null otherwise. */
+    reason?: "needs_toolchain" | null;
+    /** 1.68.0 (lspInstallReasons), with reason needs_toolchain: 'dotnet-sdk', 'go', 'rustup', 'node' or 'python'. */
+    toolchain?: string | null;
+    /** 1.68.0 (lspToolchainInstall), with reason needs_toolchain: true when lsp.install {withToolchain: true} can install that toolchain itself (dotnet-sdk today). */
+    toolchainInstallable?: boolean | null;
+    /** 1.68.0 (lspInstallReasons): the toolchain's official download page. */
+    url?: string | null;
   })[];
 }
 
@@ -3800,22 +3810,53 @@ export interface LspInstallParams {
   actor?: "person" | null;
   /** Server ids to install. Null: every installable server that is enabled and not available. Runs even with lsp.autoInstall false: the request is the consent. */
   ids?: string[] | null;
+  /** 1.68.0: a browser's 'window' — its person confirmed the toolchain download in the browser's own window (size and source shown). Needed with withToolchain. */
+  personConfirm?: "window" | null;
+  /** 1.68.0 (lspToolchainInstall): also install a missing toolchain the result offered as needsToolchain (the .NET SDK, from Microsoft, sha512-verified, into a per-user directory core owns), then the server. A person's only: a local IDE/TUI/CLI, or a local browser 0.4.0+ with actor 'person' and personConfirm 'window'; a remote web login, a connector, Jarvis or an in-process caller is refused (jarvis_person_only). */
+  withToolchain?: boolean;
 }
 
 /** `lsp.install` result. */
 export interface LspInstallResult {
   /** One per id. */
   results?: ({
+    /** 1.68.0, with npm_failed: npm's last error lines (not the log-file line), at most 800 characters. */
+    detail?: string | null;
     /** Why not, when not ok. */
     error?: string | null;
+    /** 1.68.0: as LspCatalogEntry.hint. */
+    hint?: string | null;
     /** Server id. */
     id: string;
     /** True when an installer ran (ok or not); false when it was already there. */
     installed?: boolean;
+    /** 1.68.0 (lspToolchainInstall), with needs_toolchain: what lsp.install {withToolchain: true} would download — show it in the confirm. Absent when core cannot install that toolchain. */
+    needsToolchain?: {
+      /** Toolchain name: 'dotnet-sdk'. */
+      name: string;
+      /** Download size in MB (an estimate when unknown). */
+      sizeMb?: number | null;
+      /** Where it comes from: the archive's https URL on Microsoft's host. */
+      source?: string | null;
+      /** The version that would be installed, when known. */
+      version?: string | null;
+    } | null;
+    /** 1.68.0, with npm_failed: npm's error code, e.g. 'ERESOLVE', 'EACCES', 'ENOTFOUND', 'E404'; null when npm printed none. */
+    npmCode?: string | null;
     /** True when the server's binary is there now. */
     ok: boolean;
     /** The binary, when ok. */
     path?: string | null;
+    /** 1.68.0 (lspInstallReasons), when not ok: 'needs_toolchain' (toolchain, hint, url; also when dotnet exits 2147516571 sdk-not-found), 'npm_failed' (npmCode, detail), 'toolchain_failed' (toolchainError: the withToolchain install failed). Null for any other failure. */
+    reason?: "needs_toolchain" | "npm_failed" | "toolchain_failed" | null;
+    /** 1.68.0: as LspCatalogEntry.toolchain. */
+    toolchain?: string | null;
+    /** 1.68.0, with toolchain_failed: busy, cancelled, network, metadata, source, checksum, disk_full, archive, io or unsupported. */
+    toolchainError?: string | null;
+    /** 1.68.0: as LspCatalogEntry.toolchainInstallable. */
+    toolchainInstallable?: boolean | null;
+    /** 1.68.0: as LspCatalogEntry.url. */
+    url?: string | null;
   })[];
 }
 
@@ -3851,6 +3892,42 @@ export interface LspStatusResult {
     /** starting, ready, broken or stopped. */
     state: "starting" | "ready" | "broken" | "stopped";
   })[];
+}
+
+/** `lsp.toolchain.cancel` params. Stop a running toolchain install (1.68.0). */
+export interface LspToolchainCancelParams {
+  /** Browser marker: see ActorParams. */
+  actor?: "person" | null;
+  /** Toolchain name: 'dotnet-sdk'. */
+  name: string;
+  /** A browser's 'window' (needed for remove, as for withToolchain). */
+  personConfirm?: "window" | null;
+}
+
+/** `lsp.toolchain.cancel` result. */
+export interface LspToolchainCancelResult {
+  /** True when an install was running and was stopped; the lsp.install that ran it answers toolchain_failed / cancelled. */
+  cancelled: boolean;
+  /** Toolchain name. */
+  name: string;
+}
+
+/** `lsp.toolchain.remove` params. Delete a toolchain core installed for language servers (1.68.0). */
+export interface LspToolchainRemoveParams {
+  /** Browser marker: see ActorParams. */
+  actor?: "person" | null;
+  /** Toolchain name: 'dotnet-sdk'. */
+  name: string;
+  /** A browser's 'window' (needed for remove, as for withToolchain). */
+  personConfirm?: "window" | null;
+}
+
+/** `lsp.toolchain.remove` result. */
+export interface LspToolchainRemoveResult {
+  /** Toolchain name. */
+  name: string;
+  /** True when core's own copy was there and is gone (its downloads too). */
+  removed: boolean;
 }
 
 /** `mcp.add` params. Write an MCP server into the project or global .mcp.json and start it. */
@@ -10392,8 +10469,14 @@ export interface LspInstallProgressPayload {
   line?: string | null;
   /** For done: whether it worked. */
   ok?: boolean | null;
+  /** 1.68.0: 0-100 while a toolchain downloads, else null. */
+  percent?: number | null;
+  /** 1.68.0 (lspToolchainInstall): resolve, download, verify, extract (a toolchain install, stage 'output'), toolchain (its end), server (the server's own installer). Absent from older cores. */
+  phase?: "resolve" | "download" | "verify" | "extract" | "toolchain" | "server" | null;
   /** start (the installer runs), output (a line it printed), done. */
   stage: "start" | "output" | "done";
+  /** 1.68.0: the toolchain being installed, e.g. 'dotnet-sdk'. */
+  toolchain?: string | null;
 }
 
 /** `mcp.auth.done` notification payload. */
@@ -11760,6 +11843,8 @@ export interface MethodMap {
   "lsp.install": { params: LspInstallParams; result: LspInstallResult };
   "lsp.restart": { params: LspRestartParams; result: LspRestartResult };
   "lsp.status": { params: LspStatusParams; result: LspStatusResult };
+  "lsp.toolchain.cancel": { params: LspToolchainCancelParams; result: LspToolchainCancelResult };
+  "lsp.toolchain.remove": { params: LspToolchainRemoveParams; result: LspToolchainRemoveResult };
   "mcp.add": { params: McpAddParams; result: McpAddResult };
   "mcp.authorize": { params: McpAuthorizeParams; result: McpAuthorizeResult };
   "mcp.authorize.complete": { params: McpAuthorizeCompleteParams; result: McpAuthorizeCompleteResult };
@@ -11990,6 +12075,8 @@ export type ClientMethod =
   | "lsp.install"
   | "lsp.restart"
   | "lsp.status"
+  | "lsp.toolchain.cancel"
+  | "lsp.toolchain.remove"
   | "mcp.add"
   | "mcp.authorize"
   | "mcp.authorize.complete"
