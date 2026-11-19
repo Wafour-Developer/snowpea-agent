@@ -5,7 +5,7 @@
   ``new_string`` stays ``\\n`` on Windows.
 * A file that is not UTF-8 is refused; a BOM round-trips.
 * The card preview diffs the same bytes and shows a lone CR as ``␍``.
-* Auto mode (no card) keeps today's text read and write.
+* Auto mode (no card) reads and writes bytes too (see test_m28_crlf_edits).
 """
 
 from __future__ import annotations
@@ -85,13 +85,18 @@ async def test_a_crlf_file_keeps_every_other_crlf(tmp_path: Path) -> None:
     assert backend.text_writes == []
 
 
-async def test_a_crlf_file_needs_crlf_in_old_string(tmp_path: Path) -> None:
+async def test_an_lf_old_string_edits_a_crlf_file_through_its_endings(
+    tmp_path: Path,
+) -> None:
+    # read_file shows a CRLF file with "\n", so that is what the model sends:
+    # the edit matches through the file's CRLF endings (m28 CRLF fix).
     ctx, _backend = await _ctx(tmp_path, CRLF, exact=True)
     result = await fs.patch(
         ctx, {"path": "a.sh", "old_string": "two\nthree", "new_string": "x"}
     )
-    assert result.ok is False and "not found exactly" in (result.error or "")
-    assert _disk(tmp_path) == CRLF
+    assert result.ok is True, result.error
+    assert fs.CRLF_NOTE in result.output
+    assert _disk(tmp_path) == b"one\r\nx\r\nfour\r\n"
 
 
 async def test_a_lone_cr_elsewhere_stays_a_cr(tmp_path: Path) -> None:
@@ -174,9 +179,12 @@ async def test_the_preview_matches_crlf_bytes(tmp_path: Path) -> None:
     shown = {"path": "a.sh", "old_string": "two\r\n", "new_string": "TWO\r\n"}
     diff = await fs.preview_diff(backend, "patch", shown) or ""
     assert "-two\r\n" in diff and "+TWO\r\n" in diff
-    # The text an LF-only old_string would match is not in the file: no card diff.
+    # An LF-only old_string matches through the file's CRLF endings, and the
+    # card says so.
     lf_only = {"path": "a.sh", "old_string": "two\nthree", "new_string": "x"}
-    assert await fs.preview_diff(backend, "patch", lf_only) is None
+    diff = await fs.preview_diff(backend, "patch", lf_only) or ""
+    assert diff.startswith(fs.CRLF_NOTE + "\n")
+    assert "-two\r\n" in diff and "+x\r\n" in diff
 
 
 async def test_the_preview_of_a_non_utf8_file_is_none(tmp_path: Path) -> None:
@@ -196,13 +204,14 @@ async def test_the_result_diff_shows_a_lone_cr(tmp_path: Path) -> None:
     assert "# note␍curl" in (result.diff or "") and "\r" not in (result.diff or "")
 
 
-async def test_auto_mode_is_unchanged(tmp_path: Path) -> None:
-    # No card: the text read/write as before (newline translation included).
+async def test_auto_mode_keeps_crlf_too(tmp_path: Path) -> None:
+    # No card: still bytes, and a CRLF file stays CRLF (no OS newline
+    # translation, no normalisation of the other lines).
     ctx, backend = await _ctx(tmp_path, CRLF, exact=False)
     result = await fs.patch(ctx, {"path": "a.sh", "old_string": "two\nthree", "new_string": "x"})
     assert result.ok is True, result.error
-    assert backend.byte_writes == [] and len(backend.text_writes) == 1
-    assert backend.text_writes[0] == "one\nx\nfour\n"
+    assert backend.text_writes == [] and len(backend.byte_writes) == 1
+    assert _disk(tmp_path) == b"one\r\nx\r\nfour\r\n"
 
 
 def test_the_capability_is_advertised() -> None:

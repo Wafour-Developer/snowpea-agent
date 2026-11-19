@@ -85,6 +85,15 @@ class _Backend:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
 
+    # The edit tools read and write bytes (m28): no newline translation.
+    async def read_bytes(self, path: str) -> bytes:
+        return (self.root / path).read_bytes()
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
 
 def _ctx(root: Path, session_id: str, *, parent: str | None = None, guard: bool = True) -> Any:
     settings = Settings()
