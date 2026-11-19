@@ -38,6 +38,8 @@ HTTP のエンドポイントは、プローブ、インストーラー、デバ
 
 結果は `protocolVersion`、`serverVersion`、そして `capabilities` のリストを持ちます。バージョンが凍結されたあと、機能はこれで折衝されます。
 
+クライアントは `locale` も送ってください (プロトコル 1.65.0、capability `clientLocale`)。`ko`、`ko-KR`、`ja`、`es-ES`、`zh-CN` のような BCP 47 タグで利用者の言語を伝えると、検証の問題と拒否 (`settings.set` の問題、`security.get` の問題、ブラウザーが表示する本人専用の拒否) がその言語で返ります。英語、韓国語、日本語、スペイン語、簡体字中国語に対応し、地域付きのタグは言語に、それ以外は英語にフォールバックします。メソッド自身の `locale` パラメーターがあれば、その呼び出しではそちらが優先されます。タグは正規化され (`ko_kr` → `ko-KR`)、言語タグでない値は拒否されずに無視されるので、古いクライアントや変わったクライアントも接続できます。訳されるのは人が読む文だけで、`details.reason` と `problemItems[].reason`/`code` はどの言語でも同じです。TUI は `LC_ALL`、`LC_MESSAGES`、`LANG` を送り、SDK の `connect({locale})` は渡された値を送ります。
+
 ## Methods, by area
 
 | Area | Methods |

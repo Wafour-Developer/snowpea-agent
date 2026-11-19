@@ -33,6 +33,7 @@ from snowpea_core.server.protocol import (
     SecurityPresetsListParams,
     SecurityPresetsListResult,
 )
+from snowpea_core.util import i18n
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -50,7 +51,7 @@ def _wire(lists: Lists) -> dict[str, Any]:
 async def presets_list_handler(
     _conn: RpcConnection | None, params: SecurityPresetsListParams, core: Core
 ) -> SecurityPresetsListResult:
-    listed = catalog.catalog(params.locale)
+    listed = catalog.catalog(params.locale or i18n.current_locale())
     await enforce.refresh_projects(core)
     ctx = enforce.context(home=getattr(core.paths, "home", None),
                           projects=enforce.live_projects(core))
@@ -66,7 +67,8 @@ async def presets_list_handler(
             if text not in shown:
                 shown.append(text)
         entry["paths"] = shown
-    listed["locale"] = catalog.pick({lang: lang for lang in catalog.LOCALES}, params.locale)
+    listed["locale"] = catalog.pick({lang: lang for lang in catalog.LOCALES},
+                                  params.locale or i18n.current_locale())
     return SecurityPresetsListResult.model_validate(listed)
 
 
@@ -103,7 +105,8 @@ async def get_handler(
         merged = Lists()
     ctx = enforce.context(settings=core.settings, home=home,
                           workdir=params.workdir,
-                          projects=enforce.live_projects(core), locale=params.locale)
+                          projects=enforce.live_projects(core),
+                          locale=params.locale or i18n.current_locale())
     resolved = [
         {"path": str(e.path), "level": e.level, "scope": e.scope, "by": e.by,
          "exempt": [str(x) for x in e.exempt]}
@@ -126,30 +129,24 @@ async def get_handler(
     degraded = getattr(core.settings, "degraded_sections", list)()
     if "security" in degraded or "*" in degraded:
         # Security review 8, Low: the lists did not validate and run fail-closed.
-        problems.append(
-            "the security section of settings.json is not valid: the default lists apply and "
-            "unknown code asks until it is fixed (the file as it was: settings.json.invalid)")
+        problems.append(i18n.text("get.section_invalid"))
     credentials = getattr(core.paths, "credentials_json", None)
     if credentials is not None and os.path.islink(credentials):
         # Security review 9, F2: stored credentials are never read through a link.
-        problems.append(
-            f"{credentials} is a symbolic link: no stored credential is used; replace the "
-            "link with the file itself")
+        problems.append(i18n.text("get.credentials_link", path=credentials))
     if getattr(core, "unknown_code_migrated", False) and \
             enforce.unknown_code(core.settings) == "auto":
         # 0.2.90, once per home: told on this screen until the person changes it
         # or the daemon restarts.
-        problems.append(enforce.UNKNOWN_CODE_MIGRATED_NOTE)
+        problems.append(i18n.text("get.unknown_code_migrated"))
     waiting = sorted(getattr(core, "settings_waiting", None) or {})
     if waiting:
-        problems.append(
-            "settings.json changed on disk: settings that can run programs or widen access "
-            f"({', '.join(waiting)}) are not applied and wait for you "
-            "(settings.acceptDiskChange)")
+        problems.append(i18n.text("get.settings_waiting", keys=", ".join(waiting)))
     items = list(stored.problem_items) + (list(project.problem_items) if project else [])
     if not switch["enabled"]:
-        # 1.58.0: said first, with a stable code a surface can show it by.
-        problems.insert(0, enforce.DISABLED_NOTE)
+        # 1.58.0: said first, with a stable code a surface can show it by (the
+        # item's reason stays the English note; the line is in the call's locale).
+        problems.insert(0, i18n.text("get.disabled"))
         items.insert(0, {"list": None, "entry": None, "reason": enforce.DISABLED_NOTE,
                          "code": enforce.DISABLED_CODE})
     kind = connection_kind(conn)
@@ -230,7 +227,8 @@ async def check_handler(
     await enforce.refresh_projects(core)
     ctx = enforce.context(settings=core.settings, home=getattr(core.paths, "home", None),
                           workdir=params.workdir,
-                          projects=enforce.live_projects(core), locale=params.locale,
+                          projects=enforce.live_projects(core),
+                          locale=params.locale or i18n.current_locale(),
                           dry_run=True)  # the "try it" box records nothing
     cwd = ctx.workdir
     if params.command and params.command.strip():
@@ -262,7 +260,7 @@ def settings_problems(patch: dict[str, Any], *, project_current: Any = None,
             # (the master switch, 1.58.0, likewise).
             raise RpcError(
                 errors.INVALID_PARAMS,
-                f"security.{key} is a global setting; a project cannot change it",
+                i18n.text("settings.global_only", key=f"security.{key}"),
                 {"reason": "global_only", "key": f"security.{key}"},
             )
     problems = problems_in(value) if value is not None else []
@@ -275,8 +273,7 @@ def settings_problems(patch: dict[str, Any], *, project_current: Any = None,
         if gone:
             raise RpcError(
                 errors.INVALID_PARAMS,
-                "a project can only add to the security lists; it would remove "
-                + ", ".join(gone[:5]) + " (change the global lists instead)",
+                i18n.text("settings.project_add_only", removed=", ".join(gone[:5])),
                 {"reason": "project_add_only", "removed": gone},
             )
 

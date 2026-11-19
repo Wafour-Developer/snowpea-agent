@@ -178,6 +178,13 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
         )
     conn.authenticated = True
     conn.client_version = params.clientVersion
+    from snowpea_core.util.i18n import normalise_locale
+
+    # 1.65.0 (clientLocale): kept for the connection's later calls; a value that
+    # is not a language tag is ignored (the connection keeps what it had).
+    locale = normalise_locale(params.locale)
+    if locale is not None:
+        conn.locale = locale
     from snowpea_core.server.host_handlers import adopt_hello
 
     adopt_hello(core, conn, params)

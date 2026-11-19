@@ -95,6 +95,13 @@ export interface ConnectOptions {
   instanceId?: string;
   /** Keep the daemon from its idle shutdown while connected (1.6.0). */
   keepAlive?: boolean;
+  /**
+   * The person's language as a BCP 47 tag, e.g. `"ko"`, `"ko-KR"`, `"es-ES"` (1.65.0,
+   * capability `clientLocale`). Validation problems and refusals come back in it
+   * (en, ko, ja, es, zh-CN; anything else is English). Send it: an older daemon
+   * ignores it, and a value that is not a language tag is ignored, never refused.
+   */
+  locale?: string;
 }
 
 /** A JSON-RPC error response. `code` is the protocol's string code. */
@@ -194,12 +201,12 @@ export class Client {
   readonly options: Required<
     Omit<
       ConnectOptions,
-      "host" | "path" | "protocolVersion" | "clientKind" | "clientId" | "instanceId" | "keepAlive"
+      "host" | "path" | "protocolVersion" | "clientKind" | "clientId" | "instanceId" | "keepAlive" | "locale"
     >
   > &
     Pick<
       ConnectOptions,
-      "host" | "path" | "protocolVersion" | "clientKind" | "clientId" | "instanceId" | "keepAlive"
+      "host" | "path" | "protocolVersion" | "clientKind" | "clientId" | "instanceId" | "keepAlive" | "locale"
     >;
 
   /** Filled in by the `system.hello` result. */
@@ -242,6 +249,7 @@ export class Client {
       clientId: options.clientId,
       instanceId: options.instanceId,
       keepAlive: options.keepAlive,
+      locale: options.locale,
     };
   }
 
@@ -484,19 +492,27 @@ export class Client {
   }
 
   private async hello(): Promise<void> {
-    const result = (await this.rawCall(
-      "system.hello",
-      {
-        token: this.options.token,
-        clientVersion: this.options.clientVersion,
-        protocolVersion: this.options.protocolVersion ?? PROTOCOL_VERSION,
-        ...(this.options.clientKind ? { clientKind: this.options.clientKind } : {}),
-        ...(this.options.clientId ? { clientId: this.options.clientId } : {}),
-        ...(this.options.instanceId ? { instanceId: this.options.instanceId } : {}),
-        ...(this.options.keepAlive ? { keepAlive: true } : {}),
-      },
-      HELLO_TIMEOUT_MS,
-    )) as { protocolVersion?: string; serverVersion?: string; capabilities?: string[] };
+    const params: Record<string, unknown> = {
+      token: this.options.token,
+      clientVersion: this.options.clientVersion,
+      protocolVersion: this.options.protocolVersion ?? PROTOCOL_VERSION,
+      ...(this.options.clientKind ? { clientKind: this.options.clientKind } : {}),
+      ...(this.options.clientId ? { clientId: this.options.clientId } : {}),
+      ...(this.options.instanceId ? { instanceId: this.options.instanceId } : {}),
+      ...(this.options.keepAlive ? { keepAlive: true } : {}),
+      ...(this.options.locale ? { locale: this.options.locale } : {}),
+    };
+    let raw: unknown;
+    try {
+      raw = await this.rawCall("system.hello", params, HELLO_TIMEOUT_MS);
+    } catch (err) {
+      // A daemon before 1.65.0 refuses the unknown `locale` field: say hello
+      // again without it, so a new client still connects to an old core.
+      if (!(params.locale && err instanceof RpcError && err.is("invalid_params"))) throw err;
+      const { locale: _dropped, ...older } = params;
+      raw = await this.rawCall("system.hello", older, HELLO_TIMEOUT_MS);
+    }
+    const result = raw as { protocolVersion?: string; serverVersion?: string; capabilities?: string[] };
 
     this.serverProtocolVersion = result.protocolVersion ?? "";
     this.serverVersion = result.serverVersion ?? "";

@@ -1657,9 +1657,12 @@ def _person_answer(
         why = browser_person_refusal(conn, session, request, actor, person_confirm,
                                      owner=owner, lookup=lookup, asker=asker)
         if why is not None:
+            from snowpea_core.util import i18n
+
             raise RpcError(errors.JARVIS_PERSON_ONLY,
-                           f"only a person may answer this: a browser's answer does not count "
-                           f"({why})", {"reason": why, "kind": "browser"})
+                           i18n.text("refusal.browser_answer", conn=conn,
+                                     why=i18n.text(why, conn=conn)),
+                           {"reason": why, "kind": "browser"})
         return Caller.from_connection(conn)
     if conn is not None:
         caller = Caller.from_connection(conn)
@@ -1671,14 +1674,16 @@ def _person_answer(
         # Security review H3 / M1: a call a security check blocked is allowed only
         # by a person at this machine — never from a chat or a remote web login
         # (they may still decline it, and still answer ordinary asks).
+        from snowpea_core.util import i18n
+
         if caller.kind == "messenger" or str(
                 getattr(conn, "surface_id", "") or "").startswith("gateway:"):
             raise RpcError(errors.JARVIS_PERSON_ONLY,
-                           "only a person at this machine may allow a blocked call",
+                           i18n.text("messenger_blocked", conn=conn),
                            {"reason": "messenger_blocked"})
         if caller.remote or connection_kind(conn) == "remote_login":
             raise RpcError(errors.JARVIS_PERSON_ONLY,
-                           "only a person at this machine may allow a blocked call",
+                           i18n.text("remote_blocked", conn=conn),
                            {"reason": "remote_blocked"})
     allow = (request.args or {}).get("allow") if isinstance(request.args, dict) else None
     refusal = person_refusal(caller, settings, guarded=bool(allow))

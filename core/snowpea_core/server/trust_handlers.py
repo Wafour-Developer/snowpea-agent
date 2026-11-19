@@ -25,6 +25,7 @@ from snowpea_core.server.protocol import (
     ProjectTrustStatus,
 )
 from snowpea_core.trust.projects import TrustStore, set_default_home, store_for
+from snowpea_core.util import i18n
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -295,8 +296,7 @@ def _kept_pins(conn: Any, core: Any, root: Path, wanted: list[str],
         settings_gate.refuse(
             conn, "trust a project", reason=settings_gate.BROWSER_NOT_ALLOWED,
             extra={"what": SETTINGS_FILE},
-            hint=(f"{SETTINGS_FILE} changed since the folder's default mode was trusted; "
-                  "trust it again in the snowpea app or the terminal"))
+            hint=i18n.text("trust.settings_repinned", conn=conn, file=SETTINGS_FILE))
     return {SETTINGS_FILE}
 
 
@@ -343,7 +343,7 @@ async def project_trust_set_handler(conn: RpcConnection, params: ProjectTrustSet
     except TrustChanged as exc:
         raise RpcError(
             errors.TRUST_CHANGED,
-            "the project's control files are not what you were shown; look at them again",
+            i18n.text("trust_changed", conn=conn),
             {"changed": exc.changed, "added": exc.added, "missing": exc.missing},
         ) from exc
     except ValueError as exc:

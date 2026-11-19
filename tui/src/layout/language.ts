@@ -51,6 +51,22 @@ export function resetUiLanguage(): void {
 }
 
 /**
+ * The person's language from the POSIX locale variables, as a BCP 47 tag for
+ * `system.hello {locale}` (1.65.0): `LC_ALL`, then `LC_MESSAGES`, then `LANG`,
+ * the same order the C library reads them. `ko_KR.UTF-8` → `ko-KR`;
+ * `C`, `POSIX` and anything that is not a language tag → `undefined`.
+ */
+export function localeFromEnv(env: Record<string, string | undefined> = process.env): string | undefined {
+  const raw = [env.LC_ALL, env.LC_MESSAGES, env.LANG].find((value) => value && value.trim() !== "");
+  const tag = String(raw ?? "")
+    .trim()
+    .split(/[.@]/)[0]
+    .replace(/_/g, "-");
+  if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(tag) || tag.length > 35) return undefined;
+  return tag;
+}
+
+/**
  * Which language a piece of the user's own text is written in.
  *
  * The same script-first rule as `snowpea_core.util.lang`, kept in step with it

@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.64.0` (semver)
+- **Protocol version:** `1.65.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.64.0"
+    "protocolVersion": "1.65.0"
   }
 }
 ```
@@ -48,6 +48,7 @@ Server capabilities advertised in the `system.hello` result:
 - `browserPersonApprovals`
 - `browserProjectTrust`
 - `checkpoints`
+- `clientLocale`
 - `commands`
 - `commandsBesideTurn`
 - `compactionReason`
@@ -4639,6 +4640,7 @@ Authenticate a connection and agree on the protocol version.
 | `holdSec` | `number \| null` | no | A connector-held client (1.40.0, capability 'holdSec'): once nothing but loaded, idle sessions is left, the daemon exits this many seconds after the last connection goes instead of after daemon.idleTimeoutSec. A running turn, job, gateway binding, named agent or keep-alive client still keeps it up. Clamped to 30..3600; a later hello from a tui/desktop/ide client without it restores the ordinary timeout. |
 | `instanceId` | `string \| null` | no | Id of this run of the client (1.6.0). |
 | `keepAlive` | `boolean` | no | Keep the daemon from its idle shutdown while this client is connected (1.6.0). |
+| `locale` | `string \| null` | no | 1.65.0 (capability 'clientLocale'): the person's language as a BCP 47 tag, e.g. 'ko', 'ko-KR', 'ja', 'es-ES', 'zh-CN'. Clients should send it: validation problems and refusals (RPC error messages, details.problems, security.get problems) then come back in that language: 'en', 'ko', 'ja', 'es' or 'zh-CN', a regional tag falling back to its language, anything else to English. A method's own locale param still wins for that call. At most 35 characters of letters, digits, '-' and '_'; normalised ('ko_kr' -> 'ko-KR'). A value that is not a language tag is ignored, never refused. Machine codes (details.reason, problemItems[].reason/code) are never translated. |
 | `protocolVersion` | `string` | yes | Protocol semver the client speaks; major must match. |
 | `token` | `string` | yes | Shared secret read from $SNOWPEA_HOME/token or daemon.json. |
 

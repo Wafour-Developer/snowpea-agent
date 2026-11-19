@@ -365,6 +365,26 @@ class HelloParams(Payload):
             "restores the ordinary timeout."
         ),
     )
+    locale: str | None = Field(
+        default=None,
+        description=(
+            "1.65.0 (capability 'clientLocale'): the person's language as a BCP 47 tag, e.g. "
+            "'ko', 'ko-KR', 'ja', 'es-ES', 'zh-CN'. Clients should send it: validation "
+            "problems and refusals (RPC error messages, details.problems, security.get "
+            "problems) then come back in that language: 'en', 'ko', 'ja', 'es' or 'zh-CN', "
+            "a regional tag falling back to its language, anything else to English. A "
+            "method's own locale param still wins for that call. At most 35 characters of "
+            "letters, digits, '-' and '_'; normalised ('ko_kr' -> 'ko-KR'). A value that is "
+            "not a language tag is ignored, never refused. Machine codes (details.reason, "
+            "problemItems[].reason/code) are never translated."
+        ),
+    )
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _locale_or_none(cls, value: Any) -> Any:
+        # 1.65.0: an odd locale never refuses the handshake; it is ignored.
+        return value if isinstance(value, str) else None
 
 
 class MachineInfo(Payload):
@@ -12736,6 +12756,10 @@ CAPABILITIES: list[str] = [
     # (each registered project's additions, read-only); security.presets.list
     # and the check's texts also in ja, es and zh-CN.
     "securityAllProjects",
+    # 1.65.0: system.hello locale; validation problems and person-only refusals
+    # (RPC error messages, details.problems, security.get problems) come back
+    # in that language (en, ko, ja, es, zh-CN).
+    "clientLocale",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

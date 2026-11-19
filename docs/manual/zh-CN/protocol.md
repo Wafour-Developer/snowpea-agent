@@ -38,6 +38,8 @@ uv run python scripts/gen_protocol.py --check
 
 结果里带着 `protocolVersion`、`serverVersion` 和一份 `capabilities` 列表，版本冻结之后就是靠它来协商功能的。
 
+客户端还应发送 `locale`（协议 1.65.0，capability `clientLocale`）：以 BCP 47 标签表示使用者的语言，例如 `ko`、`ko-KR`、`ja`、`es-ES` 或 `zh-CN`。这样校验问题和拒绝信息（`settings.set` 的问题、`security.get` 的问题，以及浏览器显示的仅限本人的拒绝）就会以该语言返回，支持英语、韩语、日语、西班牙语和简体中文；带地区的标签回退到其语言，其他值回退到英语。方法自带的 `locale` 参数在该次调用中仍然优先。标签会被规范化（`ko_kr` 变为 `ko-KR`），不是语言标签的值会被忽略而不是拒绝，因此旧的或特殊的客户端仍能连接。只翻译给人看的文字：`details.reason` 和 `problemItems[].reason`/`code` 在所有语言中都相同。TUI 发送 `LC_ALL`、`LC_MESSAGES` 或 `LANG`；SDK 的 `connect({locale})` 发送传入的值。
+
 ## 方法，按领域分
 
 | 领域 | 方法 |
