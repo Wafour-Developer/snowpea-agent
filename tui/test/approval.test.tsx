@@ -218,4 +218,32 @@ describe("approval prompt", () => {
     instance.unmount();
     expect(after).not.toContain("mode: AUTO");
   });
+
+  it("answers the letter shortcuts typed under a Korean layout", async () => {
+    // ㅛ ㅁ ㅔ ㅜ sit on y a p n of a 두벌식 keyboard.
+    for (const [key, expected] of [
+      ["ㅛ", { decision: "allow", scope: "once" }],
+      ["ㅁ", { decision: "allow", scope: "session" }],
+      ["ㅔ", { decision: "allow", scope: "project" }],
+      ["ㅜ", { decision: "deny", scope: "once" }],
+    ] as const) {
+      const { stdin, instance, answer } = await openPrompt();
+      stdin.write(key);
+      const decided = await answer;
+      instance.unmount();
+      expect(decided).toEqual(expected);
+    }
+  });
+
+  it("keeps Hangul, lone jamo included, in the reason field", async () => {
+    const { stdin, stdout, instance, answer } = await openPrompt();
+    stdin.write("ㄱ"); // r: No, with reason
+    await sleep(80);
+    expect(stdout.text()).toContain("Why are you refusing?");
+    await type(stdin, "빌드 ㅂ 지우지 마");
+    stdin.write("\r");
+    const decided = await answer;
+    instance.unmount();
+    expect(decided).toEqual({ decision: "deny", scope: "once", reason: "빌드 ㅂ 지우지 마" });
+  });
 });

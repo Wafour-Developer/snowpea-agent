@@ -106,6 +106,7 @@ import {
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
+import { shortcutKey } from "./input/hangulKeys.js";
 import { mouseReports, panelRowAt } from "./input/mouse.js";
 import {
   RESUME_ELSEWHERE,
@@ -3087,7 +3088,7 @@ export function App({
       exit();
       return;
     }
-    if (daemonGone && (input === "R" || input === "r")) {
+    if (daemonGone && (shortcutKey(input) === "R" || shortcutKey(input) === "r")) {
       void handleStartDaemon();
       return;
     }
@@ -3142,7 +3143,7 @@ export function App({
     }
 
     if (showHelp) {
-      if (key.escape || key.return || input === "q") {
+      if (key.escape || key.return || shortcutKey(input) === "q") {
         setShowHelp(false);
         setFocus(INPUT_FOCUS);
       }
@@ -3193,7 +3194,7 @@ export function App({
     if (
       externalOpen &&
       externalViewOnly !== null &&
-      input === "t" &&
+      shortcutKey(input) === "t" &&
       !key.ctrl &&
       !key.meta &&
       screens.ui === null &&

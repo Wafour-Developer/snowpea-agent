@@ -13,6 +13,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Box, useInput } from "ink";
 
+import { shortcutKey } from "../input/hangulKeys.js";
 import { mouseReports } from "../input/mouse.js";
 import { textWidth } from "../layout/text-width.js";
 import type { Line, Segment } from "../layout/transcript.js";
@@ -328,9 +329,12 @@ export function SecurityScreen({
   };
 
   useInput(
-    (input, key) => {
-      if (mouseReports(input).length > 0) return;
+    (typed, key) => {
+      if (mouseReports(typed).length > 0) return;
       if (mode.k === "saving") return;
+      // A text field keeps the Hangul typed into it; everywhere else a lone
+      // jamo (ㅕ under a Korean layout) is the letter key it sits on (u).
+      const input = mode.k === "input" ? typed : shortcutKey(typed);
 
       if (mode.k === "confirm") {
         if (input.toLowerCase() === "y") mode.yes();

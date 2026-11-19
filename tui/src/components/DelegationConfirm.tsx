@@ -11,6 +11,7 @@
 import React from "react";
 import { Box, Text, useInput } from "ink";
 
+import { shortcutKey } from "../input/hangulKeys.js";
 import { mouseReports } from "../input/mouse.js";
 import { fit } from "../layout/fit.js";
 import type { PersonOnlyView } from "../state/jarvis.js";
@@ -37,11 +38,12 @@ export function DelegationConfirm({
   useInput(
     (input, key) => {
       if (mouseReports(input).length > 0) return;
-      if (key.escape || input.toLowerCase() === "n") {
+      const pressed = shortcutKey(input).toLowerCase();
+      if (key.escape || pressed === "n") {
         onAnswer(false);
         return;
       }
-      if (input.toLowerCase() === "y") onAnswer(true);
+      if (pressed === "y") onAnswer(true);
     },
     { isActive },
   );

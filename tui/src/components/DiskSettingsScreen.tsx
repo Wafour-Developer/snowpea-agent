@@ -11,6 +11,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Box, useInput } from "ink";
 
 import type { DiskResult } from "../hooks/useDiskSettings.js";
+import { shortcutKey } from "../input/hangulKeys.js";
 import { mouseReports } from "../input/mouse.js";
 import type { Line, Segment } from "../layout/transcript.js";
 import { DISK_NOTHING_WAITS, choiceLines } from "../state/disk-settings.js";
@@ -48,8 +49,8 @@ export function DiskSettingsScreen({ waiting, width, height, onDecide, onClose, 
       if (phase.k === "busy") return;
       // Done, or settled somewhere else meanwhile: nothing left to choose.
       if (phase.k === "done" || waiting.length === 0) return onClose();
-      if (key.escape || input === "q") return onClose();
-      const pressed = input.toLowerCase();
+      if (key.escape || shortcutKey(input) === "q") return onClose();
+      const pressed = shortcutKey(input).toLowerCase();
       if (pressed !== "a" && pressed !== "k") return;
       setPhase({ k: "busy" });
       void onDecide(pressed === "a").then((result) => {

@@ -16,6 +16,7 @@
 
 import { useInput, type Key } from "ink";
 
+import { shortcutKey } from "../input/hangulKeys.js";
 import { mouseReports } from "../input/mouse.js";
 
 /** Rows PageUp / PageDown move the cursor by. */
@@ -109,7 +110,8 @@ export function useChoiceKeys(options: ChoiceKeyOptions): void {
         return;
       }
 
-      const typed = input.toLowerCase();
+      // A Korean layout types ㅕ for u: shortcuts and j / k answer to the key, not the jamo.
+      const typed = shortcutKey(input).toLowerCase();
       const shortcut = shortcuts?.[typed];
       if (shortcut) {
         shortcut();
