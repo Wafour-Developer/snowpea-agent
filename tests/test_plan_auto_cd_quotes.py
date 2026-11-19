@@ -40,6 +40,12 @@ STILL_ASKED = [
     "cd docs/r && git status",
     "cd docs && cargo test",
     "cd docs && go test ./...",
+    # guards: a reader flag that writes or runs code must stay refused after cd
+    "cd /tmp && sort -o out f",
+    "cd /tmp && rg --pre x pat",
+    "cd /tmp && find . -exec x {} +",
+    "cd /tmp && tree -o out",
+    "cd /tmp && tail -f log",
 ]
 
 
