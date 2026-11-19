@@ -25,10 +25,21 @@ STILL_ASKED = [
     "cd /tmp && echo x > PLAN.md",  # a relative redirect after cd is not judged
     "cd /tmp && ls > /dev/null",  # any redirect turns the cd exemption off
     "cd a b",
+    "cd -P /tmp && ls",
     'ls "a" ; rm b',
     "grep x f | sh",
     'echo "unclosed',
     "cat a | tee b",
+    # security review (m29): a quoted ">" must not hide a real ";"
+    "cat \"a>/tmp/b\" ; touch P ; grep '\"'\\' f",
+    "cat 'a>/tmp/b' ; touch P",
+    # security review (m29): after cd, code-running checkers judge the wrong folder
+    "cd docs && python -m pytest",
+    "cd docs && npm test",
+    "cd /tmp && python -m pytest test_p.py",
+    "cd docs/r && git status",
+    "cd docs && cargo test",
+    "cd docs && go test ./...",
 ]
 
 
