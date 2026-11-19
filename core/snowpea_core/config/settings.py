@@ -1195,11 +1195,14 @@ class SecuritySettings(_Model):
 
     #: The master switch (1.58.0, owner decision 2026-11-18): ``false`` stops
     #: applying the blocked-command and protected-path lists (presets, custom
-    #: and a project's additions) and lets unresolved code through as under
-    #: ``unknownCode: "allow"``.  The stored lists and ``unknownCode`` are kept
-    #: as they are, so ``true`` restores them.  snowpea's own controls and the
-    #: mode rules apply either way.  Anything but ``false`` reads as ``true``.
-    enabled: bool = True
+    #: and a project's additions), lets unresolved code through as under
+    #: ``unknownCode: "allow"`` and (1.66.0) leaves reads of tokens and logins
+    #: to the mode rules.  The stored lists and ``unknownCode`` are kept as they
+    #: are, so ``true`` restores them.  snowpea's own controls and the mode rules
+    #: apply either way.  Off by default since 1.66.0 (owner decision
+    #: 2026-11-19): a person turns the checks on.  No value (or ``null``) is
+    #: off; any value but ``false`` or ``null`` reads as ``true``.
+    enabled: bool = False
     blockedCommands: SecurityBlockedCommands = Field(default_factory=SecurityBlockedCommands)
     protectedPaths: SecurityProtectedPaths = Field(default_factory=SecurityProtectedPaths)
     #: Commands and scripts snowpea cannot tell the effect of before they run (a
@@ -1220,8 +1223,8 @@ class SecuritySettings(_Model):
     @field_validator("enabled", mode="before")
     @classmethod
     def _enabled(cls, value: Any) -> Any:
-        # Fails closed: only an explicit ``false`` switches the checks off.
-        return value is not False
+        # 1.66.0: off unless set; a value that is not a boolean fails closed (on).
+        return value is not False and value is not None
 
 
 class Settings(_Model):
@@ -1310,7 +1313,8 @@ class Settings(_Model):
     def mark_degraded(self, sections: list[str], *, close: bool = True) -> Settings:
         """Record ``sections`` as degraded and (``close``) make the gated ones fail CLOSED.
 
-        ``security``: the lists a fresh install has (the default presets) and
+        ``security``: the checks on (1.66.0: whatever the default), the lists a
+        fresh install has (the default presets) and
         ``unknownCode: "ask"`` — security review 9, F3: not every preset, which
         stopped ordinary work (a reload keeps the daemon's last valid lists:
         ``hot_reload.hold_back``, which is why it records only).  ``web``:
@@ -1322,7 +1326,7 @@ class Settings(_Model):
             return self
         every = "*" in sections
         if every or "security" in sections:
-            self.security = SecuritySettings(unknownCode="ask")
+            self.security = SecuritySettings(unknownCode="ask", enabled=True)
         if every or "web" in sections:
             self.web.remote.enabled = False
         return self

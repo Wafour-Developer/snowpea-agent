@@ -146,6 +146,8 @@ async def get_handler(
     if not switch["enabled"]:
         # 1.58.0: said first, with a stable code a surface can show it by (the
         # item's reason stays the English note; the line is in the call's locale).
+        # 1.66.0: off is the default; the note is neutral and stays because it is
+        # the only way a client of 1.65.0 or older learns the lists are not applied.
         problems.insert(0, i18n.text("get.disabled"))
         items.insert(0, {"list": None, "entry": None, "reason": enforce.DISABLED_NOTE,
                          "code": enforce.DISABLED_CODE})

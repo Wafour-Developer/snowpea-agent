@@ -5,4 +5,4 @@ protocol (apps probe an installed core with it before they spawn one), so the
 constant lives here; :mod:`snowpea_core.server.protocol` re-exports it.
 """
 
-PROTOCOL_VERSION = "1.65.0"
+PROTOCOL_VERSION = "1.66.0"

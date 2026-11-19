@@ -1006,9 +1006,16 @@ class Daemon:
         # Once per home (0.2.90): a stored "ask" — the old default, written out —
         # becomes "auto".  Saved before the file's stamp is taken below, so it is
         # the daemon's own write and nothing waits for a person.
-        from snowpea_core.security.enforce import migrate_unknown_code, reconcile_switch
+        from snowpea_core.security.enforce import (
+            migrate_default_off,
+            migrate_unknown_code,
+            reconcile_switch,
+        )
 
         unknown_code_migrated = migrate_unknown_code(settings, paths)
+        # Once per home (1.66.0): a stored "true" nobody chose — the old default,
+        # written out — becomes the new default, off.
+        migrate_default_off(settings, paths)
         # 1.58.0: settings.json edited while no daemon ran — the who/when record
         # and the audit log follow what the file says.
         reconcile_switch(settings, paths.home)

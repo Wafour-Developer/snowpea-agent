@@ -114,7 +114,39 @@ def _tests_may_set_modes_directly(request: pytest.FixtureRequest) -> Iterator[No
         SessionManager.set_mode = original_set_mode  # type: ignore[method-assign]
 
 
+@pytest.fixture(autouse=True)
+def _security_checks_on_for_older_suites(request: pytest.FixtureRequest) -> Iterator[None]:
+    """The suites written before 1.66.0 run with the security checks on.
+
+    Since 1.66.0 ``security.enabled`` is off by default (owner decision
+    2026-11-19); the suites written before exercise the checks themselves, as
+    a fresh install had them.  Here a ``Settings()`` they build has the checks
+    on, so they keep pinning the "on" behaviour.  Tests marked
+    ``real_security_default`` (tests/test_security_default_off.py) see the
+    real default.  Patched by hand, as ``_projects_trusted_for_external_clis`` is.
+    """
+    if request.node.get_closest_marker("real_security_default") is not None:
+        yield
+        return
+    from snowpea_core.config.settings import SecuritySettings, Settings
+
+    field = SecuritySettings.model_fields["enabled"]
+    original = field.default
+    field.default = True
+    SecuritySettings.model_rebuild(force=True)
+    Settings.model_rebuild(force=True)
+    try:
+        yield
+    finally:
+        field.default = original
+        SecuritySettings.model_rebuild(force=True)
+        Settings.model_rebuild(force=True)
+
+
 def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "real_security_default: security.enabled keeps its real default, off (1.66.0)"
+    )
     config.addinivalue_line(
         "markers", "real_trust: external CLI project trust is not pre-granted (M4)"
     )

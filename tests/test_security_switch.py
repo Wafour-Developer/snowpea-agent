@@ -138,11 +138,14 @@ def test_project_additions_are_not_applied_while_off(tmp_path: Path) -> None:
     assert _judge(Settings(), tmp_path, "shell", {"command": BLOCKED_LINE}, ("exec",)).blocked
 
 
-def test_only_an_explicit_false_switches_off() -> None:
-    for value in (None, "false", 0, "off"):
+@pytest.mark.real_security_default
+def test_a_value_that_is_not_a_boolean_fails_closed() -> None:
+    # 1.66.0: off by default (no value, null, false); any other value is on.
+    for value in ("false", 0, "off"):
         assert Settings.model_validate({"security": {"enabled": value}}).security.enabled
+    assert not Settings.model_validate({"security": {"enabled": None}}).security.enabled
     assert not Settings.model_validate({"security": {"enabled": False}}).security.enabled
-    assert enforce.enabled(None) is True
+    assert enforce.enabled(None) is False
     assert enforce.effective_unknown_code(
         Settings.model_validate({"security": {"enabled": False, "unknownCode": "ask"}})
     ) == "allow"
@@ -303,8 +306,8 @@ async def test_get_audit_and_event(core: Any) -> None:
     assert switches[0]["by"] == "browser"
     event = core.hub_spy.of("settings.changed")[-1]
     assert "security" in event["keys"]
-    assert event["security"] == {"enabled": False, "disabledBy": "browser",
-                                 "disabledAt": off.disabledAt}
+    assert event["security"] == {"enabled": False, "byDefault": False,
+                                 "disabledBy": "browser", "disabledAt": off.disabledAt}
 
     # Writing the same value again is not a change: no second line.
     await _set(core, _conn("ide"), {"security": {"enabled": False}})
@@ -345,7 +348,7 @@ def test_a_browser_may_read_the_security_screen() -> None:
 
 
 def test_contract() -> None:
-    assert PROTOCOL_VERSION == "1.65.0"  # 1.58.0 introduced it
+    assert PROTOCOL_VERSION == "1.66.0"  # 1.58.0 introduced it
     assert "securityMasterSwitch" in CAPABILITIES
 
 
@@ -399,17 +402,20 @@ def _switches(home: Path) -> list[dict[str, Any]]:
 
 def test_the_start_records_a_switch_edited_while_no_daemon_ran(tmp_path: Path) -> None:
     home = tmp_path / "home"
-    enforce.reconcile_switch(Settings(), home)  # on, no record: nothing to say
-    assert _switches(home) == []
     off = Settings.model_validate({"security": {"enabled": False}})
+    # 1.66.0: no record counts as off, the default — nothing to say.
     enforce.reconcile_switch(off, home)
+    assert _switches(home) == []
+    assert enforce.switch_state(off, home)["byDefault"] is True
+    enforce.reconcile_switch(Settings(), home)  # turned on in the file
     assert [(s["enabled"], s["by"], s["method"]) for s in _switches(home)] == [
-        (False, "settings.json", "startup")]
-    assert enforce.switch_state(off, home)["disabledBy"] == "settings.json"
-    enforce.reconcile_switch(off, home)  # the record agrees now: no second line
+        (True, "settings.json", "startup")]
+    enforce.reconcile_switch(Settings(), home)  # the record agrees now: no second line
     assert len(_switches(home)) == 1
-    enforce.reconcile_switch(Settings(), home)  # turned back on in the file
-    assert [s["enabled"] for s in _switches(home)] == [False, True]
+    enforce.reconcile_switch(off, home)  # turned off again in the file
+    assert [s["enabled"] for s in _switches(home)] == [True, False]
+    state = enforce.switch_state(off, home)
+    assert state["disabledBy"] == "settings.json" and state["byDefault"] is False
 
 
 async def test_an_accepted_disk_edit_is_recorded_as_the_files(core: Any) -> None:

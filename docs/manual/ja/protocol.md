@@ -40,6 +40,8 @@ HTTP のエンドポイントは、プローブ、インストーラー、デバ
 
 クライアントは `locale` も送ってください (プロトコル 1.65.0、capability `clientLocale`)。`ko`、`ko-KR`、`ja`、`es-ES`、`zh-CN` のような BCP 47 タグで利用者の言語を伝えると、検証の問題と拒否 (`settings.set` の問題、`security.get` の問題、ブラウザーが表示する本人専用の拒否) がその言語で返ります。英語、韓国語、日本語、スペイン語、簡体字中国語に対応し、地域付きのタグは言語に、それ以外は英語にフォールバックします。メソッド自身の `locale` パラメーターがあれば、その呼び出しではそちらが優先されます。タグは正規化され (`ko_kr` → `ko-KR`)、言語タグでない値は拒否されずに無視されるので、古いクライアントや変わったクライアントも接続できます。訳されるのは人が読む文だけで、`details.reason` と `problemItems[].reason`/`code` はどの言語でも同じです。TUI は `LC_ALL`、`LC_MESSAGES`、`LANG` を送り、SDK の `connect({locale})` は渡された値を送ります。
 
+プロトコル 1.66.0 (capability `securityDefaultOff`) から、セキュリティチェックは既定でオフです。人がオンにするまで (`settings.set {scope: 'global', patch: {security: {enabled: true}}}`)、`security.get` は `enabled: false` と `byDefault: true` を返します。この状態はセキュリティ設定の画面でだけ、中立的に表示してください。チェックがオフの間は、デーモンのトークンや保存されたログインの読み取りもブロックされず、モードのルールに従います。1.65.0 以前のクライアントのために、`problems` は引き続き中立的な一行 (問題コード `security-disabled`) で始まります。
+
 ## Methods, by area
 
 | Area | Methods |

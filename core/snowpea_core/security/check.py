@@ -1049,13 +1049,16 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
         shape = _shape(effect.raw, effect.cwd, ctx)
         if shape is None:
             continue
-        if effect.relocates:
+        # 1.66.0: with the checks off (``security.enabled`` not true) a read of a
+        # secret — a move or link of one included — is not blocked here; it
+        # goes through the mode rules like any other read.  Writes stay.
+        if effect.relocates and not ctx.checks_off:
             moved = _relocated_secret(shape, homes, ctx)
             if moved is not None:
                 return moved, asks
         external = _external_secret(shape, effect.kind == "write"
                                     or (effect.raw, effect.cmd) in written, ctx)
-        if external is not None:
+        if external is not None and not (ctx.checks_off and external.secret_read):
             return external, asks
         if effect.kind == "write":
             for path in shape.concrete:
@@ -1089,11 +1092,14 @@ def _control_verdict(effects: Iterable[sh.Effect], ctx: Context, *,
                     # 0.2.90: a folder of the person's inside the home — say
                     # how to make it an ordinary place to work in.
                     key = "control_stray"
+                secret = (not write and (effect.raw, effect.cmd) not in written
+                          and control_plane.unallowable_read(entry))
+                if secret and ctx.checks_off:
+                    break
                 return Verdict(True, BY_SETTINGS,
                                message(key, ctx.locale, path=shown, what=entry.what),
                                match=shown, kind="control", level=entry.level,
-                               secret_read=not write and (effect.raw, effect.cmd) not in written
-                               and control_plane.unallowable_read(entry)), asks
+                               secret_read=secret), asks
             asks.append((f"control-plane:{entry.rel or 'home'}",
                          message("control_ask", ctx.locale, what=entry.what)))
             break
@@ -1230,10 +1236,13 @@ def _mention_verdict(view: sh.ShellView, ctx: Context) -> tuple[Verdict | None,
             if shape is None:
                 continue
             external = _external_secret(shape, False, ctx)
-            if external is not None:
+            if external is not None and not (ctx.checks_off and external.secret_read):
                 return external, asks
             for home in homes:
                 secret = _control_hit(shape, sh.Effect(raw, cwd, "read"), home)
+                if secret is not None and ctx.checks_off and control_plane.unallowable_read(
+                        secret[1]):
+                    secret = None
                 if secret is not None:
                     return Verdict(True, BY_SETTINGS,
                                    message("control_read", ctx.locale, path=secret[2],
@@ -1579,7 +1588,10 @@ def _secret_read_in(view: sh.ShellView, effects: list[sh.Effect],
                     ctx: Context) -> Verdict | None:
     """A secret-read block anywhere in the call (:attr:`Verdict.secret_read`):
     a read the reader saw, a string literal of code naming one, or a literal
-    word of the line's raw text that names one (judged as read)."""
+    word of the line's raw text that names one (judged as read).  None while
+    the checks are off (1.66.0)."""
+    if ctx.checks_off:
+        return None
     written = _written(effects)
     reads = [effect for effect in effects if effect.relocates
              or (effect.kind == "read" and (effect.raw, effect.cmd) not in written)]

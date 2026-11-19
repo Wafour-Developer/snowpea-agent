@@ -2,7 +2,9 @@
 
 **What this page promises, and what it does not.** In `auto` mode the agent runs programs as you. snowpea reads each command line before it runs — and the code given directly on that line or in a script the line names — and refuses or asks you about what the security lists and the rule about snowpea's own files cover. It does **not** read what those programs load or start in turn: your tests, your build, git hooks, a program found on `PATH`, a library. Code run that way can do whatever you can do on this computer, including running snowpea's own command and editing snowpea's files. While snowpea runs, a tamper guard keeps its own copy of the trusted-projects record and of Jarvis's delegation rules, decides from that copy, and puts the files back when something else changes them. Keeping the programs snowpea starts from acting as you towards snowpea needs the operating system; snowpea does not do that yet (it is the next planned step). **For a repository you do not trust, use accept mode**, where every command and every write is yours to approve.
 
-Two lists you set once and that hold for every session — with or without Jarvis mode, in every mode, whoever runs the call:
+**Off by default (protocol 1.66.0).** The checks on this page apply only while you have turned them on: Settings → Security, or `"security": {"enabled": true}` in `$SNOWPEA_HOME/settings.json`. Until then the mode rules decide alone (plan does not write; accept asks for commands; auto runs them), and the agent works under the safety guidelines in its instructions: no destructive or irreversible command unless you asked for exactly that, never one as a test, a look at the exact target before deleting or moving, and no reading of tokens or login files unless you ask for that file. See [`security.enabled`](#securityenabled-turning-the-checks-on-and-off).
+
+With the checks on: two lists you set once and that hold for every session — with or without Jarvis mode, in every mode, whoever runs the call:
 
 - **Blocked commands** are stopped wherever snowpea sees them: on the line, in code it reads, in a script it reads. Jarvis, a scheduled job, a remembered answer, an "always allow" rule or auto mode cannot let one through; only you can, one call at a time (below). A program the line starts that then runs the command itself (a test, a build step, a git hook) is not read: see [What snowpea does not read](#what-snowpea-does-not-read).
 - **Protected folders** are stopped as the target of a change snowpea sees. Each entry has a level: **no changes** (`write`, the default: reading is fine) or **no access** (`all`: not read, not listed, not changed).
@@ -19,7 +21,7 @@ A blocked call does not run on its own, but it is never out of your reach (0.2.9
 - Plan mode refuses writes by the tools that write files (`write_file`, `patch`, …) as it always did: that is the mode, not the block. A blocked shell line in plan mode is asked like any other command.
 - Every answer to a blocked call is written to `logs/security.jsonl` with what blocked it and who answered (the kind of connection, its client id, whether it was confirmed in a window, whether it was a remote login); `logs/approvals.jsonl` records the block too, also when nobody could be asked.
 
-**Two things you are never asked about, and that never run:** an agent **reading** the daemon's token or address (`token`, `daemon.json`), or **reading** saved logins (`credentials.json`, `mcp-oauth.json`, and the other agent CLIs' logins listed below). An agent that read them could act with your authority. Changing or deleting those files is asked like any other block. Moving, hard-linking or archiving them away (`mv`, `ln`, `tar --remove-files`), or moving the folder that holds them (snowpea's home or a folder above it), keeps what they hold under another name: that counts as reading them.
+**Two things you are never asked about, and that never run while the checks are on:** an agent **reading** the daemon's token or address (`token`, `daemon.json`), or **reading** saved logins (`credentials.json`, `mcp-oauth.json`, and the other agent CLIs' logins listed below). An agent that read them could act with your authority. Changing or deleting those files is asked like any other block. Moving, hard-linking or archiving them away (`mv`, `ln`, `tar --remove-files`), or moving the folder that holds them (snowpea's home or a folder above it), keeps what they hold under another name: that counts as reading them.
 
 ## Where to set them
 
@@ -211,17 +213,19 @@ Settings written by snowpea 0.2.88 and 0.2.89 hold `"ask"` (the old default). Th
 
 You change it on a local connection or on the Snowpea browser's Settings page; a project cannot.
 
-### `security.enabled`: turning the checks off
+### `security.enabled`: turning the checks on and off
 
 "Security checks" on the Security screen, or in `$SNOWPEA_HOME/settings.json` (a hand edit waits for your confirmation, see above):
 
 ```json
-{ "security": { "enabled": false } }
+{ "security": { "enabled": true } }
 ```
 
-Off, snowpea applies neither the blocked commands nor the protected paths (presets, your own entries and a project's additions), and code it cannot read ahead runs as under `unknownCode: "allow"`. Your lists and your `unknownCode` stay stored as they are: turning it back on restores all of it. Still in force while off: anything that acts on snowpea's own files or command, the mode rules (plan mode does not write; accept and auto as usual), Jarvis's delegation rules and the questions only you may answer.
+**Off is the default** (protocol 1.66.0, capability `securityDefaultOff`): the checks apply only when `settings.json` says `true`. Every `settings.json` saved since protocol 1.58.0 held `"enabled": true` because the old default was written out, so the first start of 1.66.0 changes a stored `true` to `false` once, unless `$SNOWPEA_HOME/security/switch.json` records that you turned the checks on yourself. That run is recorded in `$SNOWPEA_HOME/security/default-off-migrated.json`; after that the value is never changed again, so if you turn the checks on they stay on.
 
-While it is off, the Security screen says "security checks are off" with who turned them off (desktop, TUI, browser, …) and when (`security.get` `enabled`, `disabledBy`, `disabledAt`, problem code `security-disabled`). Every change is one line in `$SNOWPEA_HOME/logs/security.jsonl` (`"kind": "security-switch"`), the who/when record is `$SNOWPEA_HOME/security/switch.json` (a control file no tool changes), and every connected app, TUI and browser is told at once.
+Off, snowpea applies neither the blocked commands nor the protected paths (presets, your own entries and a project's additions), code it cannot read ahead runs as under `unknownCode: "allow"`, and reads of the daemon's token and address, saved logins and other CLIs' logins are not blocked: they follow the mode rules like any other read (a file tool's read of a credential file is asked in plan and accept and runs in auto; a shell command is asked like any other command). Your lists and your `unknownCode` stay stored as they are: turning the checks on restores all of it, the block on reading tokens and logins included. Still in force while off: the rest of the rule about snowpea's own files (writing, deleting or moving them is asked), the mode rules, Jarvis's delegation rules and the questions only you may answer.
+
+`security.get` reports the state: `enabled`; `byDefault`, true while off only because nobody turned the checks off; and while someone did, who (`disabledBy`: desktop, TUI, browser, …) and when (`disabledAt`). For apps of protocol 1.65.0 and older, which do not read these fields, the first line of `problems` (problem code `security-disabled`) says neutrally that the checks are off and how to turn them on. Every change is one line in `$SNOWPEA_HOME/logs/security.jsonl` (`"kind": "security-switch"`), the who/when record is `$SNOWPEA_HOME/security/switch.json` (a control file no tool changes), and every connected app, TUI and browser is told at once.
 
 Who may change it: you on a local connection, and the Snowpea browser's Settings page (protocol 1.58.0). The browser may change exactly `security.enabled`, `security.unknownCode`, `security.blockedCommands` and `security.protectedPaths`, and only from its Settings page; a remote web login, a connector, Jarvis and the agent's own tools cannot change any of them, and a project cannot turn the checks off.
 

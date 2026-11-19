@@ -38,6 +38,8 @@ The result carries `protocolVersion`, `serverVersion` and a `capabilities` list,
 
 Clients should also send `locale` (protocol 1.65.0, capability `clientLocale`): the person's language as a BCP 47 tag such as `ko`, `ko-KR`, `ja`, `es-ES` or `zh-CN`. Validation problems and refusals then come back in that language — `settings.set` problems, `security.get` problems and the person-only refusals a browser shows — in English, Korean, Japanese, Spanish or Simplified Chinese; a regional tag falls back to its language and anything else to English. A method's own `locale` parameter still wins for that call. The tag is normalised (`ko_kr` becomes `ko-KR`), and a value that is not a language tag is ignored rather than refused, so an older or odd client still connects. Only the human text is translated: `details.reason` and `problemItems[].reason`/`code` stay the same in every language. The TUI sends `LC_ALL`, `LC_MESSAGES` or `LANG`; the SDK's `connect({locale})` sends what it is given, and says hello again without it to a daemon before 1.65.0 that refuses the field.
 
+Since protocol 1.66.0 (capability `securityDefaultOff`) the security checks are off by default: `security.get` returns `enabled: false` and `byDefault: true` until a person turns them on (`settings.set {scope: 'global', patch: {security: {enabled: true}}}`). Show that state neutrally, on the security settings only. While the checks are off, reads of the daemon's token and saved logins are not blocked either; they follow the mode rules. For clients of 1.65.0 and older, `problems` still starts with a neutral line (problem code `security-disabled`).
+
 ## Methods, by area
 
 | Area | Methods |

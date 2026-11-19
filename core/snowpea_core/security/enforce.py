@@ -122,8 +122,9 @@ def unknown_code(settings: Any) -> str:
 
 
 def enabled(settings: Any) -> bool:
-    """``security.enabled`` of the GLOBAL settings (1.58.0); only ``False`` is off."""
-    return getattr(getattr(settings, "security", None), "enabled", True) is not False
+    """``security.enabled`` of the GLOBAL settings (1.58.0): on only when it is
+    ``true`` (1.66.0, owner decision 2026-11-19: off by default)."""
+    return getattr(getattr(settings, "security", None), "enabled", False) is True
 
 
 def effective_unknown_code(settings: Any) -> str:
@@ -137,42 +138,113 @@ def effective_unknown_code(settings: Any) -> str:
 SWITCH_RECORD: tuple[str, ...] = ("security", "switch.json")
 #: ``security.get`` problem code while the checks are off.
 DISABLED_CODE = "security-disabled"
+#: Neutral and informative (owner decision 2026-11-19): off is the default, not
+#: a problem.  Kept in ``security.get`` because it is the only way a client of
+#: 1.65.0 or older learns that the lists are not applied.
 DISABLED_NOTE = (
-    "security checks are off (security.enabled: false): blocked commands and protected "
-    "paths are not applied and code snowpea cannot read ahead is not asked about; "
-    "snowpea's own controls and the mode rules still apply")
+    "Security checks are off (the default), so these lists are not applied. Turn them "
+    "on (security.enabled: true) to apply them: blocked commands, protected paths, "
+    "questions about code snowpea cannot read ahead, and the block on reading tokens "
+    "and logins. snowpea's own controls and the mode rules apply either way.")
 
 
-def switch_state(settings: Any, home: Any) -> dict[str, Any]:
-    """``{enabled, disabledBy, disabledAt}``: who/when only while off and recorded."""
-    on = enabled(settings)
-    state: dict[str, Any] = {"enabled": on, "disabledBy": None, "disabledAt": None}
-    if on or not home:
-        return state
+def _switch_record(home: Any) -> dict[str, Any] | None:
+    """The who/when record of the switch, or ``None`` (none, or unreadable)."""
+    if not home:
+        return None
     try:
         record = json.loads(Path(str(home)).joinpath(*SWITCH_RECORD).read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def switch_state(settings: Any, home: Any) -> dict[str, Any]:
+    """``{enabled, byDefault, disabledBy, disabledAt}``: who/when only while off
+    and recorded; ``byDefault`` (1.66.0) while off only because nobody turned
+    the checks off (no record of a switch to off)."""
+    on = enabled(settings)
+    state: dict[str, Any] = {"enabled": on, "byDefault": False, "disabledBy": None,
+                             "disabledAt": None}
+    if on:
         return state
-    if isinstance(record, dict) and record.get("enabled") is False:
+    record = _switch_record(home)
+    if record is not None and record.get("enabled") is False:
         by, at = record.get("by"), record.get("at")
         state["disabledBy"] = by if isinstance(by, str) else None
         state["disabledAt"] = at if isinstance(at, str) else None
+    else:
+        state["byDefault"] = True
     return state
 
 
 def reconcile_switch(settings: Any, home: Any) -> None:
     """At the daemon's start: when ``settings.json`` says otherwise than the record
     (an edit while no daemon ran), record it, by ``settings.json``; never raises.
-    No record counts as on (what every home had before 1.58.0)."""
+    No record counts as off, the default since 1.66.0 (run after
+    :func:`migrate_default_off`)."""
     if not home:
         return
-    try:
-        record = json.loads(Path(str(home)).joinpath(*SWITCH_RECORD).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        record = {}
-    recorded = not (isinstance(record, dict) and record.get("enabled") is False)
+    record = _switch_record(home) or {}
+    recorded = record.get("enabled") is True
     now = enabled(settings)
     note_switch(home, recorded, now, by="settings.json", method="startup")
+
+
+#: Where the one-time default-off migration of 1.66.0 is recorded (under
+#: ``$SNOWPEA_HOME/security/``, a write-level control folder).
+DEFAULT_OFF_MARKER: tuple[str, ...] = ("security", "default-off-migrated.json")
+
+
+def migrate_default_off(settings: Any, paths: Any) -> bool:
+    """Once per home, at the daemon's start, before :func:`reconcile_switch`
+    (owner decision 2026-11-19): the checks become off by default for everyone
+    who never chose.  Every ``settings.json`` saved since 1.58.0 holds
+    ``security.enabled: true`` — the old default, written out — so a stored
+    ``true`` with no switch record saying a person turned the checks on becomes
+    ``false`` (off by default: ``byDefault``).  A ``true`` backed by such a
+    record stays.  Returns True when it changed the value.
+
+    Idempotent: ``settings.json`` is written first (atomically), the marker
+    after; once the marker exists nothing is migrated again, so a person who
+    turns the checks on later keeps them on.  A degraded or unreadable settings
+    file: nothing at all (the next start looks again).  Never raises."""
+    import datetime
+
+    from snowpea_core.util.atomic import write_atomic
+
+    try:
+        marker = Path(paths.home).joinpath(*DEFAULT_OFF_MARKER)
+        if os.path.lexists(marker):
+            return False
+        degraded = settings.degraded_sections()
+        if "security" in degraded or "*" in degraded:
+            return False
+        try:
+            raw = json.loads(Path(paths.settings_json).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raw = {}
+        section = raw.get("security") if isinstance(raw, dict) else None
+        stored = section.get("enabled") if isinstance(section, dict) else None
+        record = _switch_record(paths.home)
+        chosen = record is not None and record.get("enabled") is True
+        changed = False
+        if stored is True and not chosen:
+            settings.security.enabled = False
+            settings.set_section("security")
+            settings.save(paths)
+            changed = True
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+        write_atomic(marker, json.dumps({"at": stamp, "from": stored, "chosen": chosen,
+                                         "to": False if changed else stored}) + "\n")
+        if changed:
+            log.info("security checks are now off by default (1.66.0); turn them on in "
+                     "Settings > Security")
+        return changed
+    except Exception:  # noqa: BLE001 - a failed migration leaves the setting as it was
+        log.warning("could not migrate security.enabled to the default", exc_info=True)
+        return False
 
 
 def note_switch(home: Any, before: bool, after: bool, *, by: str | None,
@@ -442,6 +514,7 @@ __all__ = [
     "lists_for",
     "live_projects",
     "note_switch",
+    "migrate_default_off",
     "reconcile_switch",
     "refresh_projects",
     "switch_state",

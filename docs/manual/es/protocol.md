@@ -38,6 +38,8 @@ El resultado lleva `protocolVersion`, `serverVersion` y una lista de `capabiliti
 
 Los clientes deberían enviar también `locale` (protocolo 1.65.0, capability `clientLocale`): el idioma de la persona como etiqueta BCP 47, por ejemplo `ko`, `ko-KR`, `ja`, `es-ES` o `zh-CN`. Los problemas de validación y los rechazos vuelven entonces en ese idioma (los problemas de `settings.set` y de `security.get` y los rechazos solo para personas que muestra un navegador), en inglés, coreano, japonés, español o chino simplificado; una etiqueta regional recurre a su idioma y cualquier otra al inglés. El parámetro `locale` propio de un método sigue mandando en esa llamada. La etiqueta se normaliza (`ko_kr` pasa a `ko-KR`) y un valor que no es una etiqueta de idioma se ignora en lugar de rechazarse, así que un cliente antiguo o raro sigue conectando. Solo se traduce el texto humano: `details.reason` y `problemItems[].reason`/`code` son iguales en todos los idiomas. La TUI envía `LC_ALL`, `LC_MESSAGES` o `LANG`; `connect({locale})` del SDK envía lo que recibe.
 
+Desde el protocolo 1.66.0 (capability `securityDefaultOff`) las comprobaciones de seguridad están desactivadas de forma predeterminada: `security.get` devuelve `enabled: false` y `byDefault: true` hasta que una persona las activa (`settings.set {scope: 'global', patch: {security: {enabled: true}}}`). Muestre ese estado de forma neutral y solo en los ajustes de seguridad. Mientras están desactivadas, tampoco se bloquea la lectura del token del daemon ni de los inicios de sesión guardados; siguen las reglas del modo. Para los clientes de 1.65.0 o anteriores, `problems` sigue empezando por una línea neutral (código `security-disabled`).
+
 ## Métodos, por área
 
 | Área | Métodos |

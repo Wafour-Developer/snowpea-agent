@@ -40,6 +40,8 @@ uv run python scripts/gen_protocol.py --check
 
 客户端还应发送 `locale`（协议 1.65.0，capability `clientLocale`）：以 BCP 47 标签表示使用者的语言，例如 `ko`、`ko-KR`、`ja`、`es-ES` 或 `zh-CN`。这样校验问题和拒绝信息（`settings.set` 的问题、`security.get` 的问题，以及浏览器显示的仅限本人的拒绝）就会以该语言返回，支持英语、韩语、日语、西班牙语和简体中文；带地区的标签回退到其语言，其他值回退到英语。方法自带的 `locale` 参数在该次调用中仍然优先。标签会被规范化（`ko_kr` 变为 `ko-KR`），不是语言标签的值会被忽略而不是拒绝，因此旧的或特殊的客户端仍能连接。只翻译给人看的文字：`details.reason` 和 `problemItems[].reason`/`code` 在所有语言中都相同。TUI 发送 `LC_ALL`、`LC_MESSAGES` 或 `LANG`；SDK 的 `connect({locale})` 发送传入的值。
 
+自协议 1.66.0（capability `securityDefaultOff`）起，安全检查默认关闭：在有人开启之前（`settings.set {scope: 'global', patch: {security: {enabled: true}}}`），`security.get` 返回 `enabled: false` 和 `byDefault: true`。请只在安全设置中以中性的方式显示这一状态。检查关闭期间，读取守护进程的令牌和已保存的登录信息也不会被阻止，而是遵循模式规则。为了 1.65.0 及更早的客户端，`problems` 仍以一行中性的说明开头（问题代码 `security-disabled`）。
+
 ## 方法，按领域分
 
 | 领域 | 方法 |

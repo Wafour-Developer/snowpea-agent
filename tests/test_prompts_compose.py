@@ -36,7 +36,8 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: Requirements-table rules (the ystudy post-mortem, Hermes/opencode review).
 #: raised from 3900 for the small-model repository playbook (browser-code request).
 #: raised from 4000 for base.md's "explanations end when answerable" sentence (0.2.91).
-TIER_BUDGET_TOKENS = {"stable": 4100, "context": 800, "volatile": 600}
+#: raised from 4100 for the Safety section in every prompt (1.66.0, owner 2026-11-19).
+TIER_BUDGET_TOKENS = {"stable": 4400, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "gemini", "meta", "small-local")
