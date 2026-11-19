@@ -45,6 +45,12 @@ import {
   personOnlyWord,
   sameRef,
   sessionModeLabel,
+  externalModelLabel,
+  hasModelSwitch,
+  modelSetLine,
+  modelSwitchTooOld,
+  modelsNote,
+  parseModelCommand,
   unrestrictedPrompt,
   usable,
   viewOnlyReason,
@@ -83,6 +89,7 @@ import {
   type SessionSwitch,
 } from "../state/jarvis-switch.js";
 import { cliLabel } from "../state/external.js";
+import { say } from "../state/errors.js";
 import { wrapSegments } from "../state/security.js";
 
 /** True when the CLI adds a message to a running turn instead of refusing it. */
@@ -132,6 +139,8 @@ export type ScreenUi =
     }
   /** The person-only confirmation for adopting a tmux pane (`tmux.adopt`). */
   | { kind: "adopt"; ref: ExternalRef; request: ApprovalRequestParams }
+  /** `/model` inside an external session (`externalModelSwitch`): the CLI's models. */
+  | { kind: "model"; ref: ExternalRef; models: string[]; note: string | null }
   /** A one-key yes/no this screen asks itself: trusting a project, confirming a CLI path. */
   | { kind: "confirm"; view: PersonOnlyView; label: string; onYes: () => void; onNo: () => void };
 
@@ -179,6 +188,7 @@ export function useJarvisScreens(deps: ScreensDeps) {
   const support: Support = supportOf(client.serverCapabilities?.());
   // 1.56.0: the per-session Jarvis switch (an older daemon: nothing shown).
   const switchSupport = hasSessionSwitch(client.serverCapabilities?.());
+  const modelSwitch = hasModelSwitch(client.serverCapabilities?.());
   const [switches, setSwitches] = useState<Record<string, SessionSwitch>>({});
   const [hiddenCount, setHiddenCount] = useState<number | null>(null);
   const [jarvis, jarvisDispatch] = useReducer(jarvisReducer, initialJarvis);
@@ -1237,6 +1247,64 @@ export function useJarvisScreens(deps: ScreensDeps) {
       .catch((error: unknown) => showToast(describeExternalError(error, ref.cli)));
   }, [client, showToast, ui]);
 
+  /** `external.setModel` (`externalModelSwitch`); null is the CLI's default. Never sent to an older core. */
+  const setExternalModel = useCallback(
+    (model: string | null) => {
+      const view = externalRef.current;
+      setUi((current) => (current?.kind === "model" ? null : current));
+      if (!view) return;
+      if (!modelSwitch) {
+        showToast(modelSwitchTooOld());
+        return;
+      }
+      const busy = view.state.turnActive;
+      void client
+        .call("external.setModel", { ref: view.ref, model })
+        .then((result: { model?: string | null; appliesNextTurn?: boolean } | null) => {
+          const chosen = result && "model" in result ? (result.model ?? null) : model;
+          const latest = externalRef.current;
+          if (latest && sameRef(latest.ref, view.ref)) {
+            viewDispatch({ type: "session", session: { ...latest.session, model: chosen } });
+          }
+          showToast(modelSetLine(chosen, result?.appliesNextTurn ?? busy));
+        })
+        .catch((error: unknown) => {
+          const text = describeExternalError(error, view.ref.cli);
+          viewDispatch({ type: "note", text: say(`model not changed: ${text}`, `모델을 바꾸지 못했습니다: ${text}`) });
+          showToast(text);
+        });
+    },
+    [client, modelSwitch, showToast],
+  );
+
+  /** `/model` inside an open external session; false outside one, so snowpea's own `/model` still runs. */
+  const handleModel = useCallback(
+    (line: string): boolean => {
+      const view = externalRef.current;
+      if (!view) return false;
+      const command = parseModelCommand(line);
+      if (!command) return false;
+      if (!modelSwitch) {
+        // The open session's transcript is what the person sees, not the main one.
+        viewDispatch({ type: "note", text: modelSwitchTooOld() });
+        return true;
+      }
+      if (command.kind === "set") {
+        setExternalModel(command.model);
+        return true;
+      }
+      const ref = view.ref;
+      void loadClis()
+        .catch(() => [] as ExternalCliInfo[])
+        .then((infos) => {
+          const info = infos.find((entry) => entry.id === ref.cli);
+          setUi({ kind: "model", ref, models: info?.models ?? [], note: modelsNote(info) });
+        });
+      return true;
+    },
+    [loadClis, modelSwitch, setExternalModel],
+  );
+
   const handleExternal = useCallback(
     (line: string): boolean => {
       const command = parseExternalCommand(line);
@@ -1285,8 +1353,8 @@ export function useJarvisScreens(deps: ScreensDeps) {
 
   /** `/jarvis …` and `/external …`; false for any other line. */
   const handleCommand = useCallback(
-    (line: string): boolean => handleJarvis(line) || handleExternal(line),
-    [handleExternal, handleJarvis],
+    (line: string): boolean => handleJarvis(line) || handleExternal(line) || handleModel(line),
+    [handleExternal, handleJarvis, handleModel],
   );
 
   // `snowpea jarvis` / `snowpea external` land on their screen once the first
@@ -1387,6 +1455,9 @@ export function useJarvisScreens(deps: ScreensDeps) {
     /** The open session's mode as its CLI names it (1.56.0), else the bucket. */
     externalModeLabel: external ? sessionModeLabel(external.session, clis) : null,
     confirmUnrestricted,
+    setExternalModel,
+    /** The open session's model for the header; null on a core that cannot switch it and recorded none. */
+    externalModelLabel: external && (modelSwitch || external.session.model) ? externalModelLabel(external.session.model) : null,
     marker,
     panel,
   };

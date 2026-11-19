@@ -172,13 +172,15 @@ const MODEL_WINDOW = 7;
  * The model: pick from what the CLI lists, or type a name. While the list is
  * empty (the CLI has not answered yet, or lists none) it is a text field.
  */
-function ModelStep({
+export function ModelStep({
   models,
   note,
   onSubmit,
   onBack,
   isActive,
   width,
+  current,
+  enterHint = "Enter create (empty = the CLI's default) · Esc back",
 }: {
   models: string[];
   note: string | null;
@@ -186,14 +188,20 @@ function ModelStep({
   onBack: () => void;
   isActive: boolean;
   width: number;
+  /** The model in use, marked in the list (`/model` in an open session). */
+  current?: string | null;
+  enterHint?: string;
 }): React.ReactElement {
   const [typing, setTyping] = useState(false);
   if (models.length > 0 && !typing) {
     return (
       <ConfirmMenu<ModelChoice>
         options={[
-          { label: "The CLI's default model", value: null },
-          ...models.map((model) => ({ label: fit(model, Math.max(10, width - 12)), value: model as ModelChoice })),
+          { label: `The CLI's default model${current === null ? " ✓" : ""}`, value: null },
+          ...models.map((model) => ({
+            label: fit(`${model}${model === current ? " ✓" : ""}`, Math.max(10, width - 12)),
+            value: model as ModelChoice,
+          })),
           { label: "Type a name…", value: TYPE_A_NAME },
         ]}
         escapeValue={GO_BACK}
@@ -214,6 +222,7 @@ function ModelStep({
       isActive={isActive}
       width={width}
       note={note}
+      enterHint={enterHint}
     />
   );
 }
@@ -224,7 +233,9 @@ function ModelText({
   isActive,
   width,
   note,
+  enterHint,
 }: {
+  enterHint: string;
   /** "loading models…" while the CLI has not listed any, "no model list" once it said it lists none. */
   note: string | null;
   onSubmit: (model: string | null) => void;
@@ -251,7 +262,7 @@ function ModelText({
         <Text inverse> </Text>
       </Box>
       {note ? <Text dimColor wrap="truncate-end">{note}</Text> : null}
-      <Text dimColor wrap="truncate-end">Enter create (empty = the CLI's default) · Esc back</Text>
+      <Text dimColor wrap="truncate-end">{enterHint}</Text>
     </>
   );
 }

@@ -3761,6 +3761,7 @@ export function App({
         externalOpen.state.turnActive ? "running" : externalOpen.session.status,
         hostLabel(externalOpen.session),
         screens.externalModeLabel ?? externalModeLabel(externalOpen.session.mode),
+        ...(screens.externalModelLabel ? [screens.externalModelLabel] : []),
       ].join(" · ")}
       warning={externalWarning}
       viewOnly={externalViewOnly}
