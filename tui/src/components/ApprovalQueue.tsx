@@ -27,13 +27,28 @@ export type ApprovalQueueRespond = (
   scope: ApprovalScope,
 ) => void;
 
+/**
+ * The scopes the row offers: a scheduled run's request (1.68.0, `job`) offers
+ * `task` — kept with the routine for its later runs — instead of the session
+ * ones, which end with the run.
+ */
+export function scopesFor(request: Pick<ApprovalEntry, "job"> | undefined): ApprovalScope[] {
+  return request?.job ? ["once", "task", "project", "always"] : APPROVAL_SCOPES;
+}
+
+/** How the scope row names a scope. */
+export function scopeLabel(scope: ApprovalScope): string {
+  return scope === "task" ? "always in this routine" : scope;
+}
+
 /** `[Codex] ` for an external CLI's request, `[Jarvis deciding] ` while Jarvis has it (1.53.0). */
-export function queueBadge(request: Pick<ApprovalEntry, "external" | "route" | "personOnly" | "neverDelegable">): string {
+export function queueBadge(request: Pick<ApprovalEntry, "external" | "route" | "personOnly" | "neverDelegable" | "job">): string {
+  const routine = request.job ? `[routine: ${request.job.title ?? request.job.id}] ` : "";
   const cli = request.external ? `${agentOfExternal(request.external.cli).tag} ` : "";
   // What only a person may decide is never "Jarvis deciding", whatever its route says.
   const route = request.route === "jarvis" && !alwaysAsksYou(request) ? "[Jarvis deciding] " : "";
   const person = alwaysAsksYou(request) ? `[${ALWAYS_ASKS}] ` : "";
-  return `${cli}${route}${person}`;
+  return `${routine}${cli}${route}${person}`;
 }
 
 function summarise(request: ApprovalEntry): string {
@@ -64,18 +79,20 @@ export function ApprovalQueue({
   }, [requests.length]);
 
   const current = requests[Math.min(selected, Math.max(requests.length - 1, 0))];
+  const scopes = scopesFor(current);
+  const scope = scopes[scopeIndex % scopes.length]!;
 
   const answer = (decision: ApprovalDecision): void => {
-    if (current) onRespond?.(current.requestId, decision, APPROVAL_SCOPES[scopeIndex]);
+    if (current) onRespond?.(current.requestId, decision, scope);
   };
 
   useChoiceKeys({
     count: requests.length,
     index: Math.min(selected, Math.max(requests.length - 1, 0)),
     onIndex: setSelected,
-    onLeft: () => setScopeIndex((i) => (i + APPROVAL_SCOPES.length - 1) % APPROVAL_SCOPES.length),
-    onRight: () => setScopeIndex((i) => (i + 1) % APPROVAL_SCOPES.length),
-    onTab: () => setScopeIndex((i) => (i + 1) % APPROVAL_SCOPES.length),
+    onLeft: () => setScopeIndex((i) => (i + scopes.length - 1) % scopes.length),
+    onRight: () => setScopeIndex((i) => (i + 1) % scopes.length),
+    onTab: () => setScopeIndex((i) => (i + 1) % scopes.length),
     onCancel: () => onBlur?.(),
     // Enter is the safe half of the pair: it allows nothing on its own, and
     // `a`/`d` stay the two answers this backlog has always taken.
@@ -111,14 +128,14 @@ export function ApprovalQueue({
         <>
           <Box marginTop={1}>
             <Text>scope: </Text>
-            {APPROVAL_SCOPES.map((scope, index) => (
+            {scopes.map((option, index) => (
               <Text
-                key={scope}
-                inverse={index === scopeIndex}
-                color={index === scopeIndex ? "yellow" : undefined}
-                dimColor={index !== scopeIndex}
+                key={option}
+                inverse={index === scopeIndex % scopes.length}
+                color={index === scopeIndex % scopes.length ? "yellow" : undefined}
+                dimColor={index !== scopeIndex % scopes.length}
               >
-                {` ${scope} `}
+                {` ${scopeLabel(option)} `}
               </Text>
             ))}
           </Box>
@@ -127,7 +144,11 @@ export function ApprovalQueue({
           </Text>
         </>
       ) : (
-        <Text dimColor>Ctrl+R to answer them here.</Text>
+        <Text dimColor>
+          {requests.some((request) => request.job)
+            ? "A scheduled routine is waiting for you. Ctrl+R to answer it here."
+            : "Ctrl+R to answer them here."}
+        </Text>
       )}
     </Box>
   );

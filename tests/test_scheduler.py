@@ -419,7 +419,8 @@ async def test_unanswered_approval_marks_the_run_denied_by_timeout(
 ) -> None:
     daemon = await make_daemon(
         tmp_path / "home",
-        {"approvals": {"timeoutSec": 1}, "scheduler": {"tickSec": 1}},
+        # 1.68.0: a scheduled run waits scheduler.approvalTimeoutSec.
+        {"scheduler": {"tickSec": 1, "approvalTimeoutSec": 1}},
     )
     try:
         client = await connect(http, daemon, timeout=TIMEOUT)
@@ -442,7 +443,8 @@ async def test_unanswered_approval_marks_the_run_denied_by_timeout(
         assert job["lastStatus"] == "denied_by_timeout"
 
         kinds = [event["kind"] for event in client.of_method("job.event")]
-        assert kinds == ["started", "denied"]
+        # 1.68.0: a notification that names the job while it waits.
+        assert kinds == ["started", "approval_needed", "denied"]
         await client.stop()
     finally:
         await daemon.stop()

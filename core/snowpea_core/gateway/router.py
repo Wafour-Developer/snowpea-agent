@@ -1355,20 +1355,27 @@ class GatewayRouter:
             # except those their own surface is asking right now.
             if params.get("interactive"):
                 return
-        elif session_id != getattr(self.core.sessions, "active_id", None):
+        elif session_id != getattr(self.core.sessions, "active_id", None) and not (
+                request.get("job") and method == "approval.pending"):
+            # 1.68.0: a scheduled run's request has nobody at a screen; it goes
+            # to the bound person's private chat too (below), named by its job.
             return
         if method == "question.pending" and not (request.get("questions") or []):
             return
         if routed and self.jarvis.hidden(request):
             return  # a project hidden from Jarvis is not forwarded by it either (H3)
+        job = request.get("job") if isinstance(request.get("job"), dict) else None
         label = self.jarvis.label(request) if routed else self._session_label(session_id)
+        if job is not None and not routed:
+            label = f"[routine: {job.get('title') or job.get('id')}]"
         for binding in list(self._bindings.values()):
             if binding.state != "active" or binding.id not in self._adapters:
                 continue
             if not (bool(binding.user_id) if routed else self.share_active(binding)):
                 continue
             # Jarvis mode: only the bound person's private chat, never a group (H3).
-            channel = self.private_chat(binding) if routed else self.owner_chat(binding)
+            channel = self.private_chat(binding) if routed or job is not None \
+                else self.owner_chat(binding)
             if channel is None:
                 if routed:
                     await self.no_private_chat(binding)

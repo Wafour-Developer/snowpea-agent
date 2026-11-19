@@ -751,6 +751,12 @@ class SchedulerSettings(_Model):
     #: A ``once`` job missed while the daemon was down still runs if it is less
     #: than this late; anything older is marked missed and disabled.
     catchUpSec: int = 3600
+    #: How long an approval a scheduled run needs waits for a person (1.68.0).
+    #: Longer than ``approvals.timeoutSec``: nobody is at the screen when a
+    #: routine fires, so the request has to outlast a notification being seen.
+    #: A job's own ``approvalTimeoutSec`` wins.  Runs fire one after another,
+    #: so a waiting run holds later due jobs back for up to this long.
+    approvalTimeoutSec: int = 900
 
 
 class UpdatesSettings(_Model):

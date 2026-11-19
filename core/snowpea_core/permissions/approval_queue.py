@@ -13,6 +13,12 @@ Answering with a scope wider than ``once`` remembers the decision: ``session``
 caches it for this session's ``(tool, first command token)``, while ``project``
 and ``always`` also write an allowlist entry (contract §7) into the project or
 global settings so it survives a restart.
+
+A scheduled run's request (1.68.0, ``jobApprovals``) names its job
+(``ApprovalRequest.job``), waits the job's approval time instead of
+``approvals.timeoutSec``, is announced as ``job.event approval_needed`` too,
+and may be answered ``task``: the call's shape is kept with the job
+(``scheduler/grants.py``) for every later run of it.
 """
 
 from __future__ import annotations
@@ -65,6 +71,7 @@ from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     ApprovalBlocked,
+    ApprovalJobRef,
     ApprovalRemember,
     ApprovalRequest,
     ExternalRef,
@@ -96,6 +103,9 @@ CACHING_SCOPES: frozenset[str] = frozenset({"session", "project", "always"})
 
 #: Scopes that also persist an allowlist entry, and the store each one uses.
 PERSISTING_SCOPES: dict[str, str] = {"project": "project", "always": "global", "site": "global"}
+
+#: The answer kept with a scheduled job for its later runs (1.68.0).
+TASK_SCOPE = "task"
 
 #: Extra seconds the outer wait gives the origin call to report its own timeout.
 GRACE_SECONDS = 2.0
@@ -273,7 +283,7 @@ def clamp_scope(conn: Any, scope: str) -> str:
     connection they become ``session``.  ``approval.respond`` and
     ``approval.resolved`` report the scope that applied.
     """
-    if scope not in PERSISTING_SCOPES or conn is None:
+    if (scope not in PERSISTING_SCOPES and scope != TASK_SCOPE) or conn is None:
         return scope
     try:
         from snowpea_core.server.person_gate import connection_kind
@@ -336,6 +346,16 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
         return decision
     if once_only(request.args):
         return replace(decision, scope="once", picked=decision.scope)
+    if decision.scope == TASK_SCOPE:
+        # 1.68.0: "always in this routine" only on a scheduled run's card, only
+        # from a person's own surface, and only for a shape a grant can hold.
+        from snowpea_core.scheduler.grants import from_request
+
+        if (request.job is None or not decision.line_ok
+                or from_request(request, workdir, now=None) is None):
+            log.info("approval %s: task scope kept to once", request.requestId)
+            return replace(decision, scope="once")
+        return decision
     tool = request.tool or ""
     local_dev = (
         decision.scope == "project"
@@ -956,13 +976,21 @@ class ApprovalQueue:
         origin = None if unattended else asking_conn(session, self._lookup())
         if origin is None:
             unattended = True
+        # 1.68.0: a scheduled run's request names its job and waits its time.
+        from snowpea_core.scheduler.grants import job_ref_of
+
+        job_ref = job_ref_of(session, self._lookup()) if external is None else None
         # An explicit timeout_sec is a caller's own deadline and always counts
         # (0 expires at once).  Otherwise a person at the session is waited for.
         no_limit = timeout_sec is None and waits_for_a_person(origin)
         if timeout_sec is not None:
             timeout = timeout_sec
+        elif no_limit:
+            timeout = 0  # on the wire, 0: no limit
+        elif job_ref is not None and job_ref.get("timeoutSec"):
+            timeout = max(1, int(job_ref["timeoutSec"]))
         else:
-            timeout = 0 if no_limit else self.timeout_sec  # on the wire, 0: no limit
+            timeout = self.timeout_sec
         request = ApprovalRequest(
             requestId=f"ap-{uuid.uuid4().hex[:12]}",
             sessionId=session.id,
@@ -994,6 +1022,8 @@ class ApprovalQueue:
             blocked=ApprovalBlocked(by=security.by or "security", kind=security.kind,
                                     why=security.why or "", match=security.match)
             if blocked_ask else None,
+            job=ApprovalJobRef(id=str(job_ref["id"]), title=job_ref.get("title"))
+            if job_ref is not None else None,
         )
         if self.router is not None:
             try:
@@ -1025,6 +1055,8 @@ class ApprovalQueue:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
         else:
             await self._broadcast_pending(request, entry.host)
+            if request.job is not None:
+                await self._job_needs_person(request)
         await self._tell_observers(
             "approval.pending",
             {"request": request.model_dump(mode="json"), "interactive": origin is not None},
@@ -1109,6 +1141,26 @@ class ApprovalQueue:
             "approval.pending",
             {"request": request.model_dump(mode="json"), "hostToolsFrom": host},
         )
+
+    async def _job_needs_person(self, request: ApprovalRequest) -> None:
+        """``job.event approval_needed``: a notification that names the routine (1.68.0)."""
+        if self.hub is None or request.job is None:
+            return
+        summary = event_builders.call_summary(request.args) if not request.argsEscaped \
+            else request.tool
+        with contextlib.suppress(Exception):
+            await self.hub.notify("job.event", {
+                "jobId": request.job.id,
+                "kind": "approval_needed",
+                "payload": {"requestId": request.requestId, "sessionId": request.sessionId,
+                            "tool": request.tool, "summary": summary,
+                            "title": request.job.title, "timeoutSec": request.timeoutSec},
+            })
+
+    def for_job(self, job_id: str) -> ApprovalRequests:
+        """Pending requests of a scheduled job's runs, oldest first (1.68.0)."""
+        return [entry.request for entry in self._pending.values()
+                if entry.request.job is not None and entry.request.job.id == job_id]
 
     async def _tell_observers(self, method: str, params: dict[str, Any]) -> None:
         """Tell in-process observers (the gateway) about every request, attended or not."""
@@ -1449,6 +1501,8 @@ class ApprovalQueue:
                     request.sessionId, request.tool, request.args, _outside_folder(request)
                 )
             )
+        if cacheable and decision.allowed and decision.scope == TASK_SCOPE:
+            await self._keep_for_job(request, workdir)
         if (cacheable and not exact and not _script_remember(request) and decision.allowed
                 and decision.scope in PERSISTING_SCOPES):
             self._persist(request, decision.scope, workdir, host,
@@ -1465,6 +1519,19 @@ class ApprovalQueue:
             }
             await self.hub.notify("approval.resolved", resolved, exclude=notify_exclude)
             await self._tell_observers("approval.resolved", dict(resolved))
+
+    async def _keep_for_job(self, request: ApprovalRequest, workdir: Any) -> None:
+        """A ``task`` answer: the call's shape, kept with the job (1.68.0)."""
+        from snowpea_core.scheduler.grants import from_request
+
+        scheduler = getattr(self.core, "scheduler", None)
+        grant = from_request(request, workdir, now=utc_now())
+        if scheduler is None or request.job is None or grant is None:
+            return
+        try:
+            await scheduler.add_grant(request.job.id, grant)
+        except Exception:  # noqa: BLE001 - a bad store never breaks a turn
+            log.warning("could not keep a grant for job %s", request.job.id, exc_info=True)
 
     def _persist(
         self, request: ApprovalRequest, scope: str, workdir: Any, host: str | None = None,

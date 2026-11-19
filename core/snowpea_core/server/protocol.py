@@ -45,7 +45,10 @@ CommandSource = str
 Decision = Literal["allow", "deny"]
 #: ``site`` (1.6.0) stores an allowlist entry keyed by the tool *and* the
 #: site's origin ("always allow on github.com").
-ApprovalScope = Literal["once", "session", "project", "always", "site"]
+#: ``task`` (1.68.0, ``jobApprovals``): remembered for one scheduled job, across
+#: its runs (stored with the job, keyed by its id): offered only on a request
+#: whose ``job`` is set.
+ApprovalScope = Literal["once", "session", "project", "always", "site", "task"]
 AllowlistScope = Literal["session", "project", "always"]
 #: How hard a reasoning model may think; one scale for every vendor.
 EffortLevel = Literal["low", "medium", "high", "max"]
@@ -2366,6 +2369,15 @@ class UncheckedWhy(Payload):
     text: str = Field(description="Why, in plain words, in the session's language.")
 
 
+class ApprovalJobRef(Payload):
+    """The scheduled job a request's run belongs to (1.68.0, ``jobApprovals``)."""
+
+    id: str = Field(description="The job's id (job.list jobId).")
+    title: str | None = Field(
+        default=None, description="Its short name, else the start of its task."
+    )
+
+
 class ApprovalBlocked(Payload):
     """What a blocked call that is put to the person hit (1.61.0)."""
 
@@ -2634,6 +2646,17 @@ class ApprovalRequest(Payload):
             "asked (refused with security_blocked as before) in a run with nobody present "
             "(a scheduled job, a Jarvis task) and for a read of the daemon's token or address "
             "or of saved logins (credentials, MCP logins, external CLI logins). Null otherwise."
+        ),
+    )
+    job: ApprovalJobRef | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (jobApprovals): the request comes from a run of this scheduled job (a "
+            "routine), with nobody watching: it is in the shared queue (approval.pending to "
+            "every surface, the messenger's private chat when one is bound) and waits "
+            "settings scheduler.approvalTimeoutSec (or the job's approvalTimeoutSec). The card "
+            "may offer scope 'task': remembered for this job across its runs (JobInfo.grants). "
+            "Null otherwise."
         ),
     )
 
@@ -4062,8 +4085,72 @@ class TeamsChangedNotification(Payload):
 # --------------------------------------------------------------------------
 
 
+class JobGrantInput(Payload):
+    """A pre-approval a person gives a job (1.68.0, ``jobApprovals``).
+
+    One of ``pattern`` (an allowlist regex matched against one plain shell
+    command, e.g. ``^git fetch( .*)?$``) or ``line`` (one exact command line,
+    whitespace normalised; the shape for a compound line); neither: the tool
+    itself, for a tool that is not a shell. A catch-all pattern is refused.
+    """
+
+    tool: str = Field(default="shell", min_length=1, max_length=200,
+                      description="The tool it allows ('shell' for commands).")
+    pattern: str | None = Field(default=None, max_length=1000,
+                                description="Allowlist regex for one plain command.")
+    line: str | None = Field(default=None, max_length=4000,
+                             description="One exact command line.")
+
+
+class JobGrant(Payload):
+    """What a job's runs may do without asking (1.68.0, ``jobApprovals``)."""
+
+    id: str = Field(description="Grant id, for job.update removeGrants.")
+    tool: str = Field(description="The tool it allows.")
+    kind: Literal["rule", "line", "tool"] = Field(
+        description="'rule': pattern matches one plain command; 'line': the exact line; "
+        "'tool': the tool itself (not a shell)."
+    )
+    pattern: str | None = Field(default=None, description="kind 'rule': the regex.")
+    line: str | None = Field(default=None, description="kind 'line': the line.")
+    display: str = Field(description="The grant for people, e.g. 'git fetch …'.")
+    by: Literal["approval", "person"] = Field(
+        description="'approval': answered 'task' on a run's card; 'person': given with "
+        "job.schedule / job.update."
+    )
+    createdAt: str | None = Field(default=None, description="UTC ISO time it was given.")
+
+
+class JobWaitingApproval(Payload):
+    """A run of the job waiting for a person right now (1.68.0)."""
+
+    requestId: str = Field(description="Answer it with approval.respond.")
+    sessionId: str = Field(description="The run's session.")
+    tool: str = Field(description="What it wants to run.")
+    summary: str = Field(description="The command, or the tool's arguments, shortened.")
+    timeoutSec: int = Field(description="How long the request waits in all.")
+
+
 class JobScheduleParams(Payload):
     actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
+    grants: list[JobGrantInput] | None = Field(
+        default=None,
+        max_length=50,
+        description=(
+            "1.68.0 (jobApprovals): what every run may do without asking. Only a person: a "
+            "local IDE/TUI connection, or a local browser 0.4.0+ with actor 'person' and "
+            "personConfirm 'window'; a remote web login, a connector and Jarvis are refused "
+            "(jarvis_person_only). The security lists still apply to what a grant covers."
+        ),
+    )
+    approvalTimeoutSec: int | None = Field(
+        default=None, ge=30, le=86400,
+        description="1.68.0: how long a run's approval waits; null: scheduler.approvalTimeoutSec.",
+    )
+    personConfirm: Literal["window"] | None = Field(
+        default=None,
+        description="1.68.0: a browser's own confirmation window confirmed the grants.",
+    )
     spec: str = Field(description="Cron expression or natural-language schedule.")
     task: str = Field(description="Prompt run on each firing.")
     title: str | None = Field(
@@ -4363,6 +4450,29 @@ class JobInfo(Payload):
         default=None,
         description="The fingerprint tool.invoke job carries; only the owner sees it.",
     )
+    lastError: str | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A "
+            "run that waited for an approval nobody gave says 'approval needed: <tool> "
+            "<command>'; null after an 'ok' run."
+        ),
+    )
+    lastSessionId: str | None = Field(
+        default=None, description="1.68.0: the session the last run opened, to open it."
+    )
+    waitingApproval: JobWaitingApproval | None = Field(
+        default=None,
+        description="1.68.0: a run of it waits for a person now (the oldest such request).",
+    )
+    grants: list[JobGrant] = Field(
+        default_factory=list,
+        description="1.68.0: what its runs may do without asking; job.update removeGrants.",
+    )
+    approvalTimeoutSec: int | None = Field(
+        default=None,
+        description="1.68.0: its own approval wait; null: settings scheduler.approvalTimeoutSec.",
+    )
 
 
 class JobListResult(Payload):
@@ -4428,6 +4538,30 @@ class JobUpdateParams(Payload):
         default=None,
         max_length=200,
         description="A new short name (1.33.0); '' removes it, null or absent keeps it.",
+    )
+    mode: Mode | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (jobApprovals): the permission mode later runs start in. A raise (e.g. to "
+            "'auto') is a person's, as at job.schedule (jarvis_person_only, mode_raise); a "
+            "remote web login never above web.remote.maxMode."
+        ),
+    )
+    addGrants: list[JobGrantInput] | None = Field(
+        default=None, max_length=50,
+        description="1.68.0: grants to add (as JobScheduleParams.grants; a person's only).",
+    )
+    removeGrants: list[str] | None = Field(
+        default=None, max_length=200,
+        description="1.68.0: grant ids to remove (JobInfo.grants); anyone who may update it.",
+    )
+    approvalTimeoutSec: int | None = Field(
+        default=None, ge=0, le=86400,
+        description="1.68.0: how long a run's approval waits; 0 goes back to the setting.",
+    )
+    personConfirm: Literal["window"] | None = Field(
+        default=None,
+        description="1.68.0: a browser's own confirmation window confirmed addGrants.",
     )
 
 
@@ -7667,10 +7801,14 @@ class JobEventNotification(Payload):
         "waiting_for_host",
         "missed",
         "notify",
+        "approval_needed",
     ] = Field(
         description=(
             "Where the run got to. 'notify' (1.23.0) follows the finish of a job with "
-            "meta, payload {status, sessionId, text}: its host shows the user a notification."
+            "meta, payload {status, sessionId, text}: its host shows the user a notification. "
+            "'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload "
+            "{requestId, sessionId, tool, summary, title, timeoutSec}: show a notification "
+            "that names the job; the request itself is in approval.pending."
         )
     )
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
@@ -12847,6 +12985,12 @@ CAPABILITIES: list[str] = [
     # 1.67.0: external.setModel (an external session's model from its next turn),
     # ExternalStateNotification.model, ExternalCliInfo.defaultModel.
     "externalModelSwitch",
+    # 1.68.0: routine approvals. A scheduled run's approval reaches every surface
+    # (ApprovalRequest.job, job.event approval_needed, the messenger's private
+    # chat) and waits scheduler.approvalTimeoutSec; approval scope 'task'; job
+    # grants (job.schedule grants, job.update mode/addGrants/removeGrants,
+    # JobInfo grants/lastError/lastSessionId/waitingApproval/approvalTimeoutSec).
+    "jobApprovals",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

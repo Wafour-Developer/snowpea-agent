@@ -234,7 +234,7 @@ PLAIN: dict[str, str] = {
     "planning": "gate",
     "questions": "timeoutSec",
     "ralph": "max_iterations",
-    "scheduler": "catchUpSec enabled tickSec",
+    "scheduler": "approvalTimeoutSec catchUpSec enabled tickSec",
     "search": "provider",
     "security": (
         "blockedCommands.custom blockedCommands.presets enabled protectedPaths.custom.[].level "

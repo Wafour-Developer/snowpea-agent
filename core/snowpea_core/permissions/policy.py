@@ -387,6 +387,8 @@ class PermissionPolicy:
         approved = getattr(session, "skill_approved_tools", None)
         if approved and tool.name in approved and not self._guarded(tool, args, session):
             return "allow"
+        if self._job_grant_covers(tool, args, session):
+            return "allow"
         if self.allowlist is None:
             return verdict
         workdir = getattr(session, "workdir", None)
@@ -394,6 +396,18 @@ class PermissionPolicy:
         if self.allowlist.matches(tool, args or {}, workdir=workdir, host=host):
             return "allow"
         return verdict
+
+    def _job_grant_covers(self, tool: Tool, args: dict[str, Any] | None, session: Any) -> bool:
+        """A scheduled run's job allows this call (1.68.0, ``scheduler/grants.py``):
+        a person answered "always in this routine", or gave it with the job."""
+        if session is None:
+            return False
+        from snowpea_core.scheduler.grants import covers, of_session
+
+        lookup = getattr(self.sessions, "get", None) if self.sessions is not None else None
+        grants = of_session(session, lookup if callable(lookup) else None)
+        return bool(grants) and covers(grants, tool.name, args or {},
+                                       getattr(session, "workdir", None))
 
     def promote_chain(
         self, mode: str, tool: Tool | None, args: dict[str, Any] | None, session: Any
