@@ -3791,14 +3791,31 @@ export interface LspCatalogResult {
     managed?: boolean;
     /** While it is not available: what must be on PATH first, e.g. 'npm', 'go', 'dotnet', or for a PATH-only server the toolchain or command that provides it ('gem install ruby-lsp'). Null when lsp.install can do it as is. 1.68.0: '.NET SDK' for a .NET server while no SDK is found (dotnet on PATH with the runtime only counts as none). */
     needs?: string | null;
+    /** 1.68.0 (lspToolchainInstall), with reason needs_toolchain and toolchainInstallable: what lsp.install {withToolchain: true} would download, as LspInstallItem.needsToolchain, so a client can offer the server together with the toolchain in one click. sizeMb is an estimate and version null when the release metadata could not be read in time. */
+    needsToolchain?: {
+      /** Toolchain name: 'dotnet-sdk'. */
+      name: string;
+      /** Download size in MB (an estimate when unknown). */
+      sizeMb?: number | null;
+      /** Where it comes from: the archive's https URL on Microsoft's host. */
+      source?: string | null;
+      /** The version that would be installed, when known. */
+      version?: string | null;
+    } | null;
     /** The binary found, when available. */
     path?: string | null;
     /** 1.68.0 (lspInstallReasons): 'needs_toolchain' while it is not available and its installer's toolchain is missing (see toolchain, hint, url). Null otherwise. */
     reason?: "needs_toolchain" | null;
     /** 1.68.0 (lspInstallReasons), with reason needs_toolchain: 'dotnet-sdk', 'go', 'rustup', 'node' or 'python'. */
     toolchain?: string | null;
-    /** 1.68.0 (lspToolchainInstall), with reason needs_toolchain: true when lsp.install {withToolchain: true} can install that toolchain itself (dotnet-sdk today). */
+    /** 1.68.0 (lspToolchainInstall), with reason needs_toolchain: true when lsp.install {withToolchain: true} can install that toolchain itself (dotnet-sdk today). Also set (true) with toolchainInstalled. */
     toolchainInstallable?: boolean | null;
+    /** 1.68.0 (lspToolchainInstall): for a server whose installer uses a toolchain core can install (toolchain, e.g. 'dotnet-sdk', is then set too): true while core's own copy is installed (lsp.toolchain.remove deletes it), false while it is not. Null for other servers. A system-wide SDK does not count. */
+    toolchainInstalled?: boolean | null;
+    /** 1.68.0: with toolchainInstalled true, the MB core's own copy takes on disk (recorded at install; null for a copy installed before that). */
+    toolchainSizeMb?: number | null;
+    /** 1.68.0: with toolchainInstalled true, the version of core's own copy. */
+    toolchainVersion?: string | null;
     /** 1.68.0 (lspInstallReasons): the toolchain's official download page. */
     url?: string | null;
   })[];

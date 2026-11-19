@@ -151,6 +151,26 @@ def dotnet_installed() -> bool:
     return (dotnet_dir() / MARKER).is_file() and dotnet_exe().is_file()
 
 
+def installed(name: str) -> dict[str, Any] | None:
+    """``{version, sizeMb}`` of core's own copy of ``name`` (from its marker), or ``None``.
+
+    ``sizeMb`` is what the unpacked tree took when it was installed; ``None``
+    for a copy installed before core recorded it.
+    """
+    if name != "dotnet-sdk" or not dotnet_installed():
+        return None
+    try:
+        marker = json.loads((dotnet_dir() / MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marker = {}
+    size = marker.get("sizeBytes") if isinstance(marker, dict) else None
+    version = marker.get("version") if isinstance(marker, dict) else None
+    return {
+        "version": version if isinstance(version, str) else None,
+        "sizeMb": round(size / 1_000_000) if isinstance(size, int) and size > 0 else None,
+    }
+
+
 def dotnet_env() -> dict[str, str]:
     """The environment a ``dotnet tool`` install or a .NET server gets, or ``{}``.
 
@@ -391,20 +411,56 @@ async def resolve_dotnet(
         raise ToolchainError("network", f"could not read the .NET release metadata: {exc}") from exc
 
 
-async def offer(name: str, *, client_factory: ClientFactory | None = None) -> dict[str, Any]:
-    """``{name, sizeMb, source, version}`` for the confirm a person sees before an install."""
+#: How long an offer read from the release metadata is reused, and how long
+#: a failed read (offline) is not tried again.
+OFFER_TTL_SEC = 6 * 3600.0
+OFFER_RETRY_SEC = 300.0
+#: What ``lsp.catalog`` waits for the metadata at most; then the estimate.
+CATALOG_OFFER_TIMEOUT_SEC = 3.0
+_OFFERS: dict[str, tuple[float, bool, dict[str, Any]]] = {}
+
+
+def _estimate(name: str) -> dict[str, Any]:
+    return {"name": name, "sizeMb": ESTIMATE_MB, "source": RELEASES_INDEX_URL, "version": None}
+
+
+async def offer(
+    name: str,
+    *,
+    client_factory: ClientFactory | None = None,
+    timeout: float = METADATA_TIMEOUT_SEC,
+) -> dict[str, Any]:
+    """``{name, sizeMb, source, version}`` for the confirm a person sees before an install.
+
+    Read from the release metadata and reused for :data:`OFFER_TTL_SEC`; when
+    it cannot be read, the estimate (and no new try for :data:`OFFER_RETRY_SEC`).
+    ``SNOWPEA_TOOLCHAIN_METADATA=0`` never reads it (the test suite).
+    """
     if name != "dotnet-sdk":
         return {"name": name, "sizeMb": None, "source": None, "version": None}
+    if os.environ.get("SNOWPEA_TOOLCHAIN_METADATA") == "0":
+        return _estimate(name)
+    now = time.monotonic()
+    cached = _OFFERS.get(name)
+    if cached is not None and now - cached[0] < (OFFER_TTL_SEC if cached[1] else OFFER_RETRY_SEC):
+        return dict(cached[2])
     try:
         release = await asyncio.wait_for(
-            resolve_dotnet(client_factory=client_factory), timeout=METADATA_TIMEOUT_SEC
+            resolve_dotnet(client_factory=client_factory), timeout=timeout
         )
     except (ToolchainError, TimeoutError) as exc:
         log.info("no .NET release metadata for the offer: %s", exc)
-        return {"name": name, "sizeMb": ESTIMATE_MB, "source": RELEASES_INDEX_URL,
-                "version": None}
+        _OFFERS[name] = (now, False, _estimate(name))
+        return _estimate(name)
     size_mb = round(release.size / 1_000_000) if release.size else ESTIMATE_MB
-    return {"name": name, "sizeMb": size_mb, "source": release.url, "version": release.version}
+    found = {"name": name, "sizeMb": size_mb, "source": release.url, "version": release.version}
+    _OFFERS[name] = (now, True, found)
+    return dict(found)
+
+
+def forget_offers() -> None:
+    """Drop the cached offers (tests; a new channel)."""
+    _OFFERS.clear()
 
 
 def _free_bytes(path: Path) -> int:
@@ -577,6 +633,10 @@ async def _install_dotnet(
     def unpack() -> None:
         staging.mkdir(parents=True)
         _extract(archive, staging)
+        marker["sizeBytes"] = sum(
+            item.stat().st_size for item in staging.rglob("*")
+            if item.is_file() and not item.is_symlink()
+        )
         (staging / MARKER).write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
 
     job = asyncio.ensure_future(asyncio.to_thread(unpack))
@@ -702,8 +762,10 @@ __all__ = [
     "dotnet_exe",
     "dotnet_installed",
     "dotnet_sdks",
+    "forget_offers",
     "forget_sdks",
     "install",
+    "installed",
     "offer",
     "parse_list_sdks",
     "reason_fields",
