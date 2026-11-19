@@ -17,6 +17,7 @@ from typing import Any
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools import file_state
 from snowpea_core.tools.config_guard import permission_for_read, permission_for_write
+from snowpea_core.tools.pdf_text import looks_like_pdf, pdf_to_text
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.tools.view_image import IMAGE_SUFFIXES, image_dimensions, resolve_image_path
 from snowpea_core.vendor.hermes.tools.binary_extensions import (
@@ -33,6 +34,8 @@ MAX_READ_CHARS = 200_000
 #: already, and the rest of a long file would ride along in every later round.
 #: A whole-file read keeps :data:`MAX_READ_CHARS`, since writes need one.
 WINDOW_READ_CHARS = 20_000
+#: Characters of text ``read_file`` extracts from a PDF before truncation.
+PDF_READ_CHARS = 100_000
 
 
 #: What ``diff`` prints after a last line that has no newline.
@@ -256,6 +259,10 @@ async def _read_one(
         if error or resolved is None:
             return ToolResult(ok=False, error=error or "path is required")
         return _image_read_hint(path, resolved)
+    if Path(path).suffix.lower() == ".pdf":
+        pdf = await _read_pdf(ctx, args, path, budget)
+        if pdf is not None:
+            return pdf
     if has_binary_extension(path) or has_opaque_document_extension(path):
         return ToolResult(
             ok=False,
@@ -270,6 +277,10 @@ async def _read_one(
         return ToolResult(ok=False, error=f"no such file: {path}")
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    if looks_like_pdf(content):  # a PDF without the .pdf name
+        pdf = await _read_pdf(ctx, args, path, budget)
+        if pdf is not None:
+            return pdf
     offset, limit = _positive_int(args, "offset"), _positive_int(args, "limit")
     note = ""
     if offset is not None and limit is None:
@@ -289,6 +300,32 @@ async def _read_one(
     # the whole file has been read (M15 §A3).
     file_state.note_read(ctx.core, ctx.session, path, content, complete=complete)
     return ToolResult(ok=True, output=header + content, path=path)
+
+
+async def _read_pdf(
+    ctx: ToolContext, args: dict[str, Any], path: str, budget: int
+) -> ToolResult | None:
+    """A PDF's text (``--- page N ---`` markers), not its raw ``%PDF-`` bytes.
+
+    ``None`` when the file is not a PDF after all: it is read as text, as
+    before.  ``offset``/``limit`` window the extracted lines.  The read is not
+    recorded for the read-before-write guard: the text is not the file's content.
+    """
+    try:
+        data = await ctx.backend.read_bytes(path)
+    except FileNotFoundError:
+        return ToolResult(ok=False, error=f"no such file: {path}")
+    except OSError as exc:
+        return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    if not looks_like_pdf(data):
+        return None
+    text = await asyncio.to_thread(
+        pdf_to_text, data, source=path, max_chars=min(budget, PDF_READ_CHARS)
+    )
+    offset, limit = _positive_int(args, "offset"), _positive_int(args, "limit")
+    if offset is not None or limit is not None:
+        text, _ = _window(text, offset, limit)
+    return ToolResult(ok=True, output=text, path=path)
 
 
 #: Lone CRs a ``read_file`` header names before it says "…".

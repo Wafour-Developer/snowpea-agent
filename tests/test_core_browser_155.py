@@ -233,6 +233,21 @@ def test_nearest_names() -> None:
     assert len(tool_hints.nearest("browser", [f"browser_{i}" for i in range(9)])) == 5
 
 
+async def test_narrowed_refusal_names_only_tools_the_session_can_call(
+    core: Core, tmp_path: Path
+) -> None:
+    """Browser report: ``unknown tool: request_code_mode``.  The browser agent's
+    list names host tools; with no host providing them (closed or older browser)
+    the refusal must not advertise them, or the model calls them next."""
+    session = Session(id="s-n", workdir=tmp_path, mode="auto")
+    session.agent = "browser"
+    session.allowed_tools = {"read_file", "repl", "request_code_mode"}
+    text = await _call(core, session, "shell")
+    assert "shell is not available to this agent; its tools are:" in text
+    assert "read_file" in text
+    assert "request_code_mode" not in text and "repl" not in text
+
+
 # -- c. truthful deferral text --------------------------------------------------------------
 
 

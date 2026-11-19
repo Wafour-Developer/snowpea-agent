@@ -615,6 +615,9 @@ class Environment:
     orientation: str = ""
     #: The project's own instruction files, already discovered and clipped.
     project_context: ProjectContext = field(default_factory=ProjectContext)
+    #: ``snowpea core 0.2.99 (protocol 1.65.0)``: constant for the daemon's
+    #: life, so it does not disturb the cached prompt prefix.
+    engine: str = ""
 
     @property
     def context_files(self) -> list[ContextFile]:
@@ -705,7 +708,16 @@ def collect(
             orientation_block(workdir) if orient and not remote and read_git else ""
         ),
         project_context=project,
+        engine=engine_line(),
     )
+
+
+def engine_line() -> str:
+    """The core's own version and protocol version, for the model to quote."""
+    from snowpea_core import __version__
+    from snowpea_core.server.protocol_version import PROTOCOL_VERSION
+
+    return f"snowpea core {__version__} (protocol {PROTOCOL_VERSION})"
 
 
 def environment_lines(env: Environment) -> str:
@@ -739,6 +751,8 @@ def environment_lines(env: Environment) -> str:
         tail.append(f"Mode: {env.mode}")
     if tail:
         lines.append("- " + "   ".join(tail))
+    if env.engine:
+        lines.append(f"- Engine: {env.engine}")
     return "\n".join(lines)
 
 
