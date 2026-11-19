@@ -3675,6 +3675,8 @@ export function App({
       onCheck={security.check}
       onReload={security.reload}
       onSetUnknownCode={security.setUnknownCode}
+      onSetEnabled={security.setEnabled}
+      tokensWhenOff={security.defaultOff}
       changeSeq={security.changeSeq}
       diskNotice={securityNotice(disk.waiting, daemon.degraded)}
       onClose={security.close}

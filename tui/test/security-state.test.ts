@@ -80,6 +80,8 @@ describe("security contract normalisation", () => {
       notices: [],
       unknownCode: "ask",
       projectAdds: 0,
+      enabled: true,
+      offByDefault: false,
     });
     expect(normalizeVerdict({ blocked: true, by: "x", why: "y", level: "all" })).toEqual({ blocked: true, opaque: false, by: "x", why: "y", level: "all" });
     expect(normalizeVerdict({ blocked: "yes" } as never).blocked).toBe(false);

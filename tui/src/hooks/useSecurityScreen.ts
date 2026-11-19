@@ -20,8 +20,11 @@ import {
   SECURITY_REQUIRES_LINE,
   blockedLine,
   blockedToast,
+  defaultOffSupported,
   draftOf,
+  enabledPatch,
   listsAreSet,
+  masterSwitchSupported,
   normalizeBlocked,
   normalizeCatalog,
   normalizeConfig,
@@ -72,6 +75,9 @@ function errorText(error: unknown): string {
 export function useSecurityScreen(deps: SecurityDeps) {
   const { client, workdir, sessionId, viewingId, showToast, note, warn, diskNotice } = deps;
   const supported = securitySupported(client.serverCapabilities?.());
+  /** The switch row shows only for a core that has the switch; an older one is never sent `enabled`. */
+  const masterSwitch = supported && masterSwitchSupported(client.serverCapabilities?.());
+  const defaultOff = masterSwitch && defaultOffSupported(client.serverCapabilities?.());
   const [ui, setUi] = useState<SecurityUi | null>(null);
   const [listsSet, setListsSet] = useState(false);
   const opening = useRef(false);
@@ -187,6 +193,26 @@ export function useSecurityScreen(deps: SecurityDeps) {
     [client, workdir],
   );
 
+  /** `security.enabled` (1.58.0, capability `securityMasterSwitch`): global only, by a local person. */
+  const setEnabled = useCallback(
+    async (on: boolean): Promise<SaveResult> => {
+      try {
+        await client.call("settings.set", { scope: "global", patch: enabledPatch(on) });
+      } catch (error) {
+        if (rpcErrorFacts(error).code === "jarvis_person_only") {
+          return { ok: false, message: rpcErrorText(error), readOnly: personOnlyReadOnlyLine(error) };
+        }
+        return { ok: false, message: rpcErrorText(error) };
+      }
+      try {
+        return { ok: true, config: await loadConfig() };
+      } catch (error) {
+        return { ok: false, message: `saved, but could not read the setting back — ${errorText(error)}` };
+      }
+    },
+    [client, loadConfig],
+  );
+
   /** `/security`, `/security status`, `/security check …`; true when the line was one. */
   const handleCommand = useCallback(
     (line: string): boolean => {
@@ -202,7 +228,7 @@ export function useSecurityScreen(deps: SecurityDeps) {
         void open();
       } else if (command.kind === "status") {
         void Promise.all([loadConfig(), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)])
-          .then(([config, catalog]) => note(statusLines(config, catalog, diskNotice?.() ?? null).join("\n")))
+          .then(([config, catalog]) => note(statusLines(config, catalog, diskNotice?.() ?? null, masterSwitch).join("\n")))
           .catch((error: unknown) => note(`Security lists: could not read them — ${errorText(error)}`));
       } else {
         void Promise.all([check(command.what, command.text), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)]).then(
@@ -220,7 +246,7 @@ export function useSecurityScreen(deps: SecurityDeps) {
       }
       return true;
     },
-    [check, loadCatalog, loadConfig, note, open, supported, warn],
+    [check, loadCatalog, loadConfig, masterSwitch, note, open, supported, warn],
   );
 
   /** `security.blocked`: a red line in the session on screen, a toast for any other. */
@@ -251,6 +277,10 @@ export function useSecurityScreen(deps: SecurityDeps) {
     handleCommand,
     save,
     setUnknownCode,
+    /** Undefined for a core without the switch, so the screen hides its row. */
+    setEnabled: masterSwitch ? setEnabled : undefined,
+    /** 1.66.0: turning the checks off also lifts the token/login read block. */
+    defaultOff,
     check,
     reload: loadConfig,
     changeSeq,
