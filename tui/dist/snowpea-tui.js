@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react64 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.65.0";
+var PROTOCOL_VERSION = "1.66.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -38335,6 +38335,13 @@ function readUnknownCode(value) {
 function securitySupported(capabilities) {
   return (capabilities ?? []).includes("securityLists");
 }
+function masterSwitchSupported(capabilities) {
+  return (capabilities ?? []).includes("securityMasterSwitch");
+}
+function defaultOffSupported(capabilities) {
+  return (capabilities ?? []).includes("securityDefaultOff");
+}
+var DISABLED_CODE = "security-disabled";
 var SECURITY_REQUIRES_LINE = "Security lists: requires a newer core \u2014 this daemon is older. Run /update.";
 var SECURITY_REQUIRES_SUMMARY = "requires a newer core \u2014 this daemon is older (/update)";
 var text2 = (value) => typeof value === "string" ? sanitizeText(value) : "";
@@ -38372,8 +38379,11 @@ function problemItemText(item) {
   return `${what}${item.entry ? ` ${JSON.stringify(item.entry)}` : ""}: ${item.reason}`;
 }
 function normalizeConfig(raw) {
-  const problemItems = normalizeProblemItems(raw?.problemItems);
-  const sentences = texts(raw?.problems);
+  const rawItems = Array.isArray(raw?.problemItems) ? raw.problemItems : null;
+  const switchedOff = rawItems?.some((item) => item?.code === DISABLED_CODE) ?? false;
+  const problemItems = normalizeProblemItems(rawItems?.filter((item) => item?.code !== DISABLED_CODE));
+  const rawProblems = Array.isArray(raw?.problems) ? raw.problems : [];
+  const sentences = texts(switchedOff ? rawProblems.slice(1) : rawProblems);
   const structured = Array.isArray(raw?.problemItems);
   const fileNotice = (sentence) => /credentials\.json/i.test(sentence) && /symbolic link/i.test(sentence);
   const notices = structured ? sentences.filter((sentence) => !problemItems.some((item) => sentence.includes(item.reason))) : sentences.filter(fileNotice);
@@ -38385,6 +38395,8 @@ function normalizeConfig(raw) {
     notices,
     unknownCode: readUnknownCode(raw?.unknownCode),
     projectAdds: additions(raw?.project),
+    enabled: raw?.enabled !== false,
+    offByDefault: raw?.enabled === false && raw?.byDefault === true,
     blockedCommands: {
       presets: texts(raw?.blockedCommands?.presets),
       custom: texts(raw?.blockedCommands?.custom)
@@ -38598,7 +38610,7 @@ var PATTERN_HELP = [
   { kind: "head", text: "Protected folders" },
   { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." },
   { kind: "head", text: "Keys" },
-  { kind: "line", text: `\u2191\u2193 move through the rows. The first row is "Commands and scripts snowpea can't read before they run": on it, \u2190\u2192 (or Space) chooses ask / auto / allow, saved at once; u changes it from any row.` },
+  { kind: "line", text: `\u2191\u2193 move through the rows. The row above the lists is "Commands and scripts snowpea can't read before they run": on it, \u2190\u2192 (or Space) chooses ask / auto / allow, saved at once; u changes it from any row.` },
   { kind: "line", text: "On a list row, \u2190\u2192 or Tab switches between Blocked commands and Protected folders; Space turns a preset on or off." }
 ];
 var UNKNOWN_CODE_LABEL = "Commands and scripts snowpea can't read before they run";
@@ -38660,17 +38672,109 @@ var UNKNOWN_CODE_ALLOW_CONFIRM = [
 function unknownCodePatch(value) {
   return { security: { unknownCode: value } };
 }
+function enabledLabel(config) {
+  if (config.enabled) return say("Security checks: on", "\uBCF4\uC548 \uAC80\uC0AC: \uCF1C\uC9D0");
+  return config.offByDefault ? say("Security checks: off (default)", "\uBCF4\uC548 \uAC80\uC0AC: \uAEBC\uC9D0 (\uAE30\uBCF8\uAC12)") : say("Security checks: off", "\uBCF4\uC548 \uAC80\uC0AC: \uAEBC\uC9D0");
+}
+function enabledSegments(config) {
+  const label = enabledLabel(config);
+  const at = label.indexOf(": ");
+  return [{ text: label.slice(0, at + 2) }, { text: label.slice(at + 2), bold: true }];
+}
+var OFF_NOTE = () => say(
+  "The lists and the choice above apply once security checks are on. Your choices are kept.",
+  "\uBAA9\uB85D\uACFC \uC704\uC758 \uC120\uD0DD\uC740 \uBCF4\uC548 \uAC80\uC0AC\uB97C \uCF1C\uBA74 \uC801\uC6A9\uB429\uB2C8\uB2E4. \uC9C0\uAE08 \uACE0\uB978 \uB0B4\uC6A9\uC740 \uADF8\uB300\uB85C \uBCF4\uAD00\uB429\uB2C8\uB2E4."
+);
+var ENABLED_NOW = (on) => on ? say("Security checks are on. Your lists apply to new commands at once.", "\uBCF4\uC548 \uAC80\uC0AC\uB97C \uCF30\uC2B5\uB2C8\uB2E4. \uBAA9\uB85D\uC774 \uC0C8 \uBA85\uB839\uBD80\uD130 \uBC14\uB85C \uC801\uC6A9\uB429\uB2C8\uB2E4.") : say("Security checks are off. Your lists are kept for when you turn them on.", "\uBCF4\uC548 \uAC80\uC0AC\uB97C \uAED0\uC2B5\uB2C8\uB2E4. \uBAA9\uB85D\uC740 \uB2E4\uC2DC \uCF24 \uB54C\uB97C \uC704\uD574 \uADF8\uB300\uB85C \uBCF4\uAD00\uB429\uB2C8\uB2E4.");
+function offConfirmLines(tokens) {
+  const items = tokens ? say(
+    "blocked commands, protected folders, asking about commands and scripts snowpea can't read, and the block on reading stored tokens and logins",
+    "\uCC28\uB2E8 \uBA85\uB839, \uBCF4\uD638 \uD3F4\uB354, \uC54C \uC218 \uC5C6\uB294 \uBA85\uB839\xB7\uC2A4\uD06C\uB9BD\uD2B8\uC5D0 \uB300\uD574 \uBB3B\uAE30, \uC800\uC7A5\uB41C \uD1A0\uD070\xB7\uB85C\uADF8\uC778 \uC815\uBCF4 \uC77D\uAE30 \uCC28\uB2E8"
+  ) : say(
+    "blocked commands, protected folders, and asking about commands and scripts snowpea can't read",
+    "\uCC28\uB2E8 \uBA85\uB839, \uBCF4\uD638 \uD3F4\uB354, \uC54C \uC218 \uC5C6\uB294 \uBA85\uB839\xB7\uC2A4\uD06C\uB9BD\uD2B8\uC5D0 \uB300\uD574 \uBB3B\uAE30"
+  );
+  return [
+    say("Turn security checks off?", "\uBCF4\uC548 \uAC80\uC0AC\uB97C \uB04C\uAE4C\uC694?"),
+    say(
+      `While they are off, these are not applied: ${items}. Your lists and choices are kept, and the mode rules (plan, accept, auto) work as usual.`,
+      `\uAEBC\uC838 \uC788\uB294 \uB3D9\uC548 \uB2E4\uC74C\uC740 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4: ${items}. \uBAA9\uB85D\uACFC \uC120\uD0DD\uC740 \uADF8\uB300\uB85C \uBCF4\uAD00\uB418\uACE0, \uBAA8\uB4DC \uADDC\uCE59(plan\xB7accept\xB7auto)\uC740 \uD3C9\uC18C\uB300\uB85C \uB3D9\uC791\uD569\uB2C8\uB2E4.`
+    ),
+    say("Turn them off? (y/n)", "\uB04C\uAE4C\uC694? (y/n)")
+  ];
+}
+function enabledPatch(on) {
+  return { security: { enabled: on } };
+}
+function switchHelp(tokens) {
+  return [
+    { kind: "head", text: say("Security checks", "\uBCF4\uC548 \uAC80\uC0AC") },
+    {
+      kind: "line",
+      text: say(
+        "One switch for the extra checks below. They are off unless you turn them on; your lists and choices are kept either way, so switching back restores them.",
+        "\uC544\uB798\uC758 \uCD94\uAC00 \uAC80\uC0AC\uB97C \uD55C\uAEBC\uBC88\uC5D0 \uCF1C\uACE0 \uB044\uB294 \uC2A4\uC704\uCE58\uC785\uB2C8\uB2E4. \uC9C1\uC811 \uCF1C\uAE30 \uC804\uC5D0\uB294 \uAEBC\uC838 \uC788\uC73C\uBA70, \uBAA9\uB85D\uACFC \uC120\uD0DD\uC740 \uCF1C\uB4E0 \uB044\uB4E0 \uBCF4\uAD00\uB418\uC5B4 \uB2E4\uC2DC \uCF1C\uBA74 \uADF8\uB300\uB85C \uC801\uC6A9\uB429\uB2C8\uB2E4."
+      )
+    },
+    { kind: "line", text: say("When they are on:", "\uCF1C\uBA74:") },
+    {
+      kind: "line",
+      text: say(
+        "\u2022 Blocked commands: commands on the list are refused wherever snowpea sees them \u2014 not asked, not approvable.",
+        "\u2022 \uCC28\uB2E8 \uBA85\uB839: \uBAA9\uB85D\uC758 \uBA85\uB839\uC740 snowpea\uAC00 \uC54C\uC544\uBCF4\uB294 \uACF3 \uC5B4\uB514\uC11C\uB098 \uAC70\uC808\uB429\uB2C8\uB2E4. \uBB3B\uC9C0\uB3C4, \uC2B9\uC778\uD560 \uC218\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4."
+      )
+    },
+    {
+      kind: "line",
+      text: say(
+        '\u2022 Protected folders: "no changes" stops writing, deleting and moving in a folder; "no access" stops reading it too.',
+        "\u2022 \uBCF4\uD638 \uD3F4\uB354: '\uBCC0\uACBD \uAE08\uC9C0'\uB294 \uD3F4\uB354 \uC548\uC758 \uC4F0\uAE30\xB7\uC0AD\uC81C\xB7\uC774\uB3D9\uC744, '\uC811\uADFC \uAE08\uC9C0'\uB294 \uC77D\uAE30\uAE4C\uC9C0 \uB9C9\uC2B5\uB2C8\uB2E4."
+      )
+    },
+    {
+      kind: "line",
+      text: say(
+        "\u2022 Commands and scripts snowpea can't read before they run are handled by the choice on the next row (ask, auto, allow).",
+        "\u2022 \uC2E4\uD589 \uC804\uC5D0 \uC54C \uC218 \uC5C6\uB294 \uBA85\uB839\xB7\uC2A4\uD06C\uB9BD\uD2B8\uB294 \uB2E4\uC74C \uC904\uC758 \uC120\uD0DD(\uD56D\uC0C1 \uBB3B\uAE30, auto, \uBB3B\uC9C0 \uC54A\uC74C)\uB300\uB85C \uCC98\uB9AC\uB429\uB2C8\uB2E4."
+      )
+    },
+    ...tokens ? [
+      {
+        kind: "line",
+        text: say(
+          "\u2022 Stored tokens and logins (API keys, cloud and git credentials) cannot be read by a session.",
+          "\u2022 \uC800\uC7A5\uB41C \uD1A0\uD070\xB7\uB85C\uADF8\uC778 \uC815\uBCF4(API \uD0A4, \uD074\uB77C\uC6B0\uB4DC\xB7git \uC790\uACA9 \uC99D\uBA85)\uB294 \uC138\uC158\uC774 \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."
+        )
+      }
+    ] : [],
+    {
+      kind: "line",
+      text: say(
+        "Either way, the mode rules apply: plan mode does not change files, accept mode asks before commands and writes, and snowpea's own controls stay in place.",
+        "\uCF1C\uB4E0 \uB044\uB4E0 \uBAA8\uB4DC \uADDC\uCE59\uC740 \uADF8\uB300\uB85C\uC785\uB2C8\uB2E4. plan \uBAA8\uB4DC\uB294 \uD30C\uC77C\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uACE0, accept \uBAA8\uB4DC\uB294 \uBA85\uB839\uACFC \uC4F0\uAE30 \uC804\uC5D0 \uBB3B\uACE0, snowpea \uC790\uCCB4 \uC81C\uC5B4\uB3C4 \uC720\uC9C0\uB429\uB2C8\uB2E4."
+      )
+    },
+    {
+      kind: "line",
+      text: say(
+        "Keys: the first row is the switch; \u2191\u2193 reach it, \u2190\u2192, Space or Enter turn it on or off. Turning it off asks once and lists what stops applying.",
+        "\uD0A4: \uCCAB \uC904\uC774 \uC2A4\uC704\uCE58\uC785\uB2C8\uB2E4. \u2191\u2193\uB85C \uC774\uB3D9\uD558\uACE0 \u2190\u2192, Space, Enter\uB85C \uCF1C\uACE0 \uB055\uB2C8\uB2E4. \uB04C \uB54C\uB294 \uC801\uC6A9\uB418\uC9C0 \uC54A\uAC8C \uB418\uB294 \uD56D\uBAA9\uC744 \uD55C \uBC88 \uBCF4\uC5EC \uC8FC\uACE0 \uBB3B\uC2B5\uB2C8\uB2E4."
+      )
+    }
+  ];
+}
 var SECURITY_CLAIM = () => say(
   "In auto mode the agent runs programs as you; these lists stop the forms snowpea can recognise and it asks about code it cannot read. For a repository you do not trust, use accept mode, where every command and write is yours to approve.",
   "\uC790\uB3D9(auto) \uBAA8\uB4DC\uC5D0\uC11C \uC5D0\uC774\uC804\uD2B8\uB294 \uB2F9\uC2E0\uC758 \uAD8C\uD55C\uC73C\uB85C \uD504\uB85C\uADF8\uB7A8\uC744 \uC2E4\uD589\uD569\uB2C8\uB2E4. \uC774 \uBAA9\uB85D\uC740 snowpea\uAC00 \uC54C\uC544\uBCFC \uC218 \uC788\uB294 \uD615\uD0DC\uB97C \uB9C9\uACE0, \uC77D\uC744 \uC218 \uC5C6\uB294 \uCF54\uB4DC\uB294 \uBB3B\uC2B5\uB2C8\uB2E4. \uC2E0\uB8B0\uD558\uC9C0 \uC54A\uB294 \uC800\uC7A5\uC18C\uC5D0\uC11C\uB294 \uBAA8\uB4E0 \uBA85\uB839\uACFC \uC4F0\uAE30\uB97C \uC9C1\uC811 \uC2B9\uC778\uD558\uB294 accept \uBAA8\uB4DC\uB97C \uC4F0\uC138\uC694."
 );
-function statusLines(config, catalog, diskNotice = null) {
+function statusLines(config, catalog, diskNotice = null, withSwitch = false) {
   const title = (id, entries) => entries.find((entry) => entry.id === id)?.title ?? id;
   const commandOn = config.blockedCommands.presets.map((id) => title(id, catalog?.commands ?? []));
   const pathOn = config.protectedPaths.presets.map((id) => title(id, catalog?.paths ?? []));
   const names = (items) => items.length > 0 ? items.join(", ") : "none";
   return [
     "Security lists",
+    ...withSwitch ? [enabledLabel(config), ...config.enabled ? [] : [OFF_NOTE()]] : [],
     ...diskNotice ? [`! ${diskNotice}`] : [],
     SECURITY_CLAIM(),
     `Blocked commands: ${config.blockedCommands.presets.length} presets on (${names(commandOn)}), ${config.blockedCommands.custom.length} of your own`,
@@ -42848,6 +42952,7 @@ function RenderedLines({
 
 // src/components/SecurityScreen.tsx
 var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var dimmed = (segments) => segments.map((segment) => segment.text === "\u203A " ? segment : { ...segment, color: void 0, dimColor: true });
 var TAB_TITLE = { commands: "Blocked commands", paths: "Protected folders" };
 var INTRO = {
   commands: "snowpea refuses these commands where it sees them: not asked, not approvable, not handed to Jarvis.",
@@ -42863,6 +42968,8 @@ function SecurityScreen({
   onCheck,
   onReload,
   onSetUnknownCode,
+  onSetEnabled,
+  tokensWhenOff = false,
   changeSeq = 0,
   diskNotice = null,
   onClose,
@@ -42881,18 +42988,24 @@ function SecurityScreen({
   const [elsewhere, setElsewhere] = (0, import_react34.useState)(false);
   const [helpTop, setHelpTop] = (0, import_react34.useState)(0);
   const scroll = (0, import_react34.useRef)({});
-  const [onSwitch, setOnSwitch] = (0, import_react34.useState)(false);
+  const hasMaster = Boolean(onSetEnabled);
   const hasSwitch = Boolean(onSetUnknownCode);
-  const switchHere = hasSwitch && onSwitch;
+  const heads = [...hasMaster ? ["master"] : [], ...hasSwitch ? ["unknown"] : []];
+  const [headRow, setHeadRow] = (0, import_react34.useState)(() => hasMaster && config.enabled === false ? "master" : null);
+  const at = headRow !== null && heads.includes(headRow) ? headRow : null;
+  const switchHere = at === "unknown";
+  const masterHere = at === "master";
+  const onHead = at !== null;
+  const off = hasMaster && !base.enabled;
   const dirty = !sameLists(draft, listsOf(base));
   const rows = tabRows(tab2, catalog, draft);
   const cursor = Math.min(cursors[tab2], Math.max(0, rows.length - 1));
-  const row = switchHere ? void 0 : rows[cursor];
+  const row = onHead ? void 0 : rows[cursor];
   const say2 = (text8, color) => setNotes([{ text: text8, color }]);
   const moveTo = (index) => setCursors((current2) => ({ ...current2, [tab2]: index }));
-  const confirm2 = (lines, yes) => {
+  const confirm2 = (lines, yes, neutral = false) => {
     setNotes([]);
-    setMode({ k: "confirm", lines, yes });
+    setMode({ k: "confirm", lines, yes, neutral });
   };
   const apply = (next, nextCursor) => {
     setDraft(next);
@@ -42997,6 +43110,28 @@ function SecurityScreen({
     if (next === "allow") confirm2([...UNKNOWN_CODE_ALLOW_CONFIRM], run);
     else run();
   };
+  const switchEnabled = () => {
+    if (!onSetEnabled || locked()) return;
+    const next = !base.enabled;
+    const run = () => {
+      setMode({ k: "saving" });
+      setNotes([{ text: "Saving\u2026", dim: true }]);
+      void onSetEnabled(next).then((result) => {
+        setMode({ k: "browse" });
+        if (result.ok) {
+          setBase(result.config);
+          setNotes([{ text: ENABLED_NOW(result.config.enabled) }]);
+        } else if (result.readOnly) {
+          setReadOnly(result.readOnly);
+          say2(result.readOnly, "yellow");
+        } else {
+          say2(`Not saved: ${result.message}`, "red");
+        }
+      });
+    };
+    if (next) run();
+    else confirm2(offConfirmLines(tokensWhenOff), run, true);
+  };
   const toggle = () => {
     if (!row || row.kind !== "preset" || locked()) return;
     const next = togglePreset(draft, tab2, row.id);
@@ -43067,15 +43202,15 @@ function SecurityScreen({
       }
       if (mode.k === "help") {
         if (key2.escape || input === "?" || input === "q" || key2.return) setMode({ k: "browse" });
-        else if (key2.upArrow || input === "k") setHelpTop((at) => Math.max(0, at - 1));
-        else if (key2.downArrow || input === "j") setHelpTop((at) => at + 1);
+        else if (key2.upArrow || input === "k") setHelpTop((at2) => Math.max(0, at2 - 1));
+        else if (key2.downArrow || input === "j") setHelpTop((at2) => at2 + 1);
         return;
       }
       if (mode.k === "effective") {
         const count3 = Math.max(1, tab2 === "commands" ? base.effective.commands.length : base.effective.paths.length);
         if (key2.escape || input === "v" || input === "q") setMode({ k: "browse" });
-        else if (key2.upArrow || input === "k") setEffCursor((at) => Math.max(0, at - 1));
-        else if (key2.downArrow || input === "j") setEffCursor((at) => Math.min(count3 - 1, at + 1));
+        else if (key2.upArrow || input === "k") setEffCursor((at2) => Math.max(0, at2 - 1));
+        else if (key2.downArrow || input === "j") setEffCursor((at2) => Math.min(count3 - 1, at2 + 1));
         else if (key2.tab) {
           setTab(tab2 === "commands" ? "paths" : "commands");
           setEffCursor(0);
@@ -43087,6 +43222,7 @@ function SecurityScreen({
         else onClose();
         return;
       }
+      if (masterHere && (key2.leftArrow || key2.rightArrow)) return switchEnabled();
       if (switchHere && (key2.leftArrow || key2.rightArrow)) {
         return switchUnknownCode(stepUnknownCode(base.unknownCode, key2.leftArrow ? -1 : 1, !noAuto));
       }
@@ -43096,29 +43232,38 @@ function SecurityScreen({
         return;
       }
       if (key2.upArrow || input === "k") {
-        if (switchHere) {
-          setOnSwitch(false);
-          if (rows.length > 0) moveTo(rows.length - 1);
-        } else if (hasSwitch && (cursor === 0 || rows.length === 0)) setOnSwitch(true);
+        if (onHead) {
+          const index = heads.indexOf(at);
+          if (index > 0) setHeadRow(heads[index - 1]);
+          else {
+            setHeadRow(null);
+            if (rows.length > 0) moveTo(rows.length - 1);
+          }
+        } else if (heads.length > 0 && (cursor === 0 || rows.length === 0)) setHeadRow(heads[heads.length - 1]);
         else if (rows.length > 0) moveTo((cursor + rows.length - 1) % rows.length);
         return;
       }
       if (key2.downArrow || input === "j") {
-        if (switchHere) {
-          setOnSwitch(false);
-          moveTo(0);
-        } else if (hasSwitch && cursor >= rows.length - 1) setOnSwitch(true);
+        if (onHead) {
+          const index = heads.indexOf(at);
+          if (index < heads.length - 1) setHeadRow(heads[index + 1]);
+          else {
+            setHeadRow(null);
+            moveTo(0);
+          }
+        } else if (heads.length > 0 && cursor >= rows.length - 1) setHeadRow(heads[0]);
         else if (rows.length > 0) moveTo((cursor + 1) % rows.length);
         return;
       }
       if (key2.pageUp) {
-        if (!switchHere && hasSwitch && cursor === 0) return setOnSwitch(true);
+        if (!onHead && heads.length > 0 && cursor === 0) return setHeadRow(heads[heads.length - 1]);
         return moveTo(Math.max(0, cursor - 5));
       }
       if (key2.pageDown) {
-        setOnSwitch(false);
-        return moveTo(Math.min(Math.max(0, rows.length - 1), switchHere ? 0 : cursor + 5));
+        setHeadRow(null);
+        return moveTo(Math.min(Math.max(0, rows.length - 1), onHead ? 0 : cursor + 5));
       }
+      if (masterHere && (input === " " || key2.return)) return switchEnabled();
       if (switchHere && (input === " " || key2.return)) return switchUnknownCode();
       if (input === " ") return toggle();
       switch (input.toLowerCase()) {
@@ -43183,7 +43328,7 @@ function SecurityScreen({
   const bold = (text8, color) => ({ text: text8, bold: true, color });
   const titleLeft = "Security lists";
   const titleMid = dirty ? "  \u25CF unsaved changes" : "";
-  const counter3 = mode.k === "effective" || switchHere ? "" : rows.length > 0 ? `${cursor + 1}/${rows.length}` : "";
+  const counter3 = mode.k === "effective" || onHead ? "" : rows.length > 0 ? `${cursor + 1}/${rows.length}` : "";
   const gap = Math.max(1, inner - textWidth(titleLeft + titleMid) - textWidth(counter3));
   const head = [
     {
@@ -43197,18 +43342,21 @@ function SecurityScreen({
         one === tab2 ? { text: `[${TAB_TITLE[one]}]`, bold: true, color: "cyan" } : { text: ` ${TAB_TITLE[one]} `, dimColor: true }
       ])
     },
+    ...hasMaster ? wrapSegments("master", [{ text: masterHere ? "\u203A " : "  ", color: "cyan", bold: true }, ...enabledSegments(base)], inner, "    ") : [],
     ...wrapSegments(
       "unknown",
-      [{ text: switchHere ? "\u203A " : "  ", color: "cyan", bold: true }, ...unknownCodeSegments(base.unknownCode, !noAuto)],
+      [{ text: switchHere ? "\u203A " : "  ", color: "cyan", bold: true }, ...(off ? dimmed : (segments) => segments)(unknownCodeSegments(base.unknownCode, !noAuto))],
       inner,
       "    "
-    )
+    ),
+    // While the checks are off the rows below are dimmed; one plain line says why.
+    ...off ? wrapSegments("off", [{ text: OFF_NOTE() }], inner, "") : []
   ];
   const intro = [
     ...wrapSegments("intro", [{ text: INTRO[tab2], dimColor: true }], inner, ""),
     ...wrapSegments("limits", [{ text: SECURITY_LIMITS, dimColor: true }], inner, ""),
     ...wrapSegments("own", [{ text: OWN_FILES_LINE, dimColor: true }], inner, ""),
-    ...wrapSegments("claim", [{ text: SECURITY_CLAIM(), color: "yellow" }], inner, "")
+    ...wrapSegments("claim", [{ text: SECURITY_CLAIM(), ...off ? { dimColor: true } : { color: "yellow" } }], inner, "")
   ];
   const skipped = problemNote(base.problems);
   const lock = [
@@ -43223,16 +43371,16 @@ function SecurityScreen({
     foot.push(...wrapSegments(`note-${index}`, [{ text: note.text, color: note.color, dimColor: note.dim, bold: note.color === "red" }], inner, "  "));
   });
   if (mode.k === "confirm") {
-    mode.lines.forEach((text8, index) => foot.push(...wrapSegments(`ask-${index}`, [{ text: text8, color: "yellow", bold: index === mode.lines.length - 1 }], inner, "  ")));
+    mode.lines.forEach((text8, index) => foot.push(...wrapSegments(`ask-${index}`, [{ text: text8, color: mode.neutral ? void 0 : "yellow", bold: index === mode.lines.length - 1 }], inner, "  ")));
   }
   if (mode.k === "input") {
     const prompt = mode.action === "check" ? tab2 === "commands" ? "Command to check (it is NOT run):" : "Folder or file to check (nothing is touched):" : mode.action === "add" ? tab2 === "commands" ? "Command pattern to block:" : "Folder to protect (absolute path):" : "Edit entry:";
     foot.push(...wrapSegments("prompt", [{ text: prompt, color: "cyan" }], inner, ""));
     foot.push(...wrapSegments("typed", [{ text: "\u203A ", color: "cyan", bold: true }, { text: mode.value }, { text: "\u258F", color: "cyan" }], inner, "  "));
   }
-  const hints = mode.k === "confirm" ? "y yes \xB7 n / Esc no" : mode.k === "input" ? "Enter " + (mode.action === "check" ? "check" : "accept") + " \xB7 Esc cancel" : mode.k === "help" ? "\u2191\u2193 scroll \xB7 Esc back" : mode.k === "effective" ? "\u2191\u2193 scroll \xB7 Tab other list \xB7 Esc back" : mode.k === "saving" ? "saving\u2026" : switchHere ? [
+  const hints = mode.k === "confirm" ? "y yes \xB7 n / Esc no" : mode.k === "input" ? "Enter " + (mode.action === "check" ? "check" : "accept") + " \xB7 Esc cancel" : mode.k === "help" ? "\u2191\u2193 scroll \xB7 Esc back" : mode.k === "effective" ? "\u2191\u2193 scroll \xB7 Tab other list \xB7 Esc back" : mode.k === "saving" ? "saving\u2026" : onHead ? [
     "\u2191\u2193 move",
-    readOnly ? null : "\u2190\u2192 / Space change",
+    readOnly ? null : masterHere ? "\u2190\u2192 / Space turn on or off" : "\u2190\u2192 / Space change",
     "Tab other list",
     "? help",
     "Esc close"
@@ -43263,9 +43411,9 @@ function SecurityScreen({
   let end2 = 0;
   let key = tab2;
   if (mode.k === "help") {
-    const lines = PATTERN_HELP.flatMap(
-      (entry, at) => wrapSegments(
-        `help-${at}`,
+    const lines = [...hasMaster ? switchHelp(tokensWhenOff) : [], ...PATTERN_HELP].flatMap(
+      (entry, at2) => wrapSegments(
+        `help-${at2}`,
         [entry.kind === "head" ? { text: entry.text, bold: true, color: "cyan" } : entry.kind === "example" ? { text: entry.text, color: "green" } : { text: entry.text }],
         inner,
         entry.kind === "example" ? "                     " : "  "
@@ -43279,21 +43427,22 @@ function SecurityScreen({
       ...wrapSegments("eff-head", [{ text: `In force now: ${TAB_TITLE[tab2]}`, bold: true }, { text: dirty ? "  (saved lists; unsaved changes are not included)" : "  (as saved)", dimColor: true }], inner, "  ")
     ];
     const window2 = Math.max(1, bodyHeight - heading.length);
-    const starts = lines.map((line, at2) => /-w[1-9]\d*$/.test(line.key) ? -1 : at2).filter((at2) => at2 >= 0);
-    const at = Math.min(effCursor, Math.max(0, starts.length - 1));
-    start = starts[at] ?? 0;
-    end2 = starts[at + 1] ?? lines.length;
+    const starts = lines.map((line, at3) => /-w[1-9]\d*$/.test(line.key) ? -1 : at3).filter((at3) => at3 >= 0);
+    const at2 = Math.min(effCursor, Math.max(0, starts.length - 1));
+    start = starts[at2] ?? 0;
+    end2 = starts[at2 + 1] ?? lines.length;
     key = `eff-${tab2}`;
     const offset = scrollInto(scroll.current[key] ?? 0, start, end2, window2, lines.length);
     scroll.current[key] = offset;
     body = [...heading, ...lines.slice(offset, offset + window2)];
   } else {
-    const built = bodyLines(rows, switchHere ? -1 : cursor, inner, entryProblems[tab2]);
+    const built = bodyLines(rows, onHead ? -1 : cursor, inner, entryProblems[tab2]);
     start = built.start;
     end2 = built.end;
     const offset = scrollInto(scroll.current[key] ?? 0, start, end2, bodyHeight, built.lines.length);
     scroll.current[key] = offset;
     body = built.lines.slice(offset, offset + bodyHeight);
+    if (off) body = body.map((line) => ({ ...line, segments: dimmed(line.segments) }));
   }
   return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: dirty ? "yellow" : "cyan", paddingX: 1, overflow: "hidden", children: [
     /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(RenderedLines, { lines: top }),
@@ -43352,6 +43501,8 @@ function errorText2(error) {
 function useSecurityScreen(deps) {
   const { client, workdir, sessionId, viewingId, showToast, note, warn, diskNotice } = deps;
   const supported = securitySupported(client.serverCapabilities?.());
+  const masterSwitch = supported && masterSwitchSupported(client.serverCapabilities?.());
+  const defaultOff = masterSwitch && defaultOffSupported(client.serverCapabilities?.());
   const [ui, setUi] = (0, import_react35.useState)(null);
   const [listsSet, setListsSet] = (0, import_react35.useState)(false);
   const opening = (0, import_react35.useRef)(false);
@@ -43453,6 +43604,24 @@ function useSecurityScreen(deps) {
     },
     [client, workdir]
   );
+  const setEnabled = (0, import_react35.useCallback)(
+    async (on) => {
+      try {
+        await client.call("settings.set", { scope: "global", patch: enabledPatch(on) });
+      } catch (error) {
+        if (rpcErrorFacts(error).code === "jarvis_person_only") {
+          return { ok: false, message: rpcErrorText(error), readOnly: personOnlyReadOnlyLine(error) };
+        }
+        return { ok: false, message: rpcErrorText(error) };
+      }
+      try {
+        return { ok: true, config: await loadConfig() };
+      } catch (error) {
+        return { ok: false, message: `saved, but could not read the setting back \u2014 ${errorText2(error)}` };
+      }
+    },
+    [client, loadConfig]
+  );
   const handleCommand = (0, import_react35.useCallback)(
     (line) => {
       const command2 = parseSecurityCommand(line);
@@ -43466,7 +43635,7 @@ function useSecurityScreen(deps) {
       } else if (command2.kind === "enter") {
         void open();
       } else if (command2.kind === "status") {
-        void Promise.all([loadConfig(), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)]).then(([config, catalog]) => note(statusLines(config, catalog, diskNotice?.() ?? null).join("\n"))).catch((error) => note(`Security lists: could not read them \u2014 ${errorText2(error)}`));
+        void Promise.all([loadConfig(), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)]).then(([config, catalog]) => note(statusLines(config, catalog, diskNotice?.() ?? null, masterSwitch).join("\n"))).catch((error) => note(`Security lists: could not read them \u2014 ${errorText2(error)}`));
       } else {
         void Promise.all([check(command2.what, command2.text), catalogRef.current ? Promise.resolve(catalogRef.current) : loadCatalog().catch(() => null)]).then(
           ([result, catalog]) => {
@@ -43484,7 +43653,7 @@ ${NOTHING_RUN}`;
       }
       return true;
     },
-    [check, loadCatalog, loadConfig, note, open, supported, warn]
+    [check, loadCatalog, loadConfig, masterSwitch, note, open, supported, warn]
   );
   const onBlocked = (0, import_react35.useCallback)(
     (raw) => {
@@ -43511,6 +43680,10 @@ ${NOTHING_RUN}`;
     handleCommand,
     save,
     setUnknownCode,
+    /** Undefined for a core without the switch, so the screen hides its row. */
+    setEnabled: masterSwitch ? setEnabled : void 0,
+    /** 1.66.0: turning the checks off also lifts the token/login read block. */
+    defaultOff,
     check,
     reload: loadConfig,
     changeSeq,
@@ -44535,7 +44708,7 @@ function FeedbackScreen({
 var import_react42 = __toESM(require_react(), 1);
 
 // src/version.ts
-var TUI_VERSION = "0.2.99";
+var TUI_VERSION = "0.2.100";
 
 // src/hooks/useFeedback.ts
 function useFeedback(deps) {
@@ -51471,6 +51644,8 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       onCheck: security.check,
       onReload: security.reload,
       onSetUnknownCode: security.setUnknownCode,
+      onSetEnabled: security.setEnabled,
+      tokensWhenOff: security.defaultOff,
       changeSeq: security.changeSeq,
       diskNotice: securityNotice(disk.waiting, daemon.degraded),
       onClose: security.close,

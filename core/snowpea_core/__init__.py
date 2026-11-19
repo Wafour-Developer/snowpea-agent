@@ -4,6 +4,6 @@ Subpackages are stubs at M0; each milestone fills them in (see
 ``.omc/plans/snowpea-agent-consensus-plan.md`` §4).
 """
 
-__version__ = "0.2.99"
+__version__ = "0.2.100"
 
 __all__ = ["__version__"]
