@@ -7982,6 +7982,22 @@ class LspStatusResult(Payload):
     )
 
 
+class LspToolchainOffer(Payload):
+    """A toolchain ``lsp.install`` can install when asked to (1.68.0, lspToolchainInstall)."""
+
+    name: str = Field(description="Toolchain name: 'dotnet-sdk'.")
+    sizeMb: int | None = Field(
+        default=None, description="Download size in MB (an estimate when unknown)."
+    )
+    source: str | None = Field(
+        default=None,
+        description="Where it comes from: the archive's https URL on Microsoft's host.",
+    )
+    version: str | None = Field(
+        default=None, description="The version that would be installed, when known."
+    )
+
+
 class LspCatalogEntry(Payload):
     """One registered language server, whether or not it has ever started."""
 
@@ -8053,7 +8069,37 @@ class LspCatalogEntry(Payload):
         description=(
             "1.68.0 (lspToolchainInstall), with reason needs_toolchain: true when "
             "lsp.install {withToolchain: true} can install that toolchain itself "
-            "(dotnet-sdk today)."
+            "(dotnet-sdk today). Also set (true) with toolchainInstalled."
+        ),
+    )
+    toolchainInstalled: bool | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (lspToolchainInstall): for a server whose installer uses a toolchain "
+            "core can install (toolchain, e.g. 'dotnet-sdk', is then set too): true while "
+            "core's own copy is installed (lsp.toolchain.remove deletes it), false while "
+            "it is not. Null for other servers. A system-wide SDK does not count."
+        ),
+    )
+    toolchainVersion: str | None = Field(
+        default=None,
+        description="1.68.0: with toolchainInstalled true, the version of core's own copy.",
+    )
+    toolchainSizeMb: int | None = Field(
+        default=None,
+        description=(
+            "1.68.0: with toolchainInstalled true, the MB core's own copy takes on disk "
+            "(recorded at install; null for a copy installed before that)."
+        ),
+    )
+    needsToolchain: LspToolchainOffer | None = Field(
+        default=None,
+        description=(
+            "1.68.0 (lspToolchainInstall), with reason needs_toolchain and "
+            "toolchainInstallable: what lsp.install {withToolchain: true} would download, "
+            "as LspInstallItem.needsToolchain, so a client can offer the server together "
+            "with the toolchain in one click. sizeMb is an estimate and version null when "
+            "the release metadata could not be read in time."
         ),
     )
 
@@ -8099,20 +8145,6 @@ class LspInstallParams(Payload):
     )
 
 
-class LspToolchainOffer(Payload):
-    """A toolchain ``lsp.install`` can install when asked to (1.68.0, lspToolchainInstall)."""
-
-    name: str = Field(description="Toolchain name: 'dotnet-sdk'.")
-    sizeMb: int | None = Field(
-        default=None, description="Download size in MB (an estimate when unknown)."
-    )
-    source: str | None = Field(
-        default=None,
-        description="Where it comes from: the archive's https URL on Microsoft's host.",
-    )
-    version: str | None = Field(
-        default=None, description="The version that would be installed, when known."
-    )
 
 
 class LspInstallItem(Payload):

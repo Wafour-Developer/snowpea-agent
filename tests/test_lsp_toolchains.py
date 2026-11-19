@@ -55,6 +55,7 @@ def _own_toolchains(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     where = tmp_path / "toolchains"
     monkeypatch.setenv("SNOWPEA_TOOLCHAINS_DIR", str(where))
     toolchains.forget_sdks()
+    toolchains.forget_offers()
     return where
 
 
@@ -199,6 +200,7 @@ async def _quiet(_phase: str, _percent: int | None, _line: str | None) -> None:
 def fake_http(monkeypatch: pytest.MonkeyPatch) -> FakeMicrosoft:
     fake = FakeMicrosoft()
     monkeypatch.setattr(toolchains, "_client", _factory(fake))
+    monkeypatch.setenv("SNOWPEA_TOOLCHAIN_METADATA", "1")
     monkeypatch.setattr(toolchains, "runtime_id", lambda *a, **k: RID)
     return fake
 
@@ -821,3 +823,96 @@ def test_the_daemon_dirs_are_per_user(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert toolchains.runtime_id("Darwin", "arm64") == "osx-arm64"
     assert toolchains.runtime_id("Linux", "aarch64") == "linux-arm64"
     assert sys.platform  # (the real machine's id is whatever it is)
+
+
+# ---------------------------------------------------------------------------
+# lsp.catalog: toolchainInstalled and the needsToolchain offer (browser team)
+# ---------------------------------------------------------------------------
+
+
+@posix_only
+async def test_catalog_offers_the_sdk_with_the_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_http: FakeMicrosoft
+) -> None:
+    _script(tmp_path / "bin" / "dotnet", "exit 0\n")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    core = _core(tmp_path)
+    rows = {row.id: row for row in (await lsp_catalog_handler(None, Empty(), core)).servers}  # type: ignore[arg-type]
+    for server_id in ("csharp", "fsharp"):
+        row = rows[server_id]
+        assert row.reason == "needs_toolchain" and row.toolchainInstalled is False
+        assert row.needsToolchain is not None
+        assert (row.needsToolchain.name, row.needsToolchain.source, row.needsToolchain.version) == (
+            "dotnet-sdk", ARCHIVE_URL, VERSION)
+        assert row.toolchainVersion is None and row.toolchainSizeMb is None
+    # go is not installable by core: no offer, no installed flag.
+    assert rows["gopls"].needsToolchain is None and rows["gopls"].toolchainInstalled is None
+    assert rows["pyright"].toolchainInstalled is None
+    # The metadata is read once for both rows, and reused by the next catalog.
+    reads = [url for _, url, _ in fake_http.requests if url == toolchains.RELEASES_INDEX_URL]
+    await lsp_catalog_handler(None, Empty(), core)  # type: ignore[arg-type]
+    again = [url for _, url, _ in fake_http.requests if url == toolchains.RELEASES_INDEX_URL]
+    assert len(reads) == 1 and len(again) == 1
+
+
+@posix_only
+async def test_catalog_does_not_wait_long_for_the_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_http: FakeMicrosoft
+) -> None:
+    _script(tmp_path / "bin" / "dotnet", "exit 0\n")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+
+    async def slow(**_kw: Any) -> Any:
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(toolchains, "resolve_dotnet", slow)
+    monkeypatch.setattr(toolchains, "CATALOG_OFFER_TIMEOUT_SEC", 0.05)
+    result = await asyncio.wait_for(
+        lsp_catalog_handler(None, Empty(), _core(tmp_path)), 5  # type: ignore[arg-type]
+    )
+    row = next(row for row in result.servers if row.id == "csharp")
+    assert row.needsToolchain is not None
+    assert row.needsToolchain.sizeMb == toolchains.ESTIMATE_MB
+    assert row.needsToolchain.version is None
+    assert row.needsToolchain.source == toolchains.RELEASES_INDEX_URL
+
+
+@posix_only
+async def test_catalog_never_reads_the_metadata_when_switched_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_http: FakeMicrosoft
+) -> None:
+    monkeypatch.setenv("SNOWPEA_TOOLCHAIN_METADATA", "0")
+    _script(tmp_path / "bin" / "dotnet", "exit 0\n")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    result = await lsp_catalog_handler(None, Empty(), _core(tmp_path))  # type: ignore[arg-type]
+    row = next(row for row in result.servers if row.id == "csharp")
+    assert row.needsToolchain is not None and row.needsToolchain.version is None
+    assert fake_http.requests == []
+
+
+async def test_catalog_says_core_s_sdk_is_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_http: FakeMicrosoft
+) -> None:
+    await toolchains.install("dotnet-sdk", _quiet)
+    marker = json.loads((toolchains.dotnet_dir() / toolchains.MARKER).read_text())
+    assert marker["sizeBytes"] > 4096
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    result = await lsp_catalog_handler(None, Empty(), _core(tmp_path))  # type: ignore[arg-type]
+    row = next(row for row in result.servers if row.id == "csharp")
+    assert row.toolchainInstalled is True and row.toolchain == "dotnet-sdk"
+    assert row.toolchainVersion == VERSION
+    assert row.toolchainSizeMb == round(marker["sizeBytes"] / 1_000_000)
+    assert row.reason is None and row.needsToolchain is None
+    toolchains.remove("dotnet-sdk")
+    result = await lsp_catalog_handler(None, Empty(), _core(tmp_path))  # type: ignore[arg-type]
+    row = next(row for row in result.servers if row.id == "csharp")
+    assert row.toolchainInstalled is False
+
+
+def test_installed_reads_an_old_marker_without_a_size(tmp_path: Path) -> None:
+    assert toolchains.installed("dotnet-sdk") is None
+    toolchains.dotnet_dir().mkdir(parents=True)
+    toolchains.dotnet_exe().write_text("")
+    (toolchains.dotnet_dir() / toolchains.MARKER).write_text('{"version": "10.0.100"}')
+    assert toolchains.installed("dotnet-sdk") == {"version": "10.0.100", "sizeMb": None}
+    assert toolchains.installed("go") is None

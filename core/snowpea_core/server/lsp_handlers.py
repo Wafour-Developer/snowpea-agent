@@ -90,6 +90,11 @@ async def lsp_catalog_handler(
             for (server, _effective), hit in zip(rows, found, strict=True)
         )
     )
+    offers: dict[str, LspToolchainOffer] = {}
+    for name in {item for item in missing if item and toolchains.TOOLCHAINS[item].auto}:
+        offers[name] = LspToolchainOffer(
+            **await toolchains.offer(name, timeout=toolchains.CATALOG_OFFER_TIMEOUT_SEC)
+        )
     entries = []
     for (server, effective), hit, toolchain in zip(rows, found, missing, strict=True):
         path = hit[0] if hit else None
@@ -98,6 +103,18 @@ async def lsp_catalog_handler(
         if toolchain is not None:
             reasons = toolchains.reason_fields(toolchain)
             needs = toolchains.TOOLCHAINS[toolchain].needs
+            if toolchain in offers:
+                reasons["needsToolchain"] = offers[toolchain]
+        kind = server.install.kind if server.install is not None else None
+        own = toolchains.TOOLCHAIN_FOR_KIND.get(kind or "")
+        if own is not None and toolchains.TOOLCHAINS[own].auto:
+            copy = toolchains.installed(own)
+            reasons.setdefault("toolchain", own)
+            reasons.setdefault("toolchainInstallable", True)
+            reasons["toolchainInstalled"] = copy is not None
+            if copy is not None:
+                reasons["toolchainVersion"] = copy["version"]
+                reasons["toolchainSizeMb"] = copy["sizeMb"]
         entries.append(
             LspCatalogEntry(
                 id=server.id,

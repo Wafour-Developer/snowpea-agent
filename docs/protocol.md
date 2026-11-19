@@ -2355,7 +2355,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `servers` | `({ available?: boolean; disabled: boolean; extensions?: string[]; hint?: string \| null; id: string; installHint?: string \| null; installable: boolean; languageIds?: string[]; managed?: boolean; needs?: string \| null; path?: string \| null; reason?: "needs_toolchain" \| null; toolchain?: string \| null; toolchainInstallable?: boolean \| null; url?: string \| null; })[]` | no | One row per registered server id. |
+| `servers` | `({ available?: boolean; disabled: boolean; extensions?: string[]; hint?: string \| null; id: string; installHint?: string \| null; installable: boolean; languageIds?: string[]; managed?: boolean; needs?: string \| null; needsToolchain?: { name: string; sizeMb?: number \| null; source?: string \| null; version?: string \| null; } \| null; path?: string \| null; reason?: "needs_toolchain" \| null; toolchain?: string \| null; toolchainInstallable?: boolean \| null; toolchainInstalled?: boolean \| null; toolchainSizeMb?: number \| null; toolchainVersion?: string \| null; url?: string \| null; })[]` | no | One row per registered server id. |
 
 ### `lsp.install`
 

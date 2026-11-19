@@ -187,6 +187,10 @@ def snowpea_home() -> Iterator[Path]:
             SNOWPEA_MODELS_DEV="0",
             # Never hold a real sleep inhibitor on the machine running the suite.
             SNOWPEA_KEEP_AWAKE="0",
+            # Never read the .NET release metadata for an lsp.catalog offer, and
+            # keep core-installed toolchains in the suite's home, not the real one.
+            SNOWPEA_TOOLCHAIN_METADATA="0",
+            SNOWPEA_TOOLCHAINS_DIR=str(home / "toolchains"),
             CLAUDE_CONFIG_DIR=str(home / "claude-config"),
             CODEX_HOME=str(home / "codex-home"),
         ):
