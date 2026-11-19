@@ -3375,10 +3375,18 @@ def skill_refuses(session: Session, name: str) -> bool:
     return allowed is not None and name not in allowed
 
 
-def _narrowed_refusal(session: Session, name: str) -> str:
-    """The refusal a narrowed agent reads, naming what it can call instead."""
+def _narrowed_refusal(core: Core, session: Session, name: str) -> str:
+    """The refusal a narrowed agent reads, naming what it can call instead.
+
+    Only tools the session can call now: a definition's list also names host
+    tools (``repl``, ``request_code_mode``) that a closed, older or other host
+    does not provide, and naming those sent the model to ``unknown tool``.
+    """
     allowed = sorted(
-        deferred_tools.narrowed(getattr(session, "allowed_tools", None), session) or ()
+        tool
+        for tool in deferred_tools.narrowed(getattr(session, "allowed_tools", None), session)
+        or ()
+        if core.tools.get(tool, session) is not None
     )
     message = f"{name} is not available to this agent; its tools are: {', '.join(allowed)}"
     from snowpea_core.tools import tool_hints
@@ -3435,7 +3443,7 @@ async def _run_one_call(
         return None
     if skill_refuses(session, call.name):
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
-        await _fail_call(core, session, call, _narrowed_refusal(session, call.name))
+        await _fail_call(core, session, call, _narrowed_refusal(core, session, call.name))
         return None
 
     # A write that lands on snowpea's own settings is judged as ``config``,
