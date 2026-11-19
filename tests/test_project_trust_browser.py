@@ -146,8 +146,6 @@ async def test_a_browser_trust_that_does_not_count(
 @pytest.mark.parametrize("owner", [
     {"host_tools_from": "b-2"},          # another browser's session
     {"origin_client_id": "ide-1"},       # the IDE's session
-    # m27, M1: an IDE session this browser attached to (or claims the id of).
-    {"origin_client_id": "b-1", "origin_surface": "ide"},
 ])
 async def test_another_surfaces_session_is_not_the_browsers(
         core: Core, project: Path, owner: dict[str, Any]) -> None:
@@ -162,17 +160,14 @@ async def test_another_surfaces_session_is_not_the_browsers(
     assert _reason(caught) == "browser_not_owner"
 
 
-async def test_being_the_origin_of_an_ide_session_is_not_owning_it(
+async def test_an_ide_session_the_browser_continues_is_its_own(
         core: Core, project: Path) -> None:
-    """m27, M1: a browser that resumed or attached to an IDE session is its origin
-    connection, but the session is still not the browser's for trust."""
+    """m31 (owner, 2026-11-19): a browser that attached to an IDE session (its
+    origin connection and clientId) continues it, also for trust, as before 0.2.97."""
     browser = _conn()
     _live(core, _session("s", project, origin_surface="ide", origin_conn=browser,
                          origin_client_id="b-1"))
-    with pytest.raises(RpcError) as caught:
-        await _digests(core, browser, project)
-    assert _reason(caught) == "browser_not_owner"
-    # The same origin on a browser-made session is its own.
+    assert await _digests(core, browser, project)
     _live(core, _session("s", project, origin_surface="browser", origin_conn=browser))
     assert await _digests(core, browser, project)
 
