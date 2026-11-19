@@ -70,6 +70,7 @@ TABLE: dict[str, tuple[str, str, str, str]] = {
     "external.open": (P, P, P, R),  # trust decides (test below)
     "external.send": (P, P, N, R),
     "external.setMode": (P, P, N, R),
+    "external.setModel": (P, P, N, R),
     "external.interrupt": (P, P, N, R),
     "external.create": (P, P, P, R),  # trust decides (test below)
     "external.close": (P, P, N, R),
@@ -181,6 +182,7 @@ async def _params(daemon: Daemon, ide: RpcClient, tmp_path: Path) -> dict[str, d
         "external.get": {"ref": ref}, "external.read": {"ref": ref},
         "external.open": {"ref": ref}, "external.send": {"ref": ref, "text": "hi"},
         "external.setMode": {"ref": ref, "mode": "readonly"},
+        "external.setModel": {"ref": ref, "model": None},
         "external.interrupt": {"ref": ref},
         "external.create": {"cli": "claude", "project": str(project)},
         "external.close": {"ref": ref}, "external.unwatch": {"ref": ref},

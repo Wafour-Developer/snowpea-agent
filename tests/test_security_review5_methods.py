@@ -71,6 +71,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         "gateway.list", "gateway.unbind", "gateway.sync", "permission.allowlist.list",
         "external.open", "external.send", "external.setMode", "external.interrupt",
         "external.create", "external.close",
+        "external.setModel",
         # 1.58.0 (was yynnnn): a browser's Settings page shows the security master
         # switch and the lists it may now change with the marker (reads only).
         "security.get", "security.check", "security.presets.list",

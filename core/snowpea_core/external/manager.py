@@ -24,6 +24,7 @@ import asyncio
 import collections
 import contextlib
 import inspect
+import json
 import logging
 import os
 import time
@@ -186,6 +187,11 @@ class _Record:
     #: The validated real path of the session's folder (security review L8):
     #: what a CLI is started in, never the transcript's raw string.
     real_cwd: str | None = None
+    #: The model chosen through ``external.create {model}`` or
+    #: ``external.setModel`` (1.67.0): every channel start from now on passes it;
+    #: ``None`` with ``model_chosen`` is the CLI's default.
+    model: str | None = None
+    model_chosen: bool = False
 
     @property
     def cli(self) -> str:
@@ -298,6 +304,9 @@ class ExternalManager:
         self.observers: list[Observer] = []
         #: cli -> (monotonic time, executable path, model ids).
         self._models: dict[str, tuple[float, str | None, list[str]]] = {}
+        #: ``"cli:id" -> model or None`` chosen per session (1.67.0), kept in
+        #: :attr:`_model_choices_path`; read on first use.
+        self._model_choices: dict[str, str | None] | None = None
         self._model_tasks: dict[str, asyncio.Task[None]] = {}
         from snowpea_core.external import tmux as _tmux
 
@@ -605,6 +614,7 @@ class ExternalManager:
                 ),
                 "models": [],
                 "modelsLoaded": False,
+                "defaultModel": None,
                 "pendingPath": self.pending_path(cli),
                 "problems": [],
             }
@@ -634,6 +644,8 @@ class ExternalManager:
             cached = self._models.get(adapter.id)
             path = found.executable.path if found.executable is not None else None
             row["modelsLoaded"] = bool(found.usable and cached is not None and cached[1] == path)
+            default = adapter.default_model
+            row["defaultModel"] = default if default in row["models"] else None
             out.append(row)
         return out
 
@@ -831,7 +843,7 @@ class ExternalManager:
             "nativeMode": record.native_mode if record.host in ("snowpea", "tmux") else None,
             "controlled": self._controlled(record, found),
             "preview": _preview(info.preview),
-            "model": info.model,
+            "model": record.model if record.model_chosen else info.model,
             "securityListsApply": self._lists_apply(
                 record.project, record.host, self._approvals(record, found),
                 self._controlled(record, found),
@@ -875,6 +887,7 @@ class ExternalManager:
             "controllable": row["controllable"],
             "controlled": row["controlled"],
             "title": row["title"],
+            "model": row["model"],
             "error": clean_text(record.error) if record.status == "error" and record.error
             else None,
         }
@@ -1137,7 +1150,7 @@ class ExternalManager:
             "nativeMode": None,
             "controlled": True,
             "preview": _preview(info.preview),
-            "model": info.model,
+            "model": self._chosen_model(adapter.id, info.id, info.model),
             "securityListsApply": self._lists_apply(
                 proc.project_of(info.cwd, roots), host, "none", True
             ),
@@ -1167,6 +1180,9 @@ class ExternalManager:
             builder=TimelineBuilder(cli, session_id, salt=f"live-{uuid.uuid4().hex[:8]}"),
             real_cwd=cwd,
         )
+        choices = self._choices()
+        if f"{cli}:{session_id}" in choices:
+            record.model, record.model_chosen = choices[f"{cli}:{session_id}"], True
         self._records[key] = record
         try:
             await self._publish(record, await adapter.read(info), observe=False)
@@ -1541,6 +1557,8 @@ class ExternalManager:
                 errors.OUTSIDE_ROOT, "the session's folder changed since it was opened"
             )
         record.real_cwd = real
+        if model is None and record.model_chosen:
+            model = record.model
         spec = LaunchSpec(
             cwd=real,
             project=record.project,
@@ -1992,6 +2010,9 @@ class ExternalManager:
         record.info.id = session_id
         record.builder.session_id = session_id
         record.info.model = model
+        if model is not None:
+            record.model, record.model_chosen = model, True
+            self._remember_model(cli, session_id, model)
         self._records[(cli, session_id)] = record
         self._subscribe(record, conn)
         await self._announce(record, None, "none")
@@ -2036,6 +2057,101 @@ class ExternalManager:
             record.native_mode = row.id
             await self._announce(record)
             return {"session": self._row(record)}
+
+    # -- model (1.67.0) -----------------------------------------------------
+    @property
+    def _model_choices_path(self) -> Path:
+        # A folder of its own: ``external/*.json`` are pid records the
+        # supervisor removes at start (``reap_orphans``).
+        return self.home / "external" / "sessions" / "models.json"
+
+    def _choices(self) -> dict[str, str | None]:
+        """The per-session model choices, read once from :attr:`_model_choices_path`."""
+        if self._model_choices is None:
+            choices: dict[str, str | None] = {}
+            try:
+                raw = json.loads(self._model_choices_path.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                raw = {}
+            except (OSError, ValueError):
+                log.warning("could not read %s", self._model_choices_path, exc_info=True)
+                raw = {}
+            for key, value in (raw.items() if isinstance(raw, dict) else ()):
+                if not isinstance(key, str) or (value is not None and not isinstance(value, str)):
+                    continue
+                try:
+                    proc.validate_model(value)
+                except ExternalError:
+                    continue  # a hand-edited file never smuggles a flag in
+                choices[key] = value
+            self._model_choices = choices
+        return self._model_choices
+
+    def _chosen_model(self, cli: str, session_id: str, recorded: str | None) -> str | None:
+        choices = self._choices()
+        key = f"{cli}:{session_id}"
+        return choices[key] if key in choices else recorded
+
+    def _remember_model(self, cli: str, session_id: str, model: str | None) -> None:
+        from snowpea_core.util.atomic import write_atomic
+
+        choices = self._choices()
+        choices[f"{cli}:{session_id}"] = model
+        try:
+            write_atomic(self._model_choices_path,
+                         json.dumps(choices, indent=1, sort_keys=True) + "\n")
+        except OSError:
+            log.warning("could not save %s", self._model_choices_path, exc_info=True)
+
+    async def set_model(self, cli: str, session_id: str, model: str | None) -> dict[str, Any]:
+        """``external.setModel`` (1.67.0): the model from the session's next turn on.
+
+        ``None`` is the CLI's default.  A model the CLI's list (``external.clis``
+        ``models``) does not name is refused, except for Claude Code, which also
+        takes full model ids besides its aliases.  A session in a tmux pane or in
+        another terminal is refused: its model is changed there (``/model``).
+        """
+        proc.validate_model(model)
+        record, found = await self._load(cli, session_id)
+        try:
+            if model is not None and cli != "claude":
+                offered = self._models.get(cli)
+                if offered is None:
+                    offered_list = await self.models(cli)
+                else:
+                    offered_list = offered[2]
+                if offered_list and model not in offered_list:
+                    raise ExternalError(
+                        errors.INVALID_PARAMS,
+                        f"{record.adapter.title} does not offer model {model!r}; it offers "
+                        f"{', '.join(offered_list)}",
+                    )
+            async with record.lock:
+                if record.host == "terminal":
+                    raise ExternalError(
+                        errors.EXTERNAL_VIEW_ONLY,
+                        "this session runs in another terminal; change the model there",
+                    )
+                channel = record.channel
+                if record.host == "tmux" or self._bridge_of(record) is not None or (
+                        channel is not None and channel.host == "tmux"):
+                    raise ExternalError(
+                        errors.EXTERNAL_UNAVAILABLE,
+                        "this session runs in a tmux terminal; change the model in the "
+                        "terminal with /model",
+                        {"reason": "tmux_transport"},
+                    )
+                if channel is not None and channel.alive:
+                    await channel.set_model(model)
+                record.model, record.model_chosen = model, True
+                self._remember_model(cli, record.id, model)
+                await self._announce(record)
+                result: dict[str, Any] = {"ref": record.ref, "model": model}
+                if record.turn_id is not None:
+                    result["appliesNextTurn"] = True
+                return result
+        finally:
+            await self._maybe_forget(record)
 
     async def terminal_snapshot(self, cli: str, session_id: str) -> dict[str, Any]:
         """``external.terminalSnapshot``: the bridged pane's text, plain and clipped."""

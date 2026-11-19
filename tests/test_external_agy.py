@@ -195,6 +195,29 @@ async def test_models(env: Env) -> None:
         await _create(env, conn, model="--dangerously-skip-permissions")
 
 
+async def test_set_model_switches_before_the_next_prompt(env: Env) -> None:
+    conn = Conn()
+    ref = (await _create(env, conn))["ref"]
+    await _turn(env, conn, ref)
+    assert env.sent("session/set_model") == []
+    result = await env.manager.set_model("agy", ref["id"], "gemini-fake-low")
+    assert result == {"ref": ref, "model": "gemini-fake-low"}
+    assert env.sent("session/set_model") == []  # from the next turn
+    assert env.hub.states()[-1]["model"] == "gemini-fake-low"
+    await _turn(env, conn, ref, "again")
+    switched = [f["params"]["modelId"] for f in env.sent("session/set_model")]
+    assert switched == ["gemini-fake-low"]
+    await _turn(env, conn, ref, "third")
+    assert len(env.sent("session/set_model")) == 1  # switched once
+    # null: back to the model the conversation had when snowpea attached.
+    await env.manager.set_model("agy", ref["id"], None)
+    await _turn(env, conn, ref, "fourth")
+    assert env.sent("session/set_model")[-1]["params"]["modelId"] == "gemini-fake"
+    with pytest.raises(ExternalError) as caught:
+        await env.manager.set_model("agy", ref["id"], "gpt-unknown")
+    assert caught.value.code == errors.INVALID_PARAMS
+
+
 # -- create, stream, history -------------------------------------------------------
 
 

@@ -40,6 +40,8 @@ Clients should also send `locale` (protocol 1.65.0, capability `clientLocale`): 
 
 Since protocol 1.66.0 (capability `securityDefaultOff`) the security checks are off by default: `security.get` returns `enabled: false` and `byDefault: true` until a person turns them on (`settings.set {scope: 'global', patch: {security: {enabled: true}}}`). Show that state neutrally, on the security settings only. While the checks are off, reads of the daemon's token and saved logins are not blocked either; they follow the mode rules. For clients of 1.65.0 and older, `problems` still starts with a neutral line (problem code `security-disabled`).
 
+Since protocol 1.67.0 (capability `externalModelSwitch`) an external CLI session's model can be changed: `external.setModel {ref, model}` (a model id from that CLI's `external.clis` `models`, or `null` for the CLI's default) answers `{ref, model, appliesNextTurn?}` and applies from the next turn; a running turn finishes on the old model. The choice survives a daemon restart, `ExternalSessionRow.model` and the `external.state` event (new field `model`) show it, and `ExternalCliInfo.defaultModel` names the CLI's default when it says (Codex). Claude Code also takes full model ids. A session in a tmux pane is refused (`external_unavailable`, `details.reason` `tmux_transport`): change it there with `/model`.
+
 ## Methods, by area
 
 | Area | Methods |

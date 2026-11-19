@@ -42,6 +42,8 @@ uv run python scripts/gen_protocol.py --check
 
 自协议 1.66.0（capability `securityDefaultOff`）起，安全检查默认关闭：在有人开启之前（`settings.set {scope: 'global', patch: {security: {enabled: true}}}`），`security.get` 返回 `enabled: false` 和 `byDefault: true`。请只在安全设置中以中性的方式显示这一状态。检查关闭期间，读取守护进程的令牌和已保存的登录信息也不会被阻止，而是遵循模式规则。为了 1.65.0 及更早的客户端，`problems` 仍以一行中性的说明开头（问题代码 `security-disabled`）。
 
+自协议 1.67.0（capability `externalModelSwitch`）起，可以更改外部 CLI 会话的模型：`external.setModel {ref, model}`（该 CLI 在 `external.clis` 中 `models` 的某个 id，或用 `null` 表示 CLI 默认值）返回 `{ref, model, appliesNextTurn?}`，从下一轮开始生效；正在进行的一轮仍用原模型完成。该选择在守护进程重启后保留，`ExternalSessionRow.model` 和 `external.state` 事件（新字段 `model`）会显示它；CLI 提供时（Codex），`ExternalCliInfo.defaultModel` 给出默认模型。Claude Code 也接受完整的模型 id。在 tmux 窗格中运行的会话会被拒绝（`external_unavailable`，`details.reason` `tmux_transport`），请在该窗格中用 `/model` 更改。
+
 ## 方法，按领域分
 
 | 领域 | 方法 |

@@ -1190,6 +1190,7 @@ class ClaudeChannel(ExternalChannel):
         self.started_mode: str | None = None
         self.started_native: str | None = None
         self.started_grant: UnrestrictedGrant | None = None
+        self.started_model: str | None = None
         self.initialized: asyncio.Future[None] | None = None
         self.approval_tasks: dict[str, asyncio.Task[None]] = {}
         self.watchdog: asyncio.Task[None] | None = None
@@ -1241,6 +1242,7 @@ class ClaudeChannel(ExternalChannel):
         self.started_mode = self.mode
         self.started_native = self.native_mode
         self.started_grant = self.grant
+        self.started_model = self.spec.model
         self.closing = False
         self.initialized = asyncio.get_running_loop().create_future()
         self.reader = asyncio.ensure_future(self._read(process))
@@ -1517,11 +1519,11 @@ class ClaudeChannel(ExternalChannel):
             raise ExternalError(errors.INVALID_PARAMS, "prompt contains NUL")
         restart = self.process is None or not self.process.alive or (
             self.started_mode != self.mode or self.started_native != self.native_mode
-            or self.started_grant is not self.grant
+            or self.started_grant is not self.grant or self.started_model != self.spec.model
         )
         if restart:
-            # A mode switch takes effect between turns: the process restarts
-            # on the same session with the new flags.
+            # A mode or model switch takes effect between turns: the process
+            # restarts on the same session with the new flags.
             await self._stop_process()
             await self._spawn(resume=self._resume_now())
         assert self.process is not None

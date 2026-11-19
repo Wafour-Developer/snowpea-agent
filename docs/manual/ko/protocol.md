@@ -40,6 +40,8 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 프로토콜 1.66.0(capability `securityDefaultOff`)부터 보안 검사의 기본값은 꺼짐입니다. 사용자가 켜기 전까지(`settings.set {scope: 'global', patch: {security: {enabled: true}}}`) `security.get` 은 `enabled: false`, `byDefault: true` 를 돌려줍니다. 이 상태는 보안 설정 화면에서만 담담하게 보여 주세요. 검사가 꺼져 있으면 데몬의 토큰과 저장된 로그인을 읽는 것도 막지 않고 모드 규칙을 따릅니다. 1.65.0 이하의 클라이언트를 위해 `problems` 는 여전히 담담한 한 줄(문제 코드 `security-disabled`)로 시작합니다.
 
+프로토콜 1.67.0(capability `externalModelSwitch`)부터 외부 CLI 세션의 모델을 바꿀 수 있습니다. `external.setModel {ref, model}`(그 CLI의 `external.clis` `models` 중 하나, 또는 CLI 기본값이면 `null`)은 `{ref, model, appliesNextTurn?}`을 돌려주며 다음 턴부터 적용됩니다. 진행 중인 턴은 이전 모델로 끝납니다. 선택은 데몬을 다시 시작해도 유지되고, `ExternalSessionRow.model`과 `external.state` 이벤트(새 필드 `model`)에 나타나며, `ExternalCliInfo.defaultModel`은 CLI가 알려 줄 때(Codex) 기본 모델을 담습니다. Claude Code는 전체 모델 id도 받습니다. tmux 창에서 실행 중인 세션은 거절되며(`external_unavailable`, `details.reason` `tmux_transport`) 그 창에서 `/model`로 바꿉니다.
+
 ## 영역별 메서드
 
 | 영역 | 메서드 |

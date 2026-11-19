@@ -411,6 +411,33 @@ async def test_model_selection(env: Env) -> None:
     assert info is not None and info.model == "gpt-fake-mini"
 
 
+async def test_set_model_rides_on_the_next_turn_start(env: Env) -> None:
+    conn = Conn()
+    ref = await _create(env, conn)
+    await _turn(env, conn, ref)
+    assert "model" not in env.sent("turn/start")[-1]["params"]
+    result = await env.manager.set_model("codex", ref["id"], "gpt-fake-mini")
+    assert result == {"ref": ref, "model": "gpt-fake-mini"}
+    assert env.hub.states()[-1]["model"] == "gpt-fake-mini"
+    assert (await env.manager.get("codex", ref["id"]))["session"]["model"] == "gpt-fake-mini"
+    await _turn(env, conn, ref, "again")
+    assert env.sent("turn/start")[-1]["params"]["model"] == "gpt-fake-mini"
+    await _turn(env, conn, ref, "third")
+    assert "model" not in env.sent("turn/start")[-1]["params"]  # codex keeps it
+    # null: back to the default model/list names, which external.clis shows too.
+    await env.manager.set_model("codex", ref["id"], None)
+    await _turn(env, conn, ref, "fourth")
+    assert env.sent("turn/start")[-1]["params"]["model"] == "gpt-fake"
+    codex = next(row for row in await env.manager.clis() if row["id"] == "codex")
+    assert codex["defaultModel"] == "gpt-fake" and "gpt-fake-mini" in codex["models"]
+    # A model the CLI does not list (a hidden one too) is refused.
+    for unknown in ("gpt-unknown", "gpt-fake-internal"):
+        with pytest.raises(ExternalError) as caught:
+            await env.manager.set_model("codex", ref["id"], unknown)
+        assert caught.value.code == errors.INVALID_PARAMS and "gpt-fake-mini" in \
+            caught.value.message
+
+
 async def test_several_threads_share_one_app_server(env: Env) -> None:
     env.write_scenario(scenario="slow", delay=0.02,
                        reply="each thread streams its own answer")

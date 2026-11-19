@@ -36,6 +36,8 @@ from snowpea_core.server.protocol import (
     ExternalRefParams,
     ExternalSendParams,
     ExternalSendResult,
+    ExternalSetModelParams,
+    ExternalSetModelResult,
     ExternalSetModeParams,
     ExternalTerminalSnapshotResult,
     Ok,
@@ -62,6 +64,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "external.get",
     "external.unwatch",
     "external.terminalSnapshot",
+    "external.setModel",
 )
 
 
@@ -302,6 +305,17 @@ async def set_mode_handler(
     return ExternalCreateResult.model_validate(_with_switch(core, result))
 
 
+async def set_model_handler(
+    conn: RpcConnection, params: ExternalSetModelParams, core: Core
+) -> ExternalSetModelResult:
+    """``external.setModel`` (1.67.0): the session's model from its next turn."""
+    _own_only(conn, core, params.ref.cli, params.ref.id)
+    result = await _call(
+        ensure_manager(core).set_model(params.ref.cli, params.ref.id, params.model)
+    )
+    return ExternalSetModelResult.model_validate(result)
+
+
 async def interrupt_handler(
     conn: RpcConnection, params: ExternalRefParams, core: Core
 ) -> Ok:
@@ -377,6 +391,7 @@ def register_external_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("external.read", read_handler)
     dispatcher.register("external.send", send_handler)
     dispatcher.register("external.setMode", set_mode_handler)
+    dispatcher.register("external.setModel", set_model_handler)
     dispatcher.register("external.interrupt", interrupt_handler)
     dispatcher.register("external.create", create_handler)
     dispatcher.register("external.close", close_handler)
