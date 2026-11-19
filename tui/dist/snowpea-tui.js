@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react64 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.64.0";
+var PROTOCOL_VERSION = "1.65.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -33936,7 +33936,8 @@ var Client = class {
       clientKind: options.clientKind,
       clientId: options.clientId,
       instanceId: options.instanceId,
-      keepAlive: options.keepAlive
+      keepAlive: options.keepAlive,
+      locale: options.locale
     };
   }
   get url() {
@@ -34152,15 +34153,26 @@ var Client = class {
     });
   }
   async hello() {
-    const result = await this.rawCall("system.hello", {
+    const params = {
       token: this.options.token,
       clientVersion: this.options.clientVersion,
       protocolVersion: this.options.protocolVersion ?? PROTOCOL_VERSION,
       ...this.options.clientKind ? { clientKind: this.options.clientKind } : {},
       ...this.options.clientId ? { clientId: this.options.clientId } : {},
       ...this.options.instanceId ? { instanceId: this.options.instanceId } : {},
-      ...this.options.keepAlive ? { keepAlive: true } : {}
-    }, HELLO_TIMEOUT_MS);
+      ...this.options.keepAlive ? { keepAlive: true } : {},
+      ...this.options.locale ? { locale: this.options.locale } : {}
+    };
+    let raw;
+    try {
+      raw = await this.rawCall("system.hello", params, HELLO_TIMEOUT_MS);
+    } catch (err) {
+      if (!(params.locale && err instanceof RpcError && err.is("invalid_params")))
+        throw err;
+      const { locale: _dropped, ...older } = params;
+      raw = await this.rawCall("system.hello", older, HELLO_TIMEOUT_MS);
+    }
+    const result = raw;
     this.serverProtocolVersion = result.protocolVersion ?? "";
     this.serverVersion = result.serverVersion ?? "";
     this.capabilities = result.capabilities ?? [];
@@ -35753,6 +35765,12 @@ function uiLanguage() {
 function setUiLanguage(tag) {
   current = asUiLanguage(tag);
   return current;
+}
+function localeFromEnv(env3 = process.env) {
+  const raw = [env3.LC_ALL, env3.LC_MESSAGES, env3.LANG].find((value) => value && value.trim() !== "");
+  const tag = String(raw ?? "").trim().split(/[.@]/)[0].replace(/_/g, "-");
+  if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(tag) || tag.length > 35) return void 0;
+  return tag;
 }
 function detectLanguage(text8) {
   if (!text8) return DEFAULT;
@@ -44431,7 +44449,7 @@ function FeedbackScreen({
 var import_react42 = __toESM(require_react(), 1);
 
 // src/version.ts
-var TUI_VERSION = "0.2.97";
+var TUI_VERSION = "0.2.98";
 
 // src/hooks/useFeedback.ts
 function useFeedback(deps) {
@@ -51954,10 +51972,12 @@ var TuiClient = class {
   }
   async connect() {
     const connect2 = this.options.connectFn ?? connect;
+    const locale = this.options.locale ?? (this.languagePinned ? uiLanguage() : localeFromEnv());
     const client = await connect2({
       port: this.options.port,
       token: this.options.token,
       clientVersion: this.options.clientVersion,
+      ...locale ? { locale } : {},
       ...this.options.remote ? { resolveEndpoint: () => ({ port: this.options.port, token: this.options.token }) } : {}
     });
     this.client = client;
