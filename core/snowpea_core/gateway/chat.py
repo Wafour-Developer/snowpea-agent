@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,9 +36,12 @@ from snowpea_core.gateway.base import (
     InboundMessage,
     parse_project_callback,
     parse_session_callback,
+    parse_session_page_callback,
     project_callback,
     session_callback,
+    session_page_callback,
 )
+from snowpea_core.jarvis.clock import parse_iso
 from snowpea_core.session.mode_guard import ModeCaller
 from snowpea_core.util.atomic import write_atomic
 
@@ -48,8 +52,8 @@ log = logging.getLogger("snowpea.gateway.chat")
 
 #: The chat commands, in the order ``/help`` and Telegram's menu list them.
 CHAT_COMMANDS: tuple[tuple[str, str], ...] = (
-    ("sessions", "List the open conversations and switch to one"),
-    ("resume", "Switch this chat to a session: /resume 2, /resume s-7c68c2"),
+    ("sessions", "Conversations, last used first: /sessions 2 (page), /sessions api (search)"),
+    ("resume", "Switch this chat to a session: /resume 13, /resume s-7c68c2, /resume api"),
     ("new", "Start a session: /new, /new ~/src/api, /new 3"),
     ("projects", "List known projects and start a session in one"),
     ("status", "What this chat is attached to, and what it is doing"),
@@ -87,12 +91,18 @@ HELP_REGISTRY: tuple[str, ...] = (
     "tools",
 )
 
+#: The same ``/sessions`` and ``/resume`` usage in Korean, under the list in ``/help``.
+SESSIONS_HELP_KO = (
+    "세션 목록은 최근 사용 순(★ 현재 채팅) · /sessions 2 → 2쪽 · /sessions api → 검색 · "
+    "/resume 13, /resume api → 그 세션으로 전환"
+)
+
 #: Session kinds a chat may attach itself to.  A subagent's session belongs to
 #: its parent turn and a scheduled run belongs to its job; neither is a
 #: conversation anyone can take over.
 CHAT_KINDS: frozenset[str] = frozenset({"chat", "agent"})
 
-#: Rows in a ``/sessions`` answer, and in a ``/projects`` answer.
+#: Rows in one ``/sessions`` page, and in a ``/projects`` answer.
 SESSION_ROWS = 10
 PROJECT_ROWS = 15
 #: Longest slice of a remembered prompt shown in a row.
@@ -112,6 +122,63 @@ def _button_label(row: Any) -> str:
     name = Path(row.workdir).name or row.workdir
     prompt = clip((row.lastPrompt or "").strip(), BUTTON_PROMPT_CHARS)
     return f'{name} · "{prompt}"' if prompt else f"{name} · {short_id(row.sessionId)}"
+
+
+def activity_of(row: Any) -> datetime | None:
+    """When ``row`` was last used: its last activity or prompt, else its creation."""
+    moments = [
+        parse_iso(getattr(row, field, None))
+        for field in ("lastActivityAt", "lastUserAt", "createdAt")
+    ]
+    known = [moment for moment in moments if moment is not None]
+    return max(known) if known else None
+
+
+def ago(moment: datetime | None, now: datetime) -> str:
+    """``방금`` / ``3분 전`` / ``2시간 전`` / ``어제`` / ``4일 전`` / ``11-02``."""
+    if moment is None:
+        return ""
+    seconds = max(0, int((now - moment).total_seconds()))
+    if seconds < 60:
+        return "방금"
+    if seconds < 3600:
+        return f"{seconds // 60}분 전"
+    if seconds < 86400:
+        return f"{seconds // 3600}시간 전"
+    days = seconds // 86400
+    if days == 1:
+        return "어제"
+    if days < 7:
+        return f"{days}일 전"
+    return moment.astimezone().strftime("%m-%d")
+
+
+def row_matches(row: Any, query: str) -> bool:
+    """``/sessions <text>``: the project folder, title or last prompt, or an id prefix."""
+    wanted = query.strip().lower()
+    if not wanted:
+        return True
+    if row.sessionId.lower().startswith(wanted):
+        return True
+    haystack = (
+        Path(row.workdir).name,
+        getattr(row, "title", None) or "",
+        row.lastPrompt or "",
+    )
+    return any(wanted in text.lower() for text in haystack)
+
+
+def sessions_args(args: str) -> tuple[int, str]:
+    """``/sessions`` arguments as ``(page, query)``: ``2``, ``api`` or ``api 2``."""
+    text = args.strip()
+    if text.isdigit():
+        return int(text), ""
+    head, _, tail = text.rpartition(" ")
+    if head.strip() and tail.isdigit():
+        return int(tail), head.strip()
+    return 1, text
+
+
 #: Telegram refuses a message over 4096 characters; stay well inside it.
 MESSAGE_CHARS = 3500
 
@@ -266,6 +333,11 @@ class ChatCommands:
 
     async def handle_callback(self, binding: Binding, message: InboundMessage) -> bool:
         """Answer a ``/sessions`` or ``/projects`` button; True when it was one."""
+        paged = parse_session_page_callback(message.callback_data)
+        if paged is not None:
+            await self._acknowledge(binding, message, "page")
+            await self._show_sessions(binding, message, *paged)
+            return True
         session_id = parse_session_callback(message.callback_data)
         if session_id is not None:
             await self._acknowledge(binding, message, "resume")
@@ -303,7 +375,17 @@ class ChatCommands:
         self._pending.pop((binding.id, channel_id), None)
 
     # -- commands -------------------------------------------------------
-    async def _cmd_sessions(self, binding: Binding, message: InboundMessage, _args: str) -> None:
+    async def _cmd_sessions(self, binding: Binding, message: InboundMessage, args: str) -> None:
+        await self._show_sessions(binding, message, *sessions_args(args))
+
+    async def _show_sessions(
+        self, binding: Binding, message: InboundMessage, page: int, query: str
+    ) -> None:
+        """One page of the list, last used first, numbered across all pages.
+
+        A search keeps each row's number in the whole list, so ``/resume 13``
+        and a bare ``13`` mean the same session whichever view showed it.
+        """
         if self.router.jarvis.routing:
             # Jarvis mode: the sessions are Jarvis's overview, and there is nothing to pick.
             await self._say(binding, message, self.router.jarvis.status_text())
@@ -312,20 +394,39 @@ class ChatCommands:
         if not rows:
             await self._say(binding, message, "no sessions yet — send a message, or /new")
             return
+        numbered = list(enumerate(rows, start=1))
+        head: list[str] = []
+        if query:
+            numbered = [(index, row) for index, row in numbered if row_matches(row, query)]
+            head = [f'"{clip(query, PROMPT_CHARS)}": {len(rows)}개 중 일치 {len(numbered)}개']
+            if not numbered:
+                await self._say(binding, message, head[0])
+                return
+        pages = (len(numbered) + SESSION_ROWS - 1) // SESSION_ROWS
+        page = min(max(page, 1), pages)
+        shown = numbered[(page - 1) * SESSION_ROWS : page * SESSION_ROWS]
         current = self._current_session_id(binding, message.channel_id)
-        lines = [
-            f"{'★ ' if row.sessionId == current else ''}{index}. {self._session_row(row)}"
-            for index, row in enumerate(rows, start=1)
+        now = datetime.now(UTC)
+        lines = head + [
+            f"{'★ ' if row.sessionId == current else ''}{index}. {self._session_row(row, now)}"
+            for index, row in shown
         ]
         # A button names the conversation the way a person remembers it:
         # the project and what was last asked, not an id.
         buttons = [
-            Button(
-                text=f"{index}. {_button_label(row)}",
-                data=session_callback(row.sessionId),
-            )
-            for index, row in enumerate(rows, start=1)
+            Button(text=f"{index}. {_button_label(row)}", data=session_callback(row.sessionId))
+            for index, row in shown
         ]
+        if pages > 1:
+            typed = f"/sessions {query} " if query else "/sessions "
+            footer = f"— {page}/{pages}쪽"
+            if page < pages:
+                footer += f" · 다음: {typed}{page + 1}"
+            lines.append(footer)
+            for label, target in (("◀ 이전", page - 1), ("다음 ▶", page + 1)):
+                data = session_page_callback(target, query) if 1 <= target <= pages else None
+                if data is not None:
+                    buttons.append(Button(text=label, data=data))
         self._pending[(binding.id, message.channel_id)] = "sessions"
         await self._say(binding, message, "\n".join(lines), buttons=buttons)
 
@@ -337,8 +438,11 @@ class ChatCommands:
             await self._say(binding, message, "usage: /resume <number | session id>")
             return
         rows = await self._sessions(binding, message.channel_id)
-        if wanted.isdigit() and 1 <= int(wanted) <= len(rows):
-            await self._resume_id(binding, message, rows[int(wanted) - 1].sessionId)
+        if wanted.isdigit():
+            if 1 <= int(wanted) <= len(rows):
+                await self._resume_id(binding, message, rows[int(wanted) - 1].sessionId)
+            else:
+                await self._say(binding, message, f"no session {wanted} — /sessions lists them")
             return
         matches = [row for row in rows if row.sessionId.startswith(wanted)]
         if len(matches) == 1:
@@ -347,6 +451,19 @@ class ChatCommands:
         if len(matches) > 1:
             count = len(matches)
             await self._say(binding, message, f"{wanted} matches {count} sessions — be exact")
+            return
+        # Not an id: a search, which must name exactly one session.
+        found = [row for row in rows if row_matches(row, wanted)]
+        if len(found) == 1:
+            await self._resume_id(binding, message, found[0].sessionId)
+            return
+        if len(found) > 1:
+            await self._say(
+                binding,
+                message,
+                f'"{clip(wanted, PROMPT_CHARS)}" 일치 {len(found)}개 — '
+                f"/sessions {wanted} 로 골라 주세요",
+            )
             return
         await self._resume_id(binding, message, wanted)
 
@@ -433,6 +550,7 @@ class ChatCommands:
 
     async def _cmd_help(self, binding: Binding, message: InboundMessage, _args: str) -> None:
         lines = [f"/{name} — {summary}" for name, summary in CHAT_COMMANDS]
+        lines.append(SESSIONS_HELP_KO)
         core = self.router.core
         extras: list[str] = []
         for name in HELP_REGISTRY:
@@ -492,7 +610,12 @@ class ChatCommands:
 
     # -- lookups --------------------------------------------------------
     async def _sessions(self, binding: Binding, channel_id: str) -> list[Any]:
-        """The chat-usable sessions of this daemon, newest first."""
+        """The chat-usable sessions of this daemon: this chat's own, then last used first.
+
+        ``session.list`` orders by creation, which buries an old conversation
+        still in use; the order here is the gateway's own, so clients of
+        ``session.list`` see no change.
+        """
         core = self.router.core
         if core is None:
             return []
@@ -511,12 +634,29 @@ class ChatCommands:
         ]
         if current and not any(row.sessionId == current for row in usable):
             usable = [row for row in rows if row.sessionId == current] + usable
-        return usable[:SESSION_ROWS]
+        # A live session restored since the daemon started has no activity
+        # time in memory; its last stored event says when it was last used.
+        unknown = [row.sessionId for row in usable if not row.lastActivityAt]
+        if unknown and core.store is not None:
+            last = await core.store.last_events(unknown)
+            usable = [
+                row.model_copy(update={"lastActivityAt": last[row.sessionId][1]})
+                if row.sessionId in last and not row.lastActivityAt
+                else row
+                for row in usable
+            ]
+        oldest = datetime.min.replace(tzinfo=UTC)
+        usable.sort(key=lambda row: activity_of(row) or oldest, reverse=True)
+        usable.sort(key=lambda row: row.sessionId != current)
+        return usable
 
-    def _session_row(self, row: Any) -> str:
+    def _session_row(self, row: Any, now: datetime) -> str:
         prompt = clip(row.lastPrompt or "", PROMPT_CHARS)
         name = Path(row.workdir).name or row.workdir
-        line = f"{short_id(row.sessionId)} · {name} · {row.mode}"
+        when = ago(activity_of(row), now)
+        line = " · ".join(
+            part for part in (name, short_id(row.sessionId), row.mode, when) if part
+        )
         return f'{line} · "{prompt}"' if prompt else line
 
     def _projects(self) -> list[Project]:
@@ -623,6 +763,10 @@ __all__ = [
     "ChatCommands",
     "ChatSessionMemory",
     "Project",
+    "activity_of",
+    "ago",
     "clip",
     "read_projects",
+    "row_matches",
+    "sessions_args",
 ]

@@ -26,6 +26,10 @@ QUESTION_OTHER = "other"
 SESSION_CALLBACK_PREFIX = "ses"
 #: Prefix of the ``callback_data`` a ``/projects`` row carries.
 PROJECT_CALLBACK_PREFIX = "prj"
+#: Prefix of the ``callback_data`` a ``/sessions`` page button carries.
+SESSION_PAGE_CALLBACK_PREFIX = "sesp"
+#: Telegram's cap on ``callback_data``, in bytes; the tightest of the platforms.
+CALLBACK_DATA_BYTES = 64
 
 
 class GatewayError(RuntimeError):
@@ -123,6 +127,30 @@ def parse_session_callback(data: str | None) -> str | None:
     if prefix != SESSION_CALLBACK_PREFIX or not session_id or ":" in session_id:
         return None
     return session_id
+
+
+def session_page_callback(page: int, query: str = "") -> str | None:
+    """``sesp:<page>[:<query>]`` — a ``/sessions`` page button; ``None`` when too long.
+
+    The search travels with the page so a press shows the same matches; a
+    query that would push the data past :data:`CALLBACK_DATA_BYTES` gets no
+    button, and the list says what to type instead.
+    """
+    data = f"{SESSION_PAGE_CALLBACK_PREFIX}:{page}"
+    if query:
+        data = f"{data}:{query}"
+    return data if len(data.encode("utf-8")) <= CALLBACK_DATA_BYTES else None
+
+
+def parse_session_page_callback(data: str | None) -> tuple[int, str] | None:
+    """``(page, query)`` from a ``/sessions`` page button callback, or ``None``."""
+    if not data:
+        return None
+    prefix, _, rest = data.partition(":")
+    page, _, query = rest.partition(":")
+    if prefix != SESSION_PAGE_CALLBACK_PREFIX or not page.isdigit():
+        return None
+    return int(page), query
 
 
 def project_callback(index: int) -> str:
@@ -257,10 +285,12 @@ def approval_text(tool: str, args: dict[str, Any], session_id: str) -> str:
 
 __all__ = [
     "APPROVAL_CALLBACK_PREFIX",
+    "CALLBACK_DATA_BYTES",
     "PROJECT_CALLBACK_PREFIX",
     "QUESTION_CALLBACK_PREFIX",
     "QUESTION_OTHER",
     "SESSION_CALLBACK_PREFIX",
+    "SESSION_PAGE_CALLBACK_PREFIX",
     "Button",
     "GatewayError",
     "InboundMessage",
@@ -275,11 +305,13 @@ __all__ = [
     "parse_project_callback",
     "parse_question_callback",
     "parse_session_callback",
+    "parse_session_page_callback",
     "project_callback",
     "question_buttons",
     "question_callback",
     "question_text",
     "session_callback",
+    "session_page_callback",
 ]
 
 
