@@ -26,6 +26,7 @@ import {
   UNKNOWN_CODE_ALLOW_CONFIRM,
   OLD_DAEMON_LINE,
   nextUnknownCode,
+  stepUnknownCode,
   unknownCodeMeaning,
   unknownCodeSegments,
   type UnknownCode,
@@ -136,11 +137,18 @@ export function SecurityScreen({
   const [elsewhere, setElsewhere] = useState(false);
   const [helpTop, setHelpTop] = useState(0);
   const scroll = useRef<Record<string, number>>({});
+  /**
+   * The cursor is on the unknown-code row (the first row, above the lists):
+   * ←→ and Space change its value there instead of switching tabs.
+   */
+  const [onSwitch, setOnSwitch] = useState(false);
+  const hasSwitch = Boolean(onSetUnknownCode);
+  const switchHere = hasSwitch && onSwitch;
 
   const dirty = !sameLists(draft, listsOf(base));
   const rows = tabRows(tab, catalog, draft);
   const cursor = Math.min(cursors[tab], Math.max(0, rows.length - 1));
-  const row: SecurityRow | undefined = rows[cursor];
+  const row: SecurityRow | undefined = switchHere ? undefined : rows[cursor];
   const say = (text: string, color?: string) => setNotes([{ text, color }]);
   const moveTo = (index: number) => setCursors((current) => ({ ...current, [tab]: index }));
 
@@ -238,10 +246,11 @@ export function SecurityScreen({
       });
   };
 
-  /** Flip `security.unknownCode`; letting code through asks first. */
-  const switchUnknownCode = () => {
+  /** Set `security.unknownCode` (`u`: the next value round); letting code through asks first. */
+  const switchUnknownCode = (target?: UnknownCode) => {
     if (!onSetUnknownCode || locked()) return;
-    const next: UnknownCode = nextUnknownCode(base.unknownCode, !noAuto);
+    const next: UnknownCode = target ?? nextUnknownCode(base.unknownCode, !noAuto);
+    if (next === base.unknownCode) return;
     const run = () => {
       setMode({ k: "saving" });
       setNotes([{ text: "Saving…", dim: true }]);
@@ -366,21 +375,41 @@ export function SecurityScreen({
         else onClose();
         return;
       }
+      if (switchHere && (key.leftArrow || key.rightArrow)) {
+        // On the unknown-code row ←→ picks the value; tabs stay where they are.
+        return switchUnknownCode(stepUnknownCode(base.unknownCode, key.leftArrow ? -1 : 1, !noAuto));
+      }
       if (key.tab || key.leftArrow || key.rightArrow) {
         setTab(tab === "commands" ? "paths" : "commands");
         setNotes([]);
         return;
       }
+      // The unknown-code row comes first, then the list's rows; ↑↓ wrap round.
       if (key.upArrow || input === "k") {
-        if (rows.length > 0) moveTo((cursor + rows.length - 1) % rows.length);
+        if (switchHere) {
+          setOnSwitch(false);
+          if (rows.length > 0) moveTo(rows.length - 1);
+        } else if (hasSwitch && (cursor === 0 || rows.length === 0)) setOnSwitch(true);
+        else if (rows.length > 0) moveTo((cursor + rows.length - 1) % rows.length);
         return;
       }
       if (key.downArrow || input === "j") {
-        if (rows.length > 0) moveTo((cursor + 1) % rows.length);
+        if (switchHere) {
+          setOnSwitch(false);
+          moveTo(0);
+        } else if (hasSwitch && cursor >= rows.length - 1) setOnSwitch(true);
+        else if (rows.length > 0) moveTo((cursor + 1) % rows.length);
         return;
       }
-      if (key.pageUp) return moveTo(Math.max(0, cursor - 5));
-      if (key.pageDown) return moveTo(Math.min(Math.max(0, rows.length - 1), cursor + 5));
+      if (key.pageUp) {
+        if (!switchHere && hasSwitch && cursor === 0) return setOnSwitch(true);
+        return moveTo(Math.max(0, cursor - 5));
+      }
+      if (key.pageDown) {
+        setOnSwitch(false);
+        return moveTo(Math.min(Math.max(0, rows.length - 1), switchHere ? 0 : cursor + 5));
+      }
+      if (switchHere && (input === " " || key.return)) return switchUnknownCode();
       if (input === " ") return toggle();
       switch (input.toLowerCase()) {
         case "a":
@@ -445,7 +474,7 @@ export function SecurityScreen({
 
   const titleLeft = "Security lists";
   const titleMid = dirty ? "  ● unsaved changes" : "";
-  const counter = mode.k === "effective" ? "" : rows.length > 0 ? `${cursor + 1}/${rows.length}` : "";
+  const counter = mode.k === "effective" || switchHere ? "" : rows.length > 0 ? `${cursor + 1}/${rows.length}` : "";
   const gap = Math.max(1, inner - textWidth(titleLeft + titleMid) - textWidth(counter));
   const head: Line[] = [
     {
@@ -459,7 +488,12 @@ export function SecurityScreen({
         one === tab ? { text: `[${TAB_TITLE[one]}]`, bold: true, color: "cyan" } : { text: ` ${TAB_TITLE[one]} `, dimColor: true },
       ]),
     },
-    ...wrapSegments("unknown", unknownCodeSegments(base.unknownCode, !noAuto), inner, "  "),
+    ...wrapSegments(
+      "unknown",
+      [{ text: switchHere ? "› " : "  ", color: "cyan", bold: true }, ...unknownCodeSegments(base.unknownCode, !noAuto)],
+      inner,
+      "    ",
+    ),
   ];
   const intro: Line[] = [    ...wrapSegments("intro", [{ text: INTRO[tab], dimColor: true }], inner, ""),
     ...wrapSegments("limits", [{ text: SECURITY_LIMITS, dimColor: true }], inner, ""),
@@ -507,6 +541,16 @@ export function SecurityScreen({
           ? "↑↓ scroll · Tab other list · Esc back"
           : mode.k === "saving"
             ? "saving…"
+            : switchHere
+              ? [
+                  "↑↓ move",
+                  readOnly ? null : "←→ / Space change",
+                  "Tab other list",
+                  "? help",
+                  "Esc close",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
             : [
                 "↑↓ move",
                 readOnly ? null : "Space toggle",
@@ -516,9 +560,9 @@ export function SecurityScreen({
                 "v effective",
                 "c check",
                 "r reload",
-                "? syntax",
+                "? help",
                 readOnly ? null : "s save",
-                "Tab other list",
+                "←→ / Tab other list",
                 "Esc close",
               ]
                 .filter(Boolean)
@@ -566,7 +610,7 @@ export function SecurityScreen({
     scroll.current[key] = offset;
     body = [...heading, ...lines.slice(offset, offset + window)];
   } else {
-    const built = bodyLines(rows, cursor, inner, entryProblems[tab]);
+    const built = bodyLines(rows, switchHere ? -1 : cursor, inner, entryProblems[tab]);
     start = built.start;
     end = built.end;
     const offset = scrollInto(scroll.current[key] ?? 0, start, end, bodyHeight, built.lines.length);

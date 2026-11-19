@@ -505,6 +505,9 @@ export const PATTERN_HELP: ReadonlyArray<{ kind: "head" | "line" | "example"; te
   { kind: "example", text: "re:^ssh .*prod       blocks ssh deploy@prod.example" },
   { kind: "head", text: "Protected folders" },
   { kind: "line", text: "An absolute path (/srv/backups) or one under your home (~/finance), with a level: no changes (reading is fine) or no access (not read, not listed, not changed). Everything below it is protected too." },
+  { kind: "head", text: "Keys" },
+  { kind: "line", text: "↑↓ move through the rows. The first row is \"Commands and scripts snowpea can't read before they run\": on it, ←→ (or Space) chooses ask / auto / allow, saved at once; u changes it from any row." },
+  { kind: "line", text: "On a list row, ←→ or Tab switches between Blocked commands and Protected folders; Space turns a preset on or off." },
 ];
 
 // --- code snowpea cannot read (1.55.0 `security.unknownCode`) --------------------------
@@ -523,6 +526,16 @@ export function unknownCodeName(value: UnknownCode): string {
 export function nextUnknownCode(value: UnknownCode, withAuto = true): UnknownCode {
   if (!withAuto) return value === "ask" ? "allow" : "ask";
   return value === "ask" ? "auto" : value === "auto" ? "allow" : "ask";
+}
+
+/**
+ * ←/→ on the selected unknown-code row: one step along ask / auto / allow (as
+ * drawn, left to right), stopping at either end; two-way without "auto".
+ */
+export function stepUnknownCode(value: UnknownCode, step: -1 | 1, withAuto = true): UnknownCode {
+  const choices: UnknownCode[] = withAuto ? ["ask", "auto", "allow"] : ["ask", "allow"];
+  const at = Math.max(0, choices.indexOf(value));
+  return choices[Math.min(choices.length - 1, Math.max(0, at + step))];
 }
 
 /** One line saying snowpea's own files are protected whichever way the switch is set. */
