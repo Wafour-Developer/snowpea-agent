@@ -949,3 +949,29 @@ describe("the refusal in a tool result", () => {
     app.done();
   });
 });
+
+describe("a Korean keyboard layout", () => {
+  it("drives the screen with jamo keys and keeps Hangul in the entry field", async () => {
+    const client = fakeClient();
+    const app = await open(client);
+    await press(app, "ㅁ"); // a: add
+    expect(app.view()).toContain("Command pattern to block:");
+    await type(app.stdin, "배포 ㅁ", 8);
+    await press(app, ENTER);
+    expect(app.view()).toContain("• 배포 ㅁ");
+    await press(app, "ㅇ"); // d: delete
+    expect(app.view()).toContain("Delete 배포 ㅁ?");
+    await press(app, "ㅜ"); // n
+    expect(app.view()).toContain("• 배포 ㅁ");
+    await press(app, "ㄴ"); // s: save
+    await sleep(150);
+    expect(sets(client)).toHaveLength(1);
+    expect(client.savedNow().blockedCommands.custom).toEqual(["배포 ㅁ"]);
+    await press(app, "ㅍ"); // v: what is in force
+    await press(app, "ㅍ"); // v again closes it
+    await press(app, "ㅇ");
+    await press(app, "ㅛ"); // y
+    expect(app.view()).not.toContain("배포 ㅁ");
+    app.done();
+  });
+});

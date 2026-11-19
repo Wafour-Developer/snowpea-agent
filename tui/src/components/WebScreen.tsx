@@ -18,6 +18,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Box, useInput } from "ink";
 
 import type { CopyResult, WebResult } from "../hooks/useWebScreen.js";
+import { shortcutKey } from "../input/hangulKeys.js";
 import { mouseReports } from "../input/mouse.js";
 import type { Line, Segment } from "../layout/transcript.js";
 import { rpcCode } from "../state/errors.js";
@@ -310,9 +311,12 @@ export function WebScreen({
   };
 
   useInput(
-    (input, key) => {
-      if (mouseReports(input).length > 0) return;
+    (typed, key) => {
+      if (mouseReports(typed).length > 0) return;
       if (mode.k === "busy") return;
+      // The password and sign-in fields keep what was typed; everywhere else a
+      // lone jamo (ㅣ under a Korean layout) is the letter key it sits on (l).
+      const input = mode.k === "password" || mode.k === "form" ? typed : shortcutKey(typed);
 
       if (mode.k === "confirm") {
         const pressed = input.toLowerCase();

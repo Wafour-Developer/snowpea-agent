@@ -17,6 +17,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Box, useInput } from "ink";
 
 import type { TrustResult } from "../hooks/useTrustScreen.js";
+import { shortcutKey } from "../input/hangulKeys.js";
 import { mouseReports } from "../input/mouse.js";
 import { textWidth } from "../layout/text-width.js";
 import type { Line, Segment } from "../layout/transcript.js";
@@ -135,9 +136,11 @@ export function TrustScreen({ status: initial, width, height, onTrust, onRevoke,
   };
 
   useInput(
-    (input, key) => {
-      if (mouseReports(input).length > 0) return;
+    (typed, key) => {
+      if (mouseReports(typed).length > 0) return;
       if (mode.k === "busy") return;
+      // Every key here is a shortcut: a Korean layout's ㅕ is the u key.
+      const input = shortcutKey(typed);
 
       if (mode.k === "revoke") {
         const lower = input.toLowerCase();

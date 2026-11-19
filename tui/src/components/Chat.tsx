@@ -11,6 +11,7 @@ import { textWidth } from "../layout/text-width.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 
+import { shortcutKey } from "../input/hangulKeys.js";
 import { mouseReports } from "../input/mouse.js";
 
 import { currentAccent, currentInputBackground } from "../layout/palette.js";
@@ -489,7 +490,9 @@ export function Chat({
       // A paste arrives as one chunk: if it names files, it becomes chips
       // rather than a wall of text in the draft.
       if (typed.length > 1 && onPaste?.(typed)) return;
-      if ((typed === "R" || typed === "r") && onStartDaemon) {
+      // With the daemon gone the draft cannot be sent, so r is a key here even
+      // when a Korean layout types it as ㄱ (ㄲ with Shift).
+      if ((shortcutKey(typed) === "R" || shortcutKey(typed) === "r") && onStartDaemon) {
         onStartDaemon();
         return;
       }
