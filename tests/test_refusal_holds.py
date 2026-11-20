@@ -18,6 +18,7 @@ from _support import RpcClient, connect, make_daemon
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.providers.base import ChatMessage, StreamEvent, ToolCall, Usage
+from snowpea_core.security import control_plane
 
 TIMEOUT = 30.0
 
@@ -102,7 +103,12 @@ async def test_a_refused_command_does_not_come_back_as_a_silent_write(tmp_path: 
         await daemon.stop()
 
 
-async def test_a_refused_write_is_asked_again_after_a_switch_to_auto(tmp_path: Path) -> None:
+async def test_a_refused_write_is_asked_again_after_a_switch_to_auto(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    # pytest's tmp sits under /tmp, which is scratch since m32 (writes there are
+    # not asked in accept mode); this test is about an ordinary project file.
+    monkeypatch.setattr(control_plane, "temp_dirs", lambda: ())
     daemon = await make_daemon(tmp_path / "home")
     core = daemon.core
     assert core is not None
@@ -130,6 +136,50 @@ async def test_a_refused_write_is_asked_again_after_a_switch_to_auto(tmp_path: P
                 assert [r["tool"] for r in client.approval_requests] == [
                     "write_file", "write_file"]
                 assert not outside.exists()
+            finally:
+                await client.stop()
+    finally:
+        await daemon.stop()
+
+
+async def test_a_refusal_outranks_the_scratch_folder_in_auto_mode(tmp_path: Path) -> None:
+    """A file in $SNOWPEA_HOME/tmp is free to write, but not once the person said no."""
+    home = tmp_path / "home"
+    daemon = await make_daemon(home)
+    core = daemon.core
+    assert core is not None
+    workdir = tmp_path / "w"
+    workdir.mkdir()
+    (home / "tmp").mkdir(exist_ok=True)
+    scratch = home / "tmp" / "notes.txt"
+    scratch.write_text("one\n")
+    assert control_plane.scratch(scratch, home=home)
+    try:
+        async with aiohttp.ClientSession() as http:
+            client = await connect(http, daemon, timeout=TIMEOUT, approval_mode="deny")
+            try:
+                created = await client.ok(
+                    "session.create", {"workdir": str(workdir), "mode": "accept"}
+                )
+                session = core.sessions.get(str(created["sessionId"]))
+
+                def to_auto() -> None:
+                    session.mode = "auto"  # "allow everything" pressed mid-turn
+
+                provider = _Script(
+                    [
+                        ToolCall(id="c1", name="shell",
+                                 arguments={"command": f"sed -i s/one/two/ {scratch}"}),
+                        _write("c2", str(scratch), "two\n"),
+                    ],
+                    on_second=to_auto,
+                )
+                core.providers.get = lambda _p, _m: provider
+                await _turn(client, session.id, "change the scratch note")
+                asked = [(r["tool"], r.get("note") or "") for r in client.approval_requests]
+                assert [tool for tool, _ in asked] == ["shell", "write_file"]
+                assert "declined a change to" in asked[1][1]
+                assert scratch.read_text() == "one\n"
             finally:
                 await client.stop()
     finally:
