@@ -990,6 +990,9 @@ class _Scanner:
         self.body_end = -1
         #: ``case`` minus ``esac`` where a command starts.
         self.cases = 0
+        #: The command being read had a duplicated descriptor (``2>&1``), which
+        #: is not kept: ``( … ) 2>&1 | tail`` is not an empty command.
+        self.duplicated = False
 
     # -- words -----------------------------------------------------------
     def _add(self, chunk: str, protected: bool) -> None:
@@ -1055,11 +1058,12 @@ class _Scanner:
         if self.cmd.words or self.cmd.redirects or self.cmd.heredoc:
             self.cmd.piped_in = self.piped_in
             self.line.commands.append(self.cmd)
-        elif operator in ("|", "|&", "&&", "||"):
+        elif operator in ("|", "|&", "&&", "||") and not self.duplicated:
             raise _Opaque("syntax")
         elif operator == "\n":
             return  # a pipe or ``&&`` may continue on the next line
         self.cmd = _Cmd()
+        self.duplicated = False
         self.piped_in = operator in ("|", "|&")
 
     # -- here-documents ----------------------------------------------------
@@ -1342,9 +1346,10 @@ class _Scanner:
         self.i += len(operator)
         self.redirect_at = self.i
         # ``>&2`` / ``2>&1``: a duplicated descriptor, not a file.
-        match = re.match(r"\s*(\d+|-)(?=$|[\s;&|)])", self.text[self.i :])
+        match = re.match(r"\s*(\d+|-)(?=$|[\s;&|)<>])", self.text[self.i :])
         if operator.endswith("&") and match:
             self.pending_redirect = None
+            self.duplicated = True
             self.i += match.end()
 
     def _angle(self, char: str, nxt: str) -> None:

@@ -195,6 +195,18 @@ _MESSAGES: dict[str, dict[str, str]] = {
               "permitirlo",
         "zh-CN": "这段代码提到了 snowpea 的控制文件（{what}）：只有你能允许",
     },
+    "control_unread": {
+        "en": "this names snowpea's own folder and has parts snowpea cannot read ahead, which "
+              "may change its control files: only you can allow it",
+        "ko": "snowpea 자체 폴더를 가리키면서 미리 읽을 수 없는 부분이 있어 snowpea 제어 파일을 "
+              "바꿀 수 있습니다. 직접 허용해야 합니다",
+        "ja": "snowpea 自身のフォルダを指し、事前に読めない部分があるため制御ファイルを"
+              "変えるおそれがあります。許可できるのはご自身だけです",
+        "es": "esto nombra la carpeta de snowpea y tiene partes que snowpea no puede leer de "
+              "antemano, que pueden cambiar sus archivos de control: solo tú puedes permitirlo",
+        "zh-CN": "这里提到了 snowpea 自己的文件夹，且有 snowpea 无法预先读取的部分，"
+                 "可能改动它的控制文件：只有你能允许",
+    },
     "control_operand": {
         "en": "this hands one of snowpea's own control files ({what}) to a program that may change "
               "it: only you can allow it",
@@ -549,9 +561,9 @@ class Context:
     #: code unless the tool is tagged ``exec``; its paths are judged as usual.
     host_tool: bool = False
     #: ``security.enabled: false`` (1.58.0): the lists are empty for matching,
-    #: but what the reader could not see is judged as under ``unknownCode:
-    #: "allow"`` with lists — never by the narrower "no lists at all" rule, which
-    #: would drop ``script-written`` and the names-snowpea backstop.
+    #: and what the reader could not see never asks (owner decision 2026-11-19,
+    #: :func:`_judge_off`) — only snowpea's own controls, and a line naming
+    #: snowpea with parts nobody could read, still do.
     checks_off: bool = False
     #: A dry run (``security.check`` from the Security screen): judges only,
     #: records nothing (no "the agent wrote this file" note).
@@ -1336,11 +1348,11 @@ _SCRATCH_TAIL = (r"/(?:tmp|sessions/\d{4}[^/\s'\"$`]*_[^/\s'\"$`]+)(?![^/\s'\"])
 _CHDIR_WORD = re.compile(r"\b(?:cd|pushd|popd|chdir)\b")
 
 
-def _names_snowpea(text: str, ctx: Context) -> bool:
+def _names_snowpea(text: str, ctx: Context, word: re.Pattern[str] = _SNOWPEA_WORD) -> bool:
     """``text`` names snowpea (:data:`_SNOWPEA_WORD`) other than as the path of
     one of its scratch folders (m32: ``~/.snowpea/tmp/run.py`` is a scratch
     file, not an act on snowpea)."""
-    if not _SNOWPEA_WORD.search(text):
+    if not word.search(text):
         return False
     if _CHDIR_WORD.search(text):
         return True
@@ -1349,7 +1361,19 @@ def _names_snowpea(text: str, ctx: Context) -> bool:
     for prefix in sorted(prefixes, key=len, reverse=True):
         text = re.sub(re.escape(prefix) + _SCRATCH_TAIL, " ", text,
                       flags=re.IGNORECASE if _FOLD_CASE else 0)
-    return bool(_SNOWPEA_WORD.search(text))
+    return bool(word.search(text))
+
+
+def _names_snowpea_home(text: str, ctx: Context) -> bool:
+    """``text`` spells snowpea's home, where its control files are (``.snowpea``,
+    ``SNOWPEA_HOME`` or the home's own path), other than as a scratch folder.
+    Narrower than :func:`_names_snowpea`: a person's module ``snowpea_search``
+    is not snowpea's controls (checks off)."""
+    homes = [re.escape(str(base)) for base in control_plane.homes(ctx.home, ctx.user_home)]
+    word = re.compile("|".join([r"\.snowpea(?![\w-])", r"SNOWPEA_HOME\b",
+                                *[home + r"(?![^/\s'\"])" for home in homes]]),
+                      re.IGNORECASE if _FOLD_CASE else 0)
+    return _names_snowpea(text, ctx, word)
 
 
 #: Reasons where the PROGRAM that runs is not known (m21): its operands are
@@ -1677,7 +1701,9 @@ def _judge_view_first(view: sh.ShellView, lists: Lists, ctx: Context,
     for why in view.control:
         asks.append((why, message("control_code" if why == "snowpea-code" else "control_cli",
                                   ctx.locale)))
-    if not lists.commands_empty or ctx.checks_off:
+    if ctx.checks_off:
+        return _judge_off(view, effects, asks, unknown, ctx)
+    if not lists.commands_empty:
         unseen.extend(view.opaque)
     elif not lists.empty:
         unseen.extend(why for why in view.opaque if why.startswith("code:") or _always(why))
@@ -1773,6 +1799,27 @@ def _judge_view_first(view: sh.ShellView, lists: Lists, ctx: Context,
                        why=message("unknown_code" if only_code else "unchecked", ctx.locale),
                        unseen=reasons, scripts=scripts,
                        relaxable=relaxable, script_grant=script_grant,
+                       unchecked_why=_unchecked_why(reasons, view, unknown, ctx))
+    return Verdict(scripts=scripts) if scripts else ALLOWED
+
+
+def _judge_off(view: sh.ShellView, effects: list[sh.Effect], asks: list[tuple[str, str]],
+               unknown: dict[str, sh.Effect], ctx: Context) -> Verdict:
+    """The checks are off (owner decision 2026-11-19): nothing of the security
+    layer asks — no unread or unknown code, no parse failure, no write where git
+    or PATH finds programs.  The call runs under the mode rules.  snowpea's own
+    controls still ask (``asks``: its files, CLI and modules), and so does a
+    line with parts nobody could read whose raw text spells snowpea's home:
+    what was not read may write its control files."""
+    if view.opaque and any(_names_snowpea_home(text, ctx) for text in view.texts):
+        asks.append(("snowpea-unread", message("control_unread", ctx.locale)))
+    scripts = tuple(dict.fromkeys(view.scripts))
+    if not ctx.dry_run:
+        _note_writes(effects, ctx)
+    if asks:
+        reasons = tuple(dict.fromkeys([why for why, _ in asks] + list(view.opaque)))
+        return Verdict(opaque=True, reason=CONTROL_REASON, why=asks[0][1], unseen=reasons,
+                       scripts=scripts,
                        unchecked_why=_unchecked_why(reasons, view, unknown, ctx))
     return Verdict(scripts=scripts) if scripts else ALLOWED
 
