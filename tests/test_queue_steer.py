@@ -145,10 +145,12 @@ async def test_busy_queue_keeps_the_legacy_separate_turn_behavior(
                 timeout=TIMEOUT,
             )
             queued_turn = await _prompt(client, session_id, FOLLOWUP_PROMPT)
-            await client.wait(
+            queued_event = await client.wait(
                 lambda e: e["kind"] == "turn.queued" and e["payload"].get("turnId") == queued_turn,
                 timeout=TIMEOUT,
             )
+            # The event names the prompt, so a surface that did not send it can list it.
+            assert queued_event["payload"]["text"] == FOLLOWUP_PROMPT
 
             assert await client.wait_turn(first_turn, timeout=TIMEOUT) == "complete"
             assert await client.wait_turn(queued_turn, timeout=TIMEOUT) == "complete"
@@ -460,3 +462,14 @@ async def test_interrupt_invitation_follows_turn_done(
     invite_index = client.events.index(invitation)
     assert invite_index == turn_index + 1
     await client.stop()
+
+
+def test_turn_queued_event_carries_clipped_text_and_attachment_count() -> None:
+    from snowpea_core.session import events
+
+    kind, payload = events.turn_queued("t-1", 1, 1, "x" * 500, 2)
+    assert kind == "turn.queued"
+    assert payload["text"] == "x" * 300
+    assert payload["attachments"] == 2
+    _, bare = events.turn_queued("t-2", 1, 1)
+    assert bare["text"] is None

@@ -7175,6 +7175,17 @@ class TurnQueued(Payload):
         description="1-based place in the queue behind the running turn."
     )
     queued: int = Field(description="Prompts waiting in the queue after this one was added.")
+    text: str | None = Field(
+        default=None,
+        description=(
+            "The queued prompt's own text, cut to 300 characters, so a surface that did "
+            "not send it (another client, a reconnect) can still list it. Absent from "
+            "older cores: show a placeholder then."
+        ),
+    )
+    attachments: int | None = Field(
+        default=None, description="How many files or images the queued prompt carries."
+    )
 
 
 class TurnDequeued(Payload):

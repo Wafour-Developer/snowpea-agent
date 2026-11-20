@@ -214,6 +214,8 @@ export interface QueuedPrompt {
   text: string;
   /** 1-based place behind the running turn. */
   position: number;
+  /** Files or images the prompt carries (newer daemons say so). */
+  attachments?: number;
 }
 
 /** Ordered render list; each item points at one of the collections below. */
@@ -1372,12 +1374,22 @@ function applySessionEvent(
       const index = base.queued.findIndex((entry) => entry.turnId === turnId);
       if (index !== -1) {
         const queued = base.queued.slice();
-        queued[index] = { ...queued[index], position };
+        queued[index] = {
+          ...queued[index],
+          position,
+          text: queued[index].text || (typeof payload.text === "string" ? payload.text : ""),
+        };
         return { ...base, queued };
       }
-      // The prompt call may already have said what this turn is.
-      const text = base.promptTexts[turnId] ?? "";
-      return { ...base, queued: [...base.queued, { turnId, text, position }] };
+      // The prompt call may already have said what this turn is; a newer
+      // daemon also puts the text in the event, which covers a prompt another
+      // client sent or one sent before this surface reconnected.
+      const text = base.promptTexts[turnId] ?? (typeof payload.text === "string" ? payload.text : "");
+      const attachments = Number(payload.attachments ?? 0);
+      return {
+        ...base,
+        queued: [...base.queued, { turnId, text, position, ...(attachments > 0 ? { attachments } : {}) }],
+      };
     }
 
     case "turn.dequeued": {

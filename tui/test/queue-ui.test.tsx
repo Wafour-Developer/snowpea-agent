@@ -87,6 +87,16 @@ describe("queued prompts", () => {
     expect(after).not.toContain("◷ 1 queued");
   });
 
+  it("lists a prompt another client queued by the text in the event", async () => {
+    const { client, stdout, instance } = await open();
+    client.emit(event(1, "turn.queued", { turnId: "t-7", position: 1, queued: 1, text: "from the web", attachments: 1 }));
+    await sleep(200);
+    const output = stdout.text();
+    instance.unmount();
+    expect(output).toContain("1. from the web [+1 attached]");
+    expect(output).not.toContain("(queued prompt)");
+  });
+
   it("says so when an interrupt drops the queue", async () => {
     const { client, stdin, stdout, instance } = await open();
     await type(stdin, "one", 15);

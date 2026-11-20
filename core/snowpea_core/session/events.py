@@ -546,9 +546,20 @@ def turn_started(
     )
 
 
-def turn_queued(turn_id: str, position: int, queued: int) -> Event:
+def turn_queued(
+    turn_id: str, position: int, queued: int, text: str | None = None, attachments: int = 0
+) -> Event:
     """A prompt was accepted but parked behind the running turn."""
-    return _pack(TurnQueued(turnId=turn_id, position=position, queued=queued))
+    clipped = text[:300] if text else None
+    return _pack(
+        TurnQueued(
+            turnId=turn_id,
+            position=position,
+            queued=queued,
+            text=clipped,
+            attachments=attachments or None,
+        )
+    )
 
 
 def turn_dequeued(turn_id: str, reason: str = "started", queued: int = 0) -> Event:
