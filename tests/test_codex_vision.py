@@ -37,6 +37,7 @@ PIXEL = base64.b64decode(
 def _isolated(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """The Codex live-list info and the learned vision memory are process-global."""
     monkeypatch.setattr(model_discovery, "_CODEX_INFO", {})
+    monkeypatch.setattr(model_discovery, "_LISTED_VISION", {})
     vision_scale.MEMORY.clear()
     vision_scale.MEMORY.home = None
     yield
@@ -151,6 +152,96 @@ def test_the_codex_list_input_modalities_win_over_the_name(tmp_path: Path) -> No
         {"auth_method": "chatgpt", "access_token": _token()}, model="mystery-model"
     )
     assert _codex_sends_images(bare, messages)
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        ({"input_modalities": ["text", "image"]}, True),  # Codex model list
+        ({"input_modalities": ["text"]}, False),
+        ({"architecture": {"input_modalities": ["text", "image", "file"]}}, True),  # OpenRouter
+        ({"architecture": {"input_modalities": ["text"]}}, False),
+        ({"modalities": {"input": ["text", "image"]}}, True),  # models.dev shape
+        ({"modalities": {"vision": False, "audio": False}}, False),  # llama.cpp /props
+        ({"capabilities": ["completion", "vision"]}, True),  # Ollama /api/show
+        ({"capabilities": ["completion", "tools"]}, False),
+        ({"capabilities": {"image_input": {"supported": True}}}, True),
+        ({"type": "vlm"}, True),  # LM Studio /api/v0/models
+        ({"type": "llm"}, False),
+        ({"supports_image_in": True}, True),  # Moonshot /v1/models
+        ({"id": "gpt-4o", "object": "model", "owned_by": "openai"}, None),
+        ({"type": "model", "id": "claude-x"}, None),
+    ],
+)
+def test_listing_rows_are_read_for_image_input(row: dict[str, Any], expected: bool | None) -> None:
+    assert model_discovery.vision_from_listing(row) is expected
+
+
+def test_the_listing_beats_settings_catalog_and_name(tmp_path: Path) -> None:
+    """Order: listing, then settings, then models.dev, then the name."""
+    settings = Settings()
+    settings.providers["openrouter"] = {"api_key": "sk-test", "vision": True}
+    registry = ProviderRegistry(settings, Paths.create(tmp_path / "home"))
+    base = model_discovery.listing_base(model_discovery.PRESETS_BY_VENDOR["openrouter"], None)
+    model_discovery._remember_listed_vision(
+        base,
+        [{"id": "openai/gpt-6.1", "architecture": {"input_modalities": ["text"]}}],
+    )
+    # The name matches a hint and settings say yes; the listing says text only.
+    assert registry.vision_for("openrouter", "openai/gpt-6.1") is False
+    # A model the listing did not describe falls to settings.
+    assert registry.vision_for("openrouter", "other/model") is True
+
+
+async def test_a_live_listing_is_cached_with_its_vision(tmp_path: Path) -> None:
+    import httpx
+
+    payload = {
+        "data": [
+            {"id": "vendor/sees", "architecture": {"input_modalities": ["text", "image"]}},
+            {"id": "vendor/blind", "architecture": {"input_modalities": ["text"]}},
+        ]
+    }
+    transport = httpx.MockTransport(lambda _request: httpx.Response(200, json=payload))
+    home = tmp_path / "home"
+    listing = await model_discovery.resolve_models(
+        "openrouter", api_key="sk-test", home=home, transport=transport, refresh=True
+    )
+    assert listing.source == model_discovery.SOURCE_LIVE
+    # A fresh process: nothing in memory, the disk cache still answers.
+    model_discovery._LISTED_VISION.clear()
+    settings = Settings()
+    settings.providers["openrouter"] = {"api_key": "sk-test"}
+    registry = ProviderRegistry(settings, Paths.create(home))
+    assert registry.vision_for("openrouter", "vendor/sees") is True
+    assert registry.vision_for("openrouter", "vendor/blind") is False
+
+
+async def test_window_discovery_records_ollama_capabilities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.providers import context_windows
+
+    async def get_json(url: str, *_a: Any) -> dict[str, Any] | None:
+        if url.endswith("/api/ps"):
+            return {"models": [{"name": "gemma3:4b", "context_length": 8192}]}
+        return None
+
+    async def post_json(url: str, body: dict[str, Any], *_a: Any) -> dict[str, Any] | None:
+        assert url.endswith("/api/show") and body == {"model": "gemma3:4b"}
+        return {"capabilities": ["completion", "vision"]}
+
+    monkeypatch.setattr(context_windows, "_get_json", get_json)
+    monkeypatch.setattr(context_windows, "_post_json", post_json)
+    base = "http://127.0.0.1:11434/v1"
+    window = await context_windows.discover_window(base, "gemma3:4b")
+    assert window == 8192
+    assert model_discovery.listed_vision(base) == {"gemma3:4b": True}
+
+    settings = Settings()
+    settings.providers["box"] = {"preset": "local", "base_url": base, "model": "gemma3:4b"}
+    registry = ProviderRegistry(settings, Paths.create(tmp_path / "home"))
+    assert registry.vision_for("box", "gemma3:4b") is True
 
 
 @pytest.mark.parametrize(
