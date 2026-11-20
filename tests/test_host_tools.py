@@ -284,6 +284,25 @@ async def test_disconnect_drops_the_tools_and_sessions_elsewhere_never_saw_them(
         await other.stop()
 
 
+async def test_a_host_tools_kind_is_kept_and_optional(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """1.69.0 hostToolKind: ``kind`` is additive; a spec without it still registers."""
+    host = await open_client(http, daemon)
+    try:
+        await host.ok(
+            "tool.register",
+            {"tools": [spec("repl", kind="act"), spec("look", kind="read"), spec("old")]},
+        )
+        session = daemon.core.sessions.get(await new_session(host, tmp_path / "w"))
+        served = HOST_TOOLS.for_session(session)
+        assert [served[n].kind for n in ("repl", "look", "old")] == ["act", "read", None]
+        refused = await host.call("tool.register", {"tools": [spec("x", kind="write")]})
+        assert "error" in refused
+    finally:
+        await host.stop()
+
+
 async def test_host_tools_from_names_another_client(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
 ) -> None:

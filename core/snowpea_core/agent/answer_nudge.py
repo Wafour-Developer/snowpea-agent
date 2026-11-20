@@ -13,6 +13,12 @@ away.  Whether the message *is* a question is not judged from its words: a
 turn that changed anything — a write, an edit, a shell command that is not a
 plain inspection, a browser action, a delegation that may write — is work, not
 an explanation, and is never nudged.
+
+A browser's host tools keep permission ``read`` because the host gates every
+acting call itself, so the tag alone made a booking (``repl`` clicks and form
+fills) look like reading, and the note fired mid-task.  A host tool that says
+``kind: "act"`` (1.69.0) is work; one that says nothing is work when it is a
+``repl`` or a browser-category host tool.
 """
 
 from __future__ import annotations
@@ -92,8 +98,19 @@ def begin_turn(
     session.answer_nudge = AnswerNudge(rounds=rounds)
 
 
-def _read_only(name: str, tag: str, args: dict[str, Any]) -> bool:
-    if name in _CHANGING_READ_TOOLS:
+def _host_acts(name: str, tool: Any) -> bool:
+    """A host tool that acts on pages whatever its permission tag says."""
+    if tool is None or not str(getattr(tool, "source", "")).startswith("host:"):
+        return False
+    kind = getattr(tool, "kind", None)
+    if kind is not None:
+        return kind == "act"
+    # A host from before 1.69.0 does not say: its repl and browser tools act.
+    return name == "repl" or getattr(tool, "category", None) == "browser"
+
+
+def _read_only(name: str, tag: str, args: dict[str, Any], tool: Any = None) -> bool:
+    if name in _CHANGING_READ_TOOLS or _host_acts(name, tool):
         return False
     if tag in _READ_TAGS:
         return True
@@ -108,12 +125,14 @@ def _read_only(name: str, tag: str, args: dict[str, Any]) -> bool:
     return False
 
 
-def observe_call(session: Session, name: str, tag: str, args: dict[str, Any] | None) -> None:
+def observe_call(
+    session: Session, name: str, tag: str, args: dict[str, Any] | None, *, tool: Any = None
+) -> None:
     """Note one call the turn attempts; anything but a plain read marks the turn as work."""
     state: AnswerNudge | None = getattr(session, "answer_nudge", None)
     if state is None or state.changed or not state.rounds:
         return
-    if not _read_only(name, str(tag), dict(args or {})):
+    if not _read_only(name, str(tag), dict(args or {}), tool):
         state.changed = True
 
 

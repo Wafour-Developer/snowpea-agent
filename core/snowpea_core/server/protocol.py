@@ -1903,6 +1903,17 @@ class HostToolSpec(Payload):
     )
     permission: PermissionTag = Field(description="Permission class checked against the mode.")
     category: str | None = Field(default=None, description='UI grouping; defaults to "host".')
+    kind: Literal["act", "read"] | None = Field(
+        default=None,
+        description=(
+            "1.69.0 (capability hostToolKind): 'act' when a call can change something "
+            "outside the conversation (a click, a form fill, a repl that acts on a page) "
+            "even though permission stays read because the host gates it itself; 'read' "
+            "when it only looks. Absent: unknown, judged from permission (a repl or a "
+            "browser-category host tool counts as acting). The answer-now note never "
+            "fires in a turn that called an acting tool."
+        ),
+    )
     timeoutMs: int | None = Field(
         default=None,
         description=(
@@ -13202,6 +13213,9 @@ CAPABILITIES: list[str] = [
     # 1.68.0: lsp.install {withToolchain, personConfirm} installs the .NET SDK
     # (needsToolchain offer, progress phase/percent), lsp.toolchain.remove/cancel.
     "lspToolchainInstall",
+    # 1.69.0: HostToolSpec.kind ('act' | 'read'): an acting host tool (a repl that
+    # clicks, a form fill) is work, not reading, for the answer-now note.
+    "hostToolKind",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

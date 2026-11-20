@@ -3479,7 +3479,7 @@ async def _run_one_call(
     # A write that lands on snowpea's own settings is judged as ``config``,
     # not ``write`` (CORE-search-fix): the tag, not the tool, decides.
     tag = effective_permission(tool, call.arguments, session, core)
-    answer_nudge.observe_call(session, tool.name, tag, call.arguments)
+    answer_nudge.observe_call(session, tool.name, tag, call.arguments, tool=tool)
     # The security lists come before everything else (1.54.0): no mode, rule,
     # cached answer or Jarvis decision runs a blocked command or changes a
     # protected path; a line they cannot see through always asks the person.

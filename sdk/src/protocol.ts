@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.68.0";
+export const PROTOCOL_VERSION = "1.69.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -9364,6 +9364,8 @@ export interface ToolRegisterParams {
     helpers?: string[] | null;
     /** JSON Schema of the arguments. */
     inputSchema?: Record<string, unknown>;
+    /** 1.69.0 (capability hostToolKind): 'act' when a call can change something outside the conversation (a click, a form fill, a repl that acts on a page) even though permission stays read because the host gates it itself; 'read' when it only looks. Absent: unknown, judged from permission (a repl or a browser-category host tool counts as acting). The answer-now note never fires in a turn that called an acting tool. */
+    kind?: "act" | "read" | null;
     /** A successful call shows the rendered page (a snapshot or screenshot), which verify-on-stop counts as looking at a UI change (1.29.0). A result can also say so itself with meta look: true; repl code calling snapshot(, annotatedScreenshot(, snapshotTabs(, display( or .screenshot( counts too. */
     look?: boolean;
     /** Tool name, [A-Za-z][A-Za-z0-9_-]{0,63}. May not collide with a daemon tool except the built-in browser_* tools, which it shadows for the sessions that see this connection's tools. */

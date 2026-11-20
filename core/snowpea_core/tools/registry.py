@@ -148,6 +148,9 @@ class Tool:
     #: Host tools only: a successful call shows the rendered page, which
     #: verify-on-stop counts as a look (``HostToolSpec.look``, 1.29.0).
     look: bool = False
+    #: Host tools only (1.69.0): ``"act"`` or ``"read"`` as the host declared it
+    #: (``HostToolSpec.kind``); ``None`` when it did not say.
+    kind: str | None = None
     #: Host tools only (1.55.0): names that exist inside this tool (a REPL's
     #: globals), so a call to one as a tool is answered with where it lives.
     helpers: tuple[str, ...] = ()
