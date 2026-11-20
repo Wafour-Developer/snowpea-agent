@@ -64,14 +64,20 @@ MARKERS: tuple[Marker, ...] = (
     # Korean
     *_m("ko", "deferral",
         r"다음\s*턴", r"다음\s*세션", r"이어서\s*(?:진행)?하겠",
-        r"이번\s*턴(?:에서는|에는|엔)[^\n]{0,80}?못"),
+        r"이번\s*턴(?:에서는|에는|엔)[^\n]{0,80}?못",
+        # "작업은 아직 끝나지 않았습니다": the answer says so itself.
+        r"(?:작업|일)(?:은|이)\s*(?:아직\s*)?(?:끝나지|완료되지|마무리되지)\s*않"),
     *_m("ko", "heading",
         r"남은\s*(?:일|작업|단계|과제)", r"아직\s*못", r"미완료"),
     # English
     *_m("en", "deferral",
         r"\bnext\s+(?:turn|session)\b", r"\bran\s+out\s+of\s+(?:time|rounds|budget|turns?)\b",
         r"\bcould(?:n'?t|\s+not)\s+get\s+to\b",
-        r"\b(?:in|for)\s+a\s+(?:later|follow-up|future)\s+turn\b"),
+        r"\b(?:in|for)\s+a\s+(?:later|follow-up|future)\s+turn\b",
+        # "The work is not finished. Here is an honest checkpoint." (e7d5155b)
+        r"\b(?:the\s+|this\s+|my\s+)?(?:work|task|job)\s+is\s+(?:not|n't)\s+(?:yet\s+)?"
+        r"(?:finished|done|complete)\b",
+        r"\bwork\s+isn'?t\s+(?:yet\s+)?(?:finished|done|complete)\b"),
     *_m("en", "heading",
         r"\bremaining\s+(?:work|steps|tasks|items)\b",
         r"\bstill\s+to\s+do\b", r"\bleft\s+to\s+do\b", r"\bnot\s+yet\s+done\b",

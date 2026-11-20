@@ -561,11 +561,17 @@ VERBATIM_NOTE = "These override any paraphrase of them above."
 VERBATIM_BUDGET = 24_000
 VERBATIM_ENTRY_MAX = 4_000
 _ENTRY = "\n» "
+#: Labels of the pictures a tool showed (``view_image``, a browser snapshot),
+#: as ``tools/view_image.py`` writes them.  Newer ones carry a ``source`` too;
+#: these catch the ones stored before it (feedback e7d5155b: the note after a
+#: compaction quoted "(images from view_image: …)" as the person's message).
+TOOL_IMAGE_PREFIXES = ("(images from ", "(image from ")
 _SYNTHETIC_PREFIXES = (
     "[system]",
     "[from the agent that delegated",
     SUMMARY_HEADING,
     "<system-reminder>",
+    *TOOL_IMAGE_PREFIXES,
 )
 _STEER_PREFIX = "[from the user, mid-task] "
 
@@ -586,7 +592,15 @@ def _verbatim_entries(messages: list[ChatMessage]) -> list[str]:
         if message.role == "system" and VERBATIM_HEADING in text:
             block = text.split(VERBATIM_HEADING, 1)[1]
             # Stored newest first; this list is oldest first.
-            out.extend(reversed([e.strip() for e in block.split(_ENTRY)[1:] if e.strip()]))
+            out.extend(
+                reversed(
+                    [
+                        e.strip()
+                        for e in block.split(_ENTRY)[1:]
+                        if e.strip() and not e.strip().startswith(TOOL_IMAGE_PREFIXES)
+                    ]
+                )
+            )
         elif message.role == "user":
             if text.startswith(_SYNTHETIC_PREFIXES):
                 continue

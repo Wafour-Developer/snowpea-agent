@@ -22,6 +22,7 @@ import pytest_asyncio
 from _support import env_vars
 
 from snowpea_core.agent import loop as agent_loop
+from snowpea_core.agent import person_intent
 from snowpea_core.providers.base import ChatMessage, StreamEvent, Usage
 from snowpea_core.providers.fake import FakeProvider
 from snowpea_core.server.app_server import Daemon
@@ -282,7 +283,13 @@ async def test_a_reasoning_only_step_after_compaction_is_nudged_with_the_questio
     assert [p["text"] for p in sink.of("message.done") if p["role"] == "assistant"] == [
         "웹으로 열어 보세요."
     ]
-    note = agent_loop.COMPACTED_NOTE_WORDS.format(words=QUESTION)
+    # The note quotes the person's question and restates their language (e7d5155b).
+    note = (
+        agent_loop.COMPACTED_NOTE_WORDS.format(words=QUESTION)
+        + "\n"
+        + person_intent.language_note(daemon.core, session)
+    )
+    assert "Korean" in note
     contents = [m.content for m in session.history.messages if m.role == "user"]
     assert note in contents
     # The nudge after the reasoning-only step repeats the note, then the plain ask.

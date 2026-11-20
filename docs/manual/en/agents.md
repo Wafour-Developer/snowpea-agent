@@ -287,6 +287,25 @@ plan mode, at a budget checkpoint or while a goal is armed, and completion
 verification is checked first. The phrases are recognised in English, Korean,
 Japanese, Chinese and Spanish.
 
+At a budget checkpoint the model is asked for a verdict line, `BUDGET-STATUS: DONE`
+or `BUDGET-STATUS: UNFINISHED` (removed before the reply is shown). A reply with no
+tool call that says the work is unfinished ("The work is not finished. Here is a
+checkpoint.") and asks the person nothing is a checkpoint, not a final answer: it
+is shown as the report and the budget renews as above. A reply that waits on the
+person still ends the turn.
+
+When the person asked in the turn to finish the work ("끝까지 진행해줘", "finish
+it", "keep going until it's done"), automatic budget renewals and unfinished-work
+continuations both run up to `agent.finish_request_continuations` (default **30**)
+when that is higher. `auto_budget_continuations: 0` still disables renewals, and
+the loop, no-progress, wall-clock and token guards still apply.
+
+Every note the daemon adds after the person's words — the note after a compaction,
+completion verification, unfinished-work and Stop-hook continuations, the budget
+probe and renewal — restates the language the person writes in, read from their
+own messages only (never from tool output, a picture a tool showed or the
+summary), so a long turn does not drift into English.
+
 A person's own turn that has called only read-only tools (reads, searches, web
 lookups, inspecting shell commands) for `agent.answerNudgeRounds` rounds (default
 **20**, `0` disables) gets one note before its next model call: answer now if it
