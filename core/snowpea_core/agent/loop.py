@@ -3621,7 +3621,10 @@ async def _run_one_call(
         await _deny_call(core, session, call, refusal)
         return None
     mode = turn_mode(core, session)
-    verdict = policy.decide(mode, tag, tool, call.arguments, session)
+    from snowpea_core.security import enforce
+
+    verdict = policy.decide(mode, tag, tool, call.arguments, session,
+                            checks_off=not enforce.enabled(getattr(core, "settings", None)))
     guarded = _guarded_call(core, session, tool, tag)
     if guarded and verdict != "deny":
         # The rest of a turn the agent was switched in (addendum 25): its

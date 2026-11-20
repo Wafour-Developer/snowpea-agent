@@ -245,27 +245,27 @@ def test_a_script_written_outside_scratch_still_asks(lay: SimpleNamespace,
 # -- escapes stay protected ---------------------------------------------------------------
 
 
-@BOTH
-def test_dot_dot_out_of_scratch_is_protected(lay: SimpleNamespace, on: bool) -> None:
+def test_dot_dot_out_of_scratch_is_protected(lay: SimpleNamespace) -> None:
     H = lay.home
     for line in (f"echo x > {H}/tmp/../settings.json",
                  f"echo x > {lay.ws}/../../settings.json",
                  f"rm -f {H}/tmp/../token"):
-        assert _line(lay, line, on=on).blocked, line
+        assert _line(lay, line, on=True).blocked, line
+        # m34: with the checks off nothing of the security layer asks.
+        assert _free(_line(lay, line, on=False)), line
     # A file tool's write to settings.json is judged by its tag: ``config`` asks.
     assert _tag(lay, f"{H}/tmp/../settings.json") == "config"
 
 
-@BOTH
 @pytest.mark.skipif(os.name == "nt", reason="symlinks")
-def test_a_link_in_scratch_to_a_protected_file_is_that_file(lay: SimpleNamespace,
-                                                           on: bool) -> None:
+def test_a_link_in_scratch_to_a_protected_file_is_that_file(lay: SimpleNamespace) -> None:
     H = lay.home
     (H / "tmp" / "s").symlink_to(H / "settings.json")
     (H / "tmp" / "home").symlink_to(H)
     for line in (f"echo x > {H}/tmp/s", f"echo x > {H}/tmp/home/settings.json",
                  f"rm -f {H}/tmp/home/state.db"):
-        assert _line(lay, line, on=on).blocked, line
+        assert _line(lay, line, on=True).blocked, line
+        assert _free(_line(lay, line, on=False)), line  # m34: checks off
     assert _tag(lay, f"{H}/tmp/s") == "config"
     assert _tag(lay, f"{H}/tmp/home/state.db") == "config"
     assert not control_plane.scratch(H / "tmp" / "s", home=H)
@@ -289,13 +289,13 @@ def test_a_new_link_in_scratch_still_asks(lay: SimpleNamespace) -> None:
     assert not _free(verdict)
 
 
-@BOTH
-def test_moving_a_protected_file_into_scratch_is_still_a_write_to_it(lay: SimpleNamespace,
-                                                                       on: bool) -> None:
+def test_moving_a_protected_file_into_scratch_is_still_a_write_to_it(
+        lay: SimpleNamespace) -> None:
     H = lay.home
     for line in (f"mv {H}/settings.json {H}/tmp/s.json", f"mv {H}/token /tmp/m32-t",
                  f"mv {H}/skills {H}/tmp/", f"mv {H}/state.db {lay.ws}/tmp/"):
-        assert not _free(_line(lay, line, on=on)), line
+        assert not _free(_line(lay, line, on=True)), line
+        assert _free(_line(lay, line, on=False)), line  # m34: checks off
 
 
 def test_token_reads_keep_their_rules(lay: SimpleNamespace) -> None:
@@ -306,14 +306,14 @@ def test_token_reads_keep_their_rules(lay: SimpleNamespace) -> None:
         assert not _line(lay, line, on=False).secret_read, line
 
 
-@BOTH
-def test_the_rest_of_the_home_stays_protected(lay: SimpleNamespace, on: bool) -> None:
+def test_the_rest_of_the_home_stays_protected(lay: SimpleNamespace) -> None:
     H = lay.home
     for line in (f"echo x > {H}/settings.json", f"echo x > {H}/state.db",
                  f"echo x > {H}/security/switch.json", f"echo x > {H}/logs/approvals.jsonl",
                  f"echo x > {H}/tmpfile",
                  f"echo x > {H}/skills/x/SKILL.md"):
-        assert not _free(_line(lay, line, on=on)), line
+        assert not _free(_line(lay, line, on=True)), line
+        assert _free(_line(lay, line, on=False)), line  # m34: checks off
 
 
 # -- the presets ----------------------------------------------------------------------------

@@ -29,7 +29,6 @@ from snowpea_core.permissions.approval_queue import Decision
 from snowpea_core.permissions.policy import PermissionPolicy
 from snowpea_core.providers.base import ToolCall
 from snowpea_core.security import enforce
-from snowpea_core.security.check import CONTROL_REASON
 from snowpea_core.server.app_server import Core
 from snowpea_core.session.session import Session
 from snowpea_core.tools.registry import Tool, ToolResult
@@ -128,15 +127,19 @@ def test_on_the_owner_line_asks_as_before(tmp_path: Path) -> None:
     assert not any(why.startswith("parse:") for why in verdict.unseen)
 
 
-def test_off_an_unreadable_line_naming_snowpea_still_asks(tmp_path: Path) -> None:
+def test_off_an_unreadable_line_naming_snowpea_does_not_ask(tmp_path: Path) -> None:
+    # m34 (owner decision 2026-11-20): no security ask while off, in any case.
     verdict = _judge(OFF, tmp_path, UNPARSED_SNOWPEA)
-    assert verdict.opaque and verdict.reason == CONTROL_REASON, verdict
-    assert "snowpea-unread" in verdict.unseen
+    assert not verdict.opaque and not verdict.blocked, verdict
+    on = _judge(ON, tmp_path, UNPARSED_SNOWPEA)
+    assert on.opaque and on.asks_in("auto"), on
 
 
-def test_off_a_write_to_snowpea_controls_still_asks(tmp_path: Path) -> None:
+def test_off_a_write_to_snowpea_controls_does_not_ask(tmp_path: Path) -> None:
     home = tmp_path / "home"
     verdict = _judge(OFF, tmp_path, f'echo "{{}}" > {home}/settings.json; echo "끝')
+    assert not verdict.blocked and not verdict.opaque, verdict
+    verdict = _judge(ON, tmp_path, f'echo "{{}}" > {home}/settings.json; echo "끝')
     assert verdict.blocked or verdict.opaque, verdict
 
 

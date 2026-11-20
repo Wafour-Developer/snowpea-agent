@@ -238,15 +238,16 @@ def test_off_does_not_block_a_file_tool_or_code_read(tmp_path: Path) -> None:
     assert not _judge(Settings(), tmp_path, "python", {"code": code}, ("exec",)).secret_read
 
 
-def test_off_a_move_of_the_token_is_no_secret_read_but_still_a_control_write(
+def test_off_a_move_of_the_token_is_neither_a_secret_read_nor_a_control_ask(
         tmp_path: Path) -> None:
     command = TOKEN_MOVE.format(home=tmp_path / "home")
     on = _judge(_on(), tmp_path, "shell", {"command": command}, ("exec",))
     assert on.blocked and on.secret_read
     off = _judge(Settings(), tmp_path, "shell", {"command": command}, ("exec",))
-    # Moving snowpea's own file away is a write on its controls: a person-only ask.
+    # m34 (owner decision 2026-11-20): with the checks off nothing of the
+    # security layer asks, snowpea's own controls included.
     assert not off.secret_read
-    assert off.blocked and off.person_may_allow and off.kind == "control", off
+    assert not off.blocked and not off.opaque, off
 
 
 # -- token and login reads: through the agent loop, by mode -------------------------------

@@ -103,25 +103,30 @@ def test_off_applies_no_list_and_lets_unknown_code_through(tmp_path: Path) -> No
     assert _judge(off, tmp_path, "shell", {"command": UNKNOWN_LINE}, ("exec",)).opaque
 
 
-def test_off_still_protects_snowpeas_own_controls(tmp_path: Path) -> None:
+def test_off_does_not_guard_snowpeas_own_controls_either(tmp_path: Path) -> None:
+    # m34 (owner decision 2026-11-20, confirmed twice): with the checks off
+    # nothing of the security layer asks or blocks, snowpea's own controls
+    # included; only the mode rules apply.  With the checks on they stay guarded.
     off = _settings(tmp_path, enabled=False)
+    on = _settings(tmp_path, enabled=True)
     home = tmp_path / "home"
     home.mkdir()
     for args in ({"path": str(home / "trust" / "projects.json"), "content": "{}"},
                  {"path": str(home / "daemon.json"), "content": "{}"},
-                 # Who turned the checks off: no session rewrites it.
                  {"path": str(home.joinpath(*enforce.SWITCH_RECORD)), "content": "{}"}):
         write = _judge(off, tmp_path, "write_file", args, ("config",))
-        assert write.blocked and write.by == "security", (args, write)
-    # The security settings themselves: a tool may not rewrite them, off or on.
+        assert not write.blocked and not write.opaque, (args, write)
+        assert _judge(on, tmp_path, "write_file", args, ("config",)).blocked, args
     (home / "settings.json").write_text('{"security": {"enabled": false}}')
-    edit = _judge(off, tmp_path, "write_file",
-                  {"path": str(home / "settings.json"), "content": "{}"}, ("config",))
-    assert edit.blocked
-    cli = _judge(off, tmp_path, "shell", {"command": "snowpea config show"}, ("exec",))
-    assert cli.opaque
-    # A line that also reaches snowpea's home is still refused.
-    assert _judge(off, tmp_path, "shell", {"command": f"rm -rf {home}"}, ("exec",)).blocked
+    edit = {"path": str(home / "settings.json"), "content": "{}"}
+    assert not _judge(off, tmp_path, "write_file", edit, ("config",)).blocked
+    cli = {"command": "snowpea config show"}
+    assert not _judge(off, tmp_path, "shell", cli, ("exec",)).opaque
+    assert _judge(on, tmp_path, "shell", cli, ("exec",)).opaque
+    # Judged only, never run (test data).
+    wipe = {"command": f"rm -rf {home}"}
+    assert not _judge(off, tmp_path, "shell", wipe, ("exec",)).blocked
+    assert _judge(on, tmp_path, "shell", wipe, ("exec",)).blocked
 
 
 def test_project_additions_are_not_applied_while_off(tmp_path: Path) -> None:
@@ -378,13 +383,11 @@ def test_off_lets_a_written_script_through(tmp_path: Path, line: str) -> None:
     assert not off.opaque and not off.blocked, off
 
 
-def test_off_still_asks_an_unread_line_naming_snowpea(tmp_path: Path) -> None:
-    # What was not read may act on snowpea's own controls: still the person's.
+def test_off_an_unread_line_naming_snowpea_does_not_ask(tmp_path: Path) -> None:
+    # m34 (owner decision 2026-11-20): no security ask while off, in any case.
     off = _judge(_settings(tmp_path, enabled=False), tmp_path, "shell",
                  {"command": NAMES_SNOWPEA_HOME}, ("exec",))
-    assert off.opaque and not off.blocked, off
-    assert off.reason == "acts on snowpea's own controls"
-    assert "snowpea-unread" in off.unseen
+    assert not off.opaque and not off.blocked, off
 
 
 def test_off_lets_an_ordinary_unknown_script_through(tmp_path: Path) -> None:

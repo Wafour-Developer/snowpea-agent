@@ -53,7 +53,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 #: Contract §7 table, plus the ``config`` row (CORE-search-fix).  ``config``
 #: never resolves to ``allow``: auto mode asks for it too, because an agent
-#: quietly rewriting settings.json is exactly what the tag exists to stop.
+#: quietly rewriting settings.json is exactly what the tag exists to stop —
+#: while the security checks are on (``PermissionPolicy.decide(checks_off=…)``).
 MODE_MATRIX: dict[str, dict[str, str]] = {
     "plan": {
         "read": "allow",
@@ -189,9 +190,18 @@ class PermissionPolicy:
         tool: Tool | None = None,
         args: dict[str, Any] | None = None,
         session: Any = None,
+        *,
+        checks_off: bool = False,
     ) -> Verdict:
-        """Look the pair up in :data:`MODE_MATRIX`, then apply the allowlist."""
+        """Look the pair up in :data:`MODE_MATRIX`, then apply the allowlist.
+
+        ``checks_off`` (``security.enabled`` not true; owner decision
+        2026-11-20): auto mode runs a ``config`` call unasked too — the ask on
+        snowpea's own settings is the security layer's, and it is off.  Plan
+        and accept keep their rows."""
         verdict = MODE_MATRIX.get(mode, {}).get(tag, "ask")
+        if checks_off and mode == "auto" and tag == "config":
+            verdict = "allow"
         if (
             verdict == "ask"
             and mode == "accept"
