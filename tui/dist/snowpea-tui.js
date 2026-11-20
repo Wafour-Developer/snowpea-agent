@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react64 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.68.0";
+var PROTOCOL_VERSION = "1.70.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -37571,11 +37571,19 @@ function applySessionEvent(state2, event, options = {}) {
       const index = base.queued.findIndex((entry) => entry.turnId === turnId);
       if (index !== -1) {
         const queued = base.queued.slice();
-        queued[index] = { ...queued[index], position };
+        queued[index] = {
+          ...queued[index],
+          position,
+          text: queued[index].text || (typeof payload.text === "string" ? payload.text : "")
+        };
         return { ...base, queued };
       }
-      const text8 = base.promptTexts[turnId] ?? "";
-      return { ...base, queued: [...base.queued, { turnId, text: text8, position }] };
+      const text8 = base.promptTexts[turnId] ?? (typeof payload.text === "string" ? payload.text : "");
+      const attachments = Number(payload.attachments ?? 0);
+      return {
+        ...base,
+        queued: [...base.queued, { turnId, text: text8, position, ...attachments > 0 ? { attachments } : {} }]
+      };
     }
     case "turn.dequeued": {
       const turnId = String(payload.turnId ?? "");
@@ -44813,7 +44821,7 @@ function FeedbackScreen({
 var import_react42 = __toESM(require_react(), 1);
 
 // src/version.ts
-var TUI_VERSION = "0.2.101";
+var TUI_VERSION = "0.2.102";
 
 // src/hooks/useFeedback.ts
 function useFeedback(deps) {
@@ -49103,6 +49111,11 @@ function McpCatalogPicker({
 
 // src/components/QueuedPrompts.tsx
 var import_jsx_runtime41 = __toESM(require_jsx_runtime(), 1);
+function queuedRowText(entry) {
+  const text8 = entry.text.replace(/\s+/g, " ").trim();
+  const marker = entry.attachments ? `[+${entry.attachments} attached]` : "";
+  return [text8, marker].filter(Boolean).join(" ") || "(queued prompt)";
+}
 var MAX_QUEUED_ROWS = 3;
 function QueuedPrompts({
   queued,
@@ -49112,7 +49125,7 @@ function QueuedPrompts({
   const shown = queued.slice(0, MAX_QUEUED_ROWS);
   const hidden2 = queued.length - shown.length;
   return /* @__PURE__ */ (0, import_jsx_runtime41.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
-    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
+    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(queuedRowText(entry), Math.max(10, width - 8))}` }, entry.turnId)),
     hidden2 > 0 ? /* @__PURE__ */ (0, import_jsx_runtime41.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden2} more queued` }) : null
   ] });
 }
