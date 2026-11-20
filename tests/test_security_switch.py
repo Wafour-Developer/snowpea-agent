@@ -348,7 +348,7 @@ def test_a_browser_may_read_the_security_screen() -> None:
 
 
 def test_contract() -> None:
-    assert PROTOCOL_VERSION == "1.69.0"  # 1.58.0 introduced it
+    assert PROTOCOL_VERSION == "1.70.0"  # 1.58.0 introduced it
     assert "securityMasterSwitch" in CAPABILITIES
 
 

@@ -127,6 +127,33 @@ EMPTY_RESPONSE_MESSAGE = (
     "The model ended its turn with no answer and no tool call, also after being asked "
     "to continue."
 )
+#: A reasoning model (DeepSeek / Qwen style) can write its whole answer into
+#: the reasoning and nothing visible.  It is told so plainly, asked again with
+#: thinking off where the provider can switch it, up to this many times.
+REASONING_ONLY_NUDGE = (
+    "Your last reply had reasoning but no visible answer. Write the answer to the person "
+    "now as normal text (not in reasoning), or call a tool."
+)
+REASONING_ONLY_RETRIES = 2
+#: Below this many characters a reasoning-only reply is a cut-off thought, not
+#: an answer worth showing; above the cap only its end is shown (the answer
+#: comes last in a model's reasoning).
+REASONING_FALLBACK_MIN_CHARS = 80
+REASONING_FALLBACK_MAX_CHARS = 4000
+#: The line that marks an answer lifted out of the reasoning, per reply language.
+REASONING_FALLBACK_MARKERS = {
+    "ko": "(모델이 답을 생각 안에만 써서, 그 내용을 옮겨 보여 드립니다)",
+    "en": "(The model wrote its answer only in its reasoning; it is shown here as written.)",
+}
+#: Appended right after a compaction in the middle of a turn: the summary
+#: replaced the conversation, and a model reading it can believe the person's
+#: question is already answered.
+COMPACTED_NOTE = "Context was compacted. Continue the task."
+COMPACTED_NOTE_WORDS = (
+    "Context was compacted. Continue the task. The person's latest message is: «{words}». "
+    "Answer it or call a tool."
+)
+COMPACTED_NOTE_WORDS_MAX = 2000
 
 #: What the model is told when its answer was cut off mid-sentence.
 CONTINUE_INSTRUCTION = "Continue exactly where you stopped, without repeating."
@@ -2622,6 +2649,13 @@ async def _drive(
     # Times a Stop hook kept this turn going (capped per turn).
     stop_continuations = 0
     empty_retries = 0
+    # A step this turn put its answer only in its reasoning: the retries ask
+    # with thinking off, and the last such reasoning is the fallback answer.
+    reasoning_only_seen = False
+    answer_plainly = False
+    last_reasoning = ""
+    # The note appended after a mid-turn compaction, until a step answers.
+    after_compaction = ""
     overflow_retried = False
     opaque_retried = False
     image_retried = False
@@ -2804,7 +2838,24 @@ async def _drive(
         # summarise at a round boundary, where every tool call has its result.
         if session.rounds_used > 1:
             # The first round was checked before the prompt joined history.
-            await compaction.maybe_auto_compact(core, session)
+            compacted = await compaction.maybe_auto_compact(core, session)
+            if compacted is not None and compacted.compacted:
+                after_compaction = _compacted_note(session)
+                session.history.append(
+                    ChatMessage(
+                        role="user",
+                        content=after_compaction,
+                        source=history_mod.source("compaction", "notice"),
+                    )
+                )
+        if answer_plainly:
+            # The last step answered only in its reasoning: this one is asked
+            # with thinking off, or at the lowest effort when it has no switch.
+            answer_plainly = False
+            if getattr(provider, "supports_thinking_option", False):
+                config = replace(config, thinking="off")
+            elif getattr(provider, "supports_effort_option", False):
+                config = replace(config, effort="low")
         specs = core.tools.specs(session)
         # Pictures that have been seen go to text in the history itself, so
         # this request continues the last one (R3, 1.37.0).
@@ -2882,27 +2933,50 @@ async def _drive(
 
         assistant_text = attempt.text
         if not calls and not assistant_text.strip():
-            # Reasoning cut short, or nothing at all: not an answer.  The empty
-            # message is not kept; the nudge is appended after what was sent.
-            if empty_retries < EMPTY_RETRIES:
+            # Reasoning cut short, an answer written only in the reasoning, or
+            # nothing at all: not an answer.  The empty message is not kept;
+            # the nudge is appended after what was sent.
+            reasoning = attempt.reasoning.strip()
+            if reasoning and not attempt.truncated:
+                last_reasoning = reasoning
+            if reasoning or attempt.reasoning_tokens > 0:
+                reasoning_only_seen = True
+            limit = REASONING_ONLY_RETRIES if reasoning_only_seen else EMPTY_RETRIES
+            if empty_retries < limit:
                 empty_retries += 1
+                nudge = REASONING_ONLY_NUDGE if reasoning_only_seen else EMPTY_NUDGE
+                if after_compaction:
+                    nudge = f"{after_compaction}\n{nudge}"
                 session.history.append(
                     ChatMessage(
                         role="user",
-                        content=EMPTY_NUDGE,
+                        content=nudge,
                         source=history_mod.source("empty-nudge", "notice"),
                     )
                 )
                 await hub.emit_event(
                     session.id,
-                    events.hook_continue(EMPTY_NUDGE, empty_retries, "other", EMPTY_RETRIES),
+                    events.hook_continue(nudge, empty_retries, "other", limit),
                 )
+                answer_plainly = reasoning_only_seen
                 continue
+            if len(last_reasoning) >= REASONING_FALLBACK_MIN_CHARS:
+                # Still nothing visible, but the reasoning held an answer: show
+                # it, marked, rather than end the person's turn with nothing.
+                fallback = _reasoning_fallback_text(core, session, last_reasoning)
+                session.history.append(ChatMessage(role="assistant", content=fallback))
+                await hub.emit_event(
+                    session.id, events.message_done(fallback, reasoning_fallback=True)
+                )
+                await speak_reply(core, session, fallback)
+                await finish_turn(core, session, turn_id, "complete")
+                return "complete"
             await hub.emit_event(
                 session.id, events.error(errors.EMPTY_RESPONSE, EMPTY_RESPONSE_MESSAGE)
             )
             await finish_turn(core, session, turn_id, "empty_response")
             return "empty_response"
+        after_compaction = ""
         if not calls:
             session.history.append(ChatMessage(role="assistant", content=assistant_text))
             await hub.emit_event(
@@ -3173,6 +3247,33 @@ async def _guard_report(
     )
     await speak_reply(core, session, text)
     return text
+
+
+def _compacted_note(session: Session) -> str:
+    """The note after a mid-turn compaction, quoting the person's newest words."""
+    words = compaction.latest_user_words(session.history.snapshot())
+    if not words:
+        return COMPACTED_NOTE
+    if len(words) > COMPACTED_NOTE_WORDS_MAX:
+        words = words[: COMPACTED_NOTE_WORDS_MAX - 1] + "…"
+    return COMPACTED_NOTE_WORDS.format(words=words)
+
+
+def _reasoning_fallback_text(core: Core, session: Session, reasoning: str) -> str:
+    """A marked answer built from reasoning that held one; the marker follows the reply language."""
+    from snowpea_core.agent.agent import session_reply_language
+    from snowpea_core.util.lang import detect_language
+
+    configured = (session_reply_language(core, session) or "auto").strip().lower()
+    if configured == "auto":
+        # The person's own words, not the English nudges appended after them.
+        lang = detect_language(compaction.latest_user_words(session.history.snapshot()))
+    else:
+        lang = "ko" if configured.startswith(("ko", "kor", "한국")) else "en"
+    marker = REASONING_FALLBACK_MARKERS["ko" if lang == "ko" else "en"]
+    if len(reasoning) > REASONING_FALLBACK_MAX_CHARS:
+        reasoning = "…" + reasoning[-(REASONING_FALLBACK_MAX_CHARS - 1) :].lstrip()
+    return f"{marker}\n\n{reasoning}"
 
 
 #: The continue / stop rows of the tool-round checkpoint, per reply language.

@@ -49,6 +49,8 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 프로토콜 1.69.0(capability `jobMissedRuns`)부터 놓친 예약 실행이 조용히 넘어가지 않습니다. 실행 예정 시각보다 `scheduler.catchUpSec` 넘게 늦게 데몬이 시작되었거나, 대기 중인 실행의 브라우저 호스트가 끝내 연결되지 않으면, `job.runs`에 status `missed`와 `error` "missed: <이유>"인 행이 남고, `job.event` `missed`가 `{scheduledAt, reason, error, title, nextRunAt}`(`reason`은 `daemon_down` 또는 `host_absent`)을 싣고, 작업의 채널(없으면 연결된 사람의 개인 대화, 루틴 이름 표시)에 알리며, `JobInfo.lastError`에 이유가 보입니다.
 
+프로토콜 1.70.0(capability `reasoningOnlyFallback`)부터 답을 생각(reasoning) 안에만 쓰는 모델 때문에 턴이 빈손으로 끝나지 않습니다. 모델에게 그 사실을 알리고 최대 두 번 다시 묻는데, 공급자가 지원하면 생각을 끈 채로 묻습니다. 그래도 보이는 답이 없으면 턴은 `complete`로 끝나고 `message.done`의 `reasoningFallback`이 `true`입니다. 본문은 답 언어로 된 안내 한 줄과 그 생각 내용(마지막 4000자)입니다. 생각조차 없는 빈 응답은 예전처럼 한 번만 다시 묻고 `empty_response`로 끝납니다.
+
 ## 영역별 메서드
 
 | 영역 | 메서드 |

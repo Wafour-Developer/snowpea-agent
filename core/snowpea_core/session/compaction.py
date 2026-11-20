@@ -610,13 +610,24 @@ def verbatim_section(messages: list[ChatMessage], budget: int = VERBATIM_BUDGET)
         seen.add(entry)
         if len(entry) > VERBATIM_ENTRY_MAX:
             entry = entry[: VERBATIM_ENTRY_MAX - 1] + "…"
-        if used + len(entry) > budget:
+        # The newest words always stay, clipped to the budget if they must be
+        # (a compaction still has to shrink): a summary written mid-turn must
+        # not lose the question the person is waiting on.
+        if not entries and len(entry) > budget > 1:
+            entry = entry[: budget - 1] + "…"
+        if entries and used + len(entry) > budget:
             break
         used += len(entry)
         entries.append(entry.replace("\n", "\n  "))
     if not entries:
         return ""
     return f"{VERBATIM_HEADING}\n{VERBATIM_NOTE}" + "".join(_ENTRY + e for e in entries)
+
+
+def latest_user_words(messages: list[ChatMessage]) -> str:
+    """The person's newest words in ``messages`` (a summary's verbatim block counts)."""
+    entries = _verbatim_entries(messages)
+    return entries[-1] if entries else ""
 
 
 def summary_message(text: str) -> ChatMessage:
@@ -723,6 +734,8 @@ async def compact_session(
         text = text.split(VERBATIM_HEADING, 1)[0].rstrip()
     # Never more than half of what is being replaced: a compaction must shrink.
     head_chars = sum(len(message_text(m)) for m in head)
+    # Words in the kept tail stay there verbatim; listing them again would
+    # undo the shrink.  The newest words of the head always make the list.
     verbatim = verbatim_section(head, min(VERBATIM_BUDGET, head_chars // 2))
     if verbatim:
         text = f"{text}\n\n{verbatim}"

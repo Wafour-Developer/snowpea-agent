@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.69.0` (semver)
+- **Protocol version:** `1.70.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.69.0"
+    "protocolVersion": "1.70.0"
   }
 }
 ```
@@ -109,6 +109,7 @@ Server capabilities advertised in the `system.hello` result:
 - `providerModelsError`
 - `providerStatusEvents`
 - `readOnlyDelegation`
+- `reasoningOnlyFallback`
 - `securityAllProjects`
 - `securityDefaultOff`
 - `securityLists`
@@ -5999,6 +6000,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `continuations` | `number` | no | How many times the turn was resumed after hitting the output limit. |
 | `kind` | `"message.done"` | no |  |
 | `messageKind` | `"" \| "interrupted" \| "plan"` | no | Optional message classification inside the message.done payload, for example 'interrupted' for the post-stop system note, or 'plan' (1.32.0) for the plan set_mode puts up for review just before its question; it arrives while that set_mode call is still running. |
+| `reasoningFallback` | `boolean \| null` | no | 1.70.0 (capability reasoningOnlyFallback): true when the model wrote its answer only in its reasoning, also after being asked again, and this text is that reasoning shown under a marker line instead of an empty_response error. Absent otherwise. |
 | `role` | `"assistant" \| "user" \| "system"` | no | Who produced the message. |
 | `text` | `string` | yes | Full message text. |
 | `truncated` | `boolean` | no | The answer still hit the output limit and is incomplete. |

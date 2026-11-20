@@ -49,6 +49,8 @@ Since protocol 1.69.0 (capability `hostToolKind`) a `tool.register` spec may car
 
 Since protocol 1.69.0 (capability `jobMissedRuns`) a scheduled occurrence that was missed is not silent. When the daemon starts later than `scheduler.catchUpSec` after a run was due, or a held run's browser host never comes, `job.runs` gets a row with status `missed` and `error` "missed: <reason>", `job.event` `missed` carries `{scheduledAt, reason, error, title, nextRunAt}` (`reason` is `daemon_down` or `host_absent`), the job's channel (or, without one, the bound person's private chat, labelled with the routine) is told, and `JobInfo.lastError` shows the reason.
 
+Since protocol 1.70.0 (capability `reasoningOnlyFallback`) a model that writes its answer only in its reasoning does not end the turn with nothing. It is told so and asked again up to twice, with thinking off where the provider can switch it. If it still writes nothing visible, the turn ends `complete` with a `message.done` whose `reasoningFallback` is `true`: a marker line in the reply language, then that reasoning (its last 4000 characters). A step with no reasoning either keeps the old single retry and `empty_response`.
+
 ## Methods, by area
 
 | Area | Methods |

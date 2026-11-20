@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.69.0";
+export const PROTOCOL_VERSION = "1.70.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -11141,6 +11141,8 @@ export interface MessageDoneEventPayload {
   kind?: "message.done";
   /** Optional message classification inside the message.done payload, for example 'interrupted' for the post-stop system note, or 'plan' (1.32.0) for the plan set_mode puts up for review just before its question; it arrives while that set_mode call is still running. */
   messageKind?: "" | "interrupted" | "plan";
+  /** 1.70.0 (capability reasoningOnlyFallback): true when the model wrote its answer only in its reasoning, also after being asked again, and this text is that reasoning shown under a marker line instead of an empty_response error. Absent otherwise. */
+  reasoningFallback?: boolean | null;
   /** Who produced the message. */
   role?: "assistant" | "user" | "system";
   /** Full message text. */
