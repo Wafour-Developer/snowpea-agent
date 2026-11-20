@@ -6,9 +6,9 @@ get quietly wrong:
 * **Which namespace a session belongs to.**  Derived from the workdir's git
   root, so ``repo/`` and ``repo/core/`` share one project memory and a sibling
   checkout does not.
-* **What happens when the model does not say where to save.**  It must ask a
-  human, honour the answer, and write *nothing* on a cancel or a timeout —
-  silence is not "save it globally".
+* **What happens when the model does not say where to save.**  It is kept for
+  the project at once and the result says how to make it global; the turn never
+  waits on a question (it used to, for up to 600 s, and timed out mid-task).
 * **That recall sees both scopes at once**, labelled, so the model can tell a
   project fact from a standing preference.
 """
@@ -40,10 +40,7 @@ from snowpea_core.memory.scopes import (
     scope_of,
 )
 from snowpea_core.memory.tools import (
-    CANCELLED,
-    NO_ANSWER,
-    OPTION_GLOBAL,
-    OPTION_PROJECT,
+    PROJECT_DEFAULT_NOTE,
     save_memory,
     search_memory,
 )
@@ -162,7 +159,7 @@ async def test_session_derives_its_namespace_from_the_workdir(tmp_path: Path) ->
 
 async def test_explicit_scope_skips_the_question(services: MemoryServices, tmp_path: Path) -> None:
     root = git_repo(tmp_path / "repo")
-    origin = _Origin(OPTION_GLOBAL)
+    origin = _Origin("Global (every project)")
     core = _Core(services)
     ctx = ctx_for(core, root)
     ctx.session.origin_conn = origin
@@ -188,70 +185,40 @@ async def test_an_unknown_scope_is_refused(services: MemoryServices, tmp_path: P
 
 
 # ---------------------------------------------------------------------------
-# (3) save_memory without a scope: the question
+# (3) save_memory without a scope: the project, at once (feedback: never block)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("answer", "expected_scope"),
-    [(OPTION_PROJECT.format(project="repo"), "project"), (OPTION_GLOBAL, "global")],
-)
-async def test_no_scope_asks_and_honours_the_answer(
-    services: MemoryServices, tmp_path: Path, answer: str, expected_scope: str
+async def test_no_scope_keeps_it_for_the_project_without_asking(
+    services: MemoryServices, tmp_path: Path
 ) -> None:
     root = git_repo(tmp_path / "repo")
-    origin = _Origin(answer)
+    origin = _Origin("Global (every project)")
     ctx = ctx_for(_Core(services), root)
     ctx.session.origin_conn = origin
 
-    result = await save_memory(ctx, {"text": "배포 대상은 duho 서버다"})
+    result = await asyncio.wait_for(save_memory(ctx, {"text": "배포 대상은 duho 서버다"}), 5)
 
-    assert len(origin.asked) == 1
-    question = origin.asked[0]["questions"][0]
-    assert question["header"] == "Where to keep it"
-    assert "repo" in question["question"]
-    assert [option["label"] for option in question["options"]] == [
-        OPTION_PROJECT.format(project="repo"),
-        OPTION_GLOBAL,
-        "Cancel",
-    ]
-    assert question["allowOther"] is False
-    assert result.meta is not None and result.meta["scope"] == expected_scope
+    assert origin.asked == [], "the turn never waits on a scope question"
+    assert result.ok and result.meta is not None and result.meta["scope"] == "project"
+    assert result.output.endswith(PROJECT_DEFAULT_NOTE)
+    assert "scope 'global'" in result.output
+    in_project = await services.store.list(namespace=f"project:{root.resolve()}")
+    assert [row.text for row in in_project] == ["배포 대상은 duho 서버다"]
 
 
-async def test_cancel_writes_nothing(services: MemoryServices, tmp_path: Path) -> None:
+async def test_nobody_watching_never_blocks_the_turn(
+    services: MemoryServices, tmp_path: Path
+) -> None:
+    """The reported hang: no surface answers, and the question waited 600 s."""
     root = git_repo(tmp_path / "repo")
-    ctx = ctx_for(_Core(services), root)
-    ctx.session.origin_conn = _Origin("Cancel")
+    ctx = ctx_for(_Core(services, timeout_sec=600), root)
+    ctx.session.origin_conn = None
 
-    result = await save_memory(ctx, {"text": "배포 대상은 duho 서버다"})
+    result = await asyncio.wait_for(save_memory(ctx, {"text": "duho"}), timeout=5)
 
-    assert result.output == CANCELLED
-    assert result.meta == {"written": False}
-    assert await services.store.list_many(namespaces=namespaces_for(ctx.session)) == []
-
-
-async def test_a_declining_surface_writes_nothing(services: MemoryServices, tmp_path: Path) -> None:
-    """A headless client answers the s2c call with nothing; that is not assent."""
-    root = git_repo(tmp_path / "repo")
-    ctx = ctx_for(_Core(services), root)
-    ctx.session.origin_conn = _Origin(None)
-
-    result = await save_memory(ctx, {"text": "배포 대상은 duho 서버다"})
-
-    assert result.output == CANCELLED
-    assert await services.store.list_many(namespaces=namespaces_for(ctx.session)) == []
-
-
-async def test_nobody_answering_writes_nothing(services: MemoryServices, tmp_path: Path) -> None:
-    root = git_repo(tmp_path / "repo")
-    ctx = ctx_for(_Core(services, timeout_sec=1), root)
-    ctx.session.origin_conn = None  # nothing to ask, and no client will respond
-
-    result = await asyncio.wait_for(save_memory(ctx, {"text": "duho"}), timeout=10)
-
-    assert result.output == NO_ANSWER
-    assert await services.store.list_many(namespaces=namespaces_for(ctx.session)) == []
+    assert result.meta is not None and result.meta["written"] is True
+    assert result.meta["scope"] == "project"
 
 
 @pytest.mark.parametrize("kwargs", [{"unattended": True}, {"is_subagent": True}])
@@ -259,7 +226,7 @@ async def test_an_unwatched_session_defaults_to_project(
     services: MemoryServices, tmp_path: Path, kwargs: dict[str, Any]
 ) -> None:
     root = git_repo(tmp_path / "repo")
-    origin = _Origin(OPTION_GLOBAL)
+    origin = _Origin("Global (every project)")
     ctx = ctx_for(_Core(services), root, **kwargs)
     ctx.session.origin_conn = origin
 
@@ -273,7 +240,7 @@ async def test_ask_scope_false_defaults_to_project(
     services: MemoryServices, tmp_path: Path
 ) -> None:
     root = git_repo(tmp_path / "repo")
-    origin = _Origin(OPTION_GLOBAL)
+    origin = _Origin("Global (every project)")
     core = _Core(services)
     services.settings.askScope = False
     ctx = ctx_for(core, root)
@@ -288,7 +255,7 @@ async def test_ask_scope_false_defaults_to_project(
 async def test_a_session_with_no_project_writes_globally(
     services: MemoryServices, tmp_path: Path
 ) -> None:
-    origin = _Origin(OPTION_GLOBAL)
+    origin = _Origin("Global (every project)")
     ctx = ctx_for(_Core(services), Path.home())
     ctx.session.origin_conn = origin
 
