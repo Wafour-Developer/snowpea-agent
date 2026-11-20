@@ -794,7 +794,14 @@ def _remember_codex_info(entries: list[dict[str, Any]]) -> None:
                 if (level.get("effort") if isinstance(level, dict) else level)
             ]
         window = item.get("context_window") or item.get("max_context_window")
+        modalities = item.get("input_modalities")
         info = {
+            # ``None`` when the entry does not say, so the name rung decides.
+            "vision": (
+                any(str(kind).lower() == "image" for kind in modalities)
+                if isinstance(modalities, list)
+                else None
+            ),
             "displayName": str(item.get("display_name") or slug),
             "efforts": efforts,
             "defaultEffort": str(item.get("default_reasoning_level") or "") or None,
@@ -808,7 +815,7 @@ def _remember_codex_info(entries: list[dict[str, Any]]) -> None:
 
 
 def codex_model_info(model: str | None) -> dict[str, Any] | None:
-    """``{displayName, efforts, defaultEffort, contextWindow}`` from the live list, or ``None``."""
+    """``{vision, displayName, ...}`` from the live list, or ``None``."""
     return _CODEX_INFO.get((model or "").strip())
 
 

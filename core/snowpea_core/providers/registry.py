@@ -650,6 +650,12 @@ class ProviderRegistry:
         configured = vision_scale.settings_override(self.vendor_config(vendor), resolved)
         if configured is not None:
             return configured
+        if vendor == "openai" and self.auth_method_for(vendor) == "chatgpt":
+            # The account's own Codex list states input modalities per model,
+            # and it is the backend these turns go to.
+            codex_info = model_discovery.codex_model_info(resolved) or {}
+            if isinstance(codex_info.get("vision"), bool):
+                return bool(codex_info["vision"])
         from_catalog = self._models_dev_vision(vendor, resolved)
         if from_catalog is not None:
             return from_catalog
@@ -845,6 +851,9 @@ class ProviderRegistry:
                     model=model or None,
                     reasoning_effort=str(config.get("reasoning_effort") or "") or None,
                     on_credentials=self._oauth_saver(vendor),
+                    # The same answer the tool gates get, so a captured image
+                    # is not swapped for the no-vision note on the way out.
+                    vision=self.vision_for(vendor, model) if model else None,
                 )
         if vendor == "gemini":
             from snowpea_core.providers import google_oauth
