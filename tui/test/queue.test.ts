@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { SessionEvent } from "../src/rpc/sdk.js";
 import { __resetIdCounter, initialState, reducer, type State } from "../src/state/store.js";
+import { queuedRowText } from "../src/components/QueuedPrompts.js";
 import { queuedLabel } from "../src/state/working.js";
 
 function event(seq: number, kind: string, payload: Record<string, unknown>): SessionEvent {
@@ -41,6 +42,28 @@ describe("the queue", () => {
     expect(state.queued[0].text).toBe("");
     state = reducer(state, { type: "prompt/turn", turnId: "t-1", text: "run the tests" });
     expect(state.queued[0].text).toBe("run the tests");
+  });
+
+  it("takes the text from a daemon that puts it in turn.queued", () => {
+    const state = apply(
+      initialState,
+      event(1, "turn.queued", { turnId: "t-9", position: 1, queued: 1, text: "from elsewhere", attachments: 2 }),
+    );
+    expect(state.queued[0].text).toBe("from elsewhere");
+    expect(state.queued[0].attachments).toBe(2);
+    expect(queuedRowText(state.queued[0])).toBe("from elsewhere [+2 attached]");
+  });
+
+  it("prefers what this surface sent, and shows the placeholder only with no text at all", () => {
+    let state = reducer(initialState, { type: "prompt/turn", turnId: "t-1", text: "mine" });
+    state = apply(state, event(1, "turn.queued", { turnId: "t-1", position: 1, text: "theirs" }));
+    expect(state.queued[0].text).toBe("mine");
+    state = apply(state, event(2, "turn.queued", { turnId: "t-2", position: 2 }));
+    expect(queuedRowText(state.queued[1])).toBe("(queued prompt)");
+  });
+
+  it("folds a multi-line prompt into one row", () => {
+    expect(queuedRowText({ turnId: "t", text: "a\n  b\nc", position: 1 })).toBe("a b c");
   });
 
   it("keeps the text when the prompt call answers before the queue event", () => {

@@ -423,7 +423,9 @@ class CommandRegistry:
             # prompt; it is never folded into it, whatever ``when_busy`` says.
             session.queued_turns.append(queued)
             waiting = len(session.queued_turns)
-            agent_loop._emit_soon(core, session, events.turn_queued(turn_id, waiting, waiting))
+            agent_loop._emit_soon(
+                core, session, events.turn_queued(turn_id, waiting, waiting, queued.text)
+            )
             return turn_id
         session.current_turn = turn_id
         session.turn_task = asyncio.ensure_future(agent_loop.drain_turns(core, session, queued))

@@ -1892,7 +1892,11 @@ def start_turn(
         # The prompt was accepted but will not start yet; say so, or the user
         # has no way to tell it from a dropped keystroke (CORE-fixes-v017 R5).
         waiting = len(session.queued_turns)
-        _emit_soon(core, session, events.turn_queued(turn_id, waiting, waiting))
+        _emit_soon(
+            core,
+            session,
+            events.turn_queued(turn_id, waiting, waiting, text, len(queued.attachments or [])),
+        )
         if (queued.when_busy or _busy_policy(core)) == "steer":
             # Wake a lead that is waiting on a delegation; it decides what,
             # if anything, its children are told (``subagent_message``).

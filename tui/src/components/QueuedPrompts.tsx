@@ -12,6 +12,13 @@ import { Box, Text } from "ink";
 import { clip } from "../state/working.js";
 import type { QueuedPrompt } from "../state/store.js";
 
+/** One line for a queued prompt: its text, newlines folded, plus a marker for attachments. */
+export function queuedRowText(entry: QueuedPrompt): string {
+  const text = entry.text.replace(/\s+/g, " ").trim();
+  const marker = entry.attachments ? `[+${entry.attachments} attached]` : "";
+  return [text, marker].filter(Boolean).join(" ") || "(queued prompt)";
+}
+
 /** Rows before the rest are counted instead of listed. */
 export const MAX_QUEUED_ROWS = 3;
 
@@ -29,7 +36,7 @@ export function QueuedPrompts({
     <Box flexDirection="column" width={width} flexShrink={0}>
       {shown.map((entry, index) => (
         <Text key={entry.turnId} dimColor wrap="truncate-end">
-          {`   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}`}
+          {`   ${index + 1}. ${clip(queuedRowText(entry), Math.max(10, width - 8))}`}
         </Text>
       ))}
       {hidden > 0 ? <Text dimColor>{`   … ${hidden} more queued`}</Text> : null}
