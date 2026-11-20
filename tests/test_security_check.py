@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from snowpea_core.security import catalog
+from snowpea_core.security import catalog, control_plane
 from snowpea_core.security import patterns as pl
 from snowpea_core.security.check import (
     BY_SETTINGS,
@@ -397,7 +397,11 @@ def test_a_protected_path_inside_the_project_is_not_exempt() -> None:
                           tags=("write",)).blocked
 
 
-def test_mounts_exempt_the_session_project(tmp_path: Path) -> None:
+def test_mounts_exempt_the_session_project(tmp_path: Path,
+                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    # m32: a disk inside a temp folder is scratch space; pytest's tmp lies in
+    # /tmp, so the temp folders are taken away for this disk to count.
+    monkeypatch.setattr(control_plane, "temp_dirs", lambda: ())
     disk = tmp_path / "disk"
     proj = disk / "work" / "proj"
     proj.mkdir(parents=True)
