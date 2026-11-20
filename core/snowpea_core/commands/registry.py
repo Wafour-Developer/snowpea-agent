@@ -325,13 +325,25 @@ class CommandRegistry:
         return list(self._commands.values())
 
     def parse(self, text: str) -> tuple[str, str] | None:
-        """``"/mode auto"`` -> ``("mode", "auto")``; non-slash text -> ``None``."""
+        """``"/mode auto"`` -> ``("mode", "auto")``; non-slash text -> ``None``.
+
+        A pasted absolute path (``/Users/me/x.md explain this``, ``/tmp/log``)
+        is not a command either: a first word with another separator in it that
+        names no registered command goes to the model as a prompt.  An unknown
+        single-segment name (``/foo``) still parses, so it fails as before.
+        """
         if not text.startswith("/"):
             return None
         name, _, args = text[1:].partition(" ")
         if not name:
             return None
+        if self.is_path(name):
+            return None
         return name, args.strip()
+
+    def is_path(self, name: str) -> bool:
+        """True when ``name`` (no leading slash) reads as a path, not a command."""
+        return ("/" in name or "\\" in name) and name not in self._commands
 
     # -- execution -----------------------------------------------------
     def start(

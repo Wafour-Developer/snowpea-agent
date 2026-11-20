@@ -127,6 +127,16 @@ def supports_reasoning(model: str) -> bool:
     return any(fragment in name for fragment in _REASONING_PREFIXES)
 
 
+def codex_vision(model: str) -> bool:
+    """True when ``model`` takes images: the live list's input modalities, else the name."""
+    from snowpea_core.providers.models import codex_model_info
+
+    info = codex_model_info(model)
+    if info is not None and isinstance(info.get("vision"), bool):
+        return bool(info["vision"])
+    return content_parts.supports_vision("openai", model)
+
+
 def effort_for(model: str, wanted: str | None) -> str | None:
     """The ``reasoning.effort`` to send: ``wanted`` if the model takes it, else the nearest.
 
@@ -374,9 +384,13 @@ class CodexProvider:
         originator: str = ORIGINATOR,
         on_credentials: Callable[[dict[str, Any]], Any] | None = None,
         transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None,
+        vision: bool | None = None,
     ) -> None:
         self.credentials = openai_oauth.normalize_stored_credentials(credentials)
         self.model = model or DEFAULT_MODEL
+        #: The registry's ``vision_for`` answer, so the transport sends images
+        #: exactly when the tools that captured them were told it could.
+        self._vision = vision
         self._base_url = (base_url or BASE_URL).rstrip("/")
         self._timeout = timeout
         configured = (reasoning_effort or "").strip().lower()
@@ -434,7 +448,7 @@ class CodexProvider:
         effort: str | None = None,
     ) -> dict[str, Any]:
         """The ``POST /responses`` body for one turn."""
-        vision = content_parts.supports_vision(self.vendor, self.model)
+        vision = self._vision if self._vision is not None else codex_vision(self.model)
         instructions, items = messages_to_responses(messages, vision=vision)
         body: dict[str, Any] = {
             "model": self.model,

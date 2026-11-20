@@ -1225,8 +1225,17 @@ async def command_list_handler(
 async def command_run_handler(
     conn: RpcConnection, params: CommandRunParams, core: Core
 ) -> TurnResult:
-    session = _session(core, params.sessionId)
     name = params.name[1:] if params.name.startswith("/") else params.name
+    if core.commands.is_path(name):
+        # A client that splits slash text itself sends a pasted path
+        # (``/Users/me/x.md …``) here; it is a prompt, as in session.prompt.
+        text = f"/{name} {params.args}".strip()
+        return await session_prompt_handler(
+            conn,
+            SessionPromptParams(sessionId=params.sessionId, text=text, whenBusy=params.whenBusy),
+            core,
+        )
+    session = _session(core, params.sessionId)
     # Judged before anything runs, by what it would persist and whether it
     # raises the mode: the one gate in ``CommandRegistry.start`` (security
     # reviews 3 and 4), shared with slash text in session.prompt.

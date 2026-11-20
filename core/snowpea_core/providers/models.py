@@ -68,6 +68,73 @@ ANTHROPIC_MAX_PAGES = 20
 
 #: ``(vendor, base_url)`` -> ``(expires_at, model_ids)``.
 _CACHE: dict[tuple[str, str], tuple[float, list[str]]] = {}
+#: ``base_url -> {model: takes images}``, as the server's own listing said.
+_LISTED_VISION: dict[str, dict[str, bool]] = {}
+
+
+def vision_from_listing(row: Any) -> bool | None:
+    """What one model-listing entry says about image input; ``None`` = it says nothing.
+
+    The documented shapes: ``input_modalities`` (the Codex backend's model
+    list), ``architecture.input_modalities`` (OpenRouter ``/models``),
+    ``modalities.input`` (the models.dev card shape, which some gateways copy),
+    ``modalities.vision`` (llama.cpp ``/props``), a ``capabilities`` list
+    (Ollama ``/api/show``) or object, LM Studio's ``type: "vlm"``
+    (``/api/v0/models``), Moonshot's ``supports_image_in``, and
+    ``supports_vision`` / ``supports_image_input`` flags.
+    """
+    if not isinstance(row, dict):
+        return None
+    architecture = row.get("architecture")
+    modalities = row.get("modalities")
+    if isinstance(modalities, dict) and isinstance(modalities.get("vision"), bool):
+        return bool(modalities["vision"])
+    for inputs in (
+        row.get("input_modalities"),
+        architecture.get("input_modalities") if isinstance(architecture, dict) else None,
+        modalities.get("input") if isinstance(modalities, dict) else modalities,
+    ):
+        if isinstance(inputs, list):
+            return any(str(kind).lower() == "image" for kind in inputs)
+    capabilities = row.get("capabilities")
+    if isinstance(capabilities, list):
+        return any(str(kind).lower() == "vision" for kind in capabilities)
+    if isinstance(capabilities, dict):
+        for key in ("vision", "image_input"):
+            value = capabilities.get(key)
+            if isinstance(value, dict):
+                value = value.get("supported")
+            if isinstance(value, bool):
+                return value
+    for key in ("supports_vision", "supports_image_input", "supports_image_in"):
+        if isinstance(row.get(key), bool):
+            return bool(row[key])
+    kind = row.get("type")
+    if kind in ("vlm", "llm"):
+        return kind == "vlm"
+    return None
+
+
+def note_listed_vision(base_url: str, model: str, vision: bool | None) -> None:
+    """Record one model's answer from a metadata probe (context-window discovery)."""
+    if vision is not None and model:
+        _LISTED_VISION.setdefault(base_url.rstrip("/"), {})[model] = vision
+
+
+def _remember_listed_vision(base_url: str, rows: Sequence[Any], id_key: str = "id") -> None:
+    """Keep what a live listing said about image input, per model id."""
+    answers: dict[str, bool] = {}
+    for row in rows:
+        vision = vision_from_listing(row)
+        name = str(row.get(id_key) or "").strip() if isinstance(row, dict) else ""
+        if name and vision is not None:
+            answers[name] = vision
+    _LISTED_VISION.setdefault(base_url.rstrip("/"), {}).update(answers)
+
+
+def listed_vision(base_url: str | None) -> dict[str, bool]:
+    """``{model: takes images}`` from the newest live listing of ``base_url``."""
+    return dict(_LISTED_VISION.get((base_url or "").rstrip("/"), {}))
 
 
 #: Auth methods that reach a vendor's OAuth backend rather than its public API.
@@ -102,6 +169,7 @@ def is_placeholder(model: str | None) -> bool:
 def cache_clear() -> None:
     """Drop every cached listing (tests, and ``/model --refresh``)."""
     _CACHE.clear()
+    _LISTED_VISION.clear()
     _CODEX_LIVE.clear()
     _CODEX_INFO.clear()
 
@@ -173,6 +241,11 @@ async def list_models(
 
 def _fallback_base(preset: VendorPreset) -> str:
     return ANTHROPIC_BASE_URL if preset.adapter == "anthropic_native" else ""
+
+
+def listing_base(preset: VendorPreset, base_url: str | None) -> str:
+    """The base URL :func:`list_models` asks, which keys what its listing said."""
+    return (base_url or preset.base_url or _fallback_base(preset)).rstrip("/")
 
 
 async def _get_json(
@@ -248,6 +321,7 @@ async def _list_openai(
         # Newest first, so ``models[0]`` is a sensible default; a self-hosted
         # server's own order (often the one model it serves) is kept.
         rows = _newest_first(rows)
+    _remember_listed_vision(base_url, rows)
     return _dedupe([row.get("id", "") for row in rows])
 
 
@@ -314,6 +388,7 @@ async def _list_anthropic(
             payload = await _get_json(url, headers, timeout, preset.id, transport=transport)
             data = payload.get("data")
             rows = data if isinstance(data, list) else []
+            _remember_listed_vision(base_url, rows)
             live.extend(str(row.get("id", "")) for row in rows if isinstance(row, dict))
             after = str(payload.get("last_id") or "")
             if not payload.get("has_more") or not after:
@@ -432,15 +507,32 @@ def read_cache_file(path: Path, *, max_age_sec: float | None = None) -> list[str
     return _dedupe([str(item) for item in raw]) if isinstance(raw, list) else []
 
 
-def write_cache_file(path: Path, ids: Sequence[str]) -> None:
+def read_cache_vision(path: Path) -> dict[str, bool]:
+    """``{model: takes images}`` the remembered listing carried, or ``{}``."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    raw = payload.get("vision") if isinstance(payload, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {str(name): value for name, value in raw.items() if isinstance(value, bool)}
+
+
+def write_cache_file(
+    path: Path, ids: Sequence[str], vision: dict[str, bool] | None = None
+) -> None:
     """Remember a *non-empty* listing; a failed write is never an error.
 
     Only good answers are stored: pinning an empty list would turn one flaky
-    minute into a permanently empty picker.
+    minute into a permanently empty picker.  ``vision`` is what the listing
+    said about image input, per model, for :meth:`ProviderRegistry.vision_for`.
     """
     if not ids:
         return
-    payload = {"saved_at": time.time(), "models": list(ids)}
+    payload: dict[str, Any] = {"saved_at": time.time(), "models": list(ids)}
+    if vision:
+        payload["vision"] = dict(vision)
     try:
         from snowpea_core.util.atomic import write_atomic
 
@@ -795,6 +887,8 @@ def _remember_codex_info(entries: list[dict[str, Any]]) -> None:
             ]
         window = item.get("context_window") or item.get("max_context_window")
         info = {
+            # ``input_modalities``; ``None`` when the entry does not say.
+            "vision": vision_from_listing(item),
             "displayName": str(item.get("display_name") or slug),
             "efforts": efforts,
             "defaultEffort": str(item.get("default_reasoning_level") or "") or None,
@@ -808,7 +902,7 @@ def _remember_codex_info(entries: list[dict[str, Any]]) -> None:
 
 
 def codex_model_info(model: str | None) -> dict[str, Any] | None:
-    """``{displayName, efforts, defaultEffort, contextWindow}`` from the live list, or ``None``."""
+    """``{vision, displayName, ...}`` from the live list, or ``None``."""
     return _CODEX_INFO.get((model or "").strip())
 
 
@@ -962,6 +1056,7 @@ async def _list_ollama(base_url: str, timeout: float, transport: Any) -> list[st
     )
     raw = payload.get("models")
     rows = raw if isinstance(raw, list) else []
+    _remember_listed_vision(base_url, rows, id_key="name")
     return _dedupe([str(row.get("name", "")) for row in rows if isinstance(row, dict)])
 
 
@@ -1165,7 +1260,15 @@ async def _resolve_all(
     ids = [name for name in ids if not is_placeholder(name)]
     if ids:
         if path is not None:
-            write_cache_file(path, ids)
+            if vendor == "openai" and (auth_method or "") == "chatgpt":
+                said = {
+                    name: info["vision"]
+                    for name, info in _CODEX_INFO.items()
+                    if isinstance(info.get("vision"), bool)
+                }
+            else:
+                said = listed_vision(listing_base(resolved_preset, base_url))
+            write_cache_file(path, ids, vision=said)
         return ModelListing(
             vendor=vendor,
             auth=_auth_key(auth_method),

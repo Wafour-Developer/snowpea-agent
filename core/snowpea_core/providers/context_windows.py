@@ -523,6 +523,7 @@ async def discover_window(
             rows if len(rows) == 1 else []
         )
         for row in mine:
+            _note_vision(base, model, row)
             window = window_from_row(row)
             if window is not None:
                 return window
@@ -536,27 +537,43 @@ async def discover_window(
         _tgi_info,  # Hugging Face TGI: GET /info
         _ollama_window,  # Ollama: POST /api/ps, then /api/show
     ):
-        window = await probe(root, model, headers, timeout)
+        window = await probe(root, model, headers, timeout, base)
         if window is not None:
             return window
     return trained
 
 
+def _note_vision(base: str, model: str, row: Any) -> None:
+    """Keep what a metadata row says about image input beside the listing's answer.
+
+    The window probes read the same per-model metadata the vision rung needs
+    (Ollama ``capabilities``, LM Studio ``type``, llama.cpp ``modalities``), so
+    one discovery pass feeds both (:meth:`ProviderRegistry.vision_for`).
+    """
+    from snowpea_core.providers import models as model_discovery
+
+    model_discovery.note_listed_vision(base, model, model_discovery.vision_from_listing(row))
+
+
 async def _llamacpp_props(
-    root: str, model: str, headers: dict[str, str], timeout: float
+    root: str, model: str, headers: dict[str, str], timeout: float, base: str = ""
 ) -> int | None:
     props = await _get_json(f"{root}/props", headers, timeout)
+    _note_vision(base, model, props)
     return window_from_row(props) if props is not None else None
 
 
 async def _lmstudio_model(
-    root: str, model: str, headers: dict[str, str], timeout: float
+    root: str, model: str, headers: dict[str, str], timeout: float, base: str = ""
 ) -> int | None:
     row = await _get_json(f"{root}/api/v0/models/{model}", headers, timeout)
+    _note_vision(base, model, row)
     return window_from_row(row) if row is not None else None
 
 
-async def _tgi_info(root: str, model: str, headers: dict[str, str], timeout: float) -> int | None:
+async def _tgi_info(
+    root: str, model: str, headers: dict[str, str], timeout: float, base: str = ""
+) -> int | None:
     info = await _get_json(f"{root}/info", headers, timeout)
     if info is None:
         return None
@@ -564,17 +581,26 @@ async def _tgi_info(root: str, model: str, headers: dict[str, str], timeout: flo
 
 
 async def _ollama_window(
-    root: str, model: str, headers: dict[str, str], timeout: float
+    root: str, model: str, headers: dict[str, str], timeout: float, base: str = ""
 ) -> int | None:
+    from snowpea_core.providers import models as model_discovery
+
     # /api/ps reports the context a loaded model actually runs with
     # (num_ctx); /api/show only knows what the model could take.
     running = await _get_json(f"{root}/api/ps", headers, timeout)
+    window: int | None = None
     for row in (running or {}).get("models") or []:
         if isinstance(row, dict) and model in (row.get("name"), row.get("model")):
             window = _as_window(row.get("context_length"))
             if window is not None:
-                return window
+                break
+    if window is not None and model in model_discovery.listed_vision(base):
+        return window
+    # /api/show also carries ``capabilities`` (``"vision"``), asked once.
     show = await _post_json(f"{root}/api/show", {"model": model}, headers, timeout)
+    _note_vision(base, model, show)
+    if window is not None:
+        return window
     return window_from_ollama_show(show) if show is not None else None
 
 

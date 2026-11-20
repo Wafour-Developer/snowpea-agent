@@ -645,8 +645,17 @@ class ProviderRegistry:
         and remembers what came back.  Only a local-style vendor ever gets
         ``None``: a hosted catalog is knowable, and probing it would spend a
         real request to learn something the name already implies.
+
+        The single source for the tool gates and every transport, in order:
+        what the provider's own model listing/metadata said (the Codex list's
+        ``input_modalities``, OpenRouter's ``architecture.input_modalities``,
+        Ollama's ``capabilities``, …), then ``providers.<vendor>.vision``
+        settings, then models.dev, then the name hints.
         """
         resolved = self.model_for(vendor, model)
+        listed = self._listed_vision(vendor, resolved)
+        if listed is not None:
+            return listed
         configured = vision_scale.settings_override(self.vendor_config(vendor), resolved)
         if configured is not None:
             return configured
@@ -662,6 +671,28 @@ class ProviderRegistry:
             return False
         learned = self._vision_memory().get(vendor, self.base_url_for(vendor) or "", resolved)
         return learned
+
+    def _listed_vision(self, vendor: str, model: str) -> bool | None:
+        """What the provider's model listing said, in memory or in its disk cache."""
+        auth_method = self.auth_method_for(vendor)
+        if vendor == "openai" and auth_method == "chatgpt":
+            info = model_discovery.codex_model_info(model) or {}
+            said = info.get("vision")
+        else:
+            preset = self.preset_or_none(vendor)
+            base = (
+                model_discovery.listing_base(preset, self.base_url_for(vendor))
+                if preset is not None
+                else ""
+            )
+            said = model_discovery.listed_vision(base).get(model)
+        if isinstance(said, bool):
+            return said
+        home = self.paths.home if self.paths is not None else resolve_home()
+        cached = model_discovery.read_cache_vision(
+            model_discovery.cache_path(home, vendor, auth_method)
+        )
+        return cached.get(model)
 
     def _vision_memory(self) -> vision_scale.VisionMemory:
         """The learned-capability store, pointed at this machine's home."""
@@ -845,6 +876,9 @@ class ProviderRegistry:
                     model=model or None,
                     reasoning_effort=str(config.get("reasoning_effort") or "") or None,
                     on_credentials=self._oauth_saver(vendor),
+                    # The same answer the tool gates get, so a captured image
+                    # is not swapped for the no-vision note on the way out.
+                    vision=self.vision_for(vendor, model) if model else None,
                 )
         if vendor == "gemini":
             from snowpea_core.providers import google_oauth
