@@ -44821,7 +44821,7 @@ function FeedbackScreen({
 var import_react42 = __toESM(require_react(), 1);
 
 // src/version.ts
-var TUI_VERSION = "0.2.102";
+var TUI_VERSION = "0.2.103";
 
 // src/hooks/useFeedback.ts
 function useFeedback(deps) {
