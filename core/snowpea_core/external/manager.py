@@ -80,6 +80,12 @@ MODELS_TIMEOUT_SEC = 60.0
 LIVE_PROMPTS_KEPT = 64
 #: Seconds an adapter's shutdown hook may take at daemon stop.
 ADAPTER_SHUTDOWN_SEC = 10.0
+#: Seconds one CLI may take to be found and to list its sessions in
+#: ``external.list``; a slower one is left out of that answer (its work goes on
+#: in the background) so the others still answer well inside a client's timeout.
+LIST_CLI_TIMEOUT_SEC = 8.0
+#: Seconds one listed row's liveness check may take; slower reads as not running.
+LIST_LIVENESS_TIMEOUT_SEC = 2.0
 #: Event kinds observers (Jarvis) are not told about: streaming noise.
 _UNOBSERVED = frozenset({"message.delta", "message.reasoning", "tool.progress"})
 
@@ -316,6 +322,11 @@ class ExternalManager:
         self.tmux_probe: Any = _tmux.PROBE
         #: Seconds a bridged send waits to see the CLI busy before its turn ends.
         self.tmux_start_timeout = 20.0
+        #: ``external.list`` bounds (tests shorten them).
+        self.list_cli_timeout = LIST_CLI_TIMEOUT_SEC
+        self.list_liveness_timeout = LIST_LIVENESS_TIMEOUT_SEC
+        #: Listing work that outlived its bound; kept so it finishes (and is reaped).
+        self._late: set[asyncio.Future[Any]] = set()
         for cli in self.registry.ids():
             adapter = self.registry.get(cli)
             if adapter is not None:
@@ -508,6 +519,10 @@ class ExternalManager:
             task.cancel()
         await asyncio.gather(*self._model_tasks.values(), return_exceptions=True)
         self._model_tasks.clear()
+        for late in list(self._late):
+            late.cancel()
+        await asyncio.gather(*self._late, return_exceptions=True)
+        self._late.clear()
         for record in list(self._records.values()):
             await self._stop_follow(record)
             if record.channel is not None:
@@ -1053,13 +1068,22 @@ class ExternalManager:
         wanted = [cli for cli in CLI_ORDER if clis is None or cli in clis]
         usable: list[ExternalAdapter] = []
         problems: list[str] = []
-        for cli in wanted:
-            try:
-                adapter, _found = await self._usable(cli)
-            except ExternalError as exc:
-                problems.append(exc.message)
-                continue
-            usable.append(adapter)
+        late = False
+        found_usable = await asyncio.gather(
+            *(self._bounded(cli, self._usable(cli)) for cli in wanted), return_exceptions=True
+        )
+        for result in found_usable:
+            if isinstance(result, ExternalError):
+                problems.append(result.message)
+            elif isinstance(result, TimeoutError):
+                late = True
+            elif isinstance(result, BaseException):
+                raise result
+            else:
+                usable.append(result[0])
+        if not usable and late:
+            # Still being found: an empty answer now, the rows on a later call.
+            return {"sessions": [], "nextBefore": None}
         if not usable:
             raise ExternalError(
                 errors.EXTERNAL_UNAVAILABLE,
@@ -1083,14 +1107,23 @@ class ExternalManager:
         rows: list[tuple[tuple[str, str, str], SessionInfo, ExternalAdapter]] = []
         real_scope = [str(Path(root).expanduser().resolve()) for root in scope]
         if scope:
-            for adapter in usable:
-                bound = cursor[0] if cursor is not None else None
-                try:
-                    found = await adapter.list_sessions(scope, limit=limit + 1, before=bound)
-                except ExternalError:
-                    raise
-                except Exception:  # noqa: BLE001 - one broken store must not hide the rest
-                    log.warning("listing %s sessions failed", adapter.id, exc_info=True)
+            bound = cursor[0] if cursor is not None else None
+            listed = await asyncio.gather(
+                *(self._bounded(adapter.id,
+                                adapter.list_sessions(scope, limit=limit + 1, before=bound))
+                  for adapter in usable),
+                return_exceptions=True,
+            )
+            for adapter, found in zip(usable, listed, strict=True):
+                if isinstance(found, ExternalError):
+                    raise found
+                if isinstance(found, TimeoutError):
+                    continue
+                if isinstance(found, BaseException):
+                    if not isinstance(found, Exception):
+                        raise found
+                    # One broken store must not hide the rest.
+                    log.warning("listing %s sessions failed", adapter.id, exc_info=found)
                     continue
                 for info in found:
                     # The adapters match by path prefix; keep a row only when its
@@ -1116,12 +1149,37 @@ class ExternalManager:
         next_before = _cursor(page[-1][0]) if len(rows) > limit and page else None
         return {"sessions": out, "nextBefore": next_before}
 
+    async def _bounded(self, cli: str, work: Awaitable[Any]) -> Any:
+        """``work`` for one CLI within :attr:`list_cli_timeout`, or ``TimeoutError``.
+
+        Late work is not cancelled (a CLI server half started, a file scan in a
+        thread): it finishes in the background and the next call reuses what it
+        cached.
+        """
+        task = asyncio.ensure_future(work)
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), self.list_cli_timeout)
+        except TimeoutError:
+            log.warning("%s took over %.0fs to list its sessions; left out for now",
+                        cli, self.list_cli_timeout)
+            self._late.add(task)
+            task.add_done_callback(self._reap_late)
+            raise
+
+    def _reap_late(self, task: asyncio.Future[Any]) -> None:
+        self._late.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            log.debug("late listing failed", exc_info=task.exception())
+
     async def _listed_row(
         self, adapter: ExternalAdapter, info: SessionInfo, roots: list[str],
         pane_cache: dict[str, list[Any]] | None = None,
     ) -> dict[str, Any]:
         try:
-            live = await adapter.liveness(info, own_pids=self.supervisor.pids())
+            live = await asyncio.wait_for(
+                adapter.liveness(info, own_pids=self.supervisor.pids()),
+                self.list_liveness_timeout,
+            )
         except Exception:  # noqa: BLE001 - unknown liveness reads as "not running"
             log.debug("liveness of %s %s failed", adapter.id, info.id, exc_info=True)
             live = None

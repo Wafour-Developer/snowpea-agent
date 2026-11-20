@@ -519,3 +519,141 @@ async def test_shutdown_stops_every_child(env: Env) -> None:
     assert not child.alive
     assert not env.manager.supervisor.live()
     assert not list((env.home / "external").glob("*.json"))
+
+
+# -- external.list stays bounded (m33) ------------------------------------------------
+
+
+class _SlowCodex(FakeClaudeAdapter):
+    """A second CLI that is slow to be found, to list, or to say whether it runs."""
+
+    id = "codex"
+    title = "Codex (slow fake)"
+
+    def __init__(self, found: Any, *, discover_sec: float = 0.0, list_sec: float = 0.0) -> None:
+        self.found = found
+        self.discover_sec = discover_sec
+        self.list_sec = list_sec
+
+    async def discover(self, path_override: str | None = None) -> Any:
+        await asyncio.sleep(self.discover_sec)
+        return self.found
+
+    async def list_sessions(self, roots: Any, *, limit: int, before: str | None = None) -> Any:
+        await asyncio.sleep(self.list_sec)
+        return []
+
+
+class _HangingLiveness(FakeClaudeAdapter):
+    async def liveness(self, info: Any, *, own_pids: set[int]) -> Any:
+        await asyncio.sleep(30)
+        raise AssertionError("not reached")
+
+
+def _manager_with(env: Env, *adapters: Any) -> ExternalManager:
+    manager = ExternalManager(
+        home=env.home,
+        settings=lambda: env.settings,
+        hub=env.hub,
+        approvals=env.approvals,
+        registry=AdapterRegistry(list(adapters)),
+        roots=env._roots,
+        poll_interval=0.1,
+        sweep_interval=3600,
+    )
+    manager.list_cli_timeout = 0.3
+    manager.list_liveness_timeout = 0.2
+    return manager
+
+
+async def _one_session(env: Env) -> dict[str, str]:
+    conn = Conn()
+    ref = (await env.manager.create("claude", str(env.project), conn=conn))["session"]["ref"]
+    await _turn(env, conn, ref)
+    await env.manager.close(ref["cli"], ref["id"], conn=conn)
+    return ref
+
+
+async def _timed_with_heartbeat(work: Any) -> tuple[Any, float, int]:
+    """Run ``work`` while a heartbeat ticks every 20 ms: a blocked loop stops it."""
+    ticks = 0
+
+    async def beat() -> None:
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.02)
+            ticks += 1
+
+    beater = asyncio.create_task(beat())
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    try:
+        result = await work
+    finally:
+        beater.cancel()
+    return result, loop.time() - started, ticks
+
+
+async def test_list_a_slow_cli_does_not_hold_up_the_others(env: Env) -> None:
+    ref = await _one_session(env)
+    found = await env.manager.discover("claude")
+    slow = _SlowCodex(found, list_sec=30)
+    manager = _manager_with(env, FakeClaudeAdapter(), slow)
+    try:
+        result, took, ticks = await _timed_with_heartbeat(
+            manager.list_sessions(cwd=str(env.project))
+        )
+        assert [row["ref"] for row in result["sessions"]] == [ref]
+        assert took < 3.0
+        # The loop kept running while both CLIs were asked.
+        assert ticks >= 5
+        # The slow listing goes on in the background, not cancelled.
+        assert len(manager._late) == 1
+    finally:
+        await manager.shutdown()
+    assert not manager._late
+
+
+async def test_list_a_cli_still_being_found_is_left_out_not_an_error(env: Env) -> None:
+    ref = await _one_session(env)
+    found = await env.manager.discover("claude")
+    manager = _manager_with(env, FakeClaudeAdapter(), _SlowCodex(found, discover_sec=30))
+    try:
+        result = await manager.list_sessions(cwd=str(env.project))
+        assert [row["ref"] for row in result["sessions"]] == [ref]
+        # Only the slow CLI asked for: an empty answer now, not external_unavailable.
+        alone = await manager.list_sessions(cwd=str(env.project), clis=["codex"])
+        assert alone == {"sessions": [], "nextBefore": None}
+    finally:
+        await manager.shutdown()
+
+
+async def test_list_a_fast_cli_found_late_answers_on_the_next_call(env: Env) -> None:
+    found = await env.manager.discover("claude")
+    slow = _SlowCodex(found, discover_sec=0.5)
+    manager = _manager_with(env, slow)
+    try:
+        first = await manager.list_sessions(cwd=str(env.project))
+        assert first["sessions"] == []
+        await until(lambda: not manager._late)
+        # Discovery finished in the background and was cached: no wait now.
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await manager.list_sessions(cwd=str(env.project))
+        assert loop.time() - started < 0.3
+    finally:
+        await manager.shutdown()
+
+
+async def test_list_a_hanging_liveness_check_reads_as_not_running(env: Env) -> None:
+    ref = await _one_session(env)
+    manager = _manager_with(env, _HangingLiveness())
+    try:
+        result, took, _ticks = await _timed_with_heartbeat(
+            manager.list_sessions(cwd=str(env.project))
+        )
+        assert [row["ref"] for row in result["sessions"]] == [ref]
+        assert result["sessions"][0]["host"] == "none"
+        assert took < 3.0
+    finally:
+        await manager.shutdown()
