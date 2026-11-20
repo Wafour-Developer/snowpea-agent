@@ -311,6 +311,13 @@ _WHY_TEXTS: tuple[tuple[str, dict[str, str]], ...] = (
         "es": "define `{x}`, donde los programas que ejecuta buscan código",
         "zh-CN": "设置 `{x}` —— 它运行的程序在此查找代码",
     }),
+    ("script-scratch", {
+        "en": "runs a script this same line writes first in a scratch folder",
+        "ko": "같은 줄에서 먼저 임시 폴더에 쓴 스크립트를 실행함",
+        "ja": "同じ行で先に一時フォルダへ書いたスクリプトを実行する",
+        "es": "ejecuta un script que la misma línea escribe antes en una carpeta temporal",
+        "zh-CN": "运行同一行中先写入临时文件夹的脚本",
+    }),
     ("script-written", {
         "en": "runs a script this same line writes first",
         "ko": "같은 줄에서 먼저 쓴 스크립트를 실행함",
@@ -1320,6 +1327,31 @@ _STATEFUL_REASONS: frozenset[str] = sh.STATEFUL_REASONS
 _SNOWPEA_WORD = re.compile(
     r"(?<![\w/.-])snowpea(?:[-_]\w+)?(?![\w/.-])|\.snowpea(?![\w-])|snowpea_core|SNOWPEA_",
     re.IGNORECASE)
+#: A scratch folder of a snowpea home spelled in a line (m32), with what follows
+#: it up to a ``..`` part: ``{home}/tmp/x.py``, ``{home}/sessions/<day>_<id>/…``.
+_SCRATCH_TAIL = (r"/(?:tmp|sessions/\d{4}[^/\s'\"$`]*_[^/\s'\"$`]+)(?![^/\s'\"])"
+                 r"(?:/(?!\.\.(?![^/\s'\"]))[^/\s'\"$`]+)*/?")
+#: Words that change the current folder: a line holding one is never read with
+#: its scratch paths left out (``cd ~/.snowpea/tmp; cd ..`` lands in the home).
+_CHDIR_WORD = re.compile(r"\b(?:cd|pushd|popd|chdir)\b")
+
+
+def _names_snowpea(text: str, ctx: Context) -> bool:
+    """``text`` names snowpea (:data:`_SNOWPEA_WORD`) other than as the path of
+    one of its scratch folders (m32: ``~/.snowpea/tmp/run.py`` is a scratch
+    file, not an act on snowpea)."""
+    if not _SNOWPEA_WORD.search(text):
+        return False
+    if _CHDIR_WORD.search(text):
+        return True
+    prefixes = {str(base) for base in control_plane.homes(ctx.home, ctx.user_home)}
+    prefixes.update(("~/.snowpea", "$SNOWPEA_HOME", "${SNOWPEA_HOME}"))
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        text = re.sub(re.escape(prefix) + _SCRATCH_TAIL, " ", text,
+                      flags=re.IGNORECASE if _FOLD_CASE else 0)
+    return bool(_SNOWPEA_WORD.search(text))
+
+
 #: Reasons where the PROGRAM that runs is not known (m21): its operands are
 #: judged as the worst any program could do to them before it may run unasked.
 _PROGRAM_UNKNOWN: frozenset[str] = frozenset({"dynamic-program", "brace-program", "eval",
@@ -1539,7 +1571,7 @@ def _lexical_worst(view: sh.ShellView, compiled: _Compiled, lists: Lists,
     # The current folder changed, a builtin a function cannot shadow, snowpea
     # spelled in pieces (``.snow''pea``): what the words resolve to is not known.
     if any(word in _LEX_STATE_WORDS for word in words) or \
-            _SNOWPEA_WORD.search(" ".join(words)):
+            _names_snowpea(" ".join(words), ctx):
         return None, True
     if sum(len(segment) for segment in segments) > _LEX_LIMIT:
         return None, True
@@ -1663,7 +1695,7 @@ def _judge_view_first(view: sh.ShellView, lists: Lists, ctx: Context,
     # variable's value, its module or its folder in a string — and has parts
     # snowpea cannot read is never let through unasked: what cannot be read may
     # be an act on snowpea's own controls.
-    names_snowpea = any(_SNOWPEA_WORD.search(text) for text in view.texts)
+    names_snowpea = any(_names_snowpea(text, ctx) for text in view.texts)
     relax = set() if names_snowpea else {
         why for why in unseen if unresolved(why, stateful=stateful)}
     # ``allow`` (2026-11-18): every reason but the backstops (allowed_through).
@@ -1680,6 +1712,17 @@ def _judge_view_first(view: sh.ShellView, lists: Lists, ctx: Context,
         # that may be the download, run.  Neither ``auto`` nor ``allow`` lets it by.
         relax -= _FETCH_SENSITIVE
         wide -= _FETCH_SENSITIVE
+    if "script-scratch" in relax | wide:
+        # m32: a script the line writes into a scratch folder and runs is let
+        # through like other unread code, but only when its raw text — what
+        # the line writes into it included — holds no blocked command, no
+        # protected path and nothing of snowpea's own.
+        blocked, asks_anyway = _lexical_worst(view, compiled, lists, ctx)
+        if blocked is not None:
+            return blocked
+        if asks_anyway:
+            relax.discard("script-scratch")
+            wide.discard("script-scratch")
     if (relax | wide) & _PROGRAM_UNKNOWN:
         # ``$X -rf /``: the program is not known, what it is given is.  Every
         # literal word and path of the line, judged as the worst any program could

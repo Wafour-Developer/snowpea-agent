@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.security import control_plane
 from snowpea_core.security import patterns as pl
 
 LOCALES: tuple[str, ...] = ("en", "ko", "ja", "es", "zh-CN")
@@ -804,16 +805,24 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
                "ja": "snowpea 自身のフォルダ", "es": "La carpeta de snowpea",
                "zh-CN": "snowpea 自己的文件夹"},
         description={
-            "en": "$SNOWPEA_HOME (settings, credentials, logs, sessions) is never changed by a "
-                  "tool; snowpea's plan files stay writable.",
-            "ko": "$SNOWPEA_HOME(설정, 자격 증명, 로그, 세션)을 도구가 바꾸지 못합니다. snowpea 의 "
-                  "계획 파일은 계속 쓸 수 있습니다.",
-            "ja": "$SNOWPEA_HOME(設定、認証情報、ログ、セッション)はツールから変更されません。"
-                  "snowpea の計画ファイルは書き込めるままです。",
+            "en": "$SNOWPEA_HOME (settings, credentials, logs, the session store) is never "
+                  "changed by a tool. Not covered: snowpea's plan files and its scratch "
+                  "folders ($SNOWPEA_HOME/tmp and each session's workspace under "
+                  "$SNOWPEA_HOME/sessions).",
+            "ko": "$SNOWPEA_HOME(설정, 자격 증명, 로그, 세션 저장소)을 도구가 바꾸지 못합니다. "
+                  "snowpea 의 계획 파일과 임시 작업 폴더($SNOWPEA_HOME/tmp, "
+                  "$SNOWPEA_HOME/sessions 아래 각 세션의 작업 폴더)는 대상이 아닙니다.",
+            "ja": "$SNOWPEA_HOME(設定、認証情報、ログ、セッションストア)は"
+                  "ツールから変更されません。snowpea の計画ファイルと作業用の一時フォルダ"
+                  "($SNOWPEA_HOME/tmp と $SNOWPEA_HOME/sessions "
+                  "以下の各セッションの作業フォルダ)は対象外です。",
             "es": "Ninguna herramienta cambia $SNOWPEA_HOME (ajustes, credenciales, registros, "
-                  "sesiones); los archivos de plan de snowpea siguen pudiendo escribirse.",
-            "zh-CN": "工具不能更改 $SNOWPEA_HOME（设置、凭据、日志、会话）；snowpea "
-                     "的计划文件仍可写入。",
+                  "el almacén de sesiones). Quedan fuera los archivos de plan de snowpea y sus "
+                  "carpetas temporales ($SNOWPEA_HOME/tmp y el espacio de trabajo de cada "
+                  "sesión en $SNOWPEA_HOME/sessions).",
+            "zh-CN": "工具不能更改 $SNOWPEA_HOME（设置、凭据、日志、会话存储）。snowpea "
+                     "的计划文件和临时工作文件夹（$SNOWPEA_HOME/tmp 以及 $SNOWPEA_HOME/sessions "
+                     "下各会话的工作文件夹）不在此列。",
         },
         examples=("$SNOWPEA_HOME", "$SNOWPEA_HOME/settings.json"),
     ),
@@ -843,18 +852,21 @@ PATH_PRESETS: tuple[PathPreset, ...] = (
         description={
             "en": "Mounted data and network disks (/mnt/…, /media/…, /Volumes/…) are never "
                   "changed outside the session's project. A disk that holds your home or "
-                  "snowpea's folder is left out.",
+                  "snowpea's folder is left out, and so are the temp folders (/tmp, "
+                  "/var/tmp, $TMPDIR).",
             "ko": "마운트된 데이터·네트워크 디스크(/mnt/…, /media/…, /Volumes/…)는 세션의 "
-                  "프로젝트 밖에서 바꾸지 않습니다. 홈이나 snowpea 폴더가 있는 디스크는 "
-                  "제외합니다.",
+                  "프로젝트 밖에서 바꾸지 않습니다. 홈이나 snowpea 폴더가 있는 디스크와 임시 "
+                  "폴더(/tmp, /var/tmp, $TMPDIR)는 제외합니다.",
             "ja": "マウントされたデータ・ネットワークディスク(/mnt/…、/media/…、/Volumes/…)は、"
                   "セッションのプロジェクトの外では変更されません。ホームや snowpea "
-                  "のフォルダがあるディスクは対象外です。",
+                  "のフォルダがあるディスクと一時フォルダ(/tmp、/var/tmp、$TMPDIR)は対象外です。",
             "es": "Los discos de datos y de red montados (/mnt/…, /media/…, /Volumes/…) nunca se "
-                  "cambian fuera del proyecto de la sesión. Se deja fuera el disco que contiene tu "
-                  "carpeta personal o la de snowpea.",
+                  "cambian fuera del proyecto de la sesión. Se dejan fuera el disco que contiene "
+                  "tu carpeta personal o la de snowpea y las carpetas temporales (/tmp, "
+                  "/var/tmp, $TMPDIR).",
             "zh-CN": "已挂载的数据盘和网络盘（/mnt/…、/media/…、/Volumes/…）"
-                     "在会话项目之外不会被更改。存放主目录或 snowpea 文件夹的磁盘除外。",
+                     "在会话项目之外不会被更改。存放主目录或 snowpea 文件夹的磁盘以及临时文件夹"
+                     "（/tmp、/var/tmp、$TMPDIR）除外。",
         },
         examples=("/mnt/data", "/media/usb", "/Volumes/Backup"),
     ),
@@ -956,7 +968,9 @@ def path_entries(
     elif preset_id == "snowpea-home":
         if home is not None:
             real = _real(home)
-            out.append(PathEntry(real, "write", "tree", by, title, exempt=(real / "plans",),
+            # m32: plans and the scratch folders (tmp, session workspaces) stay usable.
+            exempt = (real / "plans", *control_plane.scratch_exempt(real))
+            out.append(PathEntry(real, "write", "tree", by, title, exempt=exempt,
                                  shown="$SNOWPEA_HOME"))
     elif preset_id == "other-projects":
         own = _real(workdir) if workdir is not None else None
@@ -976,11 +990,16 @@ def path_entries(
         keep_out = [_real(user_home)]
         if home is not None:
             keep_out.append(_real(home))
+        temps = control_plane.temp_dirs()
         for point in mounts if mounts is not None else _mount_points():
             real = _real(point)
             if any(k == real or real in k.parents for k in keep_out):
                 continue
+            if any(t == real or t in real.parents for t in temps):
+                continue  # m32: a temp folder on its own disk is scratch space
             exempt = (own,) if own is not None and (own == real or real in own.parents) else ()
+            # m32: a temp folder on the disk ($TMPDIR=/mnt/data/tmp) stays usable.
+            exempt += tuple(t for t in temps if real in t.parents)
             out.append(PathEntry(real, "write", "tree", by, title, exempt=exempt,
                                  shown=str(point)))
     return out

@@ -16,10 +16,20 @@ from snowpea_core.lsp import servers
 from snowpea_core.permissions.allowlist import DIR_TARGET, Allowlist, pattern_for_dir
 from snowpea_core.permissions.approval_queue import OUTSIDE_REASON, ApprovalQueue
 from snowpea_core.permissions.policy import MODE_MATRIX, PermissionPolicy
+from snowpea_core.security import control_plane
 from snowpea_core.server.protocol import CAPABILITIES
 from snowpea_core.session.session import Session
 from snowpea_core.tools.config_guard import outside_paths, permission_for_write
 from snowpea_core.tools.registry import ToolResult
+
+
+@pytest.fixture(autouse=True)
+def _no_temp_scratch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """m32: the system temp folders are scratch space, never outside the project.
+    pytest's tmp (every folder below) lies in /tmp, so these tests take the temp
+    folders away to judge ordinary outside paths; tests/test_m32_scratch_folders.py
+    holds the scratch rule itself."""
+    monkeypatch.setattr(control_plane, "temp_dirs", lambda: ())
 
 
 @pytest.fixture

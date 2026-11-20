@@ -37,8 +37,10 @@ PROJECT_FILES: frozenset[str] = frozenset({"settings.json", "credentials.json"})
 #: Directories under ``$SNOWPEA_HOME`` that hold *working state*, not
 #: configuration.  ``plans/`` is where a plan-mode session keeps a plan it
 #: wants across projects (M2 §9): re-tagging that ``config`` would make the one
-#: file plan mode exists to produce the one file it may never write.
-HOME_WORKING_DIRS: frozenset[str] = frozenset({"plans"})
+#: file plan mode exists to produce the one file it may never write.  ``tmp/``
+#: is snowpea's scratch folder (m32): an agent's throw-away files, nothing core
+#: reads as settings.
+HOME_WORKING_DIRS: frozenset[str] = frozenset({"plans", "tmp"})
 
 
 #: ``<day>_<session id>``, the name core gives a workspace directory.
@@ -179,10 +181,13 @@ def outside_paths(args: dict[str, Any], session: Any = None, home: Any = None) -
 
     Symlinks are resolved, so a link inside the project pointing out counts
     as outside.  Core's own working areas are not outside: the session
-    workspace's ``tmp``/``artifacts``, ``$SNOWPEA_HOME/plans``, and anything
-    under the project (``.snowpea/worktrees`` included).  A session without a
-    workdir has no project to be outside of.
+    workspace's ``tmp``/``artifacts``, ``$SNOWPEA_HOME/plans`` and
+    ``$SNOWPEA_HOME/tmp``, and anything under the project (``.snowpea/worktrees``
+    included); nor is the system's temp folders' scratch space (m32: ``/tmp``,
+    ``/var/tmp``, ``$TMPDIR``, ``%TEMP%``).  A session without a workdir has no
+    project to be outside of.
     """
+    from snowpea_core.security.control_plane import scratch
     from snowpea_core.tools.call_paths import call_paths
 
     workdir = getattr(session, "workdir", None)
@@ -210,6 +215,8 @@ def outside_paths(args: dict[str, Any], session: Any = None, home: Any = None) -
             _in_session_workspace(resolved, snowpea_home)
             or any(_under(resolved, snowpea_home / name) for name in HOME_WORKING_DIRS)
         ):
+            continue
+        if scratch(resolved, home=snowpea_home):
             continue
         if str(resolved) not in found:
             found.append(str(resolved))

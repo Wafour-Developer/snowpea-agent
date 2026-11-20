@@ -2377,6 +2377,19 @@ class _Probe(_c._Judge):
         for why in finding.control:
             self._control(why)
 
+    def _scratch(self, path: str) -> bool:
+        """``path`` lies in a scratch folder (m32, :func:`control_plane.scratch`) and
+        nothing on the line fetches (a download run at once is always asked)."""
+        from snowpea_core.security.catalog import FETCHERS
+        from snowpea_core.security.control_plane import scratch
+
+        fetchers = FETCHERS | _c.HTTP_CLIENTS
+        for cmd in (*self.view.commands, *self.view.literal_commands):
+            if cmd.program in fetchers or (cmd.program == "busybox" and cmd.rest[:1]
+                                           and cmd.rest[0] in fetchers):
+                return False
+        return scratch(path, home=self.ctx.home, user_home=self.ctx.user_home)
+
     def _written_here(self, path: str) -> bool:
         """A write earlier on the line lands on ``path`` (or may: its target is unknown)."""
         target = os.path.normpath(path)
@@ -2491,8 +2504,11 @@ class _Probe(_c._Judge):
         if script.text is None:
             if self._written_here(script.path):
                 # m21: a script this very line writes before it runs it: what it
-                # holds is not known, and no setting lets that through unasked.
-                self._opaque("script-written")
+                # holds is not known, and no setting lets that through unasked —
+                # unless it lies in a scratch folder (m32, ``script-scratch``:
+                # judged like other unread code, its raw text at its worst).
+                self._opaque("script-scratch" if self._scratch(script.path)
+                             else "script-written")
             elif script.recent:
                 why = f"script-{script.digest if ':' not in script.digest else 'binary'}"
                 if why not in self.view.details:

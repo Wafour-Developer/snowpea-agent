@@ -36,6 +36,7 @@ from __future__ import annotations
 import fnmatch
 import functools
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -123,13 +124,13 @@ CONTROL: tuple[ControlEntry, ...] = (
 )
 
 #: Working state under the home that tools use every day (never in the table):
-#: plans, session workspaces, what a person attached, caches, checkpoints, the
-#: ordinary logs.  Security review 8, H8-2: this is the explicit allow-list of a
-#: default-deny home — any other name directly under it is ``write`` level
-#: (:func:`unlisted`).
+#: plans, session workspaces, scratch files (``tmp``, m32), what a person
+#: attached, caches, checkpoints, the ordinary logs.  Security review 8, H8-2:
+#: this is the explicit allow-list of a default-deny home — any other name
+#: directly under it is ``write`` level (:func:`unlisted`).
 WORKING: tuple[str, ...] = (
     "plans", "sessions", "attachments", "tool-content", "audio", "cache", "checkpoints",
-    "logs", "update-check.json", "teams", "memory.md", "extension-data",
+    "logs", "update-check.json", "teams", "memory.md", "extension-data", "tmp",
 )
 
 #: Every other name snowpea keeps, or may keep later, directly under its home
@@ -704,6 +705,98 @@ def secret_files(home: str | os.PathLike[str]) -> list[Path]:
     return found
 
 
+# -- scratch space (m32, owner decision 2026-11-20) ---------------------------
+#
+# Where an agent writes and runs throw-away files: ``$SNOWPEA_HOME/tmp``, each
+# session's workspace (``$SNOWPEA_HOME/sessions/<day>_<id>/``) and the system's
+# temp folders.  Writing, deleting and running files there is never a
+# protected-path block, a control-plane ask or an outside-the-project ask.
+# The path is judged with symlinks and ``..`` resolved, so a link in a scratch
+# folder to a protected file is that file; a temp folder that holds a snowpea
+# home is not scratch inside that home (only the home's own scratch is).
+
+#: The scratch folders under a home, as its first part.
+SCRATCH_HOME: tuple[str, ...] = ("tmp",)
+#: ``<day>_<session id>``: a session workspace under ``sessions/``.
+_WORKSPACE = re.compile(r"^\d{4}.*_.")
+
+
+def temp_dirs() -> tuple[Path, ...]:
+    """The system's temp folders, as written and resolved: ``/tmp``,
+    ``/private/tmp``, ``/var/tmp``, ``/private/var/tmp`` and whatever
+    ``$TMPDIR``, ``%TEMP%``, ``%TMP%`` and :func:`tempfile.gettempdir` name (macOS
+    ``/var/folders/…/T``).  A folder that is ``/``, the user's home or above it
+    is never one."""
+    raw = ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp",
+           os.environ.get("TMPDIR"), os.environ.get("TEMP"), os.environ.get("TMP"))
+    return _temp_dirs(raw, os.path.expanduser("~"))
+
+
+@functools.lru_cache(maxsize=8)
+def _temp_dirs(raw: tuple[str | None, ...], user_home: str) -> tuple[Path, ...]:
+    import tempfile
+
+    found: list[Path] = []
+    try:
+        system: str | None = tempfile.gettempdir()
+    except (OSError, RuntimeError):  # pragma: no cover - no temp folder at all
+        system = None
+    users = {Path(os.path.normpath(user_home)), Path(os.path.realpath(user_home))}
+    for text in (*raw, system):
+        if not text or not os.path.isabs(text):
+            continue
+        for form in (Path(os.path.normpath(text)), Path(os.path.realpath(text))):
+            if len(form.parts) < 2 or any(form == u or form in u.parents for u in users):
+                continue
+            if form not in found:
+                found.append(form)
+    return tuple(found)
+
+
+def _scratch_parts(parts: tuple[str, ...], fold: bool | None) -> bool:
+    if not parts:
+        return False
+    first = pathcase.name_key(parts[0], fold)
+    if any(first == pathcase.name_key(name, fold) for name in SCRATCH_HOME):
+        return True
+    return (first == pathcase.name_key("sessions", fold) and len(parts) >= 2
+            and _WORKSPACE.match(parts[1]) is not None)
+
+
+def scratch(path: str | os.PathLike[str], *, home: str | os.PathLike[str] | None = None,
+            user_home: str | os.PathLike[str] | None = None,
+            fold: bool | None = None) -> bool:
+    """``path`` (absolute) is scratch space, judged where it really lands
+    (symlinks and ``..`` resolved).  Never raises."""
+    try:
+        text = os.path.expanduser(os.fspath(path))
+        if not os.path.isabs(text):
+            return False
+        real = Path(os.path.realpath(text))
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return False
+    for base in homes(home, user_home):
+        parts = _relative(real, base, fold)
+        if parts is not None:
+            # Inside a snowpea home only its own scratch counts, wherever the home is.
+            return _scratch_parts(parts, fold)
+    return any(_relative(real, root, fold) is not None for root in temp_dirs())
+
+
+def scratch_exempt(home: str | os.PathLike[str] | None) -> tuple[Path, ...]:
+    """The scratch folders as fixed paths, for a protected tree that holds them:
+    ``<home>/tmp``, ``<home>/sessions`` (every workspace) and the temp folders
+    that do not hold the home (a home kept in ``/tmp`` stays protected)."""
+    found: list[Path] = []
+    base: Path | None = None
+    if home:
+        base = Path(os.path.realpath(os.path.expanduser(os.fspath(home))))
+        found.extend(base / name for name in (*SCRATCH_HOME, "sessions"))
+    found.extend(root for root in temp_dirs()
+                 if base is None or not (root == base or root in base.parents))
+    return tuple(found)
+
+
 def is_secret(path: str | os.PathLike[str], home: str | os.PathLike[str] | None) -> bool:
     """``path`` is one of the secrets of ``home`` (any name its patterns cover)."""
     hit = control_plane_effect(path, "read", home=home)
@@ -724,6 +817,10 @@ __all__ = [
     "person_project",
     "person_projects",
     "remove_person_project",
+    "SCRATCH_HOME",
+    "scratch",
+    "scratch_exempt",
+    "temp_dirs",
     "ControlEffect",
     "ControlEntry",
     "control_plane_effect",
