@@ -170,6 +170,18 @@ def _verify_gate(core: Any, session: Any, ctx: StopContext) -> StopDecision | No
     )
 
 
+def _todos_all_wait(session: Any) -> bool:
+    """True when the task list has open items and every one is blocked or waits
+    on the person: the turn stopped where it had to."""
+    from snowpea_core.agent.verify_gate import todo_waits
+
+    todos = [t for t in (getattr(session, "todos", None) or []) if isinstance(t, dict)]
+    open_items = [t for t in todos if t.get("status") in ("pending", "in_progress")]
+    return bool(open_items) and all(
+        todo_waits(str(t.get("content") or "")) for t in open_items
+    )
+
+
 def _unfinished_work(core: Any, session: Any, ctx: StopContext) -> StopDecision | None:
     from snowpea_core.agent import unfinished_work
 
@@ -188,6 +200,10 @@ def _unfinished_work(core: Any, session: Any, ctx: StopContext) -> StopDecision 
         or turn.unfinished_continues >= limit
         # Told to continue, the model answered again without a tool call.
         or (turn.unfinished_continues and turn.step == turn.unfinished_step)
+        # The verify gate just asked about open to-dos; this is the answer to it
+        # (at most a to-do update since), not a list to push on.
+        or (turn.todo_nudged and turn.step - turn.todo_nudge_step <= 1)
+        or _todos_all_wait(session)
         or not unfinished_work.detect(ctx.last_message)
     ):
         return None

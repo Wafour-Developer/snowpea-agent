@@ -63,6 +63,25 @@ _REPL_LOOK = re.compile(
     r"|\.screenshot\s*\("
 )
 
+#: ``repl`` code that hands the tab to the person (a payment, a login).
+_REQUEST_HUMAN = re.compile(r"(?<![\w.$])requestHuman\s*\(")
+
+#: A to-do the model marked as not its to do now: blocked, or waiting on the
+#: person (after a ``requestHuman`` hand-back, a payment only they can make).
+_TODO_WAITS = re.compile(
+    r"\(\s*(?:blocked|waiting)\b"
+    r"|\bwaiting\s+(?:on|for)\s+(?:the\s+)?(?:person|user|you)\b"
+    r"|\(\s*(?:차단|대기)\s*[:：]"
+    r"|사용자\s*(?:대기|확인\s*대기)|사용자(?:가|께서)?\s*직접",
+    re.IGNORECASE,
+)
+
+
+def todo_waits(content: str) -> bool:
+    """True when a to-do says it is blocked or waits on the person."""
+    return bool(_TODO_WAITS.search(content or ""))
+
+
 #: Script files that are UI when they live in a web project (one with an
 #: ``index.html`` or a bundler config between them and the working directory).
 WEB_SCRIPT_SUFFIXES = frozenset({".js", ".mjs", ".ts", ".glsl", ".wgsl"})
@@ -188,6 +207,10 @@ class TurnEvidence:
     last_look: int = -1
     nudges: int = 0
     todo_nudged: bool = False
+    #: :attr:`step` when the open-todos follow-up was sent (-1: never).
+    todo_nudge_step: int = -1
+    #: The browser's ``repl`` handed a tab to the person (``requestHuman``) this turn.
+    handed_to_person: bool = False
     #: A question to the person timed out this turn; open to-dos then wait on them.
     question_unanswered: bool = False
     #: The turn was already told its deliverable sits in throwaway ``tmp/``.
@@ -260,6 +283,8 @@ def observe(session: Session, name: str, args: dict[str, Any], result: Any) -> N
     if name == "execute_code":
         turn.last_check = (turn.step, ok, "execute_code (ad-hoc)")
         return
+    if name == REPL_TOOL and _REQUEST_HUMAN.search(str(args.get("code") or "")):
+        turn.handed_to_person = True
     if ok and _is_look(session, name, args, result):
         turn.last_look = turn.step
         return
@@ -309,7 +334,7 @@ def nudge(core: Core, session: Session, final_text: str = "") -> str | None:
     ``tmp/`` is sent back once to put the deliverable somewhere it stays
     (R5, 1.37.0).
     """
-    unverified = _nudge_unverified(core, session)
+    unverified = _nudge_unverified(core, session, final_text)
     if unverified is not None:
         return unverified
     turn: TurnEvidence | None = getattr(session, "verify_turn", None)
@@ -328,14 +353,14 @@ def nudge(core: Core, session: Session, final_text: str = "") -> str | None:
     )
 
 
-def _nudge_unverified(core: Core, session: Session) -> str | None:
+def _nudge_unverified(core: Core, session: Session, final_text: str = "") -> str | None:
     """The follow-up for a turn about to end unverified, or ``None`` to let it end."""
     turn: TurnEvidence | None = getattr(session, "verify_turn", None)
     if turn is None or turn.nudges >= MAX_NUDGES or not enabled(core, session):
         return None
     edits = {**turn.code_edits, **turn.ui_edits}
     if not edits:
-        return _open_todos(session, turn)
+        return _open_todos(session, turn, final_text)
     check = turn.last_check
     # Only code edits need a check; a UI-only turn is proved by looking at it.
     last_edit = max(turn.code_edits.values(), default=-1)
@@ -356,7 +381,7 @@ def _nudge_unverified(core: Core, session: Session) -> str | None:
                 "[system] A check was not approved. Do not try another way to run it: "
                 "end the turn now and say the work is unverified."
             )
-        return _open_todos(session, turn)
+        return _open_todos(session, turn, final_text)
     turn.nudges += 1
     shown = sorted(edits, key=edits.__getitem__)[-8:]
     lines = [
@@ -398,27 +423,38 @@ def _nudge_unverified(core: Core, session: Session) -> str | None:
     return "\n".join(lines)
 
 
-def _open_todos(session: Session, turn: TurnEvidence) -> str | None:
+def _open_todos(session: Session, turn: TurnEvidence, final_text: str = "") -> str | None:
     """A turn ending with its own task list unfinished (opencode states the rule,
-    nothing enforces it): once, ask to finish or say what blocks each item."""
+    nothing enforces it): once, ask to finish or say what blocks each item.
+
+    An item marked blocked or waiting on the person is done for this turn; so
+    is the whole list when the turn handed a tab to the person
+    (``requestHuman``) and its answer ends waiting on them."""
     if turn.todo_nudged or turn.question_unanswered:
         return None
+    if turn.handed_to_person and final_text:
+        from snowpea_core.agent import unfinished_work
+
+        if unfinished_work.waiting(final_text):
+            return None
     todos = [t for t in (getattr(session, "todos", None) or []) if isinstance(t, dict)]
     open_items = [
         t
         for t in todos
         if t.get("status") in ("pending", "in_progress")
-        and "(blocked:" not in str(t.get("content") or "")
+        and not todo_waits(str(t.get("content") or ""))
     ]
     if not open_items:
         return None
     turn.todo_nudged = True
+    turn.todo_nudge_step = turn.step
     turn.nudges += 1
     listed = "; ".join(str(t.get("content") or t.get("id")) for t in open_items[:8])
     return (
         f"[system] Your task list still has {len(open_items)} open item(s): {listed}. "
         "Carry on with them now. If one cannot be done, set it back to pending with "
-        '"(blocked: reason)" added and say so, instead of ending as if it were done.'
+        '"(blocked: reason)" added, or "(waiting on the person: reason)" when only they can '
+        "do it (a payment, a login), and say so, instead of ending as if it were done."
 
     )
 
