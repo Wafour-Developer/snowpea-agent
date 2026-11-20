@@ -307,7 +307,10 @@ async def approval_ask_handler(
         if matrix == "allow":
             return ApprovalAskResult(decision="allow", by="mode")
     else:
-        verdict = core.policy.decide(session.mode, params.permission, tool, args, session)
+        from snowpea_core.security import enforce
+
+        verdict = core.policy.decide(session.mode, params.permission, tool, args, session,
+                                     checks_off=not enforce.enabled(core.settings))
         if verdict == "deny":
             return ApprovalAskResult(decision="deny", by="mode")
         if verdict == "allow":
