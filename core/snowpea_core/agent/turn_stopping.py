@@ -11,7 +11,9 @@ Built in, in this order:
   looked at, open to-dos (Hermes verify-on-stop, ``agent.verify_gate``);
 * ``unfinished-work`` (150) — the answer lists work it could still do now
   ("남은 일 (다음 턴): 1. …", "next steps: …") and waits on nobody: sent back
-  to finish it, at most ``agent.unfinished_continue`` times a turn, and not
+  to finish it, at most ``agent.unfinished_continue`` times a turn
+  (``agent.finish_request_continuations`` when the person asked to finish
+  the work, :mod:`agent.person_intent`), and not
   again once a continuation brought no tool call (``agent.unfinished_work``);
   never in plan mode, at a budget checkpoint or with a goal armed (the goal
   driver owns continuation then);
@@ -187,6 +189,12 @@ def _unfinished_work(core: Any, session: Any, ctx: StopContext) -> StopDecision 
 
     agent = getattr(getattr(core, "settings", None), "agent", None)
     limit = int(getattr(agent, "unfinished_continue", 2) or 0)
+    if limit > 0:
+        from snowpea_core.agent import person_intent
+
+        # The person asked to finish ("끝까지 진행해줘"): the cap is generous.
+        if person_intent.finish_requested(session):
+            limit = max(limit, int(getattr(agent, "finish_request_continuations", 0) or 0))
     turn = getattr(session, "verify_turn", None)
     if (
         limit <= 0

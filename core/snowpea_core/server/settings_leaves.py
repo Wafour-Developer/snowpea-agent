@@ -188,7 +188,8 @@ def free_form_leaves(model: Any = None) -> set[str]:
 PLAIN: dict[str, str] = {
     "agent": (
         "answerNudgeRounds autoAttachImages auto_budget_continuations busy contextFileMaxChars "
-        "contextFilesMaxChars effort effortBy.* effortMap.* ignoreContextFiles keepToolRounds "
+        "contextFilesMaxChars effort effortBy.* effortMap.* finish_request_continuations "
+        "ignoreContextFiles keepToolRounds "
         "max_tokens max_tool_rounds no_progress_rounds provider_connect_wait_sec "
         "provider_first_token_sec provider_idle_sec provider_retries provider_step_budget_sec "
         "provider_timeout_sec pruneToolOutputs replyLanguage thinking turn_max_minutes "

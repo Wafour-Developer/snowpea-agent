@@ -18,6 +18,7 @@ from snowpea_core.attachments.model import (
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.providers import content as content_parts
 from snowpea_core.providers.base import ChatMessage
+from snowpea_core.session.history import source as message_source
 from snowpea_core.tools.config_guard import permission_for_read
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
@@ -195,7 +196,12 @@ def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -
     for block, tab_id in zip(attachment_blocks, tabs, strict=False):
         if tab_id and block.get("type") == "image":
             block["snapshotTab"] = tab_id
-    session.history.append(ChatMessage(role="user", content=blocks))
+    # A picture a tool showed rides as a user message for the provider, but it
+    # is not the person's words: the summary's verbatim block, the note after
+    # a compaction and the reply-language guess must not read it as theirs.
+    session.history.append(
+        ChatMessage(role="user", content=blocks, source=message_source("tool-image", "snapshot"))
+    )
 
 
 def append_tool_image_messages(
@@ -226,7 +232,12 @@ def append_tool_image_messages(
     label = ", ".join(labels)
     blocks = content_parts.history_blocks(f"(image from {source}: {label})", attachments)
     _mark_ephemeral(blocks, ephemeral)
-    session.history.append(ChatMessage(role="user", content=blocks))
+    # A picture a tool showed rides as a user message for the provider, but it
+    # is not the person's words: the summary's verbatim block, the note after
+    # a compaction and the reply-language guess must not read it as theirs.
+    session.history.append(
+        ChatMessage(role="user", content=blocks, source=message_source("tool-image", "snapshot"))
+    )
 
 
 def append_view_image_message(session: Any, result: ToolResult) -> None:

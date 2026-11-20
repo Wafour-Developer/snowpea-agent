@@ -30,7 +30,7 @@ from snowpea_core.agent.subagent import (
 )
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.prompts.compose import language_name
-from snowpea_core.session.history import message_text
+from snowpea_core.session.history import is_synthetic, message_text
 from snowpea_core.tools.output_spill import spill, spill_chars
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.util.lang import DEFAULT_LANGUAGE, detect_language
@@ -90,11 +90,13 @@ def _timeout(value: Any) -> float | None:
 def last_user_text(session: Session) -> str:
     """The most recent thing the user themselves wrote, or ``""``."""
     for message in reversed(session.history.snapshot()):
-        if message.role == "user":
+        # A daemon note, a budget notice or a picture a tool showed is not the
+        # person's request, whatever role carries it.
+        if message.role == "user" and not is_synthetic(message):
             text = host_context.user_words(message_text(message))
             # Notices travel as user messages for provider compatibility, but
             # they are evidence, not a replacement for the human's request.
-            if text.startswith("[system]"):
+            if text.startswith(("[system]", "(images from ", "(image from ")):
                 continue
             return text
     return ""

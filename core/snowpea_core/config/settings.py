@@ -374,6 +374,12 @@ class AgentSettings(_Model):
     max_tool_rounds: int = Field(default=500, ge=1)
     #: Automatic budget renewals before Continue/Stop; zero disables renewals.
     auto_budget_continuations: int = Field(default=10, ge=0)
+    #: The cap instead, when the person asked this turn to finish the work
+    #: ("끝까지 진행해줘", "finish it"): automatic budget renewals and
+    #: unfinished-work continuations both run up to it (the larger of the two
+    #: settings wins).  ``auto_budget_continuations: 0`` still disables
+    #: renewals, and the loop and no-progress guards still apply.
+    finish_request_continuations: int = Field(default=30, ge=0)
     #: Rounds granted to verify-on-stop and Stop-hook continuations that fire
     #: after a budget probe, counted against ``auto_budget_continuations``.
     verify_continue_rounds: int = Field(default=20, ge=1)

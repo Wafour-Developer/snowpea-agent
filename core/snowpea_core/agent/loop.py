@@ -33,6 +33,7 @@ from snowpea_core.agent import (
     context_files,
     host_context,
     image_describe,
+    person_intent,
     plan_store,
     shell_writes,
     turn_stopping,
@@ -201,6 +202,29 @@ def split_budget_status(text: str) -> tuple[str, bool | None]:
     finished = matches[-1].group(1).upper() == "DONE"
     cleaned = _BUDGET_STATUS_LINE.sub("", text).rstrip()
     return cleaned, finished
+
+
+#: The main agent's budget probe asks for the same verdict line as a child's
+#: report: :data:`BUDGET_INSTRUCTION` tells an unfinished model to write its
+#: checkpoint with no tool call, so the absence of a call cannot say "done".
+BUDGET_PROBE_INSTRUCTION = SUBAGENT_BUDGET_INSTRUCTION
+
+
+def _probe_is_checkpoint(text: str, verdict: bool | None) -> bool:
+    """True when a tool-less budget-probe reply is a checkpoint of unfinished work.
+
+    The model's own ``BUDGET-STATUS`` line decides; without one, the reply's
+    wording does (:func:`unfinished_work.remaining`).  A reply that waits on
+    the person — a question, a credential, a decision — is never a checkpoint
+    to run past: the turn ends there as before.
+    """
+    from snowpea_core.agent import unfinished_work
+
+    if unfinished_work.waiting(text):
+        return False
+    if verdict is not None:
+        return not verdict
+    return unfinished_work.remaining(text) is not None
 
 
 #: What is fed back after the person chose to keep going at the checkpoint, so
@@ -669,11 +693,23 @@ def _verify_continue_rounds(core: Core) -> int:
         return 20
 
 
-def _auto_continue_limit(core: Core) -> int:
+def _auto_continue_limit(core: Core, session: Session | None = None) -> int:
+    """Automatic budget renewals one turn may make.
+
+    A turn whose person asked to finish the work ("끝까지 진행해줘") gets
+    ``agent.finish_request_continuations`` when that is larger; ``0`` in
+    ``auto_budget_continuations`` still turns renewals off.
+    """
     try:
-        return max(0, int(core.settings.agent.auto_budget_continuations))
+        limit = max(0, int(core.settings.agent.auto_budget_continuations))
     except (AttributeError, TypeError, ValueError):
-        return 10
+        limit = 10
+    if limit and session is not None and person_intent.finish_requested(session):
+        try:
+            limit = max(limit, int(core.settings.agent.finish_request_continuations))
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return limit
 
 
 def _guard_limits(core: Core) -> tuple[float, int, int]:
@@ -693,10 +729,12 @@ def _guard_limits(core: Core) -> tuple[float, int, int]:
     return wall_minutes, token_limit, no_progress
 
 
-def _budget_probe_continue_window(core: Core, used: int) -> tuple[int, int] | None:
+def _budget_probe_continue_window(
+    core: Core, used: int, session: Session | None = None
+) -> tuple[int, int] | None:
     """Round grant for verify/Stop continuations after the budget probe."""
 
-    if used >= _auto_continue_limit(core):
+    if used >= _auto_continue_limit(core, session):
         return None
     return used + 1, _verify_continue_rounds(core)
 
@@ -1972,15 +2010,20 @@ def _step_usage(attempt: Any) -> dict[str, Any]:
     }
 
 
-def _steer_after_stop(session: Session, decision: Any) -> None:
-    """Put a ``turn.stopping`` decision where the model reads it next (M16 P1.5)."""
+def _steer_after_stop(session: Session, decision: Any, core: Core | None = None) -> None:
+    """Put a ``turn.stopping`` decision where the model reads it next (M16 P1.5).
+
+    The decisions are English notes read after the person's words; each one
+    restates the person's language, or a local model answers in English.
+    """
+    text = person_intent.with_language(core, session, decision.text)
     if decision.via == "notice":
-        session.pending_notices.append(decision.text)
+        session.pending_notices.append(text)
         return
     session.history.append(
         ChatMessage(
             role="user",
-            content=decision.text,
+            content=text,
             source=history_mod.source(decision.producer, "notice"),
         )
     )
@@ -2745,8 +2788,20 @@ async def _drive(
             probe = await _budget_probe(core, session, provider, config, memory_block)
             if probe is not None:
                 progress.add_usage(probe)
-            if probe is not None and not probe.calls and not probe.interrupted:
-                assistant_text = probe.text
+            probe_text, verdict = split_budget_status(probe.text) if probe else ("", None)
+            # The probe's instruction tells an unfinished model to write its
+            # checkpoint *without* a tool call, so "no tool call" alone is not
+            # "done": a reply that says the work is unfinished, and waits on
+            # nobody, goes the report-and-renew way below (feedback e7d5155b:
+            # "The work is not finished. Here is an honest checkpoint." used
+            # to end the turn ``complete``).
+            if (
+                probe is not None
+                and not probe.calls
+                and not probe.interrupted
+                and not _probe_is_checkpoint(probe_text, verdict)
+            ):
+                assistant_text = probe_text or probe.text
                 session.history.append(ChatMessage(role="assistant", content=assistant_text))
                 await hub.emit_event(
                     session.id,
@@ -2764,21 +2819,21 @@ async def _drive(
                     ),
                 )
                 if decision is not None:
-                    window = _budget_probe_continue_window(core, budget_continuations)
+                    window = _budget_probe_continue_window(core, budget_continuations, session)
                     if window is None:
                         await finish_turn(core, session, turn_id, "budget")
                         return "budget"
                     budget_continuations, rounds_left = window
                     if decision.counts_as_stop_hook:
                         stop_continuations += 1
-                    _steer_after_stop(session, decision)
+                    _steer_after_stop(session, decision, core)
                     await hub.emit_event(
                         session.id,
                         events.hook_continue(
                             decision.shown or decision.text,
                             budget_continuations,
                             "budget",
-                            _auto_continue_limit(core),
+                            _auto_continue_limit(core, session),
                         ),
                     )
                     continue
@@ -2793,7 +2848,7 @@ async def _drive(
                 provider,
                 config,
                 memory_block,
-                probe_text=(probe.text if probe else ""),
+                probe_text=probe_text,
             )
             if session.interrupt.is_set():
                 # Stop pressed while the report was being written: the report
@@ -2802,7 +2857,8 @@ async def _drive(
                 return "interrupted"
             # Resume automatically while preserving the conversation. Only
             # after the bounded automatic window does an attended turn ask.
-            automatic = budget_continuations < _auto_continue_limit(core)
+            auto_limit = _auto_continue_limit(core, session)
+            automatic = budget_continuations < auto_limit
             asks = not unattended and not session.is_subagent
             if not automatic and (not asks or not await _ask_to_continue(core, session, config)):
                 await finish_turn(core, session, turn_id, "budget")
@@ -2815,13 +2871,15 @@ async def _drive(
                         BUDGET_CONTINUE_INSTRUCTION.format(n=config.max_tool_rounds),
                         budget_continuations,
                         "budget",
-                        _auto_continue_limit(core),
+                        auto_limit,
                     ),
                 )
             session.history.append(
                 ChatMessage(
                     role="user",
-                    content=BUDGET_CONTINUE_INSTRUCTION.format(n=config.max_tool_rounds),
+                    content=person_intent.with_language(
+                        core, session, BUDGET_CONTINUE_INSTRUCTION.format(n=config.max_tool_rounds)
+                    ),
                     source=history_mod.source("budget", "notice"),
                 )
             )
@@ -2844,7 +2902,7 @@ async def _drive(
             # The first round was checked before the prompt joined history.
             compacted = await compaction.maybe_auto_compact(core, session)
             if compacted is not None and compacted.compacted:
-                after_compaction = _compacted_note(session)
+                after_compaction = _compacted_note(session, core)
                 session.history.append(
                     ChatMessage(
                         role="user",
@@ -3001,7 +3059,7 @@ async def _drive(
             if decision is not None:
                 if decision.counts_as_stop_hook:
                     stop_continuations += 1
-                _steer_after_stop(session, decision)
+                _steer_after_stop(session, decision, core)
                 await hub.emit_event(
                     session.id,
                     events.hook_continue(
@@ -3138,7 +3196,10 @@ async def _budget_probe(
         specs = core.tools.specs(session)
         messages = [
             *build_messages(session, specs, memory_block, core=core),
-            ChatMessage(role="user", content=BUDGET_INSTRUCTION),
+            ChatMessage(
+                role="user",
+                content=person_intent.with_language(core, session, BUDGET_PROBE_INSTRUCTION),
+            ),
         ]
         return await _model_turn(core, session, provider, messages, specs, config)
     except Exception:  # noqa: BLE001 - fall through to the tools-free report
@@ -3182,7 +3243,9 @@ async def _budget_report(
         try:
             messages = [
                 *build_messages(session, [], memory_block, core=core),
-                ChatMessage(role="user", content=instruction),
+                ChatMessage(
+                    role="user", content=person_intent.with_language(core, session, instruction)
+                ),
             ]
             attempt = await _model_turn(core, session, provider, messages, [], config)
             text = attempt.text.strip()
@@ -3232,7 +3295,9 @@ async def _guard_report(
             provider,
             [
                 *build_messages(session, [], memory_block, core=core),
-                ChatMessage(role="user", content=instruction),
+                ChatMessage(
+                    role="user", content=person_intent.with_language(core, session, instruction)
+                ),
             ],
             [],
             config,
@@ -3253,14 +3318,20 @@ async def _guard_report(
     return text
 
 
-def _compacted_note(session: Session) -> str:
-    """The note after a mid-turn compaction, quoting the person's newest words."""
-    words = compaction.latest_user_words(session.history.snapshot())
+def _compacted_note(session: Session, core: Core | None = None) -> str:
+    """The note after a mid-turn compaction, quoting the person's newest words.
+
+    The words are the person's own (this turn's text and steers first); an
+    image a tool showed is never quoted as their message.  The note restates
+    their language: after it come the English summary and tool output.
+    """
+    own = person_intent.person_words(session)
+    words = own[0] if own else compaction.latest_user_words(session.history.snapshot())
     if not words:
-        return COMPACTED_NOTE
+        return person_intent.with_language(core, session, COMPACTED_NOTE)
     if len(words) > COMPACTED_NOTE_WORDS_MAX:
         words = words[: COMPACTED_NOTE_WORDS_MAX - 1] + "…"
-    return COMPACTED_NOTE_WORDS.format(words=words)
+    return person_intent.with_language(core, session, COMPACTED_NOTE_WORDS.format(words=words))
 
 
 def _reasoning_fallback_text(core: Core, session: Session, reasoning: str) -> str:
