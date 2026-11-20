@@ -768,6 +768,13 @@ def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         for key in ("goalRound", "goalId"):
             if data.get(key) is None:
                 data.pop(key, None)
+    # Additive optional fields stay absent unless set, so the wire shape older
+    # clients know is unchanged: message.done reasoningFallback (1.70.0) and
+    # turn.queued text/attachments.
+    optional = {"message.done": ("reasoningFallback",), "turn.queued": ("text", "attachments")}
+    for key in optional.get(kind, ()):
+        if data.get(key) is None:
+            data.pop(key, None)
     if message_kind:
         data["kind"] = message_kind
     return data
