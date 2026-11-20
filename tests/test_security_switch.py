@@ -362,16 +362,29 @@ ORDINARY_SCRIPT = "python3 gen.py --out out.txt"
 
 
 @pytest.mark.parametrize("line", [DOWNLOAD_THEN_RUN, REDIRECT_THEN_RUN, NAMES_SNOWPEA_HOME])
-def test_off_still_asks_what_allow_never_lets_through(tmp_path: Path, line: str) -> None:
-    # Off judges what it cannot see exactly as unknownCode "allow" with lists on:
-    # a script the same line writes and the names-snowpea backstop still ask.
+def test_allow_with_lists_still_asks_its_backstops(tmp_path: Path, line: str) -> None:
+    # unknownCode "allow" with the checks on: a script the same line writes and
+    # the names-snowpea backstop still ask.
     with_lists = _judge(_settings(tmp_path, unknownCode="allow"), tmp_path, "shell",
                         {"command": line}, ("exec",))
+    assert with_lists.opaque, with_lists
+
+
+@pytest.mark.parametrize("line", [DOWNLOAD_THEN_RUN, REDIRECT_THEN_RUN])
+def test_off_lets_a_written_script_through(tmp_path: Path, line: str) -> None:
+    # Owner decision 2026-11-19: off, no unreadable-code ask of the security layer.
     off = _judge(_settings(tmp_path, enabled=False), tmp_path, "shell",
                  {"command": line}, ("exec",))
-    assert with_lists.opaque, with_lists
+    assert not off.opaque and not off.blocked, off
+
+
+def test_off_still_asks_an_unread_line_naming_snowpea(tmp_path: Path) -> None:
+    # What was not read may act on snowpea's own controls: still the person's.
+    off = _judge(_settings(tmp_path, enabled=False), tmp_path, "shell",
+                 {"command": NAMES_SNOWPEA_HOME}, ("exec",))
     assert off.opaque and not off.blocked, off
-    assert set(off.unseen) == set(with_lists.unseen)
+    assert off.reason == "acts on snowpea's own controls"
+    assert "snowpea-unread" in off.unseen
 
 
 def test_off_lets_an_ordinary_unknown_script_through(tmp_path: Path) -> None:
