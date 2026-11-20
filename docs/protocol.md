@@ -6274,9 +6274,11 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `attachments` | `number \| null` | no | How many files or images the queued prompt carries. |
 | `kind` | `"turn.queued"` | no |  |
 | `position` | `number` | yes | 1-based place in the queue behind the running turn. |
 | `queued` | `number` | yes | Prompts waiting in the queue after this one was added. |
+| `text` | `string \| null` | no | The queued prompt's own text, cut to 300 characters, so a surface that did not send it (another client, a reconnect) can still list it. Absent from older cores: show a placeholder then. |
 | `turnId` | `string` | yes | Turn id assigned to the queued prompt. |
 
 ### kind `turn.started`

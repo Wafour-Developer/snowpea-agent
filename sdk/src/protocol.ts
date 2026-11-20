@@ -11593,11 +11593,15 @@ export interface TurnOutcomeEventPayload {
 
 /** Payload of `session.event` with kind `turn.queued`. */
 export interface TurnQueuedEventPayload {
+  /** How many files or images the queued prompt carries. */
+  attachments?: number | null;
   kind?: "turn.queued";
   /** 1-based place in the queue behind the running turn. */
   position: number;
   /** Prompts waiting in the queue after this one was added. */
   queued: number;
+  /** The queued prompt's own text, cut to 300 characters, so a surface that did not send it (another client, a reconnect) can still list it. Absent from older cores: show a placeholder then. */
+  text?: string | null;
   /** Turn id assigned to the queued prompt. */
   turnId: string;
 }
