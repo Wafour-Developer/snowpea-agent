@@ -130,6 +130,7 @@ def message_done(
     kind: Literal["", "interrupted", "plan"] = "",
     truncated: bool = False,
     continuations: int = 0,
+    reasoning_fallback: bool = False,
 ) -> Event:
     event_kind, payload = _pack(
         MessageDone(  # type: ignore[arg-type]
@@ -138,9 +139,13 @@ def message_done(
             messageKind=kind,
             truncated=truncated,
             continuations=continuations,
+            reasoningFallback=True if reasoning_fallback else None,
         )
     )
     payload.pop("messageKind", None)
+    if not reasoning_fallback:
+        # Additive (1.70.0): every other message.done keeps its old shape.
+        payload.pop("reasoningFallback", None)
     if kind:
         payload["kind"] = kind
     return event_kind, payload

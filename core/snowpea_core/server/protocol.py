@@ -6269,6 +6269,15 @@ class MessageDone(Payload):
     continuations: int = Field(
         0, description="How many times the turn was resumed after hitting the output limit."
     )
+    reasoningFallback: bool | None = Field(
+        default=None,
+        description=(
+            "1.70.0 (capability reasoningOnlyFallback): true when the model wrote its "
+            "answer only in its reasoning, also after being asked again, and this text is "
+            "that reasoning shown under a marker line instead of an empty_response error. "
+            "Absent otherwise."
+        ),
+    )
 
 
 class ToolCallEvent(Payload):
@@ -13226,6 +13235,11 @@ CAPABILITIES: list[str] = [
     # {scheduledAt, reason, error, title, nextRunAt}, a notice to the job's
     # channel or the bound person's private chat, and JobInfo.lastError.
     "jobMissedRuns",
+    # 1.70.0: a model that answers only in its reasoning is asked again (with
+    # thinking off where the provider can switch it); if it still writes nothing
+    # visible, the turn ends with message.done reasoningFallback: true carrying
+    # that reasoning under a marker line, not an empty_response error.
+    "reasoningOnlyFallback",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

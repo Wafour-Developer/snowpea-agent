@@ -57,12 +57,12 @@ class _Events:
         return [payload for k, payload in self.events if k == kind]
 
 
-async def test_an_empty_answer_is_nudged_once_and_the_prefix_is_kept(
+async def test_a_reasoning_only_answer_is_nudged_and_the_prefix_is_kept(
     daemon: Daemon, tmp_path: Path
 ) -> None:
     script = {
         "steps": [
-            {"match": agent_loop.EMPTY_NUDGE, "text": "Here is the plan."},
+            {"match": agent_loop.REASONING_ONLY_NUDGE, "text": "Here is the plan."},
             {"match": "plan my trip", **THOUGHT},
         ]
     }
@@ -77,7 +77,7 @@ async def test_an_empty_answer_is_nudged_once_and_the_prefix_is_kept(
     # Appended after the prompt, nothing rewritten, and no empty assistant turn.
     assert roles[-3:] == [
         ("user", "plan my trip"),
-        ("user", agent_loop.EMPTY_NUDGE),
+        ("user", agent_loop.REASONING_ONLY_NUDGE),
         ("assistant", "Here is the plan."),
     ]
     assert [p["reason"] for p in sink.of("turn.done")] == ["complete"]
@@ -85,7 +85,7 @@ async def test_an_empty_answer_is_nudged_once_and_the_prefix_is_kept(
     assert reason
 
 
-async def test_a_second_empty_answer_ends_the_turn_empty_response(
+async def test_a_cut_off_thought_still_ends_the_turn_empty_response(
     daemon: Daemon, tmp_path: Path
 ) -> None:
     session = await _session(daemon, tmp_path, {"steps": [], "default": THOUGHT})
