@@ -272,10 +272,17 @@ async def _with_last_run(core: Core, scheduler: Any, job: Job, info: JobInfo) ->
     """``lastError``, ``lastSessionId`` and ``waitingApproval`` (1.68.0)."""
     from snowpea_core.session.events import call_summary
 
+    seen_error = False
     for row in await scheduler.store.runs(job.id, limit=3):
-        if row.get("status") in ("ok", "error", "denied_by_timeout"):
+        status = row.get("status")
+        if status not in ("ok", "error", "denied_by_timeout", "missed"):
+            continue
+        if not seen_error:
+            # 1.69.0 (jobMissedRuns): a missed occurrence's reason shows too.
+            info.lastError = row.get("error") if status != "ok" else None
+            seen_error = True
+        if status != "missed":
             info.lastSessionId = row.get("session_id")
-            info.lastError = row.get("error") if row.get("status") != "ok" else None
             break
     approvals = getattr(core, "approvals", None)
     waiting = approvals.for_job(job.id) if approvals is not None else []

@@ -6,13 +6,13 @@ These replace the inactive M5 placeholders registered by
 ``memory_write`` / ``memory_search`` before; see ``tools/renames.py`` for why
 and for the old names that still resolve.
 
-``save_memory`` is the one tool that will stop and ask a human a question
-before it does its job.  "Remember this" is ambiguous in a way most tool calls
-are not — the same sentence means "for this repo" and "for me, everywhere"
-depending on who says it — and guessing wrong is invisible until the memory
-turns up in the wrong project months later.  So when the model does not pass a
-``scope``, the tool puts the choice to the person through the questions queue
-(the same one ``ask_user`` uses) and writes nothing if they cancel.
+"Remember this" is ambiguous — the same sentence means "for this repo" and
+"for me, everywhere" depending on who says it.  ``save_memory`` used to stop
+the turn and ask; that question waited up to ten minutes and twice timed out
+in the middle of a task (feedback report).  Now, without a ``scope``, the note
+is kept for the project at once (the narrower, safer guess), and the result
+says so and how to make it global, which the model passes on in its answer.
+The turn never waits.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from typing import Any
 
 from snowpea_core.memory.browser import BROWSER_NAMESPACE
 from snowpea_core.memory.retrieval import (
-    display_name,
     namespace_of,
     namespaces_for,
     project_namespace_of,
@@ -30,7 +29,6 @@ from snowpea_core.memory.safety import refusal, sensitive_kind
 from snowpea_core.memory.scopes import GLOBAL_NAMESPACE, label, scope_of
 from snowpea_core.memory.store import MemoryEntry
 from snowpea_core.prompts import tool_descriptions as descriptions
-from snowpea_core.server.protocol import QuestionItem, QuestionOption
 from snowpea_core.tools.registry import Tool, ToolContext, ToolRegistry, ToolResult
 
 WRITE_SCHEMA: dict[str, Any] = {
@@ -51,8 +49,8 @@ WRITE_SCHEMA: dict[str, Any] = {
             "description": (
                 "Where to keep it. 'project' is this repository only; 'global' is every "
                 "project. Pass it ONLY when the user said which one they meant "
-                "('프로젝트에 기억해', 'remember globally'). Otherwise leave it out and "
-                "the daemon asks them."
+                "('프로젝트에 기억해', 'remember globally'). Otherwise leave it out: it is "
+                "kept for this project and the result says how to make it global."
             ),
         },
     },
@@ -79,22 +77,10 @@ SEARCH_SCHEMA: dict[str, Any] = {
     "required": ["query"],
 }
 
-#: Header of the scope question; short, because surfaces render it as a chip.
-SCOPE_HEADER = "Where to keep it"
-SCOPE_QUESTION = (
-    "Save this memory for this project only ({project}) or for every project?"
-)
-OPTION_PROJECT = "Project ({project})"
-OPTION_GLOBAL = "Global (every project)"
-OPTION_CANCEL = "Cancel"
-
-CANCELLED = (
-    "nothing was remembered: the user cancelled the save. Do not retry without "
-    "asking them what they want."
-)
-NO_ANSWER = (
-    "nothing was remembered: nobody answered where to keep it. Say so, and ask "
-    "again with an explicit scope when the user is back."
+#: Told with a project save the model chose no scope for (feedback: never block).
+PROJECT_DEFAULT_NOTE = (
+    "Kept for this project only. If it should apply to every project, tell the user "
+    "so in your answer; if they say yes, save it again with scope 'global'."
 )
 
 
@@ -121,51 +107,11 @@ def format_entry(entry: MemoryEntry) -> str:
     return f"[mem:{entry.id}] {label(entry.namespace)}{tags} {entry.text}"
 
 
-def _unattended(session: Any) -> bool:
-    """True when no human is watching this session, so nobody can be asked."""
-    return bool(
-        getattr(session, "unattended", False)
-        or getattr(session, "is_subagent", False)
-        or getattr(session, "kind", "chat") in {"subagent", "scheduled"}
-    )
+def resolve_namespace(ctx: ToolContext, scope: str | None) -> tuple[str, str]:
+    """Which namespace ``save_memory`` should use, without asking anyone.
 
-
-def scope_question(project: str) -> QuestionItem:
-    """The single question ``save_memory`` asks when no scope was passed."""
-    return QuestionItem(
-        header=SCOPE_HEADER,
-        question=SCOPE_QUESTION.format(project=project),
-        options=[
-            QuestionOption(
-                label=OPTION_PROJECT.format(project=project),
-                description="Only sessions opened in this project recall it.",
-            ),
-            QuestionOption(
-                label=OPTION_GLOBAL,
-                description="Every project recalls it.",
-            ),
-            QuestionOption(label=OPTION_CANCEL, description="Remember nothing."),
-        ],
-        multi=False,
-        allowOther=False,
-    )
-
-
-def _chosen(selected: list[str]) -> str | None:
-    """``"project"`` / ``"global"`` / ``None`` (cancel) from the answer labels."""
-    first = (selected[0] if selected else "").strip().lower()
-    if first.startswith("project"):
-        return "project"
-    if first.startswith("global"):
-        return "global"
-    return None
-
-
-async def resolve_namespace(ctx: ToolContext, scope: str | None) -> tuple[str | None, str]:
-    """Which namespace ``save_memory`` should use, asking the human if needed.
-
-    Returns ``(namespace, reason)``.  ``namespace`` is ``None`` when nothing
-    should be written, and ``reason`` is then the text the model is shown.
+    Returns ``(namespace, note)``; ``note`` is added to the result when the
+    model gave no scope and the note went to the project.
     """
     session = ctx.session
     project = project_namespace_of(session)
@@ -188,33 +134,11 @@ async def resolve_namespace(ctx: ToolContext, scope: str | None) -> tuple[str | 
         # A named agent's own memory stays its own (M7 §6); scopes do not
         # reach into it unless the model asked for one explicitly.
         return session_namespace, ""
-    if _unattended(session):
-        return project, ""
-    memory = _services(ctx)
-    if not getattr(memory.settings, "askScope", True):
-        return project, ""
-    queue = getattr(ctx.core, "questions", None)
-    if queue is None:
-        return project, ""
-
-    answers = await queue.ask(
-        session,
-        [scope_question(display_name(session))],
-        cancel_event=getattr(session, "interrupt", None),
-    )
-    answer = answers[0]
-    if answer.timed_out:
-        return None, NO_ANSWER
-    if answer.declined or not answer.selected:
-        return None, CANCELLED
-    picked = _chosen(answer.selected)
-    if picked is None:
-        return None, CANCELLED
-    return (project if picked == "project" else GLOBAL_NAMESPACE), ""
+    return project, PROJECT_DEFAULT_NOTE
 
 
 async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    """Store one durable note, in the scope the user chose."""
+    """Store one durable note: in the scope the user named, else for the project."""
     if _off(ctx):
         return ToolResult(ok=False, error=INACTIVE, meta={"written": False})
     text = str(args.get("text") or "").strip()
@@ -227,7 +151,7 @@ async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if raw_scope is not None and raw_scope not in {"project", "global"}:
         return ToolResult(
             ok=False,
-            error="scope must be 'project' or 'global'; omit it to let the user choose",
+            error="scope must be 'project' or 'global'; omit it to keep it for this project",
         )
     raw_tags = args.get("tags") or []
     tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else []
@@ -239,11 +163,9 @@ async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=False, error=denied, meta={"written": False})
     if forced is not None:
         # Jarvis writes only to its own memory (M19 WP4).
-        namespace, reason = forced, ""
+        namespace, note = forced, ""
     else:
-        namespace, reason = await resolve_namespace(ctx, raw_scope)
-    if namespace is None:
-        return ToolResult(ok=True, output=reason, meta={"written": False})
+        namespace, note = resolve_namespace(ctx, raw_scope)
 
     memory = _services(ctx)
     entry = await memory.store.write(
@@ -254,9 +176,10 @@ async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         origin="model",
     )
     where = entry.project or "every project"
+    output = f"remembered as [mem:{entry.id}] {label(namespace)} ({where})"
     return ToolResult(
         ok=True,
-        output=f"remembered as [mem:{entry.id}] {label(namespace)} ({where})",
+        output=f"{output}. {note}" if note else output,
         meta={"written": True, "id": entry.id, "scope": entry.scope, "project": entry.project},
     )
 
@@ -378,14 +301,8 @@ def register_memory_tools(registry: ToolRegistry) -> ToolRegistry:
 
 
 __all__ = [
-    "CANCELLED",
     "INACTIVE",
-    "NO_ANSWER",
-    "OPTION_CANCEL",
-    "OPTION_GLOBAL",
-    "OPTION_PROJECT",
-    "SCOPE_HEADER",
-    "SCOPE_QUESTION",
+    "PROJECT_DEFAULT_NOTE",
     "SEARCH_SCHEMA",
     "TOOLS",
     "WRITE_SCHEMA",
@@ -394,5 +311,4 @@ __all__ = [
     "save_memory",
     "register_memory_tools",
     "resolve_namespace",
-    "scope_question",
 ]

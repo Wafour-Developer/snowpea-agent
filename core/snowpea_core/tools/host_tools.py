@@ -308,6 +308,7 @@ class HostTools:
                     parallel_safe=parallel == "safe",
                     deferred_hint=bool(spec.get("deferred")),
                     look=spec.get("look") is True,
+                    kind=spec["kind"] if spec.get("kind") in ("act", "read") else None,
                     agents=(
                         tuple(str(item) for item in spec["agents"])
                         if isinstance(spec.get("agents"), list) and spec["agents"]

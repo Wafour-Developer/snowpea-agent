@@ -278,6 +278,9 @@ class Session:
     verify_turn: Any = None
     #: This turn's answer-now note state (agent/answer_nudge.py).
     answer_nudge: Any = None
+    #: ``(turn_id, paths)``: files a person refused a change to in that turn;
+    #: a later change to one of them asks again (agent/loop.py).
+    refused_write_paths: Any = None
     #: ``session.continue`` (1.8.0): keys already honoured, and when the last
     #: system-initiated turn started (loop guard).
     continue_keys: set[str] = field(default_factory=set)

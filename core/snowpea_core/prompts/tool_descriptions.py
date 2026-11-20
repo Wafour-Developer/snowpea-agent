@@ -203,8 +203,9 @@ MEMORY_WRITE = (
     "profile:deploy_target) so search_memory finds it. scope: \"project\" = only this "
     "repository, \"global\" = every project. Pass scope ONLY when the user said which "
     "(\"프로젝트에 기억해\", \"이 레포에만\", \"remember globally\"); after a plain "
-    "\"기억해\" / \"remember this\" leave it out and the user is asked. A cancelled or "
-    "unanswered question saves nothing — then do not say you remembered it."
+    "\"기억해\" / \"remember this\" leave it out: it is kept for this project at once, "
+    "and if it may apply everywhere, say so in your answer and save it with scope "
+    "\"global\" only when the user agrees."
 )
 
 MEMORY_SEARCH = (

@@ -16,6 +16,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -111,6 +112,13 @@ GUARD_NOTE = (
     "Asked because the agent was switched during this turn: its context may hold page "
     "text that asked for the switch."
 )
+#: The note of a call that changes a file the person refused a change to this turn.
+REFUSED_AGAIN_NOTE = (
+    "Asked again: you declined a change to {path} earlier in this turn, and this call "
+    "changes it too."
+)
+#: Tags of a call that changes files: a person's refusal of one is kept by path.
+REFUSED_WRITE_TAGS = frozenset({"write", "outside", "config"})
 #: An answer with no text and no tool call is asked again once with this
 #: appended, never rewritten into the history before it (the prefix stays).
 EMPTY_NUDGE = "Continue: call a tool or answer."
@@ -3479,7 +3487,7 @@ async def _run_one_call(
     # A write that lands on snowpea's own settings is judged as ``config``,
     # not ``write`` (CORE-search-fix): the tag, not the tool, decides.
     tag = effective_permission(tool, call.arguments, session, core)
-    answer_nudge.observe_call(session, tool.name, tag, call.arguments)
+    answer_nudge.observe_call(session, tool.name, tag, call.arguments, tool=tool)
     # The security lists come before everything else (1.54.0): no mode, rule,
     # cached answer or Jarvis decision runs a blocked command or changes a
     # protected path; a line they cannot see through always asks the person.
@@ -3523,6 +3531,11 @@ async def _run_one_call(
     # A block the person may allow (0.2.94) is asked in every mode the mode
     # matrix does not refuse: the approval queue makes it person-only, once.
     if unchecked and verdict != "deny":
+        verdict = "ask"
+    # A person refused a change to this file earlier in the turn: changing it
+    # again, by any tool, is theirs to decide — no mode or cached answer skips it.
+    refused_path = _touches_refused(core, session, turn_id, tool.name, tag, call.arguments)
+    if refused_path and verdict != "deny":
         verdict = "ask"
     if getattr(session, "read_only", False) and (
         tag in READ_ONLY_REFUSED or verdict == "ask" or tool.name in READ_ONLY_REFUSED_TOOLS
@@ -3568,8 +3581,15 @@ async def _run_one_call(
             risk=policy.risk(tag),
             unattended=unattended,
             cancel_event=session.interrupt,
-            note=_source_note(tool, GUARD_NOTE if guarded else policy.note(tag)),
-            cacheable=tag not in UNPROMOTABLE and not guarded and not unchecked,
+            note=_source_note(
+                tool,
+                GUARD_NOTE if guarded
+                else REFUSED_AGAIN_NOTE.format(path=refused_path) if refused_path
+                else policy.note(tag),
+            ),
+            cacheable=(
+                tag not in UNPROMOTABLE and not guarded and not unchecked and not refused_path
+            ),
             guard=AGENT_SWITCH_GUARD if guarded else None,
             tags=(tag,),
             host_tool=on_host,
@@ -3610,7 +3630,12 @@ async def _run_one_call(
                 # a reason": the model must read it, not guess at it.
                 refusal = f"{refusal}: {decision.reason}"
             verify_gate.note_declined(session, tool.name, call.arguments, tag)
-            await _deny_call(core, session, call, refusal)
+            said_no = not unshown and code != errors.APPROVAL_TIMEOUT and (
+                decision.by != "origin-timeout"
+            )
+            if said_no:
+                _note_refused_write(core, session, turn_id, tag, call.arguments)
+            await _deny_call(core, session, call, refusal, person=said_no)
             return "denied"
 
     await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
@@ -3959,15 +3984,122 @@ def _reason_paths(core: Core, session: Session, tag: str, args: dict[str, Any]) 
     return found
 
 
-async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) -> None:
+def _note_refused_write(
+    core: Core, session: Session, turn_id: str, tag: str, args: dict[str, Any]
+) -> None:
+    """Keep the files of a write the person refused, for the rest of this turn.
+
+    A refused command that changes things (``sed -i … a.py``) keeps the
+    existing files it names: the same change through ``patch`` is the same
+    change.
+    """
+    if tag in REFUSED_WRITE_TAGS:
+        paths = _reason_paths(core, session, "write", args)
+    elif tag == "exec" and args.get("command"):
+        from snowpea_core.permissions.safe_commands import is_read_only
+
+        command = str(args["command"])
+        paths = [] if is_read_only(command) else _command_files(session, command)
+    else:
+        return
+    if not paths:
+        return
+    held = getattr(session, "refused_write_paths", None)
+    if not held or held[0] != turn_id:
+        held = (turn_id, set())
+        session.refused_write_paths = held
+    held[1].update(paths)
+
+
+def _command_files(session: Session, command: str) -> list[str]:
+    """The existing files a shell command names, resolved against the workdir."""
+    import shlex
+
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    workdir = Path(session.workdir) if getattr(session, "workdir", None) else None
+    found: list[str] = []
+    for word in words[1:]:
+        if not word or word.startswith("-"):
+            continue
+        try:
+            candidate = Path(word).expanduser()
+            if not candidate.is_absolute():
+                if workdir is None:
+                    continue
+                candidate = workdir / candidate
+            if candidate.is_file():
+                resolved = str(candidate.resolve())
+                if resolved not in found:
+                    found.append(resolved)
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return found
+
+
+def _touches_refused(
+    core: Core, session: Session, turn_id: str, name: str, tag: str, args: dict[str, Any]
+) -> str | None:
+    """The refused file this call would change again in the same turn, or ``None``.
+
+    A write tool is matched by its resolved paths; a shell or code run that is
+    not a plain inspection, by the path appearing in its text.
+    """
+    held = getattr(session, "refused_write_paths", None)
+    if not held or held[0] != turn_id or not held[1]:
+        return None
+    refused: set[str] = held[1]
+    if tag in REFUSED_WRITE_TAGS:
+        return next((p for p in _reason_paths(core, session, "write", args) if p in refused),
+                    None)
+    if tag != "exec":
+        return None
+    text = str(args.get("command") or args.get("code") or "")
+    if not text:
+        return None
+    if name == "shell":
+        from snowpea_core.permissions.safe_commands import is_read_only
+
+        if is_read_only(text):
+            return None
+    workdir = getattr(session, "workdir", None)
+    for path in sorted(refused):
+        forms = {path}
+        if workdir:
+            with contextlib.suppress(ValueError):
+                relative = os.path.relpath(path, str(workdir))
+                if not relative.startswith(".."):
+                    forms.add(relative)
+        if any(form in text for form in forms):
+            return path
+    return None
+
+
+async def _deny_call(
+    core: Core, session: Session, call: ToolCall, reason: str, *, person: bool = False
+) -> None:
     """Tell the model a call was refused, so it can adapt inside the same turn.
 
     A refusal used to end the turn outright, which left the model unable to
     learn anything from it and made plan mode merely restrictive rather than
     usable (CORE-prompts, gap 3).  It now comes back as a tool result, the way
     any other failed call does.
+
+    A person's "no" (``person``) is not a rule to route around: told "choose a
+    different action", a model wrote the same change through another tool
+    (feedback report).  It is told to ask or stop instead.
     """
-    message = f"Denied: {reason}. Choose a different action; do not retry the same call."
+    if person:
+        message = (
+            f"Denied: {reason}. The user said no to this: do not retry the same call, and "
+            "do not reach the same result another way (another tool, a shell command, a "
+            "script, a copy of the file). If it still matters, ask the user what they want; "
+            "otherwise stop and say what was not done."
+        )
+    else:
+        message = f"Denied: {reason}. Choose a different action; do not retry the same call."
     if session.mode == "plan" and not getattr(session, "read_only", False):
         message += (
             ' In plan mode, finish the plan and call set_mode("accept") so the user can'

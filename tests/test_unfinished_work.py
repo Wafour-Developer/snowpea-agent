@@ -248,3 +248,87 @@ async def test_a_restated_checkpoint_ends_the_turn(tmp_path: Path) -> None:
     assert len(provider.requests) == 3
     assert len(recorder.of_kind("hook.continue")) == 1
     assert recorder.of_kind("turn.done")[-1]["payload"]["reason"] == "complete"
+
+
+# ---------------------------------------------------------------------------
+# feedback: a stop that waits on the person was pushed on (three wrap-ups)
+# ---------------------------------------------------------------------------
+
+#: The shape of the reported answer: booked up to payment, payment is the person's.
+PAYMENT_KO = (
+    "예약 단계까지 진행했습니다.\n\n## 남은 일\n"
+    "1. 결제는 직접 진행해 주셔야 합니다.\n2. 결제 후 확정 메일 확인\n"
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        PAYMENT_KO,
+        "## 남은 작업\n1. 카드 결제\n\n결제는 사용자가 직접 하셔야 합니다.",
+        "## 남은 작업\n1. 로그인\n\n이 사이트는 로그인이 필요합니다.",
+        "## 남은 작업\n1. 본인 인증\n\n인증 단계가 자동화로 차단되었습니다.",
+        "## 남은 작업\n1. 결제\n\n여기부터는 직접 입력이 필요합니다.",
+        "## Remaining steps\n1. Pay for the booking\n\nYou need to pay for it yourself.",
+        "## Remaining steps\n1. Payment\n\nOnly you can enter the card details.",
+    ],
+)
+def test_endings_that_wait_on_the_person_do_not_continue(text: str) -> None:
+    assert uw.remaining(text) is not None
+    assert uw.waiting(text)
+    assert not uw.detect(text)
+
+
+def test_real_unfinished_work_still_continues() -> None:
+    assert uw.detect(CHECKPOINT_KO)
+    assert uw.detect("## 남은 작업\n1. 직접 만든 스크립트 정리\n2. 테스트 실행\n")
+    assert uw.detect("## Remaining steps\n1. Fix the router\n2. Rebuild\n\nI ran out of time.")
+
+
+def _todos(session: Session, *contents: str) -> None:
+    session.todos = [
+        {"id": str(i), "content": c, "status": "pending"} for i, c in enumerate(contents)
+    ]
+
+
+async def test_not_when_every_open_todo_waits_on_the_person(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    _tool(session)
+    _todos(session, "결제 (waiting on the person: 카드 결제)", "예약 확정 (blocked: 결제 대기)")
+    assert await _stop(_core(), session) is None
+    # One open item that is plain work: the to-do follow-up asks first.
+    _todos(session, "결제 (waiting on the person: 카드)", "라우팅 수정")
+    decision = await _stop(_core(), session)
+    assert decision is not None and decision.producer == "verify-gate"
+    assert "라우팅 수정" in decision.text and "결제" not in decision.text.split(":", 1)[1]
+
+
+async def test_not_right_after_the_verify_gates_todo_follow_up(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    _tool(session)
+    _todos(session, "라우팅 수정")
+    first = await _stop(_core(), session)
+    assert first is not None and first.producer == "verify-gate"
+    # The model answers the follow-up with a status list (a to-do update at most).
+    _tool(session)
+    assert await _stop(_core(), session) is None
+    assert session.verify_turn.unfinished_continues == 0
+    # Real work after it: the listener is back.
+    _tool(session)
+    _tool(session)
+    later = await _stop(_core(), session)
+    assert later is not None and later.producer == "unfinished-work"
+
+
+async def test_todo_follow_up_waits_after_a_request_human_hand_back(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    verify_gate.observe(
+        session, "repl", {"code": "await requestHuman('결제를 진행해 주세요')"}, ToolResult(ok=True)
+    )
+    assert session.verify_turn.handed_to_person
+    _todos(session, "결제 완료 확인")
+    ending = "결제 화면을 넘겼습니다. 결제는 직접 진행해 주셔야 합니다."
+    assert await _stop(_core(), session, ending) is None
+    assert verify_gate.todo_waits("결제 (대기: 사용자 결제)")
+    assert verify_gate.todo_waits("pay (Waiting on the user)")
+    assert not verify_gate.todo_waits("라우팅 수정")

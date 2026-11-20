@@ -718,9 +718,10 @@ class MemorySettings(_Model):
     auto_remember_patterns: list[str] = Field(
         default_factory=lambda: list(DEFAULT_REMEMBER_PATTERNS)
     )
-    #: True lets ``save_memory`` ask the human whether a note belongs to this
-    #: project or to every project when the model did not say (M5 §1b).
-    #: False skips the question and files it under the project.
+    #: Kept so existing settings files stay valid.  ``save_memory`` no longer
+    #: asks whether a note is the project's or global: the question blocked
+    #: the turn for up to 600 s (feedback report), so a note without a scope
+    #: goes to the project at once whatever this says.
     askScope: bool = True
     #: Project memories listed in the standing digest every turn starts with.
     digestEntries: int = 30

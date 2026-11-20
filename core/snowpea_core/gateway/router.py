@@ -917,6 +917,27 @@ class GatewayRouter:
             with contextlib.suppress(AttributeError, Exception):
                 await adapter.acknowledge(message.callback_id, text)  # type: ignore[attr-defined]
 
+    async def share_routine_notice(self, title: str, text: str) -> int:
+        """Post a routine's notice to each bound person's private chat (1.69.0).
+
+        Reached like a routine's approval (1.68.0): an active binding whose
+        person is known and that shares the active session's asks.  Returns
+        how many chats got it.
+        """
+        sent = 0
+        for binding in list(self._bindings.values()):
+            if binding.state != "active" or binding.id not in self._adapters:
+                continue
+            if not self.share_active(binding):
+                continue
+            channel = self.private_chat(binding)
+            if channel is None:
+                continue
+            with contextlib.suppress(Exception):
+                await self.send(binding, channel, f"[routine: {title}]\n{text}")
+                sent += 1
+        return sent
+
     async def deliver(self, channel: str, text: str) -> bool:
         """Send ``text`` to ``"<platform>:<channel_id>"`` or the log (contract §2)."""
         if not channel or channel == LOG_CHANNEL:

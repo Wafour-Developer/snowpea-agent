@@ -16,6 +16,7 @@ from snowpea_core.providers.base import ChatMessage, StreamEvent, ToolCall, Usag
 from snowpea_core.server.settings_leaves import PLAIN
 from snowpea_core.session.history import message_text
 from snowpea_core.session.session import Session
+from snowpea_core.tools.registry import Tool, ToolResult
 
 QUESTION = "관리자 화면에서 월이 변경될 때 출석 체크 상품을 어떻게 등록해야 하는지 알려줘"
 ANSWER = "So the answer: register it under the monthly product screen."
@@ -60,11 +61,14 @@ async def _run(
     settings: dict[str, Any] | None = None,
     origin: str | None = None,
     mode: str = "auto",
+    tools: tuple[Tool, ...] = (),
 ) -> tuple[Recorder, list[dict[str, Any]], Session]:
     daemon = await make_daemon(tmp_path / "home", settings)
     try:
         core = daemon.core
         core.providers.get = lambda _p, _m: provider
+        for tool in tools:
+            core.tools.register(tool)
         workdir = tmp_path / "w"
         workdir.mkdir()
         for i in range(40):
@@ -245,3 +249,80 @@ def test_due_only_after_the_rounds_and_only_reads(tmp_path: Path) -> None:
 def test_setting_default_and_classification() -> None:
     assert AgentSettings().answerNudgeRounds == 20
     assert "answerNudgeRounds" in PLAIN["agent"].split()
+
+
+# -- 1.69.0: a browser's acting host tools are work (feedback: booking stopped) --
+
+
+async def _ok(_ctx: Any, _args: dict[str, Any]) -> ToolResult:
+    return ToolResult(ok=True, output="clicked")
+
+
+def _host_tool(name: str, *, category: str = "host", kind: str | None = None) -> Tool:
+    return Tool(
+        name=name,
+        category=category,
+        description=name,
+        input_schema={"type": "object", "properties": {}},
+        permission="read",
+        run=_ok,
+        source="host:browser-1",
+        kind=kind,
+    )
+
+
+class _Booker(_Reader):
+    """Books something through the browser's ``repl``: one call per round."""
+
+    async def stream(self, messages: list[ChatMessage], tools: list[Any], **_: Any) -> Any:
+        self.requests.append(list(messages))
+        n = len(self.requests)
+        yield StreamEvent(kind="usage", usage=Usage(input_tokens=50, output_tokens=3))
+        if n > self.max_calls:
+            yield StreamEvent(kind="text_delta", text="Booked.")
+            yield StreamEvent(kind="done", stop_reason="end_turn")
+            return
+        code = f"await click('#step{n}')"
+        call = ToolCall(id=f"r{n}", name="repl", arguments={"code": code})
+        yield StreamEvent(kind="tool_call", tool_call=call)
+        yield StreamEvent(kind="done", stop_reason="tool_use")
+
+
+async def test_a_booking_through_the_browsers_repl_is_never_nudged(tmp_path: Path) -> None:
+    provider = _Booker(max_calls=25)
+    recorder, _stored, _session = await _run(
+        tmp_path, provider, tools=(_host_tool("repl", category="browser"),)
+    )
+    assert _notes(recorder) == []
+    assert len(provider.requests) == 26
+    assert not any(provider._told(r) for r in provider.requests)
+
+
+def test_host_tool_kind_decides_and_old_hosts_fall_back(tmp_path: Path) -> None:
+    def nudged(tool: Tool | None, name: str = "x", tag: str = "read") -> bool:
+        s = Session(id="s", workdir=tmp_path)
+        _armed(_core(1), s)
+        answer_nudge.observe_call(s, name, tag, {}, tool=tool)
+        s.rounds_used = 1
+        return answer_nudge.take_due(s) is not None
+
+    # A host that says what its tool does is believed.
+    assert not nudged(_host_tool("fill_form", kind="act"), "fill_form")
+    assert nudged(_host_tool("repl", category="browser", kind="read"), "repl")
+    # A host from before 1.69.0: repl and browser-category tools act.
+    assert not nudged(_host_tool("repl"), "repl")
+    assert not nudged(_host_tool("browser_click", category="browser"), "browser_click")
+    assert nudged(_host_tool("host_lookup"), "host_lookup")
+    # A daemon tool of the same name is not a host tool; pure reads still nudge.
+    daemon_repl = _host_tool("repl")
+    daemon_repl.source = "builtin"
+    assert nudged(daemon_repl, "repl")
+    assert nudged(None, "read_file")
+
+
+def test_host_tool_spec_kind_is_optional() -> None:
+    from snowpea_core.server.protocol import CAPABILITIES, HostToolSpec
+
+    assert HostToolSpec(name="repl", description="d", permission="read").kind is None
+    assert HostToolSpec(name="repl", description="d", permission="read", kind="act").kind == "act"
+    assert "hostToolKind" in CAPABILITIES

@@ -1903,6 +1903,17 @@ class HostToolSpec(Payload):
     )
     permission: PermissionTag = Field(description="Permission class checked against the mode.")
     category: str | None = Field(default=None, description='UI grouping; defaults to "host".')
+    kind: Literal["act", "read"] | None = Field(
+        default=None,
+        description=(
+            "1.69.0 (capability hostToolKind): 'act' when a call can change something "
+            "outside the conversation (a click, a form fill, a repl that acts on a page) "
+            "even though permission stays read because the host gates it itself; 'read' "
+            "when it only looks. Absent: unknown, judged from permission (a repl or a "
+            "browser-category host tool counts as acting). The answer-now note never "
+            "fires in a turn that called an acting tool."
+        ),
+    )
     timeoutMs: int | None = Field(
         default=None,
         description=(
@@ -4464,7 +4475,8 @@ class JobInfo(Payload):
         description=(
             "1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A "
             "run that waited for an approval nobody gave says 'approval needed: <tool> "
-            "<command>'; null after an 'ok' run."
+            "<command>'; null after an 'ok' run. 1.69.0 (jobMissedRuns): an occurrence "
+            "missed past the catch-up window says 'missed: <reason>'."
         ),
     )
     lastSessionId: str | None = Field(
@@ -7817,7 +7829,11 @@ class JobEventNotification(Payload):
             "meta, payload {status, sessionId, text}: its host shows the user a notification. "
             "'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload "
             "{requestId, sessionId, tool, summary, title, timeoutSec}: show a notification "
-            "that names the job; the request itself is in approval.pending."
+            "that names the job; the request itself is in approval.pending. 'missed' "
+            "payload {scheduledAt}; 1.69.0 (jobMissedRuns) adds reason ('daemon_down': "
+            "the daemon started past the catch-up window; 'host_absent': the browser host "
+            "never came), error, title and nextRunAt, and a daemon that started too late "
+            "now sends it too (with a job.runs row of status 'missed')."
         )
     )
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
@@ -13202,6 +13218,14 @@ CAPABILITIES: list[str] = [
     # 1.68.0: lsp.install {withToolchain, personConfirm} installs the .NET SDK
     # (needsToolchain offer, progress phase/percent), lsp.toolchain.remove/cancel.
     "lspToolchainInstall",
+    # 1.69.0: HostToolSpec.kind ('act' | 'read'): an acting host tool (a repl that
+    # clicks, a form fill) is work, not reading, for the answer-now note.
+    "hostToolKind",
+    # 1.69.0: an occurrence missed past scheduler.catchUpSec (or its host's
+    # window) is a job.runs row 'missed' with its reason, job.event missed
+    # {scheduledAt, reason, error, title, nextRunAt}, a notice to the job's
+    # channel or the bound person's private chat, and JobInfo.lastError.
+    "jobMissedRuns",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

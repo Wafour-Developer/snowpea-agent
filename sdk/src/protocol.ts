@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.68.0";
+export const PROTOCOL_VERSION = "1.69.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -3410,7 +3410,7 @@ export interface JobListResult {
     jobId: string;
     /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
     kind?: "cron" | "once" | "interval";
-    /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. */
+    /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. 1.69.0 (jobMissedRuns): an occurrence missed past the catch-up window says 'missed: <reason>'. */
     lastError?: string | null;
     /** UTC ISO-8601 time of the last firing, null before the first. */
     lastRunAt?: string | null;
@@ -3675,7 +3675,7 @@ export interface JobUpdateResult {
   jobId: string;
   /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
   kind?: "cron" | "once" | "interval";
-  /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. */
+  /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. 1.69.0 (jobMissedRuns): an occurrence missed past the catch-up window says 'missed: <reason>'. */
   lastError?: string | null;
   /** UTC ISO-8601 time of the last firing, null before the first. */
   lastRunAt?: string | null;
@@ -9364,6 +9364,8 @@ export interface ToolRegisterParams {
     helpers?: string[] | null;
     /** JSON Schema of the arguments. */
     inputSchema?: Record<string, unknown>;
+    /** 1.69.0 (capability hostToolKind): 'act' when a call can change something outside the conversation (a click, a form fill, a repl that acts on a page) even though permission stays read because the host gates it itself; 'read' when it only looks. Absent: unknown, judged from permission (a repl or a browser-category host tool counts as acting). The answer-now note never fires in a turn that called an acting tool. */
+    kind?: "act" | "read" | null;
     /** A successful call shows the rendered page (a snapshot or screenshot), which verify-on-stop counts as looking at a UI change (1.29.0). A result can also say so itself with meta look: true; repl code calling snapshot(, annotatedScreenshot(, snapshotTabs(, display( or .screenshot( counts too. */
     look?: boolean;
     /** Tool name, [A-Za-z][A-Za-z0-9_-]{0,63}. May not collide with a daemon tool except the built-in browser_* tools, which it shadows for the sessions that see this connection's tools. */
@@ -10458,7 +10460,7 @@ export interface JarvisStatePayload {
 export interface JobEventPayload {
   /** Job the event belongs to. */
   jobId: string;
-  /** Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. 'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload {requestId, sessionId, tool, summary, title, timeoutSec}: show a notification that names the job; the request itself is in approval.pending. */
+  /** Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. 'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload {requestId, sessionId, tool, summary, title, timeoutSec}: show a notification that names the job; the request itself is in approval.pending. 'missed' payload {scheduledAt}; 1.69.0 (jobMissedRuns) adds reason ('daemon_down': the daemon started past the catch-up window; 'host_absent': the browser host never came), error, title and nextRunAt, and a daemon that started too late now sends it too (with a job.runs row of status 'missed'). */
   kind: "started" | "finished" | "failed" | "denied" | "deleted" | "updated" | "waiting_for_host" | "missed" | "notify" | "approval_needed";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
