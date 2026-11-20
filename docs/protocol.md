@@ -80,6 +80,7 @@ Server capabilities advertised in the `system.hello` result:
 - `jarvisRemoteGrant`
 - `jarvisSessionSwitch`
 - `jobApprovals`
+- `jobMissedRuns`
 - `jobRuns`
 - `lineage`
 - `llmSample`
@@ -2295,7 +2296,7 @@ Change an existing job (addendum 12).
 | `held` | `{ scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null` | no | The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. |
 | `jobId` | `string` | yes | Job id. |
 | `kind` | `"cron" \| "once" \| "interval"` | no | How the spec repeats: a cron rule, a one-shot, or a fixed interval. |
-| `lastError` | `string \| null` | no | 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. |
+| `lastError` | `string \| null` | no | 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. 1.69.0 (jobMissedRuns): an occurrence missed past the catch-up window says 'missed: <reason>'. |
 | `lastRunAt` | `string \| null` | no | UTC ISO-8601 time of the last firing, null before the first. |
 | `lastSessionId` | `string \| null` | no | 1.68.0: the session the last run opened, to open it. |
 | `lastStatus` | `"ok" \| "error" \| "denied_by_timeout" \| null` | no | How the last run ended. |
@@ -5604,7 +5605,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `jobId` | `string` | yes | Job the event belongs to. |
-| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "updated" \| "waiting_for_host" \| "missed" \| "notify" \| "approval_needed"` | yes | Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. 'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload {requestId, sessionId, tool, summary, title, timeoutSec}: show a notification that names the job; the request itself is in approval.pending. |
+| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "updated" \| "waiting_for_host" \| "missed" \| "notify" \| "approval_needed"` | yes | Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. 'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload {requestId, sessionId, tool, summary, title, timeoutSec}: show a notification that names the job; the request itself is in approval.pending. 'missed' payload {scheduledAt}; 1.69.0 (jobMissedRuns) adds reason ('daemon_down': the daemon started past the catch-up window; 'host_absent': the browser host never came), error, title and nextRunAt, and a daemon that started too late now sends it too (with a job.runs row of status 'missed'). |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
 ### `lsp.changed`

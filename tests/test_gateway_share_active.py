@@ -470,3 +470,22 @@ async def test_a_scheduled_runs_approval_goes_to_the_private_chat_named_by_its_r
         await ide.stop()
     finally:
         await daemon.stop()
+
+
+async def test_a_missed_routine_run_is_told_in_the_private_chat(
+    share_env: None, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """1.69.0 (jobMissedRuns): reached like a routine's approval, named by its routine."""
+    daemon = await make_daemon(tmp_path / "home")
+    try:
+        ide = await connect(http, daemon)
+        core = _core(daemon)
+        adapter = await _bind(ide, tmp_path)
+        sent_to = await core.gateway.share_routine_notice("weekly report", "did not run")
+        assert sent_to == 1
+        sent = await adapter.wait_for_send(TIMEOUT)
+        assert sent.text == "[routine: weekly report]\ndid not run"
+        assert sent.channel_id == OWNER
+        await ide.stop()
+    finally:
+        await daemon.stop()

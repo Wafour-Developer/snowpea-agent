@@ -95,6 +95,19 @@ def _zone(name: str) -> str:
     return name.strip()
 
 
+def _span(delta: timedelta) -> str:
+    """``3 h 20 min`` / ``45 min`` / ``30 s``: a duration for a person."""
+    seconds = max(0, int(delta.total_seconds()))
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes = rest // 60
+    if days:
+        return f"{days} d {hours} h" if hours else f"{days} d"
+    if hours:
+        return f"{hours} h {minutes} min" if minutes else f"{hours} h"
+    return f"{minutes} min" if minutes else f"{seconds} s"
+
+
 def run_context(job: Job, scheduled_ts: datetime, trigger: Trigger) -> dict[str, Any]:
     """``tool.invoke`` ``job`` for one run of ``job`` (1.23.0)."""
     return {
@@ -423,8 +436,44 @@ class Scheduler:
                 job.id,
                 iso(scheduled),
             )
+            # Feedback: a weekly routine missed this way said last=ok, next=next
+            # week, and nobody knew.  The occurrence is now a run row, an event
+            # and a notice (1.69.0, jobMissedRuns).
+            claimed = await self.store.claim(job.id, scheduled, trigger="schedule")
             await self._advance(job, scheduled, status=None, missed=True)
+            if claimed:
+                reason = (
+                    "snowpea was not running when it was due (the computer was off or "
+                    f"asleep, or the daemon was stopped) and started {_span(now - scheduled)} "
+                    f"later, past the {_span(window)} catch-up window"
+                )
+                await self._missed(job, scheduled, "daemon_down", reason)
         return caught
+
+    async def _missed(self, job: Job, scheduled: datetime, code: str, reason: str) -> None:
+        """Record a claimed occurrence as ``missed`` and tell the person (1.69.0)."""
+        error = f"missed: {reason}"
+        await self.store.finish(job.id, scheduled, MISSED, error=error)
+        fresh = await self.store.get(job.id) or job
+        upcoming = iso(fresh.next_run) if fresh.next_run else None
+        await self._emit(
+            job.id,
+            MISSED,
+            {"scheduledAt": iso(scheduled), "reason": code, "error": error,
+             "title": job.title, "nextRunAt": upcoming},
+        )
+        name = job.title or job.id
+        text = f"Routine {name} did not run at {iso(scheduled)}: {reason}."
+        text += f" Next run: {upcoming}." if upcoming else " It will not run again."
+        try:
+            await self.deliver(fresh, text)
+            if fresh.channel is None:
+                gateway = getattr(self.core, "gateway", None)
+                share = getattr(gateway, "share_routine_notice", None)
+                if share is not None:
+                    await share(name, text)
+        except Exception:  # noqa: BLE001 - a notice must never break the scheduler
+            log.warning("could not tell anyone job %s missed a run", job.id, exc_info=True)
 
     # -- execution -----------------------------------------------------
     async def _fire(
@@ -474,8 +523,11 @@ class Scheduler:
             if job is None or scheduled is None:
                 continue
             if now - scheduled > timedelta(minutes=job.catch_up_window_min):
-                await self.store.finish(job.id, scheduled, MISSED)
-                await self._emit(job.id, MISSED, {"scheduledAt": iso(scheduled)})
+                reason = (
+                    f"its browser host ({job.host_tools_from}) did not connect within "
+                    f"{_span(timedelta(minutes=job.catch_up_window_min))}"
+                )
+                await self._missed(job, scheduled, "host_absent", reason)
                 log.info("job %s missed %s: its host never came", job.id, iso(scheduled))
                 continue
             if job.id in self._running or not self._host_ready(job):

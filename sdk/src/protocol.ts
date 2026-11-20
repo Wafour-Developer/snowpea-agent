@@ -3410,7 +3410,7 @@ export interface JobListResult {
     jobId: string;
     /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
     kind?: "cron" | "once" | "interval";
-    /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. */
+    /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. 1.69.0 (jobMissedRuns): an occurrence missed past the catch-up window says 'missed: <reason>'. */
     lastError?: string | null;
     /** UTC ISO-8601 time of the last firing, null before the first. */
     lastRunAt?: string | null;
@@ -3675,7 +3675,7 @@ export interface JobUpdateResult {
   jobId: string;
   /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
   kind?: "cron" | "once" | "interval";
-  /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. */
+  /** 1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A run that waited for an approval nobody gave says 'approval needed: <tool> <command>'; null after an 'ok' run. 1.69.0 (jobMissedRuns): an occurrence missed past the catch-up window says 'missed: <reason>'. */
   lastError?: string | null;
   /** UTC ISO-8601 time of the last firing, null before the first. */
   lastRunAt?: string | null;
@@ -10460,7 +10460,7 @@ export interface JarvisStatePayload {
 export interface JobEventPayload {
   /** Job the event belongs to. */
   jobId: string;
-  /** Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. 'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload {requestId, sessionId, tool, summary, title, timeoutSec}: show a notification that names the job; the request itself is in approval.pending. */
+  /** Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. 'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload {requestId, sessionId, tool, summary, title, timeoutSec}: show a notification that names the job; the request itself is in approval.pending. 'missed' payload {scheduledAt}; 1.69.0 (jobMissedRuns) adds reason ('daemon_down': the daemon started past the catch-up window; 'host_absent': the browser host never came), error, title and nextRunAt, and a daemon that started too late now sends it too (with a job.runs row of status 'missed'). */
   kind: "started" | "finished" | "failed" | "denied" | "deleted" | "updated" | "waiting_for_host" | "missed" | "notify" | "approval_needed";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;

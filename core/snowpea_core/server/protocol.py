@@ -4475,7 +4475,8 @@ class JobInfo(Payload):
         description=(
             "1.68.0 (jobApprovals): why the last run did not end 'ok' (as job.runs error). A "
             "run that waited for an approval nobody gave says 'approval needed: <tool> "
-            "<command>'; null after an 'ok' run."
+            "<command>'; null after an 'ok' run. 1.69.0 (jobMissedRuns): an occurrence "
+            "missed past the catch-up window says 'missed: <reason>'."
         ),
     )
     lastSessionId: str | None = Field(
@@ -7828,7 +7829,11 @@ class JobEventNotification(Payload):
             "meta, payload {status, sessionId, text}: its host shows the user a notification. "
             "'approval_needed' (1.68.0, jobApprovals): a run waits for a person, payload "
             "{requestId, sessionId, tool, summary, title, timeoutSec}: show a notification "
-            "that names the job; the request itself is in approval.pending."
+            "that names the job; the request itself is in approval.pending. 'missed' "
+            "payload {scheduledAt}; 1.69.0 (jobMissedRuns) adds reason ('daemon_down': "
+            "the daemon started past the catch-up window; 'host_absent': the browser host "
+            "never came), error, title and nextRunAt, and a daemon that started too late "
+            "now sends it too (with a job.runs row of status 'missed')."
         )
     )
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
@@ -13216,6 +13221,11 @@ CAPABILITIES: list[str] = [
     # 1.69.0: HostToolSpec.kind ('act' | 'read'): an acting host tool (a repl that
     # clicks, a form fill) is work, not reading, for the answer-now note.
     "hostToolKind",
+    # 1.69.0: an occurrence missed past scheduler.catchUpSec (or its host's
+    # window) is a job.runs row 'missed' with its reason, job.event missed
+    # {scheduledAt, reason, error, title, nextRunAt}, a notice to the job's
+    # channel or the bound person's private chat, and JobInfo.lastError.
+    "jobMissedRuns",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
