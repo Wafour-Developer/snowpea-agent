@@ -1,0 +1,10 @@
+# state: unknown
+# rule: transcript_viewer
+# skip: true
+---
+> fix the failing tests
+
+⏺ Read(tests/test_parser.py)
+  ⎿  Read 120 lines
+
+  Showing detailed transcript · ctrl+o to toggle

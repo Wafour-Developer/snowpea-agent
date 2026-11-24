@@ -49,6 +49,7 @@ Server capabilities advertised in the `system.hello` result:
 - `browserProjectTrust`
 - `byteExactEdits`
 - `checkpoints`
+- `cliIntegrations`
 - `clientLocale`
 - `commands`
 - `commandsBesideTurn`
@@ -5281,6 +5282,7 @@ Hook report from a CLI inside a terminal; per-terminal token only (1.73.0).
 | field | type | required | description |
 |---|---|---|---|
 | `event` | `string` | yes | The CLI's hook event name. |
+| `kind` | `"permission" \| "question" \| "auth" \| null` | no | With state 'blocked': permission, question or auth. |
 | `message` | `string \| null` | no |  |
 | `sessionId` | `string \| null` | no |  |
 | `state` | `"idle" \| "working" \| "done" \| "blocked" \| "error" \| null` | no |  |

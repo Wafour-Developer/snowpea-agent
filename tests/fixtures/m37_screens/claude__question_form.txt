@@ -1,0 +1,18 @@
+# state: blocked
+# kind: question
+# rule: live_blocked_form
+---
+⏺ I need one decision before I start.
+
+────────────────────────────────────────────────────────────────────────────────
+ ☐ Database
+
+Which database should the service use?
+
+❯ 1. Postgres
+     Relational, mature, what the other services use
+  2. SQLite
+     Embedded, no server to run
+  3. Type something.
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
