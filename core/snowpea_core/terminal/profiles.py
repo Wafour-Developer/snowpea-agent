@@ -487,18 +487,17 @@ async def _cli_spec(core: Core, conn: Any, params: Any, cwd: str) -> TerminalSpe
         refusal = dangerous_refusal(core, conn)
         if refusal is not None:
             raise _refuse_dangerous(refusal)
-    if granted:
-        grant = _grant(core, conn, cli, resume, root, granted)
     session_id = resume
+    if cli == "claude" and not resume:
+        # Known from the start, so the terminal links to its session at once.
+        session_id = str(uuid.uuid4())
+    if granted:
+        grant = _grant(core, conn, cli, session_id, root, granted,
+                       action="open" if resume else "create")
     lead: list[str] = []
     tail: list[str] = []
     if cli == "claude":
-        if resume:
-            tail = ["--resume", resume]
-        else:
-            # Known from the start, so the terminal links to its session at once.
-            session_id = str(uuid.uuid4())
-            tail = ["--session-id", session_id]
+        tail = ["--resume", resume] if resume else ["--session-id", str(session_id)]
     elif cli == "codex":
         if resume:
             lead, tail = ["resume"], [resume]
@@ -530,7 +529,7 @@ async def _cli_spec(core: Core, conn: Any, params: Any, cwd: str) -> TerminalSpe
 
 
 def _grant(core: Core, conn: Any, cli: str, session_id: str | None, root: str | None,
-           options: Sequence[OptionDef]) -> Any:
+           options: Sequence[OptionDef], *, action: str) -> Any:
     """The person's grant for person-only options (a ledger entry), or a refusal."""
     from snowpea_core.server.external_handlers import _ledger_fn
 
@@ -543,7 +542,7 @@ def _grant(core: Core, conn: Any, cli: str, session_id: str | None, root: str | 
     try:
         return proc.grant_unrestricted(
             confirmation, cli=cli, session_id=session_id, project=root,
-            action="open" if session_id else "create", home=core.paths.home,
+            action=action, home=core.paths.home,
             ledger=_ledger_fn(core),
             mode_label=None if dangerous else f"{label} (terminal)",
         )
