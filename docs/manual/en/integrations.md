@@ -73,7 +73,7 @@ Uninstall removes exactly what install added, and nothing else:
 
 ## Desktop app and web
 
-The Integrations page in the settings of the desktop app and of snowpea web shows these same rows, with the files each CLI touches, and runs the same install and uninstall actions. The page and its actions are for the person on the local machine only: a remote sign-in cannot see or change them.
+The Integrations page in the settings of the desktop app and of snowpea web shows these same rows, with the files each CLI touches, and runs the same install and uninstall actions. Each row shows **Installed**, **Update available**, **Edited by hand** or **Not installed**, and **CLI not found** when the CLI is missing. Install, Update and Uninstall ask first and list the files they change. The page and its actions are for the person on the local machine only: a remote sign-in cannot see or change them.
 
 ## Environment variables
 
