@@ -3434,6 +3434,29 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     web_password.add_argument(
         "--clear", dest="clear", action="store_true", help="remove the password"
     )
+    web_tunnel = web_sub.add_parser(
+        "tunnel", help="a public tunnel to remote web access (cloudflare or ngrok)"
+    )
+    web_tunnel_sub = web_tunnel.add_subparsers(dest="tunnel_action", metavar="<action>")
+    for tunnel_action, tunnel_help in (
+        ("status", "show the tunnel: state, address, program, token"),
+        ("start", "start the tunnel (provider from settings unless --provider)"),
+        ("stop", "stop the tunnel"),
+        ("install", "download the pinned tunnel program into the snowpea home"),
+        ("token", "store the provider's token, read from stdin"),
+    ):
+        tunnel_parser = web_tunnel_sub.add_parser(tunnel_action, help=tunnel_help)
+        tunnel_parser.add_argument(
+            "--provider", dest="tunnel_provider", default=None,
+            choices=("cloudflare-quick", "cloudflare", "ngrok"),
+            help="cloudflare-quick, cloudflare or ngrok")
+        if tunnel_action in {"start", "stop"}:
+            tunnel_parser.add_argument(
+                "--save", dest="tunnel_save", action="store_true",
+                help="also keep the choice in settings (provider, or off for stop)")
+        if tunnel_action != "token":
+            tunnel_parser.add_argument("--json", dest="sub_json", action="store_true",
+                                       help="emit JSON")
 
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
@@ -3743,6 +3766,13 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             return await web_token_command(home, rotate=bool(getattr(args, "rotate", False)))
         if action == "max-mode":
             return await web_max_mode_command(home, getattr(args, "max_mode", None))
+        if action == "tunnel":
+            from snowpea_core.cli.tunnel_cmd import tunnel_command
+
+            return await tunnel_command(
+                home, str(getattr(args, "tunnel_action", None) or "status"),
+                provider=getattr(args, "tunnel_provider", None),
+                save=bool(getattr(args, "tunnel_save", False)), as_json=as_json)
         return await web_command(
             home,
             open_browser=not bool(getattr(args, "no_open", False)),

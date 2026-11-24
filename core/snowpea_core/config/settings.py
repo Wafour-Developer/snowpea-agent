@@ -504,6 +504,24 @@ class DaemonSettings(_Model):
     keepAwake: bool = True
 
 
+class WebTunnelSettings(_Model):
+    """A public tunnel in front of the remote listener (M37, ``server/tunnel.py``).
+
+    ``off`` runs nothing.  The tunnel needs ``web.remote.enabled`` and a web
+    password.  Tokens (ngrok authtoken, Cloudflare tunnel token) are never here:
+    they live in ``credentials.json``.
+    """
+
+    provider: Literal["off", "cloudflare-quick", "cloudflare", "ngrok"] = "off"
+    #: Start the tunnel with the daemon when the provider is set and the
+    #: preconditions hold.
+    autoStart: bool = True
+    #: The public hostname of a named Cloudflare tunnel (``cloudflare``).
+    hostname: str | None = None
+    #: A tunnel program to use before ``PATH`` and ``$SNOWPEA_HOME/bin``.
+    binary: str | None = None
+
+
 class WebRemoteSettings(_Model):
     """snowpea web from another machine (``docs/manual/en/web.md``).
 
@@ -527,6 +545,7 @@ class WebRemoteSettings(_Model):
     #: applies at once.  It stops unattended runs, not the holder of the link:
     #: that person still answers each approval (``session/mode_guard.py``).
     maxMode: Literal["plan", "accept", "auto"] = "auto"
+    tunnel: WebTunnelSettings = Field(default_factory=WebTunnelSettings)
 
 
 class WebSettings(_Model):

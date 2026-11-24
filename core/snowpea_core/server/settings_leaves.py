@@ -92,6 +92,11 @@ COMMAND_LIKE: dict[str, tuple[str, frozenset[str]]] = {
     "web.remote.allowedOrigins": (DAEMON, NOBODY),
     "web.remote.trustProxy": (DAEMON, NOBODY),
     "web.remote.maxMode": (DAEMON, NOBODY),
+    # M37: a public tunnel to the remote listener; the program it runs and where it points.
+    "web.remote.tunnel.provider": (DAEMON, NOBODY),
+    "web.remote.tunnel.autoStart": (DAEMON, NOBODY),
+    "web.remote.tunnel.hostname": (ENDPOINT, NOBODY),
+    "web.remote.tunnel.binary": (PROGRAM, NOBODY),
     "updates.channel": (DAEMON, NOBODY),
     # 1.56.0: lets a remote web login give Jarvis grants (with its password
     # again): authority of the daemon itself, a local person's switch only.

@@ -149,6 +149,8 @@ class Core:
     jarvis: Any = None
     #: The external web listener (``web_remote.RemoteListener``, 1.54.0); the daemon sets it.
     web_remote: Any = None
+    #: The web tunnel (``server/tunnel.TunnelService``, M37); the daemon sets it.
+    tunnel: Any = None
     sessions: SessionManager = field(default_factory=SessionManager)
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     commands: CommandRegistry = field(default_factory=CommandRegistry)
@@ -957,6 +959,8 @@ class Daemon:
         #: The external web listener (``web_remote.RemoteListener``), opened at
         #: start from settings or at runtime with ``web.remote.listen``.
         self.remote_listener: Any = None
+        #: The web tunnel service (M37), built with the remote listener.
+        self.tunnel_service: Any = None
         self._advert_task: asyncio.Future[None] | None = None
         self._closed = asyncio.Event()
         self.core: Core | None = None
@@ -1261,6 +1265,23 @@ class Daemon:
         if self.core is not None:
             # web.remote.listen / stop / status reach it through the core.
             self.core.web_remote = listener
+        from snowpea_core.server import tunnel as tunnel_module
+
+        core = self.core
+
+        async def notify(method: str, params: dict[str, Any]) -> None:
+            hub = getattr(core, "hub", None)
+            if hub is not None:
+                await hub.notify(method, params)
+
+        service = tunnel_module.TunnelService(
+            paths, settings=lambda: core.settings.web.remote if core is not None
+            else settings.web.remote,
+            listener=lambda: listener, notify=notify)
+        listener.tunnel = service
+        self.tunnel_service = service
+        if core is not None:
+            core.tunnel = service
         remote = settings.web.remote
         if not remote.enabled:
             return
@@ -1272,6 +1293,10 @@ class Daemon:
             )
         except (OSError, ValueError) as exc:
             log.error("remote web access is enabled but not started: %s", exc)
+            return
+        # M37: the tunnel, when its provider is set and the preconditions hold.
+        with contextlib.suppress(Exception):
+            await service.autostart()
 
     @property
     def remote_auth(self) -> Any:
@@ -1385,6 +1410,10 @@ class Daemon:
                     await ws.close()
             for conn in list(connections):
                 await conn.close()
+        service = getattr(self, "tunnel_service", None)
+        if service is not None:
+            with contextlib.suppress(Exception):
+                await service.stop()
         if self.remote_listener is not None:
             with contextlib.suppress(Exception):
                 await self.remote_listener.stop()
