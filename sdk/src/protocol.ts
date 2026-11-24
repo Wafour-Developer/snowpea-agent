@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.70.0";
+export const PROTOCOL_VERSION = "1.73.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1324,16 +1324,20 @@ export interface ExternalCloseResult {
 export interface ExternalCreateParams {
   /** Which CLI. */
   cli: "claude" | "codex" | "agy" | "cursor";
+  /** 1.73.0: the person confirmed the dangerous options; human connections only, refused from Jarvis or any tool. */
+  confirmDangerous?: boolean;
   /** default, readonly or unrestricted; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only); Jarvis asks the person through a person-only confirmation instead. */
   mode?: "default" | "readonly" | "unrestricted" | null;
   /** Model id for the CLI; validated, never a flag. */
   model?: string | null;
   /** As ExternalOpenParams.nativeMode (1.56.0): wins over mode. */
   nativeMode?: string | null;
+  /** 1.73.0 (externalPty, transport 'pty'): permission option ids from terminal.profiles for this CLI. Dangerous ones need confirmDangerous. */
+  options?: string[];
   /** A registered project root; anything else is refused. */
   project: string;
-  /** structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. */
-  transport?: "structured" | "tmux";
+  /** pty (1.73.0, externalPty): a real terminal session; see ExternalOpenParams. structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. */
+  transport?: "structured" | "tmux" | "pty";
   /** As ExternalOpenParams.trust (untrusted_project). */
   trust?: boolean;
 }
@@ -1381,12 +1385,12 @@ export interface ExternalCreateResult {
     status: "idle" | "running" | "error";
     /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
     terminal?: {
-      /** The only kind: a tmux pane. */
-      kind: "tmux";
+      /** tmux: a pane of the person's tmux. pty (1.73.0, externalPty): a terminal session snowpea runs itself (terminalId); pane, session and window are then empty. */
+      kind: "tmux" | "pty";
       /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
       modeState?: "confirmed" | "unconfirmed" | "unknown";
-      /** tmux pane id, e.g. '%12'. */
-      pane: string;
+      /** tmux pane id, e.g. '%12' (kind tmux). */
+      pane?: string;
       /** A permission prompt waiting in the pane, or null. */
       prompt?: {
         /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
@@ -1394,10 +1398,27 @@ export interface ExternalCreateResult {
         /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
         text?: string | null;
       } | null;
-      /** tmux session name. */
-      session: string;
-      /** tmux window index. */
-      window: string;
+      /** tmux session name (kind tmux). */
+      session?: string;
+      /** kind pty: its status. */
+      status?: {
+        /** Why it is blocked (permission, question, auth). */
+        kind?: "permission" | "question" | "auth" | null;
+        /** A person has looked since the last done (done/blocked rows). */
+        seen?: boolean;
+        /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+        source?: "osc" | "screen" | "hook" | "rules" | "none";
+        /** What the program in the terminal is doing. */
+        state: "idle" | "working" | "done" | "blocked" | "error";
+        /** Set on entering blocked or error. */
+        stuck?: boolean;
+        /** Incremented when the root record leaves working. */
+        turn?: number;
+      } | null;
+      /** kind pty: the terminal's id. */
+      terminalId?: string | null;
+      /** tmux window index (kind tmux). */
+      window?: string;
     } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
@@ -1467,12 +1488,12 @@ export interface ExternalGetResult {
     status: "idle" | "running" | "error";
     /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
     terminal?: {
-      /** The only kind: a tmux pane. */
-      kind: "tmux";
+      /** tmux: a pane of the person's tmux. pty (1.73.0, externalPty): a terminal session snowpea runs itself (terminalId); pane, session and window are then empty. */
+      kind: "tmux" | "pty";
       /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
       modeState?: "confirmed" | "unconfirmed" | "unknown";
-      /** tmux pane id, e.g. '%12'. */
-      pane: string;
+      /** tmux pane id, e.g. '%12' (kind tmux). */
+      pane?: string;
       /** A permission prompt waiting in the pane, or null. */
       prompt?: {
         /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
@@ -1480,10 +1501,27 @@ export interface ExternalGetResult {
         /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
         text?: string | null;
       } | null;
-      /** tmux session name. */
-      session: string;
-      /** tmux window index. */
-      window: string;
+      /** tmux session name (kind tmux). */
+      session?: string;
+      /** kind pty: its status. */
+      status?: {
+        /** Why it is blocked (permission, question, auth). */
+        kind?: "permission" | "question" | "auth" | null;
+        /** A person has looked since the last done (done/blocked rows). */
+        seen?: boolean;
+        /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+        source?: "osc" | "screen" | "hook" | "rules" | "none";
+        /** What the program in the terminal is doing. */
+        state: "idle" | "working" | "done" | "blocked" | "error";
+        /** Set on entering blocked or error. */
+        stuck?: boolean;
+        /** Incremented when the root record leaves working. */
+        turn?: number;
+      } | null;
+      /** kind pty: the terminal's id. */
+      terminalId?: string | null;
+      /** tmux window index (kind tmux). */
+      window?: string;
     } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
@@ -1577,12 +1615,12 @@ export interface ExternalListResult {
     status: "idle" | "running" | "error";
     /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
     terminal?: {
-      /** The only kind: a tmux pane. */
-      kind: "tmux";
+      /** tmux: a pane of the person's tmux. pty (1.73.0, externalPty): a terminal session snowpea runs itself (terminalId); pane, session and window are then empty. */
+      kind: "tmux" | "pty";
       /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
       modeState?: "confirmed" | "unconfirmed" | "unknown";
-      /** tmux pane id, e.g. '%12'. */
-      pane: string;
+      /** tmux pane id, e.g. '%12' (kind tmux). */
+      pane?: string;
       /** A permission prompt waiting in the pane, or null. */
       prompt?: {
         /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
@@ -1590,10 +1628,27 @@ export interface ExternalListResult {
         /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
         text?: string | null;
       } | null;
-      /** tmux session name. */
-      session: string;
-      /** tmux window index. */
-      window: string;
+      /** tmux session name (kind tmux). */
+      session?: string;
+      /** kind pty: its status. */
+      status?: {
+        /** Why it is blocked (permission, question, auth). */
+        kind?: "permission" | "question" | "auth" | null;
+        /** A person has looked since the last done (done/blocked rows). */
+        seen?: boolean;
+        /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+        source?: "osc" | "screen" | "hook" | "rules" | "none";
+        /** What the program in the terminal is doing. */
+        state: "idle" | "working" | "done" | "blocked" | "error";
+        /** Set on entering blocked or error. */
+        stuck?: boolean;
+        /** Incremented when the root record leaves working. */
+        turn?: number;
+      } | null;
+      /** kind pty: the terminal's id. */
+      terminalId?: string | null;
+      /** tmux window index (kind tmux). */
+      window?: string;
     } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
@@ -1611,12 +1666,16 @@ export interface ExternalListResult {
 
 /** `external.open` params. External sessions (1.53.0, WP5/6): subscribe this connection to a session's external.event stream and return the newest page of its timeline; a host 'none' session is continued under snowpea (host 'snowpea'). */
 export interface ExternalOpenParams {
+  /** 1.73.0: the person confirmed the dangerous options; human connections only, refused from Jarvis or any tool. */
+  confirmDangerous?: boolean;
   /** Newest timeline entries to return. */
   limit?: number;
   /** Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). */
   mode?: "default" | "readonly" | "unrestricted" | null;
   /** The CLI's own mode id (1.56.0, from external.clis nativeModes); wins over mode. Unknown or not offered by this CLI: invalid_params. A personOnly mode only from a human connection (else jarvis_person_only), with a ledger entry. */
   nativeMode?: string | null;
+  /** 1.73.0 (externalPty, transport 'pty'): permission option ids from terminal.profiles for this CLI. Dangerous ones need confirmDangerous. */
+  options?: string[];
   /** Session to open. */
   ref: {
     /** claude, codex, agy or cursor. */
@@ -1624,8 +1683,8 @@ export interface ExternalOpenParams {
     /** The CLI's own session (thread, chat) id. */
     id: string;
   };
-  /** 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. */
-  transport?: "structured" | "tmux" | null;
+  /** 'pty' (1.73.0, externalPty): run the CLI as a real terminal session (ExternalTerminal.kind 'pty', terminalId); a client that omits it keeps the structured transport. 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. */
+  transport?: "structured" | "tmux" | "pty" | null;
   /** The person's one-time confirmation that external CLIs may run in this project (they load the project's own settings and hooks). Needed only when starting a CLI in a project no person trusted yet: without it external_unavailable with details.reason 'untrusted_project' (show the confirmation, retry with trust: true). Only a person's local connection can trust; anyone else gets details.reason 'untrusted_project_person_only'. */
   trust?: boolean;
 }
@@ -1690,12 +1749,12 @@ export interface ExternalOpenResult {
     status: "idle" | "running" | "error";
     /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
     terminal?: {
-      /** The only kind: a tmux pane. */
-      kind: "tmux";
+      /** tmux: a pane of the person's tmux. pty (1.73.0, externalPty): a terminal session snowpea runs itself (terminalId); pane, session and window are then empty. */
+      kind: "tmux" | "pty";
       /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
       modeState?: "confirmed" | "unconfirmed" | "unknown";
-      /** tmux pane id, e.g. '%12'. */
-      pane: string;
+      /** tmux pane id, e.g. '%12' (kind tmux). */
+      pane?: string;
       /** A permission prompt waiting in the pane, or null. */
       prompt?: {
         /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
@@ -1703,10 +1762,27 @@ export interface ExternalOpenResult {
         /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
         text?: string | null;
       } | null;
-      /** tmux session name. */
-      session: string;
-      /** tmux window index. */
-      window: string;
+      /** tmux session name (kind tmux). */
+      session?: string;
+      /** kind pty: its status. */
+      status?: {
+        /** Why it is blocked (permission, question, auth). */
+        kind?: "permission" | "question" | "auth" | null;
+        /** A person has looked since the last done (done/blocked rows). */
+        seen?: boolean;
+        /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+        source?: "osc" | "screen" | "hook" | "rules" | "none";
+        /** What the program in the terminal is doing. */
+        state: "idle" | "working" | "done" | "blocked" | "error";
+        /** Set on entering blocked or error. */
+        stuck?: boolean;
+        /** Incremented when the root record leaves working. */
+        turn?: number;
+      } | null;
+      /** kind pty: the terminal's id. */
+      terminalId?: string | null;
+      /** tmux window index (kind tmux). */
+      window?: string;
     } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
@@ -1837,12 +1913,12 @@ export interface ExternalSetModeResult {
     status: "idle" | "running" | "error";
     /** The person's tmux pane snowpea drives this session through (1.56.0, externalTmux), host 'tmux'; null otherwise. A terminal that is not tmux stays host 'terminal', view only. */
     terminal?: {
-      /** The only kind: a tmux pane. */
-      kind: "tmux";
+      /** tmux: a pane of the person's tmux. pty (1.73.0, externalPty): a terminal session snowpea runs itself (terminalId); pane, session and window are then empty. */
+      kind: "tmux" | "pty";
       /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
       modeState?: "confirmed" | "unconfirmed" | "unknown";
-      /** tmux pane id, e.g. '%12'. */
-      pane: string;
+      /** tmux pane id, e.g. '%12' (kind tmux). */
+      pane?: string;
       /** A permission prompt waiting in the pane, or null. */
       prompt?: {
         /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
@@ -1850,10 +1926,27 @@ export interface ExternalSetModeResult {
         /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
         text?: string | null;
       } | null;
-      /** tmux session name. */
-      session: string;
-      /** tmux window index. */
-      window: string;
+      /** tmux session name (kind tmux). */
+      session?: string;
+      /** kind pty: its status. */
+      status?: {
+        /** Why it is blocked (permission, question, auth). */
+        kind?: "permission" | "question" | "auth" | null;
+        /** A person has looked since the last done (done/blocked rows). */
+        seen?: boolean;
+        /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+        source?: "osc" | "screen" | "hook" | "rules" | "none";
+        /** What the program in the terminal is doing. */
+        state: "idle" | "working" | "done" | "blocked" | "error";
+        /** Set on entering blocked or error. */
+        stuck?: boolean;
+        /** Incremented when the root record leaves working. */
+        turn?: number;
+      } | null;
+      /** kind pty: the terminal's id. */
+      terminalId?: string | null;
+      /** tmux window index (kind tmux). */
+      window?: string;
     } | null;
     /** Title the CLI keeps, or the first prompt. */
     title?: string | null;
@@ -2513,6 +2606,84 @@ export interface HostTurnContextResult {
   coversSkills?: string[] | null;
   /** Site memory for the first call, or '' for nothing. Core keeps at most 4000 characters (cut at a line boundary), drops control characters but newlines, and adds it to the turn's user message as an untrusted <host-context> block. After a compaction (reason 'compaction') it is kept with the summary instead and the summariser never reads it. */
   text?: string;
+}
+
+/** `integration.install` params. Install the hook entries into a CLI's config; human connection only (1.73.0). */
+export interface IntegrationInstallParams {
+  cli: "claude" | "codex" | "cursor" | "agy" | "all";
+}
+
+/** `integration.install` result. */
+export interface IntegrationInstallResult {
+  changedFiles?: string[];
+  integrations?: ({
+    cli: "claude" | "codex" | "cursor" | "agy";
+    /** The CLI itself is on this machine. */
+    cliInstalled?: boolean;
+    /** Why modified/outdated, one line. */
+    detail?: string | null;
+    files?: ({
+      exists?: boolean;
+      /** A file the integration edits. */
+      path: string;
+    })[];
+    label: string;
+    /** not-installed, current, outdated or modified. */
+    state: "not-installed" | "current" | "outdated" | "modified";
+    /** Installed hook version, if any. */
+    version?: string | null;
+  })[];
+}
+
+/** `integration.list` params. Hook integration status per CLI (1.73.0, cliIntegrations). */
+export type IntegrationListParams = Record<string, unknown>;
+
+/** `integration.list` result. */
+export interface IntegrationListResult {
+  integrations?: ({
+    cli: "claude" | "codex" | "cursor" | "agy";
+    /** The CLI itself is on this machine. */
+    cliInstalled?: boolean;
+    /** Why modified/outdated, one line. */
+    detail?: string | null;
+    files?: ({
+      exists?: boolean;
+      /** A file the integration edits. */
+      path: string;
+    })[];
+    label: string;
+    /** not-installed, current, outdated or modified. */
+    state: "not-installed" | "current" | "outdated" | "modified";
+    /** Installed hook version, if any. */
+    version?: string | null;
+  })[];
+}
+
+/** `integration.uninstall` params. Remove exactly what install added; human connection only (1.73.0). */
+export interface IntegrationUninstallParams {
+  cli: "claude" | "codex" | "cursor" | "agy" | "all";
+}
+
+/** `integration.uninstall` result. */
+export interface IntegrationUninstallResult {
+  changedFiles?: string[];
+  integrations?: ({
+    cli: "claude" | "codex" | "cursor" | "agy";
+    /** The CLI itself is on this machine. */
+    cliInstalled?: boolean;
+    /** Why modified/outdated, one line. */
+    detail?: string | null;
+    files?: ({
+      exists?: boolean;
+      /** A file the integration edits. */
+      path: string;
+    })[];
+    label: string;
+    /** not-installed, current, outdated or modified. */
+    state: "not-installed" | "current" | "outdated" | "modified";
+    /** Installed hook version, if any. */
+    version?: string | null;
+  })[];
 }
 
 /** `jarvis.briefing.get` params. Jarvis mode (1.53.0, WP8): the periodic briefing's settings and next run. */
@@ -9184,6 +9355,476 @@ export interface TeamStatusResult {
   worktrees?: string[];
 }
 
+/** `terminal.ack` params. Replenish a viewer's flow-control credit (1.73.0). */
+export interface TerminalAckParams {
+  /** Bytes the viewer has processed (replenishes credit). */
+  bytes: number;
+  terminalId: string;
+}
+
+/** `terminal.ack` result. */
+export interface TerminalAckResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `terminal.attach` params. Attach this connection as a viewer; terminal.data then goes to it alone (1.73.0). */
+export interface TerminalAttachParams {
+  cols?: number | null;
+  /** observe never resizes and never writes. */
+  mode?: "interactive" | "observe";
+  rows?: number | null;
+  terminalId: string;
+}
+
+/** `terminal.attach` result. */
+export interface TerminalAttachResult {
+  cols: number;
+  info: {
+    /** The holder and its program are running. */
+    alive: boolean;
+    cols?: number;
+    /** ISO time. */
+    createdAt?: string;
+    /** Working folder. */
+    cwd?: string;
+    /** Started with a dangerous option. */
+    dangerous?: boolean;
+    /** Exit code once it ended. */
+    exitCode?: number | null;
+    external?: {
+      /** The external CLI running in the terminal. */
+      cli: "claude" | "codex" | "agy" | "cursor";
+      /** Its own session id, once known. */
+      sessionId?: string | null;
+    } | null;
+    labels?: Record<string, string>;
+    /** Option ids it was started with. */
+    options?: string[];
+    /** Who started it, e.g. 'jarvis'. */
+    parent?: string | null;
+    /** The program's pid, when alive. */
+    pid?: number | null;
+    /** Profile it was started with. */
+    profile: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
+    rows?: number;
+    /** The snowpea session a 'snowpea' profile terminal is attached to. */
+    snowpeaSessionId?: string | null;
+    /** Current status. */
+    status: {
+      /** Why it is blocked (permission, question, auth). */
+      kind?: "permission" | "question" | "auth" | null;
+      /** A person has looked since the last done (done/blocked rows). */
+      seen?: boolean;
+      /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+      source?: "osc" | "screen" | "hook" | "rules" | "none";
+      /** What the program in the terminal is doing. */
+      state: "idle" | "working" | "done" | "blocked" | "error";
+      /** Set on entering blocked or error. */
+      stuck?: boolean;
+      /** Incremented when the root record leaves working. */
+      turn?: number;
+    };
+    /** Terminal id (stable across daemon restarts). */
+    terminalId: string;
+    /** Program title (OSC 0/2) or the profile label. */
+    title?: string;
+  };
+  /** base64 ANSI that rebuilds the screen in a fresh viewer. */
+  repaint: string;
+  rows: number;
+  /** Sequence of the last byte included; terminal.data follows. */
+  seq: number;
+  status: {
+    /** Why it is blocked (permission, question, auth). */
+    kind?: "permission" | "question" | "auth" | null;
+    /** A person has looked since the last done (done/blocked rows). */
+    seen?: boolean;
+    /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+    source?: "osc" | "screen" | "hook" | "rules" | "none";
+    /** What the program in the terminal is doing. */
+    state: "idle" | "working" | "done" | "blocked" | "error";
+    /** Set on entering blocked or error. */
+    stuck?: boolean;
+    /** Incremented when the root record leaves working. */
+    turn?: number;
+  };
+  title?: string;
+}
+
+/** `terminal.close` params. Kill the terminal (HUP, TERM, KILL) and forget it (1.73.0). */
+export interface TerminalCloseParams {
+  /** Skip the HUP step. */
+  force?: boolean;
+  terminalId: string;
+}
+
+/** `terminal.close` result. */
+export interface TerminalCloseResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `terminal.create` params. Start a terminal in a registered project; dangerous options need confirmDangerous from a human connection (1.73.0). */
+export interface TerminalCreateParams {
+  cols?: number | null;
+  /** Required for a dangerous option; human connections only, set after the person confirmed. Refused from Jarvis or any tool. */
+  confirmDangerous?: boolean;
+  /** A registered project root; with noProject: the workspace. */
+  cwd?: string | null;
+  labels?: Record<string, string>;
+  /** Use the session workspace, no project. */
+  noProject?: boolean;
+  /** Ids from terminal.profiles. */
+  options?: string[];
+  /** Who starts it (Jarvis sets 'jarvis'). */
+  parent?: string | null;
+  /** Which profile to start. */
+  profile: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
+  /** First input, through the input gate. */
+  prompt?: string | null;
+  /** The CLI's own session id to resume (claude/codex/agy/cursor). */
+  resumeSessionId?: string | null;
+  rows?: number | null;
+  /** Profile 'snowpea': the session to attach to. */
+  snowpeaSessionId?: string | null;
+  title?: string | null;
+}
+
+/** `terminal.create` result. */
+export interface TerminalCreateResult {
+  terminal: {
+    /** The holder and its program are running. */
+    alive: boolean;
+    cols?: number;
+    /** ISO time. */
+    createdAt?: string;
+    /** Working folder. */
+    cwd?: string;
+    /** Started with a dangerous option. */
+    dangerous?: boolean;
+    /** Exit code once it ended. */
+    exitCode?: number | null;
+    external?: {
+      /** The external CLI running in the terminal. */
+      cli: "claude" | "codex" | "agy" | "cursor";
+      /** Its own session id, once known. */
+      sessionId?: string | null;
+    } | null;
+    labels?: Record<string, string>;
+    /** Option ids it was started with. */
+    options?: string[];
+    /** Who started it, e.g. 'jarvis'. */
+    parent?: string | null;
+    /** The program's pid, when alive. */
+    pid?: number | null;
+    /** Profile it was started with. */
+    profile: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
+    rows?: number;
+    /** The snowpea session a 'snowpea' profile terminal is attached to. */
+    snowpeaSessionId?: string | null;
+    /** Current status. */
+    status: {
+      /** Why it is blocked (permission, question, auth). */
+      kind?: "permission" | "question" | "auth" | null;
+      /** A person has looked since the last done (done/blocked rows). */
+      seen?: boolean;
+      /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+      source?: "osc" | "screen" | "hook" | "rules" | "none";
+      /** What the program in the terminal is doing. */
+      state: "idle" | "working" | "done" | "blocked" | "error";
+      /** Set on entering blocked or error. */
+      stuck?: boolean;
+      /** Incremented when the root record leaves working. */
+      turn?: number;
+    };
+    /** Terminal id (stable across daemon restarts). */
+    terminalId: string;
+    /** Program title (OSC 0/2) or the profile label. */
+    title?: string;
+  };
+}
+
+/** `terminal.detach` params. Stop viewing; the terminal keeps running (1.73.0). */
+export interface TerminalDetachParams {
+  /** Terminal id. */
+  terminalId: string;
+}
+
+/** `terminal.detach` result. */
+export interface TerminalDetachResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `terminal.interrupt` params. Interrupt the program (Esc if it reports status, else Ctrl-C) (1.73.0). */
+export interface TerminalInterruptParams {
+  /** Terminal id. */
+  terminalId: string;
+}
+
+/** `terminal.interrupt` result. */
+export interface TerminalInterruptResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `terminal.keys` params. Send named keys 30 ms apart (1.73.0). */
+export interface TerminalKeysParams {
+  /** Named keys, e.g. 'Enter'. */
+  keys: string[];
+  terminalId: string;
+}
+
+/** `terminal.keys` result. */
+export interface TerminalKeysResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `terminal.list` params. Terminals the daemon holds (1.73.0, terminalSessions). */
+export interface TerminalListParams {
+  aliveOnly?: boolean;
+  /** Only terminals started by this parent. */
+  parent?: string | null;
+}
+
+/** `terminal.list` result. */
+export interface TerminalListResult {
+  terminals?: ({
+    /** The holder and its program are running. */
+    alive: boolean;
+    cols?: number;
+    /** ISO time. */
+    createdAt?: string;
+    /** Working folder. */
+    cwd?: string;
+    /** Started with a dangerous option. */
+    dangerous?: boolean;
+    /** Exit code once it ended. */
+    exitCode?: number | null;
+    external?: {
+      /** The external CLI running in the terminal. */
+      cli: "claude" | "codex" | "agy" | "cursor";
+      /** Its own session id, once known. */
+      sessionId?: string | null;
+    } | null;
+    labels?: Record<string, string>;
+    /** Option ids it was started with. */
+    options?: string[];
+    /** Who started it, e.g. 'jarvis'. */
+    parent?: string | null;
+    /** The program's pid, when alive. */
+    pid?: number | null;
+    /** Profile it was started with. */
+    profile: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
+    rows?: number;
+    /** The snowpea session a 'snowpea' profile terminal is attached to. */
+    snowpeaSessionId?: string | null;
+    /** Current status. */
+    status: {
+      /** Why it is blocked (permission, question, auth). */
+      kind?: "permission" | "question" | "auth" | null;
+      /** A person has looked since the last done (done/blocked rows). */
+      seen?: boolean;
+      /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+      source?: "osc" | "screen" | "hook" | "rules" | "none";
+      /** What the program in the terminal is doing. */
+      state: "idle" | "working" | "done" | "blocked" | "error";
+      /** Set on entering blocked or error. */
+      stuck?: boolean;
+      /** Incremented when the root record leaves working. */
+      turn?: number;
+    };
+    /** Terminal id (stable across daemon restarts). */
+    terminalId: string;
+    /** Program title (OSC 0/2) or the profile label. */
+    title?: string;
+  })[];
+}
+
+/** `terminal.profiles` params. Terminal profiles, permission options and which CLIs are installed (1.73.0). */
+export type TerminalProfilesParams = Record<string, unknown>;
+
+/** `terminal.profiles` result. */
+export interface TerminalProfilesResult {
+  profiles?: ({
+    /** Why this connection cannot use dangerous options now: max_mode (web.remote.maxMode is below auto) or terminal_locked (tunnel connection, web.tunnel.unlock first). null: allowed (still needs confirmDangerous). */
+    dangerousRefusal?: "max_mode" | "terminal_locked" | null;
+    /** Profile id. */
+    id: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
+    /** The CLI (or shell) was found on this machine. */
+    installed: boolean;
+    /** Hook integration id of this CLI, if it has one. */
+    integration?: "claude" | "codex" | "cursor" | "agy" | null;
+    /** Display name. */
+    label: string;
+    /** Permission options the launch dialog offers. */
+    options?: ({
+      /** argv appended for this option. */
+      args?: string[];
+      /** Skips the CLI's permission prompts or sandbox. Needs terminal.create confirmDangerous from a human connection. */
+      dangerous?: boolean;
+      /** Option id, e.g. 'acceptEdits', 'bypass', 'yolo'. */
+      id: string;
+      /** Short label for a checkbox. */
+      label: string;
+    })[];
+    /** Resolved executable, when installed. */
+    path?: string | null;
+    /** It can start from an existing session id. */
+    resumable?: boolean;
+  })[];
+}
+
+/** `terminal.read` params. Plain-text screen and history, status and title (1.73.0). */
+export interface TerminalReadParams {
+  /** Screen plus this many history lines. */
+  lines?: number;
+  terminalId: string;
+}
+
+/** `terminal.read` result. */
+export interface TerminalReadResult {
+  alive?: boolean;
+  exitCode?: number | null;
+  status: {
+    /** Why it is blocked (permission, question, auth). */
+    kind?: "permission" | "question" | "auth" | null;
+    /** A person has looked since the last done (done/blocked rows). */
+    seen?: boolean;
+    /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+    source?: "osc" | "screen" | "hook" | "rules" | "none";
+    /** What the program in the terminal is doing. */
+    state: "idle" | "working" | "done" | "blocked" | "error";
+    /** Set on entering blocked or error. */
+    stuck?: boolean;
+    /** Incremented when the root record leaves working. */
+    turn?: number;
+  };
+  /** Plain text, no ANSI. */
+  text: string;
+  title?: string;
+}
+
+/** `terminal.report` params. Hook report from a CLI inside a terminal; per-terminal token only (1.73.0). */
+export interface TerminalReportParams {
+  /** The CLI's hook event name. */
+  event: string;
+  message?: string | null;
+  sessionId?: string | null;
+  state?: "idle" | "working" | "done" | "blocked" | "error" | null;
+  terminalId: string;
+  /** SNOWPEA_TERMINAL_TOKEN of that terminal. */
+  token: string;
+  transcriptPath?: string | null;
+}
+
+/** `terminal.report` result. */
+export interface TerminalReportResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `terminal.resize` params. Resize from the most recent interactive viewer (1.73.0). */
+export interface TerminalResizeParams {
+  cols: number;
+  rows: number;
+  terminalId: string;
+}
+
+/** `terminal.resize` result. */
+export interface TerminalResizeResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `terminal.seen` params. A person looked at the terminal: clears its done/blocked attention (1.73.0). */
+export interface TerminalSeenParams {
+  /** Terminal id. */
+  terminalId: string;
+}
+
+/** `terminal.seen` result. */
+export interface TerminalSeenResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `terminal.send` params. Send text through the input gate (waits for the person to be quiet) (1.73.0). */
+export interface TerminalSendParams {
+  /** Send into a blocked terminal; not Jarvis. */
+  force?: boolean;
+  /** Press the profile's submit key after pasting. */
+  submit?: boolean;
+  terminalId: string;
+  text: string;
+}
+
+/** `terminal.send` result. */
+export interface TerminalSendResult {
+  /** The program went to working within 5 s. */
+  accepted: boolean;
+  reason?: string | null;
+  sent?: boolean;
+}
+
+/** `terminal.unlock` params. Over the tunnel: enter the web password again to use terminals (1.73.0). */
+export interface TerminalUnlockParams {
+  /** The web password, entered again. */
+  password: string;
+}
+
+/** `terminal.unlock` result. */
+export interface TerminalUnlockResult {
+  unlocked: boolean;
+  /** This connection came over the tunnel. */
+  viaTunnel?: boolean;
+}
+
+/** `terminal.wait` params. Wait for the program to leave working, exit or print a match (1.73.0). */
+export interface TerminalWaitParams {
+  /** End when this text appears. */
+  output?: string | null;
+  terminalId: string;
+  timeout?: number;
+}
+
+/** `terminal.wait` result. */
+export interface TerminalWaitResult {
+  reason: "left_working" | "exit" | "match" | "timeout" | "blocked";
+  status: {
+    /** Why it is blocked (permission, question, auth). */
+    kind?: "permission" | "question" | "auth" | null;
+    /** A person has looked since the last done (done/blocked rows). */
+    seen?: boolean;
+    /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+    source?: "osc" | "screen" | "hook" | "rules" | "none";
+    /** What the program in the terminal is doing. */
+    state: "idle" | "working" | "done" | "blocked" | "error";
+    /** Set on entering blocked or error. */
+    stuck?: boolean;
+    /** Incremented when the root record leaves working. */
+    turn?: number;
+  };
+  text?: string;
+}
+
+/** `terminal.write` params. Send bytes to the PTY (a viewer's typing) (1.73.0). */
+export interface TerminalWriteParams {
+  /** base64 bytes for the PTY. */
+  data: string;
+  /** Typed by a person (updates the input gate). */
+  human?: boolean;
+  terminalId: string;
+}
+
+/** `terminal.write` result. */
+export interface TerminalWriteResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
 /** `tool.invoke` params. Ask the client to run one of its host tools. */
 export interface ToolInvokeParams {
   /** Arguments from the model. */
@@ -9756,6 +10397,148 @@ export interface WebSearchResult {
   })[];
 }
 
+/** `web.tunnel.install` params. Download the pinned, checksummed tunnel binary into SNOWPEA_HOME/bin (1.73.0). */
+export interface WebTunnelInstallParams {
+  /** Default: the configured provider. */
+  provider?: string | null;
+}
+
+/** `web.tunnel.install` result. */
+export interface WebTunnelInstallResult {
+  /** Resolved tunnel program path, if found. */
+  binary?: string | null;
+  error?: string | null;
+  /** Shown instead when no checksum is pinned for the platform. */
+  installCommand?: string | null;
+  /** web.tunnel.install has a pinned download for this platform. */
+  installable?: boolean;
+  /** Where the binary was put. */
+  installedPath?: string;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
+  /** The public URL once running. */
+  url?: string | null;
+}
+
+/** `web.tunnel.setToken` params. Store the ngrok authtoken or Cloudflare tunnel token; local human only (1.73.0). */
+export interface WebTunnelSetTokenParams {
+  provider: "cloudflare" | "ngrok";
+  /** Never echoed; dropped from validation error details. */
+  token: string;
+}
+
+/** `web.tunnel.setToken` result. */
+export interface WebTunnelSetTokenResult {
+  /** Resolved tunnel program path, if found. */
+  binary?: string | null;
+  error?: string | null;
+  /** Shown instead when no checksum is pinned for the platform. */
+  installCommand?: string | null;
+  /** web.tunnel.install has a pinned download for this platform. */
+  installable?: boolean;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
+  /** The public URL once running. */
+  url?: string | null;
+}
+
+/** `web.tunnel.start` params. Start the tunnel; needs web.remote.enabled and a web password (1.73.0). */
+export interface WebTunnelStartParams {
+  /** Override web.remote.tunnel.provider for this start. */
+  provider?: "cloudflare-quick" | "cloudflare" | "ngrok" | null;
+  /** Also store it as the provider setting. */
+  save?: boolean;
+}
+
+/** `web.tunnel.start` result. */
+export interface WebTunnelStartResult {
+  /** Resolved tunnel program path, if found. */
+  binary?: string | null;
+  error?: string | null;
+  /** Shown instead when no checksum is pinned for the platform. */
+  installCommand?: string | null;
+  /** web.tunnel.install has a pinned download for this platform. */
+  installable?: boolean;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
+  /** The public URL once running. */
+  url?: string | null;
+}
+
+/** `web.tunnel.status` params. Tunnel provider, state and public URL (1.73.0, webTunnel). */
+export type WebTunnelStatusParams = Record<string, unknown>;
+
+/** `web.tunnel.status` result. */
+export interface WebTunnelStatusResult {
+  /** Resolved tunnel program path, if found. */
+  binary?: string | null;
+  error?: string | null;
+  /** Shown instead when no checksum is pinned for the platform. */
+  installCommand?: string | null;
+  /** web.tunnel.install has a pinned download for this platform. */
+  installable?: boolean;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
+  /** The public URL once running. */
+  url?: string | null;
+}
+
+/** `web.tunnel.stop` params. Stop the tunnel (1.73.0). */
+export interface WebTunnelStopParams {
+  /** Also store provider 'off' / autoStart false. */
+  save?: boolean;
+}
+
+/** `web.tunnel.stop` result. */
+export interface WebTunnelStopResult {
+  /** Resolved tunnel program path, if found. */
+  binary?: string | null;
+  error?: string | null;
+  /** Shown instead when no checksum is pinned for the platform. */
+  installCommand?: string | null;
+  /** web.tunnel.install has a pinned download for this platform. */
+  installable?: boolean;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
+  /** The public URL once running. */
+  url?: string | null;
+}
+
+/** `web.tunnel.unlock` params. Re-enter the web password to unlock terminals on a tunnel connection (1.73.0). */
+export interface WebTunnelUnlockParams {
+  password: string;
+}
+
+/** `web.tunnel.unlock` result. */
+export interface WebTunnelUnlockResult {
+  unlocked?: boolean;
+}
+
 /** `workspace.add` params. Add a project folder (1.47.0). */
 export interface WorkspaceAddParams {
   /** Folder to add; an existing workspace for it is returned. */
@@ -10199,12 +10982,12 @@ export interface ExternalStatePayload {
   status: "idle" | "running" | "error";
   /** As ExternalSessionRow.terminal, now (1.56.0). */
   terminal?: {
-    /** The only kind: a tmux pane. */
-    kind: "tmux";
+    /** tmux: a pane of the person's tmux. pty (1.73.0, externalPty): a terminal session snowpea runs itself (terminalId); pane, session and window are then empty. */
+    kind: "tmux" | "pty";
     /** confirmed: the pane shows nativeMode; unconfirmed: snowpea switched it but the pane did not show the new mode; unknown: the pane shows no mode snowpea recognises (mode and nativeMode are then null). */
     modeState?: "confirmed" | "unconfirmed" | "unknown";
-    /** tmux pane id, e.g. '%12'. */
-    pane: string;
+    /** tmux pane id, e.g. '%12' (kind tmux). */
+    pane?: string;
     /** A permission prompt waiting in the pane, or null. */
     prompt?: {
       /** true: snowpea read it with the CLI's own pattern and asked it as an approval (ApprovalRequest.externalTerminal); false: something waits in the terminal that snowpea does not recognise — nothing is answered for it, the person answers there (external.terminalSnapshot shows the pane). */
@@ -10212,10 +10995,27 @@ export interface ExternalStatePayload {
       /** The prompt as shown (recognised only): plain, clipped, untrusted text. */
       text?: string | null;
     } | null;
-    /** tmux session name. */
-    session: string;
-    /** tmux window index. */
-    window: string;
+    /** tmux session name (kind tmux). */
+    session?: string;
+    /** kind pty: its status. */
+    status?: {
+      /** Why it is blocked (permission, question, auth). */
+      kind?: "permission" | "question" | "auth" | null;
+      /** A person has looked since the last done (done/blocked rows). */
+      seen?: boolean;
+      /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+      source?: "osc" | "screen" | "hook" | "rules" | "none";
+      /** What the program in the terminal is doing. */
+      state: "idle" | "working" | "done" | "blocked" | "error";
+      /** Set on entering blocked or error. */
+      stuck?: boolean;
+      /** Incremented when the root record leaves working. */
+      turn?: number;
+    } | null;
+    /** kind pty: the terminal's id. */
+    terminalId?: string | null;
+    /** tmux window index (kind tmux). */
+    window?: string;
   } | null;
   /** Title, when known. */
   title?: string | null;
@@ -10236,6 +11036,27 @@ export interface GatewayEventPayload {
   kind: string;
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
+}
+
+/** `integration.changed` notification payload. */
+export interface IntegrationChangedPayload {
+  integrations?: ({
+    cli: "claude" | "codex" | "cursor" | "agy";
+    /** The CLI itself is on this machine. */
+    cliInstalled?: boolean;
+    /** Why modified/outdated, one line. */
+    detail?: string | null;
+    files?: ({
+      exists?: boolean;
+      /** A file the integration edits. */
+      path: string;
+    })[];
+    label: string;
+    /** not-installed, current, outdated or modified. */
+    state: "not-installed" | "current" | "outdated" | "modified";
+    /** Installed hook version, if any. */
+    version?: string | null;
+  })[];
 }
 
 /** `jarvis.access` notification payload. */
@@ -10764,12 +11585,121 @@ export interface TeamsChangedPayload {
   team?: string | null;
 }
 
+/** `terminal.closed` notification payload. */
+export interface TerminalClosedPayload {
+  terminalId: string;
+}
+
+/** `terminal.created` notification payload. */
+export interface TerminalCreatedPayload {
+  terminal: {
+    /** The holder and its program are running. */
+    alive: boolean;
+    cols?: number;
+    /** ISO time. */
+    createdAt?: string;
+    /** Working folder. */
+    cwd?: string;
+    /** Started with a dangerous option. */
+    dangerous?: boolean;
+    /** Exit code once it ended. */
+    exitCode?: number | null;
+    external?: {
+      /** The external CLI running in the terminal. */
+      cli: "claude" | "codex" | "agy" | "cursor";
+      /** Its own session id, once known. */
+      sessionId?: string | null;
+    } | null;
+    labels?: Record<string, string>;
+    /** Option ids it was started with. */
+    options?: string[];
+    /** Who started it, e.g. 'jarvis'. */
+    parent?: string | null;
+    /** The program's pid, when alive. */
+    pid?: number | null;
+    /** Profile it was started with. */
+    profile: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
+    rows?: number;
+    /** The snowpea session a 'snowpea' profile terminal is attached to. */
+    snowpeaSessionId?: string | null;
+    /** Current status. */
+    status: {
+      /** Why it is blocked (permission, question, auth). */
+      kind?: "permission" | "question" | "auth" | null;
+      /** A person has looked since the last done (done/blocked rows). */
+      seen?: boolean;
+      /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+      source?: "osc" | "screen" | "hook" | "rules" | "none";
+      /** What the program in the terminal is doing. */
+      state: "idle" | "working" | "done" | "blocked" | "error";
+      /** Set on entering blocked or error. */
+      stuck?: boolean;
+      /** Incremented when the root record leaves working. */
+      turn?: number;
+    };
+    /** Terminal id (stable across daemon restarts). */
+    terminalId: string;
+    /** Program title (OSC 0/2) or the profile label. */
+    title?: string;
+  };
+}
+
+/** `terminal.data` notification payload. */
+export interface TerminalDataPayload {
+  /** base64 PTY output. */
+  data?: string;
+  /** data is a full repaint (the viewer fell too far behind). */
+  repaint?: boolean;
+  seq: number;
+  terminalId: string;
+}
+
+/** `terminal.exit` notification payload. */
+export interface TerminalExitPayload {
+  exitCode?: number | null;
+  signal?: string | null;
+  terminalId: string;
+}
+
+/** `terminal.status` notification payload. */
+export interface TerminalStatusPayload {
+  status: {
+    /** Why it is blocked (permission, question, auth). */
+    kind?: "permission" | "question" | "auth" | null;
+    /** A person has looked since the last done (done/blocked rows). */
+    seen?: boolean;
+    /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+    source?: "osc" | "screen" | "hook" | "rules" | "none";
+    /** What the program in the terminal is doing. */
+    state: "idle" | "working" | "done" | "blocked" | "error";
+    /** Set on entering blocked or error. */
+    stuck?: boolean;
+    /** Incremented when the root record leaves working. */
+    turn?: number;
+  };
+  terminalId: string;
+}
+
+/** `terminal.title` notification payload. */
+export interface TerminalTitlePayload {
+  terminalId: string;
+  title: string;
+}
+
 /** `tool.cancel` notification payload. */
 export interface ToolCancelPayload {
   /** The tool.invoke callId to stop. */
   callId: string;
   /** Session whose turn was interrupted. */
   sessionId: string;
+}
+
+/** `web.tunnel.changed` notification payload. */
+export interface WebTunnelChangedPayload {
+  error?: string | null;
+  provider?: string;
+  state: "off" | "starting" | "running" | "restarting" | "error";
+  url?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -11836,6 +12766,9 @@ export interface MethodMap {
   "goal.resume": { params: GoalResumeParams; result: GoalResumeResult };
   "goal.set": { params: GoalSetParams; result: GoalSetResult };
   "host.turnContext": { params: HostTurnContextParams; result: HostTurnContextResult };
+  "integration.install": { params: IntegrationInstallParams; result: IntegrationInstallResult };
+  "integration.list": { params: IntegrationListParams; result: IntegrationListResult };
+  "integration.uninstall": { params: IntegrationUninstallParams; result: IntegrationUninstallResult };
   "jarvis.briefing.get": { params: JarvisBriefingGetParams; result: JarvisBriefingGetResult };
   "jarvis.briefing.set": { params: JarvisBriefingSetParams; result: JarvisBriefingSetResult };
   "jarvis.delegation.list": { params: JarvisDelegationListParams; result: JarvisDelegationListResult };
@@ -11982,6 +12915,23 @@ export interface MethodMap {
   "team.guide.set": { params: TeamGuideSetParams; result: TeamGuideSetResult };
   "team.start": { params: TeamStartParams; result: TeamStartResult };
   "team.status": { params: TeamStatusParams; result: TeamStatusResult };
+  "terminal.ack": { params: TerminalAckParams; result: TerminalAckResult };
+  "terminal.attach": { params: TerminalAttachParams; result: TerminalAttachResult };
+  "terminal.close": { params: TerminalCloseParams; result: TerminalCloseResult };
+  "terminal.create": { params: TerminalCreateParams; result: TerminalCreateResult };
+  "terminal.detach": { params: TerminalDetachParams; result: TerminalDetachResult };
+  "terminal.interrupt": { params: TerminalInterruptParams; result: TerminalInterruptResult };
+  "terminal.keys": { params: TerminalKeysParams; result: TerminalKeysResult };
+  "terminal.list": { params: TerminalListParams; result: TerminalListResult };
+  "terminal.profiles": { params: TerminalProfilesParams; result: TerminalProfilesResult };
+  "terminal.read": { params: TerminalReadParams; result: TerminalReadResult };
+  "terminal.report": { params: TerminalReportParams; result: TerminalReportResult };
+  "terminal.resize": { params: TerminalResizeParams; result: TerminalResizeResult };
+  "terminal.seen": { params: TerminalSeenParams; result: TerminalSeenResult };
+  "terminal.send": { params: TerminalSendParams; result: TerminalSendResult };
+  "terminal.unlock": { params: TerminalUnlockParams; result: TerminalUnlockResult };
+  "terminal.wait": { params: TerminalWaitParams; result: TerminalWaitResult };
+  "terminal.write": { params: TerminalWriteParams; result: TerminalWriteResult };
   "tool.invoke": { params: ToolInvokeParams; result: ToolInvokeResult };
   "tool.list": { params: ToolListParams; result: ToolListResult };
   "tool.progress": { params: ToolProgressParams; result: ToolProgressResult };
@@ -11996,6 +12946,12 @@ export interface MethodMap {
   "web.remote.status": { params: WebRemoteStatusParams; result: WebRemoteStatusResult };
   "web.remote.stop": { params: WebRemoteStopParams; result: WebRemoteStopResult };
   "web.search": { params: WebSearchParams; result: WebSearchResult };
+  "web.tunnel.install": { params: WebTunnelInstallParams; result: WebTunnelInstallResult };
+  "web.tunnel.setToken": { params: WebTunnelSetTokenParams; result: WebTunnelSetTokenResult };
+  "web.tunnel.start": { params: WebTunnelStartParams; result: WebTunnelStartResult };
+  "web.tunnel.status": { params: WebTunnelStatusParams; result: WebTunnelStatusResult };
+  "web.tunnel.stop": { params: WebTunnelStopParams; result: WebTunnelStopResult };
+  "web.tunnel.unlock": { params: WebTunnelUnlockParams; result: WebTunnelUnlockResult };
   "workspace.add": { params: WorkspaceAddParams; result: WorkspaceAddResult };
   "workspace.list": { params: WorkspaceListParams; result: WorkspaceListResult };
   "workspace.remove": { params: WorkspaceRemoveParams; result: WorkspaceRemoveResult };
@@ -12068,6 +13024,9 @@ export type ClientMethod =
   | "goal.pause"
   | "goal.resume"
   | "goal.set"
+  | "integration.install"
+  | "integration.list"
+  | "integration.uninstall"
   | "jarvis.briefing.get"
   | "jarvis.briefing.set"
   | "jarvis.delegation.list"
@@ -12213,6 +13172,23 @@ export type ClientMethod =
   | "team.guide.set"
   | "team.start"
   | "team.status"
+  | "terminal.ack"
+  | "terminal.attach"
+  | "terminal.close"
+  | "terminal.create"
+  | "terminal.detach"
+  | "terminal.interrupt"
+  | "terminal.keys"
+  | "terminal.list"
+  | "terminal.profiles"
+  | "terminal.read"
+  | "terminal.report"
+  | "terminal.resize"
+  | "terminal.seen"
+  | "terminal.send"
+  | "terminal.unlock"
+  | "terminal.wait"
+  | "terminal.write"
   | "tool.list"
   | "tool.progress"
   | "tool.register"
@@ -12226,6 +13202,12 @@ export type ClientMethod =
   | "web.remote.status"
   | "web.remote.stop"
   | "web.search"
+  | "web.tunnel.install"
+  | "web.tunnel.setToken"
+  | "web.tunnel.start"
+  | "web.tunnel.status"
+  | "web.tunnel.stop"
+  | "web.tunnel.unlock"
   | "workspace.add"
   | "workspace.list"
   | "workspace.remove"
@@ -12249,6 +13231,7 @@ export interface EventMap {
   "external.event": ExternalEventPayload;
   "external.state": ExternalStatePayload;
   "gateway.event": GatewayEventPayload;
+  "integration.changed": IntegrationChangedPayload;
   "jarvis.access": JarvisAccessPayload;
   "jarvis.decision": JarvisDecisionPayload;
   "jarvis.delegation.changed": JarvisDelegationChangedPayload;
@@ -12272,7 +13255,14 @@ export interface EventMap {
   "settings.changed": SettingsChangedPayload;
   "system.updateProgress": SystemUpdateProgressPayload;
   "teams.changed": TeamsChangedPayload;
+  "terminal.closed": TerminalClosedPayload;
+  "terminal.created": TerminalCreatedPayload;
+  "terminal.data": TerminalDataPayload;
+  "terminal.exit": TerminalExitPayload;
+  "terminal.status": TerminalStatusPayload;
+  "terminal.title": TerminalTitlePayload;
   "tool.cancel": ToolCancelPayload;
+  "web.tunnel.changed": WebTunnelChangedPayload;
 }
 
 export type EventName = keyof EventMap;
@@ -12286,6 +13276,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "external.event",
   "external.state",
   "gateway.event",
+  "integration.changed",
   "jarvis.access",
   "jarvis.decision",
   "jarvis.delegation.changed",
@@ -12309,5 +13300,12 @@ export const EVENT_NAMES: readonly EventName[] = [
   "settings.changed",
   "system.updateProgress",
   "teams.changed",
+  "terminal.closed",
+  "terminal.created",
+  "terminal.data",
+  "terminal.exit",
+  "terminal.status",
+  "terminal.title",
   "tool.cancel",
+  "web.tunnel.changed",
 ];

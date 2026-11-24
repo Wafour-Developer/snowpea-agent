@@ -57,6 +57,8 @@ PERSON_LOCAL_ONLY: tuple[Pattern, ...] = (
     # Security review 7, H-2: ``media.mcp`` names a program (command, args, env)
     # or a URL the daemon starts or calls with a stored key.
     ("media",),
+    # M37 (1.73.0): terminal limits and the shell they start in.
+    ("terminals",),
 )
 #: The same for the project scope (every other project key is refused to
 #: non-local callers too: no client but a local one writes the project scope).
@@ -113,6 +115,7 @@ REMOTE_LOGIN_KEYS: tuple[Pattern, ...] = (
     ("mcp", "servers"),
     ("approvals",),
     ("ide",),
+    ("ui",),  # 1.73.0: ui.sessionView, the view state of a person's own surface
     ("appearance",),
     ("audio",),
 )
@@ -928,6 +931,13 @@ REMOTE_LOGIN_ALLOWED: frozenset[str] = REMOTE_LOGIN_METHODS | frozenset({
     "external.clis", "external.list", "external.get", "external.read", "external.open",
     "external.send", "external.setMode", "external.interrupt", "external.create",
     "external.close", "external.unwatch", "external.terminalSnapshot", "external.setModel",
+    # M37 (1.73.0): terminals are a person's, local or a remote web login (the tunnel's
+    # terminal unlock and the dangerous options are judged by the handlers); never a
+    # browser or a connector.  terminal.report is a local call with the terminal's own token.
+    "terminal.profiles", "terminal.list", "terminal.create", "terminal.attach",
+    "terminal.detach", "terminal.write", "terminal.resize", "terminal.ack", "terminal.read",
+    "terminal.send", "terminal.keys", "terminal.interrupt", "terminal.wait", "terminal.close",
+    "terminal.seen", "terminal.unlock", "web.tunnel.unlock",
     # Jarvis (PERSON_METHODS keeps jarvis.enable a local person's)
     "jarvis.status", "jarvis.overview", "jarvis.disable", "jarvis.project.list",
     "jarvis.project.rename", "jarvis.project.alias", "jarvis.escalations.list",

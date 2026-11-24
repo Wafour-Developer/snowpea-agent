@@ -92,6 +92,11 @@ COMMAND_LIKE: dict[str, tuple[str, frozenset[str]]] = {
     "web.remote.allowedOrigins": (DAEMON, NOBODY),
     "web.remote.trustProxy": (DAEMON, NOBODY),
     "web.remote.maxMode": (DAEMON, NOBODY),
+    # M37 (1.73.0): the tunnel opens this machine to the internet; binary is a program.
+    "web.remote.tunnel.provider": (DAEMON, NOBODY),
+    "web.remote.tunnel.autoStart": (DAEMON, NOBODY),
+    "web.remote.tunnel.hostname": (DAEMON, NOBODY),
+    "web.remote.tunnel.binary": (PROGRAM, NOBODY),
     "updates.channel": (DAEMON, NOBODY),
     # 1.56.0: lets a remote web login give Jarvis grants (with its password
     # again): authority of the daemon itself, a local person's switch only.
@@ -217,6 +222,7 @@ PLAIN: dict[str, str] = {
         "briefing.timezone budget.dailyTokens budget.wakesPerHour delegation.default "
         "delegation.projectTtlHours enabled exposeBrowser external.clis.*.defaultMode "
         "external.clis.*.enabled external.enabled external.idleSec external.maxProcesses "
+        "external.view "
         "folder messenger.allowGrants messenger.route model notify.inApp notify.messenger "
         "notify.os proactive.decided proactive.error proactive.finished proactive.needsYou "
         "quietMinutes stallMinutes"
@@ -243,11 +249,15 @@ PLAIN: dict[str, str] = {
     ),
     "skills": "disabled importCodex indexInPrompt indexMaxEntries protectRecentViews",
     "team": "max_conflict_retries pipeline.maxTasks pipeline.review pipeline.test review",
+    "terminals": (
+        "headlessCols headlessRows keepShell max sounds.blocked sounds.done"
+    ),
     "tools": (
         "agentDeferred deferred eager enabled_categories listDescriptions maxResultChars "
         "maxResultLines max_output_chars mcpResultMaxChars readBeforeWrite repeatGuard "
         "snapshotMaxChars"
     ),
+    "ui": "sessionView",
     "updates": "check",
 }
 
@@ -272,6 +282,7 @@ PLAIN_BY_REVIEW: dict[str, str] = {
     "jarvis.folder": "Jarvis's write root, validated; jarvis.* is a local person's",
     "security.protectedPaths.custom.[].path": "a path to protect; security.* is a local person's",
     "checkpoints.scanShellWrites": "a switch",
+    "terminals.keepShell": "a switch; terminals.* is a local person's",
 }
 
 

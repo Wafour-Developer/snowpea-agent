@@ -617,7 +617,7 @@ async def test_a_remote_web_login_is_a_person_here(core: Any, server: FakeServer
 
 
 def test_contract_registration() -> None:
-    assert PROTOCOL_VERSION == "1.70.0"
+    assert PROTOCOL_VERSION == "1.73.0"
     assert "improvementFeedback" in CAPABILITIES
 
 
