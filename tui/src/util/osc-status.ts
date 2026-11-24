@@ -40,11 +40,15 @@ export function deriveStatus(input: StatusInput, after: OscStatus | null): OscSt
   return { state: "idle" };
 }
 
-export function oscSequence(status: OscStatus, terminalId?: string): string {
-  const parts = [`state=${status.state}`];
-  if (status.kind) parts.push(`kind=${status.kind}`);
+/**
+ * The TUI's own status is the terminal's root record, so it carries no `id`:
+ * a record with an `id` is a sub-record the core never ranks as the terminal's
+ * status (the TUI's blocked dialog went unseen; security review H4).
+ */
+export function oscSequence(status: OscStatus): string {
+  const parts = [`state=${clean(status.state)}`];
+  if (status.kind) parts.push(`kind=${clean(status.kind)}`);
   parts.push("app=snowpea");
-  if (terminalId) parts.push(`id=${clean(terminalId)}`);
   return `\u001b]7501;${parts.join(":")}\u0007`;
 }
 
@@ -63,7 +67,6 @@ export class OscEmitter {
   constructor(
     private readonly write: (chunk: string) => void,
     private readonly enabled: boolean,
-    private readonly terminalId?: string,
   ) {}
 
   update(input: StatusInput): void {
@@ -71,13 +74,13 @@ export class OscEmitter {
     const next = deriveStatus(input, this.last);
     if (this.last && this.last.state === next.state && this.last.kind === next.kind) return;
     this.last = next;
-    this.write(oscSequence(next, this.terminalId));
+    this.write(oscSequence(next));
   }
 
   /** `state=clear` on exit; safe to call twice. */
   clear(): void {
     if (!this.enabled || this.last?.state === "clear") return;
     this.last = { state: "clear" };
-    this.write(oscSequence(this.last, this.terminalId));
+    this.write(oscSequence(this.last));
   }
 }

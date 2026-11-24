@@ -147,7 +147,8 @@ class TerminalSpec:
 @dataclass
 class _Waiter:
     event: asyncio.Event
-    pattern: re.Pattern[str] | None = None
+    #: Literal text to wait for (never a regex: security review M5, no ReDoS on the loop).
+    needle: str | None = None
     text: str = ""
     matched: str = ""
 
@@ -287,7 +288,9 @@ class Terminal:
     def _handle_events(self, events: list[osc.Event], *, live: bool) -> None:
         for event in events:
             if isinstance(event, osc.StatusRecord):
-                if event.root:
+                # The root record, or one naming this terminal itself (older
+                # snowpea TUIs sent id=<terminalId>; security review H4).
+                if event.root or event.id == self.id:
                     self.status.apply_osc(event.state, kind=event.kind, progress=event.progress,
                                           message=event.msg)
             elif isinstance(event, osc.TitleChange):
@@ -303,13 +306,14 @@ class Terminal:
     def _feed_waiters(self, data: bytes) -> None:
         text = _ANSI_RE.sub(b"", data).decode("utf-8", "replace")
         for waiter in self._waiters:
-            if waiter.pattern is None or waiter.matched:
+            if not waiter.needle or waiter.matched:
                 continue
-            waiter.text = (waiter.text + text)[-65536:]
-            match = waiter.pattern.search(waiter.text)
-            if match:
-                waiter.matched = match.group(0)
+            window = waiter.text + text
+            if waiter.needle in window:
+                waiter.matched = waiter.needle
                 waiter.event.set()
+            # Keep only what a needle split across chunks could start with.
+            waiter.text = window[-(len(waiter.needle) - 1):] if len(waiter.needle) > 1 else ""
 
     def on_exit(self, code: int | None, *, announce: bool = True) -> None:
         if self._exited.is_set():
@@ -541,7 +545,7 @@ class TerminalManager:
         if meta.get("seen") is False:
             term.status._status = TerminalStatus(seen=False)
         self._terminals[terminal_id] = term
-        if term.holder_pid and _holder_alive(term.holder_pid, term.holder_started):
+        if term.holder_pid and _pid_runs(term.holder_pid):  # the link proves the rest
             try:
                 await self._connect(term)
                 return
@@ -594,7 +598,7 @@ class TerminalManager:
             await asyncio.sleep(0.2 * (attempt + 1))
             if term.closing or not term.alive or term.id not in self._terminals:
                 return
-            if not (term.holder_pid and _holder_alive(term.holder_pid, term.holder_started)):
+            if not (term.holder_pid and _pid_runs(term.holder_pid)):
                 break
             try:
                 await self._connect(term)
@@ -853,16 +857,13 @@ class TerminalManager:
 
     async def wait(self, terminal_id: str, timeout: float = 60.0,
                    output: str | None = None) -> dict[str, Any]:
+        # A literal substring, never a regex: a pattern from a client or a
+        # prompt-injected Jarvis must not be able to stall the event loop (M5).
+        needle = output or None
         term = self.get(terminal_id)
-        pattern: re.Pattern[str] | None = None
-        if output:
-            try:
-                pattern = re.compile(output)
-            except re.error:
-                pattern = re.compile(re.escape(output))
         start_turn = term.status.status.turn
         was_working = term.status.state == "working"
-        waiter = _Waiter(asyncio.Event(), pattern)
+        waiter = _Waiter(asyncio.Event(), needle)
         term._waiters.append(waiter)
         deadline = self.clock() + float(timeout)
         try:
@@ -970,6 +971,7 @@ class TerminalManager:
                     break
                 await asyncio.sleep(0.05)
             else:
+                # Signalled only when provably the same process (start time).
                 log.warning("terminal %s: holder still running; ending it", term.id)
                 _kill_pid(term.holder_pid)
         self._terminals.pop(terminal_id, None)
@@ -1016,7 +1018,7 @@ def close_all_holders(home: Path | str, *, timeout: float = 3.0) -> int:
     folder = Path(home) / "terminals"
     if not folder.is_dir():
         return 0
-    entries: list[tuple[str, int | None, str | None, str]] = []
+    entries: list[tuple[str, int | None, str | None, str, str]] = []
     for path in sorted(folder.glob("t*.json")):
         if not TERMINAL_ID_RE.match(path.stem):
             continue
@@ -1025,20 +1027,59 @@ def close_all_holders(home: Path | str, *, timeout: float = 3.0) -> int:
         except (OSError, ValueError):
             meta = {}
         pid = meta.get("pid") if isinstance(meta.get("pid"), int) else None
-        entries.append((path.stem, pid, meta.get("holderStarted"), str(meta.get("socket") or "")))
-    running = [pid for _, pid, started, _ in entries if pid and _holder_alive(pid, started)]
-    for pid in running:
+        entries.append((path.stem, pid, meta.get("holderStarted"),
+                        str(meta.get("socket") or ""), str(meta.get("token") or "")))
+    verified = {pid: started for _, pid, started, _, _ in entries
+                if pid and _holder_alive(pid, started)}
+    for pid in verified:
         _terminate_pid(pid)
+    # A holder whose identity cannot be proven by its start time (Windows has
+    # none) is asked over its authenticated link instead: no blind signal.
+    by_link = [(socket, token) for _, pid, _, socket, token in entries
+               if pid and pid not in verified and socket and token and _pid_runs(pid)]
+    ended_by_link = _end_over_links(by_link) if by_link else 0
     deadline = time.monotonic() + timeout
-    left = list(running)
+    left = dict(verified)
     while left and time.monotonic() < deadline:
         time.sleep(0.05)
-        left = [pid for pid in left if _holder_alive(pid, None)]
-    for pid in left:
-        _kill_pid(pid)
-    for terminal_id, _, _, socket in entries:
+        left = {pid: started for pid, started in left.items() if _holder_alive(pid, started)}
+    for pid, started in left.items():
+        if _holder_alive(pid, started):  # still the same process (security review L3)
+            _kill_pid(pid)
+    for terminal_id, _, _, socket, _ in entries:
         remove_terminal_files(folder, terminal_id, socket)
-    return len(running)
+    return len(verified) + ended_by_link
+
+
+def _end_over_links(targets: list[tuple[str, str]]) -> int:
+    """Kill each terminal's program through its (token-proven) holder link; returns how many."""
+
+    async def end_one(socket: str, token: str) -> bool:
+        exited = asyncio.Event()
+        link = HolderLink(socket, token, on_data=lambda _d, _t: None,
+                          on_exit=lambda _c: exited.set())
+        try:
+            await link.connect(tail=False)
+        except HolderError:
+            return False
+        try:
+            for name, wait in (("hup", HUP_WAIT), ("term", TERM_WAIT), ("kill", KILL_WAIT)):
+                link.signal(name)
+                await link.drain()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(exited.wait(), wait)
+                    break
+            link.bye()  # the holder leaves at once instead of waiting for a core
+            await link.drain()
+        finally:
+            await link.close()
+        return True
+
+    async def run() -> int:
+        results = await asyncio.gather(*(end_one(s, t) for s, t in targets))
+        return sum(1 for ok in results if ok)
+
+    return asyncio.run(run())
 
 
 def _terminate_pid(pid: int) -> None:
@@ -1070,18 +1111,25 @@ def _start_time(pid: int) -> str | None:
     return None
 
 
-def _holder_alive(pid: int, started: str | None) -> bool:
-    """``pid`` runs and is still the holder we started (a reused pid is not)."""
+def _pid_runs(pid: int) -> bool:
     from snowpea_core.external.proc import pid_alive
     from snowpea_core.terminal.link import reap
 
     reap()  # a holder this daemon started and that exited is a zombie until reaped
-    if not pid_alive(pid):
+    return pid_alive(pid)
+
+
+def _holder_alive(pid: int, started: str | None) -> bool:
+    """``pid`` runs and is provably the holder we started — safe to signal.
+
+    Both start times must be known and equal (security review L2): an unknown
+    start time counts as not alive, so a reused pid is never signalled.  (A
+    connection needs no such check: the link's challenge proves the holder.)
+    """
+    if not started or not _pid_runs(pid):
         return False
-    if started is None:
-        return True
     current = _start_time(pid)
-    return current is None or current == started
+    return current is not None and current == started
 
 
 def _kill_pid(pid: int) -> None:

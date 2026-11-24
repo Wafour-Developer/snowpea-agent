@@ -10103,7 +10103,10 @@ class TerminalKeysParams(Payload):
 class TerminalWaitParams(Payload):
     terminalId: str
     timeout: float = Field(default=60, gt=0, le=180)
-    output: str | None = Field(default=None, description="End when this text appears.")
+    output: str | None = Field(
+        default=None,
+        description="End when this literal text appears in new output (not a pattern).",
+    )
 
 
 class TerminalWaitResult(Payload):

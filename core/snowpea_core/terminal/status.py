@@ -44,6 +44,10 @@ BLOCKER_REPUBLISH = 0.8  #: a visible blocker is published again this often
 #: said idle (or the output has not changed) this long: Claude fires no Stop
 #: on an Esc interrupt, so nothing else would ever end it.
 STALE_HOOK_WORKING = 2.0
+#: An OSC 7501 ``working`` that nothing refreshes (no newer record, no output)
+#: lapses after this long: any byte stream reaching the PTY (a file cat'ed in
+#: a shell) can carry one, and it must not stick (security review H4).
+STALE_OSC_WORKING = 15.0
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +189,10 @@ class StatusMachine:
     #: continuously said idle (``None`` while they say anything else).
     _hook_at: float = field(default=float("-inf"), init=False)
     _rules_idle_since: float | None = field(default=None, init=False)
+    #: When the last OSC record arrived; whether the rules last saw the CLI's
+    #: own idle prompt on screen.
+    _osc_at: float = field(default=float("-inf"), init=False)
+    _idle_prompt: bool = field(default=False, init=False)
     #: The program spoke OSC 7501 at least once: it reports its own status.
     reports_status: bool = field(default=False, init=False)
 
@@ -215,7 +223,9 @@ class StatusMachine:
             self._osc = _Claim(state, _kind(state, kind), _progress(progress), message or None)
         else:
             return None
-        return self._publish(self._now(now))
+        now = self._now(now)
+        self._osc_at = now
+        return self._publish(now)
 
     def apply_rule_verdict(self, verdict: RuleVerdict | None, *,
                            now: float | None = None) -> TerminalStatus | None:
@@ -231,6 +241,8 @@ class StatusMachine:
                 self._rules_idle_since = now
         else:
             self._rules_idle_since = None
+        self._idle_prompt = bool(verdict is not None and verdict.state == "idle"
+                                 and verdict.visible_idle)
         if verdict is not None and verdict.state == "blocked" and verdict.visible:
             self._blocker = _Claim("blocked", _kind("blocked", verdict.kind), detail=verdict.detail)
             rules.pending, rules.pending_none, rules.pending_count = None, False, 0
@@ -367,6 +379,7 @@ class StatusMachine:
                 verdict = None
             published = self.apply_rule_verdict(verdict, now=now)
         published = self._expire_stale_hook(now) or published
+        published = self._expire_stale_osc(now) or published
         if (published is None and self._status.source == "screen"
                 and now - self._last_publish >= BLOCKER_REPUBLISH):
             self._last_publish = now
@@ -376,9 +389,30 @@ class StatusMachine:
         return published
 
     # -- ranking ------------------------------------------------------------
+    def _expire_stale_osc(self, now: float) -> TerminalStatus | None:
+        if self._osc is None or self._osc.state != "working":
+            return None
+        if now - max(self._osc_at, self._last_output) < STALE_OSC_WORKING:
+            return None
+        self._osc = None
+        return self._publish(now)
+
     def _winner(self) -> tuple[_Claim | None, str]:
-        for claim, source in ((self._exit, "none"), (self._osc, "osc"), (self._blocker, "screen"),
-                              (self._hook, "hook"), (self._rules.claim, "rules")):
+        """The highest-ranked claim (security review H4).
+
+        For a profile with screen rules (claude, codex …) what is on screen
+        outranks OSC 7501: any output (a cat'ed file) can carry a 7501 record,
+        but a permission prompt or the CLI's idle prompt on screen is real.
+        A profile without rules (shell, snowpea) ranks OSC first.
+        """
+        osc = self._osc
+        if self.rules is not None and osc is not None and self._idle_prompt and (
+                osc.state in ("working", "blocked")):
+            osc = None  # the CLI's own idle prompt is on screen: the record is stale
+        order = ((self._exit, "none"), (self._blocker, "screen"), (osc, "osc")) if (
+            self.rules is not None
+        ) else ((self._exit, "none"), (osc, "osc"), (self._blocker, "screen"))
+        for claim, source in (*order, (self._hook, "hook"), (self._rules.claim, "rules")):
             if claim is not None:
                 return claim, source
         return None, "none"

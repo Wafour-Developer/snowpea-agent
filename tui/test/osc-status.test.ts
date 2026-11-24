@@ -24,9 +24,9 @@ describe("OSC 7501 status", () => {
     expect(deriveStatus(idle, { state: "working" })).toEqual({ state: "done" });
   });
 
-  it("formats the grammar", () => {
-    expect(oscSequence({ state: "blocked", kind: "permission" }, "t:1;x")).toBe(
-      "\u001b]7501;state=blocked:kind=permission:app=snowpea:id=t_1_x\u0007",
+  it("formats the grammar as the root record (no id)", () => {
+    expect(oscSequence({ state: "blocked", kind: "permission" })).toBe(
+      "\u001b]7501;state=blocked:kind=permission:app=snowpea\u0007",
     );
   });
 

@@ -306,7 +306,7 @@ async def test_fake_cli_status_send_wait_and_seen(env) -> None:
     assert (await manager.wait(tid, timeout=5))["reason"] == "blocked"
     await manager.keys(tid, ["x", "Enter"])  # the person (or Jarvis) answers
     await _until(lambda: term.status.state == "done")
-    match = asyncio.ensure_future(manager.wait(tid, timeout=5, output=r"did:\w+"))
+    match = asyncio.ensure_future(manager.wait(tid, timeout=5, output="did:next"))
     await asyncio.sleep(0.1)
     await manager.keys(tid, ["n", "e", "x", "t", "Enter"])
     done = await match

@@ -412,7 +412,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       }
     },
     oscEnabled(process.stdout),
-    process.env.SNOWPEA_TERMINAL_ID,
   );
 
   splitKeypresses(process.stdin);

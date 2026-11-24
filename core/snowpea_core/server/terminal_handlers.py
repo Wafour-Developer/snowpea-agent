@@ -10,6 +10,12 @@ the terminal unlock (``server.tunnel.require_terminal_unlock``, when present).
 ``terminal.report`` carries the per-terminal token (``SNOWPEA_TERMINAL_TOKEN``)
 and is checked against ``terminalId`` and nothing else.
 
+Observe mode is a view setting, not a security boundary (security review L7):
+a connection attached with ``observe`` gets ``observe_only`` for its own write
+and resize, but the same person may attach again interactively, and a
+connection that never attached may write (a script).  Every guard on who may
+type into a terminal is the access rule above, never the attach mode.
+
 Profiles: ``terminal.profiles`` / ``terminal.create`` use
 ``snowpea_core.terminal.profiles`` (``list_profiles(core, conn)`` and
 ``build_spec(core, conn, params, cwd) -> TerminalSpec``) when that module exists;
