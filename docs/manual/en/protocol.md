@@ -51,6 +51,8 @@ Since protocol 1.69.0 (capability `jobMissedRuns`) a scheduled occurrence that w
 
 Since protocol 1.70.0 (capability `reasoningOnlyFallback`) a model that writes its answer only in its reasoning does not end the turn with nothing. It is told so and asked again up to twice, with thinking off where the provider can switch it. If it still writes nothing visible, the turn ends `complete` with a `message.done` whose `reasoningFallback` is `true`: a marker line in the reply language, then that reasoning (its last 4000 characters). A step with no reasoning either keeps the old single retry and `empty_response`.
 
+Since protocol 1.71.0 (capability `providerLoginOpenBrowser`) `provider.loginWeb` takes an optional `openBrowser`. With `false` the daemon opens no system browser for any login method; the client opens the consent page itself from `verificationUri` / `verificationUriComplete` (also `userCode` for a device code), which the result and the `provider.loginProgress` `await_user` event both carry. `google_adc` (gcloud opens the browser on its own, with no address to hand over) is then refused with `login_unsupported`, and an automatic pick that would land on it uses `google_oauth`. Left out, the daemon opens the browser as before. From 1.71.0 the `done` stage of `provider.loginProgress` is sent only after the credential is saved, so a `provider.list` refreshed on `done` shows the provider connected; when saving fails, `failed` is sent instead of `done`.
+
 ## Methods, by area
 
 | Area | Methods |

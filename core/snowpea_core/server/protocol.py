@@ -3675,6 +3675,18 @@ class ProviderLoginWebParams(Payload):
             "the best flow this machine can complete."
         )
     )
+    openBrowser: bool | None = Field(
+        default=None,
+        description=(
+            "1.71.0 (capability providerLoginOpenBrowser): false asks the daemon not to open "
+            "the system browser for any login method; the client opens verificationUri / "
+            "verificationUriComplete (in the result and in the loginProgress await_user event) "
+            "itself. 'google_adc' (gcloud opens the browser on its own) is then refused with "
+            "login_unsupported, and an automatic pick that would land on it uses "
+            "'google_oauth'. Absent or null keeps the default (the daemon opens it where it "
+            "can)."
+        ),
+    )
 
 
 class ProviderLoginWebResult(Payload):
@@ -13251,6 +13263,10 @@ CAPABILITIES: list[str] = [
     # visible, the turn ends with message.done reasoningFallback: true carrying
     # that reasoning under a marker line, not an empty_response error.
     "reasoningOnlyFallback",
+    # 1.71.0: provider.loginWeb {openBrowser: false} opens no system browser (the
+    # client opens the consent address itself), and loginProgress 'done' comes
+    # only after the credential is saved (a save failure reports 'failed').
+    "providerLoginOpenBrowser",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
