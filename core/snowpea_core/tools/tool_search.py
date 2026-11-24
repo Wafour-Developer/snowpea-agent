@@ -89,12 +89,17 @@ async def tool_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         count = int(limit) if limit is not None else deferred.MAX_RESULTS
     except (TypeError, ValueError):
         count = deferred.MAX_RESULTS
-    catalogue = registry.all_specs(ctx.session)
-    allowed = deferred.narrowed(getattr(ctx.session, "allowed_tools", None), ctx.session)
-    if allowed is not None:
-        # A narrowed agent finds only what it may call.
-        catalogue = [spec for spec in catalogue if spec.name in allowed]
-    matches = deferred.search(catalogue, query, min(max(1, count), deferred.MAX_RESULTS))
+    limit_to = min(max(1, count), deferred.MAX_RESULTS)
+    catalogue = _catalogue(registry, ctx.session)
+    matches = deferred.search(catalogue, query, limit_to)
+    from snowpea_core.tools import mcp_client
+
+    # An MCP server may have gained tools since it was listed (a redeploy
+    # whose list_changed never reached us): a search that misses in a server
+    # it names lists that server again, once a minute at most, and retries.
+    if await mcp_client.relist_for_search(query, matches):
+        catalogue = _catalogue(registry, ctx.session)
+        matches = deferred.search(catalogue, query, limit_to)
     note = offline_note(ctx.session)
     tail = f"\n\n{note}" if note else ""
     from snowpea_core.tools import tool_hints
@@ -120,6 +125,15 @@ async def tool_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         output=f"{header.format(count=len(matches))}\n\n{render(matches)}{tail}",
         meta={"loaded": [spec.name for spec in matches]},
     )
+
+
+def _catalogue(registry: Any, session: Any) -> list[ToolSpec]:
+    """Every tool the search may return; a narrowed agent finds only what it may call."""
+    catalogue: list[ToolSpec] = registry.all_specs(session)
+    allowed = deferred.narrowed(getattr(session, "allowed_tools", None), session)
+    if allowed is not None:
+        catalogue = [spec for spec in catalogue if spec.name in allowed]
+    return catalogue
 
 
 def invalidate(session: Any) -> None:

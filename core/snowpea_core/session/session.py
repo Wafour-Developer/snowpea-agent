@@ -248,6 +248,10 @@ class Session:
     #: with the session row and restored with it (addendum 30).
     memory_override: bool | None = None
     site_memory_override: bool | None = None
+    #: ``session.create {noProject: true}`` (1.71.0): the workdir is not a
+    #: project, so results go to the workspace's ``artifacts/`` (``session/paths``).
+    #: Stored with the session row; a delegated child follows its root.
+    no_project: bool = False
     #: Serialises history writes so an older persistence attempt cannot delete
     #: or overwrite rows written by a newer one for the same session.
     history_persist_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

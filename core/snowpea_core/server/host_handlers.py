@@ -49,6 +49,7 @@ from snowpea_core.server.protocol import (
     SessionEventsResult,
     SessionIdParams,
     SessionNoticeParams,
+    SessionPathsResult,
     SessionRenameParams,
     SessionSetAgentParams,
     SessionSetAgentResult,
@@ -76,7 +77,7 @@ from snowpea_core.server.protocol import (
     UsageSummaryParams,
     UsageSummaryResult,
 )
-from snowpea_core.session.workspace import ensure_workspace, list_artifacts
+from snowpea_core.session.workspace import MAX_ARTIFACTS, ensure_workspace, list_artifacts
 from snowpea_core.tools.host_tools import HOST_TOOLS, HostToolError, content_store, runs_on_host
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -665,12 +666,40 @@ async def session_artifacts_handler(
     _conn: RpcConnection, params: SessionIdParams, core: Core
 ) -> SessionArtifactsResult:
     """``session.artifacts`` — what the session saved for the user."""
+    from snowpea_core.session.paths import DOWNLOADS, GITIGNORE, resolve
+
     session = _session(core, params.sessionId)
     root = ensure_workspace(core.paths.home, session)
+    rows = list_artifacts(root)
+    folders = resolve(session, core)
+    if folders.has_project:
+        # A project's .snowpea-downloads/ (1.71.0), named .snowpea-downloads/<path>;
+        # its .gitignore is core's, not a download.
+        downloads = [
+            row
+            for row in list_artifacts(folders.workdir, sub=DOWNLOADS)
+            if row["name"] != GITIGNORE
+        ]
+        for row in downloads:
+            row["name"] = f"{DOWNLOADS}/{row['name']}"
+        if downloads:
+            rows = sorted(rows + downloads, key=lambda row: row["modifiedAt"], reverse=True)
+            rows = rows[:MAX_ARTIFACTS]
     return SessionArtifactsResult(
         workspaceDir=str(root),
-        artifacts=[SessionArtifact(**row) for row in list_artifacts(root)],
+        artifacts=[SessionArtifact(**row) for row in rows],
     )
+
+
+async def session_paths_handler(
+    _conn: RpcConnection, params: SessionIdParams, core: Core
+) -> SessionPathsResult:
+    """``session.paths`` — where the session's results, downloads and scratch go (1.71.0)."""
+    from snowpea_core.session.paths import resolve
+
+    session = _session(core, params.sessionId)
+    ensure_workspace(core.paths.home, session)
+    return SessionPathsResult(**resolve(session, core).wire())
 
 
 async def _stored(core: Core, session_id: str) -> bool:
@@ -1130,6 +1159,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
 
     register_fs_handlers(dispatcher)
     dispatcher.register("session.artifacts", session_artifacts_handler)
+    dispatcher.register("session.paths", session_paths_handler)
     dispatcher.register("session.attachments", session_attachments_handler)
     dispatcher.register("session.rename", session_rename_handler)
     dispatcher.register("session.notice", session_notice_handler)

@@ -683,6 +683,16 @@ class SessionCreateParams(Payload):
             "siteMemory false, so the host leaves its site-memory part out."
         ),
     )
+    noProject: bool | None = Field(
+        default=None,
+        description=(
+            "1.72.0 (capability sessionPaths): true when the workdir is not a project the "
+            "person chose (a browser's default folder). Results then go to the session "
+            "workspace's artifacts/ instead of the workdir; see session.paths. Absent means "
+            "false. Kept with the session across a daemon restart, followed by its delegated "
+            "children and forks."
+        ),
+    )
     locale: str | None = Field(
         default=None,
         description=(
@@ -835,7 +845,12 @@ class SessionToolContentResult(Payload):
 
 class SessionArtifact(Payload):
     path: str = Field(description="Absolute path.")
-    name: str = Field(description="Path relative to artifacts/.")
+    name: str = Field(
+        description=(
+            "Path relative to artifacts/; a file in a project's downloads folder (1.72.0) "
+            "is named .snowpea-downloads/<path>."
+        )
+    )
     size: int = Field(description="Bytes.")
     modifiedAt: str = Field(description="UTC ISO-8601 time of the last change.")
     mimeType: str | None = Field(default=None, description="Guessed from the name.")
@@ -844,8 +859,37 @@ class SessionArtifact(Payload):
 class SessionArtifactsResult(Payload):
     workspaceDir: str = Field(description="The session workspace.")
     artifacts: list[SessionArtifact] = Field(
-        default_factory=list, description="Files under artifacts/, newest first."
+        default_factory=list,
+        description=(
+            "Files under artifacts/, newest first; with a project also those under "
+            "<workdir>/.snowpea-downloads/ (1.72.0), its .gitignore left out."
+        ),
     )
+
+
+class SessionPathsResult(Payload):
+    """``session.paths`` (1.72.0, capability sessionPaths): where the session's files go."""
+
+    workdir: str = Field(description="The session's workdir, absolute.")
+    workspaceDir: str | None = Field(
+        default=None, description="The session workspace (tmp/, artifacts/)."
+    )
+    resultsDir: str = Field(
+        description=(
+            "Where reports, documents, exports and other results go: the workdir with a "
+            "project, else <workspaceDir>/artifacts."
+        )
+    )
+    downloadsDir: str = Field(
+        description=(
+            "Where downloaded files go: <resultsDir>/.snowpea-downloads, made when used with "
+            "a .gitignore of '*' (a dot-folder the project's tools and globs skip)."
+        )
+    )
+    scratchDir: str | None = Field(
+        default=None, description="Throwaway files only: <workspaceDir>/tmp."
+    )
+    hasProject: bool = Field(description="False when session.create had noProject true.")
 
 
 class SessionAttachment(Payload):
@@ -1010,6 +1054,32 @@ class SessionCreateResult(Payload):
     workspaceDir: str | None = Field(
         default=None,
         description="Session workspace with tmp/ and artifacts/ (1.7.0).",
+    )
+    workdir: str | None = Field(
+        default=None,
+        description="1.72.0 (capability sessionPaths): the session's workdir, absolute.",
+    )
+    resultsDir: str | None = Field(
+        default=None,
+        description=(
+            "1.72.0 (capability sessionPaths): where reports, documents, exports and other "
+            "results go: the workdir with a project, else <workspaceDir>/artifacts."
+        ),
+    )
+    downloadsDir: str | None = Field(
+        default=None,
+        description=(
+            "1.72.0: where downloaded files go: <resultsDir>/.snowpea-downloads (made when "
+            "used, with a .gitignore of '*')."
+        ),
+    )
+    scratchDir: str | None = Field(
+        default=None,
+        description="1.72.0: throwaway files only: <workspaceDir>/tmp.",
+    )
+    hasProject: bool | None = Field(
+        default=None,
+        description="1.72.0: false when session.create had noProject true.",
     )
     delegation: bool = Field(
         default=False,
@@ -2153,6 +2223,28 @@ class ToolInvokeRequest(Payload):
     workdir: str = Field(
         default="",
         description="The session's project folder, absolute (Projects, 1.7.0).",
+    )
+    resultsDir: str | None = Field(
+        default=None,
+        description=(
+            "1.72.0 (capability sessionPaths): where reports, documents, exports and other "
+            "results go: the workdir with a project, else <workspaceDir>/artifacts."
+        ),
+    )
+    downloadsDir: str | None = Field(
+        default=None,
+        description=(
+            "1.72.0: where downloaded files go: <resultsDir>/.snowpea-downloads (made when "
+            "used, with a .gitignore of '*')."
+        ),
+    )
+    scratchDir: str | None = Field(
+        default=None,
+        description="1.72.0: throwaway files only: <workspaceDir>/tmp.",
+    )
+    hasProject: bool | None = Field(
+        default=None,
+        description="1.72.0: false when session.create had noProject true.",
     )
     parentSessionId: str | None = Field(
         default=None,
@@ -3674,6 +3766,18 @@ class ProviderLoginWebParams(Payload):
             "'google_adc' (headless), 'oauth_pkce' (OpenRouter). 'web' or an empty value picks "
             "the best flow this machine can complete."
         )
+    )
+    openBrowser: bool | None = Field(
+        default=None,
+        description=(
+            "1.71.0 (capability providerLoginOpenBrowser): false asks the daemon not to open "
+            "the system browser for any login method; the client opens verificationUri / "
+            "verificationUriComplete (in the result and in the loginProgress await_user event) "
+            "itself. 'google_adc' (gcloud opens the browser on its own) is then refused with "
+            "login_unsupported, and an automatic pick that would land on it uses "
+            "'google_oauth'. Absent or null keeps the default (the daemon opens it where it "
+            "can)."
+        ),
     )
 
 
@@ -12772,7 +12876,16 @@ METHODS: dict[str, RpcMethod] = {
             "session.artifacts",
             SessionIdParams,
             SessionArtifactsResult,
-            "Files the session saved for the user under its workspace's artifacts/.",
+            "Files the session saved for the user under its workspace's artifacts/; with a "
+            "project also those under <workdir>/.snowpea-downloads/ (1.72.0).",
+        ),
+        _m(
+            "session.paths",
+            SessionIdParams,
+            SessionPathsResult,
+            "Where the session's files go (1.72.0, capability sessionPaths): results "
+            "(reports, exports) in resultsDir, downloads in downloadsDir, throwaway files in "
+            "scratchDir. resultsDir is the workdir unless session.create had noProject true.",
         ),
         _m(
             "session.attachments",
@@ -13766,6 +13879,16 @@ CAPABILITIES: list[str] = [
     # visible, the turn ends with message.done reasoningFallback: true carrying
     # that reasoning under a marker line, not an empty_response error.
     "reasoningOnlyFallback",
+    # 1.71.0: provider.loginWeb {openBrowser: false} opens no system browser (the
+    # client opens the consent address itself), and loginProgress 'done' comes
+    # only after the credential is saved (a save failure reports 'failed').
+    "providerLoginOpenBrowser",
+    # 1.72.0: session.create {noProject}, session.paths, the same folders on the
+    # session.create result and on tool.invoke; session.artifacts also lists a
+    # project's .snowpea-downloads/ (a dot-folder with a .gitignore of '*').
+    # Results go to the project, or to the workspace's artifacts/ without one;
+    # only throwaway files go to tmp/.
+    "sessionPaths",
     # 1.73.0 (M37): the snowpea TUI takes --session <id> (session.resume, no new
     # session) and emits OSC 7501 status inside a terminal session.
     "tuiSessionAttach",
@@ -13956,6 +14079,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "fs.write",
         "fs.hash",
         "session.artifacts",
+        "session.paths",
         "session.attachments",
         "session.rename",
         "session.notice",
@@ -14030,6 +14154,33 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         # 1.59.0 (capability improvementFeedback)
         "feedback.preview",
         "feedback.send",
+        # M37 (1.73.0): terminals, CLI hook integrations, the web tunnel.
+        "integration.install",
+        "integration.list",
+        "integration.uninstall",
+        "terminal.ack",
+        "terminal.attach",
+        "terminal.close",
+        "terminal.create",
+        "terminal.detach",
+        "terminal.interrupt",
+        "terminal.keys",
+        "terminal.list",
+        "terminal.profiles",
+        "terminal.read",
+        "terminal.report",
+        "terminal.resize",
+        "terminal.seen",
+        "terminal.send",
+        "terminal.unlock",
+        "terminal.wait",
+        "terminal.write",
+        "web.tunnel.install",
+        "web.tunnel.setToken",
+        "web.tunnel.start",
+        "web.tunnel.status",
+        "web.tunnel.stop",
+        "web.tunnel.unlock",
     }
 )
 

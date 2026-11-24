@@ -378,6 +378,11 @@ async def session_create_handler(
     session.site_memory_override = params.siteMemory
     if core.store is not None and (params.memory is not None or params.siteMemory is not None):
         await core.store.update_overrides(session.id, params.memory, params.siteMemory)
+    if params.noProject:
+        # Results go to the workspace's artifacts/ (session/paths, 1.71.0).
+        session.no_project = True
+        if core.store is not None:
+            await core.store.update_no_project(session.id, True)
     session.locale = locale_tag(params.locale)
     ensure_workspace(core.paths.home, session)
     core.hub.subscribe(conn, session.id)
@@ -386,10 +391,16 @@ async def session_create_handler(
     await mcp_client.sync_tools_bounded(core, session.workdir)
     await announce_model(core, session)
     jarvis = getattr(core, "jarvis", None)
+    from snowpea_core.session.paths import resolve as resolve_paths
+
+    folders = resolve_paths(session, core).wire()
+    folders.pop("workspaceDir", None)
     return SessionCreateResult(
         sessionId=session.id,
         delegation=effective_delegation(core, session)[0],
         workspaceDir=session.workspace_dir,
+        # resultsDir, downloadsDir, scratchDir, hasProject, workdir (1.71.0)
+        **folders,
         # SessionSummary.role / .jarvis (1.53.0)
         **(jarvis.summary_fields(session.id) if jarvis is not None else {}),
     )

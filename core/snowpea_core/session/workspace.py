@@ -36,9 +36,9 @@ def ensure_workspace(home: Path | str, session: Any) -> Path:
     return root
 
 
-def list_artifacts(root: Path | str) -> list[dict[str, Any]]:
-    """Files under ``artifacts/``, newest first."""
-    base = Path(root) / "artifacts"
+def list_artifacts(root: Path | str, sub: str = "artifacts") -> list[dict[str, Any]]:
+    """Files under ``<root>/<sub>/`` (``artifacts/`` by default), newest first."""
+    base = Path(root) / sub
     if not base.is_dir():
         return []
     rows: list[dict[str, Any]] = []

@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import sys
+import time
 from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -44,6 +45,14 @@ CONFIG_NAME = ".mcp.json"
 DEFAULT_PERMISSION: PermissionTag = "network"
 START_TIMEOUT = 30.0
 CALL_TIMEOUT = 300.0
+#: A burst of ``notifications/tools/list_changed`` (a redeploy announces
+#: itself more than once) costs one ``tools/list`` after this quiet time.
+RELIST_DEBOUNCE = 1.0
+#: How often a miss — a tool search or a call naming a tool the cached list
+#: lacks — may make one server list its tools again.
+MISS_RELIST_COOLDOWN = 60.0
+#: How long one ``tools/list`` may take when it is a re-list.
+RELIST_TIMEOUT = 30.0
 #: Keys ``.mcp.json`` entries may carry (M14 §1b); anything else is preserved
 #: verbatim when an entry is rewritten but ignored by the client.
 ENTRY_KEYS: tuple[str, ...] = (
@@ -524,6 +533,15 @@ class McpServer:
         self._stop = asyncio.Event()
         self._ready: asyncio.Future[None] | None = None
         self._lock = asyncio.Lock()
+        #: The core whose tool registry holds this server's tools, so a
+        #: re-list can bring the registry in line; set by :func:`register_config`.
+        self.core: Any = None
+        #: The debounced re-list a ``tools/list_changed`` started, and whether
+        #: another notification came in while it ran.
+        self._relist_task: asyncio.Task[None] | None = None
+        self._relist_again = False
+        #: Monotonic time of the last re-list a miss asked for.
+        self._miss_relist_at: float | None = None
 
     @property
     def running(self) -> bool:
@@ -656,17 +674,11 @@ class McpServer:
             return
 
         try:
-            async with self._streams() as (read, write), ClientSession(read, write) as session:
+            async with self._streams() as (read, write), ClientSession(
+                read, write, message_handler=self._on_message
+            ) as session:
                 self.capabilities = _capabilities_of(await session.initialize())
-                listing = await session.list_tools()
-                self.tools = [
-                    {
-                        "name": tool.name,
-                        "description": tool.description or "",
-                        "input_schema": _schema_of(tool),
-                    }
-                    for tool in listing.tools
-                ]
+                self.tools = _tool_specs(await session.list_tools())
                 self._session = session
                 self.needs_auth = False
                 if not ready.done():
@@ -687,6 +699,43 @@ class McpServer:
                     ready.set_exception(McpError(f"{self.config.name}: {detail}"))
         finally:
             self._session = None
+
+    async def _on_message(self, message: Any) -> None:
+        """The session's notification hook: a changed tool list is listed again.
+
+        The SDK awaits this inline while it reads the stream, so a ``tools/list``
+        from in here would wait on itself; the re-list runs as its own task.
+        """
+        if getattr(message, "method", None) != TOOLS_CHANGED:
+            return
+        self._relist_again = True
+        task = self._relist_task
+        if task is None or task.done():
+            self._relist_task = asyncio.get_running_loop().create_task(
+                self._relist_soon(), name=f"mcp-relist:{self.config.name}"
+            )
+
+    async def _relist_soon(self) -> None:
+        """Re-list after :data:`RELIST_DEBOUNCE`, again while notifications keep coming."""
+        while self._relist_again:
+            self._relist_again = False
+            await asyncio.sleep(RELIST_DEBOUNCE)
+            try:
+                await relist(self)
+            except Exception as exc:  # noqa: BLE001 - a failed re-list keeps the old list
+                name = self.config.name
+                log.info("mcp server %s: re-listing tools failed: %s", name, _flatten(exc))
+
+    async def list_tools_now(self) -> bool:
+        """Ask the running server for its tools again; ``True`` when the list changed."""
+        session = self._session
+        if session is None:
+            return False
+        fresh = _tool_specs(await asyncio.wait_for(session.list_tools(), RELIST_TIMEOUT))
+        if fresh == self.tools:
+            return False
+        self.tools = fresh
+        return True
 
     async def call(self, tool: str, args: dict[str, Any]) -> RenderedMcpContent:
         await self.start()
@@ -726,6 +775,10 @@ class McpServer:
 
     async def close(self) -> None:
         self._stop.set()
+        relisting = self._relist_task
+        self._relist_task = None
+        if relisting is not None and not relisting.done():
+            relisting.cancel()
         task = self._task
         self._task = None
         if task is not None and not task.done():
@@ -802,6 +855,22 @@ def _capabilities_of(result: Any) -> set[str]:
     if caps is None:
         return set()
     return {name for name in ("resources", "prompts") if getattr(caps, name, None) is not None}
+
+
+#: The notification a server sends when its tool list changed.
+TOOLS_CHANGED = "notifications/tools/list_changed"
+
+
+def _tool_specs(listing: Any) -> list[dict[str, Any]]:
+    """A ``tools/list`` result as the plain dicts :attr:`McpServer.tools` holds."""
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description or "",
+            "input_schema": _schema_of(tool),
+        }
+        for tool in listing.tools
+    ]
 
 
 def _schema_of(tool: Any) -> dict[str, Any]:
@@ -1243,11 +1312,18 @@ async def register_config(core: Core, config: McpServerConfig) -> list[str]:
         return []
     MANAGER.bind(core)
     server = MANAGER.register(config)
+    server.core = core
     try:
         await server.start()
     except McpError as exc:
         log.info("skipping mcp server %s: %s", config.name, exc)
         return []
+    return _register_server_tools(core, server)
+
+
+def _register_server_tools(core: Core, server: McpServer) -> list[str]:
+    """Put ``server``'s current tools in ``core``'s registry; returns their names."""
+    config = server.config
     permission = permission_for(core, config.name)
     registered: list[str] = []
     for spec in server.visible_tools():
@@ -1287,6 +1363,121 @@ async def register_config(core: Core, config: McpServerConfig) -> list[str]:
     return registered
 
 
+# ---------------------------------------------------------------------------
+# re-listing (M36): a server's tools change while snowpea stays connected
+# ---------------------------------------------------------------------------
+
+
+async def relist(server: McpServer) -> bool:
+    """List ``server``'s tools again and bring the registry in line.
+
+    New tools are registered, removed ones unregistered, the tools fragment is
+    dropped and ``mcp.changed`` goes out with the new count (same event shape
+    as any other transition).  Returns ``True`` when the list changed.
+    """
+    if not await server.list_tools_now():
+        return False
+    name = server.config.name
+    log.info("mcp server %s: tool list changed, now %d tool(s)", name, len(server.tools))
+    core = server.core
+    if core is not None and MANAGER.get(name) is server:
+        kept = set(_register_server_tools(core, server))
+        source = f"mcp:{name}"
+        for info in core.tools.list():
+            if info.source == source and info.name not in kept:
+                core.tools.unregister(info.name)
+        _invalidate_tool_prompt()
+    if server.announce:
+        MANAGER.announce(server)
+    return True
+
+
+async def relist_on_miss(name: str) -> bool:
+    """Re-list server ``name`` because a lookup missed, at most once a minute.
+
+    Returns ``True`` when the list changed.  A server that is not running is
+    left alone: starting one is :func:`sync_tools`' job.
+    """
+    server = MANAGER.get(name)
+    if server is None or not server.running:
+        return False
+    now = time.monotonic()
+    last = server._miss_relist_at
+    if last is not None and now - last < MISS_RELIST_COOLDOWN:
+        return False
+    server._miss_relist_at = now
+    try:
+        return await relist(server)
+    except Exception as exc:  # noqa: BLE001 - a miss must never break the caller
+        log.info("mcp server %s: re-listing tools failed: %s", name, _flatten(exc))
+        return False
+
+
+def server_of_tool(name: str) -> str | None:
+    """The configured server an ``mcp__<server>__<tool>`` name belongs to.
+
+    Server names may hold ``_``, so the longest known server that prefixes the
+    name wins rather than a split on ``__``.
+    """
+    if not name.startswith(TOOL_PREFIX):
+        return None
+    best: str | None = None
+    for server in MANAGER.names():
+        prefix = tool_name(server, "")
+        if name.startswith(prefix) and len(name) > len(prefix):
+            if best is None or len(server) > len(best):
+                best = server
+    return best
+
+
+async def relist_for_tool(name: str) -> bool:
+    """A call named ``name`` and the registry lacks it: re-list its server once."""
+    server = server_of_tool(name)
+    return server is not None and await relist_on_miss(server)
+
+
+def search_misses(query: str, matches: Iterable[Any]) -> list[str]:
+    """MCP servers a ``tool_search`` for ``query`` missed in.
+
+    ``select:`` misses on any ``mcp__<server>__…`` name it did not find.  A
+    keyword query misses when it names a server (``hwp``, or an
+    ``mcp__hwp__…`` name) and either nothing matched or one of its other
+    words appears in none of the matches.
+    """
+    found = list(matches)
+    text = str(query or "").strip()
+    if text.lower().startswith("select:"):
+        have = {str(getattr(spec, "name", "")) for spec in found}
+        wanted = [part.strip() for part in text.partition(":")[2].split(",") if part.strip()]
+        servers = [server_of_tool(item) for item in wanted if item not in have]
+        return list(dict.fromkeys(server for server in servers if server))
+    tokens = [token.lstrip("+").lower() for token in text.split() if token.lstrip("+")]
+    scoped = [
+        server
+        for server in MANAGER.names()
+        if server.lower() in tokens
+        or any(token.startswith(tool_name(server, "").lower()) for token in tokens)
+    ]
+    if not scoped:
+        return []
+    if not found:
+        return scoped
+    names = {server.lower() for server in scoped}
+    rest = [token for token in tokens if token not in names]
+    haystack = " ".join(
+        f"{getattr(spec, 'name', '')} {getattr(spec, 'description', '')}" for spec in found
+    ).lower()
+    return scoped if any(token not in haystack for token in rest) else []
+
+
+async def relist_for_search(query: str, matches: Iterable[Any]) -> bool:
+    """Re-list every server :func:`search_misses` names; ``True`` when any changed."""
+    changed = False
+    for server in search_misses(query, matches):
+        changed = await relist_on_miss(server) or changed
+    return changed
+
+
 __all__ = [
     "CONFIG_NAME",
     "ENTRY_KEYS",
@@ -1308,7 +1499,13 @@ __all__ = [
     "var_names",
     "permission_for",
     "register_config",
+    "relist",
+    "relist_for_search",
+    "relist_for_tool",
+    "relist_on_miss",
     "resync_if_changed",
+    "search_misses",
+    "server_of_tool",
     "RenderedMcpContent",
     "as_rendered",
     "render_content",

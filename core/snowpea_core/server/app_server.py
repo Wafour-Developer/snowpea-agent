@@ -805,7 +805,7 @@ async def provider_login_web_handler(
     carries **remove** the credentials of whatever auth method it replaced.
     """
 
-    async def on_progress(fields: dict[str, Any]) -> None:
+    async def broadcast(fields: dict[str, Any]) -> None:
         hub = getattr(core, "hub", None)
         if hub is None:  # pragma: no cover - a core without a hub is a test double
             return
@@ -814,14 +814,49 @@ async def provider_login_web_handler(
         except Exception:  # noqa: BLE001 - a dead socket must not break the login
             log.debug("could not broadcast loginProgress", exc_info=True)
 
+    # 1.71.0: every flow reports 'done' from its finish(), before the credential
+    # is saved; a client that refreshes provider.list on 'done' would still see
+    # the provider unconnected.  Hold 'done' back and send it once the save
+    # succeeded (or 'failed' in its place when the save fails).
+    held_done: list[dict[str, Any]] = []
+
+    async def on_progress(fields: dict[str, Any]) -> None:
+        if fields.get("phase") == "done":
+            held_done.append(dict(fields))
+            return
+        await broadcast(fields)
+
+    method = params.method or None
+    if params.openBrowser is False:
+        # 1.71.0: google_adc runs `gcloud auth application-default login`, which
+        # opens the system browser itself and has no address to hand the client.
+        resolved = auth_web.method_for(params.vendor, method)
+        if resolved == "google_adc":
+            if method in (None, "web", "browser", "auto") and (
+                "google_oauth" in auth_web.methods_for(params.vendor)
+            ):
+                # An automatic pick fell back to the headless flow because this
+                # machine has no browser; the client opens the page instead.
+                method = "google_oauth"
+            else:
+                raise RpcError(
+                    errors.LOGIN_UNSUPPORTED,
+                    f"{params.vendor}: this sign-in method opens the system browser; "
+                    "use Google sign-in (google_oauth) instead",
+                    data={"vendor": params.vendor, "method": "google_adc"},
+                )
+
     started = await auth_web.login_started(
         params.vendor,
-        params.method or None,
+        method,
         on_prompt=lambda message: log.info("provider login: %s", message),
         # Security review 6, H-1: a remote login starts no program here; its page
         # opens the consent address from the result (verificationUri) itself.
+        # 1.71.0: openBrowser false asks the same for a local client (the Snowpea
+        # browser opens the consent page in its own tab).
         open_browser=os.environ.get("SNOWPEA_TEST") != "1"
-        and not bool(getattr(conn, "remote_login", False)),
+        and not bool(getattr(conn, "remote_login", False))
+        and params.openBrowser is not False,
         on_progress=on_progress,
     )
 
@@ -833,10 +868,28 @@ async def provider_login_web_handler(
             return
         try:
             await _persist_provider(core, result.vendor, result.credentials)
-        except RpcError:
+        except Exception as exc:  # noqa: BLE001 - reported as loginProgress(failed)
             log.warning(
                 "could not persist credentials for %s", params.vendor, exc_info=True
             )
+            await broadcast(
+                {
+                    "vendor": result.vendor,
+                    "method": result.method,
+                    "phase": "failed",
+                    "message": f"{result.vendor}: could not save the sign-in: {exc}",
+                }
+            )
+            return
+        for fields in held_done or [
+            {
+                "vendor": result.vendor,
+                "method": result.method,
+                "phase": "done",
+                **({"message": result.message} if result.message else {}),
+            }
+        ]:
+            await broadcast(fields)
 
     conn.spawn(finish_and_persist())
     return ProviderLoginWebResult(

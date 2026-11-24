@@ -63,6 +63,7 @@ OWNED_RUN_METHODS = frozenset(
         "memory.list",
         "question.list",
         "session.artifacts",
+        "session.paths",
         "session.attachments",
         "session.close",
         "session.events",

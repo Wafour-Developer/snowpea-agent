@@ -310,12 +310,8 @@ def enabled(core: Core, session: Session) -> bool:
     return not surface.startswith("gateway")
 
 
-def tmp_deliverable(session: Session, final_text: str) -> str | None:
-    """The first path under the session's ``tmp/`` that ``final_text`` names, if any."""
-    workspace = getattr(session, "workspace_dir", None)
-    if not workspace or not final_text:
-        return None
-    root = str(workspace).rstrip("/\\") + "/tmp/"
+def _path_after(final_text: str, root: str) -> str | None:
+    """The first path in ``final_text`` that starts with ``root``, if any."""
     start = final_text.find(root)
     if start < 0:
         return None
@@ -326,13 +322,43 @@ def tmp_deliverable(session: Session, final_text: str) -> str | None:
     return final_text[start:end].rstrip(".,;:")
 
 
+def tmp_deliverable(session: Session, final_text: str) -> str | None:
+    """The first path under the session's ``tmp/`` that ``final_text`` names, if any."""
+    workspace = getattr(session, "workspace_dir", None)
+    if not workspace or not final_text:
+        return None
+    return _path_after(final_text, str(workspace).rstrip("/\\") + "/tmp/")
+
+
+def os_downloads_deliverable(
+    session: Session, final_text: str, results_dir: str | None = None
+) -> str | None:
+    """The first path under the computer's ``~/Downloads`` that ``final_text`` names.
+
+    A file the session itself keeps there (its results folder lies inside
+    ``~/Downloads``) is fine.
+    """
+    if not final_text:
+        return None
+    home = str(Path("~").expanduser()).rstrip("/\\")
+    for root in (f"{home}/Downloads/", "~/Downloads/"):
+        path = _path_after(final_text, root)
+        if path is None:
+            continue
+        full = home + path[1:] if path.startswith("~") else path
+        if results_dir and (full + "/").startswith(str(results_dir).rstrip("/\\") + "/"):
+            continue
+        return path
+    return None
+
+
 def nudge(core: Core, session: Session, final_text: str = "") -> str | None:
-    """The follow-up for a turn about to end unchecked or with its work in ``tmp/``.
+    """The follow-up for a turn about to end unchecked or with its work misplaced.
 
     ``None`` lets the turn end.  ``final_text`` is the answer it is about to
     give: one that points the user at a file in the session's throwaway
-    ``tmp/`` is sent back once to put the deliverable somewhere it stays
-    (R5, 1.37.0).
+    ``tmp/`` (R5, 1.37.0) or in the computer's ``~/Downloads`` (1.71.0) is
+    sent back once to put the deliverable in the session's results folder.
     """
     unverified = _nudge_unverified(core, session, final_text)
     if unverified is not None:
@@ -340,16 +366,24 @@ def nudge(core: Core, session: Session, final_text: str = "") -> str | None:
     turn: TurnEvidence | None = getattr(session, "verify_turn", None)
     if turn is None or turn.tmp_nudged or turn.nudges >= MAX_NUDGES or not enabled(core, session):
         return None
+    from snowpea_core.session.paths import resolve
+
+    folders = resolve(session, core)
     path = tmp_deliverable(session, final_text)
-    if path is None:
-        return None
+    if path is not None:
+        where = "in the session's scratch space (tmp/), which is throwaway"
+    else:
+        path = os_downloads_deliverable(session, final_text, folders.results_dir)
+        if path is None:
+            return None
+        where = "in the computer's Downloads folder, outside this conversation's folders"
     turn.tmp_nudged = True
     turn.nudges += 1
     return (
-        f"[system] Your answer points at {path}, in the session's scratch space (tmp/), "
-        "which is throwaway and not where the user looks. Unless they named another place, "
-        "move the file into the working directory (or the workspace's artifacts/ folder), "
-        "check it is there, and give the new path."
+        f"[system] Your answer points at {path}, {where} and not where the user looks. "
+        f"Unless they named that place, move the file into {folders.results_dir} "
+        f"(a downloaded file into {folders.downloads_dir}), check it is there, and give "
+        "the new path."
     )
 
 

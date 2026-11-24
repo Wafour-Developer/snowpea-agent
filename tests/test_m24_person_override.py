@@ -59,7 +59,7 @@ def test_the_unallowable_reads_are_exactly_the_secrets() -> None:
     assert cp.unallowable_reads() == (
         "daemon.json", "token", "credentials.json", "mcp-oauth.json",
         ".daemon.json", ".token", ".credentials.json", ".mcp-oauth.json",
-        ".codex/auth.json", ".claude/.credentials.json",
+        ".codex/auth.json", ".claude/.credentials.json", "terminals",
         "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.claude.json",
         "~/.gemini/oauth_creds.json", "~/.config/cursor/auth.json",
         "~/.cursor/cli-config.json", "~/.config/anthropic",
