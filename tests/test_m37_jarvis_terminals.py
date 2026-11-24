@@ -147,6 +147,9 @@ async def test_tools_create_send_wait_read(world: dict[str, Any]) -> None:
     waited = await _call(core, "terminal_wait", {"id": tid, "timeout": 10, "output": "got:ping"},
                          human=True)
     assert waited.ok and waited.meta["reason"] in ("match", "left_working")
+    # output is literal text (review M5): a broken pattern is just text that never shows.
+    literal = await _call(core, "terminal_wait", {"id": tid, "timeout": 1, "output": "(a+)+$("})
+    assert literal.ok and literal.meta["reason"] == "timeout"
     read = await _call(core, "terminal_read", {"id": tid, "lines": 20})
     assert "got:ping" in read.output and "<untrusted" in read.output
     # session_read / session_prompt take a terminal id too.

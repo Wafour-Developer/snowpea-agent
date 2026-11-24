@@ -571,17 +571,13 @@ async def terminal_interrupt(ctx: ToolContext, args: dict[str, Any]) -> ToolResu
 
 
 async def terminal_wait(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    from snowpea_core.jarvis.tools import Refused, _int, _result, _service, _text
+    from snowpea_core.jarvis.tools import _int, _result, _service, _text
 
     service = _service(ctx)
     term = _find(service, _text(args, "id"))
     timeout = _int(args, "timeout", WAIT_DEFAULT, 1, WAIT_MAX)
+    # Literal text, matched as a substring (never a pattern: review M5).
     output = _text(args, "output", required=False, limit=200) or None
-    if output is not None:
-        try:
-            re.compile(output)
-        except re.error as exc:
-            raise Refused(f"output is not a valid pattern: {exc}") from exc
     result = await term.manager.wait(term.id, timeout, output)
     return _result(
         f"terminal {term.id}: {result['reason']} — now {_status_text(term)}",
@@ -684,7 +680,7 @@ def build_tools(service: JarvisService) -> list[Tool]:
               tag="delegate"),
         _tool("terminal_wait",
               "Wait until a terminal stops working, blocks, exits, or prints text matching "
-              "output (a regular expression), at most timeout seconds.",
+              "output (literal text, not a pattern), at most timeout seconds.",
               {"id": ident,
                "timeout": {"type": "integer", "description": f"Seconds (max {WAIT_MAX})."},
                "output": {"type": "string"}},
