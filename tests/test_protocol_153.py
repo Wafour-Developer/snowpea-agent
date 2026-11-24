@@ -144,7 +144,11 @@ def test_version_and_declared_contract() -> None:
 
 
 def test_pending_capabilities_are_not_advertised() -> None:
-    assert set(protocol.PENDING_CAPABILITIES) == set()
+    # M37 (1.73.0) declares six capabilities ahead of their work packages.
+    assert set(protocol.PENDING_CAPABILITIES) <= {
+        "terminalSessions", "terminalStatus", "cliIntegrations", "externalPty",
+        "tuiSessionAttach", "webTunnel",
+    }
     assert not (set(protocol.PENDING_CAPABILITIES) & set(protocol.CAPABILITIES))
     # Implemented in WP1, WP2 and WP3, so advertised now.
     assert "messageOrigin" in protocol.CAPABILITIES

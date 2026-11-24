@@ -92,6 +92,7 @@ import {
   type ToolCallEntry,
   waitingPrompts,
 } from "./state/store.js";
+import type { OscEmitter } from "./util/osc-status.js";
 import { derivePhase, queuedLabel, turnSummaryLine, workingLine, estimateTokens } from "./state/working.js";
 import { cycleMode } from "./state/mode.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
@@ -374,6 +375,10 @@ export interface AppProps {
   model?: string;
   /** Delegation mode as `session.create` reported it. */
   initialDelegation?: boolean;
+  /** `--session <id>`: the `session.resume` answer for the session this TUI attached to. */
+  attached?: { events: SessionEvent[]; mode?: string; autoAfterPlan?: boolean; delegation?: boolean };
+  /** OSC 7501 status emitter (terminal sessions); absent in plain terminals. */
+  osc?: OscEmitter;
   /**
    * Draw as a full-screen app on the alternate screen buffer. `index.tsx`
    * turns this off for `--no-fullscreen` and `SNOWPEA_TUI_INLINE=1`, which
@@ -568,6 +573,8 @@ export function App({
   provider,
   model,
   initialDelegation,
+  attached,
+  osc,
   fullscreen = false,
   onRestart,
   history,
@@ -891,6 +898,23 @@ export function App({
         setSkillRows([]);
       });
   }, [client]);
+
+  useEffect(() => {
+    if (!attached) return;
+    if (attached.events.length > 0) dispatch({ type: "session/replay", events: attached.events });
+    if (typeof attached.mode === "string") {
+      dispatch({ type: "mode", mode: attached.mode as Mode, autoAfterPlan: attached.autoAfterPlan === true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    osc?.update({
+      turnActive: state.turnActive,
+      permissionPending: state.pendingApproval !== null,
+      questionPending: state.pendingQuestion !== null,
+    });
+  }, [osc, state.turnActive, state.pendingApproval, state.pendingQuestion]);
 
   const refreshApprovals = useCallback(() => {
     // 1.68.0 (jobApprovals): the whole shared queue, not this session's

@@ -918,6 +918,13 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     from snowpea_core.server.web_remote_handlers import register_web_remote_handlers
 
     register_web_remote_handlers(dispatcher)
+    from snowpea_core.server.integration_handlers import register_integration_handlers
+    from snowpea_core.server.terminal_handlers import register_terminal_handlers
+    from snowpea_core.server.tunnel_handlers import register_tunnel_handlers
+
+    register_terminal_handlers(dispatcher)
+    register_integration_handlers(dispatcher)
+    register_tunnel_handlers(dispatcher)
     from snowpea_core.server.trust_handlers import register_trust_handlers
 
     register_trust_handlers(dispatcher)

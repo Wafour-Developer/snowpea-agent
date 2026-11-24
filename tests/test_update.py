@@ -741,7 +741,7 @@ def test_launch_tui_relaunches_on_exit_75(
         return _Info()
 
     monkeypatch.setattr(cli_main, "ensure_daemon", _ensure)
-    monkeypatch.setattr(cli_main.subprocess, "call", lambda command: cli_main.TUI_RESTART_EXIT)
+    monkeypatch.setattr(cli_main.subprocess, "call", lambda command, **_kw: cli_main.TUI_RESTART_EXIT)
     monkeypatch.setattr(cli_main, "relaunch", lambda home: calls.append("relaunch") or 0)
 
     args = cli_main.build_parser().parse_args(["--cwd", str(tmp_path)])
@@ -762,7 +762,7 @@ def test_a_normal_tui_exit_code_passes_through(
         return _Info()
 
     monkeypatch.setattr(cli_main, "ensure_daemon", _ensure)
-    monkeypatch.setattr(cli_main.subprocess, "call", lambda command: 4)
+    monkeypatch.setattr(cli_main.subprocess, "call", lambda command, **_kw: 4)
     args = cli_main.build_parser().parse_args(["--cwd", str(tmp_path)])
     assert cli_main.launch_tui(args, None) == 4
 

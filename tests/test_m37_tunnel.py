@@ -705,3 +705,84 @@ time.sleep(60)
         assert delays == [2.0]
     finally:
         await service.stop()
+
+
+# -- the web.tunnel.* handlers -----------------------------------------------------------------
+
+
+async def test_handlers_start_status_stop_and_token(tmp_path: Path) -> None:
+    from snowpea_core.server import tunnel_handlers as h
+    from snowpea_core.server.protocol import (
+        Empty,
+        TunnelSetTokenParams,
+        TunnelStartParams,
+        TunnelStopParams,
+    )
+
+    proc = FakeProc(QUICK_LOG.splitlines(), exit_after=False)
+    service, _, _, paths = _service(tmp_path, "cloudflare-quick", [proc])
+    saved: list[dict[str, Any]] = []
+
+    async def save(core: Any, **values: Any) -> None:
+        saved.append(values)
+
+    core = SimpleNamespace(tunnel=service, paths=paths)
+    conn = _conn(via=False)
+    orig = h._save_tunnel
+    h._save_tunnel = save  # type: ignore[assignment]
+    try:
+        started = await h.start_handler(conn, TunnelStartParams(save=True), core)
+        assert started.state == "running" and started.url.endswith(".trycloudflare.com")
+        assert saved == [{"provider": "cloudflare-quick"}]
+        assert (await h.status_handler(conn, Empty(), core)).state == "running"
+        token = "ng-secret-1"
+        status = await h.set_token_handler(
+            conn, TunnelSetTokenParams(provider="ngrok", token=token), core)
+        assert status.provider == "cloudflare-quick" and token not in status.model_dump_json()
+        assert CredentialStore(paths).load()[tunnel.NGROK_TOKEN_KEY] == token
+        with pytest.raises(RpcError):
+            await h.set_token_handler(
+                conn, TunnelSetTokenParams(provider="ngrok", token="has space"), core)
+        stopped = await h.stop_handler(conn, TunnelStopParams(save=True), core)
+        assert stopped.state == "off" and saved[-1] == {"provider": "off", "autoStart": False}
+    finally:
+        h._save_tunnel = orig  # type: ignore[assignment]
+        await service.stop()
+
+
+async def test_handler_start_error_is_unavailable_with_reason(tmp_path: Path) -> None:
+    from snowpea_core.server import tunnel_handlers as h
+    from snowpea_core.server.protocol import TunnelStartParams
+
+    service, _, _, paths = _service(tmp_path, "cloudflare-quick", [])
+    web_remote.clear_password(paths)
+    with pytest.raises(RpcError) as exc:
+        await h.start_handler(_conn(via=False), TunnelStartParams(), SimpleNamespace(tunnel=service))
+    assert exc.value.code == "unavailable" and exc.value.data["reason"] == "no_password"
+
+
+async def test_handler_unlock_marks_the_session(tmp_path: Path) -> None:
+    from snowpea_core.server import tunnel_handlers as h
+    from snowpea_core.server.protocol import TunnelUnlockParams
+
+    conn = _conn(via=True)
+    calls: list[str] = []
+
+    async def reauth(password: Any) -> str:
+        calls.append(password)
+        return "ok" if password == PASSWORD else "failed"
+
+    conn.remote_reauth = reauth
+    with pytest.raises(Exception):  # noqa: B017 - the refusal for a wrong password
+        await h.unlock_handler(conn, TunnelUnlockParams(password="wrong"), SimpleNamespace())
+    with pytest.raises(RpcError):
+        require_terminal_unlock(conn)
+    result = await h.unlock_handler(conn, TunnelUnlockParams(password=PASSWORD), SimpleNamespace())
+    assert result.unlocked
+    require_terminal_unlock(conn)
+
+
+def test_secret_params_are_dropped_from_validation_errors() -> None:
+    from snowpea_core.server import rpc
+
+    assert {"token", "password"} <= rpc.SECRET_PARAMS

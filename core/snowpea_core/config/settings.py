@@ -505,21 +505,15 @@ class DaemonSettings(_Model):
 
 
 class WebTunnelSettings(_Model):
-    """A public tunnel in front of the remote listener (M37, ``server/tunnel.py``).
-
-    ``off`` runs nothing.  The tunnel needs ``web.remote.enabled`` and a web
-    password.  Tokens (ngrok authtoken, Cloudflare tunnel token) are never here:
-    they live in ``credentials.json``.
-    """
+    """``web.remote.tunnel`` (1.73.0): a local person's only (``settings_gate``)."""
 
     provider: Literal["off", "cloudflare-quick", "cloudflare", "ngrok"] = "off"
-    #: Start the tunnel with the daemon when the provider is set and the
-    #: preconditions hold.
+    #: Start it with the daemon when web.remote is on.
     autoStart: bool = True
-    #: The public hostname of a named Cloudflare tunnel (``cloudflare``).
-    hostname: str | None = None
-    #: A tunnel program to use before ``PATH`` and ``$SNOWPEA_HOME/bin``.
-    binary: str | None = None
+    #: ``cloudflare``: the public hostname of the named tunnel.
+    hostname: str = ""
+    #: Absolute path of the tunnel program; empty: PATH, then ``$SNOWPEA_HOME/bin``.
+    binary: str = ""
 
 
 class WebRemoteSettings(_Model):
@@ -545,6 +539,8 @@ class WebRemoteSettings(_Model):
     #: applies at once.  It stops unattended runs, not the holder of the link:
     #: that person still answers each approval (``session/mode_guard.py``).
     maxMode: Literal["plan", "accept", "auto"] = "auto"
+    #: Public URL through an ngrok or Cloudflare tunnel (M37, 1.73.0).  The tokens
+    #: live in ``credentials.json``, never here.
     tunnel: WebTunnelSettings = Field(default_factory=WebTunnelSettings)
 
 
@@ -1036,6 +1032,10 @@ class JarvisExternalSettings(_Model):
     """External agent CLIs (M19 WP5-6)."""
 
     enabled: bool = True
+    #: How an external session opens in a client that asks for the default (M37,
+    #: 1.73.0): ``terminal`` runs the CLI in a real terminal (transport 'pty'),
+    #: ``chat`` keeps the structured chat view.
+    view: Literal["terminal", "chat"] = "terminal"
     #: Per CLI id (``claude``, ``codex``, ``agy``, ``cursor``).
     clis: dict[str, JarvisExternalCliSettings] = Field(default_factory=dict)
     #: Most CLI processes snowpea runs at once.
@@ -1259,6 +1259,35 @@ class SecuritySettings(_Model):
         return value is not False and value is not None
 
 
+class TerminalSoundsSettings(_Model):
+    """Alerts when a terminal needs the person (M37, 1.73.0)."""
+
+    #: Sound and toast when a terminal enters blocked or error.
+    blocked: bool = True
+    #: Sound and toast when a terminal is done and the person is not looking.
+    done: bool = True
+
+
+class TerminalsSettings(_Model):
+    """``terminals.*`` (M37, 1.73.0): a local person's only (``settings_gate``)."""
+
+    #: Most terminals at once.
+    max: int = Field(default=16, ge=1, le=64)
+    #: After the CLI exits, drop back to the person's shell instead of closing.
+    keepShell: bool = True
+    #: Size while no viewer is attached.
+    headlessCols: int = Field(default=160, ge=40, le=500)
+    headlessRows: int = Field(default=48, ge=10, le=200)
+    sounds: TerminalSoundsSettings = Field(default_factory=TerminalSoundsSettings)
+
+
+class UiSettings(_Model):
+    """View preferences of a person's own surface (M37, 1.73.0)."""
+
+    #: Default view of a snowpea session: the chat or the snowpea CLI in a terminal.
+    sessionView: Literal["chat", "terminal"] = "chat"
+
+
 class Settings(_Model):
     """Daemon-wide settings, persisted as JSON."""
 
@@ -1272,6 +1301,10 @@ class Settings(_Model):
     agent: AgentSettings = Field(default_factory=AgentSettings)
     daemon: DaemonSettings = Field(default_factory=DaemonSettings)
     web: WebSettings = Field(default_factory=WebSettings)
+    #: Terminal sessions (M37, 1.73.0); a local person's only.
+    terminals: TerminalsSettings = Field(default_factory=TerminalsSettings)
+    #: View preferences (M37, 1.73.0).
+    ui: UiSettings = Field(default_factory=UiSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
