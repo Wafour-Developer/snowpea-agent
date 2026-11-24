@@ -151,6 +151,10 @@ def run(
     if interactive is None:
         interactive = ui.is_interactive()
     asker = ask or ui.ask
+    if "providers" in answered and key and not interactive:
+        # 1.74.0: ``--key`` with no one to ask: a key the vendor refuses is
+        # an error, not a setup that fails on the first prompt.
+        _verify_key(state, interactive=False, console=console)
     shown: list[str] = []
 
     # A CLI flag answers the provider-selection screen, not the credential
@@ -201,6 +205,8 @@ def run(
         shown.append(name)
         if name == "providers" and state.vendor and not state.api_key:
             _ask_for_key(state, interactive=interactive)
+        if name == "providers" and state.vendor and state.api_key and interactive:
+            _verify_key(state, interactive=True, console=console)
         if name == "providers" and state.vendor:
             _ask_for_model(state, interactive=interactive, console=console, home=paths.home)
             if mode == "full":
@@ -555,6 +561,60 @@ def _apply_login(state: WizardState, credentials: dict[str, Any]) -> None:
     else:
         state.api_key = None
     state.oauth_token = None
+
+
+def _verify_key(state: WizardState, *, interactive: bool, console: Console | None = None) -> None:
+    """Ask the vendor about the key typed in this run (1.74.0).
+
+    Accepted, or the vendor could not be reached: kept (the second with a
+    note).  Refused: interactively the person may keep it anyway; otherwise it
+    is an error and nothing is written.
+    """
+    from snowpea_core.providers import key_verify
+    from snowpea_core.providers.presets import preset_for
+
+    vendor, key = state.vendor, state.api_key
+    if not vendor or not key or state.auth_method:
+        return
+    block = dict(state.provider_configs.get(vendor) or {})
+    base_url = state.base_url or str(block.get("base_url") or "") or None
+    if base_url:
+        block["base_url"] = base_url
+    try:
+        preset = preset_for(vendor, state.variant, block)
+    except KeyError:
+        return
+    out = console.print if console is not None else print
+    try:
+        result = _run_sync(
+            key_verify.verify_credentials(
+                preset, api_key=key, base_url=base_url, model=state.model or None
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - a check never blocks setup
+        log.debug("key check failed: %s", exc)
+        return
+    if result.state == "unreachable":
+        state.notes.append(f"{vendor}: could not check the API key ({result.message})")
+        return
+    if result.state != "invalid":
+        return
+    said = f": {result.message}" if result.message else ""
+    if not interactive:
+        raise SetupError(
+            f"the API key for {preset.label} was rejected by the vendor{said} — nothing "
+            "was written (SNOWPEA_KEY_VERIFY=0 skips the check)"
+        )
+    out(f"{preset.label} rejected this API key{said}")
+    try:
+        answer = ui.ask_text("save it anyway? [y/N]: ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        answer = ""
+    if answer in ("y", "yes"):
+        state.notes.append(f"{vendor}: saved a key the vendor rejected")
+        return
+    state.api_key = None
+    state.notes.append(f"{vendor}: the API key was rejected — not saved")
 
 
 def _probe_token(vendor: str, token: str) -> str | None:

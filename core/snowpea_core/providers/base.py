@@ -163,6 +163,9 @@ class ChatProvider(Protocol):
 class ProviderError(RuntimeError):
     """Raised for configuration or transport failures."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.code = code
+        #: Machine-readable details for the ``error`` event (1.74.0:
+        #: ``{reason: "invalid_key", vendor, verify}``); ``None`` for most.
+        self.details = details

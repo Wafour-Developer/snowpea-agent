@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.73.0";
+export const PROTOCOL_VERSION = "1.74.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -116,6 +116,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
 export type ErrorDetailReason =
   | "catch_all"
   | "global_only"
+  | "invalid_key"
   | "jarvis_on"
   | "local_only"
   | "mode_raise"
@@ -138,6 +139,7 @@ export type ErrorDetailReason =
 export const ERROR_DETAIL_REASONS: Readonly<Record<ErrorDetailReason, ErrorCode>> = {
   catch_all: "invalid_params",
   global_only: "invalid_params",
+  invalid_key: "invalid_params",
   jarvis_on: "jarvis_person_only",
   local_only: "jarvis_person_only",
   mode_raise: "jarvis_person_only",
@@ -5403,12 +5405,14 @@ export interface ProjectTrustStatusResult {
   workdir: string;
 }
 
-/** `provider.configure` params. Store settings and credentials for a provider. From a remote web login (1.55.0) no base_url and no credential (api_key, token, an OAuth record; clearing one stays open): jarvis_person_only, details {reason: local_only, what: 'base_url'|'credential'}. */
+/** `provider.configure` params. Store settings and credentials for a provider. From a remote web login (1.55.0) no base_url and no credential (api_key, token, an OAuth record; clearing one stays open): jarvis_person_only, details {reason: local_only, what: 'base_url'|'credential'}. 1.74.0 (providerKeyVerify): a new API key, token or base URL is checked with the vendor first (about 8 s at most); a key the vendor refuses is not stored unless force is true: invalid_params, details {reason: invalid_key, vendor, verify}. This applies to every client, older ones included. The result carries verify. */
 export interface ProviderConfigureParams {
   /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
   actor?: "person" | null;
   /** Vendor-specific settings, including credentials. */
   config?: Record<string, unknown>;
+  /** 1.74.0 (capability providerKeyVerify): store the key even though the vendor refused it ('Save anyway'). Without it a refused key is not stored: invalid_params with details {reason: 'invalid_key', vendor, verify}. */
+  force?: boolean | null;
   /** Vendor to configure. */
   vendor: string;
 }
@@ -5417,6 +5421,17 @@ export interface ProviderConfigureParams {
 export interface ProviderConfigureResult {
   /** True when the call succeeded. */
   ok?: boolean;
+  /** 1.74.0 (capability providerKeyVerify): what the vendor said about the key just stored. Present when the call set an API key, a token or a base URL of a vendor that authenticates with a key; 'unreachable' never blocks the save, 'invalid' is only stored with force. */
+  verify?: {
+    /** When the vendor was asked (ISO-8601 UTC); null if never. */
+    checkedAt?: string | null;
+    /** The vendor's own words for a refusal or a quota answer, with the key and anything that looks like part of it removed. Empty for a plain 'ok'. */
+    message?: string;
+    /** Finer cause: 'auth' (invalid), 'quota' (ok, out of credit or rate-limited), 'network' | 'timeout' | 'server' (unreachable), 'pending' (a check is running; provider.verified follows), 'disabled' (SNOWPEA_KEY_VERIFY=0), 'no_key'. */
+    reason?: string | null;
+    /** 'ok' the vendor accepted the key (also when it answered 402/429: the key is known, the account is out of credit or rate-limited; reason 'quota'); 'invalid' it refused the key (401, or a body that names a bad key); 'unreachable' no answer that says either way (network, timeout, 5xx; a save is never blocked by it); 'unchecked' not asked yet, or not applicable. */
+    state: "ok" | "invalid" | "unreachable" | "unchecked";
+  } | null;
 }
 
 /** `provider.list` params. List chat providers and whether they are configured. */
@@ -5463,6 +5478,17 @@ export interface ProviderListResult {
     variant?: string;
     /** Vendor key, e.g. 'anthropic'. */
     vendor: string;
+    /** 1.74.0 (capability providerKeyVerify): whether the vendor accepts the stored API key. Null for a vendor with no key (unconfigured, or signed in with OAuth). 'configured' still only means a credential is stored: a surface shows a provider whose verify.state is 'invalid' as not connected and its models as unusable. provider.list never waits more than about 2 s for a check; one still running reads 'unchecked' with reason 'pending' and provider.verified follows. */
+    verify?: {
+      /** When the vendor was asked (ISO-8601 UTC); null if never. */
+      checkedAt?: string | null;
+      /** The vendor's own words for a refusal or a quota answer, with the key and anything that looks like part of it removed. Empty for a plain 'ok'. */
+      message?: string;
+      /** Finer cause: 'auth' (invalid), 'quota' (ok, out of credit or rate-limited), 'network' | 'timeout' | 'server' (unreachable), 'pending' (a check is running; provider.verified follows), 'disabled' (SNOWPEA_KEY_VERIFY=0), 'no_key'. */
+      reason?: string | null;
+      /** 'ok' the vendor accepted the key (also when it answered 402/429: the key is known, the account is out of credit or rate-limited; reason 'quota'); 'invalid' it refused the key (401, or a body that names a bad key); 'unreachable' no answer that says either way (network, timeout, 5xx; a save is never blocked by it); 'unchecked' not asked yet, or not applicable. */
+      state: "ok" | "invalid" | "unreachable" | "unchecked";
+    } | null;
   })[];
 }
 
@@ -5536,6 +5562,8 @@ export interface ProviderModelsParams {
 
 /** `provider.models` result. */
 export interface ProviderModelsResult {
+  /** 1.74.0: with usable false, the one line to show ('API key for Qwen was rejected — update it in Settings → Providers'), the vendor's words after it. */
+  authError?: string | null;
   /** One record per listed model (1.42.0): its context window in tokens (never unknown), where that came from, and any bounds requests taught us. Covers the listed models, the configured one, models.default / models.categories.* that point at this vendor, and any ids passed in params.models. A model whose source is 'assumed' is worth a look. */
   contextWindows?: Record<string, {
     /** Window in tokens; never unknown. */
@@ -5562,6 +5590,8 @@ export interface ProviderModelsResult {
   models?: string[];
   /** Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). */
   source?: string;
+  /** 1.74.0 (capability providerKeyVerify): false when the vendor refused the stored key (the live listing answered 401, or verify.state is 'invalid'). models is then a fallback nobody can run: a picker shows it disabled, with authError. */
+  usable?: boolean;
   /** Vendor the listing came from. */
   vendor: string;
   /** Which of the listed models can be sent images, when that is known. A model missing from this map is unknown rather than text-only, so a picker draws no badge for it instead of a negative one. */
@@ -5606,6 +5636,31 @@ export interface ProviderTestResult {
   provider: string;
   /** The model's reply, trimmed. */
   reply?: string | null;
+}
+
+/** `provider.verify` params. Check the stored key with the vendor again now (1.74.0, capability providerKeyVerify); provider.verified is sent as well. */
+export interface ProviderVerifyParams {
+  /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
+  actor?: "person" | null;
+  /** Vendor whose stored key to check again now. */
+  vendor: string;
+}
+
+/** `provider.verify` result. */
+export interface ProviderVerifyResult {
+  /** Vendor checked. */
+  vendor: string;
+  /** The fresh answer; 'unchecked' for a vendor with no key (or OAuth). */
+  verify: {
+    /** When the vendor was asked (ISO-8601 UTC); null if never. */
+    checkedAt?: string | null;
+    /** The vendor's own words for a refusal or a quota answer, with the key and anything that looks like part of it removed. Empty for a plain 'ok'. */
+    message?: string;
+    /** Finer cause: 'auth' (invalid), 'quota' (ok, out of credit or rate-limited), 'network' | 'timeout' | 'server' (unreachable), 'pending' (a check is running; provider.verified follows), 'disabled' (SNOWPEA_KEY_VERIFY=0), 'no_key'. */
+    reason?: string | null;
+    /** 'ok' the vendor accepted the key (also when it answered 402/429: the key is known, the account is out of credit or rate-limited; reason 'quota'); 'invalid' it refused the key (401, or a body that names a bad key); 'unreachable' no answer that says either way (network, timeout, 5xx; a save is never blocked by it); 'unchecked' not asked yet, or not applicable. */
+    state: "ok" | "invalid" | "unreachable" | "unchecked";
+  };
 }
 
 /** `provider.visionReset` params. Forget the learned vision answer for a model so the next picture is tried again (1.41.0, capability 'visionNotice'). A configured providers.<v>.vision wins as before. */
@@ -11501,6 +11556,23 @@ export interface ProviderLoginProgressPayload {
   verificationUriComplete?: string | null;
 }
 
+/** `provider.verified` notification payload. */
+export interface ProviderVerifiedPayload {
+  /** Vendor the check was for. */
+  vendor: string;
+  /** The answer. */
+  verify: {
+    /** When the vendor was asked (ISO-8601 UTC); null if never. */
+    checkedAt?: string | null;
+    /** The vendor's own words for a refusal or a quota answer, with the key and anything that looks like part of it removed. Empty for a plain 'ok'. */
+    message?: string;
+    /** Finer cause: 'auth' (invalid), 'quota' (ok, out of credit or rate-limited), 'network' | 'timeout' | 'server' (unreachable), 'pending' (a check is running; provider.verified follows), 'disabled' (SNOWPEA_KEY_VERIFY=0), 'no_key'. */
+    reason?: string | null;
+    /** 'ok' the vendor accepted the key (also when it answered 402/429: the key is known, the account is out of credit or rate-limited; reason 'quota'); 'invalid' it refused the key (401, or a body that names a bad key); 'unreachable' no answer that says either way (network, timeout, 5xx; a save is never blocked by it); 'unchecked' not asked yet, or not applicable. */
+    state: "ok" | "invalid" | "unreachable" | "unchecked";
+  };
+}
+
 /** `question.pending` notification payload. */
 export interface QuestionPendingPayload {
   /** The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. */
@@ -12952,6 +13024,7 @@ export interface MethodMap {
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
   "provider.remove": { params: ProviderRemoveParams; result: ProviderRemoveResult };
   "provider.test": { params: ProviderTestParams; result: ProviderTestResult };
+  "provider.verify": { params: ProviderVerifyParams; result: ProviderVerifyResult };
   "provider.visionReset": { params: ProviderVisionResetParams; result: ProviderVisionResetResult };
   "question.list": { params: QuestionListParams; result: QuestionListResult };
   "question.request": { params: QuestionRequestParams; result: QuestionRequestResult };
@@ -13211,6 +13284,7 @@ export type ClientMethod =
   | "provider.models"
   | "provider.remove"
   | "provider.test"
+  | "provider.verify"
   | "provider.visionReset"
   | "question.list"
   | "question.respond"
@@ -13362,6 +13436,7 @@ export interface EventMap {
   "mcp.changed": McpChangedPayload;
   "project.trust.changed": ProjectTrustChangedPayload;
   "provider.loginProgress": ProviderLoginProgressPayload;
+  "provider.verified": ProviderVerifiedPayload;
   "question.pending": QuestionPendingPayload;
   "question.resolved": QuestionResolvedPayload;
   "question.route.changed": QuestionRouteChangedPayload;
@@ -13407,6 +13482,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "mcp.changed",
   "project.trust.changed",
   "provider.loginProgress",
+  "provider.verified",
   "question.pending",
   "question.resolved",
   "question.route.changed",

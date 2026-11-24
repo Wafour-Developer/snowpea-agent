@@ -480,5 +480,5 @@ def test_the_browser_rule_reasons_and_visibility() -> None:
 
 
 def test_protocol_and_capability() -> None:
-    assert PROTOCOL_VERSION == "1.73.0"
+    assert PROTOCOL_VERSION == "1.74.0"
     assert "browserPersonApprovals" in CAPABILITIES

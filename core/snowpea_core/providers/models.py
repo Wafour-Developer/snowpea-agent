@@ -462,6 +462,10 @@ class ModelListing:
     source: str
     detail: str
     error: str | None = None
+    #: The live listing failed because the vendor refused the credential (a
+    #: 401, or a body naming a bad key; 1.74.0).  models is then a fallback
+    #: nobody can run, and a picker must say so instead of offering it.
+    auth_error: str | None = None
 
     @property
     def live(self) -> bool:
@@ -1258,6 +1262,9 @@ async def _resolve_all(
         on_credentials=on_credentials,
     )
     ids = [name for name in ids if not is_placeholder(name)]
+    from snowpea_core.providers.key_verify import is_auth_failure
+
+    auth_error = error if (not ids and error and is_auth_failure(error)) else None
     if ids:
         if path is not None:
             if vendor == "openai" and (auth_method or "") == "chatgpt":
@@ -1288,6 +1295,7 @@ async def _resolve_all(
                 vendor, SOURCE_SETTINGS, auth_method=auth_method, preset=resolved_preset
             ),
             error=error,
+            auth_error=auth_error,
         )
 
     if path is not None:
@@ -1302,6 +1310,7 @@ async def _resolve_all(
                     vendor, SOURCE_CACHE, auth_method=auth_method, preset=resolved_preset
                 ),
                 error=error,
+                auth_error=auth_error,
             )
 
     curated = curated_models(vendor, auth_method)
@@ -1322,6 +1331,7 @@ async def _resolve_all(
         source=SOURCE_CURATED,
         detail=_describe(vendor, SOURCE_CURATED, auth_method=auth_method, preset=resolved_preset),
         error=error,
+        auth_error=auth_error,
     )
 
 

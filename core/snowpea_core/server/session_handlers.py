@@ -67,6 +67,8 @@ from snowpea_core.server.protocol import (
     ProviderListResult,
     ProviderModelsParams,
     ProviderModelsResult,
+    ProviderVerifyParams,
+    ProviderVerifyResult,
     ProviderVisionResetParams,
     ProviderVisionResetResult,
     QuestionListResult,
@@ -154,6 +156,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "question.respond",
     "provider.list",
     "provider.models",
+    "provider.verify",
     "provider.visionReset",
     "memory.search",
     "memory.write",
@@ -1362,6 +1365,14 @@ async def question_respond_handler(
 async def provider_list_handler(
     _conn: RpcConnection, _params: Empty, core: Core
 ) -> ProviderListResult:
+    from snowpea_core.server.key_checks import start_key_checks
+
+    # 1.74.0: stored keys nobody has checked yet are asked about now; the list
+    # waits a moment for them, and a slower answer follows as provider.verified.
+    try:
+        await start_key_checks(core)
+    except Exception:  # noqa: BLE001 - a key check never fails the listing
+        log.debug("could not start the key checks", exc_info=True)
     infos = core.providers.list()
     for info in infos:
         if info.hiddenModels:
@@ -1408,6 +1419,23 @@ def _hidden_in_use(core: Core, vendor: str, hidden: list[str]) -> list[HiddenMod
         if getattr(session, "turn_live", False) and getattr(session, "provider", None) == vendor:
             note(getattr(session, "model", None), f"session:{session.id}")
     return [HiddenModelUse(model=model, usedBy=who) for model, who in used.items() if who]
+
+
+async def provider_verify_handler(
+    _conn: RpcConnection, params: ProviderVerifyParams, core: Core
+) -> ProviderVerifyResult:
+    """``provider.verify`` — ask the vendor about the stored key again (1.74.0)."""
+    from snowpea_core.server.key_checks import announce
+
+    vendor = (params.vendor or "").strip()
+    if not vendor:
+        raise RpcError(errors.INVALID_PARAMS, "provider.verify needs a vendor")
+    if core.providers.preset_or_none(vendor) is None:
+        raise RpcError(errors.NOT_FOUND, f"no provider {vendor!r}")
+    result = await core.providers.verify(vendor, refresh=True)
+    if result.state != "unchecked":
+        await announce(core, vendor, result)
+    return ProviderVerifyResult.model_validate({"vendor": vendor, "verify": result.wire()})
 
 
 async def provider_vision_reset_handler(
@@ -1472,6 +1500,29 @@ def _window_fields_safely(
         return {}
 
 
+def _listing_usable(core: Core, vendor: str, listing: Any) -> tuple[bool, str | None]:
+    """``(usable, authError)`` for ``provider.models`` (1.74.0).
+
+    A live listing refused with a 401 means the fallback rungs list models
+    nobody can run with this key: it is remembered as a rejected key, and the
+    listing is marked unusable.  A cached refusal (from a save, a check or a
+    failed turn) does the same while the listing itself came from a fallback.
+    """
+    registry = core.providers
+    if not hasattr(registry, "note_auth_failure"):
+        return True, None
+    state = None
+    refused = getattr(listing, "auth_error", None)
+    if refused:
+        state = registry.note_auth_failure(vendor, refused)
+    elif getattr(listing, "source", "live") != "live":
+        state = registry.rejected_key(vendor)
+    if state is None:
+        return True, None
+    error = registry.invalid_key_error(vendor, state)
+    return False, str(error)
+
+
 async def provider_models_handler(
     _conn: RpcConnection, params: ProviderModelsParams, core: Core
 ) -> ProviderModelsResult:
@@ -1481,6 +1532,7 @@ async def provider_models_handler(
         listing = await core.providers.model_listing(vendor)
     except ProviderError as exc:
         raise RpcError(exc.code, str(exc)) from exc
+    usable, auth_error = _listing_usable(core, vendor, listing)
     return ProviderModelsResult(
         vendor=vendor,
         models=listing.models,
@@ -1488,6 +1540,8 @@ async def provider_models_handler(
         source=listing.source,
         detail=listing.detail,
         error=(listing.error or None) if listing.source != "live" else None,
+        usable=usable,
+        authError=auth_error,
         vision=core.providers.vision_map(vendor, listing.models),
         **_window_fields_safely(core, vendor, listing.models, params.models),
     )
@@ -1711,6 +1765,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("question.respond", question_respond_handler)
     dispatcher.register("provider.list", provider_list_handler)
     dispatcher.register("provider.models", provider_models_handler)
+    dispatcher.register("provider.verify", provider_verify_handler)
     dispatcher.register("provider.visionReset", provider_vision_reset_handler)
     dispatcher.register("memory.search", memory_search_handler)
     dispatcher.register("memory.write", memory_write_handler)

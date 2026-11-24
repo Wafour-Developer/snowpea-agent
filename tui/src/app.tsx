@@ -2198,7 +2198,10 @@ export function App({
       .call("settings.get", { scope: "project", workdir })
       .catch(() => ({ settings: {} }));
     const discovered = client.call("provider.list", {}).then(async (result) => {
-      const providers = (result?.providers ?? []).filter((provider: any) => provider.configured);
+      // 1.74.0: a provider whose key the vendor rejected offers no models.
+      const providers = (result?.providers ?? []).filter(
+        (provider: any) => provider.configured && provider.verify?.state !== "invalid",
+      );
       const listings = await Promise.all(
         providers.map((provider: any) =>
           client.call("provider.models", { vendor: provider.vendor }).catch(() => ({

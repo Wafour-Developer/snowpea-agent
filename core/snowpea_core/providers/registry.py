@@ -15,6 +15,7 @@ the vendor's ``env_keys``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -25,7 +26,7 @@ from typing import Any
 from snowpea_core.config.paths import Paths, resolve_home
 from snowpea_core.config.settings import THINKING_CHOICES, Settings
 from snowpea_core.providers import content as content_parts
-from snowpea_core.providers import context_windows
+from snowpea_core.providers import context_windows, key_verify
 from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers import models as model_discovery
 from snowpea_core.providers import vision as vision_scale
@@ -42,7 +43,7 @@ from snowpea_core.providers.presets import (
     resolve_reasoning_replay,
     validate_custom_vendor_id,
 )
-from snowpea_core.server.protocol import AuthStatus, ProviderInfo
+from snowpea_core.server.protocol import AuthStatus, ProviderInfo, ProviderVerify
 
 log = logging.getLogger("snowpea.providers")
 
@@ -102,6 +103,17 @@ class WindowInfo:
     #: or ``vendor`` (providers.<v>.context_window).  None for every other source.
     scope: str | None = None
 
+
+
+@dataclass(frozen=True)
+class _VerifyTarget:
+    """Everything a key check sends; the key itself never leaves this object."""
+
+    fingerprint: str
+    preset: VendorPreset
+    api_key: str | None
+    base_url: str | None
+    model: str
 
 
 class ProviderRegistry:
@@ -440,6 +452,154 @@ class ProviderRegistry:
             transport=transport,
             on_credentials=remember,
         )
+
+    # -- key verification (1.74.0, providerKeyVerify) ------------------
+    def verify_target(self, vendor: str) -> _VerifyTarget | None:
+        """What a key check for ``vendor`` would send, or ``None`` when none applies.
+
+        Only a vendor that authenticates with a key (or a keyless local server)
+        is checked: an OAuth sign-in has its own refresh and login errors, and a
+        provider registered in-process (tests, the scripted fake) has no vendor
+        to ask.
+        """
+        if vendor in self._providers or vendor == FAKE_PREFIX:
+            return None
+        if (os.environ.get("SNOWPEA_PROVIDER") or "").strip():
+            return None
+        preset = self.preset_or_none(vendor)
+        if preset is None or not self.is_configured(vendor):
+            return None
+        if self.auth_method_for(vendor) in OAUTH_AUTH_METHODS:
+            return None
+        api_key = self.api_key_for(vendor)
+        if not api_key and preset.key_required:
+            return None
+        base_url = self.base_url_for(vendor)
+        return _VerifyTarget(
+            fingerprint=key_verify.fingerprint(vendor, base_url, api_key),
+            preset=preset,
+            api_key=api_key,
+            base_url=base_url,
+            model=self.model_for(vendor),
+        )
+
+    def verify_state(self, vendor: str) -> key_verify.VerifyResult | None:
+        """The cached answer for the stored key, ``unchecked`` when none; ``None`` if n/a."""
+        target = self.verify_target(vendor)
+        if target is None:
+            return None
+        found = key_verify.cached(target.fingerprint)
+        if found is not None:
+            return found
+        if not key_verify.enabled():
+            return key_verify.VerifyResult("unchecked", "", None, "disabled")
+        pending = key_verify.inflight(target.fingerprint) is not None
+        return key_verify.VerifyResult("unchecked", "", None, "pending" if pending else "")
+
+    def verify_wire(self, vendor: str) -> ProviderVerify | None:
+        state = self.verify_state(vendor)
+        return ProviderVerify.model_validate(state.wire()) if state is not None else None
+
+    def verify_task(
+        self, vendor: str, *, refresh: bool = False, transport: Any = None
+    ) -> asyncio.Task[key_verify.VerifyResult] | None:
+        """The running check for ``vendor``'s key, started if needed; ``None`` if n/a
+        or (without ``refresh``) already answered."""
+        target = self.verify_target(vendor)
+        if target is None or (transport is None and not key_verify.enabled()):
+            return None
+        if not refresh and key_verify.cached(target.fingerprint) is not None:
+            return None
+        running = key_verify.inflight(target.fingerprint)
+        if running is not None and not refresh:
+            return running
+
+        async def run() -> key_verify.VerifyResult:
+            result = await key_verify.verify_credentials(
+                target.preset,
+                api_key=target.api_key,
+                base_url=target.base_url,
+                model=target.model,
+                transport=transport,
+            )
+            key_verify.remember(target.fingerprint, result)
+            return result
+
+        task = asyncio.ensure_future(run())
+        key_verify.track(target.fingerprint, task)
+        return task
+
+    async def verify(
+        self, vendor: str, *, refresh: bool = False, transport: Any = None
+    ) -> key_verify.VerifyResult:
+        """Ask the vendor about the stored key (cached unless ``refresh``)."""
+        task = self.verify_task(vendor, refresh=refresh, transport=transport)
+        if task is not None:
+            return await asyncio.shield(task)
+        state = self.verify_state(vendor)
+        if state is not None:
+            return state
+        method = self.auth_method_for(vendor)
+        if method in OAUTH_AUTH_METHODS:
+            return key_verify.VerifyResult("unchecked", "signed in with OAuth", None, "oauth")
+        return key_verify.VerifyResult("unchecked", "no API key is stored", None, "no_key")
+
+    async def verify_draft(
+        self, vendor: str, config: dict[str, Any], *, transport: Any = None
+    ) -> key_verify.VerifyResult | None:
+        """Check the key ``config`` would leave ``vendor`` with, before anything is stored.
+
+        A copy of the settings takes the change, so a key the vendor refuses
+        never reaches this registry.  ``None`` when nothing is checked: an
+        OAuth vendor, a provider registered in-process, or a change the copy
+        refuses (the real save then reports why).
+        """
+        if vendor in self._providers:
+            return None
+        draft = ProviderRegistry(self.settings.model_copy(deep=True), self.paths)
+        try:
+            draft.configure(vendor, config)
+        except ProviderError:
+            return None
+        if draft.verify_target(vendor) is None:
+            return None
+        return await draft.verify(vendor, refresh=True, transport=transport)
+
+    def rejected_key(self, vendor: str) -> key_verify.VerifyResult | None:
+        """The cached refusal of ``vendor``'s stored key, else ``None``."""
+        state = self.verify_state(vendor)
+        return state if state is not None and state.state == "invalid" else None
+
+    def refuse_rejected_key(self, vendor: str) -> None:
+        """Raise the clear ``invalid_key`` error when the vendor refused the stored key."""
+        state = self.rejected_key(vendor)
+        if state is not None:
+            raise self.invalid_key_error(vendor, state)
+
+    def invalid_key_error(self, vendor: str, state: key_verify.VerifyResult) -> ProviderError:
+        preset = self.preset_or_none(vendor)
+        text = key_verify.rejected_message(preset.label if preset else vendor)
+        if state.message:
+            text = f"{text} ({state.message})"
+        return ProviderError(
+            "invalid_params",
+            text,
+            {"reason": "invalid_key", "vendor": vendor, "verify": state.wire()},
+        )
+
+    def note_auth_failure(self, vendor: str, detail: str) -> key_verify.VerifyResult | None:
+        """A chat or listing on ``vendor`` was refused with a 401: remember it.
+
+        Returns the recorded answer, or ``None`` when ``vendor`` is not a
+        key-authenticated one (an OAuth session words its own errors).
+        """
+        target = self.verify_target(vendor)
+        if target is None:
+            return None
+        message = key_verify.redact(detail, target.api_key)[:300]
+        result = key_verify.VerifyResult("invalid", message, time.time(), "auth")
+        key_verify.remember(target.fingerprint, result)
+        return result
 
     # -- context windows (CORE-context) --------------------------------
     def window_info(self, vendor: str, model: str | None = None) -> WindowInfo:
@@ -1048,6 +1208,7 @@ class ProviderRegistry:
                     variant=variant,
                     supportsEffort=preset.supports_effort,
                     hiddenModels=model_discovery.hidden_models(config),
+                    verify=self.verify_wire(vendor),
                 )
             )
         return infos
