@@ -19,7 +19,7 @@ from test_external_manager import Conn, Env, env  # noqa: F401 - the fixture
 
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings, take_legacy_values
-from snowpea_core.external import claude_tmux, proc
+from snowpea_core.external import proc
 from snowpea_core.external.claude import preview_diff
 from snowpea_core.external.proc import ExternalError
 from snowpea_core.external.timeline import TimelineBuilder, clean_payload, clean_text
@@ -119,20 +119,6 @@ def test_wide_roots_match_only_themselves() -> None:
 
 
 # -- M5 / L7 -------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("text", [
-    "﻿/model opus", "​!rm -rf x", " ⁠/clear", "‮/exit",
-])
-def test_tmux_refuses_hidden_mode_switches(text: str) -> None:
-    with pytest.raises(ExternalError):
-        claude_tmux.refuse_text(text)
-
-
-def test_tmux_refuses_c1_controls_and_takes_plain_text() -> None:
-    with pytest.raises(ExternalError):
-        claude_tmux.refuse_text("hello \x9b2J")
-    claude_tmux.refuse_text("please fix the tests")
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="/proc")

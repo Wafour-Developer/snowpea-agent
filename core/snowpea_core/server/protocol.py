@@ -13813,9 +13813,9 @@ CAPABILITIES: list[str] = [
     # 1.56.0: ExternalCliInfo.nativeModes/defaultNativeMode, ExternalSessionRow.nativeMode,
     # external.create/open/setMode nativeMode (each CLI's own modes).
     "externalNativeModes",
-    # 1.56.0: the tmux bridge — ExternalSessionRow.terminal/controllable,
-    # ApprovalRequest.externalTerminal, external.terminalSnapshot.
-    "externalTmux",
+    # 1.56.0: the tmux bridge — removed from hello (1.74.0, externalResumeUnified);
+    # wire types (ExternalTerminal.kind "tmux", external.terminalSnapshot) stay for
+    # older clients; core never advertises externalTmux or produces tmux rows.
     # 1.56.0: the per-session Jarvis switch — SessionSummary/ExternalSessionRow
     # jarvisOn/jarvisLocked, jarvis.session.set, jarvis.session.changed,
     # JarvisOverviewResult.hiddenCount, settings jarvis.sessions.default.
@@ -13923,6 +13923,8 @@ CAPABILITIES: list[str] = [
     # 1.73.0 (M37 T3): external.open|create {transport: "pty"} run the CLI as a
     # terminal session (ExternalTerminal.kind "pty"); terminal profiles and options.
     "externalPty",
+    # 1.74.0: unified resume — every open uses transport pty; no tmux bridge.
+    "externalResumeUnified",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in

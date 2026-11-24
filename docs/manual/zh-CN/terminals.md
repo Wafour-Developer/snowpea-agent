@@ -21,7 +21,7 @@
 
 - 新会话会在你选择的项目文件夹中启动 CLI。
 - 已有会话使用 CLI 自身的恢复命令继续（`claude --resume <id>`、`codex resume <id>`，agy 与 Cursor 也有对应命令）。会话 id 来自钩子集成，所以如果想从终端恢复，请先运行 [`snowpea integration install`](integrations.md)。
-- 已在另一个终端中运行的会话仍然只能查看。
+- 已在另一个终端中运行的会话：snowpea 仍会在其面板中运行 CLI 的恢复命令。若 CLI 报告另一进程已占用该会话，snowpea 会只读跟踪该进程直至其退出；否则会话在面板中继续。
 
 在应用中，项目的 **+** 菜单 → **New external session…** 会询问 **Open as**：**Terminal** 或 **Chat**（根据 `jarvis.external.view` 预先选中）。选择终端时，列出的是该 CLI 的权限选项（[见下](#权限选项)），而不是聊天模式。**Load external session…** 中，当前没有任何程序在运行的每个会话上都有 **Resume in a terminal**。
 

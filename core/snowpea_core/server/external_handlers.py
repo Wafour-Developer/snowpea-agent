@@ -157,6 +157,25 @@ def ensure_manager(core: Core) -> ExternalManager:
     return manager
 
 
+def _protocol_at_least(version: str | None, major: int, minor: int, patch: int) -> bool:
+    if not version:
+        return False
+    parts = version.split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return False
+    return tuple(int(p) for p in parts) >= (major, minor, patch)
+
+
+def _effective_transport(conn: RpcConnection, core: Core, transport: str | None) -> str | None:
+    """Default transport when the client omits it (1.74.0, externalResumeUnified)."""
+    if transport is not None:
+        return transport
+    view = getattr(getattr(getattr(core.settings, "jarvis", None), "external", None), "view", None)
+    if view == "terminal" and _protocol_at_least(conn.protocol_version, 1, 74, 0):
+        return "pty"
+    return None
+
+
 def _pty_gate(conn: RpcConnection, core: Core, transport: str | None) -> None:
     """``transport: "pty"`` starts a terminal: the tunnel's terminal unlock holds (§2.10)."""
     if transport == "pty":
@@ -276,11 +295,12 @@ async def list_handler(
 async def open_handler(
     conn: RpcConnection, params: ExternalOpenParams, core: Core
 ) -> ExternalOpenResult:
-    _pty_gate(conn, core, params.transport)
+    transport = _effective_transport(conn, core, params.transport)
+    _pty_gate(conn, core, transport)
     result = await _call(
         ensure_manager(core).open(
             params.ref.cli, params.ref.id, limit=params.limit, mode=params.mode, conn=conn,
-            transport=params.transport, trust=params.trust, native_mode=params.nativeMode,
+            transport=transport, trust=params.trust, native_mode=params.nativeMode,
             options=list(params.options), confirm_dangerous=params.confirmDangerous,
         )
     )
@@ -347,14 +367,17 @@ async def create_handler(
     from snowpea_core.server.project_gate import require_project
 
     require_project(core, params.project, dot=False, field="project")
-    _pty_gate(conn, core, params.transport)
+    transport = _effective_transport(conn, core, params.transport)
+    if transport is None:
+        transport = "structured"
+    _pty_gate(conn, core, transport)
     result = await _call(
         ensure_manager(core).create(
             params.cli,
             params.project,
             model=params.model,
             mode=params.mode,
-            transport=params.transport,
+            transport=transport,
             conn=conn,
             trust=params.trust,
             native_mode=params.nativeMode,

@@ -21,7 +21,7 @@ By default (`jarvis.external.view` set to `terminal`), an external session opens
 
 - A new session starts the CLI in the project folder you chose.
 - An existing session resumes with the CLI's own resume command (`claude --resume <id>`, `codex resume <id>`, and the matching agy and Cursor commands). The session id comes from the hook integration, so run [`snowpea integration install`](integrations.md) first if you want resume to work from a terminal.
-- A session that is already live in another terminal is only viewable, as before.
+- A session that is already live in another terminal: snowpea still runs the CLI's resume command in its pane. If the CLI reports that another process holds the session, snowpea tails that process read-only until it exits; otherwise you work in the pane.
 
 In the app, the project's **+** menu → **New external session…** asks **Open as**: **Terminal** or **Chat** (preselected from `jarvis.external.view`). For a terminal it lists the CLI's permission options ([below](#permission-options)) instead of the chat modes. **Load external session…** has **Resume in a terminal** on each session that nothing runs at the moment.
 

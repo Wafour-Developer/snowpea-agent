@@ -173,7 +173,7 @@ async def test_discovery_reports_version_login_and_capabilities(
     wire = found.capabilities.to_wire()
     assert wire["approvals"] == "bridged" and wire["streaming"] and wire["liveView"]
     assert wire["modes"] == ["default", "readonly", "unrestricted"]
-    assert wire["tmux"] == (proc.tmux_supported())
+    assert wire["tmux"] is False
     # The auth answer's account fields never leave the probe.
     assert OWNER_EMAIL not in repr(found) and OWNER_EMAIL not in caplog.text
 
@@ -864,16 +864,10 @@ async def test_set_model_survives_a_daemon_restart(env: Env) -> None:
         await again.shutdown()
 
 
-async def test_set_model_refuses_tmux_and_other_terminals(env: Env) -> None:
+async def test_set_model_refuses_other_terminals(env: Env) -> None:
     conn = Conn()
     ref = await env.create(conn)
     record = env.manager._records[("claude", ref["id"])]
-    record.host = "tmux"
-    with pytest.raises(ExternalError) as caught:
-        await env.manager.set_model("claude", ref["id"], "opus")
-    assert caught.value.code == errors.EXTERNAL_UNAVAILABLE
-    assert caught.value.details == {"reason": "tmux_transport"}
-    assert "/model" in caught.value.message
     record.host = "terminal"
     with pytest.raises(ExternalError) as caught:
         await env.manager.set_model("claude", ref["id"], "opus")

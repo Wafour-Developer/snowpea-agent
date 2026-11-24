@@ -88,6 +88,8 @@ class RpcConnection:
         self.connected_at: float = time.monotonic()
         self.authenticated: bool = False
         self.client_version: str | None = None
+        #: Semver the client declared in ``system.hello`` (used for transport defaults).
+        self.protocol_version: str | None = None
         self.closed: bool = False
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._ids = itertools.count(1)

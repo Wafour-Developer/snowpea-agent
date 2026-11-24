@@ -487,7 +487,6 @@ def test_external_rows_say_when_the_lists_do_not_apply(tmp_path: Path) -> None:
     manager.approvals = SimpleNamespace(settings=Settings())  # type: ignore[attr-defined]
     assert manager._lists_apply(None, "snowpea", "bridged", True) is True
     assert manager._lists_apply(None, "snowpea", "bridged", False) is False
-    assert manager._lists_apply(None, "tmux", "person", True) is False
     assert manager._lists_apply(None, "terminal", "none", True) is False
     empty = Settings.model_validate({"security": {"blockedCommands": {"presets": []},
                                                   "protectedPaths": {"presets": []}}})

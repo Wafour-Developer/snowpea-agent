@@ -902,9 +902,8 @@ class ClaudeAdapter(ExternalAdapter):
             if logged_in is False:
                 problems.append("Claude Code is not logged in: run `claude auth login`")
         help_text = await self._help(found.executable.path)
-        tmux_ok = await _tmux_usable()
         capabilities = CliCapabilities(
-            streaming=True, approvals="bridged", live_view=True, tmux=tmux_ok, modes=ALL_MODES
+            streaming=True, approvals="bridged", live_view=True, tmux=False, modes=ALL_MODES
         )
         return Discovery(
             installed=True,
@@ -1088,10 +1087,6 @@ class ClaudeAdapter(ExternalAdapter):
 
     # -- running ------------------------------------------------------------
     def channel(self, spec: LaunchSpec, host: ChannelHost) -> ExternalChannel:
-        if spec.transport == "tmux":
-            from snowpea_core.external.claude_tmux import ClaudeTmuxChannel
-
-            return ClaudeTmuxChannel(spec, host, self)
         return ClaudeChannel(spec, host, self)
 
     def refuse_if_open_elsewhere(self, session_id: str, own_pids: set[int]) -> None:
@@ -1161,14 +1156,6 @@ class ClaudeAdapter(ExternalAdapter):
         return proc.build_argv(spec.executable, args, bypass=bypass,
                                forbidden=self.forbidden_args,
                                forbidden_pairs=self.forbidden_pairs)
-
-
-async def _tmux_usable() -> bool:
-    if not proc.tmux_supported():
-        return False
-    from snowpea_core.external.claude_tmux import tmux_version_ok
-
-    return await tmux_version_ok()
 
 
 # ---------------------------------------------------------------------------

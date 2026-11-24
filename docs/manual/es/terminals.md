@@ -21,7 +21,7 @@ Con `jarvis.external.view` en `terminal` (el valor por defecto), una sesión ext
 
 - Una sesión nueva arranca la CLI en la carpeta del proyecto que elegiste.
 - Una sesión existente se reanuda con el comando de reanudación de la propia CLI (`claude --resume <id>`, `codex resume <id>`, y los equivalentes de agy y Cursor). El id de sesión viene de la integración de hooks, así que ejecuta antes [`snowpea integration install`](integrations.md) si quieres que la reanudación funcione desde un terminal.
-- Una sesión que ya está activa en otro terminal solo se puede ver, como antes.
+- Una sesión que ya está activa en otro terminal: snowpea sigue ejecutando el comando de reanudación del CLI en su panel. Si el CLI indica que otro proceso tiene la sesión, snowpea la sigue en solo lectura hasta que termine; si no, trabajas en el panel.
 
 En la aplicación, el menú **+** del proyecto → **New external session…** pregunta **Open as**: **Terminal** o **Chat** (preseleccionado según `jarvis.external.view`). Para un terminal, muestra las opciones de permisos de la CLI ([más abajo](#opciones-de-permisos)) en lugar de los modos del chat. **Load external session…** ofrece **Resume in a terminal** en cada sesión que ahora mismo no ejecuta nada.
 

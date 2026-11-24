@@ -21,7 +21,7 @@
 
 - 新しいセッションは、選んだプロジェクトのフォルダで CLI を起動します。
 - 既存のセッションは、CLI 自身の再開コマンドで続きから始まります（`claude --resume <id>`、`codex resume <id>`、agy と Cursor も各自のコマンド）。セッション id は hook 連携から得るので、ターミナルから再開できるようにするには、先に [`snowpea integration install`](integrations.md) を実行してください。
-- 別のターミナルで既に動いているセッションは、これまでどおり閲覧のみです。
+- 別のターミナルで既に動いているセッション: snowpea もペインで CLI の再開コマンドを実行します。CLI が別プロセスがセッションを保持していると報告した場合、snowpea はそのプロセスを読み取り専用で追い、そうでなければペインで作業します。
 
 アプリでは、プロジェクトの **+** メニュー → **New external session…** が **Open as**（**Terminal** または **Chat**。`jarvis.external.view` から事前に選択されます）を尋ねます。ターミナルを選ぶと、チャットのモードの代わりに、その CLI の権限のオプション（[下記](#権限のオプション)）が表示されます。**Load external session…** では、いま何も動いていない各セッションに **Resume in a terminal** があります。
 
