@@ -133,6 +133,13 @@ TABLE: dict[str, tuple[str, ...]] = {
         "jarvis.session.set",
         # jarvis.briefing.set: a remote login only turns it off (review 8, H8-2).
         "jarvis.briefing.set", "mcp.preset.check",
+        # M37 (1.73.0): terminals are a person's (a remote login too: the tunnel unlock
+        # and the dangerous options are judged by the handlers); never a browser.
+        "terminal.profiles", "terminal.list", "terminal.create", "terminal.attach",
+        "terminal.detach", "terminal.write", "terminal.resize", "terminal.ack",
+        "terminal.read", "terminal.send", "terminal.keys", "terminal.interrupt",
+        "terminal.wait", "terminal.close", "terminal.seen", "terminal.unlock",
+        "web.tunnel.unlock",
         # 1.59.0 개선하기: a person sends a conversation (never a browser or connector).
         "feedback.preview", "feedback.send",
     ),
@@ -153,6 +160,11 @@ TABLE: dict[str, tuple[str, ...]] = {
         "agent.create", "agent.bindChannel",
         "web.remote.status", "web.remote.listen", "web.remote.stop", "web.remote.setPassword",
         "web.remote.clearPassword", "web.remote.rotateToken",
+        # M37 (1.73.0): CLI hook installs, the tunnel, and the hook report (a terminal's
+        # own token, called locally).
+        "integration.list", "integration.install", "integration.uninstall",
+        "web.tunnel.status", "web.tunnel.start", "web.tunnel.stop", "web.tunnel.setToken",
+        "web.tunnel.install", "terminal.report",
         "extension.enable", "extension.disable", "extension.configure", "extension.reload",
         "extension.list", "system.update", "system.restart",
         # Security review 7, P2: security settings edited on disk wait for a local person.
