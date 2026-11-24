@@ -23,13 +23,15 @@ Con `jarvis.external.view` en `terminal` (el valor por defecto), una sesión ext
 - Una sesión existente se reanuda con el comando de reanudación de la propia CLI (`claude --resume <id>`, `codex resume <id>`, y los equivalentes de agy y Cursor). El id de sesión viene de la integración de hooks, así que ejecuta antes [`snowpea integration install`](integrations.md) si quieres que la reanudación funcione desde un terminal.
 - Una sesión que ya está activa en otro terminal solo se puede ver, como antes.
 
+En la aplicación, el menú **+** del proyecto → **New external session…** pregunta **Open as**: **Terminal** o **Chat** (preseleccionado según `jarvis.external.view`). Para un terminal, muestra las opciones de permisos de la CLI ([más abajo](#opciones-de-permisos)) en lugar de los modos del chat. **Load external session…** ofrece **Resume in a terminal** en cada sesión que ahora mismo no ejecuta nada.
+
 La CLI se ejecuta dentro de tu shell interactiva, así que siguen valiendo tu PATH y herramientas como nvm. Cuando la CLI termina, el panel vuelve a la shell, salvo que `terminals.keepShell` esté desactivado.
 
 ## Una sesión de snowpea en un terminal
 
-Cada sesión de snowpea se puede mostrar de dos formas: como chat, o como la CLI de snowpea ejecutándose en un terminal adjunto a la misma sesión. Ambas vistas son clientes de la misma sesión, así que puedes tenerlas abiertas a la vez. El interruptor está en la cabecera de la sesión.
+Cada sesión de snowpea se puede mostrar de dos formas: como chat, o como la CLI de snowpea ejecutándose en un terminal adjunto a la misma sesión. Ambas vistas son clientes de la misma sesión, así que puedes tenerlas abiertas a la vez. En la aplicación, la cabecera de la conversación tiene una pestaña **Terminal** junto a **Chat** y **Trajectory** (solo con un daemon que lo admita). La pestaña reutiliza el terminal en marcha de la sesión, o arranca uno.
 
-- La vista por defecto la fija `ui.sessionView`: `chat` (por defecto) o `terminal`. Es un ajuste de tu propia pantalla y no cambia las vistas de otras personas.
+- La vista por defecto la fija `ui.sessionView`: `chat` (por defecto) o `terminal`. Se guarda en los ajustes de este daemon, así que todas las ventanas de la aplicación y las páginas web conectadas a él abren las sesiones de la misma manera. Cámbiala en **Settings → Terminal**.
 - Para adjuntarte desde una shell a una sesión que ya existe en el daemon local, ejecuta `snowpea --session <id>`. La TUI reanuda esa sesión en lugar de crear una nueva.
 
 ## Ajustes
@@ -46,6 +48,8 @@ Cada sesión de snowpea se puede mostrar de dos formas: como chat, o como la CLI
 
 Los ajustes `terminals.*` y `ui.*` pertenecen a la persona que está en la máquina local. Una conexión remota o por túnel no puede cambiarlos.
 
+En la aplicación, **Settings → Terminal** fija las dos vistas por defecto, `terminals.keepShell` y los dos avisos. Cada interruptor de aviso activa o desactiva a la vez su sonido y su notificación; **Play the sound** te permite oírlo. Los sonidos son dos tonos cortos que genera la propia aplicación.
+
 ## Estado: qué significan los puntos
 
 Cada terminal está en uno de cinco estados, y la aplicación lo muestra con un punto:
@@ -58,6 +62,12 @@ Cada terminal está en uno de cinco estados, y la aplicación lo muestra con un 
 | idle | `idle` | no se está ejecutando nada |
 
 Un estado bloqueado tiene además un tipo: `permission`, `question` o `auth`. La barra lateral agrupa los puntos de un proyecto en este orden: needs you, done, working, idle.
+
+En la aplicación, los puntos son rojos con un anillo (needs you), verdes (done), del color de acento y parpadeando (working; fijos cuando tu sistema pide reducir el movimiento) y grises (idle). Aparecen en las pestañas de terminal, en la fila de una sesión externa en la barra lateral, en la fila de una conversación mientras su terminal está abierto, en la fila del proyecto (el resumen) y en la pestaña **Terminals** de la vista de Jarvis.
+
+- Entrar en un terminal haciendo clic lo marca como visto, así que un punto done pasa a gris.
+- Cuando un terminal empieza a necesitarte, la aplicación reproduce un sonido y muestra un aviso. Cuando uno termina, hace lo mismo solo si el panel de ese terminal no tiene el teclado o la ventana está en segundo plano. Los avisos salen solo de la ventana principal.
+- **Alt+↑ / Alt+↓** salta al terminal anterior o siguiente que te necesita, o que ha terminado y nadie ha mirado todavía. Una sesión externa se abre en su propia vista; cualquier otro terminal se abre en la pantalla Terminal.
 
 snowpea toma el estado de la primera fuente que tenga una opinión, de mayor a menor prioridad:
 
@@ -77,6 +87,8 @@ Al arrancar una CLI en un terminal puedes elegir su modo de permisos. Las opcion
 | agy | Accept edits, Auto, Plan | Skip permissions (`--dangerously-skip-permissions`) |
 | Cursor agent | Ask, Plan | Run everything (`--yolo`) |
 
+En la aplicación eliges como máximo una opción: la CLI admite un solo modo de permisos. Una opción que el daemon rechaza en esta conexión se muestra desactivada, con el motivo, y por el túnel con **Unlock…**.
+
 Una opción peligrosa:
 
 - muestra una insignia roja donde aparezca, y la aplicación te pide que confirmes el riesgo antes de arrancar;
@@ -85,6 +97,14 @@ Una opción peligrosa:
 - se rechaza por el túnel web si el terminal no está desbloqueado ([snowpea web](web.md#una-dirección-pública-con-un-túnel)).
 
 Jarvis nunca responde a un permiso en un terminal arrancado con una opción peligrosa. Los modos no peligrosos, como Accept edits o Don't ask, también los concede solo la persona desde la aplicación local, no Jarvis. Jarvis arranca los terminales de CLI solo con los permisos por defecto de la CLI.
+
+## En la aplicación
+
+- **La pantalla Terminal y la pestaña de terminal del dock.** En snowpea web muestran los terminales del daemon, con **New shell** para la carpeta de un proyecto. La aplicación de escritorio además mantiene sus propias shells: un interruptor elige **This computer** o **snowpea terminals**.
+- **La franja sobre un terminal** muestra su punto y su título, una insignia roja **Permissions skipped** en un terminal arrancado con una opción peligrosa, **Exited (code)** cuando terminó, y **Close terminal**, que pregunta antes porque termina el programa. Cerrar un panel o una ventana no termina el terminal.
+- **Ventana propia** (aplicación de escritorio): el botón de la franja abre solo ese terminal en una ventana aparte. Todas las ventanas muestran el mismo terminal, y cerrar una deja funcionando las demás.
+- **Solo observar.** Cuando el daemon deja que una página solo observe un terminal, el panel deja de enviar teclas, muestra una insignia **Watching** y dice que es de solo observación.
+- **Por el túnel web**, un panel que no está desbloqueado muestra **Unlock…**, que pide la contraseña web una vez para este inicio de sesión ([snowpea web](web.md#una-dirección-pública-con-un-túnel)).
 
 ## Los terminales sobreviven a un reinicio del daemon
 

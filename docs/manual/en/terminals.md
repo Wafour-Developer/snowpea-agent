@@ -23,13 +23,15 @@ By default (`jarvis.external.view` set to `terminal`), an external session opens
 - An existing session resumes with the CLI's own resume command (`claude --resume <id>`, `codex resume <id>`, and the matching agy and Cursor commands). The session id comes from the hook integration, so run [`snowpea integration install`](integrations.md) first if you want resume to work from a terminal.
 - A session that is already live in another terminal is only viewable, as before.
 
+In the app, the project's **+** menu → **New external session…** asks **Open as**: **Terminal** or **Chat** (preselected from `jarvis.external.view`). For a terminal it lists the CLI's permission options ([below](#permission-options)) instead of the chat modes. **Load external session…** has **Resume in a terminal** on each session that nothing runs at the moment.
+
 The CLI runs inside your own interactive shell, so your PATH and tools such as nvm still apply. When the CLI exits, the pane drops back to the shell, unless `terminals.keepShell` is off.
 
 ## A snowpea session in a terminal
 
-Every snowpea session can be shown two ways: as the chat, or as the snowpea CLI running in a terminal attached to the same session. Both views are clients of the same session, so you can have both open at once. The toggle is in the session header.
+Every snowpea session can be shown two ways: as the chat, or as the snowpea CLI running in a terminal attached to the same session. Both views are clients of the same session, so you can have both open at once. In the app, the conversation header has a **Terminal** tab next to **Chat** and **Trajectory** (only with a daemon that supports it). The tab reuses the session's running terminal, or starts one.
 
-- The default view is `ui.sessionView`: `chat` (the default) or `terminal`. It is a setting of your own surface and does not change other people's views.
+- The default view is `ui.sessionView`: `chat` (the default) or `terminal`. It is kept in this daemon's settings, so every app window and web page connected to it opens sessions the same way. Change it in **Settings → Terminal**.
 - To attach from a shell to a session that already exists in the local daemon, run `snowpea --session <id>`. The TUI resumes that session instead of creating a new one.
 
 ## Settings
@@ -46,6 +48,8 @@ Every snowpea session can be shown two ways: as the chat, or as the snowpea CLI 
 
 The `terminals.*` and `ui.*` settings belong to the person on the local machine. A remote or tunnel connection cannot change them.
 
+In the app, **Settings → Terminal** sets the two default views, `terminals.keepShell` and the two alerts. Each alert switch turns its sound and its notice on or off together; **Play the sound** lets you hear it. The sounds are two short tones the app makes itself.
+
 ## Status: what the dots mean
 
 Each terminal has one of five states, and the app shows them as a dot:
@@ -58,6 +62,12 @@ Each terminal has one of five states, and the app shows them as a dot:
 | idle | `idle` | nothing is running |
 
 A blocked state also has a kind: `permission`, `question` or `auth`. The sidebar rolls a project's dots up in this order: needs you, done, working, idle.
+
+In the app the dots are red with a ring (needs you), green (done), the accent colour and pulsing (working; steady when your system asks for reduced motion) and grey (idle). They appear on the terminal tabs, on an external session's row in the sidebar, on a conversation's row while its terminal is open, on the project's row (the rollup) and in the Jarvis view's **Terminals** tab.
+
+- Clicking into a terminal marks it seen, so a done dot turns grey.
+- When a terminal starts needing you, the app plays a sound and shows a notice. When one finishes, it does the same only if that terminal's pane does not have the keyboard or the window is in the background. Alerts come from the main window only.
+- **Alt+↑ / Alt+↓** jumps to the previous or next terminal that needs you, or that finished and nobody has looked at yet. An external session opens in its own view; any other terminal opens on the Terminal screen.
 
 snowpea takes the state from the first source that has an opinion, highest first:
 
@@ -77,6 +87,8 @@ When you start a CLI in a terminal you can pick its permission mode. The options
 | agy | Accept edits, Auto, Plan | Skip permissions (`--dangerously-skip-permissions`) |
 | Cursor agent | Ask, Plan | Run everything (`--yolo`) |
 
+In the app you pick at most one option: the CLI takes one permission mode. An option the daemon refuses on this connection is shown disabled, with the reason, and over the tunnel with **Unlock…**.
+
 A dangerous option:
 
 - shows a red badge everywhere it appears, and the app asks you to confirm the risk before it starts;
@@ -85,6 +97,14 @@ A dangerous option:
 - is refused over the web tunnel unless the terminal is unlocked ([snowpea web](web.md#a-public-address-with-a-tunnel)).
 
 Jarvis never answers a permission prompt in a terminal that was started with a dangerous option. Non-dangerous modes such as Accept edits or Don't ask are also granted only to the person at the local app, not to Jarvis. Jarvis starts CLI terminals only with the CLI's default permissions.
+
+## In the app
+
+- **The Terminal screen and the dock's terminal tab.** In snowpea web they show the daemon's terminals, with **New shell** for a project folder. The desktop app also keeps its own shells: a switch picks **This computer** or **snowpea terminals**.
+- **The strip above a terminal** shows its dot and title, a red **Permissions skipped** badge for a terminal started with a dangerous option, **Exited (code)** once it ended, and **Close terminal**, which asks first because it ends the program. Closing a pane or a window does not end the terminal.
+- **Pop-out** (desktop app): the button on the strip opens just that terminal in a window of its own. Every window shows the same terminal, and closing one leaves the others running.
+- **Watch-only.** When the daemon lets a page only watch a terminal, the pane stops sending keys, shows a **Watching** badge and says it is watch-only.
+- **Over the web tunnel**, a pane that is not unlocked shows **Unlock…**, which asks for the web password once for this sign-in ([snowpea web](web.md#a-public-address-with-a-tunnel)).
 
 ## Terminals survive a daemon restart
 

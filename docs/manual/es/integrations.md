@@ -73,7 +73,7 @@ La desinstalación quita exactamente lo que añadió la instalación, y nada má
 
 ## Aplicación de escritorio y web
 
-La página Integrations de los ajustes de la aplicación de escritorio y de snowpea web muestra las mismas filas, con los archivos que toca cada CLI, y ejecuta las mismas acciones de instalar y desinstalar. La página y sus acciones son solo para la persona que está en la máquina local: un inicio de sesión remoto no puede verlas ni cambiarlas.
+La página Integrations de los ajustes de la aplicación de escritorio y de snowpea web muestra las mismas filas, con los archivos que toca cada CLI, y ejecuta las mismas acciones de instalar y desinstalar. Cada fila muestra **Installed**, **Update available**, **Edited by hand** o **Not installed**, y **CLI not found** cuando falta la CLI. Install, Update y Uninstall preguntan antes y listan los archivos que cambian. La página y sus acciones son solo para la persona que está en la máquina local: un inicio de sesión remoto no puede verlas ni cambiarlas.
 
 ## Variables de entorno
 

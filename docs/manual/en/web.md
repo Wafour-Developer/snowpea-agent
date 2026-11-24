@@ -175,6 +175,8 @@ Settings (`web.remote.tunnel`, changed on this computer only): `provider` (`off`
 - **Terminals over the tunnel.** A page opened through the tunnel can look at a terminal after sign-in, but starting a terminal, typing into one, or any dangerous option needs a **terminal unlock**: the page asks for the web password again (`web.tunnel.unlock`), and the unlock lasts as long as that sign-in. Dangerous options are refused over the tunnel unless `maxMode` is `auto`.
 - **Terminals for remote sign-ins (`web.remote.terminals`).** On by default: a remote sign-in, over the tunnel after the unlock or on the LAN listener, can start, type into and resize terminals in the web page. Set it to `false` on this computer (a remote sign-in cannot change it) and a remote sign-in can only watch terminals; starting, typing, keys and an interactive attach are refused (`remote_terminals_off`). While `web.remote.maxMode` is below `auto`, a remote sign-in also cannot start a terminal or type into one (`max_mode`), because a terminal can run anything and would sidestep that limit.
 
+In the app, **Settings → Tunnel** does the same: pick the provider, enter the hostname (`cloudflare`), paste a token (**Save token**; the field says whether one is stored and never shows it), switch **Start the tunnel with snowpea**, then **Start tunnel** / **Stop tunnel**. When the program is missing it offers **Install** or the command to run. While it runs the page shows the state, the public address with **Copy** and a QR code to open it on a phone, and the error when there is one. A remote sign-in sees a note instead.
+
 A tunnel makes the page reachable by anyone who can guess the address, so everything in "What a remote sign-in is" applies: use a long password, and stop the tunnel when you do not need it.
 
 ## The screen
@@ -185,11 +187,11 @@ The layout follows the DeepSeek Harness web client: three columns, with the conv
 |---|---|
 | Left — sidebar | **New Session**, Plugins, Automation tasks, More (the other screens: skills, schedule, settings…), then **Workspaces**: one group per project folder with its conversations, pinned ones first. A dot on a row says a turn is running, an approval is waiting, or there is something unread. The row menu pins, renames, forks, copies the id or archives. |
 | Middle — conversation | A header with the conversation's title, the parents it was delegated or forked from, and two tabs: **Chat** (the messages, tool cards and composer) and **Trajectory** (see below). |
-| Right — dock | Tabs that open next to the conversation: files, the workspace file tree, the plan, delegated work, changes and, in the IDE, terminals. Panes split and tabs move between them; the layout is kept per conversation in this browser. |
+| Right — dock | Tabs that open next to the conversation: files, the workspace file tree, the plan, delegated work, changes and terminals (in snowpea web, the daemon's [terminal sessions](terminals.md); the desktop app also has its own shells). Panes split and tabs move between them; the layout is kept per conversation in this browser. |
 
 The sidebar is 280 px wide (drag its edge between 264 and 420), folds to a rail under 1024 px and becomes a drawer under 768 px; `Ctrl/⌘ B` toggles it. The dock opens at 45 % of the window, keeps the width you give it, never takes more than 70 %, and closes rather than leave the conversation less than 400 px; `Ctrl/⌘ J` toggles it.
 
-An empty pane in the dock shows a **Start** tab with cards for workspace files, changes and the plan (the terminal card is IDE only). The status bar shows whether the page is connected, and an open tab keeps the daemon from shutting down for being idle.
+An empty pane in the dock shows a **Start** tab with cards for workspace files, changes and the plan (the terminal card appears in snowpea web only when the daemon runs [terminal sessions](terminals.md)). The status bar shows whether the page is connected, and an open tab keeps the daemon from shutting down for being idle.
 
 ## Files open in the dock
 
