@@ -255,6 +255,10 @@ class JarvisService:
         from snowpea_core.jarvis import external as external_sessions
 
         external_sessions.attach(self)
+        # 1.73.0: terminal sessions (tools, intake, overview rows).
+        from snowpea_core.jarvis import terminals as terminal_sessions
+
+        terminal_sessions.attach(self)
         gateway = getattr(core, "gateway", None)
         if gateway is not None:
             # Messenger routing and notices (WP7) follow this service.

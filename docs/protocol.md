@@ -60,6 +60,7 @@ Server capabilities advertised in the `system.hello` result:
 - `extensions`
 - `externalModelSwitch`
 - `externalNativeModes`
+- `externalPty`
 - `externalSessions`
 - `externalTmux`
 - `fork`
@@ -2058,7 +2059,7 @@ Jarvis mode (1.53.0, WP3): one row per supervised session, snowpea and external.
 |---|---|---|---|
 | `generatedAt` | `string` | yes | UTC ISO time the table was taken. |
 | `hiddenCount` | `number` | no | 1.56.0 (jarvisSessionSwitch): how many open sessions (snowpea and the external ones snowpea has open) are not shared with Jarvis — switch off, or locked hidden — so a client can say 'N sessions are not shared with Jarvis'. The rows list only sessions whose switch is on. |
-| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; hostToolsFrom?: string \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; nativeMode?: string \| null; originSurface?: string \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; securityListsApply?: boolean \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
+| `rows` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none" \| null; controlled?: boolean \| null; digest?: string; exposed?: boolean; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; } \| null; grantId?: string \| null; host?: "none" \| "terminal" \| "tmux" \| "snowpea" \| null; hostToolsFrom?: string \| null; lastActivityAt?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; nativeMode?: string \| null; originSurface?: string \| null; pausedUntil?: string \| null; pendingApprovals?: number; pendingQuestions?: number; project?: string \| null; securityListsApply?: boolean \| null; sessionId?: string \| null; status: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; takenOver?: boolean; terminal?: { alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; } \| null; title?: string \| null; waitingOnPerson?: number; })[]` | no | Newest activity first. |
 
 ### `jarvis.project.alias`
 
@@ -5152,6 +5153,7 @@ Start a terminal in a registered project; dangerous options need confirmDangerou
 | `rows` | `number \| null` | no |  |
 | `snowpeaSessionId` | `string \| null` | no | Profile 'snowpea': the session to attach to. |
 | `title` | `string \| null` | no |  |
+| `trust` | `boolean` | no | As ExternalOpenParams.trust, for a CLI profile: the person's one-time confirmation that external CLIs may run in this project (else external_unavailable with details.reason 'untrusted_project'). |
 
 **Result**
 
@@ -5247,7 +5249,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `profiles` | `({ dangerousRefusal?: "max_mode" \| "terminal_locked" \| null; id: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; integration?: "claude" \| "codex" \| "cursor" \| "agy" \| null; label: string; options?: ({ args?: string[]; dangerous?: boolean; id: string; label: string; })[]; path?: string \| null; resumable?: boolean; })[]` | no |  |
+| `profiles` | `({ dangerousRefusal?: "max_mode" \| "terminal_locked" \| "person_only" \| null; id: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; integration?: "claude" \| "codex" \| "cursor" \| "agy" \| null; label: string; options?: ({ args?: string[]; dangerous?: boolean; id: string; label: string; })[]; path?: string \| null; resumable?: boolean; })[]` | no |  |
 
 ### `terminal.read`
 

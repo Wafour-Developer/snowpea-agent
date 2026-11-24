@@ -63,6 +63,7 @@ from snowpea_core.external.trust import ProjectTrust
 from snowpea_core.permissions.allowlist import command_of
 from snowpea_core.permissions.shell_remember import matchable
 from snowpea_core.server import errors
+from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import ExternalRef
 
 log = logging.getLogger("snowpea.external")
@@ -327,6 +328,9 @@ class ExternalManager:
         self.list_liveness_timeout = LIST_LIVENESS_TIMEOUT_SEC
         #: Listing work that outlived its bound; kept so it finishes (and is reaped).
         self._late: set[asyncio.Future[Any]] = set()
+        #: 1.73.0 (externalPty): the terminals that run CLI sessions
+        #: (:class:`~snowpea_core.external.pty.PtyBridge`); ``None`` without them.
+        self.pty: Any = None
         for cli in self.registry.ids():
             adapter = self.registry.get(cli)
             if adapter is not None:
@@ -853,7 +857,7 @@ class ExternalManager:
             "approvals": self._approvals(record, found),
             "tmux": record.channel.tmux if record.channel is not None else None,
             "terminal": self._terminal_of(record),
-            "controllable": "tmux" if self._terminal_of(record) is not None else None,
+            "controllable": "tmux" if self._bridge_of(record) is not None else None,
             "mode": record.mode if record.host in ("snowpea", "tmux") else None,
             "nativeMode": record.native_mode if record.host in ("snowpea", "tmux") else None,
             "controlled": self._controlled(record, found),
@@ -1189,6 +1193,20 @@ class ExternalManager:
             pane = await self._pane_of(live, cache=pane_cache)
         if pane is not None:
             host = "tmux"
+        term = self._pty_term(adapter.id, info.id) if pane is None else None
+        if term is not None:
+            # A terminal snowpea holds (externalPty): kind "pty", view only here.
+            roots_of = proc.project_of(info.cwd, roots)
+            return {
+                "ref": _ref(adapter.id, info.id), "title": _line(info.title), "cwd": info.cwd,
+                "project": roots_of, "updatedAt": info.updated_at,
+                "status": self.pty.row_status(term), "host": "terminal", "canSend": False,
+                "approvals": "none", "tmux": None, "terminal": self.pty.wire(term),
+                "controllable": None, "mode": None, "nativeMode": None, "controlled": True,
+                "preview": _preview(info.preview),
+                "model": self._chosen_model(adapter.id, info.id, info.model),
+                "securityListsApply": self._lists_apply(roots_of, "terminal", "none", True),
+            }
         return {
             "ref": _ref(adapter.id, info.id),
             "title": _line(info.title),
@@ -1263,6 +1281,13 @@ class ExternalManager:
         """
         if record.channel is not None and record.channel.alive:
             return None
+        term = self._pty_term(record.cli, record.id)
+        if term is not None:
+            # It runs in a terminal snowpea holds (externalPty): view only here,
+            # driven through the terminal.
+            record.host = "terminal"
+            record.status = self.pty.row_status(term)
+            return "terminal"
         live = await record.adapter.liveness(record.info, own_pids=self.supervisor.pids())
         # A pane snowpea did not start is somebody's terminal: view only.
         record.host = "terminal" if live.host in ("terminal", "tmux") else "none"
@@ -1274,7 +1299,8 @@ class ExternalManager:
         self, cli: str, session_id: str, *, limit: int = 200, mode: str | None = None,
         conn: Any = None, transport: str | None = None,
         confirmation: PersonConfirmation | None = None, trust: bool = False,
-        native_mode: str | None = None,
+        native_mode: str | None = None, options: list[str] | None = None,
+        confirm_dangerous: bool = False,
     ) -> dict[str, Any]:
         """``external.open``: subscribe and return the newest page; continue a free session.
 
@@ -1284,15 +1310,123 @@ class ExternalManager:
         for a project no external CLI ran in yet (:meth:`_require_trust`).
         """
         record, found = await self._load(cli, session_id)
-        if transport not in (None, "structured", "tmux"):
+        if transport not in (None, "structured", "tmux", "pty"):
             raise ExternalError(errors.INVALID_PARAMS, f"unknown transport {transport!r}")
+        if transport == "pty" and self.pty is None:
+            raise ExternalError(errors.EXTERNAL_UNAVAILABLE,
+                                "terminal sessions are not available in this snowpea")
         try:
+            if transport == "pty":
+                return await self._open_pty(record, limit=limit, conn=conn, trust=trust,
+                                            options=options or [],
+                                            confirm_dangerous=confirm_dangerous)
             return await self._open(record, found, limit=limit, mode=mode, conn=conn,
                                     transport=transport, confirmation=confirmation, trust=trust,
                                     native_mode=native_mode)
-        except ExternalError:
+        except (ExternalError, RpcError):
             await self._maybe_forget(record)
             raise
+
+    # -- terminal sessions (1.73.0, externalPty) -----------------------------
+    async def _open_pty(self, record: _Record, *, limit: int, conn: Any, trust: bool,
+                        options: list[str], confirm_dangerous: bool) -> dict[str, Any]:
+        """Open a session as a terminal: resume it in a new one, or show the one it runs in.
+
+        A session live in another terminal stays view only, and one snowpea
+        already runs (host ``snowpea`` or ``tmux``) keeps its transport.
+        """
+        async with record.lock:
+            previous, previous_host = record.status, record.host
+            if record.channel is None or not record.channel.alive:
+                if record.channel is not None:
+                    record.channel = None
+                    record.host = "none"
+                await self._refresh_host(record)
+                if record.host == "none":
+                    term = await self.pty.start(
+                        conn, record.cli, record.real_cwd or record.info.cwd, resume=record.id,
+                        options=options, confirm_dangerous=confirm_dangerous, trust=trust,
+                        title=record.info.title,
+                    )
+                    record.host = "terminal"
+                    record.status = self.pty.row_status(term)
+                    record.error = None
+            self._subscribe(record, conn)
+            if record.host == "terminal":
+                self._start_follow(record)
+            if (previous, previous_host) != (record.status, record.host):
+                await self._announce(
+                    record,
+                    previous if previous != record.status else None,
+                    previous_host if previous_host != record.host else None,
+                )
+            events, has_more = self._page(record, None, limit)
+            return {
+                "session": self._row(record),
+                "events": events,
+                "hasMore": has_more,
+                "readOnly": not self._can_send(record),
+            }
+
+    async def _create_pty(self, adapter: ExternalAdapter, cwd: str, root: str | None, *,
+                          conn: Any, trust: bool, options: list[str], confirm_dangerous: bool,
+                          model: str | None) -> dict[str, Any]:
+        cli = adapter.id
+        term = await self.pty.start(conn, cli, cwd, resume=None, options=options,
+                                    confirm_dangerous=confirm_dangerous, trust=trust,
+                                    model=model)
+        session_id = term.session_id or await self.pty.wait_session_id(term)
+        # Until a hook names it, the session is keyed by its terminal.
+        key = session_id or term.id
+        record = _Record(
+            adapter=adapter,
+            info=SessionInfo(id=key, cwd=cwd, updated_at=utc_now(), model=model),
+            project=root,
+            builder=TimelineBuilder(cli, key, salt=f"live-{uuid.uuid4().hex[:8]}"),
+            host="terminal",
+            status=self.pty.row_status(term),
+            real_cwd=cwd,
+        )
+        if model is not None:
+            record.model, record.model_chosen = model, True
+        self._records[(cli, key)] = record
+        self._subscribe(record, conn)
+        if session_id:
+            self._start_follow(record)
+        await self._announce(record, None, "none")
+        return {"session": self._row(record)}
+
+    async def pty_rekey(self, cli: str, old: str, session_id: str) -> None:
+        """A hook named the session a terminal runs: key its row by that id."""
+        record = self._records.pop((cli, old), None)
+        if record is None:
+            return
+        if (cli, session_id) in self._records:
+            return  # opened under its real id meanwhile; the provisional row goes
+        record.info.id = session_id
+        record.builder.session_id = session_id
+        self._records[(cli, session_id)] = record
+        self._start_follow(record)
+        await self._announce(record)
+
+    async def pty_changed(self, cli: str, session_id: str) -> None:
+        record = self._records.get((cli, session_id))
+        term = self._pty_term(cli, session_id)
+        if record is None or term is None or record.host != "terminal":
+            return
+        status = self.pty.row_status(term)
+        if status != record.status:
+            await self._set(record, status=status)
+
+    async def pty_ended(self, cli: str, session_id: str) -> None:
+        """Its terminal exited or closed: the session is free again (resume opens a new one)."""
+        record = self._records.get((cli, session_id))
+        if record is None or record.host != "terminal" or record.channel is not None:
+            return
+        if self._pty_term(cli, session_id) is not None:
+            return
+        await self._stop_follow(record)
+        await self._set(record, host="none", status="idle")
 
     async def _open(
         self, record: _Record, found: Discovery, *, limit: int, mode: str | None, conn: Any,
@@ -1419,6 +1553,13 @@ class ExternalManager:
         try:
             while not self._closed and record.host == "terminal":
                 await asyncio.sleep(self.poll_interval)
+                term = self._pty_term(record.cli, record.id)
+                if term is not None:
+                    # A terminal snowpea holds: its status, not the process table.
+                    busy = self.pty.row_status(term)
+                    if busy != record.status:
+                        await self._set(record, status=busy)
+                    continue
                 try:
                     live = await record.adapter.liveness(
                         record.info, own_pids=self.supervisor.pids()
@@ -1466,7 +1607,19 @@ class ExternalManager:
 
     def _terminal_of(self, record: _Record) -> dict[str, Any] | None:
         bridge = self._bridge_of(record)
-        return bridge.wire() if bridge is not None else None
+        if bridge is not None:
+            return bridge.wire()  # type: ignore[no-any-return]
+        term = self._pty_term(record.cli, record.id)
+        return self.pty.wire(term) if term is not None else None
+
+    def _pty_term(self, cli: str, session_id: str) -> Any:
+        """The live terminal snowpea runs this session in (1.73.0, externalPty), or ``None``."""
+        if self.pty is None or not session_id:
+            return None
+        try:
+            return self.pty.live(cli, session_id)
+        except Exception:  # noqa: BLE001 - no terminals, no pty link
+            return None
 
     async def _pane_of(self, live: Any, *, cache: dict[str, list[Any]] | None = None) -> Any:
         """The tmux pane one of ``live.pids`` runs in, or ``None`` (no tmux, no match)."""
@@ -2025,17 +2178,27 @@ class ExternalManager:
         self, cli: str, project: str, *, model: str | None = None, mode: str | None = None,
         transport: str = "structured", conn: Any = None,
         confirmation: PersonConfirmation | None = None, trust: bool = False,
-        native_mode: str | None = None,
+        native_mode: str | None = None, options: list[str] | None = None,
+        confirm_dangerous: bool = False,
     ) -> dict[str, Any]:
         """``external.create``: a new session in a registered project, already open.
 
         The creating connection is subscribed (``external.event``) as on open.
-        ``trust`` as on :meth:`open`.
+        ``trust`` as on :meth:`open`.  ``transport="pty"`` (1.73.0) runs it as a
+        terminal session with the CLI's permission ``options`` instead of a mode.
         """
         adapter, found = await self._usable(cli)
         roots = await self.roots()
         cwd = proc.validate_cwd(project, roots)
         proc.validate_model(model)
+        if transport == "pty":
+            if self.pty is None:
+                raise ExternalError(errors.EXTERNAL_UNAVAILABLE,
+                                    "terminal sessions are not available in this snowpea")
+            root = proc.project_of(cwd, [str(Path(r).resolve()) for r in roots])
+            return await self._create_pty(adapter, cwd, root, conn=conn, trust=trust,
+                                          options=list(options or []),
+                                          confirm_dangerous=confirm_dangerous, model=model)
         resolved = self.resolve_mode(adapter, mode, native_mode, found)
         chosen, row = resolved or self.default_native(adapter, found)
         if transport == "tmux" and not (adapter.capabilities.tmux and proc.tmux_supported()):

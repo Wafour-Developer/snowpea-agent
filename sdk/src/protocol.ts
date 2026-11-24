@@ -3179,6 +3179,59 @@ export interface JarvisOverviewResult {
     status: "idle" | "running" | "awaiting_approval" | "awaiting_question" | "error";
     /** As SessionJarvisState.takenOver. */
     takenOver?: boolean;
+    /** 1.73.0 (terminalSessions): a terminal row (sessionId and external null, unless the terminal runs that external session): the terminal as terminal.list shows it. */
+    terminal?: {
+      /** The holder and its program are running. */
+      alive: boolean;
+      cols?: number;
+      /** ISO time. */
+      createdAt?: string;
+      /** Working folder. */
+      cwd?: string;
+      /** Started with a dangerous option. */
+      dangerous?: boolean;
+      /** Exit code once it ended. */
+      exitCode?: number | null;
+      external?: {
+        /** The external CLI running in the terminal. */
+        cli: "claude" | "codex" | "agy" | "cursor";
+        /** Its own session id, once known. */
+        sessionId?: string | null;
+      } | null;
+      labels?: Record<string, string>;
+      /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
+      lost?: boolean;
+      /** Option ids it was started with. */
+      options?: string[];
+      /** Who started it, e.g. 'jarvis'. */
+      parent?: string | null;
+      /** The program's pid, when alive. */
+      pid?: number | null;
+      /** Profile it was started with. */
+      profile: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
+      rows?: number;
+      /** The snowpea session a 'snowpea' profile terminal is attached to. */
+      snowpeaSessionId?: string | null;
+      /** Current status. */
+      status: {
+        /** Why it is blocked (permission, question, auth). */
+        kind?: "permission" | "question" | "auth" | null;
+        /** A person has looked since the last done (done/blocked rows). */
+        seen?: boolean;
+        /** osc (7501), screen (rules or a visible blocker), hook, rules. */
+        source?: "osc" | "screen" | "hook" | "rules" | "none";
+        /** What the program in the terminal is doing. */
+        state: "idle" | "working" | "done" | "blocked" | "error";
+        /** Set on entering blocked or error. */
+        stuck?: boolean;
+        /** Incremented when the root record leaves working. */
+        turn?: number;
+      };
+      /** Terminal id (stable across daemon restarts). */
+      terminalId: string;
+      /** Program title (OSC 0/2) or the profile label. */
+      title?: string;
+    } | null;
     /** Session title. */
     title?: string | null;
     /** Of those, how many are routed to the person. */
@@ -9491,6 +9544,8 @@ export interface TerminalCreateParams {
   /** Profile 'snowpea': the session to attach to. */
   snowpeaSessionId?: string | null;
   title?: string | null;
+  /** As ExternalOpenParams.trust, for a CLI profile: the person's one-time confirmation that external CLIs may run in this project (else external_unavailable with details.reason 'untrusted_project'). */
+  trust?: boolean;
 }
 
 /** `terminal.create` result. */
@@ -9655,8 +9710,8 @@ export type TerminalProfilesParams = Record<string, unknown>;
 /** `terminal.profiles` result. */
 export interface TerminalProfilesResult {
   profiles?: ({
-    /** Why this connection cannot use dangerous options now: max_mode (web.remote.maxMode is below auto) or terminal_locked (tunnel connection, web.tunnel.unlock first). null: allowed (still needs confirmDangerous). */
-    dangerousRefusal?: "max_mode" | "terminal_locked" | null;
+    /** Why this connection cannot use dangerous options now: max_mode (web.remote.maxMode is below auto), terminal_locked (tunnel connection, web.tunnel.unlock first) or person_only (not a person's local connection: a remote web login, a browser, Jarvis). null: allowed (still needs confirmDangerous). Set only on profiles that have a dangerous option. */
+    dangerousRefusal?: "max_mode" | "terminal_locked" | "person_only" | null;
     /** Profile id. */
     id: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
     /** The CLI (or shell) was found on this machine. */

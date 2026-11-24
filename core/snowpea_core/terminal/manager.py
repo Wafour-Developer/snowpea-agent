@@ -420,6 +420,10 @@ class TerminalManager:
         self._tasks: set[asyncio.Future[Any]] = set()
         self._lock = asyncio.Lock()
         self.started = False
+        #: In-process listeners (Jarvis's intake, external pty sessions):
+        #: ``listener(method, params)`` for every event, plus the in-process
+        #: ``terminal.sessionId`` when a hook names the CLI's session.
+        self.listeners: list[Callable[[str, dict[str, Any]], Any]] = []
 
     # -- plumbing ----------------------------------------------------------------
     def rules_for(self, rules_id: str | None) -> Any:
@@ -443,7 +447,18 @@ class TerminalManager:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
+    def tell_listeners(self, method: str, params: dict[str, Any]) -> None:
+        for listener in list(self.listeners):
+            try:
+                result = listener(method, params)
+            except Exception:  # noqa: BLE001 - a listener must never fail the terminal
+                log.debug("terminal listener failed on %s", method, exc_info=True)
+                continue
+            if asyncio.iscoroutine(result):
+                self._spawn(self._guard(result))
+
     def emit_soon(self, method: str, params: dict[str, Any]) -> None:
+        self.tell_listeners(method, params)
         if self._emit is None:
             return
         try:
@@ -922,6 +937,11 @@ class TerminalManager:
         if changed and term.alive:
             with contextlib.suppress(OSError):
                 self._write_meta(term)
+        if changed and session_id and term.spec.external:
+            self.tell_listeners("terminal.sessionId", {
+                "terminalId": term.id, "cli": term.spec.external.get("cli"),
+                "sessionId": session_id,
+            })
         return term.status.status.wire()
 
     # -- close -------------------------------------------------------------------
