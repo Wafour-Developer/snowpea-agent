@@ -9711,6 +9711,8 @@ export interface TerminalReadResult {
 export interface TerminalReportParams {
   /** The CLI's hook event name. */
   event: string;
+  /** With state 'blocked': permission, question or auth. */
+  kind?: "permission" | "question" | "auth" | null;
   message?: string | null;
   sessionId?: string | null;
   state?: "idle" | "working" | "done" | "blocked" | "error" | null;

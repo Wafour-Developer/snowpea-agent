@@ -10005,6 +10005,9 @@ class TerminalReportParams(Payload):
     token: str = Field(description="SNOWPEA_TERMINAL_TOKEN of that terminal.")
     event: str = Field(description="The CLI's hook event name.")
     state: TerminalState | None = None
+    kind: TerminalStateKind | None = Field(
+        default=None, description="With state 'blocked': permission, question or auth."
+    )
     sessionId: str | None = None
     transcriptPath: str | None = None
     message: str | None = None
