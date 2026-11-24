@@ -3,7 +3,7 @@
  *
  * Invoked by `snowpea` (cli/main.py) as:
  *   node dist/snowpea-tui.js --port <n> --token <t> [--mode plan|accept|auto] [--cwd DIR]
- *                            [--start jarvis|external]
+ *                            [--start jarvis|external] [--session ID]
  *
  * Renders full screen on the alternate buffer by default; `--inline` keeps the
  * older layout that leaves the transcript in the terminal's scrollback.
@@ -19,7 +19,8 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
-import { App } from "./app.js";
+import { App, type AppProps } from "./app.js";
+import { OscEmitter, oscEnabled } from "./util/osc-status.js";
 import { captureClipboardImage, type CommandRunner } from "./util/clipboard.js";
 import { createLocalAudio, type LocalProcess, type Spawner } from "./util/audio-tools.js";
 import { createEditorRunner } from "./util/editor.js";
@@ -77,6 +78,8 @@ export interface CliArgs {
    * which leaves the history in the terminal's own scrollback.
    */
   fullscreen: boolean;
+  /** `--session <id>`: attach to this daemon session instead of creating one. */
+  session?: string;
 }
 
 /** Parse `--key value`, `--key=value` and the standalone flags above. */
@@ -134,6 +137,7 @@ export function parseArgs(
     remote: values.get("remote") || undefined,
     start: startRaw as CliArgs["start"],
     fullscreen: !inlineRequested,
+    session: values.get("session") || undefined,
   };
 }
 
@@ -259,6 +263,40 @@ export const spawner: Spawner = {
   },
 };
 
+/** `--session` named something the daemon does not have (or could not resume). */
+export class AttachError extends Error {}
+
+/**
+ * Attach to an existing session with `session.resume` (replaying from the
+ * start). Any refusal is reported as "not found" with the daemon's own words;
+ * a lost connection stays a plain error so the caller can say so.
+ */
+export async function attachSession(
+  client: Pick<TuiClient, "call">,
+  id: string,
+): Promise<{ sessionId: string; attached: NonNullable<AppProps["attached"]> }> {
+  let result: any;
+  try {
+    result = await client.call("session.resume", { sessionId: id, afterSeq: 0 });
+  } catch (error) {
+    const raw = error as { code?: unknown; data?: unknown } | null;
+    if (!raw || (raw.code === undefined && raw.data === undefined)) throw error;
+    throw new AttachError(`session ${id} not found or cannot be resumed: ${rpcErrorText(error)}`);
+  }
+  if (!result || typeof result !== "object") {
+    throw new AttachError(`session ${id} not found`);
+  }
+  return {
+    sessionId: id,
+    attached: {
+      events: Array.isArray(result.events) ? result.events : [],
+      mode: typeof result.mode === "string" ? result.mode : undefined,
+      autoAfterPlan: result.autoAfterPlan === true,
+      delegation: result.delegation === true,
+    },
+  };
+}
+
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   let args: CliArgs;
   try {
@@ -277,14 +315,25 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
   let sessionId: string;
   let delegation = false;
+  let attached: AppProps["attached"];
   try {
     await client.connect();
-    ({ sessionId, delegation } = await client.createSessionInfo({
-      workdir: args.cwd,
-      mode: args.mode,
-      originSurface: "tui",
-    }));
+    if (args.session) {
+      ({ sessionId, attached } = await attachSession(client, args.session));
+      delegation = attached?.delegation === true;
+    } else {
+      ({ sessionId, delegation } = await client.createSessionInfo({
+        workdir: args.cwd,
+        mode: args.mode,
+        originSurface: "tui",
+      }));
+    }
   } catch (error) {
+    if (error instanceof AttachError) {
+      process.stderr.write(`snowpea-tui: ${error.message}\n`);
+      await client.close().catch(() => undefined);
+      return 1;
+    }
     // A refusal of the starting mode (--mode wider than the project's default) is core's answer, not a lost connection.
     process.stderr.write(
       rpcCode(error) === "jarvis_person_only"
@@ -350,6 +399,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const localAudio = createLocalAudio(spawner, process.platform);
   const recordingPath = join(dir, "tmp", `recording-${Date.now()}.wav`);
 
+  const osc = new OscEmitter(
+    (chunk) => {
+      try {
+        process.stdout.write(chunk);
+      } catch {
+        /* a closed stdout has nothing to tell. */
+      }
+    },
+    oscEnabled(process.stdout),
+    process.env.SNOWPEA_TERMINAL_ID,
+  );
+
   splitKeypresses(process.stdin);
   let restart = false;
   const instance = render(
@@ -357,6 +418,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       client={client}
       sessionId={sessionId}
       initialDelegation={delegation}
+      attached={attached}
+      osc={osc}
       mode={args.mode ?? "accept"}
       workdir={args.cwd}
       remote={args.remote}
@@ -404,8 +467,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   try {
     await instance.waitUntilExit();
   } finally {
+    osc.clear();
     // Closing the session is best-effort: the daemon reaps orphans anyway.
-    await client.closeSession(sessionId).catch(() => undefined);
+    // An attached session is someone else's to keep: leave it open.
+    if (!args.session) await client.closeSession(sessionId).catch(() => undefined);
     await client.close().catch(() => undefined);
     screen?.restore();
   }

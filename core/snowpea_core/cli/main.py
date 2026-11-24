@@ -160,6 +160,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="continue a saved session instead of opening a new one (see `snowpea session list`)",
     )
+    parser.add_argument(
+        "--session",
+        dest="session",
+        metavar="SESSION_ID",
+        default=None,
+        help="open the TUI on an existing daemon session (it is resumed, not created)",
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON Lines instead of text")
     parser.add_argument("--cwd", default=None, help="working directory of the session")
     parser.add_argument(
@@ -394,6 +401,8 @@ def launch_tui(args: argparse.Namespace, home: str | None) -> int:
         command += ["--mode", args.mode]
     if getattr(args, "inline", False):
         command.append("--inline")
+    if getattr(args, "session", None):
+        command += ["--session", args.session]
     start = getattr(args, "start_screen", None)
     if start:
         command += ["--start", start]
@@ -716,6 +725,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_OK if ok else 1
 
     home: str | None = args.home
+
+    if getattr(args, "session", None) and (
+        args.docker is not None or args.remote or args.prompt is not None or args.subcommand
+    ):
+        _err("--session opens the TUI on a session of the local daemon; it does not combine "
+             "with --docker, --remote, -c or a subcommand")
+        return EXIT_USAGE
 
     if args.docker is not None or args.docker_volume or args.docker_keep:
         if args.docker is None:
