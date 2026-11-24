@@ -267,6 +267,17 @@ def test_codex_feature_flag_variants(tmp_path):
         assert (base / "config.toml").read_text() == original, original
 
 
+def test_empty_hooks_file_roundtrip(tmp_path):
+    env = make_env(tmp_path)
+    hooks = cfg(env, "codex") / "hooks.json"
+    hooks.write_text("\n")
+    manager.install("codex", env)
+    assert json.loads(hooks.read_text())["hooks"]["Stop"]
+    assert manager.status("codex", env).status == manager.STATUS_CURRENT
+    manager.uninstall("codex", env)
+    assert hooks.read_text() == "\n"
+
+
 def test_codex_flag_the_person_set_is_left_on(tmp_path):
     env = make_env(tmp_path)
     base = cfg(env, "codex")

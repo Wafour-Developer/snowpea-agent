@@ -527,12 +527,15 @@ def install(cli: str, env: Env | None = None) -> ActionResult:
 
     hooks_path = files[0]
     before = fileio.read_text(hooks_path)
-    original = before if before is not None else _stub(cli)
+    # A missing or empty (whitespace-only) file starts as ``{}``.
+    original = before if before is not None and before.strip() else _stub(cli)
     try:
         after = _install_json(env, cli, original, record)
     except jsonedit.JsonEditError as exc:
         raise IntegrationError(f"{hooks_path}: {exc}") from exc
     _write(hooks_path, before, after, record, result)
+    if before is not None and not before.strip() and after != before:
+        record["files"].setdefault(str(hooks_path), {})["blankOriginal"] = before
 
     if cli == "codex":
         toml_path = files[1]
@@ -570,15 +573,19 @@ def uninstall(cli: str, env: Env | None = None) -> ActionResult:
 
     hooks_path = files[0]
     text = fileio.read_text(hooks_path)
-    if text is not None:
+    if text is not None and text.strip():
         try:
             after = _uninstall_json(env, cli, text, record)
         except jsonedit.JsonEditError as exc:
             raise IntegrationError(f"{hooks_path}: {exc}") from exc
-        created = bool((file_records.get(str(hooks_path)) or {}).get("created"))
-        if created and jsonedit.loads(after) == jsonedit.loads(_stub(cli)):
+        entry = file_records.get(str(hooks_path)) or {}
+        back_to_stub = jsonedit.loads(after) == jsonedit.loads(_stub(cli))
+        if back_to_stub and entry.get("created"):
             if fileio.remove_file(hooks_path):
                 result.removed.append(str(hooks_path))
+        elif back_to_stub and isinstance(entry.get("blankOriginal"), str):
+            fileio.write_text(hooks_path, entry["blankOriginal"])
+            result.changed.append(str(hooks_path))
         elif after != text:
             fileio.write_text(hooks_path, after)
             result.changed.append(str(hooks_path))
@@ -622,7 +629,7 @@ def status(cli: str, env: Env | None = None) -> IntegrationRow:
         installedVersion=record.get("version"))
     try:
         text = fileio.read_text(files[0])
-        value = jsonedit.loads(text) if text is not None else {}
+        value = jsonedit.loads(text) if text is not None and text.strip() else {}
     except (OSError, jsonedit.JsonEditError) as exc:
         row.detail = f"{files[0]}: {exc}"
         value = {}
