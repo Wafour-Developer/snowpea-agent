@@ -79,11 +79,18 @@ class RuleError(ValueError):
 
 @dataclass(frozen=True)
 class RuleVerdict:
-    """The winning rule for one screen."""
+    """The winning rule for one screen.
+
+    Field names follow :class:`snowpea_core.terminal.status.RuleVerdict`
+    (``state``, ``kind``, ``rule``, ``detail``, ``priority``), so the status
+    machine takes it as is; the ``visible_*`` / ``skip_update`` flags are extra.
+    ``state == "unknown"`` comes only from a skip rule (a transcript viewer, a
+    model picker): the screen says nothing about the agent, keep what you have.
+    """
 
     state: str  # idle | working | blocked | unknown
     kind: str | None
-    rule_id: str
+    rule: str
     priority: int
     visible_blocker: bool = False
     visible_idle: bool = False
@@ -223,6 +230,10 @@ class RuleSet:
     aliases: tuple[str, ...]
     rules: tuple[_Rule, ...]
 
+    def apply_rules(self, screen_text: str, title: str) -> RuleVerdict | None:
+        """:class:`snowpea_core.terminal.status.ScreenRules`: :meth:`evaluate` without progress."""
+        return self.evaluate(screen_text, title)
+
     def evaluate(self, screen: str, title: str = "", progress: str = "") -> RuleVerdict | None:
         """The verdict of the highest-priority matching rule, or ``None`` when none matches.
 
@@ -251,7 +262,7 @@ class RuleSet:
         return RuleVerdict(
             state=best.state,
             kind=best.kind if best.state == "blocked" else None,
-            rule_id=best.id,
+            rule=best.id,
             priority=best.priority,
             visible_blocker=best.visible_blocker and best.state == "blocked",
             visible_idle=best.visible_idle and best.state == "idle",
@@ -357,6 +368,20 @@ def load_rules(profile: str) -> RuleSet:
     text = resources.files("snowpea_core.terminal.rules").joinpath(
         f"{profile}.toml").read_text(encoding="utf-8")
     return parse_manifest(text, f"{profile}.toml")
+
+
+def rules_loader(rules_id: str) -> RuleSet | None:
+    """``status.RulesLoader``: the rules of a terminal profile, ``None`` when it has none.
+
+    Accepts a manifest's aliases too (``claude-code``, ``cursor-agent``,
+    ``antigravity``); ``shell`` / ``snowpea`` and anything unknown get ``None``.
+    """
+    key = (rules_id or "").strip().lower()
+    for profile in PROFILES:
+        rules = load_rules(profile)
+        if key == profile or key in rules.aliases:
+            return rules
+    return None
 
 
 def load_rules_file(path: Path) -> RuleSet:

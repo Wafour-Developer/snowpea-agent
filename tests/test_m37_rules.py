@@ -41,13 +41,22 @@ def test_screen_fixture(path: Path):
         assert verdict is None, verdict
         return
     assert verdict is not None
-    assert (verdict.state, verdict.rule_id) == (meta["state"], meta["rule"])
+    assert (verdict.state, verdict.rule) == (meta["state"], meta["rule"])
     assert verdict.kind == (meta.get("kind") or None)
     if verdict.state == "blocked":
         assert verdict.visible_blocker
     if "detail" in meta:
         assert verdict.detail == meta["detail"].replace("|", "\n")
     assert verdict.skip_update == (meta.get("skip") == "true")
+
+
+def test_rules_loader_is_the_status_machine_seam():
+    assert engine.rules_loader("claude") is engine.load_rules("claude")
+    assert engine.rules_loader("cursor-agent") is engine.load_rules("cursor")
+    assert engine.rules_loader("antigravity") is engine.load_rules("agy")
+    assert engine.rules_loader("shell") is None and engine.rules_loader("snowpea") is None
+    verdict = engine.rules_loader("codex").apply_rules("", "⠋ proj")
+    assert (verdict.state, verdict.rule) == ("working", "osc_title_working")
 
 
 def test_every_bundled_manifest_compiles():
@@ -76,7 +85,7 @@ priority = 5
 contains = ["x"]
 """
     verdict = engine.parse_manifest(manifest).evaluate("X marks")
-    assert verdict.rule_id == "first"
+    assert verdict.rule == "first"
 
 
 def test_gate_semantics():

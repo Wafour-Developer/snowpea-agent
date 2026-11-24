@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -63,20 +64,26 @@ def test_build_report_other_clis():
 
 
 class Sink:
+    """Stands in for TerminalManager.report: checks the token, raises when wrong."""
+
     def __init__(self) -> None:
         self.tokens = {"t1": "tok"}
-        self.reports: list[tuple[str, report_mod.HookReport]] = []
+        self.reports: list[tuple[str, SimpleNamespace]] = []
 
-    def report_token(self, terminal_id):
-        return self.tokens.get(terminal_id)
-
-    def apply_hook_report(self, terminal_id, report):
+    def report(self, terminal_id, token, report):
+        if self.tokens.get(terminal_id) != token:
+            raise PermissionError("bad terminal token")
         self.reports.append((terminal_id, report))
+        return {"state": report.state}
+
+
+def make_server(sink, home):
+    return report_mod.ReportServer(sink, home, make_report=SimpleNamespace)
 
 
 def test_parse_and_token_check(tmp_path):
     sink = Sink()
-    server = report_mod.ReportServer(sink, tmp_path)
+    server = make_server(sink, tmp_path)
     good = {"terminalId": "t1", "token": "tok", "cli": "claude", "event": "Stop", "state": "done",
             "kind": None, "sessionId": "s", "transcriptPath": None}
     assert server.handle_payload(good)
@@ -87,7 +94,7 @@ def test_parse_and_token_check(tmp_path):
     assert server.handle_payload([1]) is False
     assert len(sink.reports) == 1
     rep = sink.reports[0][1]
-    assert (rep.cli, rep.state, rep.session_id, rep.event) == ("claude", "done", "s", "Stop")
+    assert (rep.state, rep.session_id, rep.event) == ("done", "s", "Stop")
     # kind only rides on blocked.
     assert server.handle_payload({**good, "kind": "permission"})
     assert sink.reports[-1][1].kind is None
@@ -105,7 +112,7 @@ def test_long_home_gets_a_short_socket_path(tmp_path):
 @posix_only
 async def test_socket_roundtrip_with_hook_report(tmp_path):
     sink = Sink()
-    server = report_mod.ReportServer(sink, tmp_path / "sp")
+    server = make_server(sink, tmp_path / "sp")
     address = await server.start()
     try:
         assert oct(os.stat(address).st_mode & 0o777) == "0o600"
@@ -170,7 +177,7 @@ async def test_installed_script_reports_through_core_bin(tmp_path):
                         "sys.exit(main())\n")
     core_bin.chmod(0o755)
     sink = Sink()
-    server = report_mod.ReportServer(sink, tmp_path / "sp")
+    server = make_server(sink, tmp_path / "sp")
     address = await server.start()
     try:
         command = manager.hook_command(env, "claude", "session")

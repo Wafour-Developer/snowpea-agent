@@ -10,9 +10,10 @@ JSON line per hook call to ``$SNOWPEA_TERMINAL_REPORT``:
   pipe DACL lets only the creating user, SYSTEM and administrators write).
 
 Every line must carry the terminal's own ``SNOWPEA_TERMINAL_TOKEN``: a report
-can only ever speak for the terminal it was started in.  The token is checked
-here (constant time) before :class:`ReportSink.apply_hook_report` sees it, and
-the same :meth:`ReportServer.handle_payload` serves the ``terminal.report`` RPC.
+can only ever speak for the terminal it was started in.  The line is validated
+here, then handed to :meth:`ReportTarget.report` (``TerminalManager.report``),
+which checks the token in constant time and raises when it is wrong.  The same
+:meth:`ReportServer.handle_payload` can serve the ``terminal.report`` RPC.
 
 The listener answers ``{"ok": true|false}`` and closes; the hook never waits
 for more than that.
@@ -23,7 +24,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
-import hmac
 import json
 import logging
 import os
@@ -31,8 +31,7 @@ import secrets
 import stat
 import sys
 import tempfile
-import time
-from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -47,25 +46,16 @@ STATES = frozenset({"working", "done", "blocked", "idle"})
 KINDS = frozenset({"permission", "question", "auth"})
 
 
-@dataclass(frozen=True)
-class HookReport:
-    """One validated hook report for a terminal."""
+class ReportTarget(Protocol):
+    """``TerminalManager.report``: checks the token (raises when wrong), then ranks the report."""
 
-    cli: str
-    event: str
-    state: str | None  # working | done | blocked | idle, None = session-only
-    kind: str | None  # permission | question | auth
-    session_id: str | None
-    transcript_path: str | None
-    received_at: float  # time.monotonic()
+    def report(self, terminal_id: str, token: str, report: Any) -> Any: ...
 
 
-class ReportSink(Protocol):
-    """What the terminal manager offers the report listener (T1 implements it)."""
+def _status_hook_report(**fields: Any) -> Any:
+    from snowpea_core.terminal.status import HookReport
 
-    def report_token(self, terminal_id: str) -> str | None: ...
-
-    def apply_hook_report(self, terminal_id: str, report: HookReport) -> None: ...
+    return HookReport(**fields)
 
 
 class ReportError(ValueError):
@@ -82,8 +72,8 @@ def _clean(value: Any, name: str, limit: int) -> str | None:
     return value or None
 
 
-def parse_report(obj: Any) -> tuple[str, str, HookReport]:
-    """``(terminal id, token, report)`` from a decoded line; :class:`ReportError` if bad."""
+def parse_report(obj: Any) -> tuple[str, str, dict[str, Any]]:
+    """``(terminal id, token, HookReport fields)`` from one line; :class:`ReportError` if bad."""
     if not isinstance(obj, dict):
         raise ReportError("report must be an object")
     terminal_id = _clean(obj.get("terminalId"), "terminalId", 128)
@@ -99,16 +89,14 @@ def parse_report(obj: Any) -> tuple[str, str, HookReport]:
     kind = _clean(obj.get("kind"), "kind", 16)
     if kind is not None and kind not in KINDS:
         raise ReportError("unknown kind")
-    report = HookReport(
-        cli=cli,
-        event=_clean(obj.get("event"), "event", 64) or "",
-        state=state,
-        kind=kind if state == "blocked" else None,
-        session_id=_clean(obj.get("sessionId"), "sessionId", 256),
-        transcript_path=_clean(obj.get("transcriptPath"), "transcriptPath", 4096),
-        received_at=time.monotonic(),
-    )
-    return terminal_id, token, report
+    fields = {
+        "event": _clean(obj.get("event"), "event", 64) or "",
+        "state": state,
+        "kind": kind if state == "blocked" else None,
+        "session_id": _clean(obj.get("sessionId"), "sessionId", 256),
+        "transcript_path": _clean(obj.get("transcriptPath"), "transcriptPath", 4096),
+    }
+    return terminal_id, token, fields
 
 
 def unix_socket_path(home: Path) -> Path:
@@ -186,30 +174,32 @@ class _LineProtocol(asyncio.Protocol):
 
 
 class ReportServer:
-    """Listens on the report socket / pipe and hands valid reports to ``sink``."""
+    """Listens on the report socket / pipe and hands valid reports to ``target``.
 
-    def __init__(self, sink: ReportSink, home: Path) -> None:
-        self.sink = sink
+    ``make_report(**fields)`` builds the report object (default: the status
+    machine's ``HookReport``); ``target.report`` checks the token.
+    """
+
+    def __init__(self, target: ReportTarget, home: Path, *,
+                 make_report: Callable[..., Any] | None = None) -> None:
+        self.target = target
         self.home = Path(home)
+        self.make_report = make_report or _status_hook_report
         self.address = ""
         self._server: Any = None
         self._unix_path: Path | None = None
 
     def handle_payload(self, obj: Any) -> bool:
-        """Validate one report (token included) and apply it; ``False`` when refused."""
+        """Validate one report and hand it on; ``False`` when refused (a bad token included)."""
         try:
-            terminal_id, token, report = parse_report(obj)
+            terminal_id, token, fields = parse_report(obj)
         except ReportError as exc:
             log.debug("terminal report refused: %s", exc)
             return False
-        expected = self.sink.report_token(terminal_id)
-        if not expected or not hmac.compare_digest(expected.encode(), token.encode()):
-            log.info("terminal report for %s refused: bad token", terminal_id)
-            return False
         try:
-            self.sink.apply_hook_report(terminal_id, report)
-        except Exception:  # noqa: BLE001 - a sink bug must not kill the listener
-            log.exception("applying a hook report for %s failed", terminal_id)
+            self.target.report(terminal_id, token, self.make_report(**fields))
+        except Exception as exc:  # noqa: BLE001 - a refused or broken report must not kill us
+            log.info("terminal report for %s refused: %s", terminal_id, exc)
             return False
         return True
 
