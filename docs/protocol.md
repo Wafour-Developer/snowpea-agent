@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.74.0` (semver)
+- **Protocol version:** `1.76.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.74.0"
+    "protocolVersion": "1.76.0"
   }
 }
 ```
@@ -113,6 +113,7 @@ Server capabilities advertised in the `system.hello` result:
 - `providerStatusEvents`
 - `readOnlyDelegation`
 - `reasoningOnlyFallback`
+- `remoteMachines`
 - `securityAllProjects`
 - `securityDefaultOff`
 - `securityLists`
@@ -263,6 +264,13 @@ Server capabilities advertised in the `system.hello` result:
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
 | [`lsp.toolchain.cancel`](#lsptoolchaincancel) | client → server | Stop a running toolchain install (1.68.0). |
 | [`lsp.toolchain.remove`](#lsptoolchainremove) | client → server | Delete a toolchain core installed for language servers (1.68.0). |
+| [`machine.add`](#machineadd) | client → server | Register an SSH target; a pasted key is stored locally only (1.76.0). |
+| [`machine.answer`](#machineanswer) | client → server | Answer a host-key or install ask from machine.connect (1.76.0). |
+| [`machine.connect`](#machineconnect) | client → server | Connect over ssh and open a tunnel to the remote daemon (1.76.0). |
+| [`machine.disconnect`](#machinedisconnect) | client → server | Close the tunnel; the remote daemon keeps running (1.76.0). |
+| [`machine.list`](#machinelist) | client → server | Remote machines registered on this computer (1.76.0, remoteMachines). |
+| [`machine.remove`](#machineremove) | client → server | Forget a machine and disconnect it (1.76.0). |
+| [`machine.update`](#machineupdate) | client → server | Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0). |
 | [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
 | [`mcp.authorize`](#mcpauthorize) | client → server | Start an OAuth sign-in for a remote MCP server; returns the consent URL (1.34.0). |
 | [`mcp.authorize.complete`](#mcpauthorizecomplete) | client → server | Finish an mcp.authorize flow with the code the host's own redirect caught. Not from a remote web login (1.55.0): jarvis_person_only, details.reason local_only. |
@@ -1054,7 +1062,9 @@ External sessions (1.53.0, WP5): Claude Code, Codex, agy and Cursor agent on the
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 
 **Result**
 
@@ -1111,6 +1121,7 @@ External sessions (1.53.0, WP6): start a new session of a CLI in a registered pr
 |---|---|---|---|
 | `cli` | `"claude" \| "codex" \| "agy" \| "cursor"` | yes | Which CLI. |
 | `confirmDangerous` | `boolean` | no | 1.73.0: the person confirmed the dangerous options; human connections only, refused from Jarvis or any tool. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | default, readonly or unrestricted; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only); Jarvis asks the person through a person-only confirmation instead. |
 | `model` | `string \| null` | no | Model id for the CLI; validated, never a flag. |
 | `nativeMode` | `string \| null` | no | As ExternalOpenParams.nativeMode (1.56.0): wins over mode. |
@@ -1176,6 +1187,7 @@ External sessions (1.53.0, WP5/6): one working directory's sessions (or every ex
 | `clis` | `("claude" \| "codex" \| "agy" \| "cursor")[] \| null` | no | Only these CLIs; omitted lists all four. |
 | `cwd` | `string \| null` | no | Project root whose sessions to list (the CLI's recorded cwd at or under it). Omitted: the workdir of sessionId; one of cwd, sessionId, allProjects is required. |
 | `limit` | `number` | no | Most rows, newest first. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `sessionId` | `string \| null` | no | snowpea session whose workdir stands in for cwd. |
 
 **Result**
@@ -1197,6 +1209,7 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 |---|---|---|---|
 | `confirmDangerous` | `boolean` | no | 1.73.0: the person confirmed the dangerous options; human connections only, refused from Jarvis or any tool. |
 | `limit` | `number` | no | Newest timeline entries to return. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). |
 | `nativeMode` | `string \| null` | no | The CLI's own mode id (1.56.0, from external.clis nativeModes); wins over mode. Unknown or not offered by this CLI: invalid_params. A personOnly mode only from a human connection (else jarvis_person_only), with a ledger entry. |
 | `options` | `string[]` | no | 1.73.0 (externalPty, transport 'pty'): permission option ids from terminal.profiles for this CLI. Dangerous ones need confirmDangerous. |
@@ -2550,6 +2563,169 @@ Delete a toolchain core installed for language servers (1.68.0).
 | `name` | `string` | yes | Toolchain name. |
 | `removed` | `boolean` | yes | True when core's own copy was there and is gone (its downloads too). |
 
+### `machine.add`
+
+*Direction:* client → server
+
+Register an SSH target; a pasted key is stored locally only (1.76.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `autoConnect` | `boolean` | no |  |
+| `keyPath` | `string \| null` | no | Path to an existing private key file. |
+| `label` | `string \| null` | no |  |
+| `pastedKey` | `string \| null` | no | A private key pasted here; stored under $SNOWPEA_HOME/machines/<id>/id_key. |
+| `remoteCwd` | `string \| null` | no |  |
+| `target` | `string` | yes | user@host[:port] |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null` | no |  |
+| `autoConnect` | `boolean` | no |  |
+| `error` | `string \| null` | no |  |
+| `host` | `string` | yes |  |
+| `id` | `string` | yes |  |
+| `jarvisAllowed` | `boolean` | no |  |
+| `keyPath` | `string \| null` | no |  |
+| `label` | `string` | yes |  |
+| `pastedKey` | `boolean` | no |  |
+| `port` | `number \| null` | no |  |
+| `remoteCwd` | `string \| null` | no |  |
+| `status` | `"off" \| "connecting" \| "connected" \| "asking" \| "error"` | no |  |
+| `user` | `string \| null` | no |  |
+
+### `machine.answer`
+
+*Direction:* client → server
+
+Answer a host-key or install ask from machine.connect (1.76.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `answer` | `boolean` | yes |  |
+| `askId` | `string` | yes |  |
+| `id` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null` | no |  |
+| `error` | `string \| null` | no |  |
+| `status` | `"connecting" \| "connected" \| "asking" \| "error"` | yes |  |
+
+### `machine.connect`
+
+*Direction:* client → server
+
+Connect over ssh and open a tunnel to the remote daemon (1.76.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null` | no |  |
+| `error` | `string \| null` | no |  |
+| `status` | `"connecting" \| "connected" \| "asking" \| "error"` | yes |  |
+
+### `machine.disconnect`
+
+*Direction:* client → server
+
+Close the tunnel; the remote daemon keeps running (1.76.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `machine.list`
+
+*Direction:* client → server
+
+Remote machines registered on this computer (1.76.0, remoteMachines).
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
+
+### `machine.remove`
+
+*Direction:* client → server
+
+Forget a machine and disconnect it (1.76.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `machine.update`
+
+*Direction:* client → server
+
+Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `autoConnect` | `boolean \| null` | no |  |
+| `id` | `string` | yes |  |
+| `jarvisAllowed` | `boolean \| null` | no |  |
+| `label` | `string \| null` | no |  |
+| `remoteCwd` | `string \| null` | no |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ask` | `{ fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null` | no |  |
+| `autoConnect` | `boolean` | no |  |
+| `error` | `string \| null` | no |  |
+| `host` | `string` | yes |  |
+| `id` | `string` | yes |  |
+| `jarvisAllowed` | `boolean` | no |  |
+| `keyPath` | `string \| null` | no |  |
+| `label` | `string` | yes |  |
+| `pastedKey` | `boolean` | no |  |
+| `port` | `number \| null` | no |  |
+| `remoteCwd` | `string \| null` | no |  |
+| `status` | `"off" \| "connecting" \| "connected" \| "asking" \| "error"` | no |  |
+| `user` | `string \| null` | no |  |
+
 ### `mcp.add`
 
 *Direction:* client → server
@@ -3720,6 +3896,7 @@ Open a session rooted at a working directory.
 | `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Reasoning effort for this session; null follows the settings. |
 | `hostToolsFrom` | `string \| null` | no | Whose host tools this session sees: a connection's clientId (or surface id). Default: the creating connection (1.6.0). |
 | `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With agent.replyLanguage 'auto', text the core writes for this session (/init, /ralph and delegated briefs) is in this language before any guess from what the user typed. Ignored when not a language tag. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
 | `memory` | `boolean \| null` | no | Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Kept with the session across a daemon restart (1.31.0); a delegated child follows its root conversation's. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting (defaultMode, else 'accept'). A mode wider than that default (plan < accept < auto) needs a person (1.54.0): a local person, a remote web login, or a browser with actor 'person'; else jarvis_person_only with details.reason 'mode_raise'. |
@@ -3884,6 +4061,7 @@ List live or saved sessions.
 | `includeClosed` | `boolean` | no | Include persisted closed sessions. Since 1.55.0 their rows carry running false, status 'idle', title (the stored title; for a scheduled run without one, the job's title or the first line of its task), lastActivityAt (time of the last stored event), lastUserAt and seq, like live rows. |
 | `includeUnhosted` | `boolean` | no | With hostToolsFrom: also return sessions with no host (IDE, TUI, CLI), which a browser shows in every profile. |
 | `kinds` | `string[] \| null` | no | Only sessions of these kinds; omit for every kind. A surface that shows human threads asks for ["chat"] (CORE-session-kind). |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `workdir` | `string \| null` | no | Only sessions rooted here. |
 
 **Result**
@@ -4008,6 +4186,7 @@ Replay the events a disconnected client missed.
 |---|---|---|---|
 | `afterSeq` | `number \| null` | no | Replay only events with a greater seq. |
 | `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag (1.7.0), as on session.create. Kept in memory only, so a client re-sends it after a daemon restart; omitted leaves the session's current locale. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `sessionId` | `string` | yes | Session to resume. |
 
 **Result**
@@ -5109,6 +5288,7 @@ Replenish a viewer's flow-control credit (1.73.0).
 | field | type | required | description |
 |---|---|---|---|
 | `bytes` | `number` | yes | Bytes the viewer has processed (replenishes credit). |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes |  |
 
 **Result**
@@ -5128,6 +5308,7 @@ Attach this connection as a viewer; terminal.data then goes to it alone (1.73.0)
 | field | type | required | description |
 |---|---|---|---|
 | `cols` | `number \| null` | no |  |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `mode` | `"interactive" \| "observe"` | no | observe never resizes and never writes. |
 | `rows` | `number \| null` | no |  |
 | `terminalId` | `string` | yes |  |
@@ -5155,6 +5336,7 @@ Kill the terminal (HUP, TERM, KILL) and forget it (1.73.0).
 | field | type | required | description |
 |---|---|---|---|
 | `force` | `boolean` | no | Skip the HUP step. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes |  |
 
 **Result**
@@ -5177,6 +5359,7 @@ Start a terminal in a registered project; dangerous options need confirmDangerou
 | `confirmDangerous` | `boolean` | no | Required for a dangerous option; human connections only, set after the person confirmed. Refused from Jarvis or any tool. |
 | `cwd` | `string \| null` | no | A registered project root; with noProject: the workspace. |
 | `labels` | `Record<string, string>` | no |  |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `noProject` | `boolean` | no | Use the session workspace, no project. |
 | `options` | `string[]` | no | Ids from terminal.profiles. |
 | `parent` | `string \| null` | no | Who starts it (Jarvis sets 'jarvis'). |
@@ -5204,6 +5387,7 @@ Stop viewing; the terminal keeps running (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes | Terminal id. |
 
 **Result**
@@ -5222,6 +5406,7 @@ Interrupt the program (Esc if it reports status, else Ctrl-C) (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes | Terminal id. |
 
 **Result**
@@ -5241,6 +5426,7 @@ Send named keys 30 ms apart (1.73.0).
 | field | type | required | description |
 |---|---|---|---|
 | `keys` | `string[]` | yes | Named keys, e.g. 'Enter'. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes |  |
 
 **Result**
@@ -5260,6 +5446,7 @@ Terminals the daemon holds (1.73.0, terminalSessions).
 | field | type | required | description |
 |---|---|---|---|
 | `aliveOnly` | `boolean` | no |  |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `parent` | `string \| null` | no | Only terminals started by this parent. |
 
 **Result**
@@ -5276,7 +5463,9 @@ Terminal profiles, permission options and which CLIs are installed (1.73.0).
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 
 **Result**
 
@@ -5295,6 +5484,7 @@ Plain-text screen and history, status and title (1.73.0).
 | field | type | required | description |
 |---|---|---|---|
 | `lines` | `number` | no | Screen plus this many history lines. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes |  |
 
 **Result**
@@ -5344,6 +5534,7 @@ Resize from the most recent interactive viewer (1.73.0).
 | field | type | required | description |
 |---|---|---|---|
 | `cols` | `number` | yes |  |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `rows` | `number` | yes |  |
 | `terminalId` | `string` | yes |  |
 
@@ -5363,6 +5554,7 @@ A person looked at the terminal: clears its done/blocked attention (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes | Terminal id. |
 
 **Result**
@@ -5382,6 +5574,7 @@ Send text through the input gate (waits for the person to be quiet) (1.73.0).
 | field | type | required | description |
 |---|---|---|---|
 | `force` | `boolean` | no | Send into a blocked terminal; not Jarvis. |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `submit` | `boolean` | no | Press the profile's submit key after pasting. |
 | `terminalId` | `string` | yes |  |
 | `text` | `string` | yes |  |
@@ -5423,6 +5616,7 @@ Wait for the program to leave working, exit or print a match (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `output` | `string \| null` | no | End when this literal text appears in new output (not a pattern). |
 | `terminalId` | `string` | yes |  |
 | `timeout` | `number` | no |  |
@@ -5447,6 +5641,7 @@ Send bytes to the PTY (a viewer's typing) (1.73.0).
 |---|---|---|---|
 | `data` | `string` | yes | base64 bytes for the PTY. |
 | `human` | `boolean` | no | Typed by a person (updates the input gate). |
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 | `terminalId` | `string` | yes |  |
 
 **Result**
@@ -6008,7 +6203,9 @@ Project folders in sidebar order, each with its conversation count (1.47.0, capa
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `machine` | `string \| null` | no | Registered remote machine id (1.76.0, remoteMachines); omit for this computer. |
 
 **Result**
 
@@ -6270,6 +6467,12 @@ Set the sidebar order (1.47.0).
 | `stage` | `"start" \| "output" \| "done"` | yes | start (the installer runs), output (a line it printed), done. |
 | `toolchain` | `string \| null` | no | 1.68.0: the toolchain being installed, e.g. 'dotnet-sdk'. |
 
+### `machine.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `machines` | `({ ask?: { fingerprint?: string \| null; host?: string \| null; id: string; keyType?: string \| null; kind: "hostKey" \| "install"; question?: string \| null; version?: string \| null; } \| null; autoConnect?: boolean; error?: string \| null; host: string; id: string; jarvisAllowed?: boolean; keyPath?: string \| null; label: string; pastedKey?: boolean; port?: number \| null; remoteCwd?: string \| null; status?: "off" \| "connecting" \| "connected" \| "asking" \| "error"; user?: string \| null; })[]` | no |  |
+
 ### `mcp.auth.done`
 
 | field | type | required | description |
@@ -6420,6 +6623,7 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `data` | `string` | no | base64 PTY output. |
+| `machine` | `string \| null` | no | Remote machine id when relayed through the proxy (1.76.0). |
 | `repaint` | `boolean` | no | data is a full repaint (the viewer fell too far behind). |
 | `seq` | `number` | yes | Output bytes so far, through this chunk. |
 | `terminalId` | `string` | yes |  |
@@ -6436,6 +6640,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `machine` | `string \| null` | no | Remote machine id when relayed through the proxy (1.76.0). |
 | `status` | `{ kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }` | yes |  |
 | `terminalId` | `string` | yes |  |
 

@@ -264,6 +264,14 @@ PERSON_METHODS: dict[str, bool] = {
     "web.tunnel.stop": True,
     "web.tunnel.setToken": True,
     "web.tunnel.install": True,
+  # M40 (1.76.0): managing ssh machines stays on this computer.
+    "machine.list": True,
+    "machine.add": True,
+    "machine.update": True,
+    "machine.remove": True,
+    "machine.connect": True,
+    "machine.disconnect": True,
+    "machine.answer": True,
     # Security review 5, M1: what runs code in the daemon or replaces it, and
     # what a project folder may make snowpea do — a local person's only.
     "extension.enable": True,

@@ -162,6 +162,21 @@ class Empty(Payload):
     """A method that takes no parameters (``params`` is still an object)."""
 
 
+class MachineScope(Payload):
+    """Optional ``machine`` on calls proxied to a registered remote host (1.76.0)."""
+
+    machine: str | None = Field(
+        default=None,
+        description=(
+            "Registered remote machine id (1.76.0, remoteMachines); omit for this computer."
+        ),
+    )
+
+
+class MachineEmpty(MachineScope):
+    """No parameters besides an optional remote ``machine`` target (1.76.0)."""
+
+
 class ActorParams(Payload):
     """Params of a config method that takes nothing but the browser marker (1.53.0)."""
 
@@ -601,7 +616,7 @@ class Attachment(Payload):
     text: str | None = Field(default=None, description="Inline content, for 'text'.")
 
 
-class SessionCreateParams(Payload):
+class SessionCreateParams(MachineScope):
     workdir: str = Field(description="Absolute path the session operates in.")
     mode: Mode | None = Field(
         default=None,
@@ -1127,7 +1142,7 @@ class SessionEvent(Payload):
     )
 
 
-class SessionResumeParams(Payload):
+class SessionResumeParams(MachineScope):
     sessionId: str = Field(description="Session to resume.")
     afterSeq: int | None = Field(default=None, description="Replay only events with a greater seq.")
     locale: str | None = Field(
@@ -1438,7 +1453,7 @@ class SessionListResult(Payload):
     )
 
 
-class SessionListParams(Payload):
+class SessionListParams(MachineScope):
     includeClosed: bool = Field(
         default=False,
         description=(
@@ -9988,7 +10003,7 @@ class TerminalInfo(Payload):
     )
 
 
-class TerminalListParams(Payload):
+class TerminalListParams(MachineScope):
     parent: str | None = Field(default=None, description="Only terminals started by this parent.")
     aliveOnly: bool = Field(default=False)
 
@@ -9997,7 +10012,7 @@ class TerminalListResult(Payload):
     terminals: list[TerminalInfo] = Field(default_factory=list)
 
 
-class TerminalCreateParams(Payload):
+class TerminalCreateParams(MachineScope):
     profile: TerminalProfileId = Field(description="Which profile to start.")
     cwd: str | None = Field(
         default=None, description="A registered project root; with noProject: the workspace."
@@ -10037,11 +10052,11 @@ class TerminalCreateResult(Payload):
     terminal: TerminalInfo
 
 
-class TerminalIdParams(Payload):
+class TerminalIdParams(MachineScope):
     terminalId: str = Field(description="Terminal id.")
 
 
-class TerminalAttachParams(Payload):
+class TerminalAttachParams(MachineScope):
     terminalId: str
     mode: TerminalAttachMode = Field(
         default="interactive", description="observe never resizes and never writes."
@@ -10060,24 +10075,24 @@ class TerminalAttachResult(Payload):
     info: TerminalInfo
 
 
-class TerminalWriteParams(Payload):
+class TerminalWriteParams(MachineScope):
     terminalId: str
     data: str = Field(description="base64 bytes for the PTY.")
     human: bool = Field(default=True, description="Typed by a person (updates the input gate).")
 
 
-class TerminalResizeParams(Payload):
+class TerminalResizeParams(MachineScope):
     terminalId: str
     cols: int = Field(ge=10, le=1000)
     rows: int = Field(ge=2, le=1000)
 
 
-class TerminalAckParams(Payload):
+class TerminalAckParams(MachineScope):
     terminalId: str
     bytes: int = Field(ge=0, description="Bytes the viewer has processed (replenishes credit).")
 
 
-class TerminalReadParams(Payload):
+class TerminalReadParams(MachineScope):
     terminalId: str
     lines: int = Field(default=60, ge=1, le=400, description="Screen plus this many history lines.")
 
@@ -10090,7 +10105,7 @@ class TerminalReadResult(Payload):
     exitCode: int | None = Field(default=None)
 
 
-class TerminalSendParams(Payload):
+class TerminalSendParams(MachineScope):
     terminalId: str
     text: str
     submit: bool = Field(default=True, description="Press the profile's submit key after pasting.")
@@ -10103,12 +10118,12 @@ class TerminalSendResult(Payload):
     reason: str | None = Field(default=None)
 
 
-class TerminalKeysParams(Payload):
+class TerminalKeysParams(MachineScope):
     terminalId: str
     keys: list[str] = Field(min_length=1, max_length=64, description="Named keys, e.g. 'Enter'.")
 
 
-class TerminalWaitParams(Payload):
+class TerminalWaitParams(MachineScope):
     terminalId: str
     timeout: float = Field(default=60, gt=0, le=180)
     output: str | None = Field(
@@ -10123,7 +10138,7 @@ class TerminalWaitResult(Payload):
     text: str = Field(default="")
 
 
-class TerminalCloseParams(Payload):
+class TerminalCloseParams(MachineScope):
     terminalId: str
     force: bool = Field(default=False, description="Skip the HUP step.")
 
@@ -10174,11 +10189,17 @@ class TerminalDataEvent(Payload):
     repaint: bool = Field(
         default=False, description="data is a full repaint (the viewer fell too far behind)."
     )
+    machine: str | None = Field(
+        default=None, description="Remote machine id when relayed through the proxy (1.76.0)."
+    )
 
 
 class TerminalStatusEvent(Payload):
     terminalId: str
     status: TerminalStatus
+    machine: str | None = Field(
+        default=None, description="Remote machine id when relayed through the proxy (1.76.0)."
+    )
 
 
 class TerminalCreatedEvent(Payload):
@@ -10295,6 +10316,83 @@ class TunnelChangedEvent(Payload):
     provider: str = "off"
     url: str | None = None
     error: str | None = None
+
+
+# -- machine.* (1.76.0, remoteMachines) ---------------------------------------
+
+
+class MachineAsk(Payload):
+    id: str
+    kind: Literal["hostKey", "install"]
+    fingerprint: str | None = None
+    keyType: str | None = None
+    host: str | None = None
+    question: str | None = None
+    version: str | None = None
+
+
+class MachineRow(Payload):
+    id: str
+    label: str
+    user: str | None = None
+    host: str
+    port: int | None = None
+    keyPath: str | None = None
+    pastedKey: bool = False
+    remoteCwd: str | None = None
+    autoConnect: bool = False
+    jarvisAllowed: bool = False
+    status: Literal["off", "connecting", "connected", "asking", "error"] = "off"
+    error: str | None = None
+    ask: MachineAsk | None = None
+
+
+class MachineListResult(Payload):
+    machines: list[MachineRow] = Field(default_factory=list)
+
+
+class MachineAddParams(Payload):
+    target: str = Field(description="user@host[:port]")
+    label: str | None = None
+    keyPath: str | None = Field(default=None, description="Path to an existing private key file.")
+    pastedKey: str | None = Field(
+        default=None,
+        description="A private key pasted here; stored under $SNOWPEA_HOME/machines/<id>/id_key.",
+    )
+    remoteCwd: str | None = None
+    autoConnect: bool = False
+
+
+class MachineUpdateParams(Payload):
+    id: str
+    label: str | None = None
+    remoteCwd: str | None = None
+    autoConnect: bool | None = None
+    jarvisAllowed: bool | None = None
+
+
+class MachineIdParams(Payload):
+    id: str
+
+
+class MachineConnectParams(Payload):
+    id: str
+
+
+class MachineAnswerParams(Payload):
+    id: str
+    askId: str
+    answer: bool
+
+
+class MachineConnectResult(Payload):
+    status: Literal["connecting", "connected", "asking", "error"]
+    ask: MachineAsk | None = None
+    error: str | None = None
+
+
+class MachineChangedEvent(Payload):
+    machines: list[MachineRow] = Field(default_factory=list)
 
 
 # -- external.* -------------------------------------------------------------
@@ -10662,7 +10760,7 @@ class ExternalSessionRow(Payload):
     )
 
 
-class ExternalListParams(Payload):
+class ExternalListParams(MachineScope):
     """Sessions are loaded by working directory: one folder's, or every exposed project's."""
 
     clis: list[ExternalCli] | None = Field(
@@ -10707,7 +10805,7 @@ class ExternalTimelineEvent(Payload):
     turnId: str | None = Field(default=None, description="Turn it belongs to, when known.")
 
 
-class ExternalOpenParams(Payload):
+class ExternalOpenParams(MachineScope):
     """Open (subscribe to) a session; a host 'none' one is continued under snowpea."""
 
     ref: ExternalRef = Field(description="Session to open.")
@@ -10829,7 +10927,7 @@ class ExternalRefParams(Payload):
     ref: ExternalRef = Field(description="The external session.")
 
 
-class ExternalCreateParams(Payload):
+class ExternalCreateParams(MachineScope):
     cli: ExternalCli = Field(description="Which CLI.")
     project: str = Field(description="A registered project root; anything else is refused.")
     model: str | None = Field(
@@ -12381,7 +12479,7 @@ METHODS: dict[str, RpcMethod] = {
         ),
         _m(
             "workspace.list",
-            Empty,
+            MachineEmpty,
             WorkspaceListResult,
             "Project folders in sidebar order, each with its conversation count (1.47.0, "
             "capability 'workspaces').",
@@ -13410,7 +13508,7 @@ METHODS: dict[str, RpcMethod] = {
         ),
         _m(
             "external.clis",
-            Empty,
+            MachineEmpty,
             ExternalClisResult,
             (
                 "External sessions (1.53.0, WP5): Claude Code, Codex, agy and Cursor agent on "
@@ -13587,7 +13685,7 @@ METHODS: dict[str, RpcMethod] = {
             ),
         ),
         # -- M37 terminal sessions, hook integrations, web tunnel (1.73.0) ------
-        _m("terminal.profiles", Empty, TerminalProfilesResult,
+        _m("terminal.profiles", MachineEmpty, TerminalProfilesResult,
            "Terminal profiles, permission options and which CLIs are installed (1.73.0)."),
         _m("terminal.list", TerminalListParams, TerminalListResult,
            "Terminals the daemon holds (1.73.0, terminalSessions)."),
@@ -13639,6 +13737,19 @@ METHODS: dict[str, RpcMethod] = {
            "Download the pinned, checksummed tunnel binary into SNOWPEA_HOME/bin (1.73.0)."),
         _m("web.tunnel.unlock", TunnelUnlockParams, TunnelUnlockResult,
            "Re-enter the web password to unlock terminals on a tunnel connection (1.73.0)."),
+        _m("machine.list", Empty, MachineListResult,
+           "Remote machines registered on this computer (1.76.0, remoteMachines)."),
+        _m("machine.add", MachineAddParams, MachineRow,
+           "Register an SSH target; a pasted key is stored locally only (1.76.0)."),
+        _m("machine.update", MachineUpdateParams, MachineRow,
+           "Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0)."),
+        _m("machine.remove", MachineIdParams, Ok, "Forget a machine and disconnect it (1.76.0)."),
+        _m("machine.connect", MachineConnectParams, MachineConnectResult,
+           "Connect over ssh and open a tunnel to the remote daemon (1.76.0)."),
+        _m("machine.disconnect", MachineIdParams, Ok,
+           "Close the tunnel; the remote daemon keeps running (1.76.0)."),
+        _m("machine.answer", MachineAnswerParams, MachineConnectResult,
+           "Answer a host-key or install ask from machine.connect (1.76.0)."),
     )
 }
 
@@ -13691,6 +13802,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "terminal.closed": TerminalClosedEvent,
     "integration.changed": IntegrationChangedEvent,
     "web.tunnel.changed": TunnelChangedEvent,
+    "machine.changed": MachineChangedEvent,
 }
 
 CAPABILITIES: list[str] = [
@@ -13925,6 +14037,8 @@ CAPABILITIES: list[str] = [
     "externalPty",
     # 1.74.0: unified resume — every open uses transport pty; no tmux bridge.
     "externalResumeUnified",
+    # 1.76.0 (M40): several remote snowpea machines over ssh; proxy RPCs carry machine.
+    "remoteMachines",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -14201,6 +14315,13 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "web.tunnel.status",
         "web.tunnel.stop",
         "web.tunnel.unlock",
+        "machine.list",
+        "machine.add",
+        "machine.update",
+        "machine.remove",
+        "machine.connect",
+        "machine.disconnect",
+        "machine.answer",
     }
 )
 

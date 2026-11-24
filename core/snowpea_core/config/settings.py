@@ -543,6 +543,8 @@ class WebRemoteSettings(_Model):
     #: always allowed).  A local person's switch; over the tunnel the terminal unlock
     #: still applies.  Terminals also need ``maxMode`` ``auto`` for a remote sign-in.
     terminals: bool = True
+    #: A remote web sign-in may use already-connected machines (M40, default off).
+    machines: bool = False
     #: Public URL through an ngrok or Cloudflare tunnel (M37, 1.73.0).  The tokens
     #: live in ``credentials.json``, never here.
     tunnel: WebTunnelSettings = Field(default_factory=WebTunnelSettings)

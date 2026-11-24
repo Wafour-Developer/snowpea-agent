@@ -103,7 +103,7 @@ def _transcript(config: Path, project: Path, session_id: str) -> None:
 
 
 def test_protocol_pins_and_capabilities() -> None:
-    assert PROTOCOL_VERSION == "1.74.0"
+    assert PROTOCOL_VERSION == "1.76.0"
     assert "externalResumeUnified" in CAPABILITIES
     assert "externalTmux" not in CAPABILITIES
 

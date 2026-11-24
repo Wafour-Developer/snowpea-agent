@@ -355,11 +355,13 @@ class HostKeys:
         ssh: str,
         asks: Asks,
         *,
+        known_hosts: str | None = None,
         execute: Exec = _exec,
         say: Callable[[str], None] = lambda _t: None,
     ) -> None:
         self._ssh = ssh
         self._asks = asks
+        self._known_hosts = known_hosts
         self._exec = execute
         self._say = say
         self._keygen = remote.find_ssh_tool("ssh-keygen")
@@ -390,7 +392,10 @@ class HostKeys:
         port = int(config.get("port") or target.port or 22)
         alias = config.get("hostkeyalias")
         lookup = alias or (host if port == 22 else f"[{host}]:{port}")
-        user_files = self._files(config.get("userknownhostsfile", "~/.ssh/known_hosts"))
+        if self._known_hosts:
+            user_files = [self._known_hosts]
+        else:
+            user_files = self._files(config.get("userknownhostsfile", "~/.ssh/known_hosts"))
         global_files = self._files(config.get("globalknownhostsfile", ""))
         if any(self._known(lookup, path) for path in [*user_files, *global_files]):
             return strict
@@ -406,9 +411,13 @@ class HostKeys:
                 f"the host key of {target.label} was not accepted", code="hostKey",
                 reason="rejected",
             )  # fmt: skip
-        pinned = [] if user_files else [_expand_home("~/.ssh/known_hosts")]
-        self._add(lookup, key, (user_files or pinned)[0])
-        extra = [f"UserKnownHostsFile={pinned[0]}"] if pinned else []  # ssh was told "none"
+        pinned_path = (user_files or [_expand_home("~/.ssh/known_hosts")])[0]
+        self._add(lookup, key, pinned_path)
+        extra = (
+            [f"UserKnownHostsFile={pinned_path}"]
+            if self._known_hosts or not user_files
+            else []
+        )
         return [
             *strict,
             f"HostKeyAlgorithms={_ALGORITHMS.get(key.key_type, key.key_type)}",

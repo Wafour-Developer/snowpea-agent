@@ -114,6 +114,9 @@ CONTROL: tuple[ControlEntry, ...] = (
     # M37: the terminals' holder sockets and meta files carry the tokens that
     # drive a PTY; the hook script runs inside every CLI hook in a terminal.
     ControlEntry("terminals", "all", "the terminal sessions' sockets and tokens"),
+    # M40: ssh private keys and known_hosts for registered remote machines.
+    ControlEntry("machines.json", "all", "registered remote machine addresses and options"),
+    ControlEntry("machines", "all", "pasted ssh private keys and known_hosts"),
     ControlEntry("integrations", "write", "which CLI hook integrations snowpea installed"),
     ControlEntry("hooks/snowpea-agent-state.sh", "write", "the CLI hook integration script"),
     ControlEntry("hooks/snowpea-agent-state.ps1", "write", "the CLI hook integration script"),

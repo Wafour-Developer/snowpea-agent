@@ -2955,6 +2955,10 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
 
     term_cli.add_parser(sub)
 
+    from snowpea_core.cli import machine as machine_cli
+
+    machine_cli.add_parser(sub)
+
     commands = sub.add_parser("commands", help="inspect the slash-command registry")
     commands_sub = commands.add_subparsers(dest="action", metavar="<action>")
     commands_list_parser = commands_sub.add_parser("list", help="list registered commands")
@@ -3816,6 +3820,10 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         from snowpea_core.cli import term as term_cli
 
         return await term_cli.run(args, home)
+    if subcommand == "machine":
+        from snowpea_core.cli import machine as machine_cli
+
+        return await machine_cli.run(args, home)
     if subcommand == "tools":
         if action != "list":
             return _fail("usage: snowpea tools list [--json]", EXIT_USAGE)

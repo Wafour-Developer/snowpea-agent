@@ -314,8 +314,10 @@ class RpcDispatcher:
         if not isinstance(raw_params, dict):
             raise RpcError(errors.INVALID_PARAMS, "params must be an object")
         model = self._params[method]
+        from snowpea_core.machines.proxy import strip_machine
         from snowpea_core.server import settings_gate
 
+        machine_id, raw_params = strip_machine(dict(raw_params))
         gated = raw_params
         actor: str | None = None
         if "actor" in raw_params:
@@ -354,7 +356,14 @@ class RpcDispatcher:
                 settings_gate.kind_method_refusal(method, gated, conn, self.core)
             token = CURRENT_ACTOR.set(actor)
             try:
-                result = await handler(conn, params, self.core)
+                if machine_id:
+                    from snowpea_core.server.machine_handlers import proxy_call
+
+                    result = await proxy_call(
+                        conn, method, machine_id, params.model_dump(mode="json"), self.core
+                    )
+                else:
+                    result = await handler(conn, params, self.core)
             finally:
                 CURRENT_ACTOR.reset(token)
         finally:
@@ -383,7 +392,7 @@ class RpcDispatcher:
 
 #: Params that carry a secret (1.56.0: the remote password again): a validation
 #: error of a call that holds one never echoes any input back.
-SECRET_PARAMS: frozenset[str] = frozenset({"reauth", "token", "password"})
+SECRET_PARAMS: frozenset[str] = frozenset({"reauth", "token", "password", "pastedKey"})
 
 
 def _without_secrets(exc: ValidationError, raw: dict[str, Any]) -> list[Any]:

@@ -59,7 +59,7 @@ def test_the_unallowable_reads_are_exactly_the_secrets() -> None:
     assert cp.unallowable_reads() == (
         "daemon.json", "token", "credentials.json", "mcp-oauth.json",
         ".daemon.json", ".token", ".credentials.json", ".mcp-oauth.json",
-        ".codex/auth.json", ".claude/.credentials.json", "terminals",
+        ".codex/auth.json", ".claude/.credentials.json", "terminals", "machines.json", "machines",
         "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.claude.json",
         "~/.gemini/oauth_creds.json", "~/.config/cursor/auth.json",
         "~/.cursor/cli-config.json", "~/.config/anthropic",
@@ -480,5 +480,5 @@ def test_the_browser_rule_reasons_and_visibility() -> None:
 
 
 def test_protocol_and_capability() -> None:
-    assert PROTOCOL_VERSION == "1.74.0"
+    assert PROTOCOL_VERSION == "1.76.0"
     assert "browserPersonApprovals" in CAPABILITIES

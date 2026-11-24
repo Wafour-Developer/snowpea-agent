@@ -985,6 +985,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_terminal_handlers(dispatcher)
     register_integration_handlers(dispatcher)
     register_tunnel_handlers(dispatcher)
+    from snowpea_core.server.machine_handlers import register_machine_handlers
+
+    register_machine_handlers(dispatcher)
     from snowpea_core.server.trust_handlers import register_trust_handlers
 
     register_trust_handlers(dispatcher)

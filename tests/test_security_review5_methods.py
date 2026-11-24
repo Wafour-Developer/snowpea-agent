@@ -166,6 +166,9 @@ TABLE: dict[str, tuple[str, ...]] = {
         "integration.list", "integration.install", "integration.uninstall",
         "web.tunnel.status", "web.tunnel.start", "web.tunnel.stop", "web.tunnel.setToken",
         "web.tunnel.install", "terminal.report",
+        # M40 (1.76.0): registered remote machines — local person only.
+        "machine.list", "machine.add", "machine.update", "machine.remove",
+        "machine.connect", "machine.disconnect", "machine.answer",
         "extension.enable", "extension.disable", "extension.configure", "extension.reload",
         "extension.list", "system.update", "system.restart",
         # Security review 7, P2: security settings edited on disk wait for a local person.

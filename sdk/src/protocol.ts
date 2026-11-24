@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.74.0";
+export const PROTOCOL_VERSION = "1.76.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1151,7 +1151,10 @@ export interface ExtensionReloadResult {
 }
 
 /** `external.clis` params. External sessions (1.53.0, WP5): Claude Code, Codex, agy and Cursor agent on the daemon host: installed, version, path, what works, problems. */
-export type ExternalClisParams = Record<string, unknown>;
+export interface ExternalClisParams {
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
+}
 
 /** `external.clis` result. */
 export interface ExternalClisResult {
@@ -1326,6 +1329,8 @@ export interface ExternalCreateParams {
   cli: "claude" | "codex" | "agy" | "cursor";
   /** 1.73.0: the person confirmed the dangerous options; human connections only, refused from Jarvis or any tool. */
   confirmDangerous?: boolean;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** default, readonly or unrestricted; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only); Jarvis asks the person through a person-only confirmation instead. */
   mode?: "default" | "readonly" | "unrestricted" | null;
   /** Model id for the CLI; validated, never a flag. */
@@ -1566,6 +1571,8 @@ export interface ExternalListParams {
   cwd?: string | null;
   /** Most rows, newest first. */
   limit?: number;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** snowpea session whose workdir stands in for cwd. */
   sessionId?: string | null;
 }
@@ -1670,6 +1677,8 @@ export interface ExternalOpenParams {
   confirmDangerous?: boolean;
   /** Newest timeline entries to return. */
   limit?: number;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). */
   mode?: "default" | "readonly" | "unrestricted" | null;
   /** The CLI's own mode id (1.56.0, from external.clis nativeModes); wins over mode. Unknown or not offered by this CLI: invalid_params. A personOnly mode only from a human connection (else jarvis_person_only), with a ledger entry. */
@@ -4171,6 +4180,172 @@ export interface LspToolchainRemoveResult {
   removed: boolean;
 }
 
+/** `machine.add` params. Register an SSH target; a pasted key is stored locally only (1.76.0). */
+export interface MachineAddParams {
+  autoConnect?: boolean;
+  /** Path to an existing private key file. */
+  keyPath?: string | null;
+  label?: string | null;
+  /** A private key pasted here; stored under $SNOWPEA_HOME/machines/<id>/id_key. */
+  pastedKey?: string | null;
+  remoteCwd?: string | null;
+  /** user@host[:port] */
+  target: string;
+}
+
+/** `machine.add` result. */
+export interface MachineAddResult {
+  ask?: {
+    fingerprint?: string | null;
+    host?: string | null;
+    id: string;
+    keyType?: string | null;
+    kind: "hostKey" | "install";
+    question?: string | null;
+    version?: string | null;
+  } | null;
+  autoConnect?: boolean;
+  error?: string | null;
+  host: string;
+  id: string;
+  jarvisAllowed?: boolean;
+  keyPath?: string | null;
+  label: string;
+  pastedKey?: boolean;
+  port?: number | null;
+  remoteCwd?: string | null;
+  status?: "off" | "connecting" | "connected" | "asking" | "error";
+  user?: string | null;
+}
+
+/** `machine.answer` params. Answer a host-key or install ask from machine.connect (1.76.0). */
+export interface MachineAnswerParams {
+  answer: boolean;
+  askId: string;
+  id: string;
+}
+
+/** `machine.answer` result. */
+export interface MachineAnswerResult {
+  ask?: {
+    fingerprint?: string | null;
+    host?: string | null;
+    id: string;
+    keyType?: string | null;
+    kind: "hostKey" | "install";
+    question?: string | null;
+    version?: string | null;
+  } | null;
+  error?: string | null;
+  status: "connecting" | "connected" | "asking" | "error";
+}
+
+/** `machine.connect` params. Connect over ssh and open a tunnel to the remote daemon (1.76.0). */
+export interface MachineConnectParams {
+  id: string;
+}
+
+/** `machine.connect` result. */
+export interface MachineConnectResult {
+  ask?: {
+    fingerprint?: string | null;
+    host?: string | null;
+    id: string;
+    keyType?: string | null;
+    kind: "hostKey" | "install";
+    question?: string | null;
+    version?: string | null;
+  } | null;
+  error?: string | null;
+  status: "connecting" | "connected" | "asking" | "error";
+}
+
+/** `machine.disconnect` params. Close the tunnel; the remote daemon keeps running (1.76.0). */
+export interface MachineDisconnectParams {
+  id: string;
+}
+
+/** `machine.disconnect` result. */
+export interface MachineDisconnectResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `machine.list` params. Remote machines registered on this computer (1.76.0, remoteMachines). */
+export type MachineListParams = Record<string, unknown>;
+
+/** `machine.list` result. */
+export interface MachineListResult {
+  machines?: ({
+    ask?: {
+      fingerprint?: string | null;
+      host?: string | null;
+      id: string;
+      keyType?: string | null;
+      kind: "hostKey" | "install";
+      question?: string | null;
+      version?: string | null;
+    } | null;
+    autoConnect?: boolean;
+    error?: string | null;
+    host: string;
+    id: string;
+    jarvisAllowed?: boolean;
+    keyPath?: string | null;
+    label: string;
+    pastedKey?: boolean;
+    port?: number | null;
+    remoteCwd?: string | null;
+    status?: "off" | "connecting" | "connected" | "asking" | "error";
+    user?: string | null;
+  })[];
+}
+
+/** `machine.remove` params. Forget a machine and disconnect it (1.76.0). */
+export interface MachineRemoveParams {
+  id: string;
+}
+
+/** `machine.remove` result. */
+export interface MachineRemoveResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `machine.update` params. Change label, cwd, auto-connect or the per-machine Jarvis switch (1.76.0). */
+export interface MachineUpdateParams {
+  autoConnect?: boolean | null;
+  id: string;
+  jarvisAllowed?: boolean | null;
+  label?: string | null;
+  remoteCwd?: string | null;
+}
+
+/** `machine.update` result. */
+export interface MachineUpdateResult {
+  ask?: {
+    fingerprint?: string | null;
+    host?: string | null;
+    id: string;
+    keyType?: string | null;
+    kind: "hostKey" | "install";
+    question?: string | null;
+    version?: string | null;
+  } | null;
+  autoConnect?: boolean;
+  error?: string | null;
+  host: string;
+  id: string;
+  jarvisAllowed?: boolean;
+  keyPath?: string | null;
+  label: string;
+  pastedKey?: boolean;
+  port?: number | null;
+  remoteCwd?: string | null;
+  status?: "off" | "connecting" | "connected" | "asking" | "error";
+  user?: string | null;
+}
+
 /** `mcp.add` params. Write an MCP server into the project or global .mcp.json and start it. */
 export interface McpAddParams {
   /** Add the entry despite the security findings mcp_unsafe reported (1.33.0). Does not let it overwrite a name already declared in the file. */
@@ -6136,6 +6311,8 @@ export interface SessionCreateParams {
   hostToolsFrom?: string | null;
   /** The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With agent.replyLanguage 'auto', text the core writes for this session (/init, /ralph and delegated briefs) is in this language before any guess from what the user typed. Ignored when not a language tag. */
   locale?: string | null;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Override for concurrent subagents. */
   maxConcurrent?: number | null;
   /** Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Kept with the session across a daemon restart (1.31.0); a delegated child follows its root conversation's. */
@@ -6514,6 +6691,8 @@ export interface SessionListParams {
   includeUnhosted?: boolean;
   /** Only sessions of these kinds; omit for every kind. A surface that shows human threads asks for ["chat"] (CORE-session-kind). */
   kinds?: string[] | null;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Only sessions rooted here. */
   workdir?: string | null;
 }
@@ -6759,6 +6938,8 @@ export interface SessionResumeParams {
   afterSeq?: number | null;
   /** The client's UI language as a BCP 47 tag (1.7.0), as on session.create. Kept in memory only, so a client re-sends it after a daemon restart; omitted leaves the session's current locale. */
   locale?: string | null;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Session to resume. */
   sessionId: string;
 }
@@ -9448,6 +9629,8 @@ export interface TeamStatusResult {
 export interface TerminalAckParams {
   /** Bytes the viewer has processed (replenishes credit). */
   bytes: number;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   terminalId: string;
 }
 
@@ -9460,6 +9643,8 @@ export interface TerminalAckResult {
 /** `terminal.attach` params. Attach this connection as a viewer; terminal.data then goes to it alone (1.73.0). */
 export interface TerminalAttachParams {
   cols?: number | null;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** observe never resizes and never writes. */
   mode?: "interactive" | "observe";
   rows?: number | null;
@@ -9547,6 +9732,8 @@ export interface TerminalAttachResult {
 export interface TerminalCloseParams {
   /** Skip the HUP step. */
   force?: boolean;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   terminalId: string;
 }
 
@@ -9564,6 +9751,8 @@ export interface TerminalCreateParams {
   /** A registered project root; with noProject: the workspace. */
   cwd?: string | null;
   labels?: Record<string, string>;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Use the session workspace, no project. */
   noProject?: boolean;
   /** Ids from terminal.profiles. */
@@ -9642,6 +9831,8 @@ export interface TerminalCreateResult {
 
 /** `terminal.detach` params. Stop viewing; the terminal keeps running (1.73.0). */
 export interface TerminalDetachParams {
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Terminal id. */
   terminalId: string;
 }
@@ -9654,6 +9845,8 @@ export interface TerminalDetachResult {
 
 /** `terminal.interrupt` params. Interrupt the program (Esc if it reports status, else Ctrl-C) (1.73.0). */
 export interface TerminalInterruptParams {
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Terminal id. */
   terminalId: string;
 }
@@ -9668,6 +9861,8 @@ export interface TerminalInterruptResult {
 export interface TerminalKeysParams {
   /** Named keys, e.g. 'Enter'. */
   keys: string[];
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   terminalId: string;
 }
 
@@ -9680,6 +9875,8 @@ export interface TerminalKeysResult {
 /** `terminal.list` params. Terminals the daemon holds (1.73.0, terminalSessions). */
 export interface TerminalListParams {
   aliveOnly?: boolean;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Only terminals started by this parent. */
   parent?: string | null;
 }
@@ -9741,7 +9938,10 @@ export interface TerminalListResult {
 }
 
 /** `terminal.profiles` params. Terminal profiles, permission options and which CLIs are installed (1.73.0). */
-export type TerminalProfilesParams = Record<string, unknown>;
+export interface TerminalProfilesParams {
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
+}
 
 /** `terminal.profiles` result. */
 export interface TerminalProfilesResult {
@@ -9780,6 +9980,8 @@ export interface TerminalProfilesResult {
 export interface TerminalReadParams {
   /** Screen plus this many history lines. */
   lines?: number;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   terminalId: string;
 }
 
@@ -9832,6 +10034,8 @@ export interface TerminalReportResult {
 /** `terminal.resize` params. Resize from the most recent interactive viewer (1.73.0). */
 export interface TerminalResizeParams {
   cols: number;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   rows: number;
   terminalId: string;
 }
@@ -9844,6 +10048,8 @@ export interface TerminalResizeResult {
 
 /** `terminal.seen` params. A person looked at the terminal: clears its done/blocked attention (1.73.0). */
 export interface TerminalSeenParams {
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Terminal id. */
   terminalId: string;
 }
@@ -9858,6 +10064,8 @@ export interface TerminalSeenResult {
 export interface TerminalSendParams {
   /** Send into a blocked terminal; not Jarvis. */
   force?: boolean;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** Press the profile's submit key after pasting. */
   submit?: boolean;
   terminalId: string;
@@ -9887,6 +10095,8 @@ export interface TerminalUnlockResult {
 
 /** `terminal.wait` params. Wait for the program to leave working, exit or print a match (1.73.0). */
 export interface TerminalWaitParams {
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   /** End when this literal text appears in new output (not a pattern). */
   output?: string | null;
   terminalId: string;
@@ -9919,6 +10129,8 @@ export interface TerminalWriteParams {
   data: string;
   /** Typed by a person (updates the input gate). */
   human?: boolean;
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
   terminalId: string;
 }
 
@@ -10678,7 +10890,10 @@ export interface WorkspaceAddResult {
 }
 
 /** `workspace.list` params. Project folders in sidebar order, each with its conversation count (1.47.0, capability 'workspaces'). */
-export type WorkspaceListParams = Record<string, unknown>;
+export interface WorkspaceListParams {
+  /** Registered remote machine id (1.76.0, remoteMachines); omit for this computer. */
+  machine?: string | null;
+}
 
 /** `workspace.list` result. */
 export interface WorkspaceListResult {
@@ -11430,6 +11645,33 @@ export interface LspInstallProgressPayload {
   toolchain?: string | null;
 }
 
+/** `machine.changed` notification payload. */
+export interface MachineChangedPayload {
+  machines?: ({
+    ask?: {
+      fingerprint?: string | null;
+      host?: string | null;
+      id: string;
+      keyType?: string | null;
+      kind: "hostKey" | "install";
+      question?: string | null;
+      version?: string | null;
+    } | null;
+    autoConnect?: boolean;
+    error?: string | null;
+    host: string;
+    id: string;
+    jarvisAllowed?: boolean;
+    keyPath?: string | null;
+    label: string;
+    pastedKey?: boolean;
+    port?: number | null;
+    remoteCwd?: string | null;
+    status?: "off" | "connecting" | "connected" | "asking" | "error";
+    user?: string | null;
+  })[];
+}
+
 /** `mcp.auth.done` notification payload. */
 export interface McpAuthDonePayload {
   /** Why it failed: refused, timed out, the exchange failed, or 'cancelled' when the connection that started it closed. */
@@ -11761,6 +12003,8 @@ export interface TerminalCreatedPayload {
 export interface TerminalDataPayload {
   /** base64 PTY output. */
   data?: string;
+  /** Remote machine id when relayed through the proxy (1.76.0). */
+  machine?: string | null;
   /** data is a full repaint (the viewer fell too far behind). */
   repaint?: boolean;
   /** Output bytes so far, through this chunk. */
@@ -11777,6 +12021,8 @@ export interface TerminalExitPayload {
 
 /** `terminal.status` notification payload. */
 export interface TerminalStatusPayload {
+  /** Remote machine id when relayed through the proxy (1.76.0). */
+  machine?: string | null;
   status: {
     /** Why it is blocked (permission, question, auth). */
     kind?: "permission" | "question" | "auth" | null;
@@ -12917,6 +13163,13 @@ export interface MethodMap {
   "lsp.status": { params: LspStatusParams; result: LspStatusResult };
   "lsp.toolchain.cancel": { params: LspToolchainCancelParams; result: LspToolchainCancelResult };
   "lsp.toolchain.remove": { params: LspToolchainRemoveParams; result: LspToolchainRemoveResult };
+  "machine.add": { params: MachineAddParams; result: MachineAddResult };
+  "machine.answer": { params: MachineAnswerParams; result: MachineAnswerResult };
+  "machine.connect": { params: MachineConnectParams; result: MachineConnectResult };
+  "machine.disconnect": { params: MachineDisconnectParams; result: MachineDisconnectResult };
+  "machine.list": { params: MachineListParams; result: MachineListResult };
+  "machine.remove": { params: MachineRemoveParams; result: MachineRemoveResult };
+  "machine.update": { params: MachineUpdateParams; result: MachineUpdateResult };
   "mcp.add": { params: McpAddParams; result: McpAddResult };
   "mcp.authorize": { params: McpAuthorizeParams; result: McpAuthorizeResult };
   "mcp.authorize.complete": { params: McpAuthorizeCompleteParams; result: McpAuthorizeCompleteResult };
@@ -13176,6 +13429,13 @@ export type ClientMethod =
   | "lsp.status"
   | "lsp.toolchain.cancel"
   | "lsp.toolchain.remove"
+  | "machine.add"
+  | "machine.answer"
+  | "machine.connect"
+  | "machine.disconnect"
+  | "machine.list"
+  | "machine.remove"
+  | "machine.update"
   | "mcp.add"
   | "mcp.authorize"
   | "mcp.authorize.complete"
@@ -13358,6 +13618,7 @@ export interface EventMap {
   "job.event": JobEventPayload;
   "lsp.changed": LspChangedPayload;
   "lsp.install.progress": LspInstallProgressPayload;
+  "machine.changed": MachineChangedPayload;
   "mcp.auth.done": McpAuthDonePayload;
   "mcp.changed": McpChangedPayload;
   "project.trust.changed": ProjectTrustChangedPayload;
@@ -13403,6 +13664,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "job.event",
   "lsp.changed",
   "lsp.install.progress",
+  "machine.changed",
   "mcp.auth.done",
   "mcp.changed",
   "project.trust.changed",

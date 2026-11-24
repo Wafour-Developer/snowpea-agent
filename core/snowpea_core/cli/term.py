@@ -50,14 +50,32 @@ def _fail(message: str, code: int) -> int:
 # ---------------------------------------------------------------------------
 
 
+def split_terminal_ref(text: str, machine: str | None = None) -> tuple[str | None, str]:
+    """``MACHINE:TERMINAL`` or a bare id, with an optional ``--machine`` override."""
+    if machine:
+        return machine, text
+    if ":" in text:
+        head, tail = text.split(":", 1)
+        if head and tail:
+            return head, tail
+    return None, text
+
+
 def add_parser(sub: Any) -> None:
     term = sub.add_parser("term", help="terminal sessions: list, attach, read and send")
     actions = term.add_subparsers(dest="action", metavar="<action>")
     ls = actions.add_parser("ls", help="list terminals")
     ls.add_argument("--all", dest="term_all", action="store_true", help="include ended ones")
+    ls.add_argument("--machine", dest="machine_id", metavar="ID", help="remote machine id (1.76.0)")
     ls.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
     attach = actions.add_parser("attach", help="attach this terminal to one (Ctrl+\\ detaches)")
-    attach.add_argument("terminal_id")
+    attach.add_argument("terminal_id", help="terminal id or MACHINE:id")
+    attach.add_argument(
+        "--machine",
+        dest="machine_id",
+        metavar="ID",
+        help="remote machine id (1.76.0)",
+    )
     attach.add_argument(
         "--observe", action="store_true", help="watch only: never resize, never write"
     )
@@ -108,8 +126,13 @@ async def _with_client(home: Path | str | None, work: Any) -> int:
         await client.close()
 
 
-async def term_ls(client: _Rpc, *, all_: bool, as_json: bool) -> int:
-    result = await client.call("terminal.list", {} if all_ else {"aliveOnly": True})
+async def term_ls(
+    client: _Rpc, *, all_: bool, as_json: bool, machine_id: str | None = None
+) -> int:
+    params: dict[str, Any] = {} if all_ else {"aliveOnly": True}
+    if machine_id:
+        params["machine"] = machine_id
+    result = await client.call("terminal.list", params)
     rows = [r for r in (result.get("terminals") or []) if isinstance(r, dict)]
     if as_json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -224,11 +247,18 @@ class _Attach:
         return not detach
 
 
+def _machine_params(machine_id: str | None, extra: dict[str, Any]) -> dict[str, Any]:
+    if machine_id:
+        return {**extra, "machine": machine_id}
+    return extra
+
+
 async def attach_session(
     client: Any,
     terminal_id: str,
     *,
     observe: bool,
+    machine_id: str | None = None,
     write_out: Callable[[bytes], None],
     read_input: Callable[[], bytes],
     add_input_reader: Callable[[Callable[[], None]], Callable[[], None]],
@@ -243,12 +273,15 @@ async def attach_session(
     cols, rows = size()
     result = await client.call(
         "terminal.attach",
-        {
-            "terminalId": terminal_id,
-            "mode": "observe" if observe else "interactive",
-            "cols": cols,
-            "rows": rows,
-        },
+        _machine_params(
+            machine_id,
+            {
+                "terminalId": terminal_id,
+                "mode": "observe" if observe else "interactive",
+                "cols": cols,
+                "rows": rows,
+            },
+        ),
     )
     state = _Attach(client, terminal_id, write_out)
     repaint = result.get("repaint") or ""
@@ -277,7 +310,12 @@ async def attach_session(
         if observe:
             return
         c, r = size()
-        spawn(client.call("terminal.resize", {"terminalId": terminal_id, "cols": c, "rows": r}))
+        spawn(
+            client.call(
+                "terminal.resize",
+                _machine_params(machine_id, {"terminalId": terminal_id, "cols": c, "rows": r}),
+            )
+        )
 
     async def pump() -> None:
         async for frame in client.notifications():
@@ -298,11 +336,16 @@ async def attach_session(
             task.cancel()
         await asyncio.gather(pump_task, *tasks, return_exceptions=True)
         with contextlib.suppress(Exception):
-            await client.call("terminal.detach", {"terminalId": terminal_id})
+            await client.call(
+                "terminal.detach",
+                _machine_params(machine_id, {"terminalId": terminal_id}),
+            )
     return state.reason, state.exit_code
 
 
-async def term_attach(client: DaemonClient, terminal_id: str, *, observe: bool) -> int:
+async def term_attach(
+    client: DaemonClient, terminal_id: str, *, observe: bool, machine_id: str | None = None
+) -> int:
     """The real-TTY wrapper around :func:`attach_session` (POSIX)."""
     if sys.platform == "win32":
         return _fail(
@@ -332,6 +375,7 @@ async def term_attach(client: DaemonClient, terminal_id: str, *, observe: bool) 
             client,
             terminal_id,
             observe=observe,
+            machine_id=machine_id,
             write_out=write_out,
             read_input=lambda: os.read(in_fd, 4096),
             add_input_reader=add_input_reader,
@@ -356,6 +400,7 @@ async def run(args: Any, home: Path | str | None) -> int:
                 c,
                 all_=bool(getattr(args, "term_all", False)),
                 as_json=bool(getattr(args, "sub_json", False)),
+                machine_id=getattr(args, "machine_id", None),
             ),
         )
     if action == "read":
@@ -380,7 +425,11 @@ async def run(args: Any, home: Path | str | None) -> int:
             ),
         )
     if action == "attach":
+        machine_id, term_id = split_terminal_ref(
+            args.terminal_id, getattr(args, "machine_id", None)
+        )
         return await _with_client(
-            home, lambda c: term_attach(c, args.terminal_id, observe=args.observe)
+            home,
+            lambda c: term_attach(c, term_id, observe=args.observe, machine_id=machine_id),
         )
     return _fail("usage: snowpea term ls | attach <id> | read <id> | send <id> <text>", EXIT_USAGE)

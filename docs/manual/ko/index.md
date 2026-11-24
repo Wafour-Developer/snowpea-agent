@@ -30,6 +30,7 @@ snowpea를 막 설치했다면 [설치](install.md)를 읽고, 이어서 [설정
 | [터미널 세션 (베타)](terminals.md) | CLI나 snowpea 세션을 실제 터미널 창에서 돌릴 때, 상태 점, 권한 옵션, `snowpea term`, 자비스가 터미널을 다루는 방식 |
 | [CLI 훅 연동 (베타)](integrations.md) | Claude Code·Codex·Cursor agent·agy의 상태를 snowpea가 보도록 훅을 설치할 때: 바뀌는 파일, 백업, 상태 값 |
 | [원격 세션](remote.md) | ssh로 다른 머신에서 작업할 때 |
+| [원격 머신 (beta)](machines.md) | 사이드바에서 SSH 머신을 여러 대 연결 |
 | [샌드박스 세션](sandbox.md) | auto 모드 등 세션을 버려도 되는 Docker 컨테이너에서 실행할 때 |
 | [헤드리스](headless.md) | snowpea를 스크립트로 돌리거나 CI에 엮을 때 |
 | [프로토콜](protocol.md) | 데몬을 상대로 클라이언트를 만들 때 |
