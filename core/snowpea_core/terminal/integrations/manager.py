@@ -60,7 +60,7 @@ from typing import Any
 from snowpea_core.terminal.integrations import fileio, jsonedit, tomledit
 
 INTEGRATION_ID = "snowpea-agent-state"
-INTEGRATION_VERSION = 1
+INTEGRATION_VERSION = 2
 VERSION_MARKER = "SNOWPEA_INTEGRATION_VERSION="
 ID_MARKER = "SNOWPEA_INTEGRATION_ID="
 HOOK_TIMEOUT_S = 10
@@ -113,6 +113,17 @@ class Env:
     environ: Mapping[str, str] = field(default_factory=lambda: dict(os.environ))
     snowpea_home: Path | None = None
     windows: bool = sys.platform == "win32"
+    #: The snowpea-core written into the hook script; ``None`` = the running one.
+    core_bin: str | None = None
+
+    def core_path(self) -> str:
+        """Absolute path of the ``snowpea-core`` the hook script runs ("" if none found)."""
+        if self.core_bin is not None:
+            return self.core_bin
+        from snowpea_core.terminal.report import core_bin_for_env
+
+        found = core_bin_for_env()
+        return os.path.abspath(found) if found else ""
 
     def user_home(self) -> Path:
         for key in (("USERPROFILE", "HOME") if self.windows else ("HOME",)):
@@ -165,6 +176,27 @@ def _asset(windows: bool) -> str:
     name = f"{INTEGRATION_ID}.ps1" if windows else f"{INTEGRATION_ID}.sh"
     return resources.files("snowpea_core.terminal.integrations").joinpath(
         "assets", name).read_text(encoding="utf-8")
+
+
+CORE_PLACEHOLDER = "@@SNOWPEA_CORE_BIN@@"
+
+
+def _quote_core(path: str, windows: bool) -> str:
+    if windows:
+        return "'" + path.replace("'", "''") + "'"
+    return "'" + path.replace("'", "'\"'\"'") + "'"
+
+
+def render_script(windows: bool, core_bin: str) -> str:
+    """The hook script with the absolute ``snowpea-core`` path written in (security L4)."""
+    if any(ch in core_bin for ch in "\r\n\x00"):
+        raise IntegrationError("the snowpea-core path has a line break; not writing it")
+    return _asset(windows).replace(CORE_PLACEHOLDER, _quote_core(core_bin, windows))
+
+
+def _without_core_line(text: str) -> list[str]:
+    return [line for line in text.splitlines()
+            if not line.lstrip().startswith(("bin=", "$bin = "))]
 
 
 def script_version(text: str) -> int | None:
@@ -496,15 +528,22 @@ def _write(path: Path, before: str | None, after: str, record: dict[str, Any],
 
 def _ensure_script(env: Env, result: ActionResult) -> None:
     path = env.script_path()
+    # Our own script is never a symlink: writing (and chmod 0755) through one
+    # would land on whatever file it points at (security L5).
+    if path.is_symlink():
+        raise IntegrationError(f"{path} is a symlink; remove it and install again")
     fileio.check_writable(path)
-    wanted = _asset(env.windows)
-    current = fileio.read_text(path)
-    if current == wanted:
+    core = env.core_path()
+    if not core:
+        result.warnings.append("snowpea-core was not found; the hook will report nothing "
+                               "until the integration is installed again")
+    wanted = render_script(env.windows, core)
+    with_stat = path.exists()
+    if with_stat and fileio.read_text(path) == wanted:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    fileio.write_text(path, wanted)
-    if not env.windows:
-        os.chmod(fileio.resolve_target(path), 0o755)
+    fileio.write_text(path, wanted, mode=None if env.windows else 0o755,
+                      follow_symlinks=False)
     result.changed.append(str(path))
 
 
@@ -644,12 +683,18 @@ def status(cli: str, env: Env | None = None) -> IntegrationRow:
     problems: list[tuple[str, str]] = []
     if scan.modified:
         problems.append((STATUS_MODIFIED, "a snowpea hook entry was edited"))
+    wanted_script = render_script(env.windows, env.core_path())
     if script is None:
         problems.append((STATUS_OUTDATED, "the hook script is missing"))
-    elif script != _asset(env.windows):
+    elif env.script_path().is_symlink():
+        problems.append((STATUS_MODIFIED, "the hook script is a symlink"))
+    elif script != wanted_script:
         version = script_version(script)
         if version is not None and version < INTEGRATION_VERSION:
             problems.append((STATUS_OUTDATED, f"the hook script is version {version}"))
+        elif _without_core_line(script) == _without_core_line(wanted_script):
+            problems.append((STATUS_OUTDATED,
+                             "the hook script runs a different snowpea-core than this one"))
         else:
             problems.append((STATUS_MODIFIED, "the hook script was edited"))
     if scan.extra or (not scan.modified and scan.present != wanted_events):

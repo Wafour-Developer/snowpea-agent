@@ -166,23 +166,32 @@ def test_hook_fast_path_imports_no_pydantic_or_asyncio():
 
 @posix_only
 async def test_installed_script_reports_through_core_bin(tmp_path):
-    """End to end: the installed sh script → SNOWPEA_CORE_BIN → report socket."""
-    env = manager.Env(environ={"HOME": str(tmp_path), "PATH": ""}, snowpea_home=tmp_path / "sp",
-                      windows=False)
-    (tmp_path / ".claude").mkdir()
-    manager.install("claude", env)
-    script = env.script_path()
-    core_bin = tmp_path / "fake-core"
+    """End to end: the installed sh script → the embedded snowpea-core → report socket.
+
+    The environment's SNOWPEA_CORE_BIN points at a decoy; the script must ignore it (L4).
+    """
+    core_bin = tmp_path / "fake core's"  # a space and a quote survive the quoting
     core_bin.write_text(f"#!{sys.executable}\nimport sys\nfrom snowpea_core.__main__ import main\n"
                         "sys.exit(main())\n")
     core_bin.chmod(0o755)
+    decoy_mark = tmp_path / "decoy-ran"
+    (tmp_path / "decoybin").mkdir()
+    decoy = tmp_path / "decoybin" / "snowpea-core"
+    decoy.write_text(f"#!{sys.executable}\nopen({str(decoy_mark)!r}, 'w').close()\n")
+    decoy.chmod(0o755)
+    env = manager.Env(environ={"HOME": str(tmp_path), "PATH": ""}, snowpea_home=tmp_path / "sp",
+                      windows=False, core_bin=str(core_bin))
+    (tmp_path / ".claude").mkdir()
+    manager.install("claude", env)
+    script = env.script_path()
     sink = Sink()
     server = make_server(sink, tmp_path / "sp")
     address = await server.start()
     try:
         command = manager.hook_command(env, "claude", "session")
         run_env = {**os.environ, **ENV, "SNOWPEA_TERMINAL_REPORT": address,
-                   "SNOWPEA_CORE_BIN": str(core_bin)}
+                   "SNOWPEA_CORE_BIN": str(decoy),
+                   "PATH": f"{tmp_path / 'decoybin'}:{os.environ['PATH']}"}
         payload = json.dumps({"hook_event_name": "SessionStart", "session_id": "abc",
                               "transcript_path": "/x.jsonl"})
         proc = await asyncio.create_subprocess_shell(
@@ -195,6 +204,7 @@ async def test_installed_script_reports_through_core_bin(tmp_path):
             await asyncio.sleep(0.02)
         assert sink.reports[0][1].session_id == "abc"
         assert sink.reports[0][1].transcript_path == "/x.jsonl"
+        assert not decoy_mark.exists()
     finally:
         await server.stop()
     # Outside a snowpea terminal the script is a no-op; for agy it still prints {}.

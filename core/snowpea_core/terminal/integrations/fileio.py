@@ -67,14 +67,23 @@ def read_text(path: Path) -> str | None:
         return None
 
 
-def write_text(path: Path, text: str) -> Path:
-    """Atomically replace ``path``'s target with ``text``; return the target."""
+def write_text(path: Path, text: str, *, mode: int | None = None,
+               follow_symlinks: bool = True) -> Path:
+    """Atomically replace ``path``'s target with ``text``; return the target.
+
+    ``mode`` is set on the temp file before the rename (never chmod through a
+    path afterwards); by default the old file's mode is kept.  With
+    ``follow_symlinks=False`` a symlink at ``path`` is refused instead of followed.
+    """
+    if not follow_symlinks and os.path.islink(path):
+        raise ConfigFileError(f"{path} is a symlink; not writing through it")
     target = check_writable(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        mode: int | None = stat.S_IMODE(os.stat(target).st_mode)
-    except FileNotFoundError:
-        mode = None
+    if mode is None:
+        try:
+            mode = stat.S_IMODE(os.stat(target).st_mode)
+        except FileNotFoundError:
+            mode = None
     tmp = target.parent / f".snowpea-config-{os.getpid()}-{next(_COUNTER)}.tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:

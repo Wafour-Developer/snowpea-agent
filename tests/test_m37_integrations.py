@@ -72,7 +72,8 @@ def make_env(tmp_path, *, windows=False, **extra):
     home.mkdir(exist_ok=True)
     environ = {"HOME": str(home), "USERPROFILE": str(home), "PATH": ""}
     environ.update(extra)
-    return manager.Env(environ=environ, snowpea_home=tmp_path / "sp", windows=windows)
+    return manager.Env(environ=environ, snowpea_home=tmp_path / "sp", windows=windows,
+                       core_bin="/opt/snowpea/bin/snowpea-core")
 
 
 def cfg(env, cli):
@@ -165,10 +166,70 @@ def test_status_modified_and_outdated(tmp_path):
     manager.install("claude", env)
     # An older script = outdated; an edited one = modified.
     script = env.script_path()
-    script.write_text(script.read_text().replace("VERSION=1", "VERSION=0"))
+    current = script.read_text()
+    script.write_text(current.replace(f"VERSION={manager.INTEGRATION_VERSION}", "VERSION=0"))
     assert manager.status("claude", env).status == manager.STATUS_OUTDATED
-    script.write_text(manager._asset(False) + "# mine\n")
+    script.write_text(current + "# mine\n")
     assert manager.status("claude", env).status == manager.STATUS_MODIFIED
+
+
+def test_core_path_is_written_into_the_script(tmp_path):
+    """Security L4: the hook runs the snowpea-core known at install, not $SNOWPEA_CORE_BIN/PATH."""
+    env = make_env(tmp_path)
+    cfg(env, "claude")
+    manager.install("claude", env)
+    text = env.script_path().read_text()
+    assert "bin='/opt/snowpea/bin/snowpea-core'" in text
+    assert "SNOWPEA_CORE_BIN:-" not in text and "command -v" not in text
+    assert manager.CORE_PLACEHOLDER not in text
+    # Another core (an upgrade moved it): outdated until installed again.
+    moved = manager.Env(environ=env.environ, snowpea_home=env.snowpea_home, windows=False,
+                        core_bin="/new/place/snowpea-core")
+    row = manager.status("claude", moved)
+    assert row.status == manager.STATUS_OUTDATED and "snowpea-core" in row.detail
+    manager.install("claude", moved)
+    assert "bin='/new/place/snowpea-core'" in env.script_path().read_text()
+    assert manager.status("claude", moved).status == manager.STATUS_CURRENT
+    # Quotes in the path are escaped for each shell.
+    assert "bin='/a'\"'\"'b'" in manager.render_script(False, "/a'b")
+    assert "$bin = 'C:\\a''b'" in manager.render_script(True, "C:\\a'b")
+    with pytest.raises(manager.IntegrationError):
+        manager.render_script(False, "/a\nrm")
+
+
+def test_missing_core_is_a_warning(tmp_path):
+    env = make_env(tmp_path)
+    env.core_bin = ""
+    cfg(env, "claude")
+    result = manager.install("claude", env)
+    assert result.warnings and "bin=''" in env.script_path().read_text()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+def test_symlinked_hook_script_is_refused(tmp_path):
+    """Security L5: never write or chmod through a symlink at our own script path."""
+    env = make_env(tmp_path)
+    cfg(env, "claude")
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me\n")
+    os.chmod(victim, 0o600)
+    script = env.script_path()
+    script.parent.mkdir(parents=True)
+    script.symlink_to(victim)
+    with pytest.raises(manager.IntegrationError, match="symlink"):
+        manager.install("claude", env)
+    assert victim.read_text() == "keep me\n"
+    assert stat.S_IMODE(os.stat(victim).st_mode) == 0o600
+    assert not (cfg(env, "claude") / "settings.json").exists()
+    assert manager.status("claude", env).status == manager.STATUS_NOT_INSTALLED
+
+
+def test_script_mode_is_set_before_the_rename(tmp_path):
+    env = make_env(tmp_path)
+    cfg(env, "claude")
+    manager.install("claude", env)
+    assert stat.S_IMODE(os.stat(env.script_path()).st_mode) == 0o755
+    assert not env.script_path().is_symlink()
 
 
 def test_uninstall_keeps_the_persons_later_edits(tmp_path):

@@ -2,7 +2,7 @@
 # installed by snowpea; reinstalling or updating the integration overwrites this file.
 # add your own hooks beside this file instead of editing it.
 # SNOWPEA_INTEGRATION_ID=snowpea-agent-state
-# SNOWPEA_INTEGRATION_VERSION=1
+# SNOWPEA_INTEGRATION_VERSION=2
 #
 # Portions derived from herdr (https://github.com/herdrdev/herdr), Apache-2.0.
 #
@@ -21,11 +21,10 @@ if [ -z "${SNOWPEA_TERMINAL_ID:-}" ] || [ -z "${SNOWPEA_TERMINAL_REPORT:-}" ]; t
   exit 0
 fi
 
-bin="${SNOWPEA_CORE_BIN:-}"
-if [ -z "$bin" ]; then
-  bin="$(command -v snowpea-core 2>/dev/null)" || bin=""
-fi
-if [ -z "$bin" ]; then
+# The snowpea-core that installed this hook, written in at install time; the
+# environment ($SNOWPEA_CORE_BIN, PATH) is never trusted to choose it.
+bin=@@SNOWPEA_CORE_BIN@@
+if [ -z "$bin" ] || [ ! -x "$bin" ]; then
   cat >/dev/null 2>&1
   exit 0
 fi

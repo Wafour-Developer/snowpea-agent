@@ -1,7 +1,7 @@
 # installed by snowpea; reinstalling or updating the integration overwrites this file.
 # add your own hooks beside this file instead of editing it.
 # SNOWPEA_INTEGRATION_ID=snowpea-agent-state
-# SNOWPEA_INTEGRATION_VERSION=1
+# SNOWPEA_INTEGRATION_VERSION=2
 #
 # Portions derived from herdr (https://github.com/herdrdev/herdr), Apache-2.0.
 #
@@ -16,12 +16,10 @@ if ($Cli -eq "agy") { [Console]::Out.WriteLine("{}") }
 
 if ([string]::IsNullOrEmpty($env:SNOWPEA_TERMINAL_ID) -or [string]::IsNullOrEmpty($env:SNOWPEA_TERMINAL_REPORT)) { exit 0 }
 
-$bin = $env:SNOWPEA_CORE_BIN
-if ([string]::IsNullOrEmpty($bin)) {
-    $found = Get-Command snowpea-core -ErrorAction SilentlyContinue
-    if (-not $found) { exit 0 }
-    $bin = $found.Source
-}
+# The snowpea-core that installed this hook, written in at install time; the
+# environment ($env:SNOWPEA_CORE_BIN, PATH) is never trusted to choose it.
+$bin = @@SNOWPEA_CORE_BIN@@
+if ([string]::IsNullOrEmpty($bin) -or -not (Test-Path -LiteralPath $bin -PathType Leaf)) { exit 0 }
 
 # Read the hook input as UTF-8 bytes whatever the console code page is (CP949 on Korean Windows).
 try {

@@ -55,7 +55,8 @@ async def test_list_install_uninstall(core, tmp_path):
     result = await handlers.integration_install_handler(
         None, IntegrationActionParams(cli="all"), core)
     rows = {r.cli: r for r in result.integrations}
-    assert rows["claude"].state == "current" and rows["claude"].version == "1"
+    assert rows["claude"].state == "current"
+    assert rows["claude"].version == str(manager.INTEGRATION_VERSION)
     assert rows["codex"].state == "not-installed"  # not set up: skipped
     settings = tmp_path / "home" / ".claude" / "settings.json"
     assert str(settings) in result.changedFiles
