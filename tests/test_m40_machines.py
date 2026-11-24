@@ -253,7 +253,7 @@ async def test_install_ask_refused_sets_error(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_jarvis_refused_without_per_machine_switch(
+async def test_browser_cannot_proxy_terminal_create(
     daemon_pair: tuple[Daemon, Daemon],
 ) -> None:
     local, remote = daemon_pair
@@ -269,14 +269,13 @@ async def test_jarvis_refused_without_per_machine_switch(
             if next(m for m in local.core.machines.rows() if m.id == mid).status == "connected":
                 break
             await asyncio.sleep(0.05)
-        jarvis = RpcConnection(sender=lambda *_a, **_k: None)
-        jarvis.authenticated = True
-        jarvis.client_kind = "jarvis"
+        browser = RpcConnection(sender=lambda *_a, **_k: None)
+        browser.authenticated = True
+        browser.client_kind = "browser"
         with pytest.raises(RpcError) as caught:
             params = {"profile": "shell", "noProject": True}
-            await proxy_call(jarvis, "terminal.create", mid, params, local.core)
+            await proxy_call(browser, "terminal.create", mid, params, local.core)
         assert caught.value.code == errors.UNAUTHORIZED
-        await client.ok("machine.update", {"id": mid, "jarvisAllowed": True})
         await client.stop()
 
 

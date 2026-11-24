@@ -15,10 +15,11 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core import __version__
 from snowpea_core.cli import remote
 from snowpea_core.cli.daemon_client import DaemonClient, DaemonInfo
-from snowpea_core.cli.remote import RemoteSession, parse_target
+from snowpea_core.cli.remote import RemoteSession
 from snowpea_core.cli.remote_up import HostKeys, ssh_runner
-from snowpea_core.machines.proxy import RELAY_TERMINAL_EVENTS
+from snowpea_core.machines.proxy import RELAY_PERSON_EVENTS, RELAY_TERMINAL_EVENTS
 from snowpea_core.machines.registry import MachineRegistry
+from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import PROTOCOL_VERSION, MachineAsk, MachineRow
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -33,6 +34,23 @@ DirectAdvert = Callable[[str], DaemonInfo | None]
 HEALTH_EVERY_SEC = 5.0
 HEALTH_FAILURES = 3
 BACKOFF_CAP_SEC = 15.0
+ASK_TIMEOUT_SEC = 600.0
+NOTIFY_QUEUE_MAX = 256
+_PROXY_RPC_DETAIL_KEYS = frozenset(
+    {
+        "reason",
+        "project",
+        "method",
+        "id",
+        "sessionId",
+        "terminalId",
+        "max",
+        "maxMode",
+        "kind",
+        "field",
+        "machine",
+    }
+)
 
 
 @dataclass
@@ -78,7 +96,9 @@ class _Asks:
         self._live.status = "asking"
         self._announce()
         try:
-            box.event.wait()
+            if not box.event.wait(ASK_TIMEOUT_SEC):
+                log.warning("machine %s ask %s timed out", self._machine_id, kind)
+                return False
             return box.answer[-1] if box.answer else False
         finally:
             self._live.ask = None
@@ -104,6 +124,8 @@ class MachineManager:
         self._direct = direct
         self._ssh = ssh
         self._viewers: dict[tuple[str, str], set[RpcConnection]] = defaultdict(set)
+        self._conn_clients: dict[tuple[str, str], DaemonClient] = {}
+        self._conn_relays: dict[tuple[str, str], asyncio.Task[None]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -139,9 +161,32 @@ class MachineManager:
         return out
 
     async def announce(self) -> None:
-        await self.core.hub.notify(
-            "machine.changed", {"machines": [r.model_dump() for r in self.rows()]}
-        )
+        from snowpea_core.server.person_gate import connection_kind, is_person
+
+        all_rows = [r.model_dump() for r in self.rows()]
+        payload = {"machines": all_rows}
+        redacted = {
+            "machines": [
+                {
+                    **row,
+                    "ask": None,
+                    "keyPath": None,
+                    "error": None,
+                    "pastedKey": False,
+                }
+                for row in all_rows
+            ]
+        }
+        hub = self.core.hub
+        clients = list(getattr(hub, "_clients", []))
+        for conn in clients:
+            if getattr(conn, "closed", False):
+                continue
+            kind = connection_kind(conn)
+            if kind == "person" and is_person(conn, local=True):
+                await conn.notify("machine.changed", payload)
+            elif kind == "remote_login" and self.core.settings.web.remote.machines:
+                await conn.notify("machine.changed", redacted)
 
     def current_ask(self, machine_id: str) -> tuple[str, PendingAsk] | None:
         pending = self._pending_asks.get(machine_id) or {}
@@ -160,9 +205,7 @@ class MachineManager:
         return True
 
     def _open_session(self, machine_id: str, live: LiveConnection, rec) -> None:
-        target = parse_target(
-            f"{rec.user}@{rec.host}" + (f":{rec.port}" if rec.port else "")
-        )
+        target = rec.target()
         known = str(self.registry.known_hosts_file())
         live.status = "connecting"
         asks = _Asks(machine_id, self._pending_asks[machine_id], live, self._announce_sync)
@@ -183,6 +226,7 @@ class MachineManager:
             f"UserKnownHostsFile={known}",
             *identity,
         ]
+        session._ssh_extra = list(self.registry.ssh_extra_args(rec))  # noqa: SLF001
         advert = session.prepare()
         live.port = session.open_tunnel(watch=False)
         live.token = advert.token
@@ -237,14 +281,14 @@ class MachineManager:
                 failures = 0
                 live.status = "connecting"
                 self._announce_sync()
-                if live.client is not None and self._loop:
-                    client_to_close = live.client
-                    live.client = None
+                if self._loop is not None:
+                    for key in [k for k in list(self._conn_clients) if k[0] == machine_id]:
 
-                    async def _close(client: DaemonClient = client_to_close) -> None:
-                        await client.close()
+                        async def _drop(conn_key: tuple[str, str] = key) -> None:
+                            await self._close_conn_client(conn_key)
 
-                    asyncio.run_coroutine_threadsafe(_close(), self._loop)
+                        asyncio.run_coroutine_threadsafe(_drop(), self._loop)
+                live.client = None
                 if live.relay_task is not None:
                     live.relay_task.cancel()
                     live.relay_task = None
@@ -280,16 +324,53 @@ class MachineManager:
             return
         threading.Thread(target=self._connect_worker, args=(machine_id,), daemon=True).start()
 
+    def _cancel_asks(self, machine_id: str) -> None:
+        pending = self._pending_asks.get(machine_id) or {}
+        for box in list(pending.values()):
+            if not box.event.is_set():
+                box.answer.append(False)
+                box.event.set()
+
+    def _conn_key(self, machine_id: str, conn: RpcConnection) -> tuple[str, str]:
+        return machine_id, str(getattr(conn, "surface_id", id(conn)))
+
+    async def _close_conn_client(self, key: tuple[str, str]) -> None:
+        relay = self._conn_relays.pop(key, None)
+        if relay is not None:
+            relay.cancel()
+        client = self._conn_clients.pop(key, None)
+        if client is not None:
+            await client.close()
+
+    def close_connection(self, conn: RpcConnection) -> None:
+        """Drop per-connection proxy clients and terminal viewers (L9)."""
+        surface = str(getattr(conn, "surface_id", ""))
+        for key in list(self._conn_clients):
+            if key[1] == surface:
+                self._conn_clients.pop(key, None)
+                self._conn_relays.pop(key, None)
+                if self._loop is not None:
+                    asyncio.run_coroutine_threadsafe(self._close_conn_client(key), self._loop)
+        for term_key, viewers in list(self._viewers.items()):
+            if conn in viewers:
+                viewers.discard(conn)
+                if not viewers:
+                    self._viewers.pop(term_key, None)
+
     def disconnect(self, machine_id: str) -> None:
         live = self._live.get(machine_id)
         if live is None:
             return
+        self._cancel_asks(machine_id)
         if live.stop_supervisor is not None:
             live.stop_supervisor.set()
         if live.relay_task is not None:
             live.relay_task.cancel()
         if live.session is not None:
             live.session.close()
+        for key in [k for k in self._conn_clients if k[0] == machine_id]:
+            if self._loop is not None:
+                asyncio.run_coroutine_threadsafe(self._close_conn_client(key), self._loop)
         if live.client is not None and self._loop:
             asyncio.run_coroutine_threadsafe(live.client.close(), self._loop)
         live.client = None
@@ -300,37 +381,246 @@ class MachineManager:
         live.error = None
         live.ask = None
 
-    async def _ensure_client(self, machine_id: str) -> DaemonClient:
+    @staticmethod
+    def _relay_request_id(machine_id: str, request_id: str) -> str:
+        return f"m40:{machine_id}:{request_id}"
+
+    @staticmethod
+    def _approval_timeout(params: dict[str, Any]) -> float | None:
+        raw = params.get("timeoutSec")
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _remote_login_blocked_allow(request: dict[str, Any]) -> bool:
+        """True when a remote web login must not relay ``allow`` to the remote."""
+        if request.get("personOnly") is True:
+            return True
+        if request.get("blocked"):
+            return True
+        if str(request.get("tool", "")) == "delegation_set":
+            args = request.get("args")
+            if isinstance(args, dict) and args.get("allow"):
+                return True
+        return False
+
+    def _clamp_approval_reply(
+        self,
+        conn: RpcConnection,
+        request: dict[str, Any],
+        raw: dict[str, Any],
+    ) -> dict[str, Any]:
+        from snowpea_core.permissions.approval_queue import clamp_scope
+        from snowpea_core.server.person_gate import connection_kind
+
+        decision = raw.get("decision")
+        if decision not in ("allow", "deny"):
+            return {
+                "decision": "deny",
+                "scope": "once",
+                "reason": "invalid approval reply from the local person",
+            }
+        if (
+            decision == "allow"
+            and connection_kind(conn) == "remote_login"
+            and self._remote_login_blocked_allow(request)
+        ):
+            return {
+                "decision": "deny",
+                "scope": "once",
+                "reason": "only a local person may allow this on the remote",
+            }
+        scope = str(raw.get("scope", "once"))
+        scope = clamp_scope(conn, scope)
+        out: dict[str, Any] = {"decision": decision, "scope": scope}
+        reason = raw.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            out["reason"] = reason.strip()
+        return out
+
+    def _sanitize_question_reply(self, raw: dict[str, Any]) -> dict[str, Any]:
+        if raw.get("declined") is True:
+            out: dict[str, Any] = {"answers": [], "declined": True}
+            reason = raw.get("reason")
+            if isinstance(reason, str) and reason.strip():
+                out["reason"] = reason.strip()
+            return out
+        answers = raw.get("answers")
+        if not isinstance(answers, list):
+            return {"answers": [], "declined": True, "reason": "invalid question reply"}
+        return {"answers": answers}
+
+    async def _relay_to_person(
+        self,
+        conn: RpcConnection,
+        method: str,
+        params: dict[str, Any],
+        *,
+        timeout: float | None,
+    ) -> dict[str, Any]:
+        return await conn.call(method, params, timeout=timeout)
+
+    def _approval_handler(self, conn: RpcConnection, machine_id: str):
+        async def handler(params: dict[str, Any]) -> dict[str, Any]:
+            rid = str(params.get("requestId", ""))
+            tagged = {
+                **params,
+                "machine": machine_id,
+                "requestId": self._relay_request_id(machine_id, rid),
+            }
+            timeout = self._approval_timeout(params)
+            try:
+                result = await self._relay_to_person(
+                    conn, "approval.request", tagged, timeout=timeout
+                )
+                return self._clamp_approval_reply(conn, params, result)
+            except Exception as exc:
+                log.warning("machine %s approval relay failed: %s", machine_id, exc)
+                return {
+                    "decision": "deny",
+                    "scope": "once",
+                    "reason": f"could not reach the local person: {exc}",
+                }
+
+        return handler
+
+    def _question_handler(self, conn: RpcConnection, machine_id: str):
+        async def handler(params: dict[str, Any]) -> dict[str, Any]:
+            rid = str(params.get("requestId", ""))
+            tagged = {
+                **params,
+                "machine": machine_id,
+                "requestId": self._relay_request_id(machine_id, rid),
+            }
+            timeout = self._approval_timeout(params)
+            try:
+                result = await self._relay_to_person(
+                    conn, "question.request", tagged, timeout=timeout
+                )
+                return self._sanitize_question_reply(result)
+            except Exception as exc:
+                log.warning("machine %s question relay failed: %s", machine_id, exc)
+                return {"answers": [], "declined": True, "reason": str(exc)}
+
+        return handler
+
+    async def _ensure_client(self, machine_id: str, conn: RpcConnection) -> DaemonClient:
         live = self._live.get(machine_id)
         if live is None or live.status != "connected":
             raise RuntimeError("machine is not connected")
-        if live.client is None:
+        key = self._conn_key(machine_id, conn)
+        client = self._conn_clients.get(key)
+        if client is None:
             info = DaemonInfo(port=live.port, pid=0, token=live.token)
-            live.client = DaemonClient(info, client_version=f"snowpea-proxy {__version__}")
-            await live.client.connect()
-            relay = self._relay_notifications(machine_id, live.client)
-            live.relay_task = asyncio.create_task(relay)
-        return live.client
+            drop_handler = self._notification_drop_handler(machine_id, conn)
+            client = DaemonClient(
+                info,
+                client_version=f"snowpea-proxy {__version__}",
+                notification_queue_max=NOTIFY_QUEUE_MAX,
+                approval_handler=self._approval_handler(conn, machine_id),
+                question_handler=self._question_handler(conn, machine_id),
+                notification_drop_handler=drop_handler,
+            )
+            await client.connect()
+            self._conn_clients[key] = client
+            relay = self._relay_notifications(machine_id, client, conn)
+            self._conn_relays[key] = asyncio.create_task(relay)
+        return client
 
-    async def _relay_notifications(self, machine_id: str, client: DaemonClient) -> None:
+    def _notification_drop_handler(
+        self, machine_id: str, owner: RpcConnection
+    ) -> Callable[[dict[str, Any]], None]:
+        def handler(frame: dict[str, Any]) -> None:
+            if self._loop is None:
+                return
+            asyncio.run_coroutine_threadsafe(
+                self._repaint_after_dropped_terminal(owner, machine_id, frame),
+                self._loop,
+            )
+
+        return handler
+
+    async def _repaint_after_dropped_terminal(
+        self, owner: RpcConnection, machine_id: str, frame: dict[str, Any]
+    ) -> None:
+        if str(frame.get("method", "")) != "terminal.data":
+            return
+        if getattr(owner, "closed", False):
+            return
+        params = frame.get("params") or {}
+        term_id = str(params.get("terminalId", ""))
+        if not term_id:
+            return
+        viewers = self._viewers.get((machine_id, term_id), set())
+        if owner not in viewers:
+            return
+        await owner.notify(
+            "terminal.data",
+            {
+                "terminalId": term_id,
+                "machine": machine_id,
+                "repaint": True,
+                "seq": 0,
+            },
+        )
+
+    async def _relay_notifications(
+        self, machine_id: str, client: DaemonClient, owner: RpcConnection
+    ) -> None:
+        from snowpea_core.server.person_gate import connection_kind
+
         async for frame in client.notifications():
             method = str(frame.get("method", ""))
+            if (
+                connection_kind(owner) == "remote_login"
+                and not self.core.settings.web.remote.machines
+            ):
+                continue
+            if method in RELAY_PERSON_EVENTS:
+                params = dict(frame.get("params") or {})
+                rid = str(params.get("requestId", ""))
+                if rid:
+                    params["requestId"] = self._relay_request_id(machine_id, rid)
+                params["machine"] = machine_id
+                if getattr(owner, "closed", False):
+                    continue
+                await owner.notify(method, params)
+                continue
             if method not in RELAY_TERMINAL_EVENTS:
                 continue
             params = dict(frame.get("params") or {})
             params["machine"] = machine_id
             term_id = str(params.get("terminalId", ""))
-            targets = list(self._viewers.get((machine_id, term_id), set()))
-            for conn in targets:
-                if not getattr(conn, "closed", False):
-                    await conn.notify(method, params)
+            if not term_id:
+                continue
+            viewers = self._viewers.get((machine_id, term_id), set())
+            if owner not in viewers or getattr(owner, "closed", False):
+                continue
+            await owner.notify(method, params)
+
+    @staticmethod
+    def _map_rpc_error(exc: Exception) -> RpcError:
+        from snowpea_core.cli.daemon_client import RpcCallError
+
+        if isinstance(exc, RpcCallError):
+            details = exc.details if isinstance(exc.details, dict) else {}
+            clean = {k: v for k, v in details.items() if k in _PROXY_RPC_DETAIL_KEYS}
+            return RpcError(str(exc.code), str(exc.message), clean)
+        raise exc
 
     async def proxy_call(
-        self, machine_id: str, method: str, params: dict[str, Any]
+        self, machine_id: str, method: str, params: dict[str, Any], conn: RpcConnection
     ) -> dict[str, Any]:
-        client = await self._ensure_client(machine_id)
+        client = await self._ensure_client(machine_id, conn)
         clean = {k: v for k, v in params.items() if k != "machine"}
-        return await client.call(method, clean)
+        try:
+            return await client.call(method, clean)
+        except Exception as exc:
+            raise self._map_rpc_error(exc) from exc
 
     def register_viewer(self, machine_id: str, terminal_id: str, conn: RpcConnection) -> None:
         self._viewers[(machine_id, terminal_id)].add(conn)

@@ -16,6 +16,7 @@ import contextlib
 import ctypes
 import ctypes.wintypes
 import json
+import logging
 import os
 import shlex
 import subprocess
@@ -41,6 +42,11 @@ SPAWN_TIMEOUT_SEC = 15.0
 POLL_INTERVAL_SEC = 0.1
 #: Default timeout for a single JSON-RPC call.
 CALL_TIMEOUT_SEC = 60.0
+NOTIFICATION_QUEUE_MAX = 256
+#: ``0`` → unbounded queue (default); machine proxies pass :data:`NOTIFICATION_QUEUE_MAX`.
+DEFAULT_NOTIFICATION_QUEUE_MAX = 0
+
+_log = logging.getLogger("snowpea.daemon_client")
 
 
 class DaemonError(RuntimeError):
@@ -377,6 +383,7 @@ async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
 ApprovalHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 #: Answers a server->client ``question.request``; headless declines every one.
 QuestionHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+NotificationDropHandler = Callable[[dict[str, Any]], None]
 
 
 class DaemonClient:
@@ -389,11 +396,17 @@ class DaemonClient:
         client_version: str = f"snowpea-cli {__version__}",
         approval_handler: ApprovalHandler | None = None,
         question_handler: QuestionHandler | None = None,
+        hello_client_kind: str | None = None,
+        notification_queue_max: int = DEFAULT_NOTIFICATION_QUEUE_MAX,
+        notification_drop_handler: NotificationDropHandler | None = None,
     ) -> None:
         self.info = info
         self.client_version = client_version
         self.approval_handler = approval_handler
         self.question_handler = question_handler
+        self._hello_client_kind = hello_client_kind
+        self._notify_max = notification_queue_max
+        self.notification_drop_handler = notification_drop_handler
         self.server_version = ""
         self.capabilities: list[str] = []
         self._session: aiohttp.ClientSession | None = None
@@ -401,7 +414,10 @@ class DaemonClient:
         self._reader: asyncio.Task[None] | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
-        self._notifications: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        queue_max = max(0, self._notify_max) if self._notify_max > 0 else 0
+        self._notifications: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(
+            maxsize=queue_max
+        )
         self._next_id = 0
         self._closed = False
 
@@ -419,15 +435,14 @@ class DaemonClient:
         self._ws = ws
         self._reader = asyncio.ensure_future(self._read_loop())
         try:
-            hello = await self.call(
-                "system.hello",
-                {
-                    "token": self.info.token,
-                    "clientVersion": self.client_version,
-                    "protocolVersion": PROTOCOL_VERSION,
-                },
-                timeout=10.0,
-            )
+            hello_params: dict[str, Any] = {
+                "token": self.info.token,
+                "clientVersion": self.client_version,
+                "protocolVersion": PROTOCOL_VERSION,
+            }
+            if self._hello_client_kind:
+                hello_params["clientKind"] = self._hello_client_kind
+            hello = await self.call("system.hello", hello_params, timeout=10.0)
         except RpcCallError as exc:
             await self.close()
             raise DaemonError(
@@ -539,12 +554,34 @@ class DaemonClient:
             pass
         finally:
             self._fail_pending()
-            await self._notifications.put(None)
+            self._enqueue_close_sentinel()
+
+    def _enqueue_close_sentinel(self) -> None:
+        try:
+            self._notifications.put_nowait(None)
+        except asyncio.QueueFull:
+            while True:
+                try:
+                    self._notifications.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            with contextlib.suppress(asyncio.QueueFull):
+                self._notifications.put_nowait(None)
 
     def _dispatch(self, frame: dict[str, Any]) -> None:
         if "method" in frame:
             if frame.get("id") is None:
-                self._notifications.put_nowait(frame)
+                try:
+                    self._notifications.put_nowait(frame)
+                except asyncio.QueueFull:
+                    if self._notify_max > 0:
+                        _log.warning(
+                            "dropped a daemon notification after %s queued frames",
+                            self._notify_max,
+                        )
+                    if self.notification_drop_handler is not None:
+                        with contextlib.suppress(Exception):
+                            self.notification_drop_handler(frame)
             else:
                 self._spawn(self._answer_server_request(frame))
             return

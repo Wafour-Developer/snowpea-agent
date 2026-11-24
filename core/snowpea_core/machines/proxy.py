@@ -39,6 +39,8 @@ RELAY_TERMINAL_EVENTS: frozenset[str] = frozenset(
     {"terminal.data", "terminal.status", "terminal.created", "terminal.exit", "terminal.title"}
 )
 
+RELAY_PERSON_EVENTS: frozenset[str] = frozenset({"approval.resolved", "question.resolved"})
+
 
 def strip_machine(params: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
     machine = params.get("machine")

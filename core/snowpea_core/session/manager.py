@@ -846,9 +846,10 @@ REQUEST_EVENTS: frozenset[str] = frozenset({
 
 
 def person_only_event(method: str) -> bool:
-    """``jarvis.*``, ``terminal.*`` (1.73.0), ``external.state`` and ``external.clis.changed``."""
+    """``jarvis.*``, ``terminal.*`` (1.73.0), ``machine.*``, ``external.state``,
+    ``external.clis.changed``."""
     return (method in PERSON_ONLY_EVENTS or method.startswith("jarvis.")
-            or method.startswith("terminal."))
+            or method.startswith("terminal.") or method.startswith("machine."))
 
 
 class EventHub:

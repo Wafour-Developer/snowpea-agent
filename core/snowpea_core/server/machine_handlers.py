@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.machines.gates import (
+    ensure_machine_proxy_async,
+    filter_proxy_result,
+    proxy_params_dump,
+    run_proxy_gates,
+)
 from snowpea_core.machines.proxy import refuse_unknown_proxy
+from snowpea_core.machines.registry import validate_key_path
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
+    METHODS,
     MachineAddParams,
     MachineAnswerParams,
     MachineConnectParams,
@@ -41,7 +49,20 @@ def ensure_manager(core: Core):
 
         manager = MachineManager(core)
         core.machines = manager
+    try:
+        loop = __import__("asyncio").get_running_loop()
+        if manager._loop is None:  # noqa: SLF001
+            manager.bind_loop(loop)
+    except RuntimeError:
+        pass
     return manager
+
+
+def _hook_conn_close(manager: Any, conn: RpcConnection) -> None:
+    if getattr(conn, "_machine_close_hooked", False):
+        return
+    conn.on_close.append(lambda c: manager.close_connection(c))
+    conn._machine_close_hooked = True  # type: ignore[attr-defined]
 
 
 async def machine_list_handler(_conn: RpcConnection, _params: Any, core: Core) -> MachineListResult:
@@ -49,8 +70,12 @@ async def machine_list_handler(_conn: RpcConnection, _params: Any, core: Core) -
     return MachineListResult(machines=manager.rows())
 
 
-async def machine_add_handler(_conn: RpcConnection, params: MachineAddParams, core: Core) -> MachineRow:
+async def machine_add_handler(
+    _conn: RpcConnection, params: MachineAddParams, core: Core
+) -> MachineRow:
     manager = ensure_manager(core)
+    if params.keyPath:
+        validate_key_path(params.keyPath)
     rec = manager.registry.add(
         params.target,
         label=params.label,
@@ -90,6 +115,7 @@ async def machine_remove_handler(_conn: RpcConnection, params: MachineIdParams, 
     manager = ensure_manager(core)
     if manager.registry.remove(params.id) is None:
         raise RpcError(errors.NOT_FOUND, "machine not found", {"id": params.id})
+    manager._cancel_asks(params.id)  # noqa: SLF001
     manager.disconnect(params.id)
     await manager.announce()
     return Ok()
@@ -99,8 +125,11 @@ async def machine_connect_handler(
     _conn: RpcConnection, params: MachineConnectParams, core: Core
 ) -> MachineConnectResult:
     manager = ensure_manager(core)
-    if manager.registry.get(params.id) is None:
+    rec = manager.registry.get(params.id)
+    if rec is None:
         raise RpcError(errors.NOT_FOUND, "machine not found", {"id": params.id})
+    if rec.key_path:
+        validate_key_path(rec.key_path)
     manager.connect(params.id)
     row = next((r for r in manager.rows() if r.id == params.id), None)
     if row is None:
@@ -108,7 +137,9 @@ async def machine_connect_handler(
     return MachineConnectResult(status=row.status, ask=row.ask, error=row.error)
 
 
-async def machine_disconnect_handler(_conn: RpcConnection, params: MachineIdParams, core: Core) -> Ok:
+async def machine_disconnect_handler(
+    _conn: RpcConnection, params: MachineIdParams, core: Core
+) -> Ok:
     manager = ensure_manager(core)
     manager.disconnect(params.id)
     live = manager._live.get(params.id)  # noqa: SLF001
@@ -137,25 +168,33 @@ async def proxy_call(
     params: dict[str, Any],
     core: Core,
 ) -> dict[str, Any]:
-    from pydantic import BaseModel
-
-    from snowpea_core.machines.gates import ensure_machine_proxy_allowed
-
     refuse_unknown_proxy(method)
     manager = ensure_manager(core)
     rec = manager.registry.get(machine_id)
     if rec is None:
         raise RpcError(errors.NOT_FOUND, "machine not found", {"id": machine_id})
 
-    class _Params(BaseModel):
-        model_config = {"extra": "allow"}
+    spec = METHODS.get(method)
+    if spec is None:
+        raise RpcError(errors.METHOD_NOT_FOUND_CODE, f"unknown method: {method}")
+    validated = spec.params.model_validate(params)
+    run_proxy_gates(method, conn, validated, core, machine_id)
+    _hook_conn_close(manager, conn)
 
-    ensure_machine_proxy_allowed(method, conn, _Params.model_validate(params), core, machine_id)
-
-    if method.startswith("terminal.") and method in {"terminal.create", "terminal.write", "terminal.send"}:
-        if not rec.jarvis_allowed and getattr(conn, "client_kind", None) == "jarvis":
-            raise RpcError(errors.UNAUTHORIZED, "jarvis is off for this machine")
-    result = await manager.proxy_call(machine_id, method, params)
+    terminal_id = getattr(validated, "terminalId", None)
+    client = await manager._ensure_client(machine_id, conn)  # noqa: SLF001
+    await ensure_machine_proxy_async(
+        method,
+        conn,
+        validated,
+        core,
+        machine_id,
+        client=client,
+        terminal_id=str(terminal_id) if terminal_id else None,
+    )
+    clean = proxy_params_dump(conn, core, validated, method=method)
+    result = await manager.proxy_call(machine_id, method, clean, conn)
+    result = await filter_proxy_result(conn, core, method, result)
     if method == "terminal.attach":
         term_id = str(result.get("terminalId") or params.get("terminalId") or "")
         if term_id:

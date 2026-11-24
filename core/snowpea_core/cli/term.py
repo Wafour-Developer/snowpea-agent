@@ -81,10 +81,16 @@ def add_parser(sub: Any) -> None:
     )
     read = actions.add_parser("read", help="print a terminal's screen as plain text")
     read.add_argument("terminal_id")
+    read.add_argument(
+        "--machine", dest="machine_id", metavar="ID", help="remote machine id (1.76.0)"
+    )
     read.add_argument("--lines", type=int, default=60, help="history lines to include (default 60)")
     read.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
     send = actions.add_parser("send", help="type text into a terminal and press Enter")
     send.add_argument("terminal_id")
+    send.add_argument(
+        "--machine", dest="machine_id", metavar="ID", help="remote machine id (1.76.0)"
+    )
     send.add_argument("text", nargs="+", help="the text to send")
     send.add_argument("--no-submit", action="store_true", help="do not press Enter afterwards")
     send.add_argument("--force", action="store_true", help="send into a blocked terminal")
@@ -145,8 +151,18 @@ async def term_ls(
     return EXIT_OK
 
 
-async def term_read(client: _Rpc, terminal_id: str, *, lines: int, as_json: bool) -> int:
-    result = await client.call("terminal.read", {"terminalId": terminal_id, "lines": lines})
+async def term_read(
+    client: _Rpc,
+    terminal_id: str,
+    *,
+    lines: int,
+    as_json: bool,
+    machine_id: str | None = None,
+) -> int:
+    result = await client.call(
+        "terminal.read",
+        _machine_params(machine_id, {"terminalId": terminal_id, "lines": lines}),
+    )
     if as_json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
@@ -155,11 +171,20 @@ async def term_read(client: _Rpc, terminal_id: str, *, lines: int, as_json: bool
 
 
 async def term_send(
-    client: _Rpc, terminal_id: str, text: str, *, submit: bool, force: bool
+    client: _Rpc,
+    terminal_id: str,
+    text: str,
+    *,
+    submit: bool,
+    force: bool,
+    machine_id: str | None = None,
 ) -> int:
     result = await client.call(
         "terminal.send",
-        {"terminalId": terminal_id, "text": text, "submit": submit, "force": force},
+        _machine_params(
+            machine_id,
+            {"terminalId": terminal_id, "text": text, "submit": submit, "force": force},
+        ),
     )
     if result.get("sent", True) is False:
         return _fail(f"not sent: {result.get('reason') or 'refused'}", EXIT_USAGE)
@@ -195,9 +220,17 @@ def window_size(fd: int) -> tuple[int, int]:
 class _Attach:
     """The state of one attach: output, acks and the detach reason."""
 
-    def __init__(self, client: Any, terminal_id: str, write_out: Callable[[bytes], None]) -> None:
+    def __init__(
+        self,
+        client: Any,
+        terminal_id: str,
+        write_out: Callable[[bytes], None],
+        *,
+        machine_id: str | None = None,
+    ) -> None:
         self.client = client
         self.terminal_id = terminal_id
+        self.machine_id = machine_id
         self.write_out = write_out
         self.pending_ack = 0
         self.reason = "detached"
@@ -216,7 +249,10 @@ class _Attach:
             if self.pending_ack >= ACK_BATCH:
                 count, self.pending_ack = self.pending_ack, 0
                 await self.client.call(
-                    "terminal.ack", {"terminalId": self.terminal_id, "bytes": count}
+                    "terminal.ack",
+                    _machine_params(
+                        self.machine_id, {"terminalId": self.terminal_id, "bytes": count}
+                    ),
                 )
         elif method == "terminal.exit":
             self.reason = "exited"
@@ -236,11 +272,14 @@ class _Attach:
         if data:
             await self.client.call(
                 "terminal.write",
-                {
-                    "terminalId": self.terminal_id,
-                    "data": base64.b64encode(data).decode("ascii"),
-                    "human": True,
-                },
+                _machine_params(
+                    self.machine_id,
+                    {
+                        "terminalId": self.terminal_id,
+                        "data": base64.b64encode(data).decode("ascii"),
+                        "human": True,
+                    },
+                ),
             )
         if detach:
             self.done.set()
@@ -283,7 +322,7 @@ async def attach_session(
             },
         ),
     )
-    state = _Attach(client, terminal_id, write_out)
+    state = _Attach(client, terminal_id, write_out, machine_id=machine_id)
     repaint = result.get("repaint") or ""
     if repaint:
         write_out(base64.b64decode(repaint))
@@ -404,24 +443,32 @@ async def run(args: Any, home: Path | str | None) -> int:
             ),
         )
     if action == "read":
+        machine_id, term_id = split_terminal_ref(
+            args.terminal_id, getattr(args, "machine_id", None)
+        )
         return await _with_client(
             home,
             lambda c: term_read(
                 c,
-                args.terminal_id,
+                term_id,
                 lines=args.lines,
                 as_json=bool(getattr(args, "sub_json", False)),
+                machine_id=machine_id,
             ),
         )
     if action == "send":
+        machine_id, term_id = split_terminal_ref(
+            args.terminal_id, getattr(args, "machine_id", None)
+        )
         return await _with_client(
             home,
             lambda c: term_send(
                 c,
-                args.terminal_id,
+                term_id,
                 " ".join(args.text),
                 submit=not args.no_submit,
                 force=args.force,
+                machine_id=machine_id,
             ),
         )
     if action == "attach":

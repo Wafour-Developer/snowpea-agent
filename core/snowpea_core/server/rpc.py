@@ -360,7 +360,11 @@ class RpcDispatcher:
                     from snowpea_core.server.machine_handlers import proxy_call
 
                     result = await proxy_call(
-                        conn, method, machine_id, params.model_dump(mode="json"), self.core
+                        conn,
+                        method,
+                        machine_id,
+                        params.model_dump(mode="json", exclude_unset=True),
+                        self.core,
                     )
                 else:
                     result = await handler(conn, params, self.core)

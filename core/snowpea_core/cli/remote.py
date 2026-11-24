@@ -299,6 +299,7 @@ class RemoteSession:
         self._ssh = ssh if ssh is not None else find_ssh_tool("ssh")
         self._batch = batch
         self._options = list(options)
+        self._ssh_extra: list[str] = []
         self._run = run
         self._say = say or (lambda text: print(f"snowpea: {text}", file=sys.stderr))
         self._control_dir: str | None = None
@@ -333,7 +334,7 @@ class RemoteSession:
                 "-o", f"ControlPath={self._control_dir}/c-%C",
                 "-o", "ControlPersist=120",
             ]  # fmt: skip
-        argv += [*extra, self.target.destination]
+        argv += [*self._ssh_extra, *extra, self.target.destination]
         return argv
 
     def _remote(self, script: str) -> subprocess.CompletedProcess[str]:
