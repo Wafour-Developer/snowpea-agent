@@ -144,6 +144,7 @@ Server capabilities advertised in the `system.hello` result:
 - `toolProgressState`
 - `tools`
 - `trajectory`
+- `tuiSessionAttach`
 - `turnOutcome`
 - `unknownCodeAuto`
 - `update`

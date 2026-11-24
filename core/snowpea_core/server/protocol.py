@@ -13733,6 +13733,9 @@ CAPABILITIES: list[str] = [
     # visible, the turn ends with message.done reasoningFallback: true carrying
     # that reasoning under a marker line, not an empty_response error.
     "reasoningOnlyFallback",
+    # 1.73.0 (M37): the snowpea TUI takes --session <id> (session.resume, no new
+    # session) and emits OSC 7501 status inside a terminal session.
+    "tuiSessionAttach",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -13745,7 +13748,6 @@ PENDING_CAPABILITIES: dict[str, str] = {
     "terminalStatus": "TerminalInfo.status: OSC 7501, screen rules and hook-driven states",
     "cliIntegrations": "integration.list|install|uninstall: CLI hook entries (Claude, Codex, ...)",
     "externalPty": "external.open|create {transport: 'pty'} and ExternalTerminal.kind 'pty'",
-    "tuiSessionAttach": "snowpea TUI --session <id> attach and OSC 7501 status emission",
     "webTunnel": "web.tunnel.*: ngrok / Cloudflare tunnel for web.remote",
 }
 
