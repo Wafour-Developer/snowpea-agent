@@ -95,8 +95,20 @@ def parse_report(obj: Any) -> tuple[str, str, dict[str, Any]]:
         "kind": kind if state == "blocked" else None,
         "session_id": _clean(obj.get("sessionId"), "sessionId", 256),
         "transcript_path": _clean(obj.get("transcriptPath"), "transcriptPath", 4096),
+        "command": _command(obj.get("command")) if state == "blocked" else None,
     }
     return terminal_id, token, fields
+
+
+def _command(value: Any) -> str | None:
+    """The command a permission hook names (tabs and newlines allowed, nothing else)."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > 4000:
+        raise ReportError("command must be a string of at most 4000 characters")
+    if any((ord(ch) < 0x20 and ch not in "\t\n") or 0x7F <= ord(ch) <= 0x9F for ch in value):
+        raise ReportError("command has control characters")
+    return value or None
 
 
 def unix_socket_path(home: Path) -> Path:

@@ -5282,7 +5282,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `profiles` | `({ dangerousRefusal?: "max_mode" \| "terminal_locked" \| "person_only" \| null; id: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; integration?: "claude" \| "codex" \| "cursor" \| "agy" \| null; label: string; options?: ({ args?: string[]; dangerous?: boolean; id: string; label: string; })[]; path?: string \| null; resumable?: boolean; })[]` | no |  |
+| `profiles` | `({ dangerousRefusal?: "max_mode" \| "terminal_locked" \| "person_only" \| null; id: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; integration?: "claude" \| "codex" \| "cursor" \| "agy" \| null; label: string; options?: ({ args?: string[]; dangerous?: boolean; id: string; label: string; })[]; path?: string \| null; refusal?: "remote_snowpea" \| null; resumable?: boolean; })[]` | no |  |
 
 ### `terminal.read`
 
@@ -5317,6 +5317,7 @@ Hook report from a CLI inside a terminal; per-terminal token only (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
+| `command` | `string \| null` | no | With state 'blocked' (permission): the command the permission hook names. Jarvis answers a prompt only when it matches the command shown on screen. |
 | `event` | `string` | yes | The CLI's hook event name. |
 | `kind` | `"permission" \| "question" \| "auth" \| null` | no | With state 'blocked': permission, question or auth. |
 | `message` | `string \| null` | no |  |

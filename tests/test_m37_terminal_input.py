@@ -68,7 +68,12 @@ async def test_bracketed_paste_only_with_2004_and_end_marker_stripped() -> None:
     fake.bracketed = True
     gate = fake.gate()
     await gate.send("a" + PASTE_END.decode() + "b")
-    assert fake.out[0] == PASTE_START + b"ab" + PASTE_END
+    # Agent text loses its ESC (security review H1): what is left is plain text.
+    assert fake.out[0] == PASTE_START + b"a[201~b" + PASTE_END
+    # A split marker cannot be rebuilt by one stripping pass.
+    from snowpea_core.terminal.input import strip_paste_end
+
+    assert strip_paste_end(b"x\x1b[20\x1b[201~1~y") == b"xy"
 
 
 async def test_not_accepted_when_it_never_goes_working() -> None:

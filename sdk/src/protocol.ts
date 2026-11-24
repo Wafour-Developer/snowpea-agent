@@ -9769,6 +9769,8 @@ export interface TerminalProfilesResult {
     })[];
     /** Resolved executable, when installed. */
     path?: string | null;
+    /** Why this connection cannot start the profile at all: remote_snowpea (the snowpea TUI would act as the local person; a remote web login opens the session's chat or terminal view instead). null: it can. */
+    refusal?: "remote_snowpea" | null;
     /** It can start from an existing session id. */
     resumable?: boolean;
   })[];
@@ -9806,6 +9808,8 @@ export interface TerminalReadResult {
 
 /** `terminal.report` params. Hook report from a CLI inside a terminal; per-terminal token only (1.73.0). */
 export interface TerminalReportParams {
+  /** With state 'blocked' (permission): the command the permission hook names. Jarvis answers a prompt only when it matches the command shown on screen. */
+  command?: string | null;
   /** The CLI's hook event name. */
   event: string;
   /** With state 'blocked': permission, question or auth. */

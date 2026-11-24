@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -256,9 +257,8 @@ def launch_argv(argv: Sequence[str], *, keep_shell: bool, shell: str | None = No
     """``argv`` run inside the person's interactive shell (§2.6)."""
     argv = [str(a) for a in argv]
     if IS_WINDOWS:  # pragma: no cover - Windows only
-        if keep_shell:
-            return [os.environ.get("COMSPEC") or "cmd.exe", "/k", *argv]
-        return argv
+        return windows_launch_argv(argv, keep_shell=keep_shell,
+                                   comspec=os.environ.get("COMSPEC") or "cmd.exe")
     user_shell = shell or shell_path()
     wrapper = user_shell if Path(user_shell).name in POSIX_SHELLS else (
         shutil.which("bash") or "/bin/sh"
@@ -267,6 +267,32 @@ def launch_argv(argv: Sequence[str], *, keep_shell: bool, shell: str | None = No
     script = (f'"$0" "$@"; exec {shlex.quote(user_shell)} -i' if keep_shell
               else 'exec "$0" "$@"')
     return [wrapper, flags, script, *argv]
+
+
+_CMD_META = re.compile(r'([&|<>^()!])')
+
+
+def cmd_arg(arg: str) -> str:
+    """One argument for ``cmd /k`` as the ConPTY command line carries it (review L6).
+
+    The command line is built with ``subprocess.list2cmdline``: an argument with
+    whitespace is double-quoted (cmd reads its metacharacters literally there);
+    one without is not, so cmd's metacharacters are caret-escaped.  ``%`` (cmd
+    expands it even in quotes) and ``"`` cannot be made safe: refused.
+    """
+    if "%" in arg or '"' in arg:
+        raise RpcError(errors.INVALID_PARAMS,
+                       "a path or argument with % or \" cannot run under cmd /k")
+    if not arg or any(ch.isspace() for ch in arg):
+        return arg
+    return _CMD_META.sub(r"^\1", arg)
+
+
+def windows_launch_argv(argv: Sequence[str], *, keep_shell: bool, comspec: str) -> list[str]:
+    """Windows: the CLI directly, or under ``cmd /d /k`` while ``keepShell`` is on."""
+    if not keep_shell:
+        return list(argv)
+    return [comspec, "/d", "/k", *(cmd_arg(str(a)) for a in argv)]
 
 
 def _keep_shell(core: Core) -> bool:
@@ -355,7 +381,8 @@ async def list_profiles(core: Core, conn: Any) -> list[dict[str, Any]]:
             row.update(installed=True, path=argv[0])
         elif profile_id == "snowpea":
             path = snowpea_bin()
-            row.update(installed=path is not None, path=path, resumable=True)
+            row.update(installed=path is not None, path=path, resumable=True,
+                       refusal="remote_snowpea" if _remote_login(conn) else None)
         else:
             state = await cli_state(core, profile_id)
             options = options_for(profile_id, state.rows)
@@ -413,7 +440,19 @@ async def _root_of(core: Core, cwd: str) -> str | None:
     return proc.project_of(cwd, roots)
 
 
+def _remote_login(conn: Any) -> bool:
+    from snowpea_core.server.person_gate import connection_kind
+
+    return connection_kind(conn) == "remote_login"
+
+
 async def _snowpea_spec(core: Core, conn: Any, params: Any, cwd: str) -> TerminalSpec:
+    if _remote_login(conn):
+        # The TUI holds the local daemon token: whoever types into it is the local
+        # person (security review H6).
+        raise RpcError(errors.JARVIS_PERSON_ONLY,
+                       "the snowpea TUI acts as the local person; a remote web login opens "
+                       "the session itself instead", {"reason": "remote_snowpea"})
     if params.options or params.confirmDangerous:
         raise RpcError(errors.INVALID_PARAMS, "the snowpea profile has no options")
     path = snowpea_bin()
