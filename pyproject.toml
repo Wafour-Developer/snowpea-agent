@@ -33,6 +33,8 @@ dependencies = [
   "jsonschema>=4",
   "playwright>=1.62.0",
   "pypdf>=5",
+  "pyte>=0.8.2",
+  "pywinpty>=2 ; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
