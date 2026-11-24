@@ -113,7 +113,17 @@ def test_redact_removes_tokens() -> None:
 
 
 def _listener(host: str = "0.0.0.0", port: int = 8787, listening: bool = True) -> Any:
-    return SimpleNamespace(host=host, port=port, listening=listening)
+    """A fake remote listener; its tunnel listener answers with ``port``."""
+
+    async def open_tunnel_listener() -> int:
+        return port
+
+    async def close_tunnel_listener() -> None:
+        return None
+
+    return SimpleNamespace(host=host, port=port, listening=listening,
+                           open_tunnel_listener=open_tunnel_listener,
+                           close_tunnel_listener=close_tunnel_listener)
 
 
 def _paths(tmp_path: Path, *, password: bool = True) -> Paths:
@@ -133,9 +143,8 @@ def test_preconditions(tmp_path: Path) -> None:
     with pytest.raises(TunnelError) as exc:
         check_preconditions(ok, _listener(listening=False), paths)
     assert exc.value.code == "not_listening"
-    with pytest.raises(TunnelError) as exc:
-        check_preconditions(ok, _listener(host="192.168.1.5"), paths)
-    assert exc.value.code == "bad_listen_host"
+    # the tunnel has its own loopback listener: the ordinary one may be bound anywhere
+    check_preconditions(ok, _listener(host="192.168.1.5"), paths)
     bare = _paths(tmp_path / "other", password=False)
     with pytest.raises(TunnelError) as exc:
         check_preconditions(ok, _listener(), bare)
@@ -144,10 +153,7 @@ def test_preconditions(tmp_path: Path) -> None:
 
 
 def test_target_address() -> None:
-    assert tunnel.target_address("0.0.0.0", 1) == "127.0.0.1:1"
-    assert tunnel.target_address("::", 1) == "127.0.0.1:1"
-    assert tunnel.target_address("127.0.0.5", 2) == "127.0.0.5:2"
-    assert tunnel.target_address("::1", 3) == "[::1]:3"
+    assert tunnel.target_address(4242) == "127.0.0.1:4242"
 
 
 def test_find_binary_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -445,16 +451,19 @@ def test_unlock_gate() -> None:
 
 
 class FakeTunnel:
-    def __init__(self, url: str = "https://snow-abc.trycloudflare.com", active: bool = True) -> None:
+    def __init__(self, url: str = "https://snow-abc.trycloudflare.com", active: bool = True,
+                 provider: str = "cloudflare-quick") -> None:
         self.active = active
         self.origin = url
         self.url = url
+        self.provider = provider
 
     def is_tunnel_host(self, host: str | None) -> bool:
         return bool(host) and str(host).split(":")[0] == self.url.removeprefix("https://")
 
 
-async def _remote(tmp_path: Path, fake: Any = None) -> tuple[TestClient, RemoteAuth, set[Any]]:
+async def _remote(tmp_path: Path, fake: Any = None, *, tunnel_listener: bool = False
+                  ) -> tuple[TestClient, RemoteAuth, set[Any]]:
     paths = _paths(tmp_path)
     auth = RemoteAuth("owner", 12, paths)
     auth.failure_delay = 0.0
@@ -462,7 +471,7 @@ async def _remote(tmp_path: Path, fake: Any = None) -> tuple[TestClient, RemoteA
     auth.tunnel = fake
     connections: set[Any] = set()
     app = create_remote_app(RpcDispatcher(SimpleNamespace(token="t", hub=None)), auth,
-                            connections=connections)
+                            connections=connections, tunnel_listener=tunnel_listener)
     client = TestClient(TestServer(app, host="127.0.0.1"))
     await client.start_server()
     return client, auth, connections
@@ -473,9 +482,11 @@ async def _login(client: TestClient, **headers: str) -> aiohttp.ClientResponse:
                              headers=headers)
 
 
-async def test_origin_is_allowed_only_while_the_tunnel_runs(tmp_path: Path) -> None:
+async def test_origin_is_allowed_only_on_the_tunnel_listener_while_it_runs(
+        tmp_path: Path) -> None:
     fake = FakeTunnel()
-    client, _, _ = await _remote(tmp_path, fake)
+    client, _, _ = await _remote(tmp_path / "t", fake, tunnel_listener=True)
+    ordinary, _, _ = await _remote(tmp_path / "o", fake)
     try:
         assert (await _login(client)).status == 200
         ws = await client.ws_connect("/ws", headers={"Origin": fake.origin})
@@ -483,59 +494,105 @@ async def test_origin_is_allowed_only_while_the_tunnel_runs(tmp_path: Path) -> N
         with pytest.raises(aiohttp.WSServerHandshakeError) as bad:
             await client.ws_connect("/ws", headers={"Origin": "https://evil.example"})
         assert bad.value.status == 403
-        fake.active = False  # the tunnel stopped: its origin is no longer allowed
+        # the ordinary listener never takes the tunnel's origin
+        assert (await _login(ordinary)).status == 200
+        with pytest.raises(aiohttp.WSServerHandshakeError):
+            await ordinary.ws_connect("/ws", headers={"Origin": fake.origin})
+        fake.active = False  # the tunnel stopped
         with pytest.raises(aiohttp.WSServerHandshakeError):
             await client.ws_connect("/ws", headers={"Origin": fake.origin})
     finally:
         await client.close()
+        await ordinary.close()
 
 
-async def test_forwarded_headers_trusted_only_while_the_tunnel_runs(tmp_path: Path) -> None:
-    fake = FakeTunnel()
-    client, auth, _ = await _remote(tmp_path, fake)
+async def test_client_ip_by_provider_and_listener(tmp_path: Path) -> None:
+    cloudflare, ngrok = FakeTunnel(), FakeTunnel(provider="ngrok")
+    cf_client, cf_auth, _ = await _remote(tmp_path / "c", cloudflare, tunnel_listener=True)
+    ng_client, ng_auth, _ = await _remote(tmp_path / "n", ngrok, tunnel_listener=True)
+    plain, plain_auth, _ = await _remote(tmp_path / "p", cloudflare)
+    bad = {"username": "owner", "password": "wrong"}
     try:
-        # Failures are counted per client address: the forwarded one while the tunnel runs.
+        # cloudflare: CF-Connecting-IP is the visitor
         for _ in range(web_remote.MAX_FAILURES_PER_IP):
-            bad = await client.post(
-                "/web/login", json={"username": "owner", "password": "wrong"},
-                headers={"CF-Connecting-IP": "203.0.113.7"})
-            assert bad.status == 401
-        assert auth.retry_after("203.0.113.7") > 0
-        assert auth.retry_after("127.0.0.1") == 0
-        # forwarded proto makes the cookie secure
-        ok = await _login(client, **{"X-Forwarded-Proto": "https"})
+            r = await cf_client.post("/web/login", json=bad,
+                                     headers={"CF-Connecting-IP": "203.0.113.7"})
+            assert r.status == 401
+        assert cf_auth.retry_after("203.0.113.7") > 0
+        # ngrok: the header is whatever the visitor sent; only the last X-Forwarded-For counts
+        for i in range(web_remote.MAX_FAILURES_PER_IP):
+            await ng_client.post("/web/login", json=bad, headers={
+                "CF-Connecting-IP": f"198.51.100.{i}", "X-Forwarded-For": f"10.0.0.{i}, 192.0.2.9"})
+        assert ng_auth.retry_after("192.0.2.9") > 0
+        assert ng_auth.retry_after("198.51.100.1") == 0
+        # the ordinary listener believes neither just because a tunnel runs
+        await plain.post("/web/login", json=bad, headers={
+            "CF-Connecting-IP": "198.51.100.77", "X-Forwarded-For": "192.0.2.77"})
+        assert plain_auth.retry_after("198.51.100.77") == 0
+        assert plain_auth.retry_after("192.0.2.77") == 0
+        # forwarded proto makes the cookie secure on the tunnel listener only
+        ok = await _login(cf_client, **{"X-Forwarded-Proto": "https"})
         assert "Secure" in ok.headers["Set-Cookie"]
-        # the tunnel stopped and trustProxy is off: the headers are ignored again
-        fake.active = False
-        await client.post("/web/login", json={"username": "owner", "password": "wrong"},
-                          headers={"CF-Connecting-IP": "198.51.100.9"})
-        assert auth.retry_after("198.51.100.9") == 0
-        plain = await _login(client, **{"X-Forwarded-Proto": "https"})
-        assert "Secure" not in plain.headers["Set-Cookie"]
+        plain_ok = await _login(plain, **{"X-Forwarded-Proto": "https"})
+        assert "Secure" not in plain_ok.headers["Set-Cookie"]
     finally:
-        await client.close()
+        await cf_client.close()
+        await ng_client.close()
+        await plain.close()
 
 
-async def test_connection_is_marked_by_host_and_unlock_is_per_session(tmp_path: Path) -> None:
+async def test_every_connection_on_the_tunnel_listener_is_via_tunnel_whatever_the_host(
+        tmp_path: Path) -> None:
     fake = FakeTunnel()
-    client, auth, connections = await _remote(tmp_path, fake)
+    client, auth, connections = await _remote(tmp_path / "t", fake, tunnel_listener=True)
+    ordinary, o_auth, o_connections = await _remote(tmp_path / "o", fake)
     try:
         assert (await _login(client)).status == 200
-        local = await client.ws_connect(
-            "/ws", headers={"Origin": f"http://{client.server.host}:{client.server.port}"})
-        tunneled = await client.ws_connect(
-            "/ws", headers={"Origin": fake.origin, "Host": "snow-abc.trycloudflare.com"})
+        # a Host that is not the tunnel's (a second hostname, a trailing dot, none known yet)
+        ws = await client.ws_connect(
+            "/ws", headers={"Origin": "http://other.example.com.",
+                            "Host": "other.example.com."})
         for _ in range(100):
-            if len(connections) == 2:
+            if connections:
                 break
             await asyncio.sleep(0.01)
-        by_mark = {c.via_tunnel: c for c in connections}
-        assert set(by_mark) == {True, False}
-        via, plain = by_mark[True], by_mark[False]
-        require_terminal_unlock(plain)  # not over the tunnel
+        (conn,) = connections
+        assert conn.via_tunnel is True
         with pytest.raises(RpcError):
-            require_terminal_unlock(via)
-        # wrong password does not unlock; the right one does, for this sign-in session only
+            require_terminal_unlock(conn)
+        await ws.close()
+        # the ordinary listener: by Host only, as an additional marker
+        assert (await _login(ordinary)).status == 200
+        plain_ws = await ordinary.ws_connect(
+            "/ws", headers={"Origin": f"http://{ordinary.server.host}:{ordinary.server.port}"})
+        by_host = await ordinary.ws_connect(
+            "/ws", headers={"Origin": "http://snow-abc.trycloudflare.com",
+                            "Host": "snow-abc.trycloudflare.com"})
+        for _ in range(100):
+            if len(o_connections) == 2:
+                break
+            await asyncio.sleep(0.01)
+        assert sorted(c.via_tunnel for c in o_connections) == [False, True]
+        await plain_ws.close()
+        await by_host.close()
+        assert auth is not None and o_auth is not None
+    finally:
+        await client.close()
+        await ordinary.close()
+
+
+async def test_unlock_is_per_sign_in_session(tmp_path: Path) -> None:
+    fake = FakeTunnel()
+    client, auth, connections = await _remote(tmp_path, fake, tunnel_listener=True)
+    try:
+        assert (await _login(client)).status == 200
+        ws = await client.ws_connect(
+            "/ws", headers={"Origin": f"http://{client.server.host}:{client.server.port}"})
+        for _ in range(100):
+            if connections:
+                break
+            await asyncio.sleep(0.01)
+        (via,) = connections
         via.remote_reauth = lambda password: auth.reauthenticate(  # type: ignore[assignment]
             next(iter(auth.sessions)), "203.0.113.1", password)
         with pytest.raises(Exception):  # noqa: B017 - RemoteGrantRefused
@@ -545,15 +602,55 @@ async def test_connection_is_marked_by_host_and_unlock_is_per_session(tmp_path: 
         via.tunnel_mark_unlocked()  # type: ignore[misc]
         require_terminal_unlock(via)
         assert next(iter(auth.sessions.values())).terminal_unlocked
-        # a new sign-in is a new session: locked again
         await client.post("/web/logout")
         assert (await _login(client)).status == 200
-        newest = [s for s in auth.sessions.values() if not s.terminal_unlocked]
-        assert newest
-        await local.close()
-        await tunneled.close()
+        assert [s for s in auth.sessions.values() if not s.terminal_unlocked]
+        await ws.close()
     finally:
         await client.close()
+
+
+def _core(*, terminals: bool = True, max_mode: str = "auto") -> Any:
+    return SimpleNamespace(settings=SimpleNamespace(web=SimpleNamespace(
+        remote=SimpleNamespace(terminals=terminals, maxMode=max_mode))))
+
+
+def test_remote_terminal_limits() -> None:
+    from snowpea_core.server.tunnel import require_remote_terminal_access as gate
+
+    remote, local = _conn(via=False), _conn(via=False)
+    remote.remote_login, local.remote_login = True, False
+    for kind in ("create", "write", "attach", "resize", "other"):
+        gate(local, _core(terminals=False, max_mode="plan"), kind)  # a local person: unlimited
+        gate(remote, _core(), kind)  # the defaults: allowed
+    for kind in ("create", "write", "attach", "resize"):
+        with pytest.raises(RpcError) as exc:
+            gate(remote, _core(terminals=False), kind)
+        assert exc.value.data["reason"] == "remote_terminals_off"
+    gate(remote, _core(terminals=False), "other")  # observing / closing stay possible
+    for kind in ("create", "write"):
+        with pytest.raises(RpcError) as exc:
+            gate(remote, _core(max_mode="accept"), kind)
+        assert exc.value.data["reason"] == "max_mode"
+    gate(remote, _core(max_mode="accept"), "attach")
+    gate(remote, _core(max_mode="plan"), "resize")
+
+
+def test_terminal_handlers_pass_the_kind_to_the_gate() -> None:
+    import inspect
+
+    from snowpea_core.server import terminal_handlers
+
+    source = inspect.getsource(terminal_handlers)
+    for kind in ("create", "attach", "write", "resize"):
+        assert f'kind="{kind}"' in source
+
+
+def test_terminals_setting_defaults_on_and_is_local_only() -> None:
+    from snowpea_core.server import settings_leaves
+
+    assert Settings().web.remote.terminals is True
+    assert "web.remote.terminals" in settings_leaves.COMMAND_LIKE
 
 
 # -- installer -------------------------------------------------------------------------------
@@ -804,3 +901,31 @@ async def test_terminal_unlock_is_an_alias_of_web_tunnel_unlock() -> None:
     result = await handler(conn, TerminalUnlockParams(password=PASSWORD), SimpleNamespace())
     assert result.unlocked and result.viaTunnel
     require_terminal_unlock(conn)
+
+
+async def test_real_listener_opens_a_separate_loopback_tunnel_port(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    connections: set[Any] = set()
+    listener = web_remote.RemoteListener(
+        RpcDispatcher(SimpleNamespace(token="t", hub=None)), paths,
+        connections=connections, sockets=set())
+    await listener.start(host="127.0.0.1", port=0, username="owner")
+    try:
+        tunnel_port = await listener.open_tunnel_listener()
+        assert tunnel_port not in (0, listener.port)
+        assert await listener.open_tunnel_listener() == tunnel_port  # once
+        base = f"http://127.0.0.1:{tunnel_port}"
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as http:
+            login = await http.post(f"{base}/web/login",
+                                    json={"username": "owner", "password": PASSWORD})
+            assert login.status == 200
+            ws = await http.ws_connect(f"{base}/ws", headers={"Origin": base})
+            for _ in range(100):
+                if connections:
+                    break
+                await asyncio.sleep(0.01)
+            assert [c.via_tunnel for c in connections] == [True]
+            await ws.close()
+    finally:
+        await listener.stop()
+    assert listener._tunnel_runner is None  # noqa: SLF001 - closed with the listener

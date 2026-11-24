@@ -539,6 +539,10 @@ class WebRemoteSettings(_Model):
     #: applies at once.  It stops unattended runs, not the holder of the link:
     #: that person still answers each approval (``session/mode_guard.py``).
     maxMode: Literal["plan", "accept", "auto"] = "auto"
+    #: A remote sign-in may start, type into and resize terminals (watching one is
+    #: always allowed).  A local person's switch; over the tunnel the terminal unlock
+    #: still applies.  Terminals also need ``maxMode`` ``auto`` for a remote sign-in.
+    terminals: bool = True
     #: Public URL through an ngrok or Cloudflare tunnel (M37, 1.73.0).  The tokens
     #: live in ``credentials.json``, never here.
     tunnel: WebTunnelSettings = Field(default_factory=WebTunnelSettings)

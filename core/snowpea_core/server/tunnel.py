@@ -181,22 +181,15 @@ def binary_name(provider: str) -> str:
     return name + (".exe" if sys.platform == "win32" else "")
 
 
-def _loopback_reachable(host: str) -> bool:
-    return host in {"", "0.0.0.0", "::", "localhost", "::1"} or host.startswith("127.")
-
-
-def target_address(host: str, port: int) -> str:
-    """Where the tunnel program connects: this machine's loopback on the listener's port."""
-    if host == "::1":
-        return f"[::1]:{port}"
-    if host.startswith("127."):
-        return f"{host}:{port}"
+def target_address(port: int) -> str:
+    """Where the tunnel program connects: the tunnel's own listener on this machine's
+    loopback (:meth:`RemoteListener.open_tunnel_listener`), never the ordinary one."""
     return f"127.0.0.1:{port}"
 
 
 def check_preconditions(remote: Any, listener: Any, paths: Paths) -> None:
-    """Remote access on, a web password set and the listener up on a loopback-reachable
-    address; :class:`TunnelError` says which is missing."""
+    """Remote access on, a web password set and the listener up; :class:`TunnelError`
+    says which is missing."""
     from snowpea_core.server import web_remote
 
     if not getattr(remote, "enabled", False) and not (
@@ -212,11 +205,6 @@ def check_preconditions(remote: Any, listener: Any, paths: Paths) -> None:
             "without it anyone with the address could use snowpea")
     if listener is None or not getattr(listener, "listening", False):
         raise TunnelError("not_listening", "remote web access is not listening yet")
-    if not _loopback_reachable(str(getattr(listener, "host", ""))):
-        raise TunnelError(
-            "bad_listen_host",
-            f"the remote listener is bound to {listener.host}, which this machine's loopback "
-            "cannot reach; listen on 0.0.0.0 or 127.0.0.1 to use a tunnel")
 
 
 def find_binary(provider: str, configured: str | None, paths: Paths) -> str | None:
@@ -524,6 +512,10 @@ class TunnelService:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         await self._kill()
+        closer = getattr(self._listener(), "close_tunnel_listener", None)
+        if callable(closer):
+            with contextlib.suppress(Exception):
+                await closer()
         self.url = None
         self.error = None
         self._ready.set()  # whoever waits on start() stops waiting
@@ -675,7 +667,12 @@ class TunnelService:
         except TunnelError as exc:
             self.error = exc.message
             return False
-        port_host = target_address(str(listener.host), int(listener.port))
+        try:
+            tunnel_port = int(await listener.open_tunnel_listener())
+        except (OSError, AttributeError) as exc:
+            self.error = f"could not open the tunnel's listener: {exc}"
+            return False
+        port_host = target_address(tunnel_port)
         argv, env = self._command(provider, binary, port_host)
         self._secrets = [self._token(provider)] if provider in TOKEN_KEYS else []
         self._tail.clear()
@@ -688,7 +685,7 @@ class TunnelService:
         reached = False
         api_task: asyncio.Task[None] | None = None
         if provider == "ngrok":
-            api_task = asyncio.ensure_future(self._poll_ngrok_api(int(listener.port)))
+            api_task = asyncio.ensure_future(self._poll_ngrok_api(tunnel_port))
         deadline = self.clock() + URL_TIMEOUT_SEC
         try:
             while True:
@@ -798,6 +795,30 @@ def terminal_unlocked(conn: RpcConnection) -> bool:
     return bool(callable(check) and check() is True)
 
 
+def require_remote_terminal_access(conn: RpcConnection, core: Any, kind: str) -> None:
+    """The local person's limits on a remote web login's terminals (M37 security review H6).
+
+    ``kind``: ``create``, ``write`` (write, send, keys), ``attach`` (interactive) or
+    ``resize`` need ``web.remote.terminals`` (default on); ``create`` and ``write`` also
+    need ``web.remote.maxMode`` ``auto``.  Observing, reading and closing are not limited
+    here.  Not a remote login: nothing changes."""
+    if getattr(conn, "remote_login", False) is not True:
+        return
+    remote = getattr(getattr(getattr(core, "settings", None), "web", None), "remote", None)
+    if kind in {"create", "write", "attach", "resize"} and not getattr(remote, "terminals", True):
+        raise RpcError(
+            errors.UNAVAILABLE,
+            "terminals are switched off for remote web logins (web.remote.terminals); "
+            "you can still watch one",
+            {"reason": "remote_terminals_off"})
+    if kind in {"create", "write"} and getattr(remote, "maxMode", "auto") != "auto":
+        raise RpcError(
+            errors.UNAVAILABLE,
+            "a remote web login cannot start or type into a terminal while web.remote.maxMode "
+            "is below auto",
+            {"reason": "max_mode", "maxMode": getattr(remote, "maxMode", None)})
+
+
 def require_terminal_unlock(conn: RpcConnection, *, dangerous: bool = False,
                             core: Any = None) -> None:
     """Gate for terminal create, interactive attach, write and the like.
@@ -832,6 +853,7 @@ __all__ = [
     "CLOUDFLARE_TOKEN_KEY", "NGROK_TOKEN_KEY", "PINNED", "PROVIDERS", "TERMINAL_LOCKED",
     "TOKEN_KEYS", "PinnedAsset", "TunnelError", "TunnelService", "check_preconditions",
     "find_binary", "install_binary", "is_registered", "is_via_tunnel", "parse_ngrok_api",
-    "parse_ngrok_url", "parse_quick_url", "redact", "require_terminal_unlock",
+    "parse_ngrok_url", "parse_quick_url", "redact", "require_remote_terminal_access",
+    "require_terminal_unlock",
     "terminal_unlocked",
 ]

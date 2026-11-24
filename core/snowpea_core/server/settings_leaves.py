@@ -92,6 +92,7 @@ COMMAND_LIKE: dict[str, tuple[str, frozenset[str]]] = {
     "web.remote.allowedOrigins": (DAEMON, NOBODY),
     "web.remote.trustProxy": (DAEMON, NOBODY),
     "web.remote.maxMode": (DAEMON, NOBODY),
+    "web.remote.terminals": (DAEMON, NOBODY),
     # M37 (1.73.0): the tunnel opens this machine to the internet; binary is a program.
     "web.remote.tunnel.provider": (DAEMON, NOBODY),
     "web.remote.tunnel.autoStart": (DAEMON, NOBODY),
