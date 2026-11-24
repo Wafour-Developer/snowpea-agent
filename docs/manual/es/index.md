@@ -21,6 +21,8 @@ Si acabas de instalar snowpea, lee [Instalar](install.md), luego [Setup](setup.m
 | [Escribir extensiones](extensions.md) | quieres añadir al daemon una herramienta en Python, una sección del prompt, un hook, un comando o un servidor MCP |
 | [Planificador](scheduler.md) | quieres que el trabajo ocurra mientras no estás |
 | [Gateway](gateway.md) | quieres hablar con el agente desde Telegram, Discord o Slack |
+| [Sesiones de terminal (beta)](terminals.md) | ejecutas un CLI o una sesión de snowpea en un panel de terminal real, o quieres entender los puntos de estado, las opciones de permisos o `snowpea term` |
+| [Integraciones de hooks de CLI (beta)](integrations.md) | quieres que snowpea vea el estado de Claude Code, Codex, Cursor agent o agy: instalar o quitar los hooks |
 | [Headless](headless.md) | scripteas snowpea, o lo conectas a CI |
 | [Protocolo](protocol.md) | construyes un cliente contra el daemon |
 
