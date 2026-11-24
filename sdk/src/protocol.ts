@@ -9649,6 +9649,8 @@ export type TerminalProfilesParams = Record<string, unknown>;
 /** `terminal.profiles` result. */
 export interface TerminalProfilesResult {
   profiles?: ({
+    /** Why this connection cannot use dangerous options now: max_mode (web.remote.maxMode is below auto) or terminal_locked (tunnel connection, web.tunnel.unlock first). null: allowed (still needs confirmDangerous). */
+    dangerousRefusal?: "max_mode" | "terminal_locked" | null;
     /** Profile id. */
     id: "shell" | "snowpea" | "claude" | "codex" | "agy" | "cursor";
     /** The CLI (or shell) was found on this machine. */
@@ -10397,28 +10399,12 @@ export interface WebSearchResult {
 
 /** `web.tunnel.install` params. Download the pinned, checksummed tunnel binary into SNOWPEA_HOME/bin (1.73.0). */
 export interface WebTunnelInstallParams {
-  provider: "cloudflare-quick" | "cloudflare" | "ngrok";
+  /** Default: the configured provider. */
+  provider?: string | null;
 }
 
 /** `web.tunnel.install` result. */
 export interface WebTunnelInstallResult {
-  /** Install command when none is pinned. */
-  command?: string | null;
-  installed?: boolean;
-  /** Where the binary was put. */
-  path?: string | null;
-}
-
-/** `web.tunnel.setToken` params. Store the ngrok authtoken or Cloudflare tunnel token; local human only (1.73.0). */
-export interface WebTunnelSetTokenParams {
-  provider: "cloudflare" | "ngrok";
-  /** The token; null removes the stored one. */
-  token: string | null;
-}
-
-/** `web.tunnel.setToken` result. */
-export interface WebTunnelSetTokenResult {
-  autoStart?: boolean;
   /** Resolved tunnel program path, if found. */
   binary?: string | null;
   error?: string | null;
@@ -10426,12 +10412,42 @@ export interface WebTunnelSetTokenResult {
   installCommand?: string | null;
   /** web.tunnel.install has a pinned download for this platform. */
   installable?: boolean;
-  provider?: "off" | "cloudflare-quick" | "cloudflare" | "ngrok";
-  /** web.remote.enabled is on and a web password is set. */
-  ready?: boolean;
-  state?: "off" | "starting" | "running" | "error" | "stopped";
-  /** A token for the provider is stored. */
-  tokenSet?: boolean;
+  /** Where the binary was put. */
+  installedPath?: string;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
+  /** The public URL once running. */
+  url?: string | null;
+}
+
+/** `web.tunnel.setToken` params. Store the ngrok authtoken or Cloudflare tunnel token; local human only (1.73.0). */
+export interface WebTunnelSetTokenParams {
+  provider: "cloudflare" | "ngrok";
+  /** Never echoed; dropped from validation error details. */
+  token: string;
+}
+
+/** `web.tunnel.setToken` result. */
+export interface WebTunnelSetTokenResult {
+  /** Resolved tunnel program path, if found. */
+  binary?: string | null;
+  error?: string | null;
+  /** Shown instead when no checksum is pinned for the platform. */
+  installCommand?: string | null;
+  /** web.tunnel.install has a pinned download for this platform. */
+  installable?: boolean;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
   /** The public URL once running. */
   url?: string | null;
 }
@@ -10439,12 +10455,13 @@ export interface WebTunnelSetTokenResult {
 /** `web.tunnel.start` params. Start the tunnel; needs web.remote.enabled and a web password (1.73.0). */
 export interface WebTunnelStartParams {
   /** Override web.remote.tunnel.provider for this start. */
-  provider?: "off" | "cloudflare-quick" | "cloudflare" | "ngrok" | null;
+  provider?: "cloudflare-quick" | "cloudflare" | "ngrok" | null;
+  /** Also store it as the provider setting. */
+  save?: boolean;
 }
 
 /** `web.tunnel.start` result. */
 export interface WebTunnelStartResult {
-  autoStart?: boolean;
   /** Resolved tunnel program path, if found. */
   binary?: string | null;
   error?: string | null;
@@ -10452,12 +10469,13 @@ export interface WebTunnelStartResult {
   installCommand?: string | null;
   /** web.tunnel.install has a pinned download for this platform. */
   installable?: boolean;
-  provider?: "off" | "cloudflare-quick" | "cloudflare" | "ngrok";
-  /** web.remote.enabled is on and a web password is set. */
-  ready?: boolean;
-  state?: "off" | "starting" | "running" | "error" | "stopped";
-  /** A token for the provider is stored. */
-  tokenSet?: boolean;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
   /** The public URL once running. */
   url?: string | null;
 }
@@ -10467,7 +10485,6 @@ export type WebTunnelStatusParams = Record<string, unknown>;
 
 /** `web.tunnel.status` result. */
 export interface WebTunnelStatusResult {
-  autoStart?: boolean;
   /** Resolved tunnel program path, if found. */
   binary?: string | null;
   error?: string | null;
@@ -10475,22 +10492,25 @@ export interface WebTunnelStatusResult {
   installCommand?: string | null;
   /** web.tunnel.install has a pinned download for this platform. */
   installable?: boolean;
-  provider?: "off" | "cloudflare-quick" | "cloudflare" | "ngrok";
-  /** web.remote.enabled is on and a web password is set. */
-  ready?: boolean;
-  state?: "off" | "starting" | "running" | "error" | "stopped";
-  /** A token for the provider is stored. */
-  tokenSet?: boolean;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
   /** The public URL once running. */
   url?: string | null;
 }
 
 /** `web.tunnel.stop` params. Stop the tunnel (1.73.0). */
-export type WebTunnelStopParams = Record<string, unknown>;
+export interface WebTunnelStopParams {
+  /** Also store provider 'off' / autoStart false. */
+  save?: boolean;
+}
 
 /** `web.tunnel.stop` result. */
 export interface WebTunnelStopResult {
-  autoStart?: boolean;
   /** Resolved tunnel program path, if found. */
   binary?: string | null;
   error?: string | null;
@@ -10498,12 +10518,13 @@ export interface WebTunnelStopResult {
   installCommand?: string | null;
   /** web.tunnel.install has a pinned download for this platform. */
   installable?: boolean;
-  provider?: "off" | "cloudflare-quick" | "cloudflare" | "ngrok";
-  /** web.remote.enabled is on and a web password is set. */
-  ready?: boolean;
-  state?: "off" | "starting" | "running" | "error" | "stopped";
-  /** A token for the provider is stored. */
-  tokenSet?: boolean;
+  /** off, cloudflare-quick, cloudflare or ngrok. */
+  provider?: string;
+  /** Restarts since it was started. */
+  restarts?: number;
+  state?: "off" | "starting" | "running" | "restarting" | "error";
+  /** A token for the provider is stored (null: none needed). */
+  tokenSet?: boolean | null;
   /** The public URL once running. */
   url?: string | null;
 }
@@ -10515,9 +10536,7 @@ export interface WebTunnelUnlockParams {
 
 /** `web.tunnel.unlock` result. */
 export interface WebTunnelUnlockResult {
-  unlocked: boolean;
-  /** This connection came over the tunnel. */
-  viaTunnel?: boolean;
+  unlocked?: boolean;
 }
 
 /** `workspace.add` params. Add a project folder (1.47.0). */
@@ -11678,8 +11697,8 @@ export interface ToolCancelPayload {
 /** `web.tunnel.changed` notification payload. */
 export interface WebTunnelChangedPayload {
   error?: string | null;
-  provider?: "off" | "cloudflare-quick" | "cloudflare" | "ngrok";
-  state: "off" | "starting" | "running" | "error" | "stopped";
+  provider?: string;
+  state: "off" | "starting" | "running" | "restarting" | "error";
   url?: string | null;
 }
 

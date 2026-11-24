@@ -9775,8 +9775,6 @@ TerminalStatusSource = Literal["osc", "screen", "hook", "rules", "none"]
 TerminalAttachMode = Literal["interactive", "observe"]
 IntegrationCli = Literal["claude", "codex", "cursor", "agy"]
 IntegrationState = Literal["not-installed", "current", "outdated", "modified"]
-TunnelProvider = Literal["off", "cloudflare-quick", "cloudflare", "ngrok"]
-TunnelState = Literal["off", "starting", "running", "error", "stopped"]
 
 
 class TerminalOption(Payload):
@@ -9805,6 +9803,14 @@ class TerminalProfile(Payload):
     )
     options: list[TerminalOption] = Field(
         default_factory=list, description="Permission options the launch dialog offers."
+    )
+    dangerousRefusal: Literal["max_mode", "terminal_locked"] | None = Field(
+        default=None,
+        description=(
+            "Why this connection cannot use dangerous options now: max_mode (web.remote.maxMode "
+            "is below auto) or terminal_locked (tunnel connection, web.tunnel.unlock first). "
+            "null: allowed (still needs confirmDangerous)."
+        ),
     )
 
 
@@ -10071,53 +10077,67 @@ class IntegrationChangedEvent(Payload):
     integrations: list[IntegrationRow] = Field(default_factory=list)
 
 
-class TunnelStatus(Payload):
-    provider: TunnelProvider = Field(default="off")
-    state: TunnelState = Field(default="off")
+class WebTunnelStatus(Payload):
+    """web.tunnel.* result (1.73.0, webTunnel).
+
+    Errors are ``unavailable`` with ``details.reason`` one of: remote_disabled, no_password,
+    not_listening, bad_listen_host, no_binary, no_token, no_hostname, bad_provider,
+    install_unpinned, checksum_mismatch, install_failed, terminal_locked
+    (``details.unlock`` = "web.tunnel.unlock"), tunnel_dangerous.
+    """
+
+    state: Literal["off", "starting", "running", "restarting", "error"] = Field(default="off")
+    provider: str = Field(default="off", description="off, cloudflare-quick, cloudflare or ngrok.")
     url: str | None = Field(default=None, description="The public URL once running.")
     error: str | None = Field(default=None)
     binary: str | None = Field(default=None, description="Resolved tunnel program path, if found.")
-    tokenSet: bool = Field(default=False, description="A token for the provider is stored.")
     installable: bool = Field(
         default=False, description="web.tunnel.install has a pinned download for this platform."
     )
     installCommand: str | None = Field(
         default=None, description="Shown instead when no checksum is pinned for the platform."
     )
-    ready: bool = Field(
-        default=False, description="web.remote.enabled is on and a web password is set."
+    tokenSet: bool | None = Field(
+        default=None, description="A token for the provider is stored (null: none needed)."
     )
-    autoStart: bool = Field(default=True)
+    restarts: int = Field(default=0, description="Restarts since it was started.")
+
+
+class WebTunnelInstallResult(WebTunnelStatus):
+    installedPath: str = Field(default="", description="Where the binary was put.")
 
 
 class TunnelStartParams(Payload):
-    provider: TunnelProvider | None = Field(
+    provider: Literal["cloudflare-quick", "cloudflare", "ngrok"] | None = Field(
         default=None, description="Override web.remote.tunnel.provider for this start."
     )
+    save: bool = Field(default=False, description="Also store it as the provider setting.")
+
+
+class TunnelStopParams(Payload):
+    save: bool = Field(default=False, description="Also store provider 'off' / autoStart false.")
 
 
 class TunnelSetTokenParams(Payload):
     provider: Literal["cloudflare", "ngrok"]
-    token: str | None = Field(description="The token; null removes the stored one.")
+    token: str = Field(description="Never echoed; dropped from validation error details.")
 
 
 class TunnelInstallParams(Payload):
-    provider: Literal["cloudflare-quick", "cloudflare", "ngrok"]
-
-
-class TunnelInstallResult(Payload):
-    path: str | None = Field(default=None, description="Where the binary was put.")
-    installed: bool = Field(default=False)
-    command: str | None = Field(default=None, description="Install command when none is pinned.")
+    provider: str | None = Field(default=None, description="Default: the configured provider.")
 
 
 class TunnelUnlockParams(Payload):
     password: str
 
 
+class TunnelUnlockResult(Payload):
+    unlocked: bool = True
+
+
 class TunnelChangedEvent(Payload):
-    state: TunnelState
-    provider: TunnelProvider = "off"
+    state: Literal["off", "starting", "running", "restarting", "error"]
+    provider: str = "off"
     url: str | None = None
     error: str | None = None
 
@@ -13444,16 +13464,16 @@ METHODS: dict[str, RpcMethod] = {
            "Install the hook entries into a CLI's config; human connection only (1.73.0)."),
         _m("integration.uninstall", IntegrationActionParams, IntegrationActionResult,
            "Remove exactly what install added; human connection only (1.73.0)."),
-        _m("web.tunnel.status", Empty, TunnelStatus,
+        _m("web.tunnel.status", Empty, WebTunnelStatus,
            "Tunnel provider, state and public URL (1.73.0, webTunnel)."),
-        _m("web.tunnel.start", TunnelStartParams, TunnelStatus,
+        _m("web.tunnel.start", TunnelStartParams, WebTunnelStatus,
            "Start the tunnel; needs web.remote.enabled and a web password (1.73.0)."),
-        _m("web.tunnel.stop", Empty, TunnelStatus, "Stop the tunnel (1.73.0)."),
-        _m("web.tunnel.setToken", TunnelSetTokenParams, TunnelStatus,
+        _m("web.tunnel.stop", TunnelStopParams, WebTunnelStatus, "Stop the tunnel (1.73.0)."),
+        _m("web.tunnel.setToken", TunnelSetTokenParams, WebTunnelStatus,
            "Store the ngrok authtoken or Cloudflare tunnel token; local human only (1.73.0)."),
-        _m("web.tunnel.install", TunnelInstallParams, TunnelInstallResult,
+        _m("web.tunnel.install", TunnelInstallParams, WebTunnelInstallResult,
            "Download the pinned, checksummed tunnel binary into SNOWPEA_HOME/bin (1.73.0)."),
-        _m("web.tunnel.unlock", TunnelUnlockParams, TerminalUnlockResult,
+        _m("web.tunnel.unlock", TunnelUnlockParams, TunnelUnlockResult,
            "Re-enter the web password to unlock terminals on a tunnel connection (1.73.0)."),
     )
 }

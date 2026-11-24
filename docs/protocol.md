@@ -5242,7 +5242,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `profiles` | `({ id: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; integration?: "claude" \| "codex" \| "cursor" \| "agy" \| null; label: string; options?: ({ args?: string[]; dangerous?: boolean; id: string; label: string; })[]; path?: string \| null; resumable?: boolean; })[]` | no |  |
+| `profiles` | `({ dangerousRefusal?: "max_mode" \| "terminal_locked" \| null; id: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; integration?: "claude" \| "codex" \| "cursor" \| "agy" \| null; label: string; options?: ({ args?: string[]; dangerous?: boolean; id: string; label: string; })[]; path?: string \| null; resumable?: boolean; })[]` | no |  |
 
 ### `terminal.read`
 
@@ -5796,15 +5796,22 @@ Download the pinned, checksummed tunnel binary into SNOWPEA_HOME/bin (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `provider` | `"cloudflare-quick" \| "cloudflare" \| "ngrok"` | yes |  |
+| `provider` | `string \| null` | no | Default: the configured provider. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `command` | `string \| null` | no | Install command when none is pinned. |
-| `installed` | `boolean` | no |  |
-| `path` | `string \| null` | no | Where the binary was put. |
+| `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
+| `error` | `string \| null` | no |  |
+| `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
+| `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
+| `installedPath` | `string` | no | Where the binary was put. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
+| `url` | `string \| null` | no | The public URL once running. |
 
 ### `web.tunnel.setToken`
 
@@ -5817,21 +5824,20 @@ Store the ngrok authtoken or Cloudflare tunnel token; local human only (1.73.0).
 | field | type | required | description |
 |---|---|---|---|
 | `provider` | `"cloudflare" \| "ngrok"` | yes |  |
-| `token` | `string \| null` | yes | The token; null removes the stored one. |
+| `token` | `string` | yes | Never echoed; dropped from validation error details. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `autoStart` | `boolean` | no |  |
 | `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
 | `error` | `string \| null` | no |  |
 | `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
 | `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
-| `provider` | `"off" \| "cloudflare-quick" \| "cloudflare" \| "ngrok"` | no |  |
-| `ready` | `boolean` | no | web.remote.enabled is on and a web password is set. |
-| `state` | `"off" \| "starting" \| "running" \| "error" \| "stopped"` | no |  |
-| `tokenSet` | `boolean` | no | A token for the provider is stored. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
 | `url` | `string \| null` | no | The public URL once running. |
 
 ### `web.tunnel.start`
@@ -5844,21 +5850,21 @@ Start the tunnel; needs web.remote.enabled and a web password (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `provider` | `"off" \| "cloudflare-quick" \| "cloudflare" \| "ngrok" \| null` | no | Override web.remote.tunnel.provider for this start. |
+| `provider` | `"cloudflare-quick" \| "cloudflare" \| "ngrok" \| null` | no | Override web.remote.tunnel.provider for this start. |
+| `save` | `boolean` | no | Also store it as the provider setting. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `autoStart` | `boolean` | no |  |
 | `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
 | `error` | `string \| null` | no |  |
 | `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
 | `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
-| `provider` | `"off" \| "cloudflare-quick" \| "cloudflare" \| "ngrok"` | no |  |
-| `ready` | `boolean` | no | web.remote.enabled is on and a web password is set. |
-| `state` | `"off" \| "starting" \| "running" \| "error" \| "stopped"` | no |  |
-| `tokenSet` | `boolean` | no | A token for the provider is stored. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
 | `url` | `string \| null` | no | The public URL once running. |
 
 ### `web.tunnel.status`
@@ -5875,15 +5881,14 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `autoStart` | `boolean` | no |  |
 | `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
 | `error` | `string \| null` | no |  |
 | `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
 | `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
-| `provider` | `"off" \| "cloudflare-quick" \| "cloudflare" \| "ngrok"` | no |  |
-| `ready` | `boolean` | no | web.remote.enabled is on and a web password is set. |
-| `state` | `"off" \| "starting" \| "running" \| "error" \| "stopped"` | no |  |
-| `tokenSet` | `boolean` | no | A token for the provider is stored. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
 | `url` | `string \| null` | no | The public URL once running. |
 
 ### `web.tunnel.stop`
@@ -5894,21 +5899,22 @@ Stop the tunnel (1.73.0).
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `save` | `boolean` | no | Also store provider 'off' / autoStart false. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `autoStart` | `boolean` | no |  |
 | `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
 | `error` | `string \| null` | no |  |
 | `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
 | `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
-| `provider` | `"off" \| "cloudflare-quick" \| "cloudflare" \| "ngrok"` | no |  |
-| `ready` | `boolean` | no | web.remote.enabled is on and a web password is set. |
-| `state` | `"off" \| "starting" \| "running" \| "error" \| "stopped"` | no |  |
-| `tokenSet` | `boolean` | no | A token for the provider is stored. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
 | `url` | `string \| null` | no | The public URL once running. |
 
 ### `web.tunnel.unlock`
@@ -5927,8 +5933,7 @@ Re-enter the web password to unlock terminals on a tunnel connection (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `unlocked` | `boolean` | yes |  |
-| `viaTunnel` | `boolean` | no | This connection came over the tunnel. |
+| `unlocked` | `boolean` | no |  |
 
 ### `workspace.add`
 
@@ -6407,8 +6412,8 @@ Set the sidebar order (1.47.0).
 | field | type | required | description |
 |---|---|---|---|
 | `error` | `string \| null` | no |  |
-| `provider` | `"off" \| "cloudflare-quick" \| "cloudflare" \| "ngrok"` | no |  |
-| `state` | `"off" \| "starting" \| "running" \| "error" \| "stopped"` | yes |  |
+| `provider` | `string` | no |  |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | yes |  |
 | `url` | `string \| null` | no |  |
 
 ## `session.event` kinds

@@ -81,8 +81,8 @@ def test_models_round_trip() -> None:
         files=[protocol.IntegrationFile(path="/a", exists=True)],
     )
     assert protocol.IntegrationListResult(integrations=[row]).integrations[0].state == "current"
-    tunnel = protocol.TunnelStatus(provider="ngrok", state="running", url="https://x.example")
-    assert protocol.TunnelStatus.model_validate(tunnel.model_dump()) == tunnel
+    tunnel = protocol.WebTunnelStatus(provider="ngrok", state="running", url="https://x.example")
+    assert protocol.WebTunnelStatus.model_validate(tunnel.model_dump()) == tunnel
 
 
 def test_models_reject_unknown_values() -> None:
