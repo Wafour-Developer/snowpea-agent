@@ -683,6 +683,16 @@ class SessionCreateParams(Payload):
             "siteMemory false, so the host leaves its site-memory part out."
         ),
     )
+    noProject: bool | None = Field(
+        default=None,
+        description=(
+            "1.71.0 (capability sessionPaths): true when the workdir is not a project the "
+            "person chose (a browser's default folder). Results then go to the session "
+            "workspace's artifacts/ instead of the workdir; see session.paths. Absent means "
+            "false. Kept with the session across a daemon restart, followed by its delegated "
+            "children and forks."
+        ),
+    )
     locale: str | None = Field(
         default=None,
         description=(
@@ -835,7 +845,12 @@ class SessionToolContentResult(Payload):
 
 class SessionArtifact(Payload):
     path: str = Field(description="Absolute path.")
-    name: str = Field(description="Path relative to artifacts/.")
+    name: str = Field(
+        description=(
+            "Path relative to artifacts/; a file in a project's downloads folder (1.71.0) "
+            "is named .snowpea-downloads/<path>."
+        )
+    )
     size: int = Field(description="Bytes.")
     modifiedAt: str = Field(description="UTC ISO-8601 time of the last change.")
     mimeType: str | None = Field(default=None, description="Guessed from the name.")
@@ -844,8 +859,37 @@ class SessionArtifact(Payload):
 class SessionArtifactsResult(Payload):
     workspaceDir: str = Field(description="The session workspace.")
     artifacts: list[SessionArtifact] = Field(
-        default_factory=list, description="Files under artifacts/, newest first."
+        default_factory=list,
+        description=(
+            "Files under artifacts/, newest first; with a project also those under "
+            "<workdir>/.snowpea-downloads/ (1.71.0), its .gitignore left out."
+        ),
     )
+
+
+class SessionPathsResult(Payload):
+    """``session.paths`` (1.71.0, capability sessionPaths): where the session's files go."""
+
+    workdir: str = Field(description="The session's workdir, absolute.")
+    workspaceDir: str | None = Field(
+        default=None, description="The session workspace (tmp/, artifacts/)."
+    )
+    resultsDir: str = Field(
+        description=(
+            "Where reports, documents, exports and other results go: the workdir with a "
+            "project, else <workspaceDir>/artifacts."
+        )
+    )
+    downloadsDir: str = Field(
+        description=(
+            "Where downloaded files go: <resultsDir>/.snowpea-downloads, made when used with "
+            "a .gitignore of '*' (a dot-folder the project's tools and globs skip)."
+        )
+    )
+    scratchDir: str | None = Field(
+        default=None, description="Throwaway files only: <workspaceDir>/tmp."
+    )
+    hasProject: bool = Field(description="False when session.create had noProject true.")
 
 
 class SessionAttachment(Payload):
@@ -1010,6 +1054,32 @@ class SessionCreateResult(Payload):
     workspaceDir: str | None = Field(
         default=None,
         description="Session workspace with tmp/ and artifacts/ (1.7.0).",
+    )
+    workdir: str | None = Field(
+        default=None,
+        description="1.71.0 (capability sessionPaths): the session's workdir, absolute.",
+    )
+    resultsDir: str | None = Field(
+        default=None,
+        description=(
+            "1.71.0 (capability sessionPaths): where reports, documents, exports and other "
+            "results go: the workdir with a project, else <workspaceDir>/artifacts."
+        ),
+    )
+    downloadsDir: str | None = Field(
+        default=None,
+        description=(
+            "1.71.0: where downloaded files go: <resultsDir>/.snowpea-downloads (made when "
+            "used, with a .gitignore of '*')."
+        ),
+    )
+    scratchDir: str | None = Field(
+        default=None,
+        description="1.71.0: throwaway files only: <workspaceDir>/tmp.",
+    )
+    hasProject: bool | None = Field(
+        default=None,
+        description="1.71.0: false when session.create had noProject true.",
     )
     delegation: bool = Field(
         default=False,
@@ -2153,6 +2223,28 @@ class ToolInvokeRequest(Payload):
     workdir: str = Field(
         default="",
         description="The session's project folder, absolute (Projects, 1.7.0).",
+    )
+    resultsDir: str | None = Field(
+        default=None,
+        description=(
+            "1.71.0 (capability sessionPaths): where reports, documents, exports and other "
+            "results go: the workdir with a project, else <workspaceDir>/artifacts."
+        ),
+    )
+    downloadsDir: str | None = Field(
+        default=None,
+        description=(
+            "1.71.0: where downloaded files go: <resultsDir>/.snowpea-downloads (made when "
+            "used, with a .gitignore of '*')."
+        ),
+    )
+    scratchDir: str | None = Field(
+        default=None,
+        description="1.71.0: throwaway files only: <workspaceDir>/tmp.",
+    )
+    hasProject: bool | None = Field(
+        default=None,
+        description="1.71.0: false when session.create had noProject true.",
     )
     parentSessionId: str | None = Field(
         default=None,
@@ -12319,7 +12411,16 @@ METHODS: dict[str, RpcMethod] = {
             "session.artifacts",
             SessionIdParams,
             SessionArtifactsResult,
-            "Files the session saved for the user under its workspace's artifacts/.",
+            "Files the session saved for the user under its workspace's artifacts/; with a "
+            "project also those under <workdir>/.snowpea-downloads/ (1.71.0).",
+        ),
+        _m(
+            "session.paths",
+            SessionIdParams,
+            SessionPathsResult,
+            "Where the session's files go (1.71.0, capability sessionPaths): results "
+            "(reports, exports) in resultsDir, downloads in downloadsDir, throwaway files in "
+            "scratchDir. resultsDir is the workdir unless session.create had noProject true.",
         ),
         _m(
             "session.attachments",
@@ -13251,6 +13352,12 @@ CAPABILITIES: list[str] = [
     # visible, the turn ends with message.done reasoningFallback: true carrying
     # that reasoning under a marker line, not an empty_response error.
     "reasoningOnlyFallback",
+    # 1.71.0: session.create {noProject}, session.paths, the same folders on the
+    # session.create result and on tool.invoke; session.artifacts also lists a
+    # project's .snowpea-downloads/ (a dot-folder with a .gitignore of '*').
+    # Results go to the project, or to the workspace's artifacts/ without one;
+    # only throwaway files go to tmp/.
+    "sessionPaths",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -13423,6 +13530,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "fs.write",
         "fs.hash",
         "session.artifacts",
+        "session.paths",
         "session.attachments",
         "session.rename",
         "session.notice",

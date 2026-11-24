@@ -237,12 +237,17 @@ def environment_blocks(session: Session, core: Core | None = None) -> tuple[str,
         model = f"{session.provider or '?'}:{session.model or '?'}"
     override, ignore = context_file_settings(core)
     total_override = context_files_total_chars(core)
+    from snowpea_core.session.paths import resolve as resolve_paths
+
+    folders = resolve_paths(session, core)
     env = prompt_env.collect(
         session.workdir,
         model=model,
         mode=session.mode,
         backend=str(backend or "local"),
         workspace=getattr(session, "workspace_dir", None),
+        results_dir=folders.results_dir,
+        downloads_dir=folders.downloads_dir,
         read_context=not ignore,
         context_window=session.context_window,
         context_file_chars=override,

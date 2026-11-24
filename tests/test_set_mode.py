@@ -397,7 +397,7 @@ def test_deliverables_go_in_the_working_directory_in_every_session() -> None:
         prompt_env.Environment(workdir="/w", workspace="/h/sessions/s-1")
     )
     assert "artifacts/" not in lines
-    assert "save what the user asked for in the working directory" in lines
+    assert "other results go in /w" in lines  # a project: the working directory (1.71.0)
 
 
 @pytest.mark.asyncio

@@ -275,6 +275,8 @@ def inherit_host(child: Any, parent: Any) -> None:
     child.workspace_dir = getattr(parent, "workspace_dir", None)
     child.origin_client_id = getattr(parent, "origin_client_id", None)
     child.browser_provider = getattr(parent, "browser_provider", None)
+    # Results go where the parent's go (session/paths, 1.71.0).
+    child.no_project = bool(getattr(parent, "no_project", False))
     # A session made from a guarded one keeps the guard for good (addendum 25).
     child.agent_guard = bool(getattr(child, "agent_guard", False)) or bool(
         getattr(parent, "agent_guard", False)

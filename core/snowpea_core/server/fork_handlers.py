@@ -109,6 +109,10 @@ async def session_fork_handler(
             pass
     fork.forked_from, fork.forked_at_turn_id = source.id, at_turn
     await store.update_fork(fork.id, source.id, at_turn)
+    if getattr(source, "no_project", False):
+        # Same results folder rule as the source (1.71.0).
+        fork.no_project = True
+        await store.update_no_project(fork.id, True)
     jarvis = getattr(core, "jarvis", None)
     if jarvis is not None:
         # 1.56.0: a fork takes its source's Jarvis switch.

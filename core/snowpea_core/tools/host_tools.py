@@ -560,6 +560,8 @@ class HostTools:
             ),
             # The session's project folder itself (Projects, 1.7.0).
             "workdir": str(Path(getattr(session, "workdir", "") or ".").resolve()),
+            # resultsDir, downloadsDir, scratchDir, hasProject (1.71.0).
+            **_session_folders(core, session),
             "parentSessionId": getattr(session, "parent_session_id", None),
             # userTurn, origin and job: the root's running turn (1.22.0, 1.23.0).
             **root_turn_context(core, session),
@@ -883,6 +885,26 @@ def root_turn_context(core: Any, session: Any) -> dict[str, Any]:
         "userTurn": root_user_turn(core, session, root=root),
         "origin": origin,
         "job": dict(job) if isinstance(job, dict) else None,
+    }
+
+
+def _session_folders(core: Any, session: Any) -> dict[str, Any]:
+    """``resultsDir``, ``downloadsDir``, ``scratchDir``, ``hasProject`` (1.71.0).
+
+    Where the host should save what it makes or downloads for the person
+    (``session/paths``); fields it cannot resolve are left out.
+    """
+    from snowpea_core.session.paths import resolve
+
+    try:
+        folders = resolve(session, core).wire()
+    except Exception:  # noqa: BLE001 - optional context; the call goes on without it
+        log.warning("session folders unresolved for %s", getattr(session, "id", "?"), exc_info=True)
+        return {}
+    return {
+        key: folders[key]
+        for key in ("resultsDir", "downloadsDir", "scratchDir", "hasProject")
+        if folders[key] is not None
     }
 
 

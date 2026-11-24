@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.70.0";
+export const PROTOCOL_VERSION = "1.71.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -5770,7 +5770,7 @@ export interface SessionArchiveResult {
   ok?: boolean;
 }
 
-/** `session.artifacts` params. Files the session saved for the user under its workspace's artifacts/. */
+/** `session.artifacts` params. Files the session saved for the user under its workspace's artifacts/; with a project also those under <workdir>/.snowpea-downloads/ (1.71.0). */
 export interface SessionArtifactsParams {
   /** Target session. */
   sessionId: string;
@@ -5778,13 +5778,13 @@ export interface SessionArtifactsParams {
 
 /** `session.artifacts` result. */
 export interface SessionArtifactsResult {
-  /** Files under artifacts/, newest first. */
+  /** Files under artifacts/, newest first; with a project also those under <workdir>/.snowpea-downloads/ (1.71.0), its .gitignore left out. */
   artifacts?: ({
     /** Guessed from the name. */
     mimeType?: string | null;
     /** UTC ISO-8601 time of the last change. */
     modifiedAt: string;
-    /** Path relative to artifacts/. */
+    /** Path relative to artifacts/; a file in a project's downloads folder (1.71.0) is named .snowpea-downloads/<path>. */
     name: string;
     /** Absolute path. */
     path: string;
@@ -5918,6 +5918,8 @@ export interface SessionCreateParams {
   mode?: "plan" | "accept" | "auto" | null;
   /** Model id; defaults to the provider's default. */
   model?: string | null;
+  /** 1.71.0 (capability sessionPaths): true when the workdir is not a project the person chose (a browser's default folder). Results then go to the session workspace's artifacts/ instead of the workdir; see session.paths. Absent means false. Kept with the session across a daemon restart, followed by its delegated children and forks. */
+  noProject?: boolean | null;
   /** Surface that owns approvals for this session (TUI, gateway, ...). The server decides what is recorded (1.55.0): a browser connection's session is always 'browser'; a remote web login keeps one of ide/desktop/tui/cli/web/app and otherwise gets its connection's surface id; a local person's value is kept; the core's own surfaces (jarvis-task, jarvis, scheduler, skill, connector, gateway:*, agent:*) are invalid_params for every caller. The creating connection's clientId is recorded with the session: a browser's own session is one it hosts or created. */
   originSurface?: string | null;
   /** Chat provider vendor; defaults to configured. */
@@ -5932,6 +5934,10 @@ export interface SessionCreateParams {
 export interface SessionCreateResult {
   /** Whether the session starts in delegation mode (the lead hands the work to its team): the session pin, else agents.delegateByDefault. */
   delegation?: boolean;
+  /** 1.71.0: where downloaded files go: <resultsDir>/.snowpea-downloads (made when used, with a .gitignore of '*'). */
+  downloadsDir?: string | null;
+  /** 1.71.0: false when session.create had noProject true. */
+  hasProject?: boolean | null;
   /** As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. */
   jarvis?: {
     /** False when the session's project has jarvis.expose off: Jarvis neither sees nor decides for it. */
@@ -5951,10 +5957,16 @@ export interface SessionCreateResult {
   jarvisLocked?: "project_hidden" | "jarvis_session" | "browser_hidden" | null;
   /** As SessionSummary.jarvisOn (1.56.0, capability jarvisSessionSwitch). */
   jarvisOn?: boolean | null;
+  /** 1.71.0 (capability sessionPaths): where reports, documents, exports and other results go: the workdir with a project, else <workspaceDir>/artifacts. */
+  resultsDir?: string | null;
   /** As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. */
   role?: "jarvis" | null;
+  /** 1.71.0: throwaway files only: <workspaceDir>/tmp. */
+  scratchDir?: string | null;
   /** Id of the new session. */
   sessionId: string;
+  /** 1.71.0 (capability sessionPaths): the session's workdir, absolute. */
+  workdir?: string | null;
   /** Session workspace with tmp/ and artifacts/ (1.7.0). */
   workspaceDir?: string | null;
 }
@@ -6418,6 +6430,28 @@ export interface SessionNoticeParams {
 export interface SessionNoticeResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `session.paths` params. Where the session's files go (1.71.0, capability sessionPaths): results (reports, exports) in resultsDir, downloads in downloadsDir, throwaway files in scratchDir. resultsDir is the workdir unless session.create had noProject true. */
+export interface SessionPathsParams {
+  /** Target session. */
+  sessionId: string;
+}
+
+/** `session.paths` result. */
+export interface SessionPathsResult {
+  /** Where downloaded files go: <resultsDir>/.snowpea-downloads, made when used with a .gitignore of '*' (a dot-folder the project's tools and globs skip). */
+  downloadsDir: string;
+  /** False when session.create had noProject true. */
+  hasProject: boolean;
+  /** Where reports, documents, exports and other results go: the workdir with a project, else <workspaceDir>/artifacts. */
+  resultsDir: string;
+  /** Throwaway files only: <workspaceDir>/tmp. */
+  scratchDir?: string | null;
+  /** The session's workdir, absolute. */
+  workdir: string;
+  /** The session workspace (tmp/, artifacts/). */
+  workspaceDir?: string | null;
 }
 
 /** `session.pin` params. Pin or unpin a conversation (1.47.0). */
@@ -9205,8 +9239,12 @@ export interface ToolInvokeParams {
   })[];
   /** Id of the tool call; tool.progress refers to it. */
   callId: string;
+  /** 1.71.0: where downloaded files go: <resultsDir>/.snowpea-downloads (made when used, with a .gitignore of '*'). */
+  downloadsDir?: string | null;
   /** 'agent-switch' while session.setAgent {guardTurn} guards this session or one it was delegated from (1.25.0): a host asks before its own acting tools, whatever tag they were registered with. */
   guard?: string | null;
+  /** 1.71.0: false when session.create had noProject true. */
+  hasProject?: boolean | null;
   /** The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. */
   job?: {
     /** 'tool' when an agent's schedule_create or a /schedule command made it; 'rpc' when a client holding the daemon token called job.schedule. Not proof that a person made it: anchor trust in the host's own record of the job. */
@@ -9243,6 +9281,10 @@ export interface ToolInvokeParams {
   origin?: "human" | "agent" | "member" | "schedule" | "system" | "jarvis" | null;
   /** The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. */
   parentSessionId?: string | null;
+  /** 1.71.0 (capability sessionPaths): where reports, documents, exports and other results go: the workdir with a project, else <workspaceDir>/artifacts. */
+  resultsDir?: string | null;
+  /** 1.71.0: throwaway files only: <workspaceDir>/tmp. */
+  scratchDir?: string | null;
   /** Session whose turn called the tool. */
   sessionId: string;
   /** Turn the call belongs to. */
@@ -11928,6 +11970,7 @@ export interface MethodMap {
   "session.lineage": { params: SessionLineageParams; result: SessionLineageResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
   "session.notice": { params: SessionNoticeParams; result: SessionNoticeResult };
+  "session.paths": { params: SessionPathsParams; result: SessionPathsResult };
   "session.pin": { params: SessionPinParams; result: SessionPinResult };
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.rename": { params: SessionRenameParams; result: SessionRenameResult };
@@ -12159,6 +12202,7 @@ export type ClientMethod =
   | "session.lineage"
   | "session.list"
   | "session.notice"
+  | "session.paths"
   | "session.pin"
   | "session.prompt"
   | "session.rename"

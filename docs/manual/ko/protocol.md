@@ -51,6 +51,8 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 프로토콜 1.70.0(capability `reasoningOnlyFallback`)부터 답을 생각(reasoning) 안에만 쓰는 모델 때문에 턴이 빈손으로 끝나지 않습니다. 모델에게 그 사실을 알리고 최대 두 번 다시 묻는데, 공급자가 지원하면 생각을 끈 채로 묻습니다. 그래도 보이는 답이 없으면 턴은 `complete`로 끝나고 `message.done`의 `reasoningFallback`이 `true`입니다. 본문은 답 언어로 된 안내 한 줄과 그 생각 내용(마지막 4000자)입니다. 생각조차 없는 빈 응답은 예전처럼 한 번만 다시 묻고 `empty_response`로 끝납니다.
 
+프로토콜 1.71.0(capability `sessionPaths`)부터 에이전트가 만들거나 내려받은 파일 중 임시 파일이 아닌 것은 모두 대화의 프로젝트 폴더에, 프로젝트가 없으면 세션 자신의 폴더에 둡니다. `session.create`는 workdir가 사람이 고른 프로젝트가 아닐 때(브라우저의 기본 폴더) `noProject: true`를 받습니다. 이 값은 재시작 후에도 유지되고 위임된 하위 세션과 포크가 따릅니다. `session.paths {sessionId}`는 `{workdir, workspaceDir, resultsDir, downloadsDir, scratchDir, hasProject}`를 돌려줍니다. `resultsDir`는 프로젝트가 있으면 workdir, 없으면 `<workspaceDir>/artifacts`이고, `downloadsDir`는 `<resultsDir>/.snowpea-downloads`(처음 저장하는 쪽이 만들고, core가 만들 때는 `*` 한 줄짜리 `.gitignore`를 넣습니다. 점 폴더라 프로젝트의 테스트·빌드 도구와 `git add -A`가 건드리지 않습니다), `scratchDir`는 `<workspaceDir>/tmp`입니다. `session.create` 결과와 모든 `tool.invoke`에도 같은 필드가 실리므로, 호스트는 내려받은 파일을 OS 다운로드 폴더가 아니라 `downloadsDir`에 저장합니다. 프로젝트가 있으면 `session.artifacts`가 `<workdir>/.snowpea-downloads/**`(그 `.gitignore` 제외)도 `.snowpea-downloads/<경로>` 이름으로 나열합니다. 플래그 없이 만든 세션과 예전 세션은 `resultsDir` = workdir 그대로입니다.
+
 ## 영역별 메서드
 
 | 영역 | 메서드 |

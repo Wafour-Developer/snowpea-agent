@@ -22,6 +22,7 @@ from snowpea_core.exec.backend import (
 from snowpea_core.exec.backend import (
     truncate_output as _truncate,
 )
+from snowpea_core.session.paths import seal_parent_downloads
 from snowpea_core.util.frozen_env import frozen_child_env
 
 #: Bytes asked of a pipe at a time.
@@ -341,6 +342,7 @@ class LocalBackend:
         def _write() -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
+            seal_parent_downloads(target)  # .gitignore '*' (1.71.0)
 
         await asyncio.to_thread(_write)
 
@@ -353,6 +355,7 @@ class LocalBackend:
         def _write() -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
+            seal_parent_downloads(target)  # .gitignore '*' (1.71.0)
 
         await asyncio.to_thread(_write)
 

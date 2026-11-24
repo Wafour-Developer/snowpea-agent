@@ -610,6 +610,10 @@ class Environment:
     backend: str = "local"
     #: The session workspace (``tmp/``, ``artifacts/``), when it has one.
     workspace: str | None = None
+    #: Where results and downloads go (``session/paths``, 1.71.0); ``None``
+    #: means the working directory and its ``.snowpea-downloads/``.
+    results_dir: str | None = None
+    downloads_dir: str | None = None
     git: GitSnapshot | None = None
     #: Layout, manifest scripts and check commands (``repo_orientation``).
     orientation: str = ""
@@ -676,6 +680,8 @@ def collect(
     backend: str = "local",
     workspace: str | None = None,
     orient: bool = False,
+    results_dir: str | None = None,
+    downloads_dir: str | None = None,
 ) -> Environment:
     """Gather the environment, taking anything injected over anything probed."""
     moment = now or datetime.now().astimezone()
@@ -703,6 +709,8 @@ def collect(
         mode=mode,
         backend=backend,
         workspace=workspace,
+        results_dir=results_dir,
+        downloads_dir=downloads_dir,
         git=snapshot,
         orientation=(
             orientation_block(workdir) if orient and not remote and read_git else ""
@@ -720,6 +728,28 @@ def engine_line() -> str:
     return f"snowpea core {__version__} (protocol {PROTOCOL_VERSION})"
 
 
+def file_places_lines(env: Environment) -> list[str]:
+    """Where the agent's files go (1.71.0), with the resolved folders.
+
+    Shared with the browser: what the person gets back goes in the project, or
+    in the session's own results folder without one; only throwaway files go
+    to scratch.  The person finds a download where the agent put it.
+    """
+    results = env.results_dir or env.workdir
+    downloads = env.downloads_dir or f"{results.rstrip('/')}/.snowpea-downloads"
+    where = "the project" if results == env.workdir else "the results folder"
+    scratch = f"{env.workspace}/tmp"
+    return [
+        "- Where files go:",
+        "  - Code for a coding project goes in the project tree where it belongs.",
+        f"  - Reports, documents, exports and other results go in {results}",
+        f"  - Downloaded files go in .snowpea-downloads/ in {where}: {downloads}; look "
+        "there first when you need a downloaded file.",
+        f"  - Only throwaway files go in {scratch}",
+        "  - If the person names a place, use it.",
+    ]
+
+
 def environment_lines(env: Environment) -> str:
     """The bullet list under the ``Environment`` heading."""
     lines: list[str] = []
@@ -733,13 +763,7 @@ def environment_lines(env: Environment) -> str:
         lines.append(f"- Platform: {env.platform}{shell}")
     lines.append(f"- Working directory: {env.workdir}")
     if env.workspace:
-        # Deliverables go in the working directory, in every client (the
-        # browser included): the user looks for the image or page they asked
-        # for where they work, not under ~/.snowpea.
-        lines.append(
-            f"- Session scratch space: {env.workspace}/tmp (throwaway files only; save "
-            "what the user asked for in the working directory unless they name a place)"
-        )
+        lines.extend(file_places_lines(env))
     if env.home:
         lines.append(f"- Home: {env.home}")
     if env.today:

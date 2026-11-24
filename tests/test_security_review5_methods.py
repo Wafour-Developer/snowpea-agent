@@ -50,6 +50,7 @@ TABLE: dict[str, tuple[str, ...]] = {
         "session.setEffort", "session.setAgent", "session.setActive", "session.pin",
         "session.archive", "session.deleteSaved", "session.delete", "session.fork", "session.lineage",
         "session.compact", "session.continue", "session.notice", "session.artifacts",
+        "session.paths",
         "session.attachments",
         "goal.set", "goal.get", "goal.pause", "goal.resume", "goal.clear",
         "checkpoint.list", "checkpoint.diff", "checkpoint.restore", "checkpoint.delete",
