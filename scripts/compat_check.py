@@ -51,6 +51,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 WORK_ROOT = Path("/mnt/data/work/mediagen")
+# Throwaway worktrees go under branch_job/, never beside the real projects (owner rule 2026-11-23).
+JOB_ROOT = WORK_ROOT / "branch_job"
 TMP_ROOT = Path("/tmp/claude-1000")
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -590,7 +592,7 @@ def main() -> int:
         help="main core checkout: tags, node_modules",
     )
     parser.add_argument(
-        "--work-root", type=Path, default=WORK_ROOT, help="where the compat-* worktrees live"
+        "--work-root", type=Path, default=JOB_ROOT, help="where the compat-* worktrees live"
     )
     parser.add_argument(
         "--skip-desktop", action="store_true", help="only the sdk/tui rows (minutes, not an hour)"
