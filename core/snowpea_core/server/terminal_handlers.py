@@ -317,6 +317,15 @@ async def create_handler(conn: RpcConnection, params: TerminalCreateParams,
     if params.prompt and not spec.prompt:
         spec.prompt = params.prompt
     info = await manager.create(spec)
+    jarvis = getattr(core, "jarvis", None)
+    if jarvis is not None:
+        # A new terminal starts as jarvis.sessions.default says (as a new session).
+        with contextlib.suppress(Exception):
+            if jarvis.default_on():
+                external = info.get("external") or {}
+                key = (f"ext:{external['cli']}:{external['sessionId']}"
+                       if external.get("sessionId") else info["terminalId"])
+                jarvis.engine.set_switch(key, True, by="new", quiet=True)
     return {"terminal": info}
 
 

@@ -150,6 +150,14 @@ async def test_tools_exist_only_on_the_jarvis_session(tmp_path: Path) -> None:
             "schedule_update",
             "schedule_remove",
             "schedule_run",
+            # terminal sessions (1.73.0, hooks.tools)
+            "terminal_list",
+            "terminal_read",
+            "terminal_send",
+            "terminal_keys",
+            "terminal_interrupt",
+            "terminal_wait",
+            "terminal_create",
             # the built-in readers, with secret files left out of their results
             "grep",
             "glob",

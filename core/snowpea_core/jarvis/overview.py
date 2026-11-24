@@ -185,7 +185,9 @@ def render_table(service: JarvisService, rows: list[JarvisOverviewRow], total: i
         elif row.pausedUntil:
             level += f",paused to {_when(row.pausedUntil)}"
         ident = row.sessionId or (
-            f"ext:{row.external.cli}:{row.external.id}" if row.external else "?"
+            f"ext:{row.external.cli}:{row.external.id}" if row.external
+            else f"{row.terminal.terminalId} (terminal {row.terminal.profile})" if row.terminal
+            else "?"
         )
         if not row.exposed:
             level += ",browser: status only"
