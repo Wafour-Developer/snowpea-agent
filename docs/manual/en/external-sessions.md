@@ -27,6 +27,8 @@ Each external session has a **host**. The host says where its process runs, and 
 
 Shared terminal (tmux) works on Linux and macOS only. It is not available on Windows.
 
+**Terminal sessions (beta).** By default an external session now opens as a real terminal pane: the CLI runs in it, and snowpea shows its status as a dot. Set `jarvis.external.view` to `chat` to keep the chat view. See [Terminal sessions (beta)](terminals.md) for the view, the permission options and what Jarvis does with these terminals, and [CLI hook integrations (beta)](integrations.md) for the hooks that report a session's state.
+
 ## Create, load, send, stop
 
 In the desktop app and snowpea web, a project in the sidebar shows one list of its sessions: snowpea's own and the external ones together, each row with the icon of the agent that runs it. The project's **+** menu has **New Session**, **New external session…** and **Load external session…**.

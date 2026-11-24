@@ -27,6 +27,8 @@ If you have just installed snowpea, read [Install](install.md), then [Setup](set
 | [Gateway](gateway.md) | you want to talk to the agent from Telegram, Discord or Slack |
 | [Jarvis mode (beta)](jarvis.md) | you run several sessions and want one session to watch them, decide what you delegated and bring you the rest |
 | [External sessions (beta)](external-sessions.md) | continuing Claude Code, Codex, agy or Cursor agent sessions in snowpea |
+| [Terminal sessions (beta)](terminals.md) | running a CLI or a snowpea session in a real terminal pane, status dots, permission options, `snowpea term`, what Jarvis does with terminals |
+| [CLI hook integrations (beta)](integrations.md) | installing the hooks that let snowpea see Claude Code, Codex, Cursor agent or agy state: which files change, backups, status values |
 | [Remote sessions](remote.md) | working on another machine over ssh |
 | [Sandbox sessions](sandbox.md) | running a session, auto mode included, in a throwaway Docker container |
 | [Headless](headless.md) | scripting snowpea, or wiring it into CI |

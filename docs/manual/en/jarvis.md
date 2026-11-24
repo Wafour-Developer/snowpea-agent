@@ -363,6 +363,8 @@ Jarvis can read and, under the delegation rules, instruct sessions of Claude Cod
 
 The steps are on the [External sessions](external-sessions.md) page.
 
+**Terminals (beta).** Jarvis can also see the terminal sessions in the projects it covers, read their screens, type into CLI terminals on your request or delegated work, and start Claude Code, Codex, agy or Cursor in a terminal with their default permissions. It never types into a plain shell, never answers a prompt in a terminal started with a dangerous option, and writes every answer to the ledger. See [Terminal sessions (beta)](terminals.md#jarvis-and-terminals-beta).
+
 ## Settings reference
 
 All Jarvis settings are in `settings.json` under `jarvis`. Per-project exposure is set per project. Settings values are the defaults.

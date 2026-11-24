@@ -479,6 +479,10 @@ snowpea --inline
 
 The mouse wheel scrolls the transcript in full screen because the TUI asks the terminal for mouse reports; while it does, selecting text with the mouse needs Shift held. `/mouse off` gives selection back (the wheel then stops scrolling the transcript), and `/mouse` turns reports on again. The inline layout starts with them off.
 
+## Terminal sessions (beta)
+
+A snowpea session can also be shown in a terminal: the snowpea CLI attached to the same session, next to or instead of the chat. `snowpea --session <id>` opens this TUI on a session that already exists in the local daemon, resuming it instead of creating one. Read [Terminal sessions (beta)](terminals.md) for the default view setting, the status dots and `snowpea term`.
+
 ## Keys
 
 | Key | What it does |
