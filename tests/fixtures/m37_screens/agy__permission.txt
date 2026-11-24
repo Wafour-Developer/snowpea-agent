@@ -1,0 +1,11 @@
+# state: blocked
+# kind: permission
+# rule: permission_prompt
+---
+ ⏺ I'll push the branch now.
+
+ Run command
+ git push origin feature/parser
+
+ ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command
+ esc to cancel

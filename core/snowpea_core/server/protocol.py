@@ -10012,6 +10012,9 @@ class TerminalReportParams(Payload):
     token: str = Field(description="SNOWPEA_TERMINAL_TOKEN of that terminal.")
     event: str = Field(description="The CLI's hook event name.")
     state: TerminalState | None = None
+    kind: TerminalStateKind | None = Field(
+        default=None, description="With state 'blocked': permission, question or auth."
+    )
     sessionId: str | None = None
     transcriptPath: str | None = None
     message: str | None = None
@@ -13753,6 +13756,9 @@ CAPABILITIES: list[str] = [
     # events) and their status (OSC 7501, screen rules, hook reports).
     "terminalSessions",
     "terminalStatus",
+    # 1.73.0 (M37): integration.list|install|uninstall and integration.changed —
+    # snowpea's hook in Claude Code / Codex / Cursor / agy hook configs.
+    "cliIntegrations",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -13761,7 +13767,6 @@ CAPABILITIES: list[str] = [
 #: ``not_implemented`` until then.
 PENDING_CAPABILITIES: dict[str, str] = {
     # M37 (1.73.0): each moves into CAPABILITIES when its work package lands.
-    "cliIntegrations": "integration.list|install|uninstall: CLI hook entries (Claude, Codex, ...)",
     "externalPty": "external.open|create {transport: 'pty'} and ExternalTerminal.kind 'pty'",
     "webTunnel": "web.tunnel.*: ngrok / Cloudflare tunnel for web.remote",
 }

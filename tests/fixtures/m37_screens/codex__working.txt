@@ -1,0 +1,14 @@
+# state: working
+# rule: screen_working_fallback
+---
+› fix the bug in the parser
+
+• Explored
+  └ Read parser.rs, lexer.rs
+
+• Working (12s • esc to interrupt)
+
+
+› Summarize recent commits
+
+  100% context left · ? for shortcuts
