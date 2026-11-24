@@ -100,3 +100,14 @@ describe("--session attach", () => {
     await expect(attachSession(client as never, "x")).rejects.not.toBeInstanceOf(AttachError);
   });
 });
+
+describe("token from the environment", () => {
+  it("reads SNOWPEA_TUI_TOKEN and removes it; --token still works", async () => {
+    const { parseArgs } = await index();
+    const env: NodeJS.ProcessEnv = { SNOWPEA_TUI_TOKEN: "secret" };
+    expect(parseArgs(["--port", "1"], "/w", env).token).toBe("secret");
+    expect(env.SNOWPEA_TUI_TOKEN).toBeUndefined();
+    expect(parseArgs(["--port", "1", "--token", "old"], "/w", {}).token).toBe("old");
+    expect(() => parseArgs(["--port", "1"], "/w", {})).toThrow(/token/);
+  });
+});

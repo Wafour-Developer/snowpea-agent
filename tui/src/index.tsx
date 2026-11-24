@@ -2,7 +2,7 @@
  * snowpea TUI entry point. Bundled to dist/snowpea-tui.js by esbuild.config.mjs.
  *
  * Invoked by `snowpea` (cli/main.py) as:
- *   node dist/snowpea-tui.js --port <n> --token <t> [--mode plan|accept|auto] [--cwd DIR]
+ *   SNOWPEA_TUI_TOKEN=<t> node dist/snowpea-tui.js --port <n> [--token <t>] [--mode plan|accept|auto] [--cwd DIR]
  *                            [--start jarvis|external] [--session ID]
  *
  * Renders full screen on the alternate buffer by default; `--inline` keeps the
@@ -108,8 +108,12 @@ export function parseArgs(
   if (!portRaw || !Number.isInteger(port) || port <= 0) {
     throw new Error("--port <number> is required");
   }
-  const token = values.get("token");
-  if (!token) throw new Error("--token <token> is required");
+  // The launcher hands the token over in SNOWPEA_TUI_TOKEN so it stays out of
+  // `ps`; --token is still read for older launchers. The variable is removed
+  // so nothing this process spawns inherits it.
+  const token = values.get("token") || env.SNOWPEA_TUI_TOKEN;
+  delete env.SNOWPEA_TUI_TOKEN;
+  if (!token) throw new Error("--token <token> (or SNOWPEA_TUI_TOKEN) is required");
 
   const modeRaw = values.get("mode");
   if (modeRaw !== undefined && !MODES.includes(modeRaw)) {

@@ -396,7 +396,8 @@ def launch_tui(args: argparse.Namespace, home: str | None) -> int:
         _err(str(exc))
         return EXIT_NO_DAEMON
     workdir = Path(args.cwd or Path.cwd()).expanduser().resolve()
-    command += ["--port", str(info.port), "--token", info.token, "--cwd", str(workdir)]
+    # The token goes in the environment, not argv, so `ps` never shows it.
+    command += ["--port", str(info.port), "--cwd", str(workdir)]
     if args.mode:
         command += ["--mode", args.mode]
     if getattr(args, "inline", False):
@@ -407,7 +408,9 @@ def launch_tui(args: argparse.Namespace, home: str | None) -> int:
     if start:
         command += ["--start", start]
     try:
-        code = subprocess.call(command)  # noqa: S603 - argv built above
+        code = subprocess.call(  # noqa: S603 - argv built above
+            command, env={**os.environ, "SNOWPEA_TUI_TOKEN": info.token}
+        )
     except FileNotFoundError:
         _err(f"could not run the TUI: {command[0]} is not on PATH")
         return EXIT_USAGE

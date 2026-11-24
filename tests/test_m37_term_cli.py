@@ -309,6 +309,7 @@ def test_launch_tui_passes_the_session_without_a_new_one(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     seen: list[list[str]] = []
+    envs: list[dict[str, str]] = []
     monkeypatch.setattr(cli_main, "resolve_tui_command", lambda: ["node", "tui.js"])
 
     class _Info:
@@ -319,10 +320,12 @@ def test_launch_tui_passes_the_session_without_a_new_one(
         return _Info()
 
     monkeypatch.setattr(cli_main, "ensure_daemon", _ensure)
-    monkeypatch.setattr(cli_main.subprocess, "call", lambda command: seen.append(command) or 0)
+    monkeypatch.setattr(cli_main.subprocess, "call", lambda command, env=None, **_kw: (seen.append(command), envs.append(env or {}), 0)[2])
     args = cli_main.build_parser().parse_args(["--cwd", str(tmp_path), "--session", "s-9"])
     assert cli_main.launch_tui(args, None) == 0
     assert seen[0][seen[0].index("--session") + 1] == "s-9"
+    assert "--token" not in seen[0] and "t" not in seen[0]
+    assert envs[0]["SNOWPEA_TUI_TOKEN"] == "t"
 
 
 def test_session_does_not_combine_with_remote(
