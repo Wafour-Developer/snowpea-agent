@@ -3625,6 +3625,11 @@ async def _run_one_call(
     """
     hub = core.hub
     tool: Tool | None = core.tools.get(call.name, session)
+    if tool is None and call.name.startswith(mcp_client.TOOL_PREFIX):
+        # The server may have gained this tool since it was listed: list it
+        # again (once a minute at most) before calling the name unknown.
+        if await mcp_client.relist_for_tool(call.name):
+            tool = core.tools.get(call.name, session)
     if tool is None:
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
         gone = HOST_TOOLS.gone_for(session, call.name)
