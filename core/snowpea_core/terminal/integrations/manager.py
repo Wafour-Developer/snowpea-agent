@@ -9,7 +9,8 @@ CLI     config (env override, default)              events → action
 claude  ``settings.json`` (``CLAUDE_CONFIG_DIR``,    SessionStart → session, UserPromptSubmit →
         ``~/.claude``)                              working, Stop → done, Notification
                                                     (permission_prompt|elicitation_dialog) →
-                                                    blocked
+                                                    blocked, PermissionRequest → blocked
+                                                    (its tool_input names the command)
 codex   ``hooks.json`` + ``[features] hooks = true``  SessionStart → session, UserPromptSubmit →
         in ``config.toml`` (``CODEX_HOME``,          working, Stop → done
         ``~/.codex``)
@@ -60,7 +61,7 @@ from typing import Any
 from snowpea_core.terminal.integrations import fileio, jsonedit, tomledit
 
 INTEGRATION_ID = "snowpea-agent-state"
-INTEGRATION_VERSION = 2
+INTEGRATION_VERSION = 3
 VERSION_MARKER = "SNOWPEA_INTEGRATION_VERSION="
 ID_MARKER = "SNOWPEA_INTEGRATION_ID="
 HOOK_TIMEOUT_S = 10
@@ -84,6 +85,10 @@ CLAUDE_EVENTS: tuple[tuple[str, str | None, str], ...] = (
     ("UserPromptSubmit", None, "working"),
     ("Stop", None, "done"),
     ("Notification", CLAUDE_BLOCKED_MATCHER, "blocked"),
+    # v3: the pending tool call ({tool_name, tool_input}, checked against Claude
+    # Code 2.1.331): Jarvis answers a Bash prompt only when this command and the
+    # screen's agree.  The hook prints nothing, so it never decides the prompt.
+    ("PermissionRequest", None, "blocked"),
 )
 CODEX_EVENTS: tuple[tuple[str, str | None, str], ...] = (
     ("SessionStart", None, "session"),
