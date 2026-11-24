@@ -156,7 +156,9 @@ async def test_a_session_in_a_tmux_pane_is_bridged(make: Any) -> None:
     session = ExternalSessionRow.model_validate(opened["session"]).model_dump()
     assert session["host"] == "tmux" and not opened["readOnly"]
     assert session["terminal"] == {"kind": "tmux", "pane": "%3", "session": "work",
-                                   "window": "1", "modeState": "confirmed", "prompt": None}
+                                   "window": "1", "modeState": "confirmed", "prompt": None,
+                                   # 1.73.0 optional pty fields; the manager's wire dict omits them
+                                   "terminalId": None, "status": None}
     assert (session["mode"], session["nativeMode"]) == ("default", "default")
     assert session["approvals"] == "person"
     # Opening typed nothing.
