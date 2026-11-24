@@ -463,7 +463,7 @@ class ModelListing:
     detail: str
     error: str | None = None
     #: The live listing failed because the vendor refused the credential (a
-    #: 401, or a body naming a bad key; 1.74.0).  models is then a fallback
+    #: 401, or a body naming a bad key; 1.75.0).  models is then a fallback
     #: nobody can run, and a picker must say so instead of offering it.
     auth_error: str | None = None
 

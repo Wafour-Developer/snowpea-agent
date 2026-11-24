@@ -1,6 +1,6 @@
-"""Background checks of stored provider keys (1.74.0, capability providerKeyVerify).
+"""Background checks of stored provider keys (1.75.0, capability providerKeyVerify).
 
-A key stored before 1.74.0 (or by hand in ``settings.json``) was never asked
+A key stored before 1.75.0 (or by hand in ``settings.json``) was never asked
 about.  :func:`start_key_checks` asks the vendor about every such key that has
 no cached answer — at daemon start and on ``provider.list`` — waits at most
 ``wait`` seconds, and announces each answer that arrives later with

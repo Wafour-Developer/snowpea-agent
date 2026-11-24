@@ -178,6 +178,7 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
         )
     conn.authenticated = True
     conn.client_version = params.clientVersion
+    conn.protocol_version = params.protocolVersion
     from snowpea_core.util.i18n import normalise_locale
 
     # 1.65.0 (clientLocale): kept for the connection's later calls; a value that

@@ -180,7 +180,7 @@ class Core:
     #: The daily background update check; separate from the upgrade watcher so
     #: one never replaces the other.
     update_check_task: Any = None
-    #: 1.74.0: the boot-time check of stored provider keys (never awaited).
+    #: 1.75.0: the boot-time check of stored provider keys (never awaited).
     key_check_task: Any = None
     #: ``(mtime_ns, size)`` of ``settings.json`` as of the last load or save;
     #: :meth:`settings_file_changed` compares against it (CORE-settings-reload).
@@ -685,7 +685,7 @@ async def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> 
     await core.notify_settings_changed(["providers"])
 
 
-#: ``provider.configure`` keys whose change is checked with the vendor (1.74.0).
+#: ``provider.configure`` keys whose change is checked with the vendor (1.75.0).
 _VERIFIED_KEYS = ("api_key", "token", "base_url")
 
 
@@ -794,7 +794,7 @@ async def provider_configure_handler(
             errors.INVALID_PARAMS,
             "provider.configure needs credentials, base_url, or model",
         )
-    # 1.74.0: a key the vendor refuses is not stored unless the person insists.
+    # 1.75.0: a key the vendor refuses is not stored unless the person insists.
     # An unreachable vendor never blocks the save.
     checked = await _verify_draft(core, params.vendor, config)
     if checked is not None and checked.state == "invalid" and not params.force:
@@ -1271,7 +1271,7 @@ class Daemon:
         # is restarted often still asks the network at most once a day.
         if update_mod.check_enabled(settings):
             core.update_check_task = asyncio.ensure_future(update_mod.background_check(core))
-        # 1.74.0: ask the vendors about stored keys nobody has checked, in the
+        # 1.75.0: ask the vendors about stored keys nobody has checked, in the
         # background; answers reach clients as provider.verified.
         from snowpea_core.server.key_checks import start_key_checks
 

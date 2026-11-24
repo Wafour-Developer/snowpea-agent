@@ -453,7 +453,7 @@ class ProviderRegistry:
             on_credentials=remember,
         )
 
-    # -- key verification (1.74.0, providerKeyVerify) ------------------
+    # -- key verification (1.75.0, providerKeyVerify) ------------------
     def verify_target(self, vendor: str) -> _VerifyTarget | None:
         """What a key check for ``vendor`` would send, or ``None`` when none applies.
 

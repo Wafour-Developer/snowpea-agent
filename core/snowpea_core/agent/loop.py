@@ -2294,7 +2294,7 @@ _VENDOR_TAG = re.compile(r"^([A-Za-z0-9][\w.-]*)(?: \([^)]*\))?: ")
 
 
 def _clear_auth_failure(core: Core, session: Session, exc: ProviderError) -> ProviderError:
-    """A chat refused with a 401 becomes the one clear line (1.74.0).
+    """A chat refused with a 401 becomes the one clear line (1.75.0).
 
     The refusal is remembered as the key's verify state, so the next turn is
     refused before it is sent and Settings shows the key as rejected.  An OAuth
@@ -2614,7 +2614,7 @@ async def _drive(
     hub = core.hub
     policy: PermissionPolicy = core.policy
     backend = backend_for(core, session)
-    # 1.74.0: a key the vendor refused is not sent again for every turn; the
+    # 1.75.0: a key the vendor refused is not sent again for every turn; the
     # person gets the one line that says what to fix instead of an HTTP 401.
     refuse = getattr(core.providers, "refuse_rejected_key", None)
     if refuse is not None:

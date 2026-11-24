@@ -73,7 +73,7 @@ snowpea 只通过它写入的命令字符串精确匹配来查找钩子。你自
 
 ## 桌面应用与 web
 
-桌面应用和 snowpea web 设置中的 Integrations 页面，会显示同样的各行、每个 CLI 会修改的文件，并提供相同的安装与卸载操作。该页面及其操作仅限在本机上的用户使用：远程登录无法查看或修改它们。
+桌面应用和 snowpea web 设置中的 Integrations 页面，会显示同样的各行、每个 CLI 会修改的文件，并提供相同的安装与卸载操作。每一行显示 **Installed**、**Update available**、**Edited by hand** 或 **Not installed**，CLI 缺失时显示 **CLI not found**。Install、Update 和 Uninstall 会先询问，并列出它们将更改的文件。该页面及其操作仅限在本机上的用户使用：远程登录无法查看或修改它们。
 
 ## 环境变量
 

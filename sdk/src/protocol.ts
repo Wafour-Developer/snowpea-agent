@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.74.0";
+export const PROTOCOL_VERSION = "1.75.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -5405,13 +5405,13 @@ export interface ProjectTrustStatusResult {
   workdir: string;
 }
 
-/** `provider.configure` params. Store settings and credentials for a provider. From a remote web login (1.55.0) no base_url and no credential (api_key, token, an OAuth record; clearing one stays open): jarvis_person_only, details {reason: local_only, what: 'base_url'|'credential'}. 1.74.0 (providerKeyVerify): a new API key, token or base URL is checked with the vendor first (about 8 s at most); a key the vendor refuses is not stored unless force is true: invalid_params, details {reason: invalid_key, vendor, verify}. This applies to every client, older ones included. The result carries verify. */
+/** `provider.configure` params. Store settings and credentials for a provider. From a remote web login (1.55.0) no base_url and no credential (api_key, token, an OAuth record; clearing one stays open): jarvis_person_only, details {reason: local_only, what: 'base_url'|'credential'}. 1.75.0 (providerKeyVerify): a new API key, token or base URL is checked with the vendor first (about 8 s at most); a key the vendor refuses is not stored unless force is true: invalid_params, details {reason: invalid_key, vendor, verify}. This applies to every client, older ones included. The result carries verify. */
 export interface ProviderConfigureParams {
   /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
   actor?: "person" | null;
   /** Vendor-specific settings, including credentials. */
   config?: Record<string, unknown>;
-  /** 1.74.0 (capability providerKeyVerify): store the key even though the vendor refused it ('Save anyway'). Without it a refused key is not stored: invalid_params with details {reason: 'invalid_key', vendor, verify}. */
+  /** 1.75.0 (capability providerKeyVerify): store the key even though the vendor refused it ('Save anyway'). Without it a refused key is not stored: invalid_params with details {reason: 'invalid_key', vendor, verify}. */
   force?: boolean | null;
   /** Vendor to configure. */
   vendor: string;
@@ -5421,7 +5421,7 @@ export interface ProviderConfigureParams {
 export interface ProviderConfigureResult {
   /** True when the call succeeded. */
   ok?: boolean;
-  /** 1.74.0 (capability providerKeyVerify): what the vendor said about the key just stored. Present when the call set an API key, a token or a base URL of a vendor that authenticates with a key; 'unreachable' never blocks the save, 'invalid' is only stored with force. */
+  /** 1.75.0 (capability providerKeyVerify): what the vendor said about the key just stored. Present when the call set an API key, a token or a base URL of a vendor that authenticates with a key; 'unreachable' never blocks the save, 'invalid' is only stored with force. */
   verify?: {
     /** When the vendor was asked (ISO-8601 UTC); null if never. */
     checkedAt?: string | null;
@@ -5478,7 +5478,7 @@ export interface ProviderListResult {
     variant?: string;
     /** Vendor key, e.g. 'anthropic'. */
     vendor: string;
-    /** 1.74.0 (capability providerKeyVerify): whether the vendor accepts the stored API key. Null for a vendor with no key (unconfigured, or signed in with OAuth). 'configured' still only means a credential is stored: a surface shows a provider whose verify.state is 'invalid' as not connected and its models as unusable. provider.list never waits more than about 2 s for a check; one still running reads 'unchecked' with reason 'pending' and provider.verified follows. */
+    /** 1.75.0 (capability providerKeyVerify): whether the vendor accepts the stored API key. Null for a vendor with no key (unconfigured, or signed in with OAuth). 'configured' still only means a credential is stored: a surface shows a provider whose verify.state is 'invalid' as not connected and its models as unusable. provider.list never waits more than about 2 s for a check; one still running reads 'unchecked' with reason 'pending' and provider.verified follows. */
     verify?: {
       /** When the vendor was asked (ISO-8601 UTC); null if never. */
       checkedAt?: string | null;
@@ -5562,7 +5562,7 @@ export interface ProviderModelsParams {
 
 /** `provider.models` result. */
 export interface ProviderModelsResult {
-  /** 1.74.0: with usable false, the one line to show ('API key for Qwen was rejected — update it in Settings → Providers'), the vendor's words after it. */
+  /** 1.75.0: with usable false, the one line to show ('API key for Qwen was rejected — update it in Settings → Providers'), the vendor's words after it. */
   authError?: string | null;
   /** One record per listed model (1.42.0): its context window in tokens (never unknown), where that came from, and any bounds requests taught us. Covers the listed models, the configured one, models.default / models.categories.* that point at this vendor, and any ids passed in params.models. A model whose source is 'assumed' is worth a look. */
   contextWindows?: Record<string, {
@@ -5590,7 +5590,7 @@ export interface ProviderModelsResult {
   models?: string[];
   /** Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). */
   source?: string;
-  /** 1.74.0 (capability providerKeyVerify): false when the vendor refused the stored key (the live listing answered 401, or verify.state is 'invalid'). models is then a fallback nobody can run: a picker shows it disabled, with authError. */
+  /** 1.75.0 (capability providerKeyVerify): false when the vendor refused the stored key (the live listing answered 401, or verify.state is 'invalid'). models is then a fallback nobody can run: a picker shows it disabled, with authError. */
   usable?: boolean;
   /** Vendor the listing came from. */
   vendor: string;
@@ -5638,7 +5638,7 @@ export interface ProviderTestResult {
   reply?: string | null;
 }
 
-/** `provider.verify` params. Check the stored key with the vendor again now (1.74.0, capability providerKeyVerify); provider.verified is sent as well. */
+/** `provider.verify` params. Check the stored key with the vendor again now (1.75.0, capability providerKeyVerify); provider.verified is sent as well. */
 export interface ProviderVerifyParams {
   /** Set to 'person' by a browser host (clientKind 'browser') only for a call its own Settings page made under a user gesture (1.53.0). Without it a browser host's settings.set may change only its runtime keys (browser.siteMemory, browser.agentsMdUpdate) and provider.configure / mcp.add|update|remove are refused (jarvis_person_only). Ignored for every other connection kind. */
   actor?: "person" | null;

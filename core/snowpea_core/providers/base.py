@@ -166,6 +166,6 @@ class ProviderError(RuntimeError):
     def __init__(self, code: str, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.code = code
-        #: Machine-readable details for the ``error`` event (1.74.0:
+        #: Machine-readable details for the ``error`` event (1.75.0:
         #: ``{reason: "invalid_key", vendor, verify}``); ``None`` for most.
         self.details = details

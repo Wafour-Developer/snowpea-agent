@@ -567,7 +567,7 @@ def _configure_vendor(core: Any, vendor: str, config: dict[str, Any]) -> None:
 
 
 async def _key_refused(ctx: CommandContext, vendor: str, config: dict[str, Any]) -> str | None:
-    """Ask the vendor about the key in ``config`` first (1.74.0).
+    """Ask the vendor about the key in ``config`` first (1.75.0).
 
     ``None`` to store it: the vendor accepted it, could not be reached, or the
     person chose to keep a refused key anyway.  Otherwise the line to say.

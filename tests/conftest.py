@@ -222,7 +222,7 @@ def snowpea_home() -> Iterator[Path]:
             SNOWPEA_HOME=str(home),
             SNOWPEA_UPDATE_CHECK="0",
             SNOWPEA_MODELS_DEV="0",
-            # Never ask a real vendor about a test key (1.74.0);
+            # Never ask a real vendor about a test key (1.75.0);
             # tests/test_provider_key_verify.py points vendors at a local fake.
             SNOWPEA_KEY_VERIFY="0",
             # Never hold a real sleep inhibitor on the machine running the suite.

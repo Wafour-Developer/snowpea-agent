@@ -3249,12 +3249,12 @@ class HiddenModelUse(Payload):
     )
 
 
-#: Whether the vendor accepted the stored key (1.74.0, capability providerKeyVerify).
+#: Whether the vendor accepted the stored key (1.75.0, capability providerKeyVerify).
 VerifyState = Literal["ok", "invalid", "unreachable", "unchecked"]
 
 
 class ProviderVerify(Payload):
-    """What the vendor said about the stored credential (1.74.0, capability providerKeyVerify).
+    """What the vendor said about the stored credential (1.75.0, capability providerKeyVerify).
 
     One cheap authenticated call per vendor family: ``GET {base}/models`` for an
     OpenAI-compatible vendor (``/key`` for OpenRouter), Anthropic's and Gemini's
@@ -3374,7 +3374,7 @@ class ProviderInfo(Payload):
     verify: ProviderVerify | None = Field(
         default=None,
         description=(
-            "1.74.0 (capability providerKeyVerify): whether the vendor accepts the stored "
+            "1.75.0 (capability providerKeyVerify): whether the vendor accepts the stored "
             "API key. Null for a vendor with no key (unconfigured, or signed in with "
             "OAuth). 'configured' still only means a credential is stored: a surface shows "
             "a provider whose verify.state is 'invalid' as not connected and its models as "
@@ -3699,7 +3699,7 @@ class ProviderModelsResult(Payload):
     usable: bool = Field(
         default=True,
         description=(
-            "1.74.0 (capability providerKeyVerify): false when the vendor refused the "
+            "1.75.0 (capability providerKeyVerify): false when the vendor refused the "
             "stored key (the live listing answered 401, or verify.state is 'invalid'). "
             "models is then a fallback nobody can run: a picker shows it disabled, with "
             "authError."
@@ -3708,7 +3708,7 @@ class ProviderModelsResult(Payload):
     authError: str | None = Field(
         default=None,
         description=(
-            "1.74.0: with usable false, the one line to show ('API key for Qwen was "
+            "1.75.0: with usable false, the one line to show ('API key for Qwen was "
             "rejected — update it in Settings → Providers'), the vendor's words after it."
         ),
     )
@@ -3790,7 +3790,7 @@ class ProviderConfigureParams(Payload):
     force: bool | None = Field(
         default=None,
         description=(
-            "1.74.0 (capability providerKeyVerify): store the key even though the vendor "
+            "1.75.0 (capability providerKeyVerify): store the key even though the vendor "
             "refused it ('Save anyway'). Without it a refused key is not stored: "
             "invalid_params with details {reason: 'invalid_key', vendor, verify}."
         ),
@@ -3798,12 +3798,12 @@ class ProviderConfigureParams(Payload):
 
 
 class ProviderConfigureResult(Ok):
-    """``provider.configure`` result (1.74.0 adds ``verify``)."""
+    """``provider.configure`` result (1.75.0 adds ``verify``)."""
 
     verify: ProviderVerify | None = Field(
         default=None,
         description=(
-            "1.74.0 (capability providerKeyVerify): what the vendor said about the key "
+            "1.75.0 (capability providerKeyVerify): what the vendor said about the key "
             "just stored. Present when the call set an API key, a token or a base URL of "
             "a vendor that authenticates with a key; 'unreachable' never blocks the save, "
             "'invalid' is only stored with force."
@@ -3812,7 +3812,7 @@ class ProviderConfigureResult(Ok):
 
 
 class ProviderVerifyParams(Payload):
-    """``provider.verify`` (1.74.0, capability providerKeyVerify)."""
+    """``provider.verify`` (1.75.0, capability providerKeyVerify)."""
 
     actor: Actor | None = Field(default=None, description=ACTOR_DESCRIPTION)
     vendor: str = Field(description="Vendor whose stored key to check again now.")
@@ -3826,7 +3826,7 @@ class ProviderVerifyResult(Payload):
 
 
 class ProviderVerifiedNotification(Payload):
-    """``provider.verified`` (1.74.0): a key check finished with a new answer.
+    """``provider.verified`` (1.75.0): a key check finished with a new answer.
 
     Sent when a check that provider.list started in the background (a stored key
     nobody had checked since the daemon started) or provider.verify ends, so a
@@ -12582,7 +12582,7 @@ METHODS: dict[str, RpcMethod] = {
             ("Store settings and credentials for a provider. From a remote web login (1.55.0) "
              "no base_url and no credential (api_key, token, an OAuth record; clearing one "
              "stays open): jarvis_person_only, details {reason: local_only, what: "
-             "'base_url'|'credential'}. 1.74.0 (providerKeyVerify): a new API key, token or "
+             "'base_url'|'credential'}. 1.75.0 (providerKeyVerify): a new API key, token or "
              "base URL is checked with the vendor first (about 8 s at most); a key the "
              "vendor refuses is not stored unless force is true: invalid_params, details "
              "{reason: invalid_key, vendor, verify}. This applies to every client, older "
@@ -12592,7 +12592,7 @@ METHODS: dict[str, RpcMethod] = {
             "provider.verify",
             ProviderVerifyParams,
             ProviderVerifyResult,
-            "Check the stored key with the vendor again now (1.74.0, capability "
+            "Check the stored key with the vendor again now (1.75.0, capability "
             "providerKeyVerify); provider.verified is sent as well.",
         ),
         _m(
@@ -13785,7 +13785,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "commands.changed": CommandsChangedNotification,
     "system.updateProgress": UpdateProgressNotification,
     "provider.loginProgress": ProviderLoginProgressNotification,
-    # 1.74.0 (providerKeyVerify): a key check finished.
+    # 1.75.0 (providerKeyVerify): a key check finished.
     "provider.verified": ProviderVerifiedNotification,
     "settings.changed": SettingsChangedNotification,
     "mcp.changed": McpChangedNotification,
@@ -13944,9 +13944,9 @@ CAPABILITIES: list[str] = [
     # 1.56.0: ExternalCliInfo.nativeModes/defaultNativeMode, ExternalSessionRow.nativeMode,
     # external.create/open/setMode nativeMode (each CLI's own modes).
     "externalNativeModes",
-    # 1.56.0: the tmux bridge — ExternalSessionRow.terminal/controllable,
-    # ApprovalRequest.externalTerminal, external.terminalSnapshot.
-    "externalTmux",
+    # 1.56.0: the tmux bridge — removed from hello (1.74.0, externalResumeUnified);
+    # wire types (ExternalTerminal.kind "tmux", external.terminalSnapshot) stay for
+    # older clients; core never advertises externalTmux or produces tmux rows.
     # 1.56.0: the per-session Jarvis switch — SessionSummary/ExternalSessionRow
     # jarvisOn/jarvisLocked, jarvis.session.set, jarvis.session.changed,
     # JarvisOverviewResult.hiddenCount, settings jarvis.sessions.default.
@@ -14054,7 +14054,9 @@ CAPABILITIES: list[str] = [
     # 1.73.0 (M37 T3): external.open|create {transport: "pty"} run the CLI as a
     # terminal session (ExternalTerminal.kind "pty"); terminal profiles and options.
     "externalPty",
-    # 1.74.0: provider keys are checked with the vendor — ProviderInfo.verify,
+    # 1.74.0: unified resume — every open uses transport pty; no tmux bridge.
+    "externalResumeUnified",
+    # 1.75.0: provider keys are checked with the vendor — ProviderInfo.verify,
     # provider.configure {force} refusing a rejected key (invalid_key) and its
     # verify result, provider.verify, provider.verified, provider.models
     # usable/authError, and a turn refused up front for a rejected key.

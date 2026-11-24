@@ -1367,7 +1367,7 @@ async def provider_list_handler(
 ) -> ProviderListResult:
     from snowpea_core.server.key_checks import start_key_checks
 
-    # 1.74.0: stored keys nobody has checked yet are asked about now; the list
+    # 1.75.0: stored keys nobody has checked yet are asked about now; the list
     # waits a moment for them, and a slower answer follows as provider.verified.
     try:
         await start_key_checks(core)
@@ -1424,7 +1424,7 @@ def _hidden_in_use(core: Core, vendor: str, hidden: list[str]) -> list[HiddenMod
 async def provider_verify_handler(
     _conn: RpcConnection, params: ProviderVerifyParams, core: Core
 ) -> ProviderVerifyResult:
-    """``provider.verify`` — ask the vendor about the stored key again (1.74.0)."""
+    """``provider.verify`` — ask the vendor about the stored key again (1.75.0)."""
     from snowpea_core.server.key_checks import announce
 
     vendor = (params.vendor or "").strip()
@@ -1501,7 +1501,7 @@ def _window_fields_safely(
 
 
 def _listing_usable(core: Core, vendor: str, listing: Any) -> tuple[bool, str | None]:
-    """``(usable, authError)`` for ``provider.models`` (1.74.0).
+    """``(usable, authError)`` for ``provider.models`` (1.75.0).
 
     A live listing refused with a 401 means the fallback rungs list models
     nobody can run with this key: it is remembered as a rejected key, and the

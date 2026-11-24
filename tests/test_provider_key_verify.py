@@ -1,4 +1,4 @@
-"""Provider keys are checked with the vendor (1.74.0, capability providerKeyVerify).
+"""Provider keys are checked with the vendor (1.75.0, capability providerKeyVerify).
 
 Every vendor here is a local aiohttp server: no test reaches a real vendor,
 and every key is a made-up string.

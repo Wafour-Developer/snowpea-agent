@@ -103,7 +103,7 @@ def _saved(core: Any) -> dict[str, Any]:
 
 
 def test_protocol_1_60_0_advertises_hidden_models() -> None:
-    assert PROTOCOL_VERSION == "1.74.0"
+    assert PROTOCOL_VERSION == "1.75.0"
     assert "hiddenModels" in CAPABILITIES
 
 

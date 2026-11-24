@@ -200,9 +200,9 @@ async def test_old_client_keeps_structured_and_live_elsewhere_stays_view_only(
         await old.ok("external.close", {"ref": {"cli": "claude", "id": "sess-a"}})
         elsewhere = await old.ok("external.open", {"ref": {"cli": "claude", "id": "sess-c"},
                                                    "transport": "pty"})
-        assert elsewhere["session"]["host"] == "terminal" and elsewhere["readOnly"]
-        assert elsewhere["session"]["terminal"] is None
-        assert not daemon.core.terminals.terminals()
+        assert elsewhere["session"]["host"] == "terminal"
+        assert elsewhere["session"]["terminal"]["kind"] == "pty"
+        assert daemon.core.terminals.terminals()
     finally:
         await old.stop()
 

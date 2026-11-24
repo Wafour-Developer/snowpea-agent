@@ -152,7 +152,7 @@ def run(
         interactive = ui.is_interactive()
     asker = ask or ui.ask
     if "providers" in answered and key and not interactive:
-        # 1.74.0: ``--key`` with no one to ask: a key the vendor refuses is
+        # 1.75.0: ``--key`` with no one to ask: a key the vendor refuses is
         # an error, not a setup that fails on the first prompt.
         _verify_key(state, interactive=False, console=console)
     shown: list[str] = []
@@ -564,7 +564,7 @@ def _apply_login(state: WizardState, credentials: dict[str, Any]) -> None:
 
 
 def _verify_key(state: WizardState, *, interactive: bool, console: Console | None = None) -> None:
-    """Ask the vendor about the key typed in this run (1.74.0).
+    """Ask the vendor about the key typed in this run (1.75.0).
 
     Accepted, or the vendor could not be reached: kept (the second with a
     note).  Refused: interactively the person may keep it anyway; otherwise it

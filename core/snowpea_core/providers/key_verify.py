@@ -1,6 +1,6 @@
 """Does the vendor accept this key?  One cheap authenticated call per vendor family.
 
-Before 1.74.0 a provider counted as set up the moment *any* string was stored
+Before 1.75.0 a provider counted as set up the moment *any* string was stored
 as its key: ``provider.list`` said ``configured``, the model picker filled up
 from the curated list, and the first chat then failed with a raw ``HTTP 401``.
 :func:`verify_credentials` asks the vendor instead, with a short timeout:
@@ -107,7 +107,7 @@ class VerifyResult:
     reason: str = ""
 
     def wire(self) -> dict[str, Any]:
-        """The ``ProviderVerify`` shape (1.74.0)."""
+        """The ``ProviderVerify`` shape (1.75.0)."""
         out: dict[str, Any] = {"state": self.state, "message": self.message}
         out["checkedAt"] = (
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.checked_at))

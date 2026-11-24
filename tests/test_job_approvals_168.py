@@ -64,7 +64,7 @@ async def _row(client: RpcClient, job_id: str) -> dict[str, Any]:
 
 
 async def test_capability_and_version() -> None:
-    assert "jobApprovals" in CAPABILITIES and PROTOCOL_VERSION == "1.74.0"
+    assert "jobApprovals" in CAPABILITIES and PROTOCOL_VERSION == "1.75.0"
 
 
 async def test_a_routine_approval_reaches_another_client_and_task_scope_persists(

@@ -196,7 +196,7 @@ DETAIL_REASONS: dict[str, tuple[str, str]] = {
     ),
     "invalid_key": (
         INVALID_PARAMS,
-        "1.74.0: the vendor refused the API key (provider.configure without force stores "
+        "1.75.0: the vendor refused the API key (provider.configure without force stores "
         "nothing; a turn on that provider does not start); details.vendor, details.verify "
         "(ProviderVerify, with the vendor's own words in message)",
     ),

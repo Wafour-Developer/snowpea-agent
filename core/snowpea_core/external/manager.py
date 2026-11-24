@@ -263,11 +263,6 @@ class _Host:
         """Something the row shows changed (a prompt waits in the tmux pane)."""
         await self._manager._announce(self._record)
 
-    async def bridge_lost(self, reason: str) -> None:
-        """The tmux bridge ended (the CLI exited, the guard refused): view only again."""
-        await self._manager._bridge_lost(self._record, reason)
-
-
 class ExternalManager:
     """Every external session snowpea has open, and the processes behind them."""
 
@@ -315,14 +310,6 @@ class ExternalManager:
         #: :attr:`_model_choices_path`; read on first use.
         self._model_choices: dict[str, str | None] | None = None
         self._model_tasks: dict[str, asyncio.Task[None]] = {}
-        from snowpea_core.external import tmux as _tmux
-
-        #: tmux servers the bridge looks in (None: the process's own, then the
-        #: person's tmux folder) and how it reads processes; tests replace both.
-        self.tmux_sockets: list[str] | None = None
-        self.tmux_probe: Any = _tmux.PROBE
-        #: Seconds a bridged send waits to see the CLI busy before its turn ends.
-        self.tmux_start_timeout = 20.0
         #: ``external.list`` bounds (tests shorten them).
         self.list_cli_timeout = LIST_CLI_TIMEOUT_SEC
         self.list_liveness_timeout = LIST_LIVENESS_TIMEOUT_SEC
@@ -812,8 +799,6 @@ class ExternalManager:
         return None
 
     def _approvals(self, record: _Record, found: Discovery | None) -> str:
-        if record.host == "tmux":
-            return "person"
         if record.host != "snowpea":
             return "none"
         value = record.adapter.approvals(record.mode or "default", found)
@@ -824,7 +809,7 @@ class ExternalManager:
         return value
 
     def _controlled(self, record: _Record, found: Discovery | None) -> bool:
-        if record.host not in ("snowpea", "tmux"):
+        if record.host != "snowpea":
             return True
         if not record.adapter.controlled(record.mode or "default", found):
             return False
@@ -834,8 +819,6 @@ class ExternalManager:
     def _can_send(self, record: _Record) -> bool:
         if record.host == "terminal":
             return False
-        if record.host == "tmux":
-            return record.channel is not None and record.channel.alive
         return True
 
     def _cached_discovery(self, cli: str) -> Discovery | None:
@@ -855,11 +838,11 @@ class ExternalManager:
             "host": record.host,
             "canSend": self._can_send(record),
             "approvals": self._approvals(record, found),
-            "tmux": record.channel.tmux if record.channel is not None else None,
+            "tmux": None,
             "terminal": self._terminal_of(record),
-            "controllable": "tmux" if self._bridge_of(record) is not None else None,
-            "mode": record.mode if record.host in ("snowpea", "tmux") else None,
-            "nativeMode": record.native_mode if record.host in ("snowpea", "tmux") else None,
+            "controllable": None,
+            "mode": record.mode if record.host == "snowpea" else None,
+            "nativeMode": record.native_mode if record.host == "snowpea" else None,
             "controlled": self._controlled(record, found),
             "preview": _preview(info.preview),
             "model": record.model if record.model_chosen else info.model,
@@ -884,7 +867,7 @@ class ExternalManager:
             return None
         if host == "terminal":
             return False
-        if host in ("snowpea", "tmux"):
+        if host == "snowpea":
             return bool(controlled) and approvals == "bridged"
         return True
 
@@ -1187,13 +1170,11 @@ class ExternalManager:
         except Exception:  # noqa: BLE001 - unknown liveness reads as "not running"
             log.debug("liveness of %s %s failed", adapter.id, info.id, exc_info=True)
             live = None
-        host = live.host if live is not None else "none"
-        pane = None
-        if live is not None and live.host in ("terminal", "tmux") and live.pids:
-            pane = await self._pane_of(live, cache=pane_cache)
-        if pane is not None:
-            host = "tmux"
-        term = self._pty_term(adapter.id, info.id) if pane is None else None
+        if live is not None and live.host in ("terminal", "tmux"):
+            host = "terminal"
+        else:
+            host = live.host if live is not None else "none"
+        term = self._pty_term(adapter.id, info.id)
         if term is not None:
             # A terminal snowpea holds (externalPty): kind "pty", view only here.
             roots_of = proc.project_of(info.cwd, roots)
@@ -1215,13 +1196,11 @@ class ExternalManager:
             "updatedAt": info.updated_at,
             "status": "running" if live is not None and live.busy else info.status,
             "host": host,
-            "canSend": host == "none" or pane is not None,
-            "approvals": "person" if pane is not None else "none",
-            "tmux": ({"session": pane.session, "pane": pane.pane} if pane is not None
-                     else live.tmux if live is not None else None),
-            "terminal": ({**pane.wire(), "modeState": "unknown", "prompt": None}
-                         if pane is not None else None),
-            "controllable": "tmux" if pane is not None else None,
+            "canSend": host == "none",
+            "approvals": "none",
+            "tmux": None,
+            "terminal": None,
+            "controllable": None,
             "mode": None,
             "nativeMode": None,
             "controlled": True,
@@ -1312,6 +1291,8 @@ class ExternalManager:
         record, found = await self._load(cli, session_id)
         if transport not in (None, "structured", "tmux", "pty"):
             raise ExternalError(errors.INVALID_PARAMS, f"unknown transport {transport!r}")
+        if transport == "tmux":
+            self._refuse_tmux(record.adapter.title)
         if transport == "pty" and self.pty is None:
             raise ExternalError(errors.EXTERNAL_UNAVAILABLE,
                                 "terminal sessions are not available in this snowpea")
@@ -1330,27 +1311,26 @@ class ExternalManager:
     # -- terminal sessions (1.73.0, externalPty) -----------------------------
     async def _open_pty(self, record: _Record, *, limit: int, conn: Any, trust: bool,
                         options: list[str], confirm_dangerous: bool) -> dict[str, Any]:
-        """Open a session as a terminal: resume it in a new one, or show the one it runs in.
-
-        A session live in another terminal stays view only, and one snowpea
-        already runs (host ``snowpea`` or ``tmux``) keeps its transport.
-        """
+        """Open a session as a terminal: resume in a snowpea terminal (or show one already held)."""
         async with record.lock:
             previous, previous_host = record.status, record.host
-            if record.channel is None or not record.channel.alive:
+            if record.channel is not None and not record.channel.alive:
+                record.channel = None
+            term = self._pty_term(record.cli, record.id)
+            if term is None and (record.channel is None or not record.channel.alive):
                 if record.channel is not None:
-                    record.channel = None
                     record.host = "none"
-                await self._refresh_host(record)
-                if record.host == "none":
-                    term = await self.pty.start(
-                        conn, record.cli, record.real_cwd or record.info.cwd, resume=record.id,
-                        options=options, confirm_dangerous=confirm_dangerous, trust=trust,
-                        title=record.info.title,
-                    )
-                    record.host = "terminal"
-                    record.status = self.pty.row_status(term)
-                    record.error = None
+                term = await self.pty.start(
+                    conn, record.cli, record.real_cwd or record.info.cwd, resume=record.id,
+                    options=options, confirm_dangerous=confirm_dangerous, trust=trust,
+                    title=record.info.title,
+                )
+                record.host = "terminal"
+                record.status = self.pty.row_status(term)
+                record.error = None
+            elif term is not None:
+                record.host = "terminal"
+                record.status = self.pty.row_status(term)
             self._subscribe(record, conn)
             if record.host == "terminal":
                 self._start_follow(record)
@@ -1440,14 +1420,10 @@ class ExternalManager:
                 if record.channel is not None:
                     record.channel = None
                     record.host = "none"
-                live_host = await self._refresh_host(record)
-                adopt = transport == "tmux" and live_host == "tmux"
-                if adopt and not (record.adapter.capabilities.tmux and proc.tmux_supported()):
-                    raise ExternalError(
-                        errors.EXTERNAL_UNAVAILABLE,
-                        f"{record.adapter.title} cannot share a tmux terminal on this machine",
-                    )
-                if record.host == "none" or adopt:
+                if transport == "tmux":
+                    self._refuse_tmux(record.adapter.title)
+                await self._refresh_host(record)
+                if record.host == "none":
                     resolved = self.resolve_mode(record.adapter, mode, native_mode, found)
                     chosen, row = resolved or self._implicit(record)
                     self._require_trust(record.project, record.real_cwd or record.info.cwd,
@@ -1457,20 +1433,15 @@ class ExternalManager:
                     try:
                         await self._start_channel(
                             record, chosen, grant, found, resume=True,
-                            transport="tmux" if adopt or transport == "tmux" else "structured",
+                            transport="structured",
                             native_mode=row.id,
                         )
                     except ExternalError as exc:
                         if exc.code in (errors.JARVIS_PERSON_ONLY, errors.INVALID_PARAMS):
                             raise
-                        if adopt:
-                            await self._refresh_host(record)
                         # View it anyway; the next send tries again.
                         record.error = exc.message
                         log.info("could not continue %s %s: %s", cli, session_id, exc.message)
-            if record.host == "terminal" and transport != "tmux":
-                with contextlib.suppress(ExternalError):
-                    await self._attach_bridge(record, found)
             self._subscribe(record, conn)
             if record.host == "terminal":
                 self._start_follow(record)
@@ -1598,17 +1569,7 @@ class ExternalManager:
         except Exception:  # noqa: BLE001 - a broken tail leaves the view as it was
             log.debug("live tail of %s %s stopped", record.cli, record.id, exc_info=True)
 
-    # -- the tmux bridge (1.56.0) --------------------------------------------
-    def _bridge_of(self, record: _Record) -> Any:
-        from snowpea_core.external.tmux_channel import TmuxBridgeChannel
-
-        channel = record.channel
-        return channel if isinstance(channel, TmuxBridgeChannel) and channel.alive else None
-
     def _terminal_of(self, record: _Record) -> dict[str, Any] | None:
-        bridge = self._bridge_of(record)
-        if bridge is not None:
-            return bridge.wire()  # type: ignore[no-any-return]
         term = self._pty_term(record.cli, record.id)
         return self.pty.wire(term) if term is not None else None
 
@@ -1621,111 +1582,12 @@ class ExternalManager:
         except Exception:  # noqa: BLE001 - no terminals, no pty link
             return None
 
-    async def _pane_of(self, live: Any, *, cache: dict[str, list[Any]] | None = None) -> Any:
-        """The tmux pane one of ``live.pids`` runs in, or ``None`` (no tmux, no match)."""
-        from snowpea_core.external import tmux
-
-        for pid in live.pids:
-            try:
-                pane = await tmux.find_pane(pid, cache=cache, sockets=self.tmux_sockets,
-                                             probe=self.tmux_probe)
-            except Exception:  # noqa: BLE001 - no pane is today's view-only behaviour
-                log.debug("tmux pane lookup failed", exc_info=True)
-                pane = None
-            if pane is not None:
-                return pane
-        return None
-
-    async def _attach_bridge(self, record: _Record, found: Discovery) -> bool:
-        """Drive a session open in the person's tmux pane through the bridge.
-
-        Only from the process that holds the session (its tty -> the pane); no
-        pane, no bridge: the session stays view only.
-        """
-        from snowpea_core.external import tmux
-        from snowpea_core.external.tmux_channel import TmuxBridgeChannel
-
-        profile = tmux.PROFILES.get(record.cli)
-        if profile is None or found.executable is None:
-            return False
-        live = await record.adapter.liveness(record.info, own_pids=self.supervisor.pids())
-        if live.host not in ("terminal", "tmux") or not live.pids:
-            return False
-        for pid in live.pids:
-            try:
-                pane = await tmux.find_pane(pid, sockets=self.tmux_sockets,
-                                             probe=self.tmux_probe)
-            except Exception:  # noqa: BLE001
-                log.debug("tmux pane lookup failed", exc_info=True)
-                pane = None
-            if pane is None:
-                continue
-            facts = self.tmux_probe.facts(pid)
-            bridge = tmux.TerminalBridge(
-                cli=record.cli, pane=pane, cli_pid=pid,
-                start=facts.start if facts is not None else None, profile=profile,
-                probe=self.tmux_probe, audit=tmux.AuditLog(self.home / "external" /
-                                                           "tmux-sends.jsonl"),
-            )
-            spec = LaunchSpec(cwd=record.real_cwd or record.info.cwd, project=record.project,
-                              executable=found.executable, mode=record.mode or "default",
-                              session_id=record.info.id, resume=True,
-                              transport="tmux")
-            channel = TmuxBridgeChannel(spec, _Host(self, record), record.adapter, record.info,
-                                        bridge, poll_interval=self.poll_interval,
-                                        start_timeout=self.tmux_start_timeout)
-            try:
-                await channel.start()
-            except ExternalError as exc:
-                log.info("not bridging %s %s: %s", record.cli, record.id, exc.message)
-                await channel.close()
-                continue
-            await self._stop_follow(record)
-            record.channel = channel
-            record.host = "tmux"
-            confirmed = channel.mode_state == "confirmed"
-            record.mode = channel.mode if confirmed else None
-            record.native_mode = channel.native_mode if confirmed else None
-            record.error = None
-            return True
-        return False
-
-    async def _bridge_lost(self, record: _Record, reason: str) -> None:
-        channel = record.channel
-        if channel is None:
-            return
-        record.channel = None
-        with contextlib.suppress(Exception):
-            await channel.close()
-        record.mode = record.native_mode = None
-        previous = record.host
-        record.host = "none"
-        await self._refresh_host(record)
-        if record.host == "terminal":
-            self._start_follow(record)
-        log.info("tmux bridge of %s %s ended: %s", record.cli, record.id, reason)
-        await self._announce(record, None, previous if previous != record.host else None)
-
-    def _bridge_send_allowed(self, record: _Record, conn: Any,
-                             confirmation: PersonConfirmation | None) -> None:
-        """Who may type into a person's tmux pane.
-
-        The person at a local surface: always.  Anyone else (Jarvis, a remote web
-        login, a connector) only while the pane shows a mode snowpea recognised
-        that nobody but the person chooses and that asks before it acts.
-        """
-        if confirmation is not None or (proc.is_human_connection(conn)
-                                        and not getattr(conn, "remote_login", False)):
-            return
-        bridge = self._bridge_of(record)
-        row = self._row_of(record, self._cached_discovery(record.cli))
-        if (bridge is None or bridge.mode_state != "confirmed" or row is None
-                or row.person_only or row.uncontrolled or row.legacy == "unrestricted"):
-            raise ExternalError(
-                errors.JARVIS_PERSON_ONLY,
-                "this session runs in the person's tmux pane in a mode snowpea could not "
-                "confirm, or one only the person chooses; only the person may type into it",
-            )
+    @staticmethod
+    def _refuse_tmux(title: str) -> None:
+        raise ExternalError(
+            errors.EXTERNAL_UNAVAILABLE,
+            f"{title} cannot run in a shared tmux terminal on this machine",
+        )
 
     # -- channels ---------------------------------------------------------
     def _grant_if_unrestricted(
@@ -1861,31 +1723,26 @@ class ExternalManager:
             if record.channel is None or not record.channel.alive:
                 record.channel = None
                 await self._refresh_host(record)
-                bridged = (record.host == "terminal"
-                           and await self._attach_bridge(record, found))
-                if bridged:
-                    await self._announce(record, None, "terminal")
-                elif record.host == "terminal":
+                if record.host == "terminal":
                     raise ExternalError(
                         errors.EXTERNAL_VIEW_ONLY,
                         f"this {record.adapter.title} session is open in another terminal; "
                         "it can be continued here once that one exits",
                     )
-                if not bridged:
-                    previous_host = record.host
-                    # Continued in its last controlled mode: unrestricted needs a new,
-                    # explicit choice (external.open / external.setMode), never a send.
-                    mode, row = self._implicit(record)
-                    self._require_trust(record.project, record.real_cwd or record.info.cwd,
-                                        conn, trust)
-                    try:
-                        await self._start_channel(record, mode, None, found, resume=True,
-                                                  native_mode=row.id)
-                    except ExternalError:
-                        if record.host != previous_host:
-                            await self._announce(record, None, previous_host)
-                        raise
-                    await self._announce(record, None, previous_host)
+                previous_host = record.host
+                # Continued in its last controlled mode: unrestricted needs a new,
+                # explicit choice (external.open / external.setMode), never a send.
+                mode, row = self._implicit(record)
+                self._require_trust(record.project, record.real_cwd or record.info.cwd,
+                                    conn, trust)
+                try:
+                    await self._start_channel(record, mode, None, found, resume=True,
+                                              native_mode=row.id)
+                except ExternalError:
+                    if record.host != previous_host:
+                        await self._announce(record, None, previous_host)
+                    raise
+                await self._announce(record, None, previous_host)
             channel = record.channel
             assert channel is not None
             row = self._row_of(record, found)
@@ -1904,17 +1761,6 @@ class ExternalManager:
                     f"this session runs in mode {row.label}, which only the person chose; "
                     "only the person may send to it",
                 )
-            if self._bridge_of(record) is not None:
-                self._bridge_send_allowed(record, conn, confirmation)
-                # A slash command only from the person at a local surface.
-                channel.allow_slash = bool(  # type: ignore[attr-defined]
-                    confirmation is None and proc.is_human_connection(conn)
-                    and not getattr(conn, "remote_login", False))
-                channel.actor = (  # type: ignore[attr-defined]
-                    "person" if proc.is_human_connection(conn) and not getattr(
-                        conn, "remote_login", False) else
-                    "remote" if proc.is_human_connection(conn) else
-                    str((origin or {}).get("kind") or "jarvis"))
             if record.turn_id is not None:
                 if record.adapter.capabilities.steer and channel.can_steer:
                     self._subscribe(record, conn)
@@ -1925,9 +1771,7 @@ class ExternalManager:
             # A refusal the channel can tell now (a busy terminal) publishes nothing.
             try:
                 await channel.precheck(text)
-            except ExternalError as exc:
-                if isinstance(exc.details, dict) and exc.details.get("reason") == "terminal_guard":
-                    await self._bridge_lost(record, exc.message)
+            except ExternalError:
                 raise
             # The reply streams to the sender as external.event, opened or not.
             self._subscribe(record, conn)
@@ -1951,8 +1795,6 @@ class ExternalManager:
                 await self._end_turn(record, "error", f"{type(exc).__name__}")
                 raise ExternalError(errors.EXTERNAL_UNAVAILABLE, "the CLI did not take the prompt"
                                     ) from exc
-            if self._bridge_of(record) is not None:
-                return {"turnId": turn_id, "via": "tmux"}
             return {"turnId": turn_id}
 
     async def _steer(self, record: _Record, channel: ExternalChannel, text: str, *,
@@ -2029,9 +1871,6 @@ class ExternalManager:
             raise ExternalError(
                 errors.EXTERNAL_VIEW_ONLY, "this session runs in another terminal; stop it there"
             )
-        if record.host == "tmux" and record.channel is not None and record.channel.alive:
-            await record.channel.interrupt()
-            return
         if record.turn_id is None or record.channel is None:
             await self._maybe_forget(record)
             return
@@ -2201,11 +2040,8 @@ class ExternalManager:
                                           confirm_dangerous=confirm_dangerous, model=model)
         resolved = self.resolve_mode(adapter, mode, native_mode, found)
         chosen, row = resolved or self.default_native(adapter, found)
-        if transport == "tmux" and not (adapter.capabilities.tmux and proc.tmux_supported()):
-            raise ExternalError(
-                errors.EXTERNAL_UNAVAILABLE,
-                f"{adapter.title} cannot run in a shared tmux terminal on this machine",
-            )
+        if transport == "tmux":
+            self._refuse_tmux(adapter.title)
         root = proc.project_of(cwd, [str(Path(r).resolve()) for r in roots])
         self._require_trust(root, cwd, conn, trust)
         grant = self._grant_if_unrestricted(cli, chosen, conn, "create", project=root,
@@ -2258,13 +2094,6 @@ class ExternalManager:
                 )
             grant = self._grant_if_unrestricted(record, chosen, conn, "setMode",
                                                 confirmation=confirmation, row=row)
-            if self._bridge_of(record) is not None and confirmation is None and not (
-                    proc.is_human_connection(conn) and not getattr(conn, "remote_login", False)):
-                # Keys into the person's own terminal: only the person at a local surface.
-                raise ExternalError(
-                    errors.JARVIS_PERSON_ONLY,
-                    "only the person switches the mode of a session in their tmux pane",
-                )
             channel = record.channel
             if channel is not None and channel.alive:
                 before = channel.native_mode
@@ -2354,14 +2183,6 @@ class ExternalManager:
                         "this session runs in another terminal; change the model there",
                     )
                 channel = record.channel
-                if record.host == "tmux" or self._bridge_of(record) is not None or (
-                        channel is not None and channel.host == "tmux"):
-                    raise ExternalError(
-                        errors.EXTERNAL_UNAVAILABLE,
-                        "this session runs in a tmux terminal; change the model in the "
-                        "terminal with /model",
-                        {"reason": "tmux_transport"},
-                    )
                 if channel is not None and channel.alive:
                     await channel.set_model(model)
                 record.model, record.model_chosen = model, True
@@ -2375,22 +2196,13 @@ class ExternalManager:
             await self._maybe_forget(record)
 
     async def terminal_snapshot(self, cli: str, session_id: str) -> dict[str, Any]:
-        """``external.terminalSnapshot``: the bridged pane's text, plain and clipped."""
-        record, found = await self._load(cli, session_id)
-        async with record.lock:
-            bridge = self._bridge_of(record)
-            if bridge is None and record.channel is None:
-                await self._refresh_host(record)
-                if record.host == "terminal" and await self._attach_bridge(record, found):
-                    await self._announce(record, None, "terminal")
-                bridge = self._bridge_of(record)
-            if bridge is None:
-                await self._maybe_forget(record)
-                raise ExternalError(errors.EXTERNAL_UNAVAILABLE,
-                                    "this session does not run in a tmux pane snowpea can read")
-            text = await bridge.bridge.snapshot()
-        return {"ref": record.ref, "pane": bridge.bridge.pane.pane, "text": text,
-                "capturedAt": utc_now()}
+        """``external.terminalSnapshot``: retained for older clients; no tmux bridge (1.74.0)."""
+        record, _found = await self._load(cli, session_id)
+        await self._maybe_forget(record)
+        raise ExternalError(
+            errors.EXTERNAL_UNAVAILABLE,
+            "this session does not run in a tmux pane snowpea can read",
+        )
 
     async def _mode_known(self, record: _Record, native_mode: str) -> None:
         """The CLI switched its own mode (plan approved): the row says so."""

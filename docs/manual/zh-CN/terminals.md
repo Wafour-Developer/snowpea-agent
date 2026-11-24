@@ -21,15 +21,17 @@
 
 - 新会话会在你选择的项目文件夹中启动 CLI。
 - 已有会话使用 CLI 自身的恢复命令继续（`claude --resume <id>`、`codex resume <id>`，agy 与 Cursor 也有对应命令）。会话 id 来自钩子集成，所以如果想从终端恢复，请先运行 [`snowpea integration install`](integrations.md)。
-- 已在另一个终端中运行的会话仍然只能查看。
+- 已在另一个终端中运行的会话：snowpea 仍会在其面板中运行 CLI 的恢复命令。若 CLI 报告另一进程已占用该会话，snowpea 会只读跟踪该进程直至其退出；否则会话在面板中继续。
+
+在应用中，项目的 **+** 菜单 → **New external session…** 会询问 **Open as**：**Terminal** 或 **Chat**（根据 `jarvis.external.view` 预先选中）。选择终端时，列出的是该 CLI 的权限选项（[见下](#权限选项)），而不是聊天模式。**Load external session…** 中，当前没有任何程序在运行的每个会话上都有 **Resume in a terminal**。
 
 CLI 在你的交互式 shell 中运行，因此 PATH 和 nvm 等设置照常生效。CLI 退出后，除非关闭了 `terminals.keepShell`，窗格会回到 shell。
 
 ## 在终端中使用 snowpea 会话
 
-每个 snowpea 会话都可以两种方式查看：聊天，或者在连接到同一会话的终端里运行 snowpea CLI。两种视图都是同一会话的客户端，可以同时打开。切换按钮位于会话标题栏。
+每个 snowpea 会话都可以两种方式查看：聊天，或者在连接到同一会话的终端里运行 snowpea CLI。两种视图都是同一会话的客户端，可以同时打开。在应用中，对话标题栏里 **Chat** 和 **Trajectory** 旁边有一个 **Terminal** 标签页（仅在守护进程支持时出现）。该标签页会复用该会话正在运行的终端，没有则启动一个。
 
-- 默认视图由 `ui.sessionView` 决定：`chat`（默认）或 `terminal`。这是你自己界面的设置，不会改变别人的视图。
+- 默认视图由 `ui.sessionView` 决定：`chat`（默认）或 `terminal`。它保存在这个守护进程的设置中，因此连接到它的每个应用窗口和 web 页面都以同样的方式打开会话。在 **Settings → Terminal** 中更改。
 - 若要从 shell 连接到本地守护进程中已有的会话，运行 `snowpea --session <id>`。TUI 会恢复该会话，而不是新建一个。
 
 ## 设置
@@ -46,6 +48,8 @@ CLI 在你的交互式 shell 中运行，因此 PATH 和 nvm 等设置照常生�
 
 `terminals.*` 和 `ui.*` 设置只能由本机的用户修改。远程或隧道连接无法修改它们。
 
+在应用中，**Settings → Terminal** 用来设置两个默认视图、`terminals.keepShell` 和两种提醒。每个提醒开关会同时打开或关闭它的声音和提示；**Play the sound** 可以试听。声音是应用自己生成的两个短音。
+
 ## 状态：圆点代表什么
 
 每个终端有以下五种状态之一，应用会以圆点显示：
@@ -58,6 +62,12 @@ CLI 在你的交互式 shell 中运行，因此 PATH 和 nvm 等设置照常生�
 | idle | `idle` | 没有在运行任何东西 |
 
 阻塞状态还有类型：`permission`、`question`、`auth`。侧边栏会按 needs you、done、working、idle 的顺序汇总项目的圆点。
+
+在应用中，圆点是带圆环的红色（needs you）、绿色（done）、强调色并闪动（working；系统要求减少动态效果时保持静止）和灰色（idle）。它们出现在终端标签页上、侧边栏中外部会话的行上、终端打开期间对话的行上、项目的行上（汇总），以及 Jarvis 视图的 **Terminals** 标签页中。
+
+- 点进某个终端就会把它标记为已看过，done 圆点随之变灰。
+- 终端开始需要你处理时，应用会播放声音并显示提示。终端完成时，只有在该终端的窗格没有键盘焦点或窗口在后台时才会这样做。提醒只来自主窗口。
+- **Alt+↑ / Alt+↓** 跳到上一个或下一个需要你处理、或已完成而还没有人看过的终端。外部会话在它自己的视图中打开；其他终端在 Terminal 界面中打开。
 
 snowpea 按以下优先级（从高到低）决定状态来源：
 
@@ -77,6 +87,8 @@ snowpea 按以下优先级（从高到低）决定状态来源：
 | agy | Accept edits、Auto、Plan | Skip permissions（`--dangerously-skip-permissions`） |
 | Cursor agent | Ask、Plan | Run everything（`--yolo`） |
 
+在应用中最多只能选一个选项：CLI 只接受一种权限模式。守护进程在当前连接上拒绝的选项会显示为禁用并说明原因，通过隧道时则显示 **Unlock…**。
+
 危险选项的规则如下：
 
 - 在所有出现的地方都显示红色标记，应用会在启动前要求你确认风险。
@@ -85,6 +97,14 @@ snowpea 按以下优先级（从高到低）决定状态来源：
 - 通过 Web 隧道连接时，若未解锁终端，同样被拒绝（[snowpea web](web.md#用隧道获得公网地址)）。
 
 Jarvis 不会回答危险选项启动的终端中的权限确认。Accept edits、Don't ask 等非危险模式同样只能由本地应用中的用户自己选择，Jarvis 不会替你选择。Jarvis 通过 `terminal_create` 启动的 CLI 终端，始终使用 CLI 的默认权限。
+
+## 在应用中
+
+- **Terminal 界面和停靠区的终端标签页。** 在 snowpea web 中，它们显示守护进程的终端，并提供针对项目文件夹的 **New shell**。桌面应用还有自己的 shell：用一个开关在 **This computer** 和 **snowpea terminals** 之间切换。
+- **终端上方的状态条** 显示它的圆点和标题；以危险选项启动的终端会有红色的 **Permissions skipped** 标记；终端结束后显示 **Exited (code)**；还有 **Close terminal**，因为它会结束程序，所以会先询问。关闭窗格或窗口不会结束终端。
+- **弹出窗口**（桌面应用）：状态条上的按钮会把这个终端单独打开在一个自己的窗口中。每个窗口显示的都是同一个终端，关闭其中一个不影响其他。
+- **仅观看。** 当守护进程只允许页面观看某个终端时，窗格不再发送按键，显示 **Watching** 标记，并说明这是仅观看。
+- **通过 Web 隧道** 时，尚未解锁的窗格会显示 **Unlock…**，它会针对本次登录向你询问一次网页密码（[snowpea web](web.md#用隧道获得公网地址)）。
 
 ## 守护进程重启后终端仍然保留
 
