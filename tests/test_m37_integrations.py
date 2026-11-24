@@ -398,3 +398,36 @@ def test_script_assets_carry_markers():
         assert manager.script_version(text) == manager.INTEGRATION_VERSION
         assert "SNOWPEA_TERMINAL_ID" in text
         assert "Apache-2.0" in text
+
+
+# -- snowpea integration (CLI) --------------------------------------------------------
+
+_CLI_ENV_VARS = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "CURSOR_CONFIG_DIR",
+                 "ANTIGRAVITY_CLI_CONFIG_DIR", "SNOWPEA_HOME", "USERPROFILE")
+
+
+def _run_cli(tmp_path, *words):
+    import subprocess
+
+    env = {k: v for k, v in os.environ.items() if k not in _CLI_ENV_VARS}
+    env.update(HOME=str(tmp_path / "home"), SNOWPEA_HOME=str(tmp_path / "sp"))
+    return subprocess.run([sys.executable, "-m", "snowpea_core.cli.main", "integration", *words],
+                          env=env, capture_output=True, text=True, timeout=60)
+
+
+def test_cli_install_status_uninstall(tmp_path):
+    (tmp_path / "home" / ".claude").mkdir(parents=True)
+    out = _run_cli(tmp_path, "install")
+    assert out.returncode == 0, out.stderr
+    assert "claude  current" in out.stdout and "codex   skipped" in out.stdout
+    out = _run_cli(tmp_path, "status", "claude", "--json")
+    rows = json.loads(out.stdout)
+    assert rows[0]["status"] == "current"
+    assert rows[0]["configDir"] == str(tmp_path / "home" / ".claude")
+    out = _run_cli(tmp_path, "install", "codex")
+    assert out.returncode == 1 and "not found" in out.stderr
+    out = _run_cli(tmp_path, "uninstall")
+    assert out.returncode == 0, out.stderr
+    assert not (tmp_path / "home" / ".claude" / "settings.json").exists()
+    out = _run_cli(tmp_path, "status")
+    assert out.stdout.count("not-installed") == 4
