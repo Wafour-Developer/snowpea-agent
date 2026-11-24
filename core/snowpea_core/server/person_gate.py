@@ -254,6 +254,16 @@ PERSON_METHODS: dict[str, bool] = {
     "web.remote.setPassword": True,
     "web.remote.clearPassword": True,
     "web.remote.rotateToken": True,
+    # M37 (1.73.0): CLI hook integrations edit the person's own CLI config files;
+    # the web tunnel opens this machine to the internet and stores its token.
+    "integration.list": True,
+    "integration.install": True,
+    "integration.uninstall": True,
+    "web.tunnel.status": True,
+    "web.tunnel.start": True,
+    "web.tunnel.stop": True,
+    "web.tunnel.setToken": True,
+    "web.tunnel.install": True,
     # Security review 5, M1: what runs code in the daemon or replaces it, and
     # what a project folder may make snowpea do — a local person's only.
     "extension.enable": True,

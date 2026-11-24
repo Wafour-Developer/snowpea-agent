@@ -529,7 +529,7 @@ def test_cli_opens_the_tui_on_a_screen(
         return _Info()
 
     monkeypatch.setattr(cli_main, "ensure_daemon", _ensure)
-    monkeypatch.setattr(cli_main.subprocess, "call", lambda command: commands.append(command) or 0)
+    monkeypatch.setattr(cli_main.subprocess, "call", lambda command, **_kw: commands.append(command) or 0)
     assert cli_main.main(["--cwd", str(tmp_path), screen]) == 0
     assert commands and commands[0][-2:] == ["--start", screen]
     commands.clear()
