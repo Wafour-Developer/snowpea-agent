@@ -1,7 +1,7 @@
 # installed by snowpea; reinstalling or updating the integration overwrites this file.
 # add your own hooks beside this file instead of editing it.
 # SNOWPEA_INTEGRATION_ID=snowpea-agent-state
-# SNOWPEA_INTEGRATION_VERSION=2
+# SNOWPEA_INTEGRATION_VERSION=3
 #
 # Portions derived from herdr (https://github.com/herdrdev/herdr), Apache-2.0.
 #

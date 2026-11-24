@@ -173,6 +173,55 @@ def test_status_modified_and_outdated(tmp_path):
     assert manager.status("claude", env).status == manager.STATUS_MODIFIED
 
 
+def test_claude_permission_request_hook(tmp_path):
+    """v3: PermissionRequest reports blocked with the pending command (H3 gap)."""
+    from snowpea_core.terminal.integrations import hook_report
+
+    env = make_env(tmp_path)
+    settings = cfg(env, "claude") / "settings.json"
+    settings.write_text(CLAUDE_SETTINGS)
+    manager.install("claude", env)
+    groups = json.loads(settings.read_text())["hooks"]["PermissionRequest"]
+    assert groups == [{"hooks": [{"type": "command", "timeout": 10,
+                                  "command": manager.hook_command(env, "claude", "blocked")}]}]
+    first = settings.read_text()
+    manager.install("claude", env)
+    assert settings.read_text() == first
+    # The payload Claude Code 2.1.331 sends to this hook.
+    payload = {"hook_event_name": "PermissionRequest", "session_id": "s1",
+               "transcript_path": "/t.jsonl", "tool_name": "Bash",
+               "tool_input": {"command": "rm -rf build", "description": "clean"},
+               "permission_suggestions": []}
+    environ = {"SNOWPEA_TERMINAL_ID": "t1", "SNOWPEA_TERMINAL_TOKEN": "x"}
+    report = hook_report.build_report("claude", "blocked", payload, environ)
+    assert (report["state"], report["kind"], report["command"]) == (
+        "blocked", "permission", "rm -rf build")
+    manager.uninstall("claude", env)
+    assert settings.read_text() == CLAUDE_SETTINGS
+
+
+def test_v2_install_shows_outdated_until_reinstalled(tmp_path):
+    env = make_env(tmp_path)
+    settings = cfg(env, "claude") / "settings.json"
+    settings.write_text(CLAUDE_SETTINGS)
+    manager.install("claude", env)
+    # What a v2 install left: no PermissionRequest entry, a v2 script, state v2.
+    settings.write_text(jsonedit.remove_member(settings.read_text(), ("hooks",),
+                                               "PermissionRequest"))
+    script = env.script_path()
+    script.write_text(script.read_text().replace(
+        f"VERSION={manager.INTEGRATION_VERSION}", "VERSION=2"))
+    state = json.loads(env.state_path().read_text())
+    state["clis"]["claude"]["version"] = 2
+    env.state_path().write_text(json.dumps(state))
+    row = manager.status("claude", env)
+    assert row.status == manager.STATUS_OUTDATED, row.detail
+    manager.install("claude", env)
+    assert manager.status("claude", env).status == manager.STATUS_CURRENT
+    manager.uninstall("claude", env)
+    assert settings.read_text() == CLAUDE_SETTINGS
+
+
 def test_core_path_is_written_into_the_script(tmp_path):
     """Security L4: the hook runs the snowpea-core known at install, not $SNOWPEA_CORE_BIN/PATH."""
     env = make_env(tmp_path)
