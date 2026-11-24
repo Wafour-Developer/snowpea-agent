@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -25,15 +26,19 @@ from pathlib import Path
 from typing import Any
 
 from snowpea_core.terminal.holder import (
+    AUTH,
     BYE,
+    CHALLENGE,
     DATA,
     EXIT,
     HELLO,
     INPUT,
+    NONCE_BYTES,
     RESIZE,
     SIGNAL,
     TAIL,
     frame,
+    proof,
     read_frame,
 )
 
@@ -48,11 +53,24 @@ class HolderError(Exception):
     """The holder could not be started or refused the connection."""
 
 
+def _private_dir(path: Path) -> None:
+    """Create ``path`` owner-only; refuse one that is not ours (or not a directory).
+
+    The report socket's helper (``terminal.report._private_dir``): a directory
+    another user made first (``/tmp/snowpea-term-<uid>``) is refused, never
+    chmod-ed or used.
+    """
+    from snowpea_core.terminal.report import _private_dir as private_dir
+
+    private_dir(path)
+
+
 def terminals_dir(home: Path) -> Path:
     folder = Path(home) / "terminals"
-    folder.mkdir(parents=True, exist_ok=True)
-    if not IS_WINDOWS:
-        os.chmod(folder, 0o700)
+    if IS_WINDOWS:  # pragma: no cover - no POSIX owner or mode there
+        folder.mkdir(parents=True, exist_ok=True)
+    else:
+        _private_dir(folder)
     return folder
 
 
@@ -64,8 +82,7 @@ def socket_path(home: Path, terminal_id: str) -> str:
     tag = hashlib.sha256(str(Path(home).resolve()).encode()).hexdigest()[:8]
     uid = os.getuid() if hasattr(os, "getuid") else 0
     short = Path(tempfile.gettempdir()) / f"snowpea-term-{uid}"
-    short.mkdir(mode=0o700, exist_ok=True)
-    os.chmod(short, 0o700)
+    _private_dir(short)
     return str(short / f"{tag}-{terminal_id}.sock")
 
 
@@ -221,7 +238,18 @@ class HolderLink:
         except (OSError, TimeoutError) as exc:
             raise HolderError(f"cannot reach the terminal holder: {exc}") from exc
         try:
-            writer.write(frame(HELLO, bytes.fromhex(self.token)))
+            token = bytes.fromhex(self.token)
+            core_nonce = secrets.token_bytes(NONCE_BYTES)
+            writer.write(frame(HELLO, core_nonce))
+            kind, payload = await asyncio.wait_for(read_frame(reader), HELLO_TIMEOUT)
+            holder_nonce, holder_proof = payload[:NONCE_BYTES], payload[NONCE_BYTES:]
+            if kind != CHALLENGE or not hmac.compare_digest(
+                holder_proof, proof(token, b"holder", core_nonce, holder_nonce)
+            ):
+                # Whatever answers here does not hold the token: not our holder.
+                writer.close()
+                raise HolderError("the process at the terminal socket is not its holder")
+            writer.write(frame(AUTH, proof(token, b"core", holder_nonce, core_nonce)))
             kind, payload = await asyncio.wait_for(read_frame(reader), HELLO_TIMEOUT)
         except (OSError, TimeoutError, asyncio.IncompleteReadError, ValueError) as exc:
             writer.close()

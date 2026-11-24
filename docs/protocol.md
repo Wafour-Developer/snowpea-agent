@@ -5422,7 +5422,7 @@ Wait for the program to leave working, exit or print a match (1.73.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `output` | `string \| null` | no | End when this text appears. |
+| `output` | `string \| null` | no | End when this literal text appears in new output (not a pattern). |
 | `terminalId` | `string` | yes |  |
 | `timeout` | `number` | no |  |
 

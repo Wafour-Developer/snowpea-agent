@@ -124,6 +124,7 @@ There is one input queue per terminal.
 - **Credit:** each viewer has 256 KiB of credit, replenished by `terminal.ack {terminalId, bytes}`. A viewer more than 4 MiB behind gets a `terminal.data {repaint: true}` instead of the backlog.
 - **Size:** the most recently active interactive viewer sets the size. Observers never resize. With no viewer attached, the headless size applies.
 - **Detach:** a connection that closes is detached automatically. Closing the viewer never kills the terminal; only `terminal.close` does.
+- **Observe is not a boundary** (security review L7): an observer's own write and resize get `unavailable` with reason `observe_only`, but the same person may attach again interactively, and a connection that never attached may still write. Who may type into a terminal is decided by the access rules (people only, the tunnel unlock), never by the attach mode.
 
 ### 2.6 Profiles and launch (`terminal/profiles.py`)
 

@@ -49,7 +49,8 @@ def test_rules_object_satisfies_the_protocol() -> None:
     assert isinstance(Rules(), ScreenRules)
 
 
-def test_precedence_osc_over_blocker_over_hook_over_rules() -> None:
+def test_precedence_blocker_over_osc_over_hook_over_rules() -> None:
+    """With screen rules, the visible blocker ranks above OSC 7501 (security review H4)."""
     rules = Rules()
     machine, clock, _ = _machine(rules)
     clock.t += LAUNCH_SILENCE
@@ -69,9 +70,14 @@ def test_precedence_osc_over_blocker_over_hook_over_rules() -> None:
     assert machine.status.detail == "rm -rf build"
 
     machine.apply_osc("working")
+    assert (machine.state, machine.status.source) == ("blocked", "screen")
+    rules.verdict = RuleVerdict("working")  # the prompt is answered: OSC ranks next
+    clock.t += 1
+    machine.on_output()
+    machine.poll(_screen)
     assert (machine.state, machine.status.source) == ("working", "osc")
     machine.apply_osc("clear")
-    assert machine.status.source == "screen"  # the blocker is still on screen
+    assert (machine.state, machine.status.source) == ("done", "hook")
 
     rules.verdict = RuleVerdict("working")
     clock.t += 1

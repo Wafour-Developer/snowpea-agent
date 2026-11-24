@@ -12,9 +12,10 @@ line back on stdout: ``{"ok": true, "pid": <holder>, "child": <program>,
 "socket": <address>}`` or ``{"ok": false, "error": …}``.
 
 Link to the core: a Unix socket (mode 0600 in a 0700 directory) or, on
-Windows, a loopback TCP port (``tcp:127.0.0.1:<port>``); either way the first
-frame must be HELLO carrying the 32-byte token from the meta file, or the
-connection is closed.  One core at a time: a newer authenticated connection
+Windows, a loopback TCP port (``tcp:127.0.0.1:<port>``); either way both sides
+prove they hold the 32-byte token from the meta file (a nonce challenge, see
+:func:`proof`) before anything else, or the connection is closed.  The token
+itself never crosses the link.  One core at a time: a newer authenticated connection
 replaces the older one.
 
 Frames are ``[kind u8][len u32 LE][payload]``:
@@ -22,7 +23,9 @@ Frames are ``[kind u8][len u32 LE][payload]``:
 ======== ============ =======================================================
 kind     direction    payload
 ======== ============ =======================================================
-HELLO    core→holder  the token; holder→core: JSON ``{pid, child, alive, exitCode}``
+HELLO    core→holder  its nonce; holder→core (after AUTH): JSON ``{pid, child, alive, exitCode}``
+CHALLENGE holder→core the holder's nonce + its proof
+AUTH     core→holder  the core's proof
 DATA     holder→core  PTY output
 INPUT    core→holder  bytes for the PTY
 RESIZE   core→holder  JSON ``{cols, rows}``
@@ -40,16 +43,30 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import hmac
 import json
 import os
+import secrets
 import struct
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
-HELLO, DATA, INPUT, RESIZE, SIGNAL, EXIT, TAIL, BYE = range(1, 9)
+HELLO, DATA, INPUT, RESIZE, SIGNAL, EXIT, TAIL, BYE, CHALLENGE, AUTH = range(1, 11)
+NONCE_BYTES = 32
+
+
+def proof(token: bytes, role: bytes, first: bytes, second: bytes) -> bytes:
+    """HMAC-SHA256 of the two nonces under the terminal token, per side (``holder``/``core``).
+
+    The handshake (security review L2): the core sends HELLO with its nonce;
+    the holder answers CHALLENGE = its nonce + ``proof(token, b"holder", nc, nh)``;
+    the core checks it and sends AUTH = ``proof(token, b"core", nh, nc)``.  Neither
+    side ever sends the token, and each proves it holds it before any stream.
+    """
+    return hmac.new(token, role + first + second, hashlib.sha256).digest()
 HEADER = struct.Struct("<BI")
 MAX_FRAME = 16 * 1024 * 1024
 TAIL_BYTES = 1024 * 1024
@@ -168,11 +185,17 @@ class Holder:
     # -- core link ----------------------------------------------------------
     async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
-            kind, payload = await asyncio.wait_for(read_frame(reader), HELLO_TIMEOUT)
+            kind, core_nonce = await asyncio.wait_for(read_frame(reader), HELLO_TIMEOUT)
+            if kind != HELLO or len(core_nonce) != NONCE_BYTES:
+                raise ValueError("bad hello")
+            holder_nonce = secrets.token_bytes(NONCE_BYTES)
+            writer.write(frame(CHALLENGE, holder_nonce + proof(
+                self.token, b"holder", core_nonce, holder_nonce)))
+            kind, answer = await asyncio.wait_for(read_frame(reader), HELLO_TIMEOUT)
+            expected = proof(self.token, b"core", holder_nonce, core_nonce)
+            if kind != AUTH or not hmac.compare_digest(answer, expected):
+                raise ValueError("bad auth")
         except (TimeoutError, asyncio.IncompleteReadError, ValueError, OSError):
-            writer.close()
-            return
-        if kind != HELLO or not hmac.compare_digest(payload, self.token):
             writer.close()
             return
         hello = {"pid": os.getpid(), "child": self.pty.pid, "alive": not self.exited.is_set(),

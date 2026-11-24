@@ -9883,7 +9883,7 @@ export interface TerminalUnlockResult {
 
 /** `terminal.wait` params. Wait for the program to leave working, exit or print a match (1.73.0). */
 export interface TerminalWaitParams {
-  /** End when this text appears. */
+  /** End when this literal text appears in new output (not a pattern). */
   output?: string | null;
   terminalId: string;
   timeout?: number;
