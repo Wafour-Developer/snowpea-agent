@@ -139,6 +139,8 @@ Server capabilities advertised in the `system.hello` result:
 - `standingOrders`
 - `steps`
 - `tabReadAlways`
+- `terminalSessions`
+- `terminalStatus`
 - `toolInvokeGuard`
 - `toolInvokeModel`
 - `toolProgressState`
@@ -5099,7 +5101,7 @@ Attach this connection as a viewer; terminal.data then goes to it alone (1.73.0)
 | field | type | required | description |
 |---|---|---|---|
 | `cols` | `number` | yes |  |
-| `info` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+| `info` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
 | `repaint` | `string` | yes | base64 ANSI that rebuilds the screen in a fresh viewer. |
 | `rows` | `number` | yes |  |
 | `seq` | `number` | yes | Sequence of the last byte included; terminal.data follows. |
@@ -5153,7 +5155,7 @@ Start a terminal in a registered project; dangerous options need confirmDangerou
 
 | field | type | required | description |
 |---|---|---|---|
-| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
 
 ### `terminal.detach`
 
@@ -5227,7 +5229,7 @@ Terminals the daemon holds (1.73.0, terminalSessions).
 
 | field | type | required | description |
 |---|---|---|---|
-| `terminals` | `({ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; })[]` | no |  |
+| `terminals` | `({ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; })[]` | no |  |
 
 ### `terminal.profiles`
 
@@ -6368,7 +6370,7 @@ Set the sidebar order (1.47.0).
 
 | field | type | required | description |
 |---|---|---|---|
-| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; lost?: boolean; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
 
 ### `terminal.data`
 
@@ -6376,7 +6378,7 @@ Set the sidebar order (1.47.0).
 |---|---|---|---|
 | `data` | `string` | no | base64 PTY output. |
 | `repaint` | `boolean` | no | data is a full repaint (the viewer fell too far behind). |
-| `seq` | `number` | yes |  |
+| `seq` | `number` | yes | Output bytes so far, through this chunk. |
 | `terminalId` | `string` | yes |  |
 
 ### `terminal.exit`

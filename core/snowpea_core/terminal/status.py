@@ -61,6 +61,15 @@ class RuleVerdict:
     rule: str | None = None
     detail: str | None = None
     priority: int = 0
+    #: For ``blocked``: the blocker is on screen (ranks above hooks).  A
+    #: blocked verdict that is not visible ranks as an ordinary rule.
+    visible: bool = True
+    #: The rule says "change nothing" (herdr's ``skip_state_update``; an
+    #: ``unknown`` state from the engine means the same).
+    skip: bool = False
+    #: For ``idle``: the CLI's own idle prompt is visible, so a hook's stale
+    #: ``working`` is dropped.
+    visible_idle: bool = False
 
 
 @runtime_checkable
@@ -206,13 +215,19 @@ class StatusMachine:
         now = self._now(now)
         rules = self._rules
         rules.last_check = now
-        if verdict is not None and verdict.state not in STATES:
-            verdict = None
-        if verdict is not None and verdict.state == "blocked":
+        verdict = normalise_verdict(verdict)
+        if verdict is not None and verdict.skip:
+            return None
+        if verdict is not None and verdict.state == "blocked" and verdict.visible:
             self._blocker = _Claim("blocked", _kind("blocked", verdict.kind), detail=verdict.detail)
             rules.pending, rules.pending_none, rules.pending_count = None, False, 0
             return self._publish(now)
         self._blocker = None
+        if (verdict is not None and verdict.state == "idle" and verdict.visible_idle
+                and self._hook is not None and self._hook.state == "working"):
+            # The CLI's idle prompt is on screen: a hook's "working" is stale
+            # (Claude fires no Stop on an Esc interrupt; herdr drops it too).
+            self._hook = None
         claim = None if verdict is None else _Claim(
             verdict.state, _kind(verdict.state, verdict.kind), detail=verdict.detail
         )
@@ -245,8 +260,8 @@ class StatusMachine:
         if report.state == "clear":
             self._hook = None
         elif report.state in STATES:
-            self._hook = _Claim(report.state, _kind(report.state, report.kind),
-                                message=report.message or None)
+            self._hook = _Claim(report.state, _kind(report.state, getattr(report, "kind", None)),
+                                message=getattr(report, "message", None) or None)
         else:
             return None
         return self._publish(self._now(now))
@@ -315,7 +330,7 @@ class StatusMachine:
             self._dirty = False
             text, title = screen()
             try:
-                verdict = self.rules.apply_rules(text, title)
+                verdict = ask_rules(self.rules, text, title)
             except Exception:  # noqa: BLE001 - a broken rule must not stop the terminal
                 verdict = None
             published = self.apply_rule_verdict(verdict, now=now)
@@ -363,6 +378,45 @@ class StatusMachine:
         if self.on_change is not None:
             self.on_change(self._status)
         return self._status
+
+
+def ask_rules(rules: Any, screen_text: str, title: str) -> Any:
+    """Ask a rule set: :class:`ScreenRules` (``apply_rules``) or T2's ``RuleSet.evaluate``."""
+    if hasattr(rules, "apply_rules"):
+        return rules.apply_rules(screen_text, title)
+    if hasattr(rules, "evaluate"):
+        return rules.evaluate(screen_text, title)
+    return None
+
+
+def normalise_verdict(verdict: Any) -> RuleVerdict | None:
+    """Any verdict-shaped object -> :class:`RuleVerdict`.
+
+    ``unknown`` (the engine's skip rules: a transcript viewer, a model picker)
+    becomes a skip: nothing changes.  Any other state outside :data:`STATES`
+    -> ``None``.  Accepts the engine's field names too (``rule_id``,
+    ``visible_blocker``, ``visible_idle``, ``skip_update``).
+    """
+    if verdict is None:
+        return None
+    state = getattr(verdict, "state", None)
+    if state == "unknown":
+        return RuleVerdict("idle", skip=True)
+    if type(verdict) is RuleVerdict:
+        return verdict if state in STATES else None
+    if state not in STATES:
+        return None
+    return RuleVerdict(
+        state=state,
+        kind=getattr(verdict, "kind", None),
+        rule=getattr(verdict, "rule", None) or getattr(verdict, "rule_id", None),
+        detail=getattr(verdict, "detail", None),
+        priority=int(getattr(verdict, "priority", 0) or 0),
+        visible=bool(verdict.visible_blocker if hasattr(verdict, "visible_blocker")
+                     else getattr(verdict, "visible", True)),
+        skip=bool(getattr(verdict, "skip", False) or getattr(verdict, "skip_update", False)),
+        visible_idle=bool(getattr(verdict, "visible_idle", False)),
+    )
 
 
 def _kind(state: str, kind: str | None) -> str | None:

@@ -26,7 +26,7 @@ HOME_ENTRIES: tuple[str, ...] = (
     "gateway-chats.json", "hooks.json", "hooks", "plugins", "extensions", "extension-data",
     "skills", "commands", "agents", "lsp", "update-plan.json", "update-helper.ps1",
     "daemon.lock", "setup-state.json", "memory.md", "plans", "sessions", "teams",
-    ".claude", ".codex",
+    ".claude", ".codex", "integrations", "terminals",
 )
 
 

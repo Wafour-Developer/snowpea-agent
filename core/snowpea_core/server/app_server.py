@@ -199,6 +199,13 @@ class Core:
     #: This daemon's start migrated ``security.unknownCode`` from ``ask`` to
     #: ``auto`` (once per home, 0.2.90): ``security.get`` says so while it holds.
     unknown_code_migrated: bool = False
+    #: Terminal sessions (M37, ``terminal.manager.TerminalManager``); built by
+    #: ``server.terminal_handlers.ensure_manager``, restored in ``Daemon.start``.
+    terminals: Any = None
+    #: Where CLI hooks report (``SNOWPEA_TERMINAL_REPORT``); the report socket sets it.
+    terminal_report_address: Any = None
+    #: The hook report socket (``terminal.report.ReportServer``), when available.
+    terminal_report_server: Any = None
 
     def __post_init__(self) -> None:
         # Security review 7, H-2: this daemon's home is never a project folder
@@ -1056,6 +1063,13 @@ class Daemon:
             await ensure_manager(core).start()
         except Exception:  # noqa: BLE001 - external sessions must not stop the daemon
             log.warning("could not start the external CLI manager", exc_info=True)
+        # Terminals (M37): reconnect to the holders a previous daemon left running.
+        from snowpea_core.server.terminal_handlers import start_terminals
+
+        try:
+            await start_terminals(core)
+        except Exception:  # noqa: BLE001 - terminals must not stop the daemon
+            log.warning("could not restore terminals", exc_info=True)
 
         dispatcher = build_dispatcher(core)
         self.app = create_app(dispatcher, daemon=self, core=core, bind_host=self._host)
@@ -1359,6 +1373,12 @@ class Daemon:
                 # External CLI children are ours: stop them as a tree.
                 with contextlib.suppress(Exception):
                     await self.core.external.shutdown()
+            if self.core.terminals is not None or self.core.terminal_report_server is not None:
+                # Terminals outlive the daemon: drop the links, the holders keep running.
+                with contextlib.suppress(Exception):
+                    from snowpea_core.server.terminal_handlers import stop_terminals
+
+                    await stop_terminals(self.core)
             # The update watcher polls rather than blocking a thread, so
             # cancelling it returns straight away (CORE-update).
             for attribute in ("update_task", "update_check_task"):

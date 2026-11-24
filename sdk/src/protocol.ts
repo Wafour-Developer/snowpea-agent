@@ -9399,6 +9399,8 @@ export interface TerminalAttachResult {
       sessionId?: string | null;
     } | null;
     labels?: Record<string, string>;
+    /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
+    lost?: boolean;
     /** Option ids it was started with. */
     options?: string[];
     /** Who started it, e.g. 'jarvis'. */
@@ -9512,6 +9514,8 @@ export interface TerminalCreateResult {
       sessionId?: string | null;
     } | null;
     labels?: Record<string, string>;
+    /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
+    lost?: boolean;
     /** Option ids it was started with. */
     options?: string[];
     /** Who started it, e.g. 'jarvis'. */
@@ -9610,6 +9614,8 @@ export interface TerminalListResult {
       sessionId?: string | null;
     } | null;
     labels?: Record<string, string>;
+    /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
+    lost?: boolean;
     /** Option ids it was started with. */
     options?: string[];
     /** Who started it, e.g. 'jarvis'. */
@@ -11611,6 +11617,8 @@ export interface TerminalCreatedPayload {
       sessionId?: string | null;
     } | null;
     labels?: Record<string, string>;
+    /** The holder is gone with no exit record (a reboot): only the entry is left; an external CLI terminal can be resumed from its session id. */
+    lost?: boolean;
     /** Option ids it was started with. */
     options?: string[];
     /** Who started it, e.g. 'jarvis'. */
@@ -11650,6 +11658,7 @@ export interface TerminalDataPayload {
   data?: string;
   /** data is a full repaint (the viewer fell too far behind). */
   repaint?: boolean;
+  /** Output bytes so far, through this chunk. */
   seq: number;
   terminalId: string;
 }

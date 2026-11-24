@@ -209,7 +209,7 @@ async def test_lost_entry_when_the_holder_died_without_an_exit(env) -> None:
     await second.start()
     row = second.list()[0]
     assert row["terminalId"] == tid and not row["alive"]
-    assert row["labels"].get("snowpea.lost") == "1"
+    assert row["lost"] and row["labels"].get("snowpea.lost") == "1"
     await second.close(tid)
     assert not list((env["home"] / "terminals").glob(f"{tid}*"))
 

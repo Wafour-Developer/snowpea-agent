@@ -36,7 +36,7 @@ There is one holder process per terminal. It is started detached: `start_new_ses
   - The holder runs inside a job object that kills the process when the holder dies.
 - **Link to the core:**
   - Unix: socket `$SNOWPEA_HOME/terminals/<id>.sock`. The directory is mode 0700 and the socket 0600.
-  - Windows: named pipe `\\.\pipe\snowpea-term-<id>-<random>` with a current-user ACL.
+  - Windows (as built, T1): a loopback TCP port, `127.0.0.1` only, ephemeral, kept in the 0600 meta file as `tcp:127.0.0.1:<port>`. The 32-byte token is compared with `hmac.compare_digest` and the connection is closed on the first bad frame. This replaces the planned named pipe with a current-user ACL: the Python standard library has no ACL'd pipe server without pywin32.
   - In both cases the core sends a 32-byte token from the meta file in a HELLO frame first.
   - Frames are `[kind u8][len u32][payload]`. Kinds:
 

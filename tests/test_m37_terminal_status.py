@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from snowpea_core.terminal.status import (
     BLOCKER_REPUBLISH,
     LAUNCH_SILENCE,
@@ -196,3 +198,77 @@ def test_broken_rules_never_raise() -> None:
     clock.t += LAUNCH_SILENCE
     machine.poll(_screen)
     assert machine.state == "idle"
+
+
+def test_engine_shaped_rule_sets_and_reports_are_understood() -> None:
+    """T2's engine: ``RuleSet.evaluate`` and its verdict / hook-report field names."""
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class EngineVerdict:
+        state: str
+        kind: str | None
+        rule_id: str
+        priority: int
+        visible_blocker: bool = False
+        skip_update: bool = False
+        detail: str | None = None
+
+    class EngineRules:
+        verdict: EngineVerdict | None = None
+
+        def evaluate(self, screen: str, title: str = "", progress: str = "") -> Any:
+            return self.verdict
+
+    @dataclass(frozen=True)
+    class EngineReport:
+        cli: str
+        event: str
+        state: str | None
+        kind: str | None
+        session_id: str | None
+        transcript_path: str | None
+        received_at: float
+
+    rules = EngineRules()
+    clock = Clock()
+    machine = StatusMachine(rules=rules, clock=clock)
+    clock.t += LAUNCH_SILENCE
+    rules.verdict = EngineVerdict("blocked", "permission", "claude.perm", 90, visible_blocker=True,
+                                  detail="npm test")
+    machine.poll(_screen)
+    assert (machine.state, machine.status.source, machine.status.detail) == (
+        "blocked", "screen", "npm test")
+    machine.apply_hook_report(EngineReport("claude", "Stop", "done", None, None, None, 0.0))
+    assert machine.status.source == "screen"  # the visible blocker still wins
+    rules.verdict = EngineVerdict("unknown", None, "x", 1)
+    clock.t += 1
+    machine.on_output()
+    machine.poll(_screen)
+    assert (machine.state, machine.status.source) == ("blocked", "screen")  # unknown: no change
+    rules.verdict = EngineVerdict("idle", None, "claude.prompt", 10)
+    clock.t += 1
+    machine.on_output()
+    machine.poll(_screen)
+    assert (machine.state, machine.status.source) == ("done", "hook")
+    rules.verdict = EngineVerdict("working", None, "claude.busy", 50, skip_update=True)
+    clock.t += 1
+    machine.on_output()
+    machine.poll(_screen)
+    assert (machine.state, machine.status.source) == ("done", "hook")
+
+
+def test_visible_idle_prompt_drops_a_stale_hook_working() -> None:
+    rules = Rules()
+    machine, clock, _ = _machine(rules)
+    clock.t += LAUNCH_SILENCE
+    machine.apply_hook_report(HookReport("UserPromptSubmit", state="working"))
+    rules.verdict = RuleVerdict("idle")
+    machine.on_output()
+    machine.poll(_screen)
+    assert (machine.state, machine.status.source) == ("working", "hook")
+    rules.verdict = RuleVerdict("idle", visible_idle=True)
+    clock.t += 1
+    machine.on_output()
+    machine.poll(_screen)
+    assert machine.state == "idle" and machine.status.source in ("rules", "none")

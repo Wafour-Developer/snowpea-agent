@@ -64,9 +64,9 @@ RECONNECT_TRIES = 5
 TERMINAL_ID_RE = re.compile(r"^t[0-9a-f]{8}$")
 _ANSI_RE = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
 
-TERMINAL_BLOCKED = "terminal_blocked"
-TERMINAL_LIMIT = "terminal_limit"
-TERMINAL_EXITED = "terminal_exited"
+#: Wire error codes (existing ones: the protocol has no terminal-specific codes).
+TERMINAL_LIMIT = errors.UNAVAILABLE
+TERMINAL_EXITED = errors.UNAVAILABLE
 
 Emit = Callable[[str, dict[str, Any]], Awaitable[None] | None]
 Send = Callable[[Any, str, dict[str, Any]], Awaitable[None] | None]
@@ -208,6 +208,7 @@ class Terminal:
             "createdAt": self.created_at,
         }
         if self.lost:
+            out["lost"] = True
             out["labels"]["snowpea.lost"] = "1"
         if self.spec.external:
             ref = {"cli": self.spec.external.get("cli")}
@@ -614,6 +615,10 @@ class TerminalManager:
             )
             if report:
                 env["SNOWPEA_TERMINAL_REPORT"] = report
+            core_bin = _core_bin()
+            if core_bin:
+                # The hook script runs "$SNOWPEA_CORE_BIN" hook report ….
+                env["SNOWPEA_CORE_BIN"] = core_bin
             self._terminals[terminal_id] = term
             try:
                 self._write_meta(term)
@@ -817,12 +822,28 @@ class TerminalManager:
     def report(self, terminal_id: str, token: str, report: HookReport) -> dict[str, Any]:
         """``terminal.report`` from a CLI hook: token-checked, then ranked by the status machine."""
         term = self.check_report_token(terminal_id, token)
+        return self._apply_report(term, report)
+
+    # The report socket's sink (T2's ``terminal.report.ReportSink``): it checks
+    # the token itself with :meth:`report_token`, then hands the report over.
+    def report_token(self, terminal_id: str) -> str | None:
+        term = self._terminals.get(terminal_id)
+        return term.report_token if term is not None and term.report_token else None
+
+    def apply_hook_report(self, terminal_id: str, report: Any) -> None:
+        term = self._terminals.get(terminal_id)
+        if term is not None:
+            self._apply_report(term, report)
+
+    def _apply_report(self, term: Terminal, report: Any) -> dict[str, Any]:
         changed = False
-        if report.session_id and report.session_id != term.session_id:
-            term.session_id = report.session_id
+        session_id = getattr(report, "session_id", None)
+        transcript = getattr(report, "transcript_path", None)
+        if session_id and session_id != term.session_id:
+            term.session_id = session_id
             changed = True
-        if report.transcript_path and report.transcript_path != term.transcript_path:
-            term.transcript_path = report.transcript_path
+        if transcript and transcript != term.transcript_path:
+            term.transcript_path = transcript
             changed = True
         term.status.apply_hook_report(report)
         if changed and term.alive:
@@ -868,6 +889,19 @@ class TerminalManager:
         for terminal_id in list(self._terminals):
             with contextlib.suppress(Exception):
                 await self.close(terminal_id)
+
+
+def _core_bin() -> str:
+    try:
+        from snowpea_core.terminal.report import (  # type: ignore[import-not-found]
+            core_bin_for_env,
+        )
+    except ImportError:  # the hook integrations (T2) are not here
+        return ""
+    try:
+        return str(core_bin_for_env() or "")
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _start_time(pid: int) -> str | None:
