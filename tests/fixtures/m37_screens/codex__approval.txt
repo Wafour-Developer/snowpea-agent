@@ -1,0 +1,20 @@
+# state: blocked
+# kind: permission
+# rule: live_approval_blocker
+# detail: rm -rf build
+---
+› clean the build output
+
+• I'll remove the build directory first.
+
+  Would you like to run the following command?
+
+  Reason: remove stale build artifacts
+
+  $ rm -rf build
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for this command (a)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel

@@ -1,0 +1,19 @@
+# state: idle
+# rule: osc_title_idle
+# title: proj
+---
+╭───────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.170.0)                │
+│                                           │
+│ model:     gpt-5.1-codex   /model to change │
+│ directory: ~/proj                         │
+╰───────────────────────────────────────────╯
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+
+› Explain this codebase
+
+  100% context left · ? for shortcuts

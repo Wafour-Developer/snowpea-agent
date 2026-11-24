@@ -1,0 +1,7 @@
+# state: none
+---
+• Done. The parser now accepts trailing commas.
+
+› Explain this codebase
+
+  98% context left · ? for shortcuts

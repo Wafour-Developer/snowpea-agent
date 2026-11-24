@@ -1,0 +1,10 @@
+# state: working
+# rule: esc_cancel_footer_working
+---
+ ⏺ Reading the parser module.
+
+ ⠋ Thinking about the lexer
+╭──────────────────────────────────────────────────╮
+│ >                                                │
+╰──────────────────────────────────────────────────╯
+ ─────────── esc to cancel

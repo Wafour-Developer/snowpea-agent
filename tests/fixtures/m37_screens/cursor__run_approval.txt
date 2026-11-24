@@ -1,0 +1,12 @@
+# state: blocked
+# kind: permission
+# rule: approval_prompt
+---
+  ⬢ Read src/app.ts
+
+  Run this command?
+  $ npm test -- --watch=false
+  Waiting for approval...
+
+  → Run (once) (y)
+    Skip (esc or n)

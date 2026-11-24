@@ -1,0 +1,11 @@
+# state: working
+# rule: stop_hint_working
+---
+  ⬢ Read src/app.ts
+
+  ⬡ Generating..
+
+ ┌──────────────────────────────────────────────────┐
+ │ → Add a follow-up                                │
+ └──────────────────────────────────────────────────┘
+  Auto · 12% · ctrl+c to stop

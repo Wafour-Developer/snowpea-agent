@@ -1,0 +1,14 @@
+# state: working
+# rule: live_turn_working
+---
+> fix the failing tests
+
+⏺ Read(tests/test_parser.py)
+  ⎿  Read 120 lines
+
+✻ Pondering… (12s · ↓ 1.2k tokens · esc to interrupt)
+
+────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle)
