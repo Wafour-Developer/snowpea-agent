@@ -150,7 +150,21 @@ def ensure_manager(core: Core) -> ExternalManager:
             ledger=_ledger_fn(core),
         )
         core.external = manager
+        # 1.73.0 (externalPty): sessions run as terminal sessions.
+        from snowpea_core.external import pty
+
+        pty.attach(core, manager)
     return manager
+
+
+def _pty_gate(conn: RpcConnection, core: Core, transport: str | None) -> None:
+    """``transport: "pty"`` starts a terminal: the tunnel's terminal unlock holds (§2.10)."""
+    if transport == "pty":
+        from snowpea_core.server.terminal_handlers import _tunnel_gate
+
+        # Terminals are a person's (as every terminal.* method), never a browser's.
+        require_person(conn, "run a CLI in a terminal", local=False)
+        _tunnel_gate(conn, core)
 
 
 def _rpc(exc: ExternalError) -> RpcError:
@@ -262,10 +276,12 @@ async def list_handler(
 async def open_handler(
     conn: RpcConnection, params: ExternalOpenParams, core: Core
 ) -> ExternalOpenResult:
+    _pty_gate(conn, core, params.transport)
     result = await _call(
         ensure_manager(core).open(
             params.ref.cli, params.ref.id, limit=params.limit, mode=params.mode, conn=conn,
             transport=params.transport, trust=params.trust, native_mode=params.nativeMode,
+            options=list(params.options), confirm_dangerous=params.confirmDangerous,
         )
     )
     return ExternalOpenResult.model_validate(_with_switch(core, result))
@@ -331,6 +347,7 @@ async def create_handler(
     from snowpea_core.server.project_gate import require_project
 
     require_project(core, params.project, dot=False, field="project")
+    _pty_gate(conn, core, params.transport)
     result = await _call(
         ensure_manager(core).create(
             params.cli,
@@ -341,6 +358,8 @@ async def create_handler(
             conn=conn,
             trust=params.trust,
             native_mode=params.nativeMode,
+            options=list(params.options),
+            confirm_dangerous=params.confirmDangerous,
         )
     )
     jarvis = getattr(core, "jarvis", None)
