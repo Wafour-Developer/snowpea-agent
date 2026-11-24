@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.70.0` (semver)
+- **Protocol version:** `1.73.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.70.0"
+    "protocolVersion": "1.73.0"
   }
 }
 ```
@@ -218,6 +218,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`goal.resume`](#goalresume) | client → server | Re-arm a paused or blocked goal, optionally with more rounds, and start a round when idle (1.43.0); goal_not_allowed on a delegated child or a scheduled run (1.50.0). |
 | [`goal.set`](#goalset) | client → server | Give the session a goal and arm it; rounds run until goal_update completes or blocks it, or the round cap (1.43.0, capability 'goals'). A delegated child or a scheduled run is refused with goal_not_allowed (1.50.0). |
 | [`host.turnContext`](#hostturncontext) | server → client | At turn start, ask the session's host-tools connection for a note for the turn's first model call (1.31.0). Only on a browser connection that sent tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open. |
+| [`integration.install`](#integrationinstall) | client → server | Install the hook entries into a CLI's config; human connection only (1.73.0). |
+| [`integration.list`](#integrationlist) | client → server | Hook integration status per CLI (1.73.0, cliIntegrations). |
+| [`integration.uninstall`](#integrationuninstall) | client → server | Remove exactly what install added; human connection only (1.73.0). |
 | [`jarvis.briefing.get`](#jarvisbriefingget) | client → server | Jarvis mode (1.53.0, WP8): the periodic briefing's settings and next run. |
 | [`jarvis.briefing.set`](#jarvisbriefingset) | client → server | Jarvis mode (1.53.0, WP8): turn the periodic briefing on or off, or change it. A remote web login may only turn it off ({enabled: false}; anything else is jarvis_person_only, details {reason: local_only, what: 'briefing'}, 1.55.0). |
 | [`jarvis.delegation.list`](#jarvisdelegationlist) | client → server | Jarvis mode (1.53.0, WP2): delegation grants in force. |
@@ -364,6 +367,23 @@ Server capabilities advertised in the `system.hello` result:
 | [`team.guide.set`](#teamguideset) | client → server | Write a team guide to the project or global home. |
 | [`team.start`](#teamstart) | client → server | Split a task across parallel workers. |
 | [`team.status`](#teamstatus) | client → server | Inspect a team's task board. |
+| [`terminal.ack`](#terminalack) | client → server | Replenish a viewer's flow-control credit (1.73.0). |
+| [`terminal.attach`](#terminalattach) | client → server | Attach this connection as a viewer; terminal.data then goes to it alone (1.73.0). |
+| [`terminal.close`](#terminalclose) | client → server | Kill the terminal (HUP, TERM, KILL) and forget it (1.73.0). |
+| [`terminal.create`](#terminalcreate) | client → server | Start a terminal in a registered project; dangerous options need confirmDangerous from a human connection (1.73.0). |
+| [`terminal.detach`](#terminaldetach) | client → server | Stop viewing; the terminal keeps running (1.73.0). |
+| [`terminal.interrupt`](#terminalinterrupt) | client → server | Interrupt the program (Esc if it reports status, else Ctrl-C) (1.73.0). |
+| [`terminal.keys`](#terminalkeys) | client → server | Send named keys 30 ms apart (1.73.0). |
+| [`terminal.list`](#terminallist) | client → server | Terminals the daemon holds (1.73.0, terminalSessions). |
+| [`terminal.profiles`](#terminalprofiles) | client → server | Terminal profiles, permission options and which CLIs are installed (1.73.0). |
+| [`terminal.read`](#terminalread) | client → server | Plain-text screen and history, status and title (1.73.0). |
+| [`terminal.report`](#terminalreport) | client → server | Hook report from a CLI inside a terminal; per-terminal token only (1.73.0). |
+| [`terminal.resize`](#terminalresize) | client → server | Resize from the most recent interactive viewer (1.73.0). |
+| [`terminal.seen`](#terminalseen) | client → server | A person looked at the terminal: clears its done/blocked attention (1.73.0). |
+| [`terminal.send`](#terminalsend) | client → server | Send text through the input gate (waits for the person to be quiet) (1.73.0). |
+| [`terminal.unlock`](#terminalunlock) | client → server | Over the tunnel: enter the web password again to use terminals (1.73.0). |
+| [`terminal.wait`](#terminalwait) | client → server | Wait for the program to leave working, exit or print a match (1.73.0). |
+| [`terminal.write`](#terminalwrite) | client → server | Send bytes to the PTY (a viewer's typing) (1.73.0). |
 | [`tool.invoke`](#toolinvoke) | server → client | Ask the client to run one of its host tools. |
 | [`tool.list`](#toollist) | client → server | List the tools registered for a session. |
 | [`tool.progress`](#toolprogress) | client → server | Notification: progress of a running tool.invoke, re-emitted as tool.progress. |
@@ -378,6 +398,12 @@ Server capabilities advertised in the `system.hello` result:
 | [`web.remote.status`](#webremotestatus) | client → server | Remote web access (1.54.0): the external listener, its mode, the addresses and the access link. A local person only (never a remote login, browser or connector). |
 | [`web.remote.stop`](#webremotestop) | client → server | Remote web access (1.54.0): close the external listener; its sessions end. |
 | [`web.search`](#websearch) | client → server | Web search for a browser host (1.11.0): the web_search tool's provider chain, settings, caps and timeouts, for the host's own fallback when its search page is blocked. Browser host clients (with a clientId) only; 'unavailable' with details.reason when no provider can answer. Results are untrusted web content. |
+| [`web.tunnel.install`](#webtunnelinstall) | client → server | Download the pinned, checksummed tunnel binary into SNOWPEA_HOME/bin (1.73.0). |
+| [`web.tunnel.setToken`](#webtunnelsettoken) | client → server | Store the ngrok authtoken or Cloudflare tunnel token; local human only (1.73.0). |
+| [`web.tunnel.start`](#webtunnelstart) | client → server | Start the tunnel; needs web.remote.enabled and a web password (1.73.0). |
+| [`web.tunnel.status`](#webtunnelstatus) | client → server | Tunnel provider, state and public URL (1.73.0, webTunnel). |
+| [`web.tunnel.stop`](#webtunnelstop) | client → server | Stop the tunnel (1.73.0). |
+| [`web.tunnel.unlock`](#webtunnelunlock) | client → server | Re-enter the web password to unlock terminals on a tunnel connection (1.73.0). |
 | [`workspace.add`](#workspaceadd) | client → server | Add a project folder (1.47.0). |
 | [`workspace.list`](#workspacelist) | client → server | Project folders in sidebar order, each with its conversation count (1.47.0, capability 'workspaces'). |
 | [`workspace.remove`](#workspaceremove) | client → server | Remove a folder from the sidebar; its conversations stay (1.47.0). |
@@ -1075,18 +1101,20 @@ External sessions (1.53.0, WP6): start a new session of a CLI in a registered pr
 | field | type | required | description |
 |---|---|---|---|
 | `cli` | `"claude" \| "codex" \| "agy" \| "cursor"` | yes | Which CLI. |
+| `confirmDangerous` | `boolean` | no | 1.73.0: the person confirmed the dangerous options; human connections only, refused from Jarvis or any tool. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | default, readonly or unrestricted; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only); Jarvis asks the person through a person-only confirmation instead. |
 | `model` | `string \| null` | no | Model id for the CLI; validated, never a flag. |
 | `nativeMode` | `string \| null` | no | As ExternalOpenParams.nativeMode (1.56.0): wins over mode. |
+| `options` | `string[]` | no | 1.73.0 (externalPty, transport 'pty'): permission option ids from terminal.profiles for this CLI. Dangerous ones need confirmDangerous. |
 | `project` | `string` | yes | A registered project root; anything else is refused. |
-| `transport` | `"structured" \| "tmux"` | no | structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. |
+| `transport` | `"structured" \| "tmux" \| "pty"` | no | pty (1.73.0, externalPty): a real terminal session; see ExternalOpenParams. structured (default): the daemon runs it over the CLI's own protocol (host 'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else external_unavailable. |
 | `trust` | `boolean` | no | As ExternalOpenParams.trust (untrusted_project). |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux" \| "pty"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane?: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session?: string; status?: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; } \| null; terminalId?: string \| null; window?: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
 
 ### `external.get`
 
@@ -1104,7 +1132,7 @@ External sessions (1.53.0): one session's row without opening or reading it (dee
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux" \| "pty"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane?: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session?: string; status?: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; } \| null; terminalId?: string \| null; window?: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
 
 ### `external.interrupt`
 
@@ -1146,7 +1174,7 @@ External sessions (1.53.0, WP5/6): one working directory's sessions (or every ex
 | field | type | required | description |
 |---|---|---|---|
 | `nextBefore` | `string \| null` | no | Cursor for the next page. |
-| `sessions` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; })[]` | no | Newest first. |
+| `sessions` | `({ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux" \| "pty"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane?: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session?: string; status?: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; } \| null; terminalId?: string \| null; window?: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; })[]` | no | Newest first. |
 
 ### `external.open`
 
@@ -1158,11 +1186,13 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 
 | field | type | required | description |
 |---|---|---|---|
+| `confirmDangerous` | `boolean` | no | 1.73.0: the person confirmed the dangerous options; human connections only, refused from Jarvis or any tool. |
 | `limit` | `number` | no | Newest timeline entries to return. |
 | `mode` | `"default" \| "readonly" \| "unrestricted" \| null` | no | Mode when this continues a host 'none' session; omitted uses the CLI's defaultMode. 'unrestricted' only from a human connection (else jarvis_person_only). |
 | `nativeMode` | `string \| null` | no | The CLI's own mode id (1.56.0, from external.clis nativeModes); wins over mode. Unknown or not offered by this CLI: invalid_params. A personOnly mode only from a human connection (else jarvis_person_only), with a ledger entry. |
+| `options` | `string[]` | no | 1.73.0 (externalPty, transport 'pty'): permission option ids from terminal.profiles for this CLI. Dangerous ones need confirmDangerous. |
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Session to open. |
-| `transport` | `"structured" \| "tmux" \| null` | no | 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. |
+| `transport` | `"structured" \| "tmux" \| "pty" \| null` | no | 'pty' (1.73.0, externalPty): run the CLI as a real terminal session (ExternalTerminal.kind 'pty', terminalId); a client that omits it keeps the structured transport. 'tmux' on a Claude Code session the person runs in a tmux pane of their own (listed as host 'terminal'): adopt that pane, so snowpea can type into it (host 'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', personOnly, args {cli, sessionId, tmux: {session, pane}, cwd}) the person answers on any of their surfaces (approval.pending); Jarvis, the engine and unattended rules cannot. Declined or unreachable: the session stays view only. 'tmux' on a host 'none' session starts it in a new tmux pane. Omitted or 'structured': as before. |
 | `trust` | `boolean` | no | The person's one-time confirmation that external CLIs may run in this project (they load the project's own settings and hooks). Needed only when starting a CLI in a project no person trusted yet: without it external_unavailable with details.reason 'untrusted_project' (show the confirmation, retry with trust: true). Only a person's local connection can trust; anyone else gets details.reason 'untrusted_project_person_only'. |
 
 **Result**
@@ -1172,7 +1202,7 @@ External sessions (1.53.0, WP5/6): subscribe this connection to a session's exte
 | `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; ts: string; turnId?: string \| null; })[]` | no | Newest page of the timeline, oldest first. |
 | `hasMore` | `boolean` | no | Older entries exist (external.read). |
 | `readOnly` | `boolean` | no | True while host is 'terminal' (or 'tmux' before spike S5 confirms input): view only, external.send refused. Opening a host 'none' session continues it under snowpea, so it comes back with host 'snowpea'. |
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux" \| "pty"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane?: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session?: string; status?: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; } \| null; terminalId?: string \| null; window?: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The session as it is now. |
 
 ### `external.read`
 
@@ -1234,7 +1264,7 @@ External sessions (1.53.0, WP6): switch a session to default, readonly or unrest
 
 | field | type | required | description |
 |---|---|---|---|
-| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
+| `session` | `{ approvals?: "bridged" \| "person" \| "degraded" \| "none"; canSend?: boolean; controllable?: "tmux" \| null; controlled?: boolean; cwd: string; host?: "none" \| "terminal" \| "tmux" \| "snowpea"; jarvisLocked?: "project_hidden" \| "jarvis_session" \| "browser_hidden" \| null; jarvisOn?: boolean \| null; mode?: "default" \| "readonly" \| "unrestricted" \| null; model?: string \| null; nativeMode?: string \| null; preview?: string; project?: string \| null; ref: { cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }; securityListsApply?: boolean \| null; status: "idle" \| "running" \| "error"; terminal?: { kind: "tmux" \| "pty"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane?: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session?: string; status?: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; } \| null; terminalId?: string \| null; window?: string; } \| null; title?: string \| null; tmux?: { pane: string; session: string; } \| null; updatedAt?: string \| null; }` | yes | The new session (already opened). |
 
 ### `external.setModel`
 
@@ -1700,6 +1730,60 @@ At turn start, ask the session's host-tools connection for a note for the turn's
 |---|---|---|---|
 | `coversSkills` | `string[] \| null` | no | Names of skills this note already carries (1.37.0). Core does not auto-inject them on the turn this answer belongs to (a 'compaction' answer: the next turn), and does not count them as injected, so a later turn without this cover can still bring them in. At most 16 names, not counted in the 4000-character limit. |
 | `text` | `string` | no | Site memory for the first call, or '' for nothing. Core keeps at most 4000 characters (cut at a line boundary), drops control characters but newlines, and adds it to the turn's user message as an untrusted <host-context> block. After a compaction (reason 'compaction') it is kept with the summary instead and the summariser never reads it. |
+
+### `integration.install`
+
+*Direction:* client → server
+
+Install the hook entries into a CLI's config; human connection only (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cli` | `"claude" \| "codex" \| "cursor" \| "agy" \| "all"` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `changedFiles` | `string[]` | no |  |
+| `integrations` | `({ cli: "claude" \| "codex" \| "cursor" \| "agy"; cliInstalled?: boolean; detail?: string \| null; files?: ({ exists?: boolean; path: string; })[]; label: string; state: "not-installed" \| "current" \| "outdated" \| "modified"; version?: string \| null; })[]` | no |  |
+
+### `integration.list`
+
+*Direction:* client → server
+
+Hook integration status per CLI (1.73.0, cliIntegrations).
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `integrations` | `({ cli: "claude" \| "codex" \| "cursor" \| "agy"; cliInstalled?: boolean; detail?: string \| null; files?: ({ exists?: boolean; path: string; })[]; label: string; state: "not-installed" \| "current" \| "outdated" \| "modified"; version?: string \| null; })[]` | no |  |
+
+### `integration.uninstall`
+
+*Direction:* client → server
+
+Remove exactly what install added; human connection only (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cli` | `"claude" \| "codex" \| "cursor" \| "agy" \| "all"` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `changedFiles` | `string[]` | no |  |
+| `integrations` | `({ cli: "claude" \| "codex" \| "cursor" \| "agy"; cliInstalled?: boolean; detail?: string \| null; files?: ({ exists?: boolean; path: string; })[]; label: string; state: "not-installed" \| "current" \| "outdated" \| "modified"; version?: string \| null; })[]` | no |  |
 
 ### `jarvis.briefing.get`
 
@@ -4975,6 +5059,360 @@ Inspect a team's task board.
 | `workers` | `number` | no | How many workers the run was started with. |
 | `worktrees` | `string[]` | no | Worker worktrees that exist right now. |
 
+### `terminal.ack`
+
+*Direction:* client → server
+
+Replenish a viewer's flow-control credit (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `bytes` | `number` | yes | Bytes the viewer has processed (replenishes credit). |
+| `terminalId` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `terminal.attach`
+
+*Direction:* client → server
+
+Attach this connection as a viewer; terminal.data then goes to it alone (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cols` | `number \| null` | no |  |
+| `mode` | `"interactive" \| "observe"` | no | observe never resizes and never writes. |
+| `rows` | `number \| null` | no |  |
+| `terminalId` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cols` | `number` | yes |  |
+| `info` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+| `repaint` | `string` | yes | base64 ANSI that rebuilds the screen in a fresh viewer. |
+| `rows` | `number` | yes |  |
+| `seq` | `number` | yes | Sequence of the last byte included; terminal.data follows. |
+| `status` | `{ kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }` | yes |  |
+| `title` | `string` | no |  |
+
+### `terminal.close`
+
+*Direction:* client → server
+
+Kill the terminal (HUP, TERM, KILL) and forget it (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `force` | `boolean` | no | Skip the HUP step. |
+| `terminalId` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `terminal.create`
+
+*Direction:* client → server
+
+Start a terminal in a registered project; dangerous options need confirmDangerous from a human connection (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cols` | `number \| null` | no |  |
+| `confirmDangerous` | `boolean` | no | Required for a dangerous option; human connections only, set after the person confirmed. Refused from Jarvis or any tool. |
+| `cwd` | `string \| null` | no | A registered project root; with noProject: the workspace. |
+| `labels` | `Record<string, string>` | no |  |
+| `noProject` | `boolean` | no | Use the session workspace, no project. |
+| `options` | `string[]` | no | Ids from terminal.profiles. |
+| `parent` | `string \| null` | no | Who starts it (Jarvis sets 'jarvis'). |
+| `profile` | `"shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"` | yes | Which profile to start. |
+| `prompt` | `string \| null` | no | First input, through the input gate. |
+| `resumeSessionId` | `string \| null` | no | The CLI's own session id to resume (claude/codex/agy/cursor). |
+| `rows` | `number \| null` | no |  |
+| `snowpeaSessionId` | `string \| null` | no | Profile 'snowpea': the session to attach to. |
+| `title` | `string \| null` | no |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+
+### `terminal.detach`
+
+*Direction:* client → server
+
+Stop viewing; the terminal keeps running (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `terminalId` | `string` | yes | Terminal id. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `terminal.interrupt`
+
+*Direction:* client → server
+
+Interrupt the program (Esc if it reports status, else Ctrl-C) (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `terminalId` | `string` | yes | Terminal id. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `terminal.keys`
+
+*Direction:* client → server
+
+Send named keys 30 ms apart (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `keys` | `string[]` | yes | Named keys, e.g. 'Enter'. |
+| `terminalId` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `terminal.list`
+
+*Direction:* client → server
+
+Terminals the daemon holds (1.73.0, terminalSessions).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `aliveOnly` | `boolean` | no |  |
+| `parent` | `string \| null` | no | Only terminals started by this parent. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `terminals` | `({ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; })[]` | no |  |
+
+### `terminal.profiles`
+
+*Direction:* client → server
+
+Terminal profiles, permission options and which CLIs are installed (1.73.0).
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `profiles` | `({ dangerousRefusal?: "max_mode" \| "terminal_locked" \| null; id: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; installed: boolean; integration?: "claude" \| "codex" \| "cursor" \| "agy" \| null; label: string; options?: ({ args?: string[]; dangerous?: boolean; id: string; label: string; })[]; path?: string \| null; resumable?: boolean; })[]` | no |  |
+
+### `terminal.read`
+
+*Direction:* client → server
+
+Plain-text screen and history, status and title (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `lines` | `number` | no | Screen plus this many history lines. |
+| `terminalId` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `alive` | `boolean` | no |  |
+| `exitCode` | `number \| null` | no |  |
+| `status` | `{ kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }` | yes |  |
+| `text` | `string` | yes | Plain text, no ANSI. |
+| `title` | `string` | no |  |
+
+### `terminal.report`
+
+*Direction:* client → server
+
+Hook report from a CLI inside a terminal; per-terminal token only (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `event` | `string` | yes | The CLI's hook event name. |
+| `message` | `string \| null` | no |  |
+| `sessionId` | `string \| null` | no |  |
+| `state` | `"idle" \| "working" \| "done" \| "blocked" \| "error" \| null` | no |  |
+| `terminalId` | `string` | yes |  |
+| `token` | `string` | yes | SNOWPEA_TERMINAL_TOKEN of that terminal. |
+| `transcriptPath` | `string \| null` | no |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `terminal.resize`
+
+*Direction:* client → server
+
+Resize from the most recent interactive viewer (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cols` | `number` | yes |  |
+| `rows` | `number` | yes |  |
+| `terminalId` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `terminal.seen`
+
+*Direction:* client → server
+
+A person looked at the terminal: clears its done/blocked attention (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `terminalId` | `string` | yes | Terminal id. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `terminal.send`
+
+*Direction:* client → server
+
+Send text through the input gate (waits for the person to be quiet) (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `force` | `boolean` | no | Send into a blocked terminal; not Jarvis. |
+| `submit` | `boolean` | no | Press the profile's submit key after pasting. |
+| `terminalId` | `string` | yes |  |
+| `text` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accepted` | `boolean` | yes | The program went to working within 5 s. |
+| `reason` | `string \| null` | no |  |
+| `sent` | `boolean` | no |  |
+
+### `terminal.unlock`
+
+*Direction:* client → server
+
+Over the tunnel: enter the web password again to use terminals (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `password` | `string` | yes | The web password, entered again. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `unlocked` | `boolean` | yes |  |
+| `viaTunnel` | `boolean` | no | This connection came over the tunnel. |
+
+### `terminal.wait`
+
+*Direction:* client → server
+
+Wait for the program to leave working, exit or print a match (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `output` | `string \| null` | no | End when this text appears. |
+| `terminalId` | `string` | yes |  |
+| `timeout` | `number` | no |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `reason` | `"left_working" \| "exit" \| "match" \| "timeout" \| "blocked"` | yes |  |
+| `status` | `{ kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }` | yes |  |
+| `text` | `string` | no |  |
+
+### `terminal.write`
+
+*Direction:* client → server
+
+Send bytes to the PTY (a viewer's typing) (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `data` | `string` | yes | base64 bytes for the PTY. |
+| `human` | `boolean` | no | Typed by a person (updates the input gate). |
+| `terminalId` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
 ### `tool.invoke`
 
 *Direction:* server → client
@@ -5348,6 +5786,155 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 | `provider` | `string` | yes | The search provider that answered, e.g. 'ddgs'. |
 | `results` | `({ snippet?: string; title: string; url: string; })[]` | no |  |
 
+### `web.tunnel.install`
+
+*Direction:* client → server
+
+Download the pinned, checksummed tunnel binary into SNOWPEA_HOME/bin (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `provider` | `string \| null` | no | Default: the configured provider. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
+| `error` | `string \| null` | no |  |
+| `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
+| `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
+| `installedPath` | `string` | no | Where the binary was put. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
+| `url` | `string \| null` | no | The public URL once running. |
+
+### `web.tunnel.setToken`
+
+*Direction:* client → server
+
+Store the ngrok authtoken or Cloudflare tunnel token; local human only (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `provider` | `"cloudflare" \| "ngrok"` | yes |  |
+| `token` | `string` | yes | Never echoed; dropped from validation error details. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
+| `error` | `string \| null` | no |  |
+| `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
+| `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
+| `url` | `string \| null` | no | The public URL once running. |
+
+### `web.tunnel.start`
+
+*Direction:* client → server
+
+Start the tunnel; needs web.remote.enabled and a web password (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `provider` | `"cloudflare-quick" \| "cloudflare" \| "ngrok" \| null` | no | Override web.remote.tunnel.provider for this start. |
+| `save` | `boolean` | no | Also store it as the provider setting. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
+| `error` | `string \| null` | no |  |
+| `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
+| `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
+| `url` | `string \| null` | no | The public URL once running. |
+
+### `web.tunnel.status`
+
+*Direction:* client → server
+
+Tunnel provider, state and public URL (1.73.0, webTunnel).
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
+| `error` | `string \| null` | no |  |
+| `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
+| `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
+| `url` | `string \| null` | no | The public URL once running. |
+
+### `web.tunnel.stop`
+
+*Direction:* client → server
+
+Stop the tunnel (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `save` | `boolean` | no | Also store provider 'off' / autoStart false. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `binary` | `string \| null` | no | Resolved tunnel program path, if found. |
+| `error` | `string \| null` | no |  |
+| `installCommand` | `string \| null` | no | Shown instead when no checksum is pinned for the platform. |
+| `installable` | `boolean` | no | web.tunnel.install has a pinned download for this platform. |
+| `provider` | `string` | no | off, cloudflare-quick, cloudflare or ngrok. |
+| `restarts` | `number` | no | Restarts since it was started. |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | no |  |
+| `tokenSet` | `boolean \| null` | no | A token for the provider is stored (null: none needed). |
+| `url` | `string \| null` | no | The public URL once running. |
+
+### `web.tunnel.unlock`
+
+*Direction:* client → server
+
+Re-enter the web password to unlock terminals on a tunnel connection (1.73.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `password` | `string` | yes |  |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `unlocked` | `boolean` | no |  |
+
 ### `workspace.add`
 
 *Direction:* client → server
@@ -5523,7 +6110,7 @@ Set the sidebar order (1.47.0).
 | `previousHost` | `"none" \| "terminal" \| "tmux" \| "snowpea" \| null` | no | Host before. |
 | `ref` | `{ cli: "claude" \| "codex" \| "agy" \| "cursor"; id: string; }` | yes | Which session. |
 | `status` | `"idle" \| "running" \| "error"` | yes | Status now. |
-| `terminal` | `{ kind: "tmux"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session: string; window: string; } \| null` | no | As ExternalSessionRow.terminal, now (1.56.0). |
+| `terminal` | `{ kind: "tmux" \| "pty"; modeState?: "confirmed" \| "unconfirmed" \| "unknown"; pane?: string; prompt?: { recognised: boolean; text?: string \| null; } \| null; session?: string; status?: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; } \| null; terminalId?: string \| null; window?: string; } \| null` | no | As ExternalSessionRow.terminal, now (1.56.0). |
 | `title` | `string \| null` | no | Title, when known. |
 | `tmux` | `{ pane: string; session: string; } \| null` | no | With host 'tmux': where. |
 
@@ -5534,6 +6121,12 @@ Set the sidebar order (1.47.0).
 | `bindingId` | `string` | yes | Binding the event belongs to. |
 | `kind` | `string` | yes | Event kind, e.g. 'message' or 'error'. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
+
+### `integration.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `integrations` | `({ cli: "claude" \| "codex" \| "cursor" \| "agy"; cliInstalled?: boolean; detail?: string \| null; files?: ({ exists?: boolean; path: string; })[]; label: string; state: "not-installed" \| "current" \| "outdated" \| "modified"; version?: string \| null; })[]` | no |  |
 
 ### `jarvis.access`
 
@@ -5764,12 +6357,64 @@ Set the sidebar order (1.47.0).
 | `reason` | `string` | yes | Why the guide list changed. |
 | `team` | `string \| null` | no | Team that changed, when known. |
 
+### `terminal.closed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `terminalId` | `string` | yes |  |
+
+### `terminal.created`
+
+| field | type | required | description |
+|---|---|---|---|
+| `terminal` | `{ alive: boolean; cols?: number; createdAt?: string; cwd?: string; dangerous?: boolean; exitCode?: number \| null; external?: { cli: "claude" \| "codex" \| "agy" \| "cursor"; sessionId?: string \| null; } \| null; labels?: Record<string, string>; options?: string[]; parent?: string \| null; pid?: number \| null; profile: "shell" \| "snowpea" \| "claude" \| "codex" \| "agy" \| "cursor"; rows?: number; snowpeaSessionId?: string \| null; status: { kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }; terminalId: string; title?: string; }` | yes |  |
+
+### `terminal.data`
+
+| field | type | required | description |
+|---|---|---|---|
+| `data` | `string` | no | base64 PTY output. |
+| `repaint` | `boolean` | no | data is a full repaint (the viewer fell too far behind). |
+| `seq` | `number` | yes |  |
+| `terminalId` | `string` | yes |  |
+
+### `terminal.exit`
+
+| field | type | required | description |
+|---|---|---|---|
+| `exitCode` | `number \| null` | no |  |
+| `signal` | `string \| null` | no |  |
+| `terminalId` | `string` | yes |  |
+
+### `terminal.status`
+
+| field | type | required | description |
+|---|---|---|---|
+| `status` | `{ kind?: "permission" \| "question" \| "auth" \| null; seen?: boolean; source?: "osc" \| "screen" \| "hook" \| "rules" \| "none"; state: "idle" \| "working" \| "done" \| "blocked" \| "error"; stuck?: boolean; turn?: number; }` | yes |  |
+| `terminalId` | `string` | yes |  |
+
+### `terminal.title`
+
+| field | type | required | description |
+|---|---|---|---|
+| `terminalId` | `string` | yes |  |
+| `title` | `string` | yes |  |
+
 ### `tool.cancel`
 
 | field | type | required | description |
 |---|---|---|---|
 | `callId` | `string` | yes | The tool.invoke callId to stop. |
 | `sessionId` | `string` | yes | Session whose turn was interrupted. |
+
+### `web.tunnel.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `error` | `string \| null` | no |  |
+| `provider` | `string` | no |  |
+| `state` | `"off" \| "starting" \| "running" \| "restarting" \| "error"` | yes |  |
+| `url` | `string \| null` | no |  |
 
 ## `session.event` kinds
 

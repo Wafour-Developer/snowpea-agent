@@ -9761,6 +9761,387 @@ class JarvisProjectResult(Payload):
     project: JarvisProject = Field(description="The project after the change.")
 
 
+# --------------------------------------------------------------------------
+# M37 terminal sessions, CLI hook integrations, web tunnel (1.73.0)
+# --------------------------------------------------------------------------
+# Additive only: every method sits behind a capability (``PENDING_CAPABILITIES``
+# until its work package lands) and older clients never see any of it.  Design:
+# docs/design/m37-terminal-sessions.md section 2.13.
+
+TerminalProfileId = Literal["shell", "snowpea", "claude", "codex", "agy", "cursor"]
+TerminalState = Literal["idle", "working", "done", "blocked", "error"]
+TerminalStateKind = Literal["permission", "question", "auth"]
+TerminalStatusSource = Literal["osc", "screen", "hook", "rules", "none"]
+TerminalAttachMode = Literal["interactive", "observe"]
+IntegrationCli = Literal["claude", "codex", "cursor", "agy"]
+IntegrationState = Literal["not-installed", "current", "outdated", "modified"]
+
+
+class TerminalOption(Payload):
+    """One permission option of a profile (a CLI flag set), e.g. claude 'bypass'."""
+
+    id: str = Field(description="Option id, e.g. 'acceptEdits', 'bypass', 'yolo'.")
+    label: str = Field(description="Short label for a checkbox.")
+    args: list[str] = Field(default_factory=list, description="argv appended for this option.")
+    dangerous: bool = Field(
+        default=False,
+        description=(
+            "Skips the CLI's permission prompts or sandbox. Needs terminal.create "
+            "confirmDangerous from a human connection."
+        ),
+    )
+
+
+class TerminalProfile(Payload):
+    id: TerminalProfileId = Field(description="Profile id.")
+    label: str = Field(description="Display name.")
+    installed: bool = Field(description="The CLI (or shell) was found on this machine.")
+    path: str | None = Field(default=None, description="Resolved executable, when installed.")
+    resumable: bool = Field(default=False, description="It can start from an existing session id.")
+    integration: IntegrationCli | None = Field(
+        default=None, description="Hook integration id of this CLI, if it has one."
+    )
+    options: list[TerminalOption] = Field(
+        default_factory=list, description="Permission options the launch dialog offers."
+    )
+    dangerousRefusal: Literal["max_mode", "terminal_locked"] | None = Field(
+        default=None,
+        description=(
+            "Why this connection cannot use dangerous options now: max_mode (web.remote.maxMode "
+            "is below auto) or terminal_locked (tunnel connection, web.tunnel.unlock first). "
+            "null: allowed (still needs confirmDangerous)."
+        ),
+    )
+
+
+class TerminalProfilesResult(Payload):
+    profiles: list[TerminalProfile] = Field(default_factory=list)
+
+
+class TerminalStatus(Payload):
+    state: TerminalState = Field(description="What the program in the terminal is doing.")
+    kind: TerminalStateKind | None = Field(
+        default=None, description="Why it is blocked (permission, question, auth)."
+    )
+    turn: int = Field(default=0, description="Incremented when the root record leaves working.")
+    stuck: bool = Field(default=False, description="Set on entering blocked or error.")
+    seen: bool = Field(
+        default=True, description="A person has looked since the last done (done/blocked rows)."
+    )
+    source: TerminalStatusSource = Field(
+        default="none", description="osc (7501), screen (rules or a visible blocker), hook, rules."
+    )
+
+
+class TerminalExternalRef(Payload):
+    cli: ExternalCli = Field(description="The external CLI running in the terminal.")
+    sessionId: str | None = Field(default=None, description="Its own session id, once known.")
+
+
+class TerminalInfo(Payload):
+    terminalId: str = Field(description="Terminal id (stable across daemon restarts).")
+    profile: TerminalProfileId = Field(description="Profile it was started with.")
+    title: str = Field(default="", description="Program title (OSC 0/2) or the profile label.")
+    cwd: str = Field(default="", description="Working folder.")
+    cols: int = Field(default=160)
+    rows: int = Field(default=48)
+    status: TerminalStatus = Field(description="Current status.")
+    alive: bool = Field(description="The holder and its program are running.")
+    pid: int | None = Field(default=None, description="The program's pid, when alive.")
+    exitCode: int | None = Field(default=None, description="Exit code once it ended.")
+    parent: str | None = Field(default=None, description="Who started it, e.g. 'jarvis'.")
+    labels: dict[str, str] = Field(default_factory=dict)
+    external: TerminalExternalRef | None = Field(default=None)
+    snowpeaSessionId: str | None = Field(
+        default=None, description="The snowpea session a 'snowpea' profile terminal is attached to."
+    )
+    options: list[str] = Field(default_factory=list, description="Option ids it was started with.")
+    dangerous: bool = Field(default=False, description="Started with a dangerous option.")
+    createdAt: str = Field(default="", description="ISO time.")
+
+
+class TerminalListParams(Payload):
+    parent: str | None = Field(default=None, description="Only terminals started by this parent.")
+    aliveOnly: bool = Field(default=False)
+
+
+class TerminalListResult(Payload):
+    terminals: list[TerminalInfo] = Field(default_factory=list)
+
+
+class TerminalCreateParams(Payload):
+    profile: TerminalProfileId = Field(description="Which profile to start.")
+    cwd: str | None = Field(
+        default=None, description="A registered project root; with noProject: the workspace."
+    )
+    noProject: bool = Field(default=False, description="Use the session workspace, no project.")
+    options: list[str] = Field(default_factory=list, description="Ids from terminal.profiles.")
+    confirmDangerous: bool = Field(
+        default=False,
+        description=(
+            "Required for a dangerous option; human connections only, set after the person "
+            "confirmed. Refused from Jarvis or any tool."
+        ),
+    )
+    title: str | None = Field(default=None)
+    cols: int | None = Field(default=None, ge=10, le=1000)
+    rows: int | None = Field(default=None, ge=2, le=1000)
+    prompt: str | None = Field(default=None, description="First input, through the input gate.")
+    resumeSessionId: str | None = Field(
+        default=None, description="The CLI's own session id to resume (claude/codex/agy/cursor)."
+    )
+    snowpeaSessionId: str | None = Field(
+        default=None, description="Profile 'snowpea': the session to attach to."
+    )
+    labels: dict[str, str] = Field(default_factory=dict)
+    parent: str | None = Field(default=None, description="Who starts it (Jarvis sets 'jarvis').")
+
+
+class TerminalCreateResult(Payload):
+    terminal: TerminalInfo
+
+
+class TerminalIdParams(Payload):
+    terminalId: str = Field(description="Terminal id.")
+
+
+class TerminalAttachParams(Payload):
+    terminalId: str
+    mode: TerminalAttachMode = Field(
+        default="interactive", description="observe never resizes and never writes."
+    )
+    cols: int | None = Field(default=None, ge=10, le=1000)
+    rows: int | None = Field(default=None, ge=2, le=1000)
+
+
+class TerminalAttachResult(Payload):
+    repaint: str = Field(description="base64 ANSI that rebuilds the screen in a fresh viewer.")
+    seq: int = Field(description="Sequence of the last byte included; terminal.data follows.")
+    cols: int
+    rows: int
+    status: TerminalStatus
+    title: str = Field(default="")
+    info: TerminalInfo
+
+
+class TerminalWriteParams(Payload):
+    terminalId: str
+    data: str = Field(description="base64 bytes for the PTY.")
+    human: bool = Field(default=True, description="Typed by a person (updates the input gate).")
+
+
+class TerminalResizeParams(Payload):
+    terminalId: str
+    cols: int = Field(ge=10, le=1000)
+    rows: int = Field(ge=2, le=1000)
+
+
+class TerminalAckParams(Payload):
+    terminalId: str
+    bytes: int = Field(ge=0, description="Bytes the viewer has processed (replenishes credit).")
+
+
+class TerminalReadParams(Payload):
+    terminalId: str
+    lines: int = Field(default=60, ge=1, le=400, description="Screen plus this many history lines.")
+
+
+class TerminalReadResult(Payload):
+    text: str = Field(description="Plain text, no ANSI.")
+    status: TerminalStatus
+    title: str = Field(default="")
+    alive: bool = Field(default=True)
+    exitCode: int | None = Field(default=None)
+
+
+class TerminalSendParams(Payload):
+    terminalId: str
+    text: str
+    submit: bool = Field(default=True, description="Press the profile's submit key after pasting.")
+    force: bool = Field(default=False, description="Send into a blocked terminal; not Jarvis.")
+
+
+class TerminalSendResult(Payload):
+    accepted: bool = Field(description="The program went to working within 5 s.")
+    sent: bool = Field(default=True)
+    reason: str | None = Field(default=None)
+
+
+class TerminalKeysParams(Payload):
+    terminalId: str
+    keys: list[str] = Field(min_length=1, max_length=64, description="Named keys, e.g. 'Enter'.")
+
+
+class TerminalWaitParams(Payload):
+    terminalId: str
+    timeout: float = Field(default=60, gt=0, le=180)
+    output: str | None = Field(default=None, description="End when this text appears.")
+
+
+class TerminalWaitResult(Payload):
+    reason: Literal["left_working", "exit", "match", "timeout", "blocked"]
+    status: TerminalStatus
+    text: str = Field(default="")
+
+
+class TerminalCloseParams(Payload):
+    terminalId: str
+    force: bool = Field(default=False, description="Skip the HUP step.")
+
+
+class TerminalUnlockParams(Payload):
+    password: str = Field(description="The web password, entered again.")
+
+
+class TerminalUnlockResult(Payload):
+    unlocked: bool
+    viaTunnel: bool = Field(default=False, description="This connection came over the tunnel.")
+
+
+class TerminalReportParams(Payload):
+    """Hook report; callable only with the per-terminal token (never by Jarvis or a browser)."""
+
+    terminalId: str
+    token: str = Field(description="SNOWPEA_TERMINAL_TOKEN of that terminal.")
+    event: str = Field(description="The CLI's hook event name.")
+    state: TerminalState | None = None
+    sessionId: str | None = None
+    transcriptPath: str | None = None
+    message: str | None = None
+
+
+class TerminalDataEvent(Payload):
+    """To the attached viewer connection only; never broadcast."""
+
+    terminalId: str
+    seq: int
+    data: str = Field(default="", description="base64 PTY output.")
+    repaint: bool = Field(
+        default=False, description="data is a full repaint (the viewer fell too far behind)."
+    )
+
+
+class TerminalStatusEvent(Payload):
+    terminalId: str
+    status: TerminalStatus
+
+
+class TerminalCreatedEvent(Payload):
+    terminal: TerminalInfo
+
+
+class TerminalExitEvent(Payload):
+    terminalId: str
+    exitCode: int | None = None
+    signal: str | None = None
+
+
+class TerminalTitleEvent(Payload):
+    terminalId: str
+    title: str
+
+
+class TerminalClosedEvent(Payload):
+    terminalId: str
+
+
+class IntegrationFile(Payload):
+    path: str = Field(description="A file the integration edits.")
+    exists: bool = Field(default=False)
+
+
+class IntegrationRow(Payload):
+    cli: IntegrationCli
+    label: str
+    state: IntegrationState = Field(description="not-installed, current, outdated or modified.")
+    cliInstalled: bool = Field(default=False, description="The CLI itself is on this machine.")
+    version: str | None = Field(default=None, description="Installed hook version, if any.")
+    files: list[IntegrationFile] = Field(default_factory=list)
+    detail: str | None = Field(default=None, description="Why modified/outdated, one line.")
+
+
+class IntegrationListResult(Payload):
+    integrations: list[IntegrationRow] = Field(default_factory=list)
+
+
+class IntegrationActionParams(Payload):
+    cli: IntegrationCli | Literal["all"]
+
+
+class IntegrationActionResult(Payload):
+    integrations: list[IntegrationRow] = Field(default_factory=list)
+    changedFiles: list[str] = Field(default_factory=list)
+
+
+class IntegrationChangedEvent(Payload):
+    integrations: list[IntegrationRow] = Field(default_factory=list)
+
+
+class WebTunnelStatus(Payload):
+    """web.tunnel.* result (1.73.0, webTunnel).
+
+    Errors are ``unavailable`` with ``details.reason`` one of: remote_disabled, no_password,
+    not_listening, bad_listen_host, no_binary, no_token, no_hostname, bad_provider,
+    install_unpinned, checksum_mismatch, install_failed, terminal_locked
+    (``details.unlock`` = "web.tunnel.unlock"), tunnel_dangerous.
+    """
+
+    state: Literal["off", "starting", "running", "restarting", "error"] = Field(default="off")
+    provider: str = Field(default="off", description="off, cloudflare-quick, cloudflare or ngrok.")
+    url: str | None = Field(default=None, description="The public URL once running.")
+    error: str | None = Field(default=None)
+    binary: str | None = Field(default=None, description="Resolved tunnel program path, if found.")
+    installable: bool = Field(
+        default=False, description="web.tunnel.install has a pinned download for this platform."
+    )
+    installCommand: str | None = Field(
+        default=None, description="Shown instead when no checksum is pinned for the platform."
+    )
+    tokenSet: bool | None = Field(
+        default=None, description="A token for the provider is stored (null: none needed)."
+    )
+    restarts: int = Field(default=0, description="Restarts since it was started.")
+
+
+class WebTunnelInstallResult(WebTunnelStatus):
+    installedPath: str = Field(default="", description="Where the binary was put.")
+
+
+class TunnelStartParams(Payload):
+    provider: Literal["cloudflare-quick", "cloudflare", "ngrok"] | None = Field(
+        default=None, description="Override web.remote.tunnel.provider for this start."
+    )
+    save: bool = Field(default=False, description="Also store it as the provider setting.")
+
+
+class TunnelStopParams(Payload):
+    save: bool = Field(default=False, description="Also store provider 'off' / autoStart false.")
+
+
+class TunnelSetTokenParams(Payload):
+    provider: Literal["cloudflare", "ngrok"]
+    token: str = Field(description="Never echoed; dropped from validation error details.")
+
+
+class TunnelInstallParams(Payload):
+    provider: str | None = Field(default=None, description="Default: the configured provider.")
+
+
+class TunnelUnlockParams(Payload):
+    password: str
+
+
+class TunnelUnlockResult(Payload):
+    unlocked: bool = True
+
+
+class TunnelChangedEvent(Payload):
+    state: Literal["off", "starting", "running", "restarting", "error"]
+    provider: str = "off"
+    url: str | None = None
+    error: str | None = None
+
+
 # -- external.* -------------------------------------------------------------
 
 
@@ -9990,10 +10371,17 @@ class ExternalTerminal(Payload):
     from the CLI process's own terminal, never from pane or transcript text.
     """
 
-    kind: Literal["tmux"] = Field(description="The only kind: a tmux pane.")
-    pane: str = Field(description="tmux pane id, e.g. '%12'.")
-    session: str = Field(description="tmux session name.")
-    window: str = Field(description="tmux window index.")
+    kind: Literal["tmux", "pty"] = Field(
+        description=(
+            "tmux: a pane of the person's tmux. pty (1.73.0, externalPty): a terminal session "
+            "snowpea runs itself (terminalId); pane, session and window are then empty."
+        )
+    )
+    pane: str = Field(default="", description="tmux pane id, e.g. '%12' (kind tmux).")
+    session: str = Field(default="", description="tmux session name (kind tmux).")
+    window: str = Field(default="", description="tmux window index (kind tmux).")
+    terminalId: str | None = Field(default=None, description="kind pty: the terminal's id.")
+    status: TerminalStatus | None = Field(default=None, description="kind pty: its status.")
     modeState: Literal["confirmed", "unconfirmed", "unknown"] = Field(
         default="unknown",
         description=(
@@ -10184,9 +10572,12 @@ class ExternalOpenParams(Payload):
             "a human connection (else jarvis_person_only), with a ledger entry."
         ),
     )
-    transport: Literal["structured", "tmux"] | None = Field(
+    transport: Literal["structured", "tmux", "pty"] | None = Field(
         default=None,
         description=(
+            "'pty' (1.73.0, externalPty): run the CLI as a real terminal session "
+            "(ExternalTerminal.kind 'pty', terminalId); a client that omits it keeps the "
+            "structured transport. "
             "'tmux' on a Claude Code session the person runs in a tmux pane of their own "
             "(listed as host 'terminal'): adopt that pane, so snowpea can type into it (host "
             "'tmux'). The call waits for a person-only approval (tool 'tmux.adopt', "
@@ -10206,6 +10597,20 @@ class ExternalOpenParams(Payload):
             "details.reason 'untrusted_project' (show the confirmation, retry with trust: "
             "true). Only a person's local connection can trust; anyone else gets details.reason "
             "'untrusted_project_person_only'."
+        ),
+    )
+    options: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1.73.0 (externalPty, transport 'pty'): permission option ids from terminal.profiles "
+            "for this CLI. Dangerous ones need confirmDangerous."
+        ),
+    )
+    confirmDangerous: bool = Field(
+        default=False,
+        description=(
+            "1.73.0: the person confirmed the dangerous options; human connections only, "
+            "refused from Jarvis or any tool."
         ),
     )
 
@@ -10287,9 +10692,10 @@ class ExternalCreateParams(Payload):
         default=None,
         description="As ExternalOpenParams.nativeMode (1.56.0): wins over mode.",
     )
-    transport: Literal["structured", "tmux"] = Field(
+    transport: Literal["structured", "tmux", "pty"] = Field(
         default="structured",
         description=(
+            "pty (1.73.0, externalPty): a real terminal session; see ExternalOpenParams. "
             "structured (default): the daemon runs it over the CLI's own protocol (host "
             "'snowpea'; the only transport Jarvis-managed sessions use). tmux: in a new tmux "
             "pane (host 'tmux'), only once spike S5 confirms it and the host has tmux; else "
@@ -10298,6 +10704,20 @@ class ExternalCreateParams(Payload):
     )
     trust: bool = Field(
         default=False, description="As ExternalOpenParams.trust (untrusted_project)."
+    )
+    options: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1.73.0 (externalPty, transport 'pty'): permission option ids from terminal.profiles "
+            "for this CLI. Dangerous ones need confirmDangerous."
+        ),
+    )
+    confirmDangerous: bool = Field(
+        default=False,
+        description=(
+            "1.73.0: the person confirmed the dangerous options; human connections only, "
+            "refused from Jarvis or any tool."
+        ),
     )
 
 
@@ -13002,6 +13422,59 @@ METHODS: dict[str, RpcMethod] = {
                 "inputs and schedule the chosen recipes."
             ),
         ),
+        # -- M37 terminal sessions, hook integrations, web tunnel (1.73.0) ------
+        _m("terminal.profiles", Empty, TerminalProfilesResult,
+           "Terminal profiles, permission options and which CLIs are installed (1.73.0)."),
+        _m("terminal.list", TerminalListParams, TerminalListResult,
+           "Terminals the daemon holds (1.73.0, terminalSessions)."),
+        _m("terminal.create", TerminalCreateParams, TerminalCreateResult,
+           "Start a terminal in a registered project; dangerous options need confirmDangerous "
+           "from a human connection (1.73.0)."),
+        _m("terminal.attach", TerminalAttachParams, TerminalAttachResult,
+           "Attach this connection as a viewer; terminal.data then goes to it alone (1.73.0)."),
+        _m("terminal.detach", TerminalIdParams, Ok,
+           "Stop viewing; the terminal keeps running (1.73.0)."),
+        _m("terminal.write", TerminalWriteParams, Ok,
+           "Send bytes to the PTY (a viewer's typing) (1.73.0)."),
+        _m("terminal.resize", TerminalResizeParams, Ok,
+           "Resize from the most recent interactive viewer (1.73.0)."),
+        _m("terminal.ack", TerminalAckParams, Ok,
+           "Replenish a viewer's flow-control credit (1.73.0)."),
+        _m("terminal.read", TerminalReadParams, TerminalReadResult,
+           "Plain-text screen and history, status and title (1.73.0)."),
+        _m("terminal.send", TerminalSendParams, TerminalSendResult,
+           "Send text through the input gate (waits for the person to be quiet) (1.73.0)."),
+        _m("terminal.keys", TerminalKeysParams, Ok,
+           "Send named keys 30 ms apart (1.73.0)."),
+        _m("terminal.interrupt", TerminalIdParams, Ok,
+           "Interrupt the program (Esc if it reports status, else Ctrl-C) (1.73.0)."),
+        _m("terminal.wait", TerminalWaitParams, TerminalWaitResult,
+           "Wait for the program to leave working, exit or print a match (1.73.0)."),
+        _m("terminal.close", TerminalCloseParams, Ok,
+           "Kill the terminal (HUP, TERM, KILL) and forget it (1.73.0)."),
+        _m("terminal.seen", TerminalIdParams, Ok,
+           "A person looked at the terminal: clears its done/blocked attention (1.73.0)."),
+        _m("terminal.unlock", TerminalUnlockParams, TerminalUnlockResult,
+           "Over the tunnel: enter the web password again to use terminals (1.73.0)."),
+        _m("terminal.report", TerminalReportParams, Ok,
+           "Hook report from a CLI inside a terminal; per-terminal token only (1.73.0)."),
+        _m("integration.list", Empty, IntegrationListResult,
+           "Hook integration status per CLI (1.73.0, cliIntegrations)."),
+        _m("integration.install", IntegrationActionParams, IntegrationActionResult,
+           "Install the hook entries into a CLI's config; human connection only (1.73.0)."),
+        _m("integration.uninstall", IntegrationActionParams, IntegrationActionResult,
+           "Remove exactly what install added; human connection only (1.73.0)."),
+        _m("web.tunnel.status", Empty, WebTunnelStatus,
+           "Tunnel provider, state and public URL (1.73.0, webTunnel)."),
+        _m("web.tunnel.start", TunnelStartParams, WebTunnelStatus,
+           "Start the tunnel; needs web.remote.enabled and a web password (1.73.0)."),
+        _m("web.tunnel.stop", TunnelStopParams, WebTunnelStatus, "Stop the tunnel (1.73.0)."),
+        _m("web.tunnel.setToken", TunnelSetTokenParams, WebTunnelStatus,
+           "Store the ngrok authtoken or Cloudflare tunnel token; local human only (1.73.0)."),
+        _m("web.tunnel.install", TunnelInstallParams, WebTunnelInstallResult,
+           "Download the pinned, checksummed tunnel binary into SNOWPEA_HOME/bin (1.73.0)."),
+        _m("web.tunnel.unlock", TunnelUnlockParams, TunnelUnlockResult,
+           "Re-enter the web password to unlock terminals on a tunnel connection (1.73.0)."),
     )
 }
 
@@ -13045,6 +13518,15 @@ EVENTS: dict[str, type[BaseModel]] = {
     "security.blocked": SecurityBlockedNotification,
     # 1.55.0: a project's trust changed (set, revoke, the one-time migration).
     "project.trust.changed": ProjectTrustChangedNotification,
+    # 1.73.0 (M37): terminal.data goes to attached viewers only; the rest daemon-wide.
+    "terminal.data": TerminalDataEvent,
+    "terminal.status": TerminalStatusEvent,
+    "terminal.created": TerminalCreatedEvent,
+    "terminal.exit": TerminalExitEvent,
+    "terminal.title": TerminalTitleEvent,
+    "terminal.closed": TerminalClosedEvent,
+    "integration.changed": IntegrationChangedEvent,
+    "web.tunnel.changed": TunnelChangedEvent,
 }
 
 CAPABILITIES: list[str] = [
@@ -13257,7 +13739,15 @@ CAPABILITIES: list[str] = [
 #: ``system.hello`` until the work package that implements them lands; that
 #: package moves its name into :data:`CAPABILITIES`.  Their methods answer
 #: ``not_implemented`` until then.
-PENDING_CAPABILITIES: dict[str, str] = {}
+PENDING_CAPABILITIES: dict[str, str] = {
+    # M37 (1.73.0): each moves into CAPABILITIES when its work package lands.
+    "terminalSessions": "terminal.* methods and events: PTY terminals held by the daemon",
+    "terminalStatus": "TerminalInfo.status: OSC 7501, screen rules and hook-driven states",
+    "cliIntegrations": "integration.list|install|uninstall: CLI hook entries (Claude, Codex, ...)",
+    "externalPty": "external.open|create {transport: 'pty'} and ExternalTerminal.kind 'pty'",
+    "tuiSessionAttach": "snowpea TUI --session <id> attach and OSC 7501 status emission",
+    "webTunnel": "web.tunnel.*: ngrok / Cloudflare tunnel for web.remote",
+}
 
 #: ``models.categories`` slots core routes by (1.33.0): ``fast`` and
 #: ``standard`` since 1.7.0, ``deep`` and ``vision`` since 1.33.0.
