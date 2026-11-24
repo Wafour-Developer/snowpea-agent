@@ -9256,6 +9256,13 @@ class JarvisOverviewRow(Payload):
         default=None,
         description="For an external session: as ExternalSessionRow.securityListsApply (1.54.0).",
     )
+    terminal: TerminalInfo | None = Field(
+        default=None,
+        description=(
+            "1.73.0 (terminalSessions): a terminal row (sessionId and external null, unless "
+            "the terminal runs that external session): the terminal as terminal.list shows it."
+        ),
+    )
 
 
 class JarvisOverviewResult(Payload):
@@ -9804,12 +9811,14 @@ class TerminalProfile(Payload):
     options: list[TerminalOption] = Field(
         default_factory=list, description="Permission options the launch dialog offers."
     )
-    dangerousRefusal: Literal["max_mode", "terminal_locked"] | None = Field(
+    dangerousRefusal: Literal["max_mode", "terminal_locked", "person_only"] | None = Field(
         default=None,
         description=(
             "Why this connection cannot use dangerous options now: max_mode (web.remote.maxMode "
-            "is below auto) or terminal_locked (tunnel connection, web.tunnel.unlock first). "
-            "null: allowed (still needs confirmDangerous)."
+            "is below auto), terminal_locked (tunnel connection, web.tunnel.unlock first) or "
+            "person_only (not a person's local connection: a remote web login, a browser, "
+            "Jarvis). null: allowed (still needs confirmDangerous). Set only on profiles "
+            "that have a dangerous option."
         ),
     )
 
@@ -9902,6 +9911,14 @@ class TerminalCreateParams(Payload):
     )
     labels: dict[str, str] = Field(default_factory=dict)
     parent: str | None = Field(default=None, description="Who starts it (Jarvis sets 'jarvis').")
+    trust: bool = Field(
+        default=False,
+        description=(
+            "As ExternalOpenParams.trust, for a CLI profile: the person's one-time "
+            "confirmation that external CLIs may run in this project (else "
+            "external_unavailable with details.reason 'untrusted_project')."
+        ),
+    )
 
 
 class TerminalCreateResult(Payload):
@@ -13759,6 +13776,9 @@ CAPABILITIES: list[str] = [
     # 1.73.0 (M37): integration.list|install|uninstall and integration.changed —
     # snowpea's hook in Claude Code / Codex / Cursor / agy hook configs.
     "cliIntegrations",
+    # 1.73.0 (M37 T3): external.open|create {transport: "pty"} run the CLI as a
+    # terminal session (ExternalTerminal.kind "pty"); terminal profiles and options.
+    "externalPty",
 ]
 
 #: M19 capabilities (1.53.0) declared with the contract but not advertised in
@@ -13767,7 +13787,6 @@ CAPABILITIES: list[str] = [
 #: ``not_implemented`` until then.
 PENDING_CAPABILITIES: dict[str, str] = {
     # M37 (1.73.0): each moves into CAPABILITIES when its work package lands.
-    "externalPty": "external.open|create {transport: 'pty'} and ExternalTerminal.kind 'pty'",
     "webTunnel": "web.tunnel.*: ngrok / Cloudflare tunnel for web.remote",
 }
 

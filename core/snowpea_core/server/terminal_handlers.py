@@ -238,6 +238,8 @@ def _shell_profile() -> dict[str, Any]:
 
 
 async def _resolve_cwd(core: Core, params: TerminalCreateParams) -> str:
+    if params.profile == "snowpea" and params.snowpeaSessionId and not params.cwd:
+        return ""  # the profile starts in that session's own folder
     if params.noProject or not params.cwd:
         day = datetime.now(UTC).strftime("%Y-%m-%d")
         folder = Path(core.paths.home) / "sessions" / f"{day}_terminal-{secrets.token_hex(3)}"
@@ -288,9 +290,14 @@ async def create_handler(conn: RpcConnection, params: TerminalCreateParams,
                          core: Core) -> dict[str, Any]:
     _tunnel_gate(conn, core)
     manager = ensure_manager(core)
+    module = _profiles_module()
+    if module is not None and hasattr(module, "existing"):
+        # {profile: "snowpea", snowpeaSessionId} reuses that session's live terminal.
+        reused = module.existing(core, params)
+        if reused is not None:
+            return {"terminal": reused}
     cwd = await _resolve_cwd(core, params)
     cols, rows = _size(core, params)
-    module = _profiles_module()
     if module is not None and hasattr(module, "build_spec"):
         spec = await _maybe_await(module.build_spec(core, conn, params, cwd))
     elif params.profile == "shell":
