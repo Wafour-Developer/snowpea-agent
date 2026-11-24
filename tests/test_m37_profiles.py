@@ -221,7 +221,11 @@ async def test_dangerous_refusal_matrix(daemon: Any, http: aiohttp.ClientSession
     # Over the tunnel without the unlock.
     with pytest.raises(RpcError) as locked:
         await build(human(via_tunnel=True), confirmDangerous=True)
-    assert locked.value.data["reason"] in ("terminal_locked", "person_only")
+    assert locked.value.data["reason"] == "terminal_locked"
+    assert profiles.dangerous_refusal(core, human(via_tunnel=True)) == "terminal_locked"
+    # Unlocked over the tunnel: still a remote web login, never the local person.
+    unlocked = human(via_tunnel=True, remote_login=True, tunnel_unlocked=lambda: True)
+    assert profiles.dangerous_refusal(core, unlocked) == "person_only"
     # web.remote.maxMode below auto.
     monkeypatch.setattr(core.settings.web.remote, "maxMode", "plan")
     with pytest.raises(RpcError) as capped:
