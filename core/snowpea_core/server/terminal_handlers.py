@@ -402,7 +402,8 @@ async def seen_handler(_conn: RpcConnection, params: TerminalIdParams,
 
 async def report_handler(_conn: RpcConnection, params: TerminalReportParams,
                          core: Core) -> dict[str, Any]:
-    report = HookReport(event=params.event, state=params.state, session_id=params.sessionId,
+    report = HookReport(event=params.event, state=params.state, kind=params.kind,
+                        session_id=params.sessionId,
                         transcript_path=params.transcriptPath, message=params.message)
     ensure_manager(core).report(params.terminalId, params.token, report)
     return {"ok": True}

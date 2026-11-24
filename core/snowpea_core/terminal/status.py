@@ -40,6 +40,10 @@ IDLE_CONFIRM_SPACING = 0.1  #: … this far apart,
 IDLE_QUIET = 0.7  #: … or this much output quiet
 LAUNCH_SILENCE = 3.0  #: nothing from the rules is published this soon after launch
 BLOCKER_REPUBLISH = 0.8  #: a visible blocker is published again this often
+#: A hook's ``working`` yields once, since the report, the screen rules have
+#: said idle (or the output has not changed) this long: Claude fires no Stop
+#: on an Esc interrupt, so nothing else would ever end it.
+STALE_HOOK_WORKING = 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +181,10 @@ class StatusMachine:
     _last_publish: float = field(default=float("-inf"), init=False)
     _last_output: float = field(default=float("-inf"), init=False)
     _dirty: bool = field(default=False, init=False)
+    #: When the hook claim was reported, and since when the rules have
+    #: continuously said idle (``None`` while they say anything else).
+    _hook_at: float = field(default=float("-inf"), init=False)
+    _rules_idle_since: float | None = field(default=None, init=False)
     #: The program spoke OSC 7501 at least once: it reports its own status.
     reports_status: bool = field(default=False, init=False)
 
@@ -218,6 +226,11 @@ class StatusMachine:
         verdict = normalise_verdict(verdict)
         if verdict is not None and verdict.skip:
             return None
+        if verdict is None or verdict.state in ("idle", "done"):
+            if self._rules_idle_since is None:
+                self._rules_idle_since = now
+        else:
+            self._rules_idle_since = None
         if verdict is not None and verdict.state == "blocked" and verdict.visible:
             self._blocker = _Claim("blocked", _kind("blocked", verdict.kind), detail=verdict.detail)
             rules.pending, rules.pending_none, rules.pending_count = None, False, 0
@@ -264,7 +277,26 @@ class StatusMachine:
                                 message=getattr(report, "message", None) or None)
         else:
             return None
-        return self._publish(self._now(now))
+        now = self._now(now)
+        self._hook_at = now
+        return self._publish(now)
+
+    def _expire_stale_hook(self, now: float) -> TerminalStatus | None:
+        """Drop a hook ``working`` the screen contradicts for :data:`STALE_HOOK_WORKING`.
+
+        Only ``working`` lapses; a hook's done / blocked and its session info
+        keep their place, and a visible blocker outranks the hook anyway.
+        """
+        if self._hook is None or self._hook.state != "working":
+            return None
+        idle_since = self._rules_idle_since
+        rules_idle = (idle_since is not None
+                      and now - max(idle_since, self._hook_at) >= STALE_HOOK_WORKING)
+        quiet = now - max(self._last_output, self._hook_at) >= STALE_HOOK_WORKING
+        if not (rules_idle or quiet):
+            return None
+        self._hook = None
+        return self._publish(now)
 
     def on_output(self, now: float | None = None) -> None:
         self._last_output = self._now(now)
@@ -334,6 +366,7 @@ class StatusMachine:
             except Exception:  # noqa: BLE001 - a broken rule must not stop the terminal
                 verdict = None
             published = self.apply_rule_verdict(verdict, now=now)
+        published = self._expire_stale_hook(now) or published
         if (published is None and self._status.source == "screen"
                 and now - self._last_publish >= BLOCKER_REPUBLISH):
             self._last_publish = now
