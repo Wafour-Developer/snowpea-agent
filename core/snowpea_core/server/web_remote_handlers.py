@@ -145,6 +145,9 @@ async def listen_handler(
 ) -> WebRemoteStatus:
     remote = core.settings.web.remote
     username = remote.username if params.username is None else params.username.strip()
+    tunnel = getattr(core, "tunnel", None)
+    listener_before = getattr(core, "web_remote", None)
+    moved_from = (getattr(listener_before, "host", None), getattr(listener_before, "port", None))
     try:
         await _listener(core).start(
             host=params.host, port=params.port, username=username,
@@ -163,6 +166,11 @@ async def listen_handler(
     except OSError as exc:
         raise RpcError(errors.UNAVAILABLE, f"could not listen on {params.host}:{params.port}: "
                        f"{exc}", {"field": "host", "reason": "bad_address"}) from exc
+    moved = (getattr(listener_before, "host", None), getattr(listener_before, "port", None))
+    if tunnel is not None and tunnel.active is True and moved != moved_from:
+        # M37: the tunnel pointed at the old address; start it again at the new one.
+        with contextlib.suppress(Exception):
+            await tunnel.start(wait=0)
     if params.save:
         listener = _listener(core)
         await _save(core, enabled=True, host=params.host,
@@ -173,6 +181,9 @@ async def listen_handler(
 async def stop_handler(
     _conn: RpcConnection, params: WebRemoteStopParams, core: Core
 ) -> WebRemoteStatus:
+    tunnel = getattr(core, "tunnel", None)
+    if tunnel is not None and tunnel.active is True:
+        await tunnel.stop()  # M37: it would point at a closed port
     await _listener(core).stop()
     if params.save:
         await _save(core, enabled=False)

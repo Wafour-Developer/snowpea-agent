@@ -108,6 +108,13 @@ class RpcConnection:
         #: The remote listener's re-check of this login's password (1.56.0):
         #: ``await remote_reauth(password)`` -> ``"ok"`` or why not.
         self.remote_reauth: Callable[[Any], Any] | None = None
+        #: M37: came in through the web tunnel (its Host is the tunnel's).  Terminal
+        #: calls then need a terminal unlock (``server/tunnel.require_terminal_unlock``).
+        self.via_tunnel: bool = False
+        #: Whether this sign-in session re-entered the web password for terminals
+        #: (``web.tunnel.unlock``), and the call that records it.
+        self.tunnel_unlocked: Callable[[], bool] | None = None
+        self.tunnel_mark_unlocked: Callable[[], None] | None = None
         #: Called with this connection once it closes (host tools, keep-alive).
         self.on_close: list[Callable[[RpcConnection], Any]] = []
 
@@ -373,7 +380,7 @@ class RpcDispatcher:
 
 #: Params that carry a secret (1.56.0: the remote password again): a validation
 #: error of a call that holds one never echoes any input back.
-SECRET_PARAMS: frozenset[str] = frozenset({"reauth"})
+SECRET_PARAMS: frozenset[str] = frozenset({"reauth", "token", "password"})
 
 
 def _without_secrets(exc: ValidationError, raw: dict[str, Any]) -> list[Any]:

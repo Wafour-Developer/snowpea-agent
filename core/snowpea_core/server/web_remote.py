@@ -220,6 +220,9 @@ class _Session:
     #: How the login was made: ``password`` (the sign-in page) or ``link`` (the
     #: access link).  Only a password login can re-authenticate (1.56.0).
     via: str = "link"
+    #: M37: the password was entered again for terminals over the tunnel
+    #: (``web.tunnel.unlock``); lasts as long as this sign-in session.
+    terminal_unlocked: bool = False
 
 
 def rate_key(ip: str) -> str:
@@ -292,6 +295,9 @@ class RemoteAuth:
         #: here so ``web.remote.listen`` on the same address updates them in place.
         self.trust_proxy: bool | None = None
         self.origins: frozenset[str] | None = None
+        #: M37: the running :class:`~snowpea_core.server.tunnel.TunnelService`, if any
+        #: (duck-typed: ``active``, ``origin``, ``host``, ``provider``).
+        self.tunnel: Any = None
 
     def _current_fingerprint(self) -> str:
         """Fingerprint of the stored hash and the access token (a change of either ends
@@ -390,6 +396,15 @@ class RemoteAuth:
         if wait:
             return ("rate_limited", int(wait))
         return "failed"
+
+    def terminal_unlocked(self, token: str | None) -> bool:
+        found = self.session(token)
+        return bool(found is not None and found.terminal_unlocked)
+
+    def unlock_terminal(self, token: str | None) -> None:
+        found = self.session(token)
+        if found is not None:
+            found.terminal_unlocked = True
 
     def session(self, token: str | None) -> _Session | None:
         if not token:
@@ -618,15 +633,42 @@ TRUST_PROXY_KEY: web.AppKey[bool] = web.AppKey("remote_trust_proxy", bool)
 ORIGINS_KEY: web.AppKey[frozenset[str]] = web.AppKey("remote_origins", frozenset)
 
 
+def _tunnel(request: web.Request) -> Any:
+    """The tunnel service while it runs (``active`` is literally ``True``), else ``None``."""
+    tunnel = getattr(request.app[AUTH_KEY], "tunnel", None)
+    return tunnel if tunnel is not None and getattr(tunnel, "active", False) is True else None
+
+
 def _trust_proxy(request: web.Request) -> bool:
-    """The listener's current ``trustProxy`` (kept on its auth so an update in place works)."""
+    """The listener's current ``trustProxy`` (kept on its auth so an update in place works).
+
+    While the tunnel runs the forwarded headers count too (M37): the callers still
+    require the peer to be on this machine (:func:`_from_local_proxy`), which is
+    where the tunnel program connects from.
+    """
+    if _tunnel(request) is not None:
+        return True
     value = getattr(request.app[AUTH_KEY], "trust_proxy", None)
     return bool(request.app[TRUST_PROXY_KEY] if value is None else value)
 
 
 def _origins(request: web.Request) -> frozenset[str]:
     value = getattr(request.app[AUTH_KEY], "origins", None)
-    return request.app[ORIGINS_KEY] if value is None else value
+    base = request.app[ORIGINS_KEY] if value is None else value
+    tunnel = _tunnel(request)
+    origin = getattr(tunnel, "origin", None) if tunnel is not None else None
+    # The tunnel's own origin is allowed at runtime, never written to the settings.
+    return base | {origin} if isinstance(origin, str) and origin else base
+
+
+def _via_tunnel(request: web.Request) -> bool:
+    """The request's Host is the tunnel's: marked by Host alone, so a request that names
+    the tunnel host but did not come through it only gets the stricter rules."""
+    tunnel = _tunnel(request)
+    if tunnel is None:
+        return False
+    checker = getattr(tunnel, "is_tunnel_host", None)
+    return bool(callable(checker) and checker(request.host))
 
 
 def _is_https(request: web.Request) -> bool:
@@ -649,6 +691,11 @@ def _from_local_proxy(request: web.Request) -> bool:
 
 def _client_ip(request: web.Request) -> str:
     if _trust_proxy(request) and _from_local_proxy(request):
+        if _tunnel(request) is not None:
+            # Cloudflare's edge sets this and cloudflared passes it on.
+            connecting = request.headers.get("CF-Connecting-IP", "").strip()
+            if connecting:
+                return connecting
         forwarded = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",")]
         forwarded = [p for p in forwarded if p]
         if forwarded:
@@ -769,6 +816,12 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
         return auth.push_alive(cookie)
 
     ip = _client_ip(request)
+    via_tunnel = _via_tunnel(request)
+
+    def configure(conn: RpcConnection) -> None:
+        conn.via_tunnel = via_tunnel
+        conn.tunnel_unlocked = lambda: auth.terminal_unlocked(cookie)
+        conn.tunnel_mark_unlocked = lambda: auth.unlock_terminal(cookie)
 
     async def reauth(password: Any) -> Any:
         # 1.56.0: the password again for a delegation grant, counted with this
@@ -777,7 +830,7 @@ async def remote_websocket(request: web.Request) -> web.StreamResponse:
 
     return await websocket_handler(request, track=_Track(found.sockets, auth.sockets),
                                    capability=capability_ok, alive=alive,
-                                   push_alive=push_alive, reauth=reauth)
+                                   push_alive=push_alive, reauth=reauth, configure=configure)
 
 
 async def remote_web_redirect(request: web.Request) -> web.Response:
@@ -996,6 +1049,8 @@ class RemoteListener:
 
     def __init__(self, dispatcher: RpcDispatcher, paths: Paths, *,
                  connections: set[RpcConnection], sockets: set[web.WebSocketResponse]) -> None:
+        #: M37: the tunnel service the daemon sets; handed to every auth made.
+        self.tunnel: Any = None
         self.dispatcher = dispatcher
         self.paths = paths
         self.connections = connections
@@ -1038,11 +1093,13 @@ class RemoteListener:
                 auth.username, self.username = username, username
                 auth.session_sec = max(1.0, float(session_hours) * 3600.0)
                 auth.trust_proxy, auth.origins = bool(trust_proxy), origins
+                auth.tunnel = self.tunnel
                 self.error = None
                 return
             access_token(self.paths)  # made now, so the link exists before the first visit
             auth = RemoteAuth(username, session_hours, self.paths)
             auth.trust_proxy, auth.origins = bool(trust_proxy), origins
+            auth.tunnel = self.tunnel
             app = create_remote_app(self.dispatcher, auth, connections=self.connections,
                                     sockets=self.sockets, trust_proxy=trust_proxy,
                                     allowed_origins=allowed_origins)
