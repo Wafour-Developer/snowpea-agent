@@ -58,6 +58,36 @@ Notas de seguridad:
 - Una página cuya sesión ha terminado (caducó, se cambió la contraseña o se cerró sesión en otro sitio) vuelve a la pantalla de inicio de sesión.
 - El listener remoto sirve solo la página, el inicio de sesión y el WebSocket —ni `/health`, ni `/version`, ni el esquema— y el WebSocket rechaza páginas de otro origen.
 
+### Una dirección pública con un túnel
+
+`snowpea web` puede abrirte una dirección HTTPS pública a través de un programa de túnel, para que llegues a este equipo desde un teléfono o desde otra red sin abrir un puerto ni montar un proxy. Hay tres proveedores:
+
+| Proveedor | Qué necesitas | Dirección |
+|---|---|---|
+| `cloudflare-quick` | `cloudflared`; sin cuenta | un `https://….trycloudflare.com` aleatorio, nuevo en cada arranque |
+| `cloudflare` | `cloudflared`, un token de túnel de Cloudflare y su nombre de host | tu propio `https://<host>` |
+| `ngrok` | `ngrok` y su authtoken | la dirección `https://….ngrok-free.app` que te da ngrok |
+
+El túnel no arranca a menos que **el acceso remoto esté activado y haya una contraseña web** (`snowpea web --host … --port …`, `snowpea web password`): una dirección pública con solo el enlace de acceso no está permitida. El listener debe ser alcanzable desde el loopback de este equipo (`0.0.0.0` o `127.0.0.1`), porque el programa de túnel se conecta a él desde aquí.
+
+```bash
+snowpea web tunnel install                      # descarga el programa de túnel, si falta
+printf '%s\n' "$TOKEN" | snowpea web tunnel token --provider cloudflare   # o ngrok; se lee de stdin
+snowpea web tunnel start --provider cloudflare-quick --save   # --save conserva el proveedor para el próximo arranque
+snowpea web tunnel status                       # estado, dirección, programa, si hay token guardado
+snowpea web tunnel stop
+```
+
+Ajustes (`web.remote.tunnel`, se cambian solo en este equipo): `provider` (`off`, `cloudflare-quick`, `cloudflare`, `ngrok`), `autoStart` (arranca con el daemon cuando hay proveedor y se cumplen las condiciones; activado por defecto), `hostname` (el nombre de host público de un túnel `cloudflare`; ese proveedor no arranca sin él) y `binary` (un programa de túnel que se usa antes que `PATH` y `~/.snowpea/bin`).
+
+- **El programa.** snowpea lo busca en `binary`, luego en `PATH` y después en `~/.snowpea/bin`. `snowpea web tunnel install` descarga una versión fijada de `cloudflared` desde su página oficial de GitHub y solo la instala si su sha256 coincide con el valor fijado; si no coincide, no escribe nada. Donde no hay checksum fijado (macOS, y ngrok en todas partes) se niega a instalar y muestra el comando que debes ejecutar tú (`brew install cloudflared`, `brew install ngrok`, `snap install ngrok`, `winget install …`).
+- **Tokens.** El authtoken de ngrok y el token del túnel de Cloudflare se guardan en `credentials.json` (modo 600), nunca en `settings.json`. Establécelos con `snowpea web tunnel token --provider …` (una línea por stdin) o desde los ajustes de un cliente. Llegan al programa de túnel por su entorno, no por su línea de comandos, y se eliminan de cualquier cosa que snowpea registre o muestre.
+- **Reinicios.** Si el programa de túnel se detiene, snowpea lo vuelve a arrancar tras 2 s, luego 4 s, 8 s y así hasta 60 s como máximo. Se rinde tras cinco arranques seguidos que nunca mostraron una dirección; `snowpea web tunnel status` dice por qué. Un túnel rápido recibe una dirección nueva tras cada reinicio, y los clientes se enteran por el evento `web.tunnel.changed`.
+- **Orígenes y cabeceras de proxy.** Mientras el túnel funciona, su dirección es un origen permitido para el WebSocket de la página, y la dirección del visitante y el esquema `https` se toman de las cabeceras del túnel (`CF-Connecting-IP`, `X-Forwarded-*`), pero solo desde una conexión de este equipo, que es desde donde se conecta el programa de túnel. No se escribe nada en `allowedOrigins`.
+- **Terminales a través del túnel.** Una página abierta por el túnel puede ver un terminal después de iniciar sesión, pero arrancar un terminal, escribir en él o usar cualquier opción peligrosa requiere un **desbloqueo de terminal**: la página vuelve a pedir la contraseña web (`web.tunnel.unlock`), y el desbloqueo dura lo que dure esa sesión. Las opciones peligrosas se rechazan por el túnel salvo que `maxMode` sea `auto`.
+
+Un túnel hace la página accesible para cualquiera que pueda adivinar la dirección, así que se aplican todas las notas de acceso remoto de arriba: usa una contraseña larga y detén el túnel cuando no lo necesites.
+
 ## La pantalla
 
 El diseño sigue el cliente web de DeepSeek Harness: tres columnas, con la conversación en el medio.

@@ -165,7 +165,7 @@ snowpea web tunnel status                       # state, address, program, token
 snowpea web tunnel stop
 ```
 
-Settings (`web.remote.tunnel`, changed on this computer only): `provider` (`off`, `cloudflare-quick`, `cloudflare`, `ngrok`), `autoStart` (start with the daemon when the provider is set and the preconditions hold; default on), `hostname` (the public hostname of a `cloudflare` tunnel) and `binary` (a tunnel program to use before `PATH` and `~/.snowpea/bin`).
+Settings (`web.remote.tunnel`, changed on this computer only): `provider` (`off`, `cloudflare-quick`, `cloudflare`, `ngrok`), `autoStart` (start with the daemon when the provider is set and the preconditions hold; default on), `hostname` (the public hostname of a `cloudflare` tunnel; that provider does not start without it) and `binary` (a tunnel program to use before `PATH` and `~/.snowpea/bin`).
 
 - **The program.** snowpea looks for it in `binary`, then on `PATH`, then in `~/.snowpea/bin`. `snowpea web tunnel install` downloads a pinned `cloudflared` release from its official GitHub page and installs it only if its sha256 is the pinned value; on a mismatch nothing is written. Where no checksum is pinned (macOS, and ngrok everywhere) it refuses and prints the command to run yourself (`brew install cloudflared`, `brew install ngrok`, `snap install ngrok`, `winget install …`).
 - **Tokens.** The ngrok authtoken and the Cloudflare tunnel token are kept in `credentials.json` (mode 600), never in `settings.json`. Set them with `snowpea web tunnel token --provider …` (one line on stdin) or from a client's settings. They reach the tunnel program through its environment, not its command line, and are removed from anything snowpea logs or shows.

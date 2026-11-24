@@ -28,6 +28,8 @@ Start at [English](en/index.md) or [한국어](ko/index.md).
 | Sandbox sessions | `snowpea --docker`, the image, credentials in the container, what it does not protect, `remote up --docker` | [en](en/sandbox.md) | [ko](ko/sandbox.md) | — | — | — |
 | Headless | `-c`, JSON Lines, exit codes, CI | [en](en/headless.md) | [ko](ko/headless.md) | [ja](ja/headless.md) | [zh-CN](zh-CN/headless.md) | [es](es/headless.md) |
 | Protocol | handshake, methods, events, versioning and the freeze gate | [en](en/protocol.md) | [ko](ko/protocol.md) | [ja](ja/protocol.md) | [zh-CN](zh-CN/protocol.md) | [es](es/protocol.md) |
+| Terminal sessions (beta) | a CLI or a snowpea session in a terminal pane, status dots, permission options, `snowpea term`, Jarvis and terminals | [en](en/terminals.md) | [ko](ko/terminals.md) | [ja](ja/terminals.md) | [zh-CN](zh-CN/terminals.md) | [es](es/terminals.md) |
+| CLI hook integrations (beta) | `snowpea integration install\|uninstall\|status`: the files each CLI's hooks touch, backups, status values | [en](en/integrations.md) | [ko](ko/integrations.md) | [ja](ja/integrations.md) | [zh-CN](zh-CN/integrations.md) | [es](es/integrations.md) |
 
 ## Not in the manual
 

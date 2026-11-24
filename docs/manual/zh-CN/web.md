@@ -58,6 +58,36 @@ ssh -L <port>:127.0.0.1:<port> host
 - 会话结束的页面(过期、密码更改，或在别处退出登录)会返回登录界面。
 - 远程监听器只提供页面、登录和 WebSocket(没有 `/health`、`/version` 或协议架构)，WebSocket 会拒绝来自其他来源的页面。
 
+### 用隧道获得公网地址
+
+`snowpea web` 可以通过隧道程序为你打开一个公网 HTTPS 地址，不必开放端口或自己架设代理，就能从手机或其他网络访问这台电脑。共有三种提供方:
+
+| 提供方 | 需要什么 | 地址 |
+|---|---|---|
+| `cloudflare-quick` | `cloudflared`;无需账户 | 随机的 `https://….trycloudflare.com`，每次启动都会变 |
+| `cloudflare` | `cloudflared`、Cloudflare 隧道令牌及其主机名 | 你自己的 `https://<主机名>` |
+| `ngrok` | `ngrok` 及其 authtoken | ngrok 给你的 `https://….ngrok-free.app` 地址 |
+
+只有 **远程访问已开启并且已设置网页密码** 时，隧道才会启动(`snowpea web --host … --port …`、`snowpea web password`)：只有访问链接而没有密码，不允许开放公网地址。监听器必须能从本机的回环地址访问(`0.0.0.0` 或 `127.0.0.1`)，因为隧道程序从这里连接它。
+
+```bash
+snowpea web tunnel install                      # 缺少隧道程序时下载
+printf '%s\n' "$TOKEN" | snowpea web tunnel token --provider cloudflare   # 或 ngrok；从标准输入读取
+snowpea web tunnel start --provider cloudflare-quick --save   # --save 让下次启动仍使用该提供方
+snowpea web tunnel status                       # 状态、地址、程序、是否已设置令牌
+snowpea web tunnel stop
+```
+
+设置项(`web.remote.tunnel`，只能在这台电脑上更改)：`provider`(`off`、`cloudflare-quick`、`cloudflare`、`ngrok`)、`autoStart`(设置了提供方且条件满足时随守护进程启动，默认开启)、`hostname`(`cloudflare` 隧道的公网主机名；该提供方没有它就不会启动)、`binary`(优先于 `PATH` 和 `~/.snowpea/bin` 使用的隧道程序)。
+
+- **程序。** snowpea 依次在 `binary`、`PATH`、`~/.snowpea/bin` 中查找。`snowpea web tunnel install` 会从 cloudflared 官方 GitHub 发布页下载固定版本，并且只有 sha256 与固定值一致时才安装，不一致则什么都不写入。没有固定校验值的情况(macOS，以及所有平台的 ngrok)，它会拒绝安装，并给出你自己运行的命令(`brew install cloudflared`、`brew install ngrok`、`snap install ngrok`、`winget install …`)。
+- **令牌。** ngrok 的 authtoken 和 Cloudflare 隧道令牌保存在 `credentials.json`(权限 600)中，绝不写入 `settings.json`。用 `snowpea web tunnel token --provider …`(标准输入，一行)设置，或在客户端的设置中填写。令牌通过环境变量而不是命令行传给隧道程序，并且会从 snowpea 记录或显示的任何内容中去除。
+- **重启。** 隧道程序停止后，snowpea 会在 2 秒、4 秒、8 秒……后重新启动，间隔最长 60 秒。如果连续五次启动都没有显示地址，它就放弃，原因可以在 `snowpea web tunnel status` 中看到。快速隧道(`cloudflare-quick`)每次重启都会得到新地址，客户端通过 `web.tunnel.changed` 事件得知。
+- **来源与代理头。** 隧道运行期间，其地址是页面 WebSocket 允许的来源；访客的地址和 `https` 方案取自隧道的头部(`CF-Connecting-IP`、`X-Forwarded-*`)，但只信任来自本机的连接(即隧道程序所连接的那一端)。`allowedOrigins` 不会被写入任何内容。
+- **经隧道使用终端。** 通过隧道打开的页面在登录后可以查看终端。但启动终端、输入内容或使用危险选项需要 **终端解锁**：页面会再次要求输入网页密码(`web.tunnel.unlock`)，解锁在该次登录期间有效。若 `maxMode` 不是 `auto`，经隧道的危险选项会被拒绝。
+
+隧道会让任何能猜到地址的人访问页面，因此本页上方关于远程登录的所有注意事项都适用：使用足够长的密码，不需要时就停止隧道。
+
 ## 界面
 
 布局参照 DeepSeek Harness 的 Web 客户端：三列，对话在中间。

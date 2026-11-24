@@ -21,6 +21,8 @@ snowpea をインストールしたばかりなら、[Install](install.md)、続
 | [拡張を書く](extensions.md) | デーモンに Python のツール、プロンプトのセクション、フック、コマンド、MCP サーバーを加えたいとき |
 | [Scheduler](scheduler.md) | 席を外しているあいだに作業を進めてほしいとき |
 | [Gateway](gateway.md) | Telegram、Discord、Slack からエージェントと話したいとき |
+| [Terminal sessions (beta)](terminals.md) | CLI や snowpea のセッションを実際のターミナルで動かすとき、ステータスのドット、パーミッションの選択肢、`snowpea term` |
+| [CLI hook integrations (beta)](integrations.md) | Claude Code、Codex、Cursor agent、agy の状態を snowpea が受け取れるようにフックを入れるとき |
 | [Headless](headless.md) | snowpea をスクリプト化する、または CI に組み込むとき |
 | [Protocol](protocol.md) | デーモンを相手にクライアントを作るとき |
 

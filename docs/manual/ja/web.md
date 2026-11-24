@@ -58,6 +58,36 @@ ssh -L <port>:127.0.0.1:<port> host
 - セッションが終わったページ(期限切れ、パスワード変更、別の場所でのサインアウト)はサインイン画面に戻ります。
 - リモートのリスナーが返すのはページ、サインイン、WebSocket だけです(`/health`、`/version`、スキーマはありません)。WebSocket は別のオリジンのページを拒否します。
 
+### トンネルで公開アドレスを得る
+
+`snowpea web` は、トンネルプログラムを使って公開 HTTPS アドレスを用意できます。ポートを開けたりプロキシを立てたりせずに、スマートフォンや別のネットワークからこのコンピュータに接続できます。プロバイダーは 3 種類です。
+
+| プロバイダー | 必要なもの | アドレス |
+|---|---|---|
+| `cloudflare-quick` | `cloudflared`。アカウントは不要 | ランダムな `https://….trycloudflare.com`。起動するたびに新しくなります |
+| `cloudflare` | `cloudflared`、Cloudflare トンネルのトークン、そのホスト名 | 自分で決めた `https://<ホスト名>` |
+| `ngrok` | `ngrok` と authtoken | ngrok が割り当てる `https://….ngrok-free.app` |
+
+トンネルは **リモートアクセスが有効で、Web パスワードが設定されている場合にだけ** 起動します(`snowpea web --host … --port …`、`snowpea web password`)。アクセスリンクだけで公開アドレスを開くことは許可されません。リスナーはこのコンピュータのループバック(`0.0.0.0` または `127.0.0.1`)から到達できる必要があります。トンネルプログラムがここからリスナーに接続するためです。
+
+```bash
+snowpea web tunnel install                      # トンネルプログラムがなければダウンロード
+printf '%s\n' "$TOKEN" | snowpea web tunnel token --provider cloudflare   # または ngrok。標準入力から読み込み
+snowpea web tunnel start --provider cloudflare-quick --save   # --save: 次の起動でもこのプロバイダーを使う
+snowpea web tunnel status                       # 状態、アドレス、プログラム、トークンの設定有無
+snowpea web tunnel stop
+```
+
+設定 (`web.remote.tunnel`、このコンピュータでのみ変更可能): `provider`(`off`、`cloudflare-quick`、`cloudflare`、`ngrok`)、`autoStart`(プロバイダーが決まっていて条件が揃えば、デーモンと一緒に起動。既定では有効)、`hostname`(`cloudflare` トンネルの公開ホスト名。このプロバイダーは、これがないと起動しません)、`binary`(PATH と `~/.snowpea/bin` より先に使うトンネルプログラム)。
+
+- **プログラム。** snowpea は `binary`、PATH、`~/.snowpea/bin` の順に探します。`snowpea web tunnel install` は固定バージョンの `cloudflared` を公式の GitHub リリースからダウンロードし、sha256 が固定値と一致したときだけインストールします。一致しなければ何も書き込みません。チェックサムが固定されていない場合(macOS と、すべての環境の ngrok)は、インストールを拒否して、自分で実行するコマンド(`brew install cloudflared`、`brew install ngrok`、`snap install ngrok`、`winget install …`)を表示します。
+- **トークン。** ngrok の authtoken と Cloudflare トンネルのトークンは `credentials.json`(権限 600)に保存し、`settings.json` には入れません。`snowpea web tunnel token --provider …`(標準入力で 1 行)、またはクライアントの設定画面から入力してください。トークンはコマンドラインではなく環境変数でトンネルプログラムに渡され、snowpea がログや表示に出す内容からは取り除かれます。
+- **再起動。** トンネルプログラムが止まると、snowpea は 2 秒、4 秒、8 秒と間隔を延ばしながら(最大 60 秒)再起動します。アドレスが一度も表示されない起動が 5 回続くと諦めます。理由は `snowpea web tunnel status` に表示されます。クイックトンネル(`cloudflare-quick`)は再起動のたびに新しいアドレスになり、クライアントには `web.tunnel.changed` イベントで伝わります。
+- **オリジンとプロキシヘッダー。** トンネルが動いている間、そのアドレスはページの WebSocket で許可されたオリジンになります。訪問者のアドレスと `https` の扱いは、トンネルのヘッダー(`CF-Connecting-IP`、`X-Forwarded-*`)から読みます。ただし、このコンピュータからの接続(トンネルプログラムが接続してくる元)に限ります。`allowedOrigins` には何も書き込みません。
+- **トンネル越しのターミナル。** トンネルで開いたページは、サインイン後にターミナルを見ることができます。ただし、ターミナルの開始、入力、危険なオプションには **ターミナルのロック解除** が必要です。ページが Web パスワードの再入力を求め(`web.tunnel.unlock`)、ロック解除はそのサインインの間だけ有効です。`maxMode` が `auto` でなければ、トンネル越しの危険なオプションは拒否されます。
+
+トンネルを使うと、アドレスを推測できる人なら誰でもページを開けます。このページの「別のマシンから」にあるサインインの注意がすべて当てはまります。長いパスワードを使い、必要がなくなったらトンネルを止めてください。
+
 ## 画面
 
 レイアウトは DeepSeek Harness の Web クライアントに倣っています。3 列で、真ん中が会話です。

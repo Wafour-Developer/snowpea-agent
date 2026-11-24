@@ -334,6 +334,10 @@ voice input needs speech-to-text: no transcription backend: install the whisper 
 snowpea --inline
 ```
 
+## ターミナルセッション（beta）
+
+snowpea のセッションは、ターミナルで表示することもできます。同じセッションに接続した snowpea CLI を、チャットの横に、またはチャットの代わりに表示する方式です。`snowpea --session <id>` は、この TUI をローカルデーモンに既にあるセッションに接続します。新しいセッションは作らず、そのセッションを再開します。既定の表示の設定、ステータスのドット、`snowpea term` は [Terminal sessions（beta）](terminals.md) を読んでください。
+
 ## キー
 
 | キー | 何をするか |

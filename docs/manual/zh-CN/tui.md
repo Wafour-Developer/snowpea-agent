@@ -334,6 +334,10 @@ voice input needs speech-to-text: no transcription backend: install the whisper 
 snowpea --inline
 ```
 
+## 终端会话（beta）
+
+snowpea 会话也可以在终端中显示：连接到同一会话的 snowpea CLI，可以与聊天并排显示，也可以代替聊天。`snowpea --session <id>` 会把本 TUI 连接到本地守护进程中已有的会话，恢复该会话而不是新建。默认视图设置、状态圆点和 `snowpea term` 请参阅 [终端会话（beta）](terminals.md)。
+
 ## 按键
 
 | 按键 | 作用 |

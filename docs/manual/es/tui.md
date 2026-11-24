@@ -334,6 +334,10 @@ La interfaz es de pantalla completa por defecto: la entrada, las líneas de modo
 snowpea --inline
 ```
 
+## Sesiones de terminal (beta)
+
+Una sesión de snowpea también se puede mostrar en un terminal: la CLI de snowpea adjunta a la misma sesión, junto al chat o en lugar de él. `snowpea --session <id>` abre esta TUI sobre una sesión que ya existe en el daemon local, reanudándola en lugar de crear una nueva. Para el ajuste de vista por defecto, los puntos de estado y `snowpea term`, lee [Sesiones de terminal (beta)](terminals.md).
+
 ## Teclas
 
 | Tecla | Qué hace |

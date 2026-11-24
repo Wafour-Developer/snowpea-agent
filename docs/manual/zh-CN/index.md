@@ -21,6 +21,8 @@ snowpea 是一个跑在你自己机器上的开源多供应商编码 agent。一
 | [编写扩展](extensions.md) | 想给守护进程添加 Python 工具、提示词段落、钩子、命令或 MCP 服务器时 |
 | [Scheduler](scheduler.md) | 希望工作在你不在的时候照常发生时 |
 | [Gateway](gateway.md) | 想从 Telegram、Discord 或 Slack 跟 agent 对话时 |
+| [终端会话（beta）](terminals.md) | 想在真实终端面板中运行 CLI 或 snowpea 会话、查看状态点、权限选项、使用 `snowpea term` 时 |
+| [CLI 钩子集成（beta）](integrations.md) | 想让 snowpea 看到 Claude Code、Codex、Cursor agent、agy 的状态，需要安装或卸载钩子时 |
 | [Headless](headless.md) | 用脚本驱动 snowpea，或者把它接进 CI 时 |
 | [Protocol](protocol.md) | 要针对守护进程写一个客户端时 |
 
