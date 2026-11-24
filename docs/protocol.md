@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.71.0` (semver)
+- **Protocol version:** `1.72.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.71.0"
+    "protocolVersion": "1.72.0"
   }
 }
 ```
@@ -120,6 +120,7 @@ Server capabilities advertised in the `system.hello` result:
 - `sessionEffort`
 - `sessionEvents`
 - `sessionOverrides`
+- `sessionPaths`
 - `sessionSetAgent`
 - `sessions`
 - `setAgentGuardTurn`
@@ -296,7 +297,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`security.get`](#securityget) | client → server | Security lists (1.54.0): the stored global lists, a project's additions, the effective lists with presets expanded, and whether this connection may change them (settings.set {scope: 'global', patch: {security: …}}, a local person only; arrays replace). |
 | [`security.presets.list`](#securitypresetslist) | client → server | Security lists (1.54.0): the preset catalog of blocked commands and protected paths, localized (en, ko). People only (not a browser or connector). |
 | [`session.archive`](#sessionarchive) | client → server | Archive or restore a conversation; refused while it runs unless stop (1.47.0). |
-| [`session.artifacts`](#sessionartifacts) | client → server | Files the session saved for the user under its workspace's artifacts/. |
+| [`session.artifacts`](#sessionartifacts) | client → server | Files the session saved for the user under its workspace's artifacts/; with a project also those under <workdir>/.snowpea-downloads/ (1.72.0). |
 | [`session.attach`](#sessionattach) | client → server | Make this connection the origin of a session (approvals, host tools). |
 | [`session.attachments`](#sessionattachments) | client → server | Files the user attached in this session, with the path of the original bytes the agent may use (1.23.0). A delegated child reports its root's. |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
@@ -311,6 +312,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.lineage`](#sessionlineage) | client → server | A session's ancestors (breadcrumbs) and delegated descendants as a tree (1.48.0, capability 'lineage'); 1.50.0 follows forks up the chain and lists direct forks. |
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.notice`](#sessionnotice) | client → server | Queue a [system] line for the model's next call. |
+| [`session.paths`](#sessionpaths) | client → server | Where the session's files go (1.72.0, capability sessionPaths): results (reports, exports) in resultsDir, downloads in downloadsDir, throwaway files in scratchDir. resultsDir is the workdir unless session.create had noProject true. |
 | [`session.pin`](#sessionpin) | client → server | Pin or unpin a conversation (1.47.0). |
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. Events: turn.started {turnId, prompt, queued}, then message.user {text, attachments, refs, steered: false}, then the model's output. message.user.text is what the user typed; a page attachment is listed as {kind: page, name, url, title} and only the model sees the rendered page. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. |
 | [`session.rename`](#sessionrename) | client → server | Set a session's title. |
@@ -3493,7 +3495,7 @@ Archive or restore a conversation; refused while it runs unless stop (1.47.0).
 
 *Direction:* client → server
 
-Files the session saved for the user under its workspace's artifacts/.
+Files the session saved for the user under its workspace's artifacts/; with a project also those under <workdir>/.snowpea-downloads/ (1.72.0).
 
 **Params**
 
@@ -3505,7 +3507,7 @@ Files the session saved for the user under its workspace's artifacts/.
 
 | field | type | required | description |
 |---|---|---|---|
-| `artifacts` | `({ mimeType?: string \| null; modifiedAt: string; name: string; path: string; size: number; })[]` | no | Files under artifacts/, newest first. |
+| `artifacts` | `({ mimeType?: string \| null; modifiedAt: string; name: string; path: string; size: number; })[]` | no | Files under artifacts/, newest first; with a project also those under <workdir>/.snowpea-downloads/ (1.72.0), its .gitignore left out. |
 | `workspaceDir` | `string` | yes | The session workspace. |
 
 ### `session.attach`
@@ -3632,6 +3634,7 @@ Open a session rooted at a working directory.
 | `memory` | `boolean \| null` | no | Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Kept with the session across a daemon restart (1.31.0); a delegated child follows its root conversation's. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting (defaultMode, else 'accept'). A mode wider than that default (plan < accept < auto) needs a person (1.54.0): a local person, a remote web login, or a browser with actor 'person'; else jarvis_person_only with details.reason 'mode_raise'. |
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
+| `noProject` | `boolean \| null` | no | 1.72.0 (capability sessionPaths): true when the workdir is not a project the person chose (a browser's default folder). Results then go to the session workspace's artifacts/ instead of the workdir; see session.paths. Absent means false. Kept with the session across a daemon restart, followed by its delegated children and forks. |
 | `originSurface` | `string \| null` | no | Surface that owns approvals for this session (TUI, gateway, ...). The server decides what is recorded (1.55.0): a browser connection's session is always 'browser'; a remote web login keeps one of ide/desktop/tui/cli/web/app and otherwise gets its connection's surface id; a local person's value is kept; the core's own surfaces (jarvis-task, jarvis, scheduler, skill, connector, gateway:*, agent:*) are invalid_params for every caller. The creating connection's clientId is recorded with the session: a browser's own session is one it hosts or created. |
 | `provider` | `string \| null` | no | Chat provider vendor; defaults to configured. |
 | `siteMemory` | `boolean \| null` | no | Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. Kept with the session across a daemon restart and followed by its delegated children (1.31.0); false does not stop host.turnContext (1.35.0): the request says siteMemory false, so the host leaves its site-memory part out. |
@@ -3642,11 +3645,16 @@ Open a session rooted at a working directory.
 | field | type | required | description |
 |---|---|---|---|
 | `delegation` | `boolean` | no | Whether the session starts in delegation mode (the lead hands the work to its team): the session pin, else agents.delegateByDefault. |
+| `downloadsDir` | `string \| null` | no | 1.72.0: where downloaded files go: <resultsDir>/.snowpea-downloads (made when used, with a .gitignore of '*'). |
+| `hasProject` | `boolean \| null` | no | 1.72.0: false when session.create had noProject true. |
 | `jarvis` | `{ exposed: boolean; grantId?: string \| null; level?: "staged" \| "full" \| null; levelScope?: "session" \| "project" \| "global" \| "default" \| null; pausedUntil?: string \| null; takenOver?: boolean; } \| null` | no | As SessionSummary.jarvis (1.53.0); null while Jarvis mode is off. |
 | `jarvisLocked` | `"project_hidden" \| "jarvis_session" \| "browser_hidden" \| null` | no | As SessionSummary.jarvisLocked (1.56.0, capability jarvisSessionSwitch). |
 | `jarvisOn` | `boolean \| null` | no | As SessionSummary.jarvisOn (1.56.0, capability jarvisSessionSwitch). |
+| `resultsDir` | `string \| null` | no | 1.72.0 (capability sessionPaths): where reports, documents, exports and other results go: the workdir with a project, else <workspaceDir>/artifacts. |
 | `role` | `"jarvis" \| null` | no | As SessionSummary.role (1.53.0): 'jarvis' for the Jarvis session. |
+| `scratchDir` | `string \| null` | no | 1.72.0: throwaway files only: <workspaceDir>/tmp. |
 | `sessionId` | `string` | yes | Id of the new session. |
+| `workdir` | `string \| null` | no | 1.72.0 (capability sessionPaths): the session's workdir, absolute. |
 | `workspaceDir` | `string \| null` | no | Session workspace with tmp/ and artifacts/ (1.7.0). |
 
 ### `session.delete`
@@ -3813,6 +3821,29 @@ Queue a [system] line for the model's next call.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `session.paths`
+
+*Direction:* client → server
+
+Where the session's files go (1.72.0, capability sessionPaths): results (reports, exports) in resultsDir, downloads in downloadsDir, throwaway files in scratchDir. resultsDir is the workdir unless session.create had noProject true.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Target session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `downloadsDir` | `string` | yes | Where downloaded files go: <resultsDir>/.snowpea-downloads, made when used with a .gitignore of '*' (a dot-folder the project's tools and globs skip). |
+| `hasProject` | `boolean` | yes | False when session.create had noProject true. |
+| `resultsDir` | `string` | yes | Where reports, documents, exports and other results go: the workdir with a project, else <workspaceDir>/artifacts. |
+| `scratchDir` | `string \| null` | no | Throwaway files only: <workspaceDir>/tmp. |
+| `workdir` | `string` | yes | The session's workdir, absolute. |
+| `workspaceDir` | `string \| null` | no | The session workspace (tmp/, artifacts/). |
 
 ### `session.pin`
 
@@ -4990,13 +5021,17 @@ Ask the client to run one of its host tools.
 | `args` | `Record<string, unknown>` | no | Arguments from the model. |
 | `attachments` | `({ byPath?: boolean; messageId?: string \| null; mime: string; name: string; path: string; size: number; })[]` | no | Files the user attached in the root conversation (1.23.0), as session.attachments lists them: the paths a host may hand to a page upload. |
 | `callId` | `string` | yes | Id of the tool call; tool.progress refers to it. |
+| `downloadsDir` | `string \| null` | no | 1.72.0: where downloaded files go: <resultsDir>/.snowpea-downloads (made when used, with a .gitignore of '*'). |
 | `guard` | `string \| null` | no | 'agent-switch' while session.setAgent {guardTurn} guards this session or one it was delegated from (1.25.0): a host asks before its own acting tools, whatever tag they were registered with. |
+| `hasProject` | `boolean \| null` | no | 1.72.0: false when session.create had noProject true. |
 | `job` | `{ createdVia: "rpc" \| "tool"; fingerprint: string; id: string; meta?: Record<string, unknown> \| null; ownerClientId?: string \| null; runId: string; scheduledAt: string; trigger: "schedule" \| "runNow"; } \| null` | no | The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |
 | `model` | `{ canSee: boolean; contextWindow?: number \| null; localStyle: boolean; } \| null` | no | 1.55.0: the session's current model, so a host can shape what it returns (a screenshot only for a model that can see, a shorter snapshot for a small window). Absent from older daemons. |
 | `name` | `string` | yes | Host tool name. |
 | `origin` | `"human" \| "agent" \| "member" \| "schedule" \| "system" \| "jarvis" \| null` | no | Who started the root conversation's running turn (1.23.0): the session's own person, the agent, a schedule, another gateway group member or the system. A delegated child reports its root's. |
 | `parentSessionId` | `string \| null` | no | The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. |
+| `resultsDir` | `string \| null` | no | 1.72.0 (capability sessionPaths): where reports, documents, exports and other results go: the workdir with a project, else <workspaceDir>/artifacts. |
+| `scratchDir` | `string \| null` | no | 1.72.0: throwaway files only: <workspaceDir>/tmp. |
 | `sessionId` | `string` | yes | Session whose turn called the tool. |
 | `turnId` | `string` | no | Turn the call belongs to. |
 | `userTurn` | `{ current?: boolean; messageId: string; steers?: string[]; text: string; } \| null` | no | The root conversation's latest message the user typed, trusted (1.22.0); 'current' says whether it started the running turn. For a delegated child it is the root's, never the parent agent's task text; only the session's own person's words count (not an agent's, a schedule's or another group member's), and null until the person has typed one. |

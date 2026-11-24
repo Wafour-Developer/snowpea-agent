@@ -220,7 +220,7 @@ async def test_native_modes_over_rpc(daemon: Daemon, http: aiohttp.ClientSession
 async def test_set_model_over_rpc(daemon: Daemon, http: aiohttp.ClientSession,
                                   tmp_path: Path) -> None:
     """1.67.0 (externalModelSwitch): external.setModel, the row's model and external.state."""
-    assert "externalModelSwitch" in CAPABILITIES and PROTOCOL_VERSION == "1.71.0"
+    assert "externalModelSwitch" in CAPABILITIES and PROTOCOL_VERSION == "1.72.0"
     assert daemon.core is not None and daemon.core.external is not None
     registry = daemon.core.external.registry
     for cli in registry.ids():
